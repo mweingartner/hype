@@ -7,18 +7,25 @@ struct MainContentView: View {
     @State private var currentTool: ToolName = .browse
     @State private var selectedPartId: UUID?
 
+    private var toolState: ToolState {
+        var state = ToolState(currentTool: currentTool.rawValue)
+        state.selectedPartId = selectedPartId
+        return state
+    }
+
+    private var showInspector: Bool {
+        toolState.isEditMode && selectedPartId != nil
+    }
+
     var body: some View {
         HSplitView {
             // Canvas area
             VStack(spacing: 0) {
                 CardCanvasView(
-                    document: document.document,
+                    document: $document,
                     currentCardId: currentCardId ?? document.document.sortedCards.first?.id ?? UUID(),
                     currentTool: currentTool,
-                    selectedPartId: selectedPartId,
-                    onPartSelected: { partId in
-                        selectedPartId = partId
-                    }
+                    selectedPartId: $selectedPartId
                 )
                 .frame(
                     minWidth: CGFloat(document.document.stack.width),
@@ -31,7 +38,7 @@ struct MainContentView: View {
                     Text(cardInfoText)
                         .font(.system(size: 11))
                     Spacer()
-                    Text(currentTool.rawValue.capitalized)
+                    Text(toolModeText)
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
@@ -39,16 +46,77 @@ struct MainContentView: View {
                 .padding(.vertical, 2)
                 .background(Color(NSColor.controlBackgroundColor))
             }
+
+            // Property inspector sidebar
+            if showInspector {
+                PropertyInspector(document: $document, partId: selectedPartId)
+            }
         }
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
                 toolPaletteButtons
+
+                Spacer()
+
+                // Navigation buttons
+                Button(action: navigatePrevious) {
+                    Image(systemName: "chevron.left")
+                }
+                .help("Previous Card")
+                .disabled(!canNavigatePrevious)
+
+                Button(action: navigateNext) {
+                    Image(systemName: "chevron.right")
+                }
+                .help("Next Card")
+                .disabled(!canNavigateNext)
             }
         }
         .onAppear {
             currentCardId = document.document.sortedCards.first?.id
         }
+        .onReceive(NotificationCenter.default.publisher(for: .navigateCard)) { notification in
+            guard let direction = notification.object as? NavigationDirection,
+                  let cardId = currentCardId else { return }
+            if let newId = CardNavigator.navigate(direction: direction, currentCardId: cardId, document: document.document) {
+                currentCardId = newId
+                selectedPartId = nil
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .selectTool)) { notification in
+            guard let tool = notification.object as? ToolName else { return }
+            currentTool = tool
+            selectedPartId = nil
+        }
     }
+
+    // MARK: - Navigation
+
+    private var canNavigatePrevious: Bool {
+        guard let cardId = currentCardId else { return false }
+        return CardNavigator.navigate(direction: .previous, currentCardId: cardId, document: document.document) != nil
+    }
+
+    private var canNavigateNext: Bool {
+        guard let cardId = currentCardId else { return false }
+        return CardNavigator.navigate(direction: .next, currentCardId: cardId, document: document.document) != nil
+    }
+
+    private func navigatePrevious() {
+        guard let cardId = currentCardId,
+              let newId = CardNavigator.navigate(direction: .previous, currentCardId: cardId, document: document.document) else { return }
+        currentCardId = newId
+        selectedPartId = nil
+    }
+
+    private func navigateNext() {
+        guard let cardId = currentCardId,
+              let newId = CardNavigator.navigate(direction: .next, currentCardId: cardId, document: document.document) else { return }
+        currentCardId = newId
+        selectedPartId = nil
+    }
+
+    // MARK: - Info text
 
     private var cardInfoText: String {
         guard let cardId = currentCardId else { return "No stack open" }
@@ -58,10 +126,25 @@ struct MainContentView: View {
         return "\(name) -- \(index + 1) of \(count)"
     }
 
+    private var toolModeText: String {
+        let mode: String
+        switch toolState.category {
+        case .browse: mode = "Browse"
+        case .edit: mode = "Edit"
+        case .paint: mode = "Paint"
+        }
+        return "\(currentTool.rawValue.capitalized) (\(mode))"
+    }
+
+    // MARK: - Tool palette
+
     @ViewBuilder
     private var toolPaletteButtons: some View {
         ForEach(ToolName.allCases, id: \.self) { tool in
-            Button(action: { currentTool = tool }) {
+            Button(action: {
+                currentTool = tool
+                selectedPartId = nil
+            }) {
                 Image(systemName: tool.systemImageName)
                     .foregroundColor(currentTool == tool ? .accentColor : .primary)
             }
