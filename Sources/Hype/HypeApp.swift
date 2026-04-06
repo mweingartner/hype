@@ -13,6 +13,7 @@ struct HypeApp: App {
                 Divider()
             }
             GoMenuCommands()
+            ObjectsMenuCommands()
             ToolsMenuCommands()
         }
     }

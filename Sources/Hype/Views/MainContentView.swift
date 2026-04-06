@@ -14,7 +14,9 @@ struct MainContentView: View {
     }
 
     private var showInspector: Bool {
-        toolState.isEditMode && selectedPartId != nil
+        // Show inspector whenever a part is selected — in any tool mode.
+        // In browse mode you can double-click to select a part for editing.
+        selectedPartId != nil
     }
 
     var body: some View {
@@ -94,6 +96,20 @@ struct MainContentView: View {
             currentCardId = cardId
             selectedPartId = nil
         }
+        .onReceive(NotificationCenter.default.publisher(for: .addNewCard)) { _ in
+            addNewCard()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .deleteCurrentCard)) { _ in
+            deleteCurrentCard()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .editPartProperties)) { notification in
+            // Double-click in browse mode opens part properties
+            if let partId = notification.object as? UUID {
+                selectedPartId = partId
+                // Switch to select tool so the inspector shows properly
+                currentTool = .select
+            }
+        }
     }
 
     // MARK: - Navigation
@@ -120,6 +136,37 @@ struct MainContentView: View {
               let newId = CardNavigator.navigate(direction: .next, currentCardId: cardId, document: document.document) else { return }
         currentCardId = newId
         selectedPartId = nil
+    }
+
+    // MARK: - Card Management
+
+    private func addNewCard() {
+        guard let cardId = currentCardId else { return }
+        let sorted = document.document.sortedCards
+        let currentIndex = sorted.firstIndex(where: { $0.id == cardId })
+        let newCard = document.document.addCard(afterIndex: currentIndex)
+        currentCardId = newCard.id
+        selectedPartId = nil
+    }
+
+    private func deleteCurrentCard() {
+        guard let cardId = currentCardId else { return }
+        guard document.document.cards.count > 1 else { return } // Keep at least one card
+        // Navigate to previous or next before deleting
+        let sorted = document.document.sortedCards
+        if let idx = sorted.firstIndex(where: { $0.id == cardId }) {
+            let nextId = idx + 1 < sorted.count ? sorted[idx + 1].id :
+                         idx > 0 ? sorted[idx - 1].id : nil
+            // Remove all parts on this card
+            let cardParts = document.document.partsForCard(cardId)
+            for part in cardParts {
+                document.document.removePart(id: part.id)
+            }
+            // Remove the card
+            document.document.cards.removeAll { $0.id == cardId }
+            currentCardId = nextId
+            selectedPartId = nil
+        }
     }
 
     // MARK: - Info text

@@ -16,6 +16,20 @@ struct GoMenuCommands: Commands {
     }
 }
 
+struct ObjectsMenuCommands: Commands {
+    var body: some Commands {
+        CommandMenu("Objects") {
+            Button("New Card") { NotificationCenter.default.post(name: .addNewCard, object: nil) }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+            Button("Delete Card") { NotificationCenter.default.post(name: .deleteCurrentCard, object: nil) }
+            Divider()
+            Button("Card Info...") { }
+            Button("Background Info...") { }
+            Button("Stack Info...") { }
+        }
+    }
+}
+
 struct ToolsMenuCommands: Commands {
     var body: some Commands {
         CommandMenu("Tools") {
@@ -38,4 +52,7 @@ extension Notification.Name {
     static let navigateCard = Notification.Name("navigateCard")
     static let navigateToCard = Notification.Name("navigateToCard")
     static let selectTool = Notification.Name("selectTool")
+    static let addNewCard = Notification.Name("addNewCard")
+    static let deleteCurrentCard = Notification.Name("deleteCurrentCard")
+    static let editPartProperties = Notification.Name("editPartProperties")
 }

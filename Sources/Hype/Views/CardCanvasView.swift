@@ -208,6 +208,13 @@ class CardCanvasNSView: NSView {
         let point = flippedPoint(for: event)
         let hitPart = renderer.partAtPoint(point, document: document, cardId: currentCardId)
 
+        // Double-click on a part in browse mode → open properties for editing
+        let toolCheck = ToolState(currentTool: currentTool.rawValue)
+        if event.clickCount == 2 && toolCheck.category == .browse, let part = hitPart {
+            NotificationCenter.default.post(name: .editPartProperties, object: part.id)
+            return
+        }
+
         var toolState = ToolState(currentTool: currentTool.rawValue)
         toolState.selectedPartId = selectedPartId
 
