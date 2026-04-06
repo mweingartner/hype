@@ -175,8 +175,23 @@ public struct Interpreter: Sendable {
                 case .after: env.it = env.it + value
                 case .before: env.it = value + env.it
                 }
+            case .objectRef(let ref):
+                // Put into a field or button by name/number
+                let ident = try evaluate(ref.identifier, env: &env, document: document, context: context)
+                if let partIndex = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
+                    switch prep {
+                    case .into:
+                        document.parts[partIndex].textContent = value
+                    case .after:
+                        document.parts[partIndex].textContent += value
+                    case .before:
+                        document.parts[partIndex].textContent = value + document.parts[partIndex].textContent
+                    }
+                }
+                env.it = value
+
             default:
-                // Put into object reference — simplified: put into field
+                // Unknown target — store in `it`
                 env.it = value
             }
 
@@ -620,12 +635,57 @@ public struct Interpreter: Sendable {
     // MARK: - Helpers
 
     private func findPart(_ identifier: Value, document: HypeDocument) -> Part? {
-        // Try UUID first.
-        if let uuid = UUID(uuidString: identifier) {
-            return document.parts.first(where: { $0.id == uuid })
+        if let idx = findPartIndexGeneral(identifier, document: document) {
+            return document.parts[idx]
         }
-        // Try by name.
-        return document.parts.first(where: { $0.name.lowercased() == identifier.lowercased() })
+        return nil
+    }
+
+    /// Find a part's index by object type and identifier, scoped to the current card.
+    private func findPartIndex(
+        _ objectType: String,
+        identifier: Value,
+        document: HypeDocument,
+        currentCardId: UUID
+    ) -> Int? {
+        let targetType: PartType? = objectType == "field" ? .field :
+                                     objectType == "button" ? .button :
+                                     objectType == "btn" ? .button :
+                                     objectType == "fld" ? .field : nil
+
+        // Get parts on the current card + its background
+        let cardParts = document.partsForCard(currentCardId)
+        let card = document.cards.first(where: { $0.id == currentCardId })
+        let bgParts = card.map { document.partsForBackground($0.backgroundId) } ?? []
+        let allParts = cardParts + bgParts
+
+        // Try by name first
+        let lower = identifier.lowercased()
+        if let part = allParts.first(where: {
+            (targetType == nil || $0.partType == targetType) &&
+            $0.name.lowercased() == lower
+        }) {
+            return document.parts.firstIndex(where: { $0.id == part.id })
+        }
+
+        // Try by number (1-based)
+        if let num = Int(identifier), num > 0 {
+            let typed = allParts.filter { targetType == nil || $0.partType == targetType }
+            if num <= typed.count {
+                let part = typed[num - 1]
+                return document.parts.firstIndex(where: { $0.id == part.id })
+            }
+        }
+
+        return nil
+    }
+
+    /// Find a part index by identifier without type filtering.
+    private func findPartIndexGeneral(_ identifier: Value, document: HypeDocument) -> Int? {
+        if let uuid = UUID(uuidString: identifier) {
+            return document.parts.firstIndex(where: { $0.id == uuid })
+        }
+        return document.parts.firstIndex(where: { $0.name.lowercased() == identifier.lowercased() })
     }
 
     /// Convert a HypeTalk value to a number. Non-numeric strings become 0.

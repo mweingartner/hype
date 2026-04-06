@@ -77,8 +77,8 @@ public struct Lexer: Sendable {
                 continue
             }
 
-            // String literals.
-            if ch == "\"" {
+            // String literals (handle smart/curly quotes too).
+            if ch == "\"" || ch == "\u{201C}" || ch == "\u{201D}" {
                 scanString()
                 continue
             }
@@ -127,18 +127,23 @@ public struct Lexer: Sendable {
 
     // MARK: - Scanning helpers
 
+    /// Check if a character is any kind of double quote (straight or curly).
+    private func isQuote(_ ch: Character) -> Bool {
+        ch == "\"" || ch == "\u{201C}" || ch == "\u{201D}"
+    }
+
     private mutating func scanString() {
-        pos += 1 // skip opening quote
+        pos += 1 // skip opening quote (straight or curly)
         var result: [Character] = []
-        while pos < source.count && source[pos] != "\"" {
+        while pos < source.count && !isQuote(source[pos]) {
             if source[pos] == "\n" {
                 break // unterminated string at newline
             }
             result.append(source[pos])
             pos += 1
         }
-        if pos < source.count && source[pos] == "\"" {
-            pos += 1 // skip closing quote
+        if pos < source.count && isQuote(source[pos]) {
+            pos += 1 // skip closing quote (straight or curly)
         }
         tokens.append(Token(type: .string, value: String(result), line: currentLine))
     }

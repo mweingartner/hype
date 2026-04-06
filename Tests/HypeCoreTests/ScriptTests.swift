@@ -406,3 +406,74 @@ struct GoNavigationTests {
         #expect(result.navigationTarget == card2.id, "go next should navigate to card 2, got \(String(describing: result.navigationTarget))")
     }
 }
+
+@Suite("Put Into Field Integration")
+struct PutIntoFieldTests {
+
+    @Test func putIntoFieldByName() {
+        var doc = HypeDocument.newDocument(name: "Put Test")
+        let cardId = doc.cards[0].id
+
+        // Add a field named "url"
+        var urlField = Part(partType: .field, cardId: cardId, name: "url")
+        urlField.textContent = ""
+        doc.addPart(urlField)
+
+        // Add a button that puts text into the field
+        var btn = Part(partType: .button, cardId: cardId, name: "Fill")
+        btn.script = "on mouseUp\n  put \"Hello\" into field \"url\"\nend mouseUp"
+        doc.addPart(btn)
+
+        let dispatcher = MessageDispatcher()
+        let result = dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: btn.id,
+            document: doc,
+            currentCardId: cardId
+        )
+
+        #expect(result.status == .completed)
+        // The modified document should have the field's textContent updated
+        let modifiedField = result.modifiedDocument?.parts.first(where: { $0.name == "url" })
+        #expect(modifiedField != nil, "Field 'url' should exist in modified document")
+        #expect(modifiedField?.textContent == "Hello", "Field 'url' textContent should be 'Hello', got '\(modifiedField?.textContent ?? "nil")'")
+    }
+}
+
+@Suite("Parser Put Into Field")
+struct ParserPutTests {
+    @Test func parsePutIntoField() throws {
+        let source = "on mouseUp\n  put \"Hello\" into field \"url\"\nend mouseUp"
+        var lexer = Lexer(source: source)
+        let tokens = lexer.tokenize()
+
+        // Print tokens for debugging
+        for (i, tok) in tokens.enumerated() {
+            print("  token[\(i)] = \(tok.type.rawValue) '\(tok.value)' line=\(tok.line)")
+        }
+
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        let handler = script.handlers[0]
+        #expect(handler.body.count == 1)
+
+        // Check the put statement
+        if case .put(let source, let prep, let target) = handler.body[0] {
+            print("  source = \(source)")
+            print("  prep = \(prep)")
+            print("  target = \(target)")
+            #expect(prep == .into)
+            if case .objectRef(let ref) = target {
+                #expect(ref.objectType == "field")
+                print("  objectType = \(ref.objectType)")
+                print("  identifier = \(ref.identifier)")
+            } else {
+                #expect(Bool(false), "target should be .objectRef, got \(target)")
+            }
+        } else {
+            #expect(Bool(false), "should be .put, got \(handler.body[0])")
+        }
+    }
+}
