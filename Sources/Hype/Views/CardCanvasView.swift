@@ -1,5 +1,6 @@
 import SwiftUI
 import HypeCore
+import WebKit
 
 struct CardCanvasView: NSViewRepresentable {
     @Binding var document: HypeDocumentWrapper
@@ -147,6 +148,11 @@ class CardCanvasNSView: NSView {
     private let renderer = CardRenderer()
     private let mouseHandler = MouseHandler()
 
+    // Active WKWebViews for webpage parts (keyed by part ID)
+    private var webViews: [UUID: WKWebView] = [:]
+    // Track which URLs are loaded to avoid redundant loads
+    private var loadedURLs: [UUID: String] = [:]
+
     // Drag state
     private var dragStart: CGPoint?
     private var dragCurrent: CGPoint?
@@ -173,6 +179,9 @@ class CardCanvasNSView: NSView {
            let part = document.parts.first(where: { $0.id == selectedId }) {
             drawSelectionOverlay(ctx: ctx, part: part)
         }
+
+        // Update web views for webpage parts
+        updateWebViews()
 
         // Draw rubber-band rectangle
         if isDragging, let start = dragStart, let current = dragCurrent {
@@ -382,6 +391,96 @@ class CardCanvasNSView: NSView {
         dragStart = nil
         dragCurrent = nil
         needsDisplay = true
+    }
+
+    // MARK: - Web View Management
+
+    /// Create, update, or remove WKWebViews for webpage parts on the current card.
+    private func updateWebViews() {
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let isBrowseMode = toolState.category == .browse
+
+        // Get all webpage parts on the current card
+        let cardParts = document.partsForCard(currentCardId)
+        let bgParts: [Part]
+        if let card = document.cards.first(where: { $0.id == currentCardId }) {
+            bgParts = document.partsForBackground(card.backgroundId)
+        } else {
+            bgParts = []
+        }
+        let allParts = cardParts + bgParts
+        let webParts = allParts.filter { $0.partType == .webpage && $0.visible }
+
+        // In edit mode or no webpage parts, hide all webviews
+        if !isBrowseMode || webParts.isEmpty {
+            for (_, wv) in webViews {
+                wv.removeFromSuperview()
+            }
+            webViews.removeAll()
+            loadedURLs.removeAll()
+            return
+        }
+
+        // Track which parts are still active
+        var activeIds = Set<UUID>()
+
+        for part in webParts {
+            activeIds.insert(part.id)
+
+            // Resolve URL — check linked field first, then static URL
+            let urlString: String
+            if let linkedId = part.urlSourceFieldId,
+               let linkedField = allParts.first(where: { $0.id == linkedId }) {
+                urlString = linkedField.textContent.trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                urlString = part.url.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+
+            // Validate URL
+            guard !urlString.isEmpty,
+                  let url = URL(string: urlString),
+                  let scheme = url.scheme?.lowercased(),
+                  (scheme == "https" || scheme == "http") else {
+                // Invalid URL — remove webview if exists, show placeholder
+                if let wv = webViews.removeValue(forKey: part.id) {
+                    wv.removeFromSuperview()
+                    loadedURLs.removeValue(forKey: part.id)
+                }
+                continue
+            }
+
+            // Position the webview to match the part's rect
+            let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+
+            if let existingWV = webViews[part.id] {
+                // Update position/size
+                existingWV.frame = frame
+                // Reload only if URL changed
+                if loadedURLs[part.id] != urlString {
+                    existingWV.load(URLRequest(url: url))
+                    loadedURLs[part.id] = urlString
+                }
+            } else {
+                // Create new webview
+                let config = WKWebViewConfiguration()
+                config.preferences.isElementFullscreenEnabled = false
+                let wv = WKWebView(frame: frame, configuration: config)
+                wv.allowsBackForwardNavigationGestures = false
+                wv.load(URLRequest(url: url))
+                addSubview(wv)
+                webViews[part.id] = wv
+                loadedURLs[part.id] = urlString
+            }
+        }
+
+        // Remove webviews for parts that no longer exist
+        for id in webViews.keys {
+            if !activeIds.contains(id) {
+                webViews[id]?.removeFromSuperview()
+                webViews.removeValue(forKey: id)
+                loadedURLs.removeValue(forKey: id)
+            }
+        }
     }
 
     // MARK: - Resize Handle Hit Testing
