@@ -4,6 +4,7 @@ import HypeCore
 struct PropertyInspector: View {
     @Binding var document: HypeDocumentWrapper
     let partId: UUID?
+    @Binding var selectedPartId: UUID?
     @State private var showingScript = false
 
     var body: some View {
@@ -25,6 +26,12 @@ struct PropertyInspector: View {
                         case .field: fieldSection(part: part)
                         case .shape: shapeSection(part: part)
                         case .webpage: webpageSection(part: part)
+                        }
+
+                        // Font controls for buttons and fields
+                        if part.partType == .button || part.partType == .field {
+                            Divider()
+                            textFormattingSection(part: part)
                         }
 
                         Divider()
@@ -53,6 +60,22 @@ struct PropertyInspector: View {
                             ScriptEditorSheet(document: $document, partId: partId)
                                 .frame(width: 500, height: 400)
                         }
+
+                        Divider()
+
+                        // Delete part
+                        Button(role: .destructive, action: {
+                            let idToDelete = part.id
+                            selectedPartId = nil
+                            document.document.removePart(id: idToDelete)
+                        }) {
+                            HStack {
+                                Image(systemName: "trash")
+                                Text("Delete Part")
+                            }
+                            .foregroundColor(.red)
+                        }
+                        .buttonStyle(.plain)
                     }
                     .padding()
                 }
@@ -106,6 +129,7 @@ struct PropertyInspector: View {
                     Text(style.rawValue).tag(style)
                 }
             }
+            propertyRow("Label", binding: bindPartString(part.id, \.textContent))
             Toggle("Show Name", isOn: bindPartBool(part.id, \.showName))
             Toggle("Auto Hilite", isOn: bindPartBool(part.id, \.autoHilite))
         }
@@ -123,6 +147,15 @@ struct PropertyInspector: View {
             Toggle("Lock Text", isOn: bindPartBool(part.id, \.lockText))
             Toggle("Don't Wrap", isOn: bindPartBool(part.id, \.dontWrap))
             Toggle("Rich Text", isOn: bindPartBool(part.id, \.richText))
+            Toggle("Wide Margins", isOn: bindPartBool(part.id, \.wideMargins))
+
+            VStack(alignment: .leading) {
+                Text("Content").font(.system(size: 11)).foregroundColor(.secondary)
+                TextEditor(text: bindPartString(part.id, \.textContent))
+                    .font(.system(size: 11, design: .monospaced))
+                    .frame(height: 80)
+                    .border(Color.gray.opacity(0.5))
+            }
         }
     }
 
@@ -147,6 +180,21 @@ struct PropertyInspector: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Web Page").font(.subheadline).foregroundColor(.secondary)
             propertyRow("URL", binding: bindPartString(part.id, \.url))
+        }
+    }
+
+    @ViewBuilder
+    private func textFormattingSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Text Formatting").font(.subheadline).foregroundColor(.secondary)
+            propertyRow("Font", binding: bindPartString(part.id, \.textFont))
+            numberField("Size", binding: bindPartDouble(part.id, \.textSize))
+            Picker("Align", selection: bindPartTextAlign(part.id)) {
+                Image(systemName: "text.alignleft").tag(HypeCore.TextAlignment.left)
+                Image(systemName: "text.aligncenter").tag(HypeCore.TextAlignment.center)
+                Image(systemName: "text.alignright").tag(HypeCore.TextAlignment.right)
+            }
+            .pickerStyle(.segmented)
         }
     }
 
@@ -191,6 +239,13 @@ struct PropertyInspector: View {
         Binding(
             get: { document.document.parts.first(where: { $0.id == id })?.shapeType ?? .rectangle },
             set: { newValue in document.document.updatePart(id: id) { $0.shapeType = newValue } }
+        )
+    }
+
+    private func bindPartTextAlign(_ id: UUID) -> Binding<HypeCore.TextAlignment> {
+        Binding(
+            get: { document.document.parts.first(where: { $0.id == id })?.textAlign ?? .center },
+            set: { newValue in document.document.updatePart(id: id) { $0.textAlign = newValue } }
         )
     }
 

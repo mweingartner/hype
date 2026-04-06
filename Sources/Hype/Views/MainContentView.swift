@@ -51,7 +51,7 @@ struct MainContentView: View {
 
             // Property inspector sidebar
             if showInspector {
-                PropertyInspector(document: $document, partId: selectedPartId)
+                PropertyInspector(document: $document, partId: selectedPartId, selectedPartId: $selectedPartId)
             }
         }
         .toolbar {
