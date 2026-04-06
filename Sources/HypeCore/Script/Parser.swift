@@ -540,6 +540,11 @@ public struct Parser: Sendable {
         case .first, .second, .third, .last, .middle, .any:
             return try parseOrdinalChunk()
 
+        case .next:
+            // "next" used as a value (e.g., "go next")
+            let tok = advance()
+            return .literal(tok.value)
+
         case .number:
             // `number of ...`
             _ = advance()
@@ -620,10 +625,10 @@ public struct Parser: Sendable {
 // MARK: - Parse error
 
 /// Errors that can occur during parsing.
-public enum ParseError: Error, Sendable {
+public enum ParseError: Error, LocalizedError, Sendable {
     case unexpected(Token, expected: String)
 
-    public var description: String {
+    public var errorDescription: String? {
         switch self {
         case .unexpected(let tok, let expected):
             return "Line \(tok.line): expected \(expected), got '\(tok.value)' (\(tok.type.rawValue))"
