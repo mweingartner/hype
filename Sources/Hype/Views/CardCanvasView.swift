@@ -58,6 +58,48 @@ struct CardCanvasView: NSViewRepresentable {
             }
         }
 
+        func resizePart(id: UUID, handle: CardCanvasNSView.ResizeHandle, dx: Double, dy: Double) {
+            parent.document.document.updatePart(id: id) { part in
+                let minSize: Double = 10
+                switch handle {
+                case .topLeft:
+                    let newW = max(minSize, part.width - dx)
+                    let newH = max(minSize, part.height - dy)
+                    part.left += part.width - newW
+                    part.top += part.height - newH
+                    part.width = newW
+                    part.height = newH
+                case .topCenter:
+                    let newH = max(minSize, part.height - dy)
+                    part.top += part.height - newH
+                    part.height = newH
+                case .topRight:
+                    part.width = max(minSize, part.width + dx)
+                    let newH = max(minSize, part.height - dy)
+                    part.top += part.height - newH
+                    part.height = newH
+                case .rightCenter:
+                    part.width = max(minSize, part.width + dx)
+                case .bottomRight:
+                    part.width = max(minSize, part.width + dx)
+                    part.height = max(minSize, part.height + dy)
+                case .bottomCenter:
+                    part.height = max(minSize, part.height + dy)
+                case .bottomLeft:
+                    let newW = max(minSize, part.width - dx)
+                    part.left += part.width - newW
+                    part.width = newW
+                    part.height = max(minSize, part.height + dy)
+                case .leftCenter:
+                    let newW = max(minSize, part.width - dx)
+                    part.left += part.width - newW
+                    part.width = newW
+                case .none:
+                    break
+                }
+            }
+        }
+
         /// Dispatch a HypeTalk message through the object hierarchy.
         /// This is the runtime — when you click a button in browse mode,
         /// its mouseUp handler fires, which can navigate, modify parts, etc.
@@ -110,6 +152,13 @@ class CardCanvasNSView: NSView {
     private var dragCurrent: CGPoint?
     private var isDragging = false
     private var draggedPartId: UUID?
+    private var resizeHandle: ResizeHandle = .none
+
+    /// Which resize handle is being dragged.
+    enum ResizeHandle {
+        case none, topLeft, topCenter, topRight, rightCenter
+        case bottomRight, bottomCenter, bottomLeft, leftCenter
+    }
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -223,9 +272,22 @@ class CardCanvasNSView: NSView {
 
         let result = mouseHandler.handleMouseDown(tool: toolState, hitPart: hitPart, point: point)
 
+        // Before handling the tool result, check if we're clicking a resize handle
+        // on the already-selected part
+        if currentTool == .select, let _ = selectedPartId {
+            let handle = hitTestResizeHandle(point)
+            if handle != .none {
+                resizeHandle = handle
+                dragStart = point
+                draggedPartId = selectedPartId
+                return
+            }
+        }
+
         switch result {
         case .selectPart(let id):
             coordinator?.selectPart(id)
+            resizeHandle = .none
             draggedPartId = id
             dragStart = point
         case .deselectAll:
@@ -247,10 +309,15 @@ class CardCanvasNSView: NSView {
         let point = flippedPoint(for: event)
 
         if let partId = draggedPartId, let start = dragStart {
-            // Move selected part
             let dx = Double(point.x - start.x)
             let dy = Double(point.y - start.y)
-            coordinator?.movePart(id: partId, dx: dx, dy: dy)
+            if resizeHandle != .none {
+                // Resize the part using the handle
+                coordinator?.resizePart(id: partId, handle: resizeHandle, dx: dx, dy: dy)
+            } else {
+                // Move the part
+                coordinator?.movePart(id: partId, dx: dx, dy: dy)
+            }
             dragStart = point
             needsDisplay = true
         } else if isDragging {
@@ -265,6 +332,7 @@ class CardCanvasNSView: NSView {
         if draggedPartId != nil {
             draggedPartId = nil
             dragStart = nil
+            resizeHandle = .none
             return
         }
 
@@ -314,6 +382,44 @@ class CardCanvasNSView: NSView {
         dragStart = nil
         dragCurrent = nil
         needsDisplay = true
+    }
+
+    // MARK: - Resize Handle Hit Testing
+
+    /// Check if a point hits a resize handle on the selected part.
+    private func hitTestResizeHandle(_ point: CGPoint) -> ResizeHandle {
+        guard let selectedId = selectedPartId,
+              let part = document.parts.first(where: { $0.id == selectedId }) else {
+            return .none
+        }
+
+        let handleSize: CGFloat = 10 // slightly larger hit area than visual
+        let rect = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+
+        let handles: [(ResizeHandle, CGPoint)] = [
+            (.topLeft,      CGPoint(x: rect.minX, y: rect.minY)),
+            (.topCenter,    CGPoint(x: rect.midX, y: rect.minY)),
+            (.topRight,     CGPoint(x: rect.maxX, y: rect.minY)),
+            (.rightCenter,  CGPoint(x: rect.maxX, y: rect.midY)),
+            (.bottomRight,  CGPoint(x: rect.maxX, y: rect.maxY)),
+            (.bottomCenter, CGPoint(x: rect.midX, y: rect.maxY)),
+            (.bottomLeft,   CGPoint(x: rect.minX, y: rect.maxY)),
+            (.leftCenter,   CGPoint(x: rect.minX, y: rect.midY)),
+        ]
+
+        for (handle, center) in handles {
+            let handleRect = CGRect(
+                x: center.x - handleSize / 2,
+                y: center.y - handleSize / 2,
+                width: handleSize,
+                height: handleSize
+            )
+            if handleRect.contains(point) {
+                return handle
+            }
+        }
+
+        return .none
     }
 
     // MARK: - Helpers
