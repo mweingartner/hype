@@ -353,3 +353,56 @@ struct MessageDispatcherTests {
         #expect(result.status == .completed)
     }
 }
+
+@Suite("Go Navigation Integration")
+struct GoNavigationTests {
+
+    @Test func goPreviousFromSecondCard() {
+        var doc = HypeDocument.newDocument(name: "Nav Test")
+        let _ = doc.addCard()
+        let sorted = doc.sortedCards
+        let card1 = sorted[0]
+        let card2 = sorted[1]
+
+        // Add button with "go previous" script on card 2
+        var btn = Part(partType: .button, cardId: card2.id, name: "Back")
+        btn.script = "on mouseUp\n  go previous\nend mouseUp"
+        doc.addPart(btn)
+
+        let dispatcher = MessageDispatcher()
+        let result = dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: btn.id,
+            document: doc,
+            currentCardId: card2.id
+        )
+
+        #expect(result.status == .completed)
+        #expect(result.navigationTarget == card1.id, "go previous should navigate to card 1, got \(String(describing: result.navigationTarget))")
+    }
+
+    @Test func goNextFromFirstCard() {
+        var doc = HypeDocument.newDocument(name: "Nav Test")
+        let _ = doc.addCard()
+        let sorted = doc.sortedCards
+        let card1 = sorted[0]
+        let card2 = sorted[1]
+
+        var btn = Part(partType: .button, cardId: card1.id, name: "Next")
+        btn.script = "on mouseUp\n  go next\nend mouseUp"
+        doc.addPart(btn)
+
+        let dispatcher = MessageDispatcher()
+        let result = dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: btn.id,
+            document: doc,
+            currentCardId: card1.id
+        )
+
+        #expect(result.status == .completed)
+        #expect(result.navigationTarget == card2.id, "go next should navigate to card 2, got \(String(describing: result.navigationTarget))")
+    }
+}

@@ -602,7 +602,7 @@ public struct Interpreter: Sendable {
         switch lower {
         case "next":
             return CardNavigator.navigate(direction: .next, currentCardId: currentCardId, document: document)
-        case "previous", "prev":
+        case "previous", "prev", "back":
             return CardNavigator.navigate(direction: .previous, currentCardId: currentCardId, document: document)
         case "first":
             return CardNavigator.navigate(direction: .first, currentCardId: currentCardId, document: document)

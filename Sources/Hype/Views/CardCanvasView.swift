@@ -22,6 +22,8 @@ struct CardCanvasView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: CardCanvasNSView, context: Context) {
+        // Keep coordinator's parent in sync so it reads current state
+        context.coordinator.parent = self
         nsView.document = document.document
         nsView.currentCardId = currentCardId
         nsView.currentTool = currentTool
@@ -78,6 +80,7 @@ struct CardCanvasView: NSViewRepresentable {
                 }
                 // Handle navigation (e.g., go next card)
                 if let navTarget = result.navigationTarget {
+                    print("[HypeTalk] Navigating to card \(navTarget)")
                     NotificationCenter.default.post(
                         name: .navigateToCard,
                         object: navTarget

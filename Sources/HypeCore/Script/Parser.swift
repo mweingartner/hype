@@ -203,9 +203,9 @@ public struct Parser: Sendable {
             skipNewlines()
             return .go(destination: .literal(tok.value))
         case .identifier:
-            // Handle "previous" and "prev" which are not keywords
+            // Handle "previous", "prev", "back" which are not keywords
             let lower = current.value.lowercased()
-            if lower == "previous" || lower == "prev" {
+            if lower == "previous" || lower == "prev" || lower == "back" {
                 let tok = advance()
                 skipNewlines()
                 return .go(destination: .literal(tok.value))
