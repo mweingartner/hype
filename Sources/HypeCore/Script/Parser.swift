@@ -173,9 +173,52 @@ public struct Parser: Sendable {
     private mutating func parseGoStatement() throws -> Statement {
         _ = try expect(.go)
         _ = match(.to) // optional "to"
-        let dest = try parseExpression()
-        skipNewlines()
-        return .go(destination: dest)
+
+        // Handle navigation keywords directly as literal values.
+        // "go next", "go previous", "go first", "go last" need special handling
+        // because these tokens have their own TokenType and wouldn't parse
+        // correctly as general expressions.
+        switch current.type {
+        case .next:
+            let tok = advance()
+            skipNewlines()
+            return .go(destination: .literal(tok.value))
+        case .first:
+            let tok = advance()
+            // Check if this is "first card" etc. vs just "first"
+            if current.type == .card || current.type == .background {
+                let objType = advance()
+                skipNewlines()
+                return .go(destination: .literal("\(tok.value) \(objType.value)"))
+            }
+            skipNewlines()
+            return .go(destination: .literal(tok.value))
+        case .last:
+            let tok = advance()
+            if current.type == .card || current.type == .background {
+                let objType = advance()
+                skipNewlines()
+                return .go(destination: .literal("\(tok.value) \(objType.value)"))
+            }
+            skipNewlines()
+            return .go(destination: .literal(tok.value))
+        case .identifier:
+            // Handle "previous" and "prev" which are not keywords
+            let lower = current.value.lowercased()
+            if lower == "previous" || lower == "prev" {
+                let tok = advance()
+                skipNewlines()
+                return .go(destination: .literal(tok.value))
+            }
+            // Fall through to general expression parsing
+            let dest = try parseExpression()
+            skipNewlines()
+            return .go(destination: dest)
+        default:
+            let dest = try parseExpression()
+            skipNewlines()
+            return .go(destination: dest)
+        }
     }
 
     private mutating func parseIfStatement() throws -> Statement {
