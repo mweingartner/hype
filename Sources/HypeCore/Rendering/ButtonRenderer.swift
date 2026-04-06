@@ -8,8 +8,8 @@ public enum ButtonRenderer {
     public static func draw(ctx: CGContext, part: Part, rect: CGRect) {
         ctx.saveGState()
 
-        let fillColor = part.hilite ? NSColor.controlAccentColor.cgColor : NSColor.controlBackgroundColor.cgColor
-        let textColor = part.hilite ? NSColor.white.cgColor : (part.enabled ? NSColor.labelColor.cgColor : NSColor.tertiaryLabelColor.cgColor)
+        let fillColor = part.hilite ? NSColor.controlAccentColor.cgColor : NSColor.white.cgColor
+        let textColor = part.hilite ? NSColor.white.cgColor : (part.enabled ? NSColor.black.cgColor : NSColor.gray.cgColor)
 
         switch part.buttonStyle {
         case .transparent:
@@ -51,7 +51,7 @@ public enum ButtonRenderer {
             let boxRect = CGRect(x: rect.minX + 4, y: boxY, width: boxSize, height: boxSize)
             let boxPath = CGPath(roundedRect: boxRect, cornerWidth: 3, cornerHeight: 3, transform: nil)
             ctx.addPath(boxPath)
-            ctx.setFillColor(NSColor.controlBackgroundColor.cgColor)
+            ctx.setFillColor(NSColor.white.cgColor)
             ctx.fillPath()
             ctx.addPath(boxPath)
             ctx.setStrokeColor(NSColor.separatorColor.cgColor)
@@ -77,7 +77,7 @@ public enum ButtonRenderer {
             let cx = rect.minX + radius + 4
             let cy = rect.midY
             ctx.addArc(center: CGPoint(x: cx, y: cy), radius: radius, startAngle: 0, endAngle: .pi * 2, clockwise: false)
-            ctx.setFillColor(NSColor.controlBackgroundColor.cgColor)
+            ctx.setFillColor(NSColor.white.cgColor)
             ctx.fillPath()
             ctx.addArc(center: CGPoint(x: cx, y: cy), radius: radius, startAngle: 0, endAngle: .pi * 2, clockwise: false)
             ctx.setStrokeColor(NSColor.separatorColor.cgColor)
@@ -114,7 +114,7 @@ public enum ButtonRenderer {
             ctx.move(to: CGPoint(x: arrowX, y: rect.midY + 3))
             ctx.addLine(to: CGPoint(x: arrowX + 6, y: rect.midY - 3))
             ctx.addLine(to: CGPoint(x: arrowX + 12, y: rect.midY + 3))
-            ctx.setStrokeColor(NSColor.labelColor.cgColor)
+            ctx.setStrokeColor(NSColor.black.cgColor)
             ctx.setLineWidth(1.5)
             ctx.strokePath()
 
@@ -144,7 +144,7 @@ public enum ButtonRenderer {
         let nsFont = NSFont(name: font, size: CGFloat(size)) ?? NSFont.systemFont(ofSize: CGFloat(size))
         let attrs: [NSAttributedString.Key: Any] = [
             .font: nsFont,
-            .foregroundColor: NSColor(cgColor: color) ?? NSColor.labelColor,
+            .foregroundColor: NSColor(cgColor: color) ?? NSColor.black,
         ]
         let nsText = text as NSString
         let textSize = nsText.size(withAttributes: attrs)
@@ -158,7 +158,7 @@ public enum ButtonRenderer {
         let y = point.y - textSize.height / 2
 
         NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
         nsText.draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
         NSGraphicsContext.restoreGraphicsState()
     }

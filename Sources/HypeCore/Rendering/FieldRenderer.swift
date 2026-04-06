@@ -12,10 +12,10 @@ public enum FieldRenderer {
         case .transparent:
             break
         case .opaque:
-            ctx.setFillColor(NSColor.textBackgroundColor.cgColor)
+            ctx.setFillColor(NSColor.white.cgColor)
             ctx.fill(rect)
         case .rectangle:
-            ctx.setFillColor(NSColor.textBackgroundColor.cgColor)
+            ctx.setFillColor(NSColor.white.cgColor)
             ctx.fill(rect)
             ctx.setStrokeColor(NSColor.separatorColor.cgColor)
             ctx.setLineWidth(1)
@@ -24,12 +24,12 @@ public enum FieldRenderer {
             let shadowRect = rect.offsetBy(dx: 2, dy: -2)
             ctx.setFillColor(NSColor.shadowColor.withAlphaComponent(0.2).cgColor)
             ctx.fill(shadowRect)
-            ctx.setFillColor(NSColor.textBackgroundColor.cgColor)
+            ctx.setFillColor(NSColor.white.cgColor)
             ctx.fill(rect)
             ctx.setStrokeColor(NSColor.separatorColor.cgColor)
             ctx.stroke(rect)
         case .scrolling:
-            ctx.setFillColor(NSColor.textBackgroundColor.cgColor)
+            ctx.setFillColor(NSColor.white.cgColor)
             ctx.fill(rect)
             ctx.setStrokeColor(NSColor.separatorColor.cgColor)
             ctx.setLineWidth(1)
@@ -55,14 +55,14 @@ public enum FieldRenderer {
 
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: nsFont,
-                .foregroundColor: NSColor.labelColor,
+                .foregroundColor: NSColor.black,
                 .paragraphStyle: paragraphStyle,
             ]
 
             let displayText = String(part.textContent.prefix(10_000))
 
             NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
             let drawRect = NSRect(x: textRect.minX, y: textRect.minY, width: maxWidth, height: textRect.height)
             (displayText as NSString).draw(in: drawRect, withAttributes: attrs)
             NSGraphicsContext.restoreGraphicsState()

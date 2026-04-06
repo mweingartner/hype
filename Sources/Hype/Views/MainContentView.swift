@@ -88,6 +88,12 @@ struct MainContentView: View {
             currentTool = tool
             selectedPartId = nil
         }
+        .onReceive(NotificationCenter.default.publisher(for: .navigateToCard)) { notification in
+            // Script-driven navigation (e.g., "go next card" in a handler)
+            guard let cardId = notification.object as? UUID else { return }
+            currentCardId = cardId
+            selectedPartId = nil
+        }
     }
 
     // MARK: - Navigation

@@ -4,6 +4,7 @@ import HypeCore
 struct PropertyInspector: View {
     @Binding var document: HypeDocumentWrapper
     let partId: UUID?
+    @State private var showingScript = false
 
     var body: some View {
         Group {
@@ -24,6 +25,33 @@ struct PropertyInspector: View {
                         case .field: fieldSection(part: part)
                         case .shape: shapeSection(part: part)
                         case .webpage: webpageSection(part: part)
+                        }
+
+                        Divider()
+
+                        // Script section
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("SCRIPT")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.secondary)
+
+                            Button(action: { showingScript = true }) {
+                                HStack {
+                                    Image(systemName: "applescript")
+                                    Text(part.script.isEmpty ? "Add Script..." : "Edit Script...")
+                                }
+                            }
+
+                            if !part.script.isEmpty {
+                                Text(String(part.script.prefix(100)) + (part.script.count > 100 ? "..." : ""))
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(3)
+                            }
+                        }
+                        .sheet(isPresented: $showingScript) {
+                            ScriptEditorSheet(document: $document, partId: partId)
+                                .frame(width: 500, height: 400)
                         }
                     }
                     .padding()
@@ -201,6 +229,26 @@ struct PropertyInspector: View {
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 11))
                 .frame(width: 60)
+        }
+    }
+}
+
+// MARK: - Script Editor Sheet
+
+struct ScriptEditorSheet: View {
+    @Binding var document: HypeDocumentWrapper
+    let partId: UUID?
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScriptEditor(document: $document, partId: partId)
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.return)
+            }
+            .padding(8)
         }
     }
 }

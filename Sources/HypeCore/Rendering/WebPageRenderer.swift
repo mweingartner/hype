@@ -38,7 +38,7 @@ public enum WebPageRenderer {
             .foregroundColor: NSColor(red: 0.29, green: 0.56, blue: 0.85, alpha: 1),
         ]
         NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
         let textSize = (urlText as NSString).size(withAttributes: attrs)
         let textX = cx - textSize.width / 2
         (urlText as NSString).draw(at: NSPoint(x: textX, y: cy - r - 20), withAttributes: attrs)

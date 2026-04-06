@@ -36,5 +36,6 @@ struct ToolsMenuCommands: Commands {
 
 extension Notification.Name {
     static let navigateCard = Notification.Name("navigateCard")
+    static let navigateToCard = Notification.Name("navigateToCard")
     static let selectTool = Notification.Name("selectTool")
 }

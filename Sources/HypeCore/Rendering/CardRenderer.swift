@@ -61,24 +61,24 @@ public final class CardRenderer: Sendable {
         let text = "No stack open" as NSString
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 16),
-            .foregroundColor: NSColor.secondaryLabelColor,
+            .foregroundColor: NSColor.gray,
         ]
         let textSize = text.size(withAttributes: attrs)
         let x = (size.width - textSize.width) / 2
         let y = (size.height - textSize.height) / 2
 
         NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
         text.draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
         NSGraphicsContext.restoreGraphicsState()
     }
 
     /// Dispatch part rendering based on type.
     public func drawPart(ctx: CGContext, part: Part, canvasHeight: Double) {
-        // Core Graphics uses bottom-left origin; flip Y
+        // View is flipped (top-left origin), use part coordinates directly
         let rect = CGRect(
             x: part.left,
-            y: canvasHeight - part.top - part.height,
+            y: part.top,
             width: part.width,
             height: part.height
         )

@@ -35,6 +35,7 @@ struct CardCanvasView: NSViewRepresentable {
     @MainActor
     final class Coordinator {
         var parent: CardCanvasView
+        private let dispatcher = MessageDispatcher()
 
         init(parent: CardCanvasView) {
             self.parent = parent
@@ -52,6 +53,40 @@ struct CardCanvasView: NSViewRepresentable {
             parent.document.document.updatePart(id: id) { part in
                 part.left += dx
                 part.top += dy
+            }
+        }
+
+        /// Dispatch a HypeTalk message through the object hierarchy.
+        /// This is the runtime — when you click a button in browse mode,
+        /// its mouseUp handler fires, which can navigate, modify parts, etc.
+        func dispatchMessage(_ message: String, to partId: UUID) {
+            let cardId = parent.currentCardId
+            let result = dispatcher.dispatch(
+                message: message,
+                params: [],
+                targetId: partId,
+                document: parent.document.document,
+                currentCardId: cardId
+            )
+
+            // Handle execution results
+            switch result.status {
+            case .completed, .passed:
+                // Apply document modifications from script (e.g., put "x" into field 1)
+                if let modified = result.modifiedDocument {
+                    parent.document.document = modified
+                }
+                // Handle navigation (e.g., go next card)
+                if let navTarget = result.navigationTarget {
+                    NotificationCenter.default.post(
+                        name: .navigateToCard,
+                        object: navTarget
+                    )
+                }
+            case .error:
+                if let err = result.error {
+                    print("[HypeTalk Error] \(err.handler) line \(err.line): \(err.message)")
+                }
             }
         }
     }
@@ -79,11 +114,6 @@ class CardCanvasNSView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
 
-        // Flip context for top-left origin drawing
-        ctx.saveGState()
-        ctx.translateBy(x: 0, y: bounds.height)
-        ctx.scaleBy(x: 1, y: -1)
-
         renderer.render(ctx: ctx, document: document, cardId: currentCardId, size: bounds.size)
 
         // Draw selection overlay
@@ -92,9 +122,7 @@ class CardCanvasNSView: NSView {
             drawSelectionOverlay(ctx: ctx, part: part)
         }
 
-        ctx.restoreGState()
-
-        // Draw rubber-band rectangle (in flipped coordinates, no transform needed)
+        // Draw rubber-band rectangle
         if isDragging, let start = dragStart, let current = dragCurrent {
             drawRubberBand(start: start, current: current)
         }
@@ -192,9 +220,9 @@ class CardCanvasNSView: NSView {
             dragStart = point
         case .deselectAll:
             coordinator?.selectPart(nil)
-        case .sendMessage(let partId, _):
-            // In browse mode, highlight on click
-            coordinator?.selectPart(partId)
+        case .sendMessage(let partId, let message):
+            // In browse mode, dispatch the message through the script hierarchy
+            coordinator?.dispatchMessage(message, to: partId)
         case .beginDrag(let startX, let startY):
             dragStart = CGPoint(x: startX, y: startY)
             dragCurrent = dragStart
@@ -230,6 +258,16 @@ class CardCanvasNSView: NSView {
             return
         }
 
+        // In browse mode, dispatch mouseUp even without a drag
+        let toolCheck = ToolState(currentTool: currentTool.rawValue)
+        if toolCheck.category == .browse {
+            let hitPart = renderer.partAtPoint(point, document: document, cardId: currentCardId)
+            if let part = hitPart {
+                coordinator?.dispatchMessage("mouseUp", to: part.id)
+            }
+            return
+        }
+
         guard isDragging else { return }
 
         let hitPart = renderer.partAtPoint(point, document: document, cardId: currentCardId)
@@ -255,8 +293,8 @@ class CardCanvasNSView: NSView {
             }
             coordinator?.addPart(newPart)
             coordinator?.selectPart(newPart.id)
-        case .sendMessage(let partId, _):
-            coordinator?.selectPart(partId)
+        case .sendMessage(let partId, let message):
+            coordinator?.dispatchMessage(message, to: partId)
         default:
             break
         }
