@@ -163,6 +163,9 @@ class CardCanvasNSView: NSView {
     // Track which URLs are loaded to avoid redundant loads
     private var loadedURLs: [UUID: String] = [:]
 
+    // Paint layers keyed by card ID
+    private var paintLayers: [UUID: PaintLayer] = [:]
+
     // Drag state
     private var dragStart: CGPoint?
     private var dragCurrent: CGPoint?
@@ -186,6 +189,12 @@ class CardCanvasNSView: NSView {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
 
         renderer.render(ctx: ctx, document: document, cardId: currentCardId, size: bounds.size)
+
+        // Render the paint layer on top of card content
+        let paintLayer = paintLayerForCurrentCard()
+        if !paintLayer.isEmpty {
+            paintLayer.render(into: ctx)
+        }
 
         // Draw selection overlay
         if let selectedId = selectedPartId,
@@ -329,6 +338,37 @@ class CardCanvasNSView: NSView {
         }
 
         let point = flippedPoint(for: event)
+
+        // Handle paint tools directly
+        let paintToolCheck = ToolState(currentTool: currentTool.rawValue)
+        if paintToolCheck.category == .paint {
+            let pl = paintLayerForCurrentCard()
+            let x = Int(point.x)
+            let y = Int(point.y)
+            let color = NSColor.black
+
+            switch currentTool {
+            case .pencil:
+                pl.plot(x: x, y: y, color: color)
+            case .spray:
+                pl.spray(cx: x, cy: y, radius: 12, density: 20, color: color)
+            case .eraser:
+                pl.erase(cx: x, cy: y, radius: 10)
+            case .bucket:
+                pl.floodFill(x: x, y: y, color: color)
+            case .line, .rect, .oval, .text:
+                // These use drag — just record start point
+                break
+            default:
+                break
+            }
+
+            dragStart = point
+            isDragging = true
+            needsDisplay = true
+            return
+        }
+
         let hitPart = renderer.partAtPoint(point, document: document, cardId: currentCardId)
 
         // Double-click on a part in browse mode → open properties for editing
@@ -385,6 +425,34 @@ class CardCanvasNSView: NSView {
     override func mouseDragged(with event: NSEvent) {
         let point = flippedPoint(for: event)
 
+        // Handle paint tool dragging
+        if isDragging && ToolState(currentTool: currentTool.rawValue).category == .paint {
+            let pl = paintLayerForCurrentCard()
+            let x = Int(point.x)
+            let y = Int(point.y)
+            let color = NSColor.black
+
+            switch currentTool {
+            case .pencil:
+                if let start = dragStart {
+                    pl.drawLine(x0: Int(start.x), y0: Int(start.y), x1: x, y1: y, color: color)
+                    dragStart = point
+                }
+            case .spray:
+                pl.spray(cx: x, cy: y, radius: 12, density: 15, color: color)
+            case .eraser:
+                pl.erase(cx: x, cy: y, radius: 10)
+            case .line, .rect, .oval, .text:
+                // Rubber-band preview — update drag current
+                dragCurrent = point
+            default:
+                break
+            }
+
+            needsDisplay = true
+            return
+        }
+
         if let partId = draggedPartId, let start = dragStart {
             let dx = Double(point.x - start.x)
             let dy = Double(point.y - start.y)
@@ -428,6 +496,52 @@ class CardCanvasNSView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         let point = flippedPoint(for: event)
+
+        // Handle paint tool mouseUp (commit shape tools)
+        if isDragging && ToolState(currentTool: currentTool.rawValue).category == .paint {
+            if let start = dragStart {
+                let pl = paintLayerForCurrentCard()
+                let color = NSColor.black
+                let x0 = Int(start.x), y0 = Int(start.y)
+                let x1 = Int(point.x), y1 = Int(point.y)
+
+                switch currentTool {
+                case .line:
+                    pl.drawLine(x0: x0, y0: y0, x1: x1, y1: y1, color: color)
+                case .rect:
+                    let rx = min(x0, x1), ry = min(y0, y1)
+                    let rw = abs(x1 - x0), rh = abs(y1 - y0)
+                    pl.drawRect(x: rx, y: ry, width: rw, height: rh, color: color, filled: false)
+                case .oval:
+                    let cx = (x0 + x1) / 2, cy = (y0 + y1) / 2
+                    let rx = abs(x1 - x0) / 2, ry = abs(y1 - y0) / 2
+                    pl.drawOval(cx: cx, cy: cy, rx: rx, ry: ry, color: color, filled: false)
+                case .text:
+                    // Create a transparent field at the click location
+                    var newField = Part(
+                        partType: .field,
+                        cardId: currentCardId,
+                        name: "Text \(document.partsForCard(currentCardId).count + 1)",
+                        left: Double(x1),
+                        top: Double(y1),
+                        width: 200,
+                        height: 30
+                    )
+                    newField.fieldStyle = .transparent
+                    newField.lockText = false
+                    coordinator?.addPart(newField)
+                    coordinator?.selectPart(newField.id)
+                default:
+                    break
+                }
+            }
+
+            isDragging = false
+            dragStart = nil
+            dragCurrent = nil
+            needsDisplay = true
+            return
+        }
 
         if draggedPartId != nil {
             draggedPartId = nil
@@ -633,6 +747,16 @@ class CardCanvasNSView: NSView {
             bgParts = []
         }
         return (cardParts + bgParts).filter { $0.id != partId }
+    }
+
+    /// Get or create the paint layer for the current card.
+    private func paintLayerForCurrentCard() -> PaintLayer {
+        if let existing = paintLayers[currentCardId] {
+            return existing
+        }
+        let layer = PaintLayer(width: max(1, Int(bounds.width)), height: max(1, Int(bounds.height)))
+        paintLayers[currentCardId] = layer
+        return layer
     }
 
     /// Draw alignment snap guides on the canvas.
