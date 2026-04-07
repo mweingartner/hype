@@ -1,5 +1,6 @@
 import SwiftUI
 import HypeCore
+import UniformTypeIdentifiers
 
 struct PropertyInspector: View {
     @Binding var document: HypeDocumentWrapper
@@ -26,6 +27,7 @@ struct PropertyInspector: View {
                         case .field: fieldSection(part: part)
                         case .shape: shapeSection(part: part)
                         case .webpage: webpageSection(part: part)
+                        case .image: imageSection(part: part)
                         }
 
                         // Font controls for buttons and fields
@@ -205,6 +207,38 @@ struct PropertyInspector: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Web Page").font(.subheadline).foregroundColor(.secondary)
             propertyRow("URL", binding: bindPartString(part.id, \.url))
+        }
+    }
+
+    @ViewBuilder
+    private func imageSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Image").font(.subheadline).foregroundColor(.secondary)
+
+            Button("Choose Image...") {
+                chooseImageForPart(partId: part.id)
+            }
+
+            Toggle("Invert on Click", isOn: bindPartBool(part.id, \.invertOnClick))
+
+            if let data = part.imageData {
+                Text("Image loaded (\(data.count / 1024) KB)")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private func chooseImageForPart(partId: UUID) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.png, .jpeg]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            if let data = try? Data(contentsOf: url) {
+                document.document.updatePart(id: partId) { $0.imageData = data }
+            }
         }
     }
 

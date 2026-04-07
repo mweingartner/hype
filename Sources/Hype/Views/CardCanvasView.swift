@@ -109,6 +109,11 @@ struct CardCanvasView: NSViewRepresentable {
             parent.document.document.updatePart(id: id) { $0.textContent = text }
         }
 
+        /// Toggle the hilite state of a part (used for image invert-on-click).
+        func togglePartHilite(id: UUID) {
+            parent.document.document.updatePart(id: id) { $0.hilite.toggle() }
+        }
+
         /// Dispatch a HypeTalk message through the object hierarchy.
         /// This is the runtime — when you click a button in browse mode,
         /// its mouseUp handler fires, which can navigate, modify parts, etc.
@@ -177,6 +182,9 @@ class CardCanvasNSView: NSView {
     private var draggedPartId: UUID?
     private var resizeHandle: ResizeHandle = .none
 
+    // Pencil freeform points collected during drag
+    private var pencilPoints: [PathPoint] = []
+
     // Alignment snap guides currently visible
     private var activeGuides: [SnapGuide] = []
 
@@ -219,10 +227,17 @@ class CardCanvasNSView: NSView {
         // Update web views for webpage parts
         updateWebViews()
 
-        // Draw background-editing indicator stripe
+        // Dim card parts and draw border when editing background
         if editingBackground {
-            ctx.setFillColor(NSColor.systemBlue.withAlphaComponent(0.15).cgColor)
-            ctx.fill(CGRect(x: 0, y: 0, width: bounds.width, height: 3))
+            // Dim all card-specific parts with a semi-transparent overlay
+            ctx.setFillColor(NSColor.white.withAlphaComponent(0.7).cgColor)
+            for part in document.partsForCard(currentCardId) where part.visible {
+                ctx.fill(CGRect(x: part.left, y: part.top, width: part.width, height: part.height))
+            }
+            // Draw a border to indicate background editing mode
+            ctx.setStrokeColor(NSColor.systemBlue.cgColor)
+            ctx.setLineWidth(3)
+            ctx.stroke(bounds.insetBy(dx: 1.5, dy: 1.5))
         }
 
         // Draw rubber-band rectangle
@@ -357,22 +372,24 @@ class CardCanvasNSView: NSView {
         // Handle paint tools directly
         let paintToolCheck = ToolState(currentTool: currentTool.rawValue)
         if paintToolCheck.category == .paint {
-            let pl = paintLayerForCurrentCard()
             let x = Int(point.x)
             let y = Int(point.y)
-            let color = NSColor.black
 
             switch currentTool {
             case .pencil:
-                pl.plot(x: x, y: y, color: color)
+                // Collect freeform points (no bitmap drawing)
+                pencilPoints = [PathPoint(x: Double(x), y: Double(y))]
             case .spray:
-                pl.spray(cx: x, cy: y, radius: 12, density: 20, color: color)
+                let pl = paintLayerForCurrentCard()
+                pl.spray(cx: x, cy: y, radius: 12, density: 20, color: NSColor.black)
             case .eraser:
+                let pl = paintLayerForCurrentCard()
                 pl.erase(cx: x, cy: y, radius: 10)
             case .bucket:
-                pl.floodFill(x: x, y: y, color: color)
+                let pl = paintLayerForCurrentCard()
+                pl.floodFill(x: x, y: y, color: NSColor.black)
             case .line, .rect, .oval, .text:
-                // These use drag — just record start point
+                // These use drag -- just record start point
                 break
             default:
                 break
@@ -457,23 +474,22 @@ class CardCanvasNSView: NSView {
 
         // Handle paint tool dragging
         if isDragging && ToolState(currentTool: currentTool.rawValue).category == .paint {
-            let pl = paintLayerForCurrentCard()
             let x = Int(point.x)
             let y = Int(point.y)
-            let color = NSColor.black
 
             switch currentTool {
             case .pencil:
-                if let start = dragStart {
-                    pl.drawLine(x0: Int(start.x), y0: Int(start.y), x1: x, y1: y, color: color)
-                    dragStart = point
-                }
+                // Collect freeform points (no bitmap drawing)
+                pencilPoints.append(PathPoint(x: Double(point.x), y: Double(point.y)))
+                dragCurrent = point  // For visual preview
             case .spray:
-                pl.spray(cx: x, cy: y, radius: 12, density: 15, color: color)
+                let pl = paintLayerForCurrentCard()
+                pl.spray(cx: x, cy: y, radius: 12, density: 15, color: NSColor.black)
             case .eraser:
+                let pl = paintLayerForCurrentCard()
                 pl.erase(cx: x, cy: y, radius: 10)
             case .line, .rect, .oval, .text:
-                // Rubber-band preview — update drag current
+                // Rubber-band preview -- update drag current
                 dragCurrent = point
             default:
                 break
@@ -527,25 +543,92 @@ class CardCanvasNSView: NSView {
     override func mouseUp(with event: NSEvent) {
         let point = flippedPoint(for: event)
 
-        // Handle paint tool mouseUp (commit shape tools)
+        // Handle paint tool mouseUp (shape tools create Parts, bitmap tools use PaintLayer)
         if isDragging && ToolState(currentTool: currentTool.rawValue).category == .paint {
             if let start = dragStart {
-                let pl = paintLayerForCurrentCard()
-                let color = NSColor.black
                 let x0 = Int(start.x), y0 = Int(start.y)
                 let x1 = Int(point.x), y1 = Int(point.y)
 
                 switch currentTool {
                 case .line:
-                    pl.drawLine(x0: x0, y0: y0, x1: x1, y1: y1, color: color)
+                    let points = [PathPoint(x: Double(x0), y: Double(y0)), PathPoint(x: Double(x1), y: Double(y1))]
+                    let minX = min(Double(x0), Double(x1))
+                    let minY = min(Double(y0), Double(y1))
+                    var newPart = Part(
+                        partType: .shape,
+                        cardId: editingBackground ? nil : currentCardId,
+                        backgroundId: editingBackground ? currentBackgroundId : nil,
+                        name: "Line \(document.parts.count + 1)",
+                        left: minX, top: minY,
+                        width: max(1, abs(Double(x1 - x0))), height: max(1, abs(Double(y1 - y0)))
+                    )
+                    newPart.shapeType = .line
+                    newPart.pathData = points
+                    newPart.strokeColor = "#000000"
+                    newPart.strokeWidth = 2
+                    coordinator?.addPart(newPart)
+
                 case .rect:
-                    let rx = min(x0, x1), ry = min(y0, y1)
-                    let rw = abs(x1 - x0), rh = abs(y1 - y0)
-                    pl.drawRect(x: rx, y: ry, width: rw, height: rh, color: color, filled: false)
+                    let rx = min(Double(x0), Double(x1)), ry = min(Double(y0), Double(y1))
+                    let rw = abs(Double(x1 - x0)), rh = abs(Double(y1 - y0))
+                    if rw > 3 && rh > 3 {
+                        var newPart = Part(
+                            partType: .shape,
+                            cardId: editingBackground ? nil : currentCardId,
+                            backgroundId: editingBackground ? currentBackgroundId : nil,
+                            name: "Rectangle \(document.parts.count + 1)",
+                            left: rx, top: ry, width: rw, height: rh
+                        )
+                        newPart.shapeType = .rectangle
+                        newPart.strokeColor = "#000000"
+                        newPart.fillColor = "#FFFFFF"
+                        newPart.strokeWidth = 1
+                        coordinator?.addPart(newPart)
+                    }
+
                 case .oval:
-                    let cx = (x0 + x1) / 2, cy = (y0 + y1) / 2
-                    let rx = abs(x1 - x0) / 2, ry = abs(y1 - y0) / 2
-                    pl.drawOval(cx: cx, cy: cy, rx: rx, ry: ry, color: color, filled: false)
+                    let rx = min(Double(x0), Double(x1)), ry = min(Double(y0), Double(y1))
+                    let rw = abs(Double(x1 - x0)), rh = abs(Double(y1 - y0))
+                    if rw > 3 && rh > 3 {
+                        var newPart = Part(
+                            partType: .shape,
+                            cardId: editingBackground ? nil : currentCardId,
+                            backgroundId: editingBackground ? currentBackgroundId : nil,
+                            name: "Oval \(document.parts.count + 1)",
+                            left: rx, top: ry, width: rw, height: rh
+                        )
+                        newPart.shapeType = .oval
+                        newPart.strokeColor = "#000000"
+                        newPart.fillColor = "#FFFFFF"
+                        newPart.strokeWidth = 1
+                        coordinator?.addPart(newPart)
+                    }
+
+                case .pencil:
+                    if pencilPoints.count >= 2 {
+                        // Calculate bounding box
+                        let minX = pencilPoints.map(\.x).min()!
+                        let minY = pencilPoints.map(\.y).min()!
+                        let maxX = pencilPoints.map(\.x).max()!
+                        let maxY = pencilPoints.map(\.y).max()!
+                        var newPart = Part(
+                            partType: .shape,
+                            cardId: editingBackground ? nil : currentCardId,
+                            backgroundId: editingBackground ? currentBackgroundId : nil,
+                            name: "Freeform \(document.partsForCard(currentCardId).count + 1)",
+                            left: minX, top: minY,
+                            width: max(1, maxX - minX), height: max(1, maxY - minY)
+                        )
+                        newPart.shapeType = .freeform
+                        newPart.pathData = pencilPoints
+                        newPart.strokeColor = "#000000"
+                        newPart.fillColor = "#FFFFFF"
+                        newPart.strokeWidth = 2
+                        coordinator?.addPart(newPart)
+                        coordinator?.selectPart(newPart.id)
+                    }
+                    pencilPoints = []
+
                 case .text:
                     // Create a transparent field at the click location
                     var newField = Part(
@@ -562,6 +645,7 @@ class CardCanvasNSView: NSView {
                     newField.lockText = false
                     coordinator?.addPart(newField)
                     coordinator?.selectPart(newField.id)
+
                 default:
                     break
                 }
@@ -588,6 +672,10 @@ class CardCanvasNSView: NSView {
         if toolCheck.category == .browse {
             let hitPart = renderer.partAtPoint(point, document: document, cardId: currentCardId)
             if let part = hitPart {
+                // Handle image invert-on-click
+                if part.partType == .image && part.invertOnClick {
+                    coordinator?.togglePartHilite(id: part.id)
+                }
                 coordinator?.dispatchMessage("mouseUp", to: part.id)
             }
             return

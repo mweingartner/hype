@@ -60,6 +60,10 @@ public struct Part: Identifiable, Codable, Sendable {
     public var url: String
     public var urlSourceFieldId: UUID?
 
+    // Image-specific
+    public var imageData: Data?
+    public var invertOnClick: Bool
+
     // Script
     public var script: String
 
@@ -113,6 +117,8 @@ public struct Part: Identifiable, Codable, Sendable {
         self.pathData = []
         self.url = ""
         self.urlSourceFieldId = nil
+        self.imageData = nil
+        self.invertOnClick = false
         self.script = ""
     }
 
@@ -157,6 +163,8 @@ public struct Part: Identifiable, Codable, Sendable {
         pathData = try container.decode([PathPoint].self, forKey: .pathData)
         url = try container.decode(String.self, forKey: .url)
         urlSourceFieldId = try container.decodeIfPresent(UUID.self, forKey: .urlSourceFieldId)
+        imageData = try container.decodeIfPresent(Data.self, forKey: .imageData)
+        invertOnClick = try container.decodeIfPresent(Bool.self, forKey: .invertOnClick) ?? false
         script = try container.decode(String.self, forKey: .script)
     }
 }
