@@ -107,27 +107,33 @@ struct AIChatPanel: View {
     private func processWithTools(userMessage: String) async {
         let client = OllamaToolClient(host: ollamaHost, port: ollamaPort, model: ollamaModel)
 
-        // Build conversation messages for Ollama
+        // Get current stack context for the system prompt
+        let cardId = currentCardId ?? document.document.sortedCards.first?.id ?? UUID()
+        let currentParts = document.document.partsForCard(cardId)
+            .map { "[\($0.partType.rawValue)] \"\($0.name)\" at (\(Int($0.left)),\(Int($0.top))) \(Int($0.width))x\(Int($0.height))" }
+            .joined(separator: ", ")
+        let cardCount = document.document.cards.count
+
+        // Build fresh messages for THIS request only (not full history — avoids confusion)
         var ollamaMessages: [OllamaMessage] = [
             OllamaMessage(role: "system", content: """
-                You are an AI assistant for Hype, a HyperCard-inspired app. You can create and modify \
-                stacks, cards, buttons, fields, shapes, and web pages using the available tools. The canvas \
-                is 800x600 points. Create well-designed, visually appealing layouts. Always use descriptive \
-                names for parts.
+                You are an AI assistant for Hype, a HyperCard-inspired app. The canvas is 800x600 points.
+
+                RULES:
+                - Call the needed tools to fulfill the user's request, then STOP and respond with a brief summary.
+                - Do NOT repeat tool calls you have already made.
+                - Do NOT delete parts unless the user specifically asks you to.
+                - Create well-spaced, visually appealing layouts.
+                - Use descriptive names for all parts.
+
+                CURRENT STATE: \(cardCount) cards. Parts on current card: \(currentParts.isEmpty ? "none" : currentParts)
                 """),
+            OllamaMessage(role: "user", content: userMessage),
         ]
 
-        // Add conversation history
-        for msg in messages {
-            ollamaMessages.append(OllamaMessage(
-                role: msg.role == "tool" ? "tool" : msg.role,
-                content: msg.content
-            ))
-        }
-
-        // Tool-use loop (max 10 rounds)
+        // Tool-use loop (max 5 rounds — enough for any reasonable task)
         var rounds = 0
-        while rounds < 10 {
+        while rounds < 5 {
             rounds += 1
 
             do {
@@ -138,6 +144,10 @@ struct AIChatPanel: View {
 
                 // Check for tool calls
                 if let toolCalls = response.message.tool_calls, !toolCalls.isEmpty {
+                    // IMPORTANT: append the assistant's message with tool_calls to the conversation
+                    // so the model knows what it already did
+                    ollamaMessages.append(response.message)
+
                     for call in toolCalls {
                         let argsDesc = call.function.arguments
                             .map { "\($0.key): \($0.value)" }
@@ -146,7 +156,6 @@ struct AIChatPanel: View {
                         messages.append((role: "tool", content: toolMsg))
 
                         // Execute the tool against a local copy, then assign back
-                        let cardId = currentCardId ?? document.document.sortedCards.first?.id ?? UUID()
                         var doc = document.document
                         let result = await executor.execute(
                             toolName: call.function.name,
@@ -162,14 +171,14 @@ struct AIChatPanel: View {
                             handleNavigation(destination: dest)
                         }
 
-                        // Feed result back to model
+                        // Feed result back to model so it knows the outcome
                         ollamaMessages.append(OllamaMessage(role: "tool", content: result))
                     }
-                    // Continue the loop -- model may want to call more tools
+                    // Continue — model may want to call more tools
                     continue
                 }
 
-                // No tool calls -- model is done, show the response
+                // No tool calls — model is done, show the response
                 let text = response.message.content ?? "(no response)"
                 messages.append((role: "assistant", content: text))
                 break
