@@ -155,13 +155,16 @@ struct CardCanvasView: NSViewRepresentable {
             // Handle execution results
             switch result.status {
             case .completed, .passed:
-                // Apply document modifications from script (e.g., put "x" into field 1)
+                // Apply document modifications from script
                 if let modified = result.modifiedDocument {
                     parent.document.document = modified
                 }
+                // Handle "show all cards" — cycle through every card with a delay
+                if result.showAllCards {
+                    NotificationCenter.default.post(name: .showAllCards, object: nil)
+                }
                 // Handle navigation (e.g., go next card)
                 if let navTarget = result.navigationTarget {
-                    print("[HypeTalk] Navigating to card \(navTarget)")
                     NotificationCenter.default.post(
                         name: .navigateToCard,
                         object: navTarget

@@ -245,6 +245,25 @@ private struct NavigationHandlers: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .toggleAI)) { _ in
                 showAI.toggle()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .showAllCards)) { _ in
+                cycleAllCards()
+            }
+    }
+
+    /// Cycle through every card in the deck with a 1-second pause, then return to the first card.
+    private func cycleAllCards() {
+        let sorted = document.document.sortedCards
+        guard sorted.count > 1 else { return }
+        Task { @MainActor in
+            for card in sorted {
+                currentCardId = card.id
+                selectedPartIds = []
+                try? await Task.sleep(for: .seconds(1))
+            }
+            // Return to the first card
+            currentCardId = sorted.first?.id
+            selectedPartIds = []
+        }
     }
 
     private func addNewCard() {

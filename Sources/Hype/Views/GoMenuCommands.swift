@@ -104,6 +104,7 @@ extension Notification.Name {
     static let alignVCenter = Notification.Name("alignVCenter")
     static let distributeH = Notification.Name("distributeH")
     static let distributeV = Notification.Name("distributeV")
+    static let showAllCards = Notification.Name("showAllCards")
 }
 
 struct AIMenuCommands: Commands {

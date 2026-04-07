@@ -25,19 +25,22 @@ public struct ExecutionResult: Sendable {
     public var modifiedDocument: HypeDocument?
     public var error: ScriptError?
     public var navigationTarget: UUID?
+    public var showAllCards: Bool
 
     public init(
         status: ExecutionStatus,
         returnValue: Value? = nil,
         modifiedDocument: HypeDocument? = nil,
         error: ScriptError? = nil,
-        navigationTarget: UUID? = nil
+        navigationTarget: UUID? = nil,
+        showAllCards: Bool = false
     ) {
         self.status = status
         self.returnValue = returnValue
         self.modifiedDocument = modifiedDocument
         self.error = error
         self.navigationTarget = navigationTarget
+        self.showAllCards = showAllCards
     }
 }
 
@@ -94,6 +97,7 @@ private enum ControlSignal: Error {
     case nextRepeat
     case exitHandler(Value?)
     case passMessage(String)
+    case showAllCards
 }
 
 // MARK: - Interpreter
@@ -127,6 +131,8 @@ public struct Interpreter: Sendable {
         } catch ControlSignal.exitHandler(let returnVal) {
             return ExecutionResult(status: .completed, returnValue: returnVal,
                                    modifiedDocument: document, navigationTarget: navigationTarget)
+        } catch ControlSignal.showAllCards {
+            return ExecutionResult(status: .completed, modifiedDocument: document, showAllCards: true)
         } catch let error as ScriptError {
             return ExecutionResult(status: .error, error: error)
         } catch {
@@ -379,10 +385,9 @@ public struct Interpreter: Sendable {
             let _ = document.addBackground(name: name)
 
         case .showAllCards:
-            // Navigate to the first card as a simple implementation of "show all cards".
-            if let firstCard = document.sortedCards.first {
-                navigationTarget = firstCard.id
-            }
+            // Signal the UI to cycle through all cards with animation.
+            // The actual cycling is handled by the UI layer since it requires timed delays.
+            throw ControlSignal.showAllCards
 
         case .send, .wait, .beep, .play:
             // Stubs for future implementation.
