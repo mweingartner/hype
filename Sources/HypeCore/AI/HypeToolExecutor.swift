@@ -5,6 +5,29 @@ public struct HypeToolExecutor: Sendable {
 
     public init() {}
 
+    /// Determine whether to place on card or background based on arguments.
+    private func placement(arguments: [String: String], currentCardId: UUID, document: HypeDocument) -> (cardId: UUID?, backgroundId: UUID?) {
+        let onBg = (arguments["on_background"] ?? "").lowercased() == "true"
+        if onBg {
+            let bgId = document.cards.first(where: { $0.id == currentCardId })?.backgroundId
+            return (cardId: nil, backgroundId: bgId)
+        }
+        return (cardId: currentCardId, backgroundId: nil)
+    }
+
+    /// Auto-wrap a script in `on mouseUp`/`end mouseUp` if it's not already wrapped in a handler.
+    private func wrapScript(_ script: String) -> String {
+        let trimmed = script.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        // Already wrapped in a handler block?
+        let lower = trimmed.lowercased()
+        if lower.hasPrefix("on ") || lower.hasPrefix("function ") {
+            return trimmed
+        }
+        // Wrap bare commands in on mouseUp
+        return "on mouseUp\n  \(trimmed)\nend mouseUp"
+    }
+
     /// Execute a tool call and return the result string.
     public func execute(
         toolName: String,
@@ -35,9 +58,11 @@ public struct HypeToolExecutor: Sendable {
             return "Card deletion requires user confirmation"
 
         case "create_button":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
             var part = Part(
                 partType: .button,
-                cardId: currentCardId,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
                 name: arguments["name"] ?? "Button",
                 left: Double(arguments["left"] ?? "100") ?? 100,
                 top: Double(arguments["top"] ?? "100") ?? 100,
@@ -48,15 +73,18 @@ public struct HypeToolExecutor: Sendable {
                 part.buttonStyle = bs
             }
             if let script = arguments["script"] {
-                part.script = script
+                part.script = wrapScript(script)
             }
             document.addPart(part)
-            return "Created button '\(part.name)'"
+            let layer = place.backgroundId != nil ? " on background" : ""
+            return "Created button '\(part.name)'\(layer)"
 
         case "create_field":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
             var part = Part(
                 partType: .field,
-                cardId: currentCardId,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
                 name: arguments["name"] ?? "Field",
                 left: Double(arguments["left"] ?? "100") ?? 100,
                 top: Double(arguments["top"] ?? "100") ?? 100,
@@ -67,14 +95,17 @@ public struct HypeToolExecutor: Sendable {
             if let style = arguments["style"], let fs = FieldStyle(rawValue: style) {
                 part.fieldStyle = fs
             }
-            if let script = arguments["script"] { part.script = script }
+            if let script = arguments["script"] { part.script = wrapScript(script) }
             document.addPart(part)
-            return "Created field '\(part.name)'"
+            let layer = place.backgroundId != nil ? " on background" : ""
+            return "Created field '\(part.name)'\(layer)"
 
         case "create_shape":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
             var part = Part(
                 partType: .shape,
-                cardId: currentCardId,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
                 name: arguments["name"] ?? "Shape",
                 left: Double(arguments["left"] ?? "100") ?? 100,
                 top: Double(arguments["top"] ?? "100") ?? 100,
@@ -88,12 +119,15 @@ public struct HypeToolExecutor: Sendable {
             if let sc = arguments["stroke_color"] { part.strokeColor = sc }
             if let sw = arguments["stroke_width"] { part.strokeWidth = Double(sw) ?? 1 }
             document.addPart(part)
-            return "Created shape '\(part.name)'"
+            let shapeLayer = place.backgroundId != nil ? " on background" : ""
+            return "Created shape '\(part.name)'\(shapeLayer)"
 
         case "create_webpage":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
             var part = Part(
                 partType: .webpage,
-                cardId: currentCardId,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
                 name: arguments["name"] ?? "Webpage",
                 left: Double(arguments["left"] ?? "100") ?? 100,
                 top: Double(arguments["top"] ?? "100") ?? 100,
@@ -102,7 +136,8 @@ public struct HypeToolExecutor: Sendable {
             )
             if let url = arguments["url"] { part.url = url }
             document.addPart(part)
-            return "Created webpage '\(part.name)' with URL \(part.url)"
+            let webLayer = place.backgroundId != nil ? " on background" : ""
+            return "Created webpage '\(part.name)' with URL \(part.url)\(webLayer)"
 
         case "set_part_property":
             let partName = arguments["part_name"] ?? ""

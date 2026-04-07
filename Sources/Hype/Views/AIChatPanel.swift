@@ -115,6 +115,12 @@ struct AIChatPanel: View {
         let cardCount = document.document.cards.count
 
         // Build fresh messages for THIS request only (not full history — avoids confusion)
+        // Get background info
+        let currentCard = document.document.cards.first(where: { $0.id == cardId })
+        let bgName = currentCard.flatMap { document.document.backgroundForCard($0)?.name } ?? "unknown"
+        let bgParts = currentCard.map { document.document.partsForBackground($0.backgroundId) } ?? []
+        let bgPartsDesc = bgParts.map { "[\($0.partType.rawValue)] \"\($0.name)\"" }.joined(separator: ", ")
+
         var ollamaMessages: [OllamaMessage] = [
             OllamaMessage(role: "system", content: """
                 You are an AI assistant for Hype, a HyperCard-inspired app. The canvas is 800x600 points.
@@ -125,8 +131,13 @@ struct AIChatPanel: View {
                 - Do NOT delete parts unless the user specifically asks you to.
                 - Create well-spaced, visually appealing layouts.
                 - Use descriptive names for all parts.
+                - When the user says "background", set on_background to "true" in create tools.
+                  Background parts are shared across ALL cards that use that background.
+                - For button scripts, just provide the command (e.g. "go next"). It will be auto-wrapped in on mouseUp/end mouseUp.
 
-                CURRENT STATE: \(cardCount) cards. Parts on current card: \(currentParts.isEmpty ? "none" : currentParts)
+                CURRENT STATE: \(cardCount) cards. Background: "\(bgName)". \
+                Card parts: \(currentParts.isEmpty ? "none" : currentParts). \
+                Background parts: \(bgPartsDesc.isEmpty ? "none" : bgPartsDesc)
                 """),
             OllamaMessage(role: "user", content: userMessage),
         ]
