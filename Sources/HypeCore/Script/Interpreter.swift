@@ -363,6 +363,21 @@ public struct Interpreter: Sendable {
             // Simplified: parse and execute inline. Not fully implemented.
             _ = scriptText
 
+        case .createCard(let bgNameExpr):
+            var bgName: String? = nil
+            if let expr = bgNameExpr {
+                bgName = try evaluate(expr, env: &env, document: document, context: context)
+            }
+            let newCard = document.addCard(
+                afterIndex: document.sortedCards.firstIndex(where: { $0.id == context.currentCardId }),
+                backgroundName: bgName
+            )
+            navigationTarget = newCard.id
+
+        case .createBackground(let nameExpr):
+            let name = try evaluate(nameExpr, env: &env, document: document, context: context)
+            let _ = document.addBackground(name: name)
+
         case .send, .wait, .beep, .play:
             // Stubs for future implementation.
             break

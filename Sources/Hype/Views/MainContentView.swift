@@ -102,6 +102,9 @@ struct MainContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .deleteCurrentCard)) { _ in
             deleteCurrentCard()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .addNewBackground)) { _ in
+            addNewBackground()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .editPartProperties)) { notification in
             // Double-click in browse mode opens part properties
             if let partId = notification.object as? UUID {
@@ -167,6 +170,11 @@ struct MainContentView: View {
             currentCardId = nextId
             selectedPartId = nil
         }
+    }
+
+    private func addNewBackground() {
+        let count = document.document.backgrounds.count
+        let _ = document.document.addBackground(name: "Background \(count + 1)")
     }
 
     // MARK: - Info text

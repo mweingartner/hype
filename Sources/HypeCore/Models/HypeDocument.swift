@@ -22,7 +22,7 @@ public struct HypeDocument: Codable, Sendable {
     /// Create a new empty document with one default background and card.
     public static func newDocument(name: String = "Untitled") -> HypeDocument {
         let stack = Stack(name: name)
-        let bg = Background(stackId: stack.id)
+        let bg = Background(stackId: stack.id, name: "Background 1")
         let card = Card(stackId: stack.id, backgroundId: bg.id, name: "Card 1")
         return HypeDocument(stack: stack, backgrounds: [bg], cards: [card], parts: [])
     }
@@ -47,10 +47,43 @@ public struct HypeDocument: Codable, Sendable {
         backgrounds.first { $0.id == card.backgroundId }
     }
 
-    /// Add a new card after the current one.
+    /// Create a new background with the given name. Names must be unique in the stack.
     @discardableResult
-    public mutating func addCard(afterIndex: Int? = nil) -> Card {
-        let bgId = backgrounds.first?.id ?? UUID()
+    public mutating func addBackground(name: String) -> Background {
+        var finalName = name
+        var counter = 1
+        while backgrounds.contains(where: { $0.name.lowercased() == finalName.lowercased() }) {
+            counter += 1
+            finalName = "\(name) \(counter)"
+        }
+        let bg = Background(stackId: stack.id, name: finalName, sortKey: String(format: "a%06d", backgrounds.count))
+        backgrounds.append(bg)
+        return bg
+    }
+
+    /// Find a background by name (case-insensitive).
+    public func backgroundByName(_ name: String) -> Background? {
+        backgrounds.first { $0.name.lowercased() == name.lowercased() }
+    }
+
+    /// Get all cards that share a specific background.
+    public func cardsForBackground(_ backgroundId: UUID) -> [Card] {
+        cards.filter { $0.backgroundId == backgroundId }
+    }
+
+    /// Add a new card. Uses the specified background, or the current card's background, or the first background.
+    @discardableResult
+    public mutating func addCard(afterIndex: Int? = nil, backgroundId: UUID? = nil, backgroundName: String? = nil) -> Card {
+        let bgId: UUID
+        if let bid = backgroundId {
+            bgId = bid
+        } else if let bname = backgroundName, let bg = backgroundByName(bname) {
+            bgId = bg.id
+        } else if let afterIdx = afterIndex, afterIdx < sortedCards.count {
+            bgId = sortedCards[afterIdx].backgroundId
+        } else {
+            bgId = backgrounds.first?.id ?? UUID()
+        }
         let index = (afterIndex ?? cards.count - 1) + 1
         let sortKey = String(format: "a%06d", index)
         let card = Card(stackId: stack.id, backgroundId: bgId, name: "", sortKey: sortKey)

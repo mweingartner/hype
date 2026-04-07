@@ -38,6 +38,9 @@ public enum TokenType: String, Sendable {
     // Object references
     case card, background, stack, field, button, webpage
 
+    // Commands
+    case create
+
     // AI (Phase 5 placeholder)
     case ai
 }

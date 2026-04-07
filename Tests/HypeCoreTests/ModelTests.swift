@@ -53,6 +53,48 @@ struct ModelTests {
         #expect(doc.parts[0].name == "Updated")
     }
 
+    @Test func addBackgroundWithUniqueName() {
+        var doc = HypeDocument.newDocument()
+        let bg2 = doc.addBackground(name: "Customer")
+        #expect(bg2.name == "Customer")
+        #expect(doc.backgrounds.count == 2)
+        // Duplicate name gets suffixed
+        let bg3 = doc.addBackground(name: "Customer")
+        #expect(bg3.name == "Customer 2")
+        #expect(doc.backgrounds.count == 3)
+    }
+
+    @Test func addCardWithBackground() {
+        var doc = HypeDocument.newDocument()
+        let bg2 = doc.addBackground(name: "Customer")
+        let card = doc.addCard(backgroundName: "Customer")
+        #expect(card.backgroundId == bg2.id)
+    }
+
+    @Test func backgroundByName() {
+        var doc = HypeDocument.newDocument()
+        let _ = doc.addBackground(name: "Products")
+        let found = doc.backgroundByName("products")  // case insensitive
+        #expect(found != nil)
+        #expect(found?.name == "Products")
+    }
+
+    @Test func cardsForBackground() {
+        var doc = HypeDocument.newDocument()
+        let bg1 = doc.backgrounds[0]
+        let bg2 = doc.addBackground(name: "Other")
+        let _ = doc.addCard(backgroundId: bg2.id)
+        let bg1Cards = doc.cardsForBackground(bg1.id)
+        let bg2Cards = doc.cardsForBackground(bg2.id)
+        #expect(bg1Cards.count == 1)
+        #expect(bg2Cards.count == 1)
+    }
+
+    @Test func defaultBackgroundHasName() {
+        let doc = HypeDocument.newDocument()
+        #expect(doc.backgrounds[0].name == "Background 1")
+    }
+
     @Test func backgroundForCard() {
         let doc = HypeDocument.newDocument()
         let card = doc.cards[0]

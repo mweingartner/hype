@@ -27,7 +27,7 @@ public struct Lexer: Sendable {
         "stack": .stack, "field": .field, "fld": .field,
         "button": .button, "btn": .button,
         "webpage": .webpage,
-        "mod": .mod, "ai": .ai,
+        "mod": .mod, "create": .create, "ai": .ai,
     ]
 
     public init(source: String) {

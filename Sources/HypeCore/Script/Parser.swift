@@ -120,6 +120,7 @@ public struct Parser: Sendable {
         case .ask:      return try parseAskStatement()
         case .answer:   return try parseAnswerStatement()
         case .visual:   return try parseVisualStatement()
+        case .create:   return try parseCreateStatement()
         default:
             // Bare expression (function call, etc.)
             let expr = try parseExpression()
@@ -378,6 +379,40 @@ public struct Parser: Sendable {
         let expr = try parseExpression()
         skipNewlines()
         return .visual(effectName: expr)
+    }
+
+    private mutating func parseCreateStatement() throws -> Statement {
+        _ = try expect(.create)
+
+        // "create background "name""
+        if current.type == .background {
+            _ = advance()
+            let name = try parseExpression()
+            skipNewlines()
+            return .createBackground(name: name)
+        }
+
+        // "create a new card [with background "name"]" or "create card [with background "name"]"
+        // Skip optional "a" and "new"
+        if current.type == .identifier && current.value.lowercased() == "a" { _ = advance() }
+        if current.type == .identifier && current.value.lowercased() == "new" { _ = advance() }
+
+        if current.type == .card {
+            _ = advance()
+            // Check for "with background "name""
+            var bgName: Expression? = nil
+            if current.type == .with {
+                _ = advance()
+                if current.type == .background {
+                    _ = advance()
+                    bgName = try parseExpression()
+                }
+            }
+            skipNewlines()
+            return .createCard(backgroundName: bgName)
+        }
+
+        throw ParseError.unexpected(current, expected: "card or background")
     }
 
     // MARK: - Expression parsing (precedence climbing)

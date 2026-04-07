@@ -23,6 +23,8 @@ struct ObjectsMenuCommands: Commands {
                 .keyboardShortcut("n", modifiers: [.command, .shift])
             Button("Delete Card") { NotificationCenter.default.post(name: .deleteCurrentCard, object: nil) }
             Divider()
+            Button("New Background...") { NotificationCenter.default.post(name: .addNewBackground, object: nil) }
+            Divider()
             Button("Card Info...") { }
             Button("Background Info...") { }
             Button("Stack Info...") { }
@@ -55,4 +57,5 @@ extension Notification.Name {
     static let addNewCard = Notification.Name("addNewCard")
     static let deleteCurrentCard = Notification.Name("deleteCurrentCard")
     static let editPartProperties = Notification.Name("editPartProperties")
+    static let addNewBackground = Notification.Name("addNewBackground")
 }
