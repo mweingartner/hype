@@ -238,7 +238,7 @@ class CardCanvasNSView: NSView {
         }
 
         // Delete or Backspace: delete all selected parts
-        if event.keyCode == 51 || event.keyCode == 117 {  // 51 = Backspace, 117 = Forward Delete
+        if event.keyCode == 51 || event.keyCode == 117 {
             if !selectedPartIds.isEmpty {
                 for id in selectedPartIds {
                     coordinator?.deletePart(id: id)
@@ -246,6 +246,28 @@ class CardCanvasNSView: NSView {
                 needsDisplay = true
                 return
             }
+        }
+
+        // Arrow keys: nudge selected parts (1px, or 5px with Shift)
+        guard !selectedPartIds.isEmpty else {
+            super.keyDown(with: event)
+            return
+        }
+        let nudge: Double = event.modifierFlags.contains(.shift) ? 5 : 1
+        switch event.keyCode {
+        case 123: // Left arrow
+            for id in selectedPartIds { coordinator?.movePart(id: id, dx: -nudge, dy: 0) }
+            needsDisplay = true; return
+        case 124: // Right arrow
+            for id in selectedPartIds { coordinator?.movePart(id: id, dx: nudge, dy: 0) }
+            needsDisplay = true; return
+        case 125: // Down arrow
+            for id in selectedPartIds { coordinator?.movePart(id: id, dx: 0, dy: nudge) }
+            needsDisplay = true; return
+        case 126: // Up arrow
+            for id in selectedPartIds { coordinator?.movePart(id: id, dx: 0, dy: -nudge) }
+            needsDisplay = true; return
+        default: break
         }
 
         super.keyDown(with: event)
@@ -478,55 +500,64 @@ class CardCanvasNSView: NSView {
         var toolState = ToolState(currentTool: currentTool.rawValue)
         toolState.selectedPartId = selectedPartIds.first
 
-        let result = mouseHandler.handleMouseDown(tool: toolState, hitPart: hitPart, point: point)
-
-        // Before handling the tool result, check if we're clicking a resize handle
-        // on an already-selected part (only when single selection)
-        if currentTool == .select, selectedPartIds.count == 1 {
-            let handle = hitTestResizeHandle(point)
-            if handle != .none {
-                resizeHandle = handle
-                dragStart = point
-                draggedPartId = selectedPartIds.first
-                return
-            }
-        }
-
-        switch result {
-        case .selectPart(let id):
-            if event.modifierFlags.contains(.shift) {
-                // Shift-click: toggle part in selection
-                if selectedPartIds.contains(id) {
-                    coordinator?.removeFromSelection(id)
-                } else {
-                    coordinator?.addToSelection(id)
+        // Handle select tool directly for cleaner click-vs-marquee logic
+        if currentTool == .select {
+            // Check resize handle first (single selection only)
+            if selectedPartIds.count == 1 {
+                let handle = hitTestResizeHandle(point)
+                if handle != .none {
+                    resizeHandle = handle
+                    dragStart = point
+                    draggedPartId = selectedPartIds.first
+                    return
                 }
-            } else {
-                coordinator?.selectPart(id)
             }
-            resizeHandle = .none
-            draggedPartId = id
-            dragStart = point
-        case .deselectAll:
-            if currentTool == .select {
-                // Start marquee selection on empty space
+
+            if let part = hitPart {
+                // Clicked ON a part — select it and prepare for drag
+                if event.modifierFlags.contains(.shift) {
+                    if selectedPartIds.contains(part.id) {
+                        coordinator?.removeFromSelection(part.id)
+                    } else {
+                        coordinator?.addToSelection(part.id)
+                    }
+                } else if !selectedPartIds.contains(part.id) {
+                    // Only re-select if not already in the selection
+                    // (avoids clearing multi-selection when dragging one of them)
+                    coordinator?.selectPart(part.id)
+                }
+                resizeHandle = .none
+                draggedPartId = part.id
+                dragStart = point
+            } else {
+                // Clicked on EMPTY space — start marquee selection
                 coordinator?.selectPart(nil)
                 dragStart = point
                 dragCurrent = point
                 isDragging = true
                 isMarqueeSelecting = true
                 needsDisplay = true
-            } else {
-                coordinator?.selectPart(nil)
             }
+            return
+        }
+
+        let result = mouseHandler.handleMouseDown(tool: toolState, hitPart: hitPart, point: point)
+
+        switch result {
+        case .selectPart(let id):
+            coordinator?.selectPart(id)
+            resizeHandle = .none
+            draggedPartId = id
+            dragStart = point
+        case .deselectAll:
+            coordinator?.selectPart(nil)
         case .sendMessage(let partId, let message):
             // Check if we clicked a field in browse mode — start editing
             if let part = document.parts.first(where: { $0.id == partId }),
                part.partType == .field && !part.lockText {
                 startFieldEditing(part: part)
-                return  // Don't dispatch mouseDown for field editing
+                return
             }
-            // For buttons and other parts, dispatch the message
             coordinator?.dispatchMessage(message, to: partId)
         case .beginDrag(let startX, let startY):
             dragStart = CGPoint(x: startX, y: startY)
