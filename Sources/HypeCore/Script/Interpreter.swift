@@ -200,10 +200,42 @@ public struct Interpreter: Sendable {
 
         case .set(let property, let target, let toExpr):
             let value = try evaluate(toExpr, env: &env, document: document, context: context)
-            // Simplified property setting: if target is an object ref, update document
-            if target != nil {
-                // For now, store in environment as property_target pattern
-                env.setVariable(property, value)
+            if let targetExpr = target {
+                // Try to resolve target as an object reference
+                if case .objectRef(let ref) = targetExpr {
+                    let ident = try evaluate(ref.identifier, env: &env, document: document, context: context)
+                    if let partIndex = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
+                        // Set the property on the part
+                        switch property.lowercased() {
+                        case "url":
+                            document.parts[partIndex].url = value
+                        case "name":
+                            document.parts[partIndex].name = value
+                        case "textcontent", "text":
+                            document.parts[partIndex].textContent = value
+                        case "visible":
+                            document.parts[partIndex].visible = isTruthy(value)
+                        case "enabled":
+                            document.parts[partIndex].enabled = isTruthy(value)
+                        case "textalign":
+                            document.parts[partIndex].textAlign = TextAlignment(rawValue: value.lowercased()) ?? .left
+                        case "textfont", "font":
+                            document.parts[partIndex].textFont = value
+                        case "textsize", "size":
+                            document.parts[partIndex].textSize = toNumber(value)
+                        case "fillcolor":
+                            document.parts[partIndex].fillColor = value
+                        case "strokecolor":
+                            document.parts[partIndex].strokeColor = value
+                        default:
+                            env.setVariable(property, value)
+                        }
+                    } else {
+                        env.setVariable(property, value)
+                    }
+                } else {
+                    env.setVariable(property, value)
+                }
             } else {
                 env.setVariable(property, value)
             }
@@ -651,7 +683,9 @@ public struct Interpreter: Sendable {
         let targetType: PartType? = objectType == "field" ? .field :
                                      objectType == "button" ? .button :
                                      objectType == "btn" ? .button :
-                                     objectType == "fld" ? .field : nil
+                                     objectType == "fld" ? .field :
+                                     objectType == "webpage" ? .webpage :
+                                     objectType == "shape" ? .shape : nil
 
         // Get parts on the current card + its background
         let cardParts = document.partsForCard(currentCardId)

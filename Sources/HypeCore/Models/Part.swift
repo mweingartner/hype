@@ -44,6 +44,8 @@ public struct Part: Identifiable, Codable, Sendable {
     public var dontWrap: Bool
     public var wideMargins: Bool
     public var richText: Bool
+    /// Whether the enterKey event is enabled for this field.
+    public var enterKeyEnabled: Bool
     public var htmlContent: String
 
     // Shape-specific
@@ -101,6 +103,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.dontWrap = false
         self.wideMargins = false
         self.richText = false
+        self.enterKeyEnabled = false
         self.htmlContent = ""
         self.shapeType = .rectangle
         self.fillColor = "#FFFFFF"
@@ -111,5 +114,49 @@ public struct Part: Identifiable, Codable, Sendable {
         self.url = ""
         self.urlSourceFieldId = nil
         self.script = ""
+    }
+
+    // Custom decoder for backward compatibility with documents lacking enterKeyEnabled.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        partType = try container.decode(PartType.self, forKey: .partType)
+        cardId = try container.decodeIfPresent(UUID.self, forKey: .cardId)
+        backgroundId = try container.decodeIfPresent(UUID.self, forKey: .backgroundId)
+        name = try container.decode(String.self, forKey: .name)
+        sortKey = try container.decode(String.self, forKey: .sortKey)
+        left = try container.decode(Double.self, forKey: .left)
+        top = try container.decode(Double.self, forKey: .top)
+        width = try container.decode(Double.self, forKey: .width)
+        height = try container.decode(Double.self, forKey: .height)
+        visible = try container.decode(Bool.self, forKey: .visible)
+        enabled = try container.decode(Bool.self, forKey: .enabled)
+        hilite = try container.decode(Bool.self, forKey: .hilite)
+        autoHilite = try container.decode(Bool.self, forKey: .autoHilite)
+        textContent = try container.decode(String.self, forKey: .textContent)
+        textFont = try container.decode(String.self, forKey: .textFont)
+        textSize = try container.decode(Double.self, forKey: .textSize)
+        textStyle = try container.decode(String.self, forKey: .textStyle)
+        textAlign = try container.decode(TextAlignment.self, forKey: .textAlign)
+        buttonStyle = try container.decode(ButtonStyle.self, forKey: .buttonStyle)
+        showName = try container.decode(Bool.self, forKey: .showName)
+        iconId = try container.decodeIfPresent(UUID.self, forKey: .iconId)
+        family = try container.decode(Int.self, forKey: .family)
+        fieldStyle = try container.decode(FieldStyle.self, forKey: .fieldStyle)
+        lockText = try container.decode(Bool.self, forKey: .lockText)
+        dontWrap = try container.decode(Bool.self, forKey: .dontWrap)
+        wideMargins = try container.decode(Bool.self, forKey: .wideMargins)
+        richText = try container.decode(Bool.self, forKey: .richText)
+        enterKeyEnabled = try container.decodeIfPresent(Bool.self, forKey: .enterKeyEnabled) ?? false
+        htmlContent = try container.decode(String.self, forKey: .htmlContent)
+        shapeType = try container.decode(ShapeType.self, forKey: .shapeType)
+        fillColor = try container.decode(String.self, forKey: .fillColor)
+        strokeColor = try container.decode(String.self, forKey: .strokeColor)
+        strokeWidth = try container.decode(Double.self, forKey: .strokeWidth)
+        cornerRadius = try container.decode(Double.self, forKey: .cornerRadius)
+        pathData = try container.decode([PathPoint].self, forKey: .pathData)
+        url = try container.decode(String.self, forKey: .url)
+        urlSourceFieldId = try container.decodeIfPresent(UUID.self, forKey: .urlSourceFieldId)
+        script = try container.decode(String.self, forKey: .script)
     }
 }

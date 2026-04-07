@@ -36,7 +36,7 @@ public enum TokenType: String, Sendable {
     case lparen, rparen, comma, newline, eof
 
     // Object references
-    case card, background, stack, field, button
+    case card, background, stack, field, button, webpage
 
     // AI (Phase 5 placeholder)
     case ai

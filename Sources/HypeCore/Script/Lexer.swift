@@ -26,6 +26,7 @@ public struct Lexer: Sendable {
         "card": .card, "background": .background, "bg": .background,
         "stack": .stack, "field": .field, "fld": .field,
         "button": .button, "btn": .button,
+        "webpage": .webpage,
         "mod": .mod, "ai": .ai,
     ]
 

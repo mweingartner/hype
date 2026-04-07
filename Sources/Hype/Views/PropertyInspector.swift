@@ -149,6 +149,31 @@ struct PropertyInspector: View {
             Toggle("Rich Text", isOn: bindPartBool(part.id, \.richText))
             Toggle("Wide Margins", isOn: bindPartBool(part.id, \.wideMargins))
 
+            Divider()
+            Text("Events").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+            Toggle("Enter Key Event", isOn: Binding(
+                get: { document.document.parts.first(where: { $0.id == part.id })?.enterKeyEnabled ?? false },
+                set: { newValue in
+                    document.document.updatePart(id: part.id) { p in
+                        p.enterKeyEnabled = newValue
+                        // Auto-add template script if enabling and no enterKey handler exists
+                        if newValue && !p.script.lowercased().contains("on enterkey") {
+                            let template = "on enterKey\n  -- Runs when Enter is pressed in this field\n  \nend enterKey"
+                            if p.script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                p.script = template
+                            } else {
+                                p.script += "\n\n" + template
+                            }
+                        }
+                    }
+                }
+            ))
+            if part.enterKeyEnabled {
+                Text("Press Enter in browse mode to trigger the enterKey handler")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+
             VStack(alignment: .leading) {
                 Text("Content").font(.system(size: 11)).foregroundColor(.secondary)
                 TextEditor(text: bindPartString(part.id, \.textContent))

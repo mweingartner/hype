@@ -101,6 +101,11 @@ struct CardCanvasView: NSViewRepresentable {
             }
         }
 
+        /// Update a part's text content (used by inline field editor).
+        func updatePartText(id: UUID, text: String) {
+            parent.document.document.updatePart(id: id) { $0.textContent = text }
+        }
+
         /// Dispatch a HypeTalk message through the object hierarchy.
         /// This is the runtime — when you click a button in browse mode,
         /// its mouseUp handler fires, which can navigate, modify parts, etc.
@@ -148,6 +153,10 @@ class CardCanvasNSView: NSView {
     private let renderer = CardRenderer()
     private let mouseHandler = MouseHandler()
     private let alignmentEngine = AlignmentEngine()
+
+    // Inline field editing
+    private var activeFieldEditor: NSTextField?
+    private var activeFieldPartId: UUID?
 
     // Active WKWebViews for webpage parts (keyed by part ID)
     private var webViews: [UUID: WKWebView] = [:]
@@ -243,6 +252,44 @@ class CardCanvasNSView: NSView {
         ctx.fill(rect)
     }
 
+    // MARK: - Inline Field Editing
+
+    private func startFieldEditing(part: Part) {
+        // Don't edit if locked
+        guard part.partType == .field && !part.lockText else { return }
+
+        // Remove existing editor
+        endFieldEditing()
+
+        let textField = NSTextField(frame: CGRect(x: part.left, y: part.top, width: part.width, height: part.height))
+        textField.stringValue = part.textContent
+        textField.font = NSFont(name: part.textFont, size: CGFloat(part.textSize)) ?? NSFont.systemFont(ofSize: CGFloat(part.textSize))
+        textField.isBordered = false
+        textField.backgroundColor = .clear
+        textField.focusRingType = .none
+        textField.isEditable = true
+        textField.isSelectable = true
+        textField.delegate = self
+        textField.alignment = part.textAlign == .center ? .center : part.textAlign == .right ? .right : .left
+
+        addSubview(textField)
+        window?.makeFirstResponder(textField)
+
+        activeFieldEditor = textField
+        activeFieldPartId = part.id
+    }
+
+    private func endFieldEditing() {
+        if let editor = activeFieldEditor, let partId = activeFieldPartId {
+            // Save the text back to the part
+            let text = editor.stringValue
+            coordinator?.updatePartText(id: partId, text: text)
+            editor.removeFromSuperview()
+        }
+        activeFieldEditor = nil
+        activeFieldPartId = nil
+    }
+
     // MARK: - Cursor
 
     func updateCursor() {
@@ -275,6 +322,12 @@ class CardCanvasNSView: NSView {
     // MARK: - Mouse events
 
     override func mouseDown(with event: NSEvent) {
+        // End any active field editing when clicking elsewhere
+        if activeFieldEditor != nil {
+            endFieldEditing()
+            needsDisplay = true
+        }
+
         let point = flippedPoint(for: event)
         let hitPart = renderer.partAtPoint(point, document: document, cardId: currentCardId)
 
@@ -311,7 +364,13 @@ class CardCanvasNSView: NSView {
         case .deselectAll:
             coordinator?.selectPart(nil)
         case .sendMessage(let partId, let message):
-            // In browse mode, dispatch the message through the script hierarchy
+            // Check if we clicked a field in browse mode — start editing
+            if let part = document.parts.first(where: { $0.id == partId }),
+               part.partType == .field && !part.lockText {
+                startFieldEditing(part: part)
+                return  // Don't dispatch mouseDown for field editing
+            }
+            // For buttons and other parts, dispatch the message
             coordinator?.dispatchMessage(message, to: partId)
         case .beginDrag(let startX, let startY):
             dragStart = CGPoint(x: startX, y: startY)
@@ -605,5 +664,49 @@ class CardCanvasNSView: NSView {
 
             ctx.restoreGState()
         }
+    }
+}
+
+// MARK: - NSTextFieldDelegate (inline field editing)
+
+extension CardCanvasNSView: NSTextFieldDelegate {
+    func controlTextDidEndEditing(_ obj: Notification) {
+        endFieldEditing()
+        needsDisplay = true
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(insertNewline(_:)) {
+            // Enter key pressed
+            if let partId = activeFieldPartId,
+               let part = document.parts.first(where: { $0.id == partId }),
+               part.enterKeyEnabled {
+                // Save text first
+                let text = activeFieldEditor?.stringValue ?? ""
+                coordinator?.updatePartText(id: partId, text: text)
+                // End editing
+                let savedPartId = partId
+                activeFieldEditor?.removeFromSuperview()
+                activeFieldEditor = nil
+                activeFieldPartId = nil
+                needsDisplay = true
+                // Dispatch enterKey message
+                coordinator?.dispatchMessage("enterKey", to: savedPartId)
+                return true
+            }
+            // If enterKey not enabled, just end editing normally
+            endFieldEditing()
+            needsDisplay = true
+            return true
+        }
+        if commandSelector == #selector(cancelOperation(_:)) {
+            // Escape: cancel editing without saving
+            activeFieldEditor?.removeFromSuperview()
+            activeFieldEditor = nil
+            activeFieldPartId = nil
+            needsDisplay = true
+            return true
+        }
+        return false
     }
 }

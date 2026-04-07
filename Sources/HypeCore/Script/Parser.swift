@@ -553,7 +553,7 @@ public struct Parser: Sendable {
         case .the:
             return try parseTheExpression()
 
-        case .card, .background, .field, .button, .stack:
+        case .card, .background, .field, .button, .stack, .webpage:
             return try parseObjectReference()
 
         case .lparen:
