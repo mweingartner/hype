@@ -2,6 +2,19 @@ import SwiftUI
 import HypeCore
 import AppKit
 
+/// Convert a hex color string to NSColor.
+private func nsColorFromHex(_ hex: String) -> NSColor {
+    var h = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+    if h.hasPrefix("#") { h.removeFirst() }
+    guard h.count == 6, let rgb = UInt64(h, radix: 16) else { return .black }
+    return NSColor(
+        red: CGFloat((rgb >> 16) & 0xFF) / 255.0,
+        green: CGFloat((rgb >> 8) & 0xFF) / 255.0,
+        blue: CGFloat(rgb & 0xFF) / 255.0,
+        alpha: 1.0
+    )
+}
+
 /// AppKit-based dialog provider that shows real NSAlert/NSTextField dialogs.
 final class AppKitDialogProvider: DialogProvider, @unchecked Sendable {
     func showAnswer(prompt: String) -> String {
@@ -38,6 +51,7 @@ struct CardCanvasView: NSViewRepresentable {
     let currentTool: ToolName
     @Binding var selectedPartIds: Set<UUID>
     let editingBackground: Bool
+    var paintColorHex: String = "#000000"
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -63,6 +77,8 @@ struct CardCanvasView: NSViewRepresentable {
         nsView.currentTool = currentTool
         nsView.selectedPartIds = selectedPartIds
         nsView.editingBackground = editingBackground
+        // Sync paint color from SwiftUI Color hex to NSColor
+        nsView.paintColor = nsColorFromHex(paintColorHex)
         nsView.coordinator = context.coordinator
         nsView.updateCursor()
         // Only redraw if not actively editing a field — constant redraws
@@ -253,6 +269,10 @@ class CardCanvasNSView: NSView {
 
     /// Eraser radius in pixels (adjustable with [ and ] keys).
     var eraserRadius: Int = 10
+    /// Spray radius in pixels (adjustable with [ and ] keys when spray tool active).
+    var sprayRadius: Int = 12
+    /// Current paint color for spray, bucket, pencil (bitmap) tools.
+    var paintColor: NSColor = .black
 
     private let renderer = CardRenderer()
     private let mouseHandler = MouseHandler()
@@ -356,14 +376,22 @@ class CardCanvasNSView: NSView {
             }
         }
 
-        // [ and ] keys: resize eraser
-        if currentTool == .eraser {
+        // [ and ] keys: resize eraser or spray
+        if currentTool == .eraser || currentTool == .spray {
             if event.keyCode == 33 { // [ key — decrease
-                eraserRadius = max(3, eraserRadius - 2)
+                if currentTool == .eraser {
+                    eraserRadius = max(3, eraserRadius - 2)
+                } else {
+                    sprayRadius = max(3, sprayRadius - 2)
+                }
                 updateCursor()
                 return
             } else if event.keyCode == 30 { // ] key — increase
-                eraserRadius = min(50, eraserRadius + 2)
+                if currentTool == .eraser {
+                    eraserRadius = min(50, eraserRadius + 2)
+                } else {
+                    sprayRadius = min(50, sprayRadius + 2)
+                }
                 updateCursor()
                 return
             }
@@ -598,7 +626,7 @@ class CardCanvasNSView: NSView {
         case .paint:
             switch currentTool {
             case .eraser:
-                // Create a circle cursor matching eraser size
+                // Circle cursor matching eraser size
                 let size = CGFloat(eraserRadius * 2)
                 let image = NSImage(size: NSSize(width: size, height: size))
                 image.lockFocus()
@@ -606,8 +634,20 @@ class CardCanvasNSView: NSView {
                 NSBezierPath(ovalIn: NSRect(x: 0.5, y: 0.5, width: size - 1, height: size - 1)).stroke()
                 image.unlockFocus()
                 NSCursor(image: image, hotSpot: NSPoint(x: size / 2, y: size / 2)).set()
-            case .bucket:
-                NSCursor.crosshair.set()
+            case .spray:
+                // Circle cursor matching spray radius, tinted with paint color
+                let size = CGFloat(sprayRadius * 2)
+                let image = NSImage(size: NSSize(width: size, height: size))
+                image.lockFocus()
+                paintColor.withAlphaComponent(0.4).setStroke()
+                let path = NSBezierPath(ovalIn: NSRect(x: 0.5, y: 0.5, width: size - 1, height: size - 1))
+                path.lineWidth = 1.5
+                path.stroke()
+                // Center dot showing color
+                paintColor.setFill()
+                NSBezierPath(ovalIn: NSRect(x: size/2 - 2, y: size/2 - 2, width: 4, height: 4)).fill()
+                image.unlockFocus()
+                NSCursor(image: image, hotSpot: NSPoint(x: size / 2, y: size / 2)).set()
             default:
                 NSCursor.crosshair.set()
             }
@@ -715,13 +755,13 @@ class CardCanvasNSView: NSView {
                 pencilPoints = [PathPoint(x: Double(x), y: Double(y))]
             case .spray:
                 let pl = paintLayerForCurrentCard()
-                pl.spray(cx: x, cy: y, radius: 12, density: 20, color: NSColor.black)
+                pl.spray(cx: x, cy: y, radius: sprayRadius, density: max(10, sprayRadius * 2), color: paintColor)
             case .eraser:
                 let pl = paintLayerForCurrentCard()
                 pl.erase(cx: x, cy: y, radius: eraserRadius)
             case .bucket:
                 let pl = paintLayerForCurrentCard()
-                pl.floodFill(x: x, y: y, color: NSColor.black)
+                pl.floodFill(x: x, y: y, color: paintColor)
             case .line, .rect, .oval, .text:
                 // These use drag -- just record start point
                 break
@@ -860,7 +900,7 @@ class CardCanvasNSView: NSView {
                 dragCurrent = point  // For visual preview
             case .spray:
                 let pl = paintLayerForCurrentCard()
-                pl.spray(cx: x, cy: y, radius: 12, density: 15, color: NSColor.black)
+                pl.spray(cx: x, cy: y, radius: sprayRadius, density: max(8, sprayRadius), color: paintColor)
             case .eraser:
                 let pl = paintLayerForCurrentCard()
                 pl.erase(cx: x, cy: y, radius: eraserRadius)

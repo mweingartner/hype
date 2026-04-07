@@ -8,6 +8,7 @@ struct MainContentView: View {
     @State private var selectedPartIds: Set<UUID> = []
     @State private var editingBackground: Bool = false
     @State private var showAI: Bool = false
+    @State private var paintColor: Color = .black
 
     private var toolState: ToolState {
         var state = ToolState(currentTool: currentTool.rawValue)
@@ -94,7 +95,8 @@ struct MainContentView: View {
                 currentCardId: currentCardId ?? document.document.sortedCards.first?.id ?? UUID(),
                 currentTool: currentTool,
                 selectedPartIds: $selectedPartIds,
-                editingBackground: editingBackground
+                editingBackground: editingBackground,
+                paintColorHex: paintColor.toHex()
             )
             .frame(
                 minWidth: CGFloat(document.document.stack.width),
@@ -107,6 +109,15 @@ struct MainContentView: View {
                 Text(cardInfoText)
                     .font(.system(size: 11))
                 Spacer()
+                // Paint color picker (shown for spray, bucket, pencil tools)
+                if toolState.category == .paint && (currentTool == .spray || currentTool == .bucket) {
+                    ColorPicker("", selection: $paintColor, supportsOpacity: false)
+                        .labelsHidden()
+                        .frame(width: 24, height: 18)
+                    Text("Color")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
                 Text(toolModeText)
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
