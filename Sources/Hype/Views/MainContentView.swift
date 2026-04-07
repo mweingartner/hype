@@ -283,6 +283,19 @@ private struct NavigationHandlers: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .showAllCards)) { _ in
                 cycleAllCards()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .hypeQuit)) { _ in
+                // Dispatch "quit" system message to the current card before app terminates
+                if let cardId = currentCardId {
+                    let dispatcher = MessageDispatcher()
+                    let _ = dispatcher.dispatch(
+                        message: "quit",
+                        params: [],
+                        targetId: cardId,
+                        document: document.document,
+                        currentCardId: cardId
+                    )
+                }
+            }
     }
 
     /// Navigate to a new card, dispatching HypeTalk lifecycle messages.

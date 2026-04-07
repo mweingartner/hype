@@ -2,8 +2,23 @@ import SwiftUI
 import HypeCore
 import UniformTypeIdentifiers
 
+/// App delegate to handle quit lifecycle and dispatch the "quit" system message.
+final class HypeAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillTerminate(_ notification: Notification) {
+        // Dispatch "quit" message to the current card of each open document.
+        // This gives scripts a chance to run cleanup handlers before the app exits.
+        NotificationCenter.default.post(name: .hypeQuit, object: nil)
+    }
+}
+
+extension Notification.Name {
+    static let hypeQuit = Notification.Name("hypeQuit")
+}
+
 @main
 struct HypeApp: App {
+    @NSApplicationDelegateAdaptor(HypeAppDelegate.self) var appDelegate
+
     var body: some Scene {
         DocumentGroup(newDocument: HypeDocumentWrapper()) { file in
             MainContentView(document: file.$document)
