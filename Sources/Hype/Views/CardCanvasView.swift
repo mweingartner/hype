@@ -44,6 +44,7 @@ final class AppKitDialogProvider: DialogProvider, @unchecked Sendable {
     }
 }
 import WebKit
+import AVKit
 
 struct CardCanvasView: NSViewRepresentable {
     @Binding var document: HypeDocumentWrapper
@@ -287,6 +288,11 @@ class CardCanvasNSView: NSView {
     // Track which URLs are loaded to avoid redundant loads
     private var loadedURLs: [UUID: String] = [:]
 
+    // Active AVPlayerViews for video parts (keyed by part ID)
+    private var videoPlayers: [UUID: AVPlayerView] = [:]
+    // Track which video URLs are loaded to avoid redundant loads
+    private var loadedVideoURLs: [UUID: String] = [:]
+
     // Paint layers keyed by card ID
     private var paintLayers: [UUID: PaintLayer] = [:]
 
@@ -448,6 +454,9 @@ class CardCanvasNSView: NSView {
 
         // Update web views for webpage parts
         updateWebViews()
+
+        // Update video players for video parts
+        updateVideoPlayers()
 
         // Dim card parts and draw border when editing background
         if editingBackground {
@@ -1257,6 +1266,75 @@ class CardCanvasNSView: NSView {
                 webViews.removeValue(forKey: id)
                 loadedURLs.removeValue(forKey: id)
             }
+        }
+    }
+
+    // MARK: - Video Player Management
+
+    /// Create, update, or remove AVPlayerViews for video parts on the current card.
+    private func updateVideoPlayers() {
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let isBrowseMode = toolState.category == .browse
+
+        let cardParts = document.partsForCard(currentCardId)
+        let bgParts: [Part]
+        if let card = document.cards.first(where: { $0.id == currentCardId }) {
+            bgParts = document.partsForBackground(card.backgroundId)
+        } else {
+            bgParts = []
+        }
+        let allParts = cardParts + bgParts
+        let videoParts = allParts.filter { $0.partType == .video && $0.visible }
+
+        // In edit mode or no video parts, hide all players
+        if !isBrowseMode || videoParts.isEmpty {
+            for (_, player) in videoPlayers {
+                player.player?.pause()
+                player.removeFromSuperview()
+            }
+            videoPlayers.removeAll()
+            loadedVideoURLs.removeAll()
+            return
+        }
+
+        // Track which parts are still active
+        var activeIds = Set<UUID>()
+
+        for part in videoParts {
+            activeIds.insert(part.id)
+            let urlString = part.videoURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !urlString.isEmpty else { continue }
+
+            let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+
+            if let existing = videoPlayers[part.id] {
+                existing.frame = frame
+                if loadedVideoURLs[part.id] != urlString {
+                    // URL changed — reload
+                    let url = URL(string: urlString) ?? URL(fileURLWithPath: urlString)
+                    existing.player = AVPlayer(url: url)
+                    loadedVideoURLs[part.id] = urlString
+                }
+            } else {
+                let playerView = AVPlayerView(frame: frame)
+                playerView.controlsStyle = .inline
+                playerView.showsFullScreenToggleButton = true
+
+                let url = URL(string: urlString) ?? URL(fileURLWithPath: urlString)
+                playerView.player = AVPlayer(url: url)
+
+                addSubview(playerView, positioned: .above, relativeTo: nil)
+                videoPlayers[part.id] = playerView
+                loadedVideoURLs[part.id] = urlString
+            }
+        }
+
+        // Remove players for parts that no longer exist
+        for id in videoPlayers.keys where !activeIds.contains(id) {
+            videoPlayers[id]?.player?.pause()
+            videoPlayers[id]?.removeFromSuperview()
+            videoPlayers.removeValue(forKey: id)
+            loadedVideoURLs.removeValue(forKey: id)
         }
     }
 

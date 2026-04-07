@@ -61,10 +61,20 @@ public struct HypeToolDefinitions {
             "on_background": ("string", "Set to 'true' to place on the card's background", false),
         ]),
 
+        makeTool(name: "create_video", description: "Create a video player on the current card or background.", params: [
+            "name": ("string", "Video part name", true),
+            "video_url": ("string", "URL or file path to the video", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width in points", true),
+            "height": ("string", "Height in points", true),
+            "on_background": ("string", "Set to 'true' to place on the card's background", false),
+        ]),
+
         // Part modification
         makeTool(name: "set_part_property", description: """
             Set a property on a part by name. Available properties: name, left, top, width, height, \
-            text, url, fillColor, strokeColor, strokeWidth, cornerRadius, visible, enabled, hilite, \
+            text, url, videoURL, fillColor, strokeColor, strokeWidth, cornerRadius, visible, enabled, hilite, \
             autoHilite, showName, lockText, textFont, textSize, textAlign, textStyle, script, style. \
             For 'style': button styles are transparent/opaque/rectangle/roundRect/shadow/checkBox/radioButton/standard/default/popup/oval/toggle. \
             Field styles are transparent/opaque/rectangle/shadow/scrolling. \

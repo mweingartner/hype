@@ -61,8 +61,8 @@ public enum ButtonRenderer {
                 ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
                 ctx.setLineWidth(2)
                 ctx.move(to: CGPoint(x: boxRect.minX + 3, y: boxRect.midY))
-                ctx.addLine(to: CGPoint(x: boxRect.midX - 1, y: boxRect.minY + 3))
-                ctx.addLine(to: CGPoint(x: boxRect.maxX - 3, y: boxRect.maxY - 3))
+                ctx.addLine(to: CGPoint(x: boxRect.midX - 1, y: boxRect.maxY - 3))
+                ctx.addLine(to: CGPoint(x: boxRect.maxX - 3, y: boxRect.minY + 3))
                 ctx.strokePath()
             }
             // Label

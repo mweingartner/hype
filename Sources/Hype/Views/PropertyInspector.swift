@@ -32,6 +32,7 @@ struct PropertyInspector: View {
                         case .shape: shapeSection(part: part)
                         case .webpage: webpageSection(part: part)
                         case .image: imageSection(part: part)
+                        case .video: videoSection(part: part)
                         }
 
                         // Font controls for buttons and fields
@@ -351,6 +352,33 @@ struct PropertyInspector: View {
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func videoSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Video").font(.subheadline).foregroundColor(.secondary)
+            propertyRow("URL/Path", binding: bindPartString(part.id, \.videoURL))
+            Button("Choose Video...") {
+                chooseVideoForPart(partId: part.id)
+            }
+            if !part.videoURL.isEmpty {
+                Text(part.videoURL)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+        }
+    }
+
+    private func chooseVideoForPart(partId: UUID) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.mpeg4Movie, .movie, .quickTimeMovie]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        if panel.runModal() == .OK, let url = panel.url {
+            document.document.updatePart(id: partId) { $0.videoURL = url.absoluteString }
         }
     }
 

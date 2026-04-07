@@ -95,6 +95,8 @@ public final class CardRenderer: Sendable {
             WebPageRenderer.draw(ctx: ctx, part: part, rect: rect)
         case .image:
             ImageRenderer.draw(ctx: ctx, part: part, rect: rect)
+        case .video:
+            VideoRenderer.draw(ctx: ctx, part: part, rect: rect)
         }
     }
 

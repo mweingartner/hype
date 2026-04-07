@@ -144,6 +144,23 @@ public struct HypeToolExecutor: Sendable {
             let webLayer = place.backgroundId != nil ? " on background" : ""
             return "Created webpage '\(part.name)' with URL \(part.url)\(webLayer)"
 
+        case "create_video":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            var part = Part(
+                partType: .video,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
+                name: arguments["name"] ?? "Video",
+                left: Double(arguments["left"] ?? "100") ?? 100,
+                top: Double(arguments["top"] ?? "100") ?? 100,
+                width: Double(arguments["width"] ?? "400") ?? 400,
+                height: Double(arguments["height"] ?? "300") ?? 300
+            )
+            part.videoURL = arguments["video_url"] ?? ""
+            document.addPart(part)
+            let videoLayer = place.backgroundId != nil ? " on background" : ""
+            return "Created video '\(part.name)' with URL \(part.videoURL)\(videoLayer)"
+
         case "set_part_property":
             let partName = arguments["part_name"] ?? ""
             let property = arguments["property"] ?? ""
@@ -157,6 +174,7 @@ public struct HypeToolExecutor: Sendable {
                 case "height": document.parts[index].height = Double(value) ?? 40
                 case "text", "textcontent": document.parts[index].textContent = value
                 case "url": document.parts[index].url = value
+                case "videourl", "video_url": document.parts[index].videoURL = value
                 case "fillcolor", "fill_color": document.parts[index].fillColor = value
                 case "strokecolor", "stroke_color": document.parts[index].strokeColor = value
                 case "visible": document.parts[index].visible = (value.lowercased() == "true")

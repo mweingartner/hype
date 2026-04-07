@@ -62,6 +62,9 @@ public struct Part: Identifiable, Codable, Sendable {
     public var url: String
     public var urlSourceFieldId: UUID?
 
+    // Video-specific
+    public var videoURL: String
+
     // Image-specific
     public var imageData: Data?
     public var invertOnClick: Bool
@@ -120,6 +123,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.pathData = []
         self.url = partType == .webpage ? "http://" : ""
         self.urlSourceFieldId = nil
+        self.videoURL = ""
         self.imageData = nil
         self.invertOnClick = false
         self.script = ""
@@ -167,6 +171,7 @@ public struct Part: Identifiable, Codable, Sendable {
         pathData = try container.decode([PathPoint].self, forKey: .pathData)
         url = try container.decode(String.self, forKey: .url)
         urlSourceFieldId = try container.decodeIfPresent(UUID.self, forKey: .urlSourceFieldId)
+        videoURL = try container.decodeIfPresent(String.self, forKey: .videoURL) ?? ""
         imageData = try container.decodeIfPresent(Data.self, forKey: .imageData)
         invertOnClick = try container.decodeIfPresent(Bool.self, forKey: .invertOnClick) ?? false
         script = try container.decode(String.self, forKey: .script)
