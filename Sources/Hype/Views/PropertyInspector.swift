@@ -442,10 +442,12 @@ struct PropertyInspector: View {
                         .font(.system(size: 10))
                     Spacer()
                     TextField("", value: Binding(
-                        get: { constraint.distance },
+                        get: { abs(constraint.distance) },
                         set: { newVal in
                             if let idx = document.document.constraints.firstIndex(where: { $0.id == constraint.id }) {
-                                document.document.constraints[idx].distance = newVal
+                                // Preserve the sign (direction), update magnitude
+                                let sign: Double = document.document.constraints[idx].distance >= 0 ? 1 : -1
+                                document.document.constraints[idx].distance = sign * abs(newVal)
                             }
                         }
                     ), format: .number)

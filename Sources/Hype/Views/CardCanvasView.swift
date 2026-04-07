@@ -1609,7 +1609,7 @@ class CardCanvasNSView: NSView {
             targetEdge = nearestEdge(of: target, to: point)
             let sourcePos = edgePosition(sourceEdge, part: document.parts.first(where: { $0.id == sourceId })!)
             let targetPos = edgePosition(targetEdge, part: target)
-            currentDistance = sourcePos - targetPos
+            currentDistance = abs(sourcePos - targetPos)
         } else {
             // Canvas edge constraint — determine nearest canvas edge
             targetType = .canvas
@@ -1635,16 +1635,16 @@ class CardCanvasNSView: NSView {
             case .centerX: canvasPos = canvasW / 2
             case .centerY: canvasPos = canvasH / 2
             }
-            currentDistance = sourcePos - canvasPos
+            currentDistance = abs(sourcePos - canvasPos)
         }
 
         // Validate: horizontal-to-horizontal, vertical-to-vertical
         if sourceEdge.isHorizontal != targetEdge.isHorizontal { return }
 
-        // Show distance dialog
+        // Show distance dialog — always show positive value
         let alert = NSAlert()
         alert.messageText = "Set Constraint Distance"
-        alert.informativeText = "\(sourceEdge.rawValue) -> \(targetType == .canvas ? "canvas " : "")\(targetEdge.rawValue)"
+        alert.informativeText = "Distance from \(sourceEdge.rawValue) to \(targetType == .canvas ? "canvas " : "")\(targetEdge.rawValue) (pixels)"
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Cancel")
         let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
@@ -1654,7 +1654,30 @@ class CardCanvasNSView: NSView {
 
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
-        let distance = Double(input.stringValue) ?? currentDistance
+        let userDistance = abs(Double(input.stringValue) ?? currentDistance)
+
+        // Compute the signed distance for the solver:
+        // The solver computes: desiredSourcePos = targetPos + distance
+        // So distance = sourcePos - targetPos (with correct sign)
+        let sourcePart = document.parts.first(where: { $0.id == sourceId })!
+        let sourcePos = edgePosition(sourceEdge, part: sourcePart)
+        let targetPos: Double
+        if targetType == .canvas {
+            switch targetEdge {
+            case .left: targetPos = 0
+            case .right: targetPos = canvasW
+            case .top: targetPos = 0
+            case .bottom: targetPos = canvasH
+            case .centerX: targetPos = canvasW / 2
+            case .centerY: targetPos = canvasH / 2
+            }
+        } else if let tid = targetPartId, let tp = document.parts.first(where: { $0.id == tid }) {
+            targetPos = edgePosition(targetEdge, part: tp)
+        } else {
+            targetPos = 0
+        }
+        // Preserve the direction but use the user's magnitude
+        let signedDistance = sourcePos >= targetPos ? userDistance : -userDistance
 
         let constraint = LayoutConstraint(
             sourcePartId: sourceId,
@@ -1662,7 +1685,7 @@ class CardCanvasNSView: NSView {
             targetType: targetType,
             targetPartId: targetPartId,
             targetEdge: targetEdge,
-            distance: distance
+            distance: signedDistance
         )
         coordinator?.addConstraint(constraint)
     }
