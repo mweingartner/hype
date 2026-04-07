@@ -216,6 +216,36 @@ struct CardCanvasView: NSViewRepresentable {
         /// Add a layout constraint to the document.
         func addConstraint(_ constraint: LayoutConstraint) {
             parent.document.document.addConstraint(constraint)
+            resolveConstraints()
+        }
+
+        /// Resolve all layout constraints for the current card.
+        func resolveConstraints() {
+            let cardId = parent.currentCardId
+            let doc = parent.document.document
+            let cardParts = doc.partsForCard(cardId)
+            let card = doc.cards.first(where: { $0.id == cardId })
+            let bgParts = card.map { doc.partsForBackground($0.backgroundId) } ?? []
+            let allParts = cardParts + bgParts
+            let partIds = Set(allParts.map(\.id))
+            let relevantConstraints = doc.constraints.filter { partIds.contains($0.sourcePartId) }
+            guard !relevantConstraints.isEmpty else { return }
+
+            let solver = ConstraintSolver()
+            let updates = solver.solve(
+                constraints: relevantConstraints,
+                parts: allParts,
+                canvasWidth: Double(doc.stack.width),
+                canvasHeight: Double(doc.stack.height)
+            )
+            for (partId, geom) in updates {
+                parent.document.document.updatePart(id: partId) {
+                    $0.left = geom.left
+                    $0.top = geom.top
+                    $0.width = geom.width
+                    $0.height = geom.height
+                }
+            }
         }
 
         /// Dispatch a HypeTalk message to the current card (for card-level events).
@@ -729,7 +759,31 @@ class CardCanvasNSView: NSView {
             stopIdleTimer()
             mouseStillDownTimer?.invalidate()
             mouseStillDownTimer = nil
+            // Remove frame change observer
+            NotificationCenter.default.removeObserver(self, name: NSView.frameDidChangeNotification, object: self)
+        } else {
+            // Observe frame changes to resolve constraints on resize
+            postsFrameChangedNotifications = true
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(viewFrameDidChange),
+                name: NSView.frameDidChangeNotification,
+                object: self
+            )
         }
+    }
+
+    @objc private func viewFrameDidChange(_ notification: Notification) {
+        // Resolve layout constraints whenever the view is resized
+        coordinator?.resolveConstraints()
+        needsDisplay = true
+    }
+
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        // Final constraint resolution after user finishes resizing
+        coordinator?.resolveConstraints()
+        needsDisplay = true
     }
 
     override func resetCursorRects() {
