@@ -62,7 +62,14 @@ public struct HypeToolDefinitions {
         ]),
 
         // Part modification
-        makeTool(name: "set_part_property", description: "Set a property on a part by name. Properties: name, left, top, width, height, text, url, fillColor, strokeColor, visible, enabled, script.", params: [
+        makeTool(name: "set_part_property", description: """
+            Set a property on a part by name. Available properties: name, left, top, width, height, \
+            text, url, fillColor, strokeColor, strokeWidth, cornerRadius, visible, enabled, hilite, \
+            autoHilite, showName, lockText, textFont, textSize, textAlign, textStyle, script, style. \
+            For 'style': button styles are transparent/opaque/rectangle/roundRect/shadow/checkBox/radioButton/standard/default/popup/oval/toggle. \
+            Field styles are transparent/opaque/rectangle/shadow/scrolling. \
+            Shape types are rectangle/roundRect/oval/line/freeform.
+            """, params: [
             "part_name": ("string", "Name of the part to modify", true),
             "property": ("string", "Property to set", true),
             "value": ("string", "New value", true),

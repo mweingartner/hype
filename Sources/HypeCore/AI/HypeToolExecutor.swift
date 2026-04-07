@@ -162,6 +162,43 @@ public struct HypeToolExecutor: Sendable {
                 case "visible": document.parts[index].visible = (value.lowercased() == "true")
                 case "enabled": document.parts[index].enabled = (value.lowercased() == "true")
                 case "script": document.parts[index].script = value
+                case "style":
+                    let part = document.parts[index]
+                    switch part.partType {
+                    case .button:
+                        if let bs = ButtonStyle(rawValue: value) {
+                            document.parts[index].buttonStyle = bs
+                        } else {
+                            let valid = ButtonStyle.allCases.map(\.rawValue).joined(separator: ", ")
+                            return "Invalid button style '\(value)'. Valid: \(valid)"
+                        }
+                    case .field:
+                        if let fs = FieldStyle(rawValue: value) {
+                            document.parts[index].fieldStyle = fs
+                        } else {
+                            let valid = FieldStyle.allCases.map(\.rawValue).joined(separator: ", ")
+                            return "Invalid field style '\(value)'. Valid: \(valid)"
+                        }
+                    case .shape:
+                        if let st = ShapeType(rawValue: value) {
+                            document.parts[index].shapeType = st
+                        } else {
+                            let valid = ShapeType.allCases.map(\.rawValue).joined(separator: ", ")
+                            return "Invalid shape type '\(value)'. Valid: \(valid)"
+                        }
+                    default:
+                        return "Part type '\(part.partType.rawValue)' does not support style property"
+                    }
+                case "hilite": document.parts[index].hilite = (value.lowercased() == "true")
+                case "autohilite": document.parts[index].autoHilite = (value.lowercased() == "true")
+                case "showname": document.parts[index].showName = (value.lowercased() == "true")
+                case "locktext": document.parts[index].lockText = (value.lowercased() == "true")
+                case "textfont", "font": document.parts[index].textFont = value
+                case "textsize", "size": document.parts[index].textSize = Double(value) ?? 14
+                case "textalign": document.parts[index].textAlign = TextAlignment(rawValue: value.lowercased()) ?? .left
+                case "textstyle": document.parts[index].textStyle = value
+                case "strokewidth": document.parts[index].strokeWidth = Double(value) ?? 1
+                case "cornerradius": document.parts[index].cornerRadius = Double(value) ?? 8
                 default: return "Unknown property '\(property)'"
                 }
                 return "Set \(property) of '\(partName)' to '\(value)'"

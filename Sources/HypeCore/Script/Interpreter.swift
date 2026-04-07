@@ -257,10 +257,15 @@ public struct Interpreter: Sendable {
                         case "widemargins":
                             document.parts[partIndex].wideMargins = isTruthy(value)
                         case "style":
-                            if document.parts[partIndex].partType == .button {
+                            switch document.parts[partIndex].partType {
+                            case .button:
                                 document.parts[partIndex].buttonStyle = ButtonStyle(rawValue: value) ?? .roundRect
-                            } else if document.parts[partIndex].partType == .field {
+                            case .field:
                                 document.parts[partIndex].fieldStyle = FieldStyle(rawValue: value) ?? .rectangle
+                            case .shape:
+                                document.parts[partIndex].shapeType = ShapeType(rawValue: value) ?? .rectangle
+                            default:
+                                break
                             }
                         case "script":
                             document.parts[partIndex].script = value
