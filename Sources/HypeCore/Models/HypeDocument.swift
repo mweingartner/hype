@@ -6,17 +6,34 @@ public struct HypeDocument: Codable, Sendable {
     public var backgrounds: [Background]
     public var cards: [Card]
     public var parts: [Part]
+    public var constraints: [LayoutConstraint]
 
     public init(
         stack: Stack = Stack(),
         backgrounds: [Background] = [],
         cards: [Card] = [],
-        parts: [Part] = []
+        parts: [Part] = [],
+        constraints: [LayoutConstraint] = []
     ) {
         self.stack = stack
         self.backgrounds = backgrounds
         self.cards = cards
         self.parts = parts
+        self.constraints = constraints
+    }
+
+    // Custom decoder for backward compatibility — old documents lack `constraints`.
+    enum CodingKeys: String, CodingKey {
+        case stack, backgrounds, cards, parts, constraints
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        stack = try container.decode(Stack.self, forKey: .stack)
+        backgrounds = try container.decode([Background].self, forKey: .backgrounds)
+        cards = try container.decode([Card].self, forKey: .cards)
+        parts = try container.decode([Part].self, forKey: .parts)
+        constraints = try container.decodeIfPresent([LayoutConstraint].self, forKey: .constraints) ?? []
     }
 
     /// Create a new empty document with one default background and card.
@@ -140,5 +157,27 @@ public struct HypeDocument: Codable, Sendable {
         guard let index = parts.firstIndex(where: { $0.id == id }) else { return }
         let part = parts.remove(at: index)
         parts.insert(part, at: 0)
+    }
+
+    // MARK: - Constraints
+
+    /// Add a layout constraint to the document.
+    public mutating func addConstraint(_ constraint: LayoutConstraint) {
+        constraints.append(constraint)
+    }
+
+    /// Remove a layout constraint by ID.
+    public mutating func removeConstraint(id: UUID) {
+        constraints.removeAll { $0.id == id }
+    }
+
+    /// Get all constraints where the given part is the source.
+    public func constraintsForPart(_ partId: UUID) -> [LayoutConstraint] {
+        constraints.filter { $0.sourcePartId == partId }
+    }
+
+    /// Remove all constraints referencing a specific part (as source or target).
+    public mutating func removeConstraintsForPart(_ partId: UUID) {
+        constraints.removeAll { $0.sourcePartId == partId || $0.targetPartId == partId }
     }
 }

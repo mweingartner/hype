@@ -70,10 +70,16 @@ struct PropertyInspector: View {
 
                         Divider()
 
+                        // Constraints section
+                        constraintsSection(partId: part.id)
+
+                        Divider()
+
                         // Delete part
                         Button(role: .destructive, action: {
                             let idToDelete = part.id
                             selectedPartIds = []
+                            document.document.removeConstraintsForPart(idToDelete)
                             document.document.removePart(id: idToDelete)
                         }) {
                             HStack {
@@ -416,6 +422,43 @@ struct PropertyInspector: View {
                 Image(systemName: "text.alignright").tag(HypeCore.TextAlignment.right)
             }
             .pickerStyle(.segmented)
+        }
+    }
+
+    // MARK: - Constraints section
+
+    @ViewBuilder
+    private func constraintsSection(partId: UUID) -> some View {
+        let partConstraints = document.document.constraintsForPart(partId)
+        VStack(alignment: .leading, spacing: 4) {
+            Text("CONSTRAINTS").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+            if partConstraints.isEmpty {
+                Text("Option+drag from this part to another part or canvas edge to create a constraint")
+                    .font(.system(size: 10)).foregroundColor(.secondary)
+            }
+            ForEach(partConstraints) { constraint in
+                HStack {
+                    Text("\(constraint.sourceEdge.rawValue) -> \(constraint.targetType == .canvas ? "canvas " : "")\(constraint.targetEdge.rawValue)")
+                        .font(.system(size: 10))
+                    Spacer()
+                    TextField("", value: Binding(
+                        get: { constraint.distance },
+                        set: { newVal in
+                            if let idx = document.document.constraints.firstIndex(where: { $0.id == constraint.id }) {
+                                document.document.constraints[idx].distance = newVal
+                            }
+                        }
+                    ), format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 50)
+                    .font(.system(size: 10))
+                    Text("px").font(.system(size: 10)).foregroundColor(.secondary)
+                    Button(action: { document.document.removeConstraint(id: constraint.id) }) {
+                        Image(systemName: "xmark.circle.fill").foregroundColor(.red)
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
         }
     }
 

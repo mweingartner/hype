@@ -207,8 +207,15 @@ struct CardCanvasView: NSViewRepresentable {
                 }
                 dispatchMessage(message, to: id)
             }
+            // Remove constraints referencing this part
+            parent.document.document.removeConstraintsForPart(id)
             parent.selectedPartIds.remove(id)
             parent.document.document.removePart(id: id)
+        }
+
+        /// Add a layout constraint to the document.
+        func addConstraint(_ constraint: LayoutConstraint) {
+            parent.document.document.addConstraint(constraint)
         }
 
         /// Dispatch a HypeTalk message to the current card (for card-level events).
@@ -302,6 +309,12 @@ class CardCanvasNSView: NSView {
     private var isDragging = false
     private var draggedPartId: UUID?
     private var resizeHandle: ResizeHandle = .none
+
+    // Constraint linking state
+    private var isConstraintDragging = false
+    private var constraintSourcePartId: UUID?
+    private var constraintSourceEdge: ConstraintEdge?
+    private var constraintDragEnd: CGPoint?
 
     // Pencil freeform points collected during drag
     private var pencilPoints: [PathPoint] = []
@@ -450,6 +463,35 @@ class CardCanvasNSView: NSView {
         // Draw alignment guides
         if !activeGuides.isEmpty {
             drawAlignmentGuides(ctx: ctx)
+        }
+
+        // Draw constraint rubber band during Option+drag
+        if isConstraintDragging, let sourceId = constraintSourcePartId,
+           let sourceEdge = constraintSourceEdge,
+           let endPoint = constraintDragEnd,
+           let sourcePart = document.parts.first(where: { $0.id == sourceId }) {
+            ctx.saveGState()
+            ctx.setStrokeColor(NSColor.systemOrange.cgColor)
+            ctx.setLineWidth(2)
+            ctx.setLineDash(phase: 0, lengths: [6, 4])
+            let startPoint = constraintEdgePoint(sourceEdge, part: sourcePart)
+            ctx.move(to: startPoint)
+            ctx.addLine(to: endPoint)
+            ctx.strokePath()
+            // Draw circle at start
+            ctx.setFillColor(NSColor.systemOrange.cgColor)
+            ctx.fillEllipse(in: CGRect(x: startPoint.x - 4, y: startPoint.y - 4, width: 8, height: 8))
+            ctx.restoreGState()
+        }
+
+        // Draw constraint indicators on selected parts
+        for selectedId in selectedPartIds {
+            let partConstraints = document.constraints.filter { $0.sourcePartId == selectedId }
+            for constraint in partConstraints {
+                if let part = document.parts.first(where: { $0.id == selectedId }) {
+                    drawConstraintIndicator(ctx: ctx, part: part, constraint: constraint)
+                }
+            }
         }
 
         // Update web views for webpage parts
@@ -801,6 +843,17 @@ class CardCanvasNSView: NSView {
             hitPart = nil
         }
 
+        // Option+click on a part in select/edit mode → start constraint drag
+        if event.modifierFlags.contains(.option), let part = hitPart {
+            isConstraintDragging = true
+            constraintSourcePartId = part.id
+            constraintSourceEdge = nearestEdge(of: part, to: point)
+            constraintDragEnd = point
+            dragStart = point
+            needsDisplay = true
+            return
+        }
+
         // Double-click on a part in browse mode → dispatch message and open properties
         let toolCheck = ToolState(currentTool: currentTool.rawValue)
         if event.clickCount == 2 && toolCheck.category == .browse, let part = hitPart {
@@ -897,6 +950,13 @@ class CardCanvasNSView: NSView {
     override func mouseDragged(with event: NSEvent) {
         let point = flippedPoint(for: event)
 
+        // Handle constraint drag
+        if isConstraintDragging {
+            constraintDragEnd = point
+            needsDisplay = true
+            return
+        }
+
         // Handle paint tool dragging
         if isDragging && ToolState(currentTool: currentTool.rawValue).category == .paint {
             let x = Int(point.x)
@@ -978,6 +1038,17 @@ class CardCanvasNSView: NSView {
         mouseStillDownPartId = nil
 
         let point = flippedPoint(for: event)
+
+        // Handle constraint drag completion
+        if isConstraintDragging {
+            completeConstraintDrag(at: point)
+            isConstraintDragging = false
+            constraintSourcePartId = nil
+            constraintSourceEdge = nil
+            constraintDragEnd = nil
+            needsDisplay = true
+            return
+        }
 
         // Handle paint tool mouseUp (shape tools create Parts, bitmap tools use PaintLayer)
         if isDragging && ToolState(currentTool: currentTool.rawValue).category == .paint {
@@ -1422,6 +1493,139 @@ class CardCanvasNSView: NSView {
         let layer = PaintLayer(width: max(1, Int(bounds.width)), height: max(1, Int(bounds.height)))
         paintLayers[currentCardId] = layer
         return layer
+    }
+
+    // MARK: - Constraint Helpers
+
+    /// Determine which edge of a part is nearest to a point.
+    private func nearestEdge(of part: Part, to point: CGPoint) -> ConstraintEdge {
+        let distances: [(ConstraintEdge, Double)] = [
+            (.left, abs(point.x - part.left)),
+            (.right, abs(point.x - (part.left + part.width))),
+            (.top, abs(point.y - part.top)),
+            (.bottom, abs(point.y - (part.top + part.height))),
+        ]
+        return distances.min(by: { $0.1 < $1.1 })!.0
+    }
+
+    /// Get the position of a constraint edge on a part.
+    private func edgePosition(_ edge: ConstraintEdge, part: Part) -> Double {
+        switch edge {
+        case .left: return part.left
+        case .right: return part.left + part.width
+        case .top: return part.top
+        case .bottom: return part.top + part.height
+        case .centerX: return part.left + part.width / 2
+        case .centerY: return part.top + part.height / 2
+        }
+    }
+
+    /// Get the CGPoint on a part for a given constraint edge (for drawing).
+    private func constraintEdgePoint(_ edge: ConstraintEdge, part: Part) -> CGPoint {
+        switch edge {
+        case .left: return CGPoint(x: part.left, y: part.top + part.height / 2)
+        case .right: return CGPoint(x: part.left + part.width, y: part.top + part.height / 2)
+        case .top: return CGPoint(x: part.left + part.width / 2, y: part.top)
+        case .bottom: return CGPoint(x: part.left + part.width / 2, y: part.top + part.height)
+        case .centerX: return CGPoint(x: part.left + part.width / 2, y: part.top + part.height / 2)
+        case .centerY: return CGPoint(x: part.left + part.width / 2, y: part.top + part.height / 2)
+        }
+    }
+
+    /// Complete the constraint drag — determine target and show distance dialog.
+    private func completeConstraintDrag(at point: CGPoint) {
+        guard let sourceId = constraintSourcePartId,
+              let sourceEdge = constraintSourceEdge else { return }
+
+        let canvasW = Double(bounds.width)
+        let canvasH = Double(bounds.height)
+
+        // Determine target: hit another part, or near canvas edge
+        let hitPart = renderer.partAtPoint(point, document: document, cardId: currentCardId)
+
+        var targetType: ConstraintTargetType
+        var targetPartId: UUID?
+        var targetEdge: ConstraintEdge
+        var currentDistance: Double
+
+        if let target = hitPart, target.id != sourceId {
+            // Part-to-part constraint
+            targetType = .part
+            targetPartId = target.id
+            targetEdge = nearestEdge(of: target, to: point)
+            let sourcePos = edgePosition(sourceEdge, part: document.parts.first(where: { $0.id == sourceId })!)
+            let targetPos = edgePosition(targetEdge, part: target)
+            currentDistance = sourcePos - targetPos
+        } else {
+            // Canvas edge constraint — determine nearest canvas edge
+            targetType = .canvas
+            targetPartId = nil
+            let edgeDists: [(ConstraintEdge, Double)] = [
+                (.left, abs(point.x)),
+                (.right, abs(point.x - canvasW)),
+                (.top, abs(point.y)),
+                (.bottom, abs(point.y - canvasH)),
+            ]
+            targetEdge = edgeDists.min(by: { $0.1 < $1.1 })!.0
+            // Ensure horizontal matches horizontal
+            if sourceEdge.isHorizontal != targetEdge.isHorizontal {
+                targetEdge = sourceEdge.isHorizontal ? .right : .bottom
+            }
+            let sourcePos = edgePosition(sourceEdge, part: document.parts.first(where: { $0.id == sourceId })!)
+            let canvasPos: Double
+            switch targetEdge {
+            case .left: canvasPos = 0
+            case .right: canvasPos = canvasW
+            case .top: canvasPos = 0
+            case .bottom: canvasPos = canvasH
+            case .centerX: canvasPos = canvasW / 2
+            case .centerY: canvasPos = canvasH / 2
+            }
+            currentDistance = sourcePos - canvasPos
+        }
+
+        // Validate: horizontal-to-horizontal, vertical-to-vertical
+        if sourceEdge.isHorizontal != targetEdge.isHorizontal { return }
+
+        // Show distance dialog
+        let alert = NSAlert()
+        alert.messageText = "Set Constraint Distance"
+        alert.informativeText = "\(sourceEdge.rawValue) -> \(targetType == .canvas ? "canvas " : "")\(targetEdge.rawValue)"
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        input.stringValue = String(Int(round(currentDistance)))
+        alert.accessoryView = input
+        alert.window.initialFirstResponder = input
+
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+        let distance = Double(input.stringValue) ?? currentDistance
+
+        let constraint = LayoutConstraint(
+            sourcePartId: sourceId,
+            sourceEdge: sourceEdge,
+            targetType: targetType,
+            targetPartId: targetPartId,
+            targetEdge: targetEdge,
+            distance: distance
+        )
+        coordinator?.addConstraint(constraint)
+    }
+
+    /// Draw a small orange diamond indicator at a constraint's source edge.
+    private func drawConstraintIndicator(ctx: CGContext, part: Part, constraint: LayoutConstraint) {
+        let point = constraintEdgePoint(constraint.sourceEdge, part: part)
+        ctx.saveGState()
+        ctx.setFillColor(NSColor.systemOrange.withAlphaComponent(0.8).cgColor)
+        let size: CGFloat = 6
+        ctx.move(to: CGPoint(x: point.x, y: point.y - size))
+        ctx.addLine(to: CGPoint(x: point.x + size, y: point.y))
+        ctx.addLine(to: CGPoint(x: point.x, y: point.y + size))
+        ctx.addLine(to: CGPoint(x: point.x - size, y: point.y))
+        ctx.closePath()
+        ctx.fillPath()
+        ctx.restoreGState()
     }
 
     /// Draw alignment snap guides on the canvas.

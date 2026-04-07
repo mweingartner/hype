@@ -193,6 +193,37 @@ struct MainContentView: View {
             }
         }
         let _ = dispatcher.dispatch(message: "openCard", params: [], targetId: newCardId, document: document.document, currentCardId: newCardId)
+
+        // Resolve constraints for the new card
+        resolveConstraints()
+    }
+
+    /// Resolve layout constraints for all parts on the current card.
+    private func resolveConstraints() {
+        guard let cardId = currentCardId else { return }
+        let solver = ConstraintSolver()
+        let cardParts = document.document.partsForCard(cardId)
+        let card = document.document.cards.first(where: { $0.id == cardId })
+        let bgParts = card.map { document.document.partsForBackground($0.backgroundId) } ?? []
+        let allParts = cardParts + bgParts
+        let partIds = Set(allParts.map(\.id))
+        let relevantConstraints = document.document.constraints.filter { partIds.contains($0.sourcePartId) }
+
+        let updates = solver.solve(
+            constraints: relevantConstraints,
+            parts: allParts,
+            canvasWidth: Double(document.document.stack.width),
+            canvasHeight: Double(document.document.stack.height)
+        )
+
+        for (partId, geom) in updates {
+            document.document.updatePart(id: partId) {
+                $0.left = geom.left
+                $0.top = geom.top
+                $0.width = geom.width
+                $0.height = geom.height
+            }
+        }
     }
 
     // MARK: - Info text
@@ -332,6 +363,36 @@ private struct NavigationHandlers: ViewModifier {
 
         // Open new card (and new background if changed)
         let _ = dispatcher.dispatch(message: "openCard", params: [], targetId: newCardId, document: document.document, currentCardId: newCardId)
+
+        // Resolve constraints for the new card
+        resolveConstraints(document: &document.document, cardId: newCardId)
+    }
+
+    /// Resolve layout constraints for all parts on a card.
+    private func resolveConstraints(document: inout HypeDocument, cardId: UUID) {
+        let solver = ConstraintSolver()
+        let cardParts = document.partsForCard(cardId)
+        let card = document.cards.first(where: { $0.id == cardId })
+        let bgParts = card.map { document.partsForBackground($0.backgroundId) } ?? []
+        let allParts = cardParts + bgParts
+        let partIds = Set(allParts.map(\.id))
+        let relevantConstraints = document.constraints.filter { partIds.contains($0.sourcePartId) }
+
+        let updates = solver.solve(
+            constraints: relevantConstraints,
+            parts: allParts,
+            canvasWidth: Double(document.stack.width),
+            canvasHeight: Double(document.stack.height)
+        )
+
+        for (partId, geom) in updates {
+            document.updatePart(id: partId) {
+                $0.left = geom.left
+                $0.top = geom.top
+                $0.width = geom.width
+                $0.height = geom.height
+            }
+        }
     }
 
     /// Cycle through every card in the deck with a 1-second pause, then return to the first card.
