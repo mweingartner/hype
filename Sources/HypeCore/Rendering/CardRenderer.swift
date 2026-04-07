@@ -30,7 +30,8 @@ public final class CardRenderer: Sendable {
         ctx: CGContext,
         document: HypeDocument,
         cardId: UUID,
-        size: NSSize
+        size: NSSize,
+        skipPartId: UUID? = nil
     ) {
         // Layer 1: Background (white)
         ctx.setFillColor(NSColor.white.cgColor)
@@ -44,7 +45,7 @@ public final class CardRenderer: Sendable {
 
         // Layer 2: Background parts
         let bgParts = document.partsForBackground(bg.id)
-        for part in bgParts where part.visible {
+        for part in bgParts where part.visible && part.id != skipPartId {
             drawPart(ctx: ctx, part: part, canvasHeight: Double(size.height))
         }
 
@@ -52,7 +53,7 @@ public final class CardRenderer: Sendable {
 
         // Layer 4: Card parts
         let cardParts = document.partsForCard(cardId)
-        for part in cardParts where part.visible {
+        for part in cardParts where part.visible && part.id != skipPartId {
             drawPart(ctx: ctx, part: part, canvasHeight: Double(size.height))
         }
     }

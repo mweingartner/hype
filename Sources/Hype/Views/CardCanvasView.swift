@@ -338,7 +338,8 @@ class CardCanvasNSView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
 
-        renderer.render(ctx: ctx, document: document, cardId: currentCardId, size: bounds.size)
+        // Skip drawing the part being edited inline — the NSTextField overlay replaces it
+        renderer.render(ctx: ctx, document: document, cardId: currentCardId, size: bounds.size, skipPartId: activeFieldPartId)
 
         // Render the paint layer on top of card content
         let paintLayer = paintLayerForCurrentCard()
@@ -440,19 +441,26 @@ class CardCanvasNSView: NSView {
         // Dispatch openField lifecycle message
         coordinator?.dispatchMessage("openField", to: part.id)
 
-        let textField = NSTextField(frame: CGRect(x: part.left, y: part.top, width: part.width, height: part.height))
+        // Create the text field overlay, matching the part's position and style exactly
+        let padding: CGFloat = part.wideMargins ? 8 : 4
+        let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+        let textField = NSTextField(frame: frame)
         textField.stringValue = part.textContent
         textField.font = NSFont(name: part.textFont, size: CGFloat(part.textSize)) ?? NSFont.systemFont(ofSize: CGFloat(part.textSize))
-        textField.isBordered = false
+        textField.isBordered = true
+        textField.bezelStyle = .roundedBezel
         textField.drawsBackground = true
         textField.backgroundColor = .white
-        textField.focusRingType = .none
+        textField.focusRingType = .exterior
         textField.isEditable = true
         textField.isSelectable = true
         textField.delegate = self
         textField.alignment = part.textAlign == .center ? .center : part.textAlign == .right ? .right : .left
+        textField.cell?.wraps = !part.dontWrap
+        textField.cell?.isScrollable = true
 
-        addSubview(textField)
+        addSubview(textField, positioned: .above, relativeTo: nil)
+        needsDisplay = true  // Redraw canvas to hide the underlying part
         window?.makeFirstResponder(textField)
 
         activeFieldEditor = textField
