@@ -114,6 +114,11 @@ struct CardCanvasView: NSViewRepresentable {
             parent.document.document.updatePart(id: id) { $0.hilite.toggle() }
         }
 
+        func deletePart(id: UUID) {
+            parent.selectedPartId = nil
+            parent.document.document.removePart(id: id)
+        }
+
         /// Dispatch a HypeTalk message through the object hierarchy.
         /// This is the runtime — when you click a button in browse mode,
         /// its mouseUp handler fires, which can navigate, modify parts, etc.
@@ -201,6 +206,25 @@ class CardCanvasNSView: NSView {
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
+
+    override func keyDown(with event: NSEvent) {
+        // Don't handle keys while editing a field inline
+        if activeFieldEditor != nil {
+            super.keyDown(with: event)
+            return
+        }
+
+        // Delete or Backspace: delete the selected part
+        if event.keyCode == 51 || event.keyCode == 117 {  // 51 = Backspace, 117 = Forward Delete
+            if let partId = selectedPartId {
+                coordinator?.deletePart(id: partId)
+                needsDisplay = true
+                return
+            }
+        }
+
+        super.keyDown(with: event)
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
