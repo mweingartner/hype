@@ -42,7 +42,7 @@ public struct HypeToolExecutor: Sendable {
                 afterIndex: document.sortedCards.firstIndex(where: { $0.id == currentCardId }),
                 backgroundName: bgName
             )
-            return "Created card with ID \(card.id)"
+            return "CREATED_CARD:\(card.id)"
 
         case "create_background":
             let name = arguments["name"] ?? "New Background"

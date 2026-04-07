@@ -142,6 +142,9 @@ struct AIChatPanel: View {
             OllamaMessage(role: "user", content: userMessage),
         ]
 
+        // Track the "active" card ID — updates when AI creates a new card
+        var activeCardId = cardId
+
         // Tool-use loop (max 5 rounds — enough for any reasonable task)
         var rounds = 0
         while rounds < 5 {
@@ -172,9 +175,22 @@ struct AIChatPanel: View {
                             toolName: call.function.name,
                             arguments: call.function.arguments,
                             document: &doc,
-                            currentCardId: cardId
+                            currentCardId: activeCardId
                         )
                         document.document = doc
+
+                        // When a new card is created, switch to it so subsequent
+                        // tools (create_field, create_button) operate on the new card
+                        if result.hasPrefix("CREATED_CARD:") {
+                            let newIdStr = String(result.dropFirst(13))
+                            if let newId = UUID(uuidString: newIdStr) {
+                                activeCardId = newId
+                                currentCardId = newId
+                            }
+                            // Give the model a clean message
+                            ollamaMessages.append(OllamaMessage(role: "tool", content: "Created new card. Now working on the new card."))
+                            continue
+                        }
 
                         // Handle navigation results
                         if result.hasPrefix("NAVIGATE:") {
