@@ -17,7 +17,7 @@ public enum TokenType: String, Sendable {
     case the, of, to, with
 
     // Special identifiers
-    case it, me, empty
+    case it, me, this, empty
 
     // Chunk types
     case word, char, character, item, line, number

@@ -546,6 +546,10 @@ public struct Parser: Sendable {
             _ = advance()
             return .me
 
+        case .this:
+            _ = advance()
+            return .this
+
         case .empty:
             _ = advance()
             return .empty

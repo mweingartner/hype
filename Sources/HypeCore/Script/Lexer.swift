@@ -18,7 +18,7 @@ public struct Lexer: Sendable {
         "true": .true, "false": .false, "not": .not, "and": .and, "or": .or,
         "is": .is, "contains": .contains, "into": .into, "after": .after,
         "before": .before, "the": .the, "of": .of, "to": .to, "with": .with,
-        "it": .it, "me": .me, "empty": .empty,
+        "it": .it, "me": .me, "this": .this, "empty": .empty,
         "word": .word, "char": .char, "character": .character,
         "item": .item, "line": .line, "number": .number,
         "first": .first, "second": .second, "third": .third,

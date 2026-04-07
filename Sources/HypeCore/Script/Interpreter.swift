@@ -390,6 +390,23 @@ public struct Interpreter: Sendable {
         case .me:
             return context.targetId.uuidString
 
+        case .this:
+            // `this` returns the current part's primary content:
+            // - For fields: textContent
+            // - For buttons: name (the label)
+            // - For other parts: name
+            if let part = document.parts.first(where: { $0.id == context.targetId }) {
+                switch part.partType {
+                case .field:
+                    return part.textContent
+                case .button:
+                    return part.showName ? part.name : part.textContent
+                default:
+                    return part.name
+                }
+            }
+            return ""
+
         case .empty:
             return ""
 

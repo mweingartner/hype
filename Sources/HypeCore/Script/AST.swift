@@ -8,6 +8,7 @@ public indirect enum Expression: Sendable {
     case variable(String)
     case it
     case me
+    case this  // the current part's content (textContent for fields, name for buttons)
     case binary(Expression, BinaryOp, Expression)
     case unary(UnaryOp, Expression)
     case functionCall(String, [Expression])
