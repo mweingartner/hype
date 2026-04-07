@@ -10,9 +10,17 @@ public enum ImageRenderer {
 
         if let data = part.imageData,
            let image = NSImage(data: data) {
-            // Draw the image scaled to fit the rect
+            // Draw the image correctly in a flipped coordinate system.
+            // CGContext.draw() uses bottom-left origin, but our view is flipped (top-left).
+            // We need to flip the context locally, draw, then restore.
             if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                ctx.draw(cgImage, in: rect)
+                ctx.saveGState()
+                // Translate to the bottom of the rect and flip vertically
+                ctx.translateBy(x: rect.minX, y: rect.maxY)
+                ctx.scaleBy(x: 1, y: -1)
+                // Draw at origin (0,0) since we've translated
+                ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: rect.width, height: rect.height))
+                ctx.restoreGState()
             }
 
             // Handle invert-on-hilite
