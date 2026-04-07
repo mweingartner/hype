@@ -100,6 +100,7 @@ private let categoryOrder = ["Events", "Navigation", "Variables", "Control", "Di
 struct ScriptEditor: View {
     @Binding var document: HypeDocumentWrapper
     let partId: UUID?
+    var onDone: (() -> Void)? = nil
     @State private var scriptText: String = ""
     @State private var errorMessage: String?
     @State private var selectedCategory: String = "Events"
@@ -118,7 +119,6 @@ struct ScriptEditor: View {
                         .font(.headline)
                     Spacer()
                     Button("Check Syntax") { checkSyntax() }
-                    Button("Apply") { applyScript() }
                 }
                 .padding(8)
                 .background(Color(NSColor.controlBackgroundColor))
@@ -141,6 +141,7 @@ struct ScriptEditor: View {
         }
         .onAppear { loadScript() }
         .onChange(of: partId) { _, _ in loadScript() }
+        .onDisappear { applyScript() }
     }
 
     // MARK: - Command Palette

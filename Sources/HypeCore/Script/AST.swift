@@ -96,6 +96,7 @@ public indirect enum Statement: Sendable {
     case play(Expression)
     case createCard(backgroundName: Expression?)  // "create a new card [with background "name"]"
     case createBackground(name: Expression)        // "create background "name""
+    case showAllCards                              // "show all cards"
 }
 
 /// Preposition for put statements.

@@ -192,10 +192,34 @@ struct AIChatPanel: View {
                             continue
                         }
 
-                        // Handle navigation results
+                        // Handle navigation results — resolve locally so activeCardId updates immediately
                         if result.hasPrefix("NAVIGATE:") {
                             let dest = String(result.dropFirst(9))
-                            handleNavigation(destination: dest)
+                            let doc = document.document
+                            if let targetCard = doc.cards.first(where: { $0.name.lowercased() == dest.lowercased() }) {
+                                activeCardId = targetCard.id
+                                currentCardId = targetCard.id
+                            } else if let num = Int(dest), num > 0, num <= doc.sortedCards.count {
+                                let card = doc.sortedCards[num - 1]
+                                activeCardId = card.id
+                                currentCardId = card.id
+                            } else {
+                                let direction: NavigationDirection?
+                                switch dest.lowercased() {
+                                case "next": direction = .next
+                                case "previous", "prev": direction = .previous
+                                case "first": direction = .first
+                                case "last": direction = .last
+                                default: direction = nil
+                                }
+                                if let dir = direction,
+                                   let newId = CardNavigator.navigate(direction: dir, currentCardId: activeCardId, document: doc) {
+                                    activeCardId = newId
+                                    currentCardId = newId
+                                }
+                            }
+                            ollamaMessages.append(OllamaMessage(role: "tool", content: "Navigated to card \(dest)."))
+                            continue
                         }
 
                         // Feed result back to model so it knows the outcome

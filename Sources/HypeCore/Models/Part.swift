@@ -115,7 +115,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.strokeWidth = 1
         self.cornerRadius = 8
         self.pathData = []
-        self.url = ""
+        self.url = partType == .webpage ? "http://" : ""
         self.urlSourceFieldId = nil
         self.imageData = nil
         self.invertOnClick = false

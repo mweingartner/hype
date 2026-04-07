@@ -121,6 +121,7 @@ public struct Parser: Sendable {
         case .answer:   return try parseAnswerStatement()
         case .visual:   return try parseVisualStatement()
         case .create:   return try parseCreateStatement()
+        case .show:     return try parseShowStatement()
         default:
             // Bare expression (function call, etc.)
             let expr = try parseExpression()
@@ -413,6 +414,23 @@ public struct Parser: Sendable {
         }
 
         throw ParseError.unexpected(current, expected: "card or background")
+    }
+
+    private mutating func parseShowStatement() throws -> Statement {
+        _ = try expect(.show)
+        // "show all cards" — "all" is an identifier, "cards" could be .card or identifier "cards"
+        if current.type == .identifier && current.value.lowercased() == "all" {
+            _ = advance()
+            if current.type == .card || (current.type == .identifier && current.value.lowercased() == "cards") {
+                _ = advance()
+                skipNewlines()
+                return .showAllCards
+            }
+        }
+        // Fallback: treat as expression statement
+        let expr = try parseExpression()
+        skipNewlines()
+        return .expressionStatement(expr)
     }
 
     // MARK: - Expression parsing (precedence climbing)

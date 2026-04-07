@@ -51,6 +51,11 @@ public struct HypeToolExecutor: Sendable {
 
         case "go_to_card":
             let dest = arguments["destination"] ?? "next"
+            // Resolve numeric card references to support "go to card 4" etc.
+            if let num = Int(dest), num > 0, num <= document.sortedCards.count {
+                let card = document.sortedCards[num - 1]
+                return "NAVIGATE:\(card.name.isEmpty ? String(num) : card.name)"
+            }
             // Return the destination for the caller to handle navigation
             return "NAVIGATE:\(dest)"
 
@@ -134,7 +139,7 @@ public struct HypeToolExecutor: Sendable {
                 width: Double(arguments["width"] ?? "400") ?? 400,
                 height: Double(arguments["height"] ?? "300") ?? 300
             )
-            if let url = arguments["url"] { part.url = url }
+            part.url = arguments["url"] ?? "http://"
             document.addPart(part)
             let webLayer = place.backgroundId != nil ? " on background" : ""
             return "Created webpage '\(part.name)' with URL \(part.url)\(webLayer)"

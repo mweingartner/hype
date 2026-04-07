@@ -99,9 +99,10 @@ struct PropertyInspector: View {
     // MARK: - Multi-selection view
 
     private var multiSelectionView: some View {
-        ScrollView {
+        let selectedParts = document.document.parts.filter { selectedPartIds.contains($0.id) }
+        return ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                Text("\(selectedPartIds.count) parts selected")
+                Text("\(selectedParts.count) Parts Selected")
                     .font(.headline)
                     .padding(.bottom, 4)
 
@@ -130,6 +131,50 @@ struct PropertyInspector: View {
 
                 Divider()
 
+                // Common properties that can be bulk-edited
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("COMMON PROPERTIES")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.secondary)
+
+                    Toggle("Visible", isOn: Binding(
+                        get: { selectedParts.allSatisfy(\.visible) },
+                        set: { newVal in for id in selectedPartIds { document.document.updatePart(id: id) { $0.visible = newVal } } }
+                    ))
+                    Toggle("Enabled", isOn: Binding(
+                        get: { selectedParts.allSatisfy(\.enabled) },
+                        set: { newVal in for id in selectedPartIds { document.document.updatePart(id: id) { $0.enabled = newVal } } }
+                    ))
+                }
+
+                // Font properties if all selected parts are buttons or fields
+                let hasText = selectedParts.allSatisfy { $0.partType == .button || $0.partType == .field }
+                if hasText {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("TEXT FORMATTING")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.secondary)
+
+                        HStack {
+                            Text("Font").font(.system(size: 11))
+                            TextField("", text: Binding(
+                                get: { selectedParts.first?.textFont ?? "" },
+                                set: { newVal in for id in selectedPartIds { document.document.updatePart(id: id) { $0.textFont = newVal } } }
+                            )).textFieldStyle(.roundedBorder).font(.system(size: 11))
+                        }
+                        HStack {
+                            Text("Size").font(.system(size: 11))
+                            TextField("", value: Binding(
+                                get: { selectedParts.first?.textSize ?? 14 },
+                                set: { newVal in for id in selectedPartIds { document.document.updatePart(id: id) { $0.textSize = newVal } } }
+                            ), format: .number).textFieldStyle(.roundedBorder).font(.system(size: 11)).frame(width: 60)
+                        }
+                    }
+                }
+
+                Divider()
+
                 // Delete all selected
                 Button(role: .destructive, action: {
                     let ids = selectedPartIds
@@ -140,7 +185,7 @@ struct PropertyInspector: View {
                 }) {
                     HStack {
                         Image(systemName: "trash")
-                        Text("Delete \(selectedPartIds.count) Parts")
+                        Text("Delete \(selectedParts.count) Parts")
                     }
                     .foregroundColor(.red)
                 }
@@ -421,11 +466,16 @@ struct ScriptEditorSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScriptEditor(document: $document, partId: partId)
+            ScriptEditor(document: $document, partId: partId, onDone: {
+                dismiss()
+            })
             HStack {
                 Spacer()
-                Button("Done") { dismiss() }
-                    .keyboardShortcut(.return)
+                Button("Done") {
+                    // Trigger the onDone callback which applies script and dismisses
+                    dismiss()
+                }
+                .keyboardShortcut(.return)
             }
             .padding(8)
         }

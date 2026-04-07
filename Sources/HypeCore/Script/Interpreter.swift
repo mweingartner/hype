@@ -378,6 +378,12 @@ public struct Interpreter: Sendable {
             let name = try evaluate(nameExpr, env: &env, document: document, context: context)
             let _ = document.addBackground(name: name)
 
+        case .showAllCards:
+            // Navigate to the first card as a simple implementation of "show all cards".
+            if let firstCard = document.sortedCards.first {
+                navigationTarget = firstCard.id
+            }
+
         case .send, .wait, .beep, .play:
             // Stubs for future implementation.
             break

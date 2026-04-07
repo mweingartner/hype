@@ -13,7 +13,7 @@ public enum PartType: String, Codable, Sendable {
 /// Button visual styles.
 public enum ButtonStyle: String, Codable, Sendable, CaseIterable {
     case transparent, opaque, rectangle, roundRect, shadow
-    case checkBox, radioButton, standard, `default`, popup, oval
+    case checkBox, radioButton, standard, `default`, popup, oval, toggle
 }
 
 /// Field visual styles.

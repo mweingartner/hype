@@ -117,6 +117,20 @@ public enum ButtonRenderer {
             ctx.setStrokeColor(NSColor.black.cgColor)
             ctx.setLineWidth(1.5)
             ctx.strokePath()
+            // Show first line of textContent as selected item, or the part name
+            let popupLabel: String
+            let lines = part.textContent.split(separator: "\n", omittingEmptySubsequences: false)
+            if let firstLine = lines.first, !firstLine.isEmpty {
+                popupLabel = String(firstLine)
+            } else {
+                popupLabel = part.showName ? part.name : ""
+            }
+            if !popupLabel.isEmpty {
+                drawLabel(ctx: ctx, text: popupLabel, at: CGPoint(x: rect.minX + 8, y: rect.midY),
+                         font: part.textFont, size: part.textSize, color: textColor, align: .left)
+            }
+            ctx.restoreGState()
+            return
 
         case .oval:
             ctx.addEllipse(in: rect)
@@ -125,6 +139,40 @@ public enum ButtonRenderer {
             ctx.addEllipse(in: rect)
             ctx.setStrokeColor(NSColor.separatorColor.cgColor)
             ctx.strokePath()
+
+        case .toggle:
+            // macOS-style toggle switch
+            let trackWidth: CGFloat = 44
+            let trackHeight: CGFloat = 24
+            let trackX = rect.minX + 4
+            let trackY = rect.midY - trackHeight / 2
+            let trackRect = CGRect(x: trackX, y: trackY, width: trackWidth, height: trackHeight)
+            let trackPath = CGPath(roundedRect: trackRect, cornerWidth: trackHeight / 2, cornerHeight: trackHeight / 2, transform: nil)
+
+            ctx.addPath(trackPath)
+            ctx.setFillColor(part.hilite ? NSColor.controlAccentColor.cgColor : NSColor.systemGray.withAlphaComponent(0.3).cgColor)
+            ctx.fillPath()
+
+            // Knob
+            let knobSize = trackHeight - 4
+            let knobX = part.hilite ? trackX + trackWidth - knobSize - 2 : trackX + 2
+            let knobY = trackY + 2
+            ctx.addEllipse(in: CGRect(x: knobX, y: knobY, width: knobSize, height: knobSize))
+            ctx.setFillColor(NSColor.white.cgColor)
+            ctx.fillPath()
+            ctx.addEllipse(in: CGRect(x: knobX, y: knobY, width: knobSize, height: knobSize))
+            ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+            ctx.setLineWidth(0.5)
+            ctx.strokePath()
+
+            // Label after toggle
+            let label = part.showName ? part.name : part.textContent
+            if !label.isEmpty {
+                drawLabel(ctx: ctx, text: label, at: CGPoint(x: trackX + trackWidth + 8, y: rect.midY),
+                         font: part.textFont, size: part.textSize, color: textColor, align: .left)
+            }
+            ctx.restoreGState()
+            return
         }
 
         // Draw centered label

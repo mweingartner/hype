@@ -12,8 +12,8 @@ public struct HypeToolDefinitions {
         makeTool(name: "create_background", description: "Create a new named background that can be shared by multiple cards.", params: [
             "name": ("string", "Unique name for the background", true),
         ]),
-        makeTool(name: "go_to_card", description: "Navigate to a card by name or direction (next, previous, first, last).", params: [
-            "destination": ("string", "Card name or direction: next, previous, first, last", true),
+        makeTool(name: "go_to_card", description: "Navigate to a card by name, number, or direction (next, previous, first, last).", params: [
+            "destination": ("string", "Card name, card number (e.g. 4), or direction: next, previous, first, last", true),
         ]),
         makeTool(name: "delete_card", description: "Delete the current card.", params: [:]),
 

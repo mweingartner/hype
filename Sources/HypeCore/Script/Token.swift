@@ -39,7 +39,7 @@ public enum TokenType: String, Sendable {
     case card, background, stack, field, button, webpage
 
     // Commands
-    case create
+    case create, show
 
     // AI (Phase 5 placeholder)
     case ai

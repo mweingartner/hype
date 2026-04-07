@@ -376,7 +376,8 @@ class CardCanvasNSView: NSView {
         textField.stringValue = part.textContent
         textField.font = NSFont(name: part.textFont, size: CGFloat(part.textSize)) ?? NSFont.systemFont(ofSize: CGFloat(part.textSize))
         textField.isBordered = false
-        textField.backgroundColor = .clear
+        textField.drawsBackground = true
+        textField.backgroundColor = .white
         textField.focusRingType = .none
         textField.isEditable = true
         textField.isSelectable = true
@@ -921,6 +922,7 @@ class CardCanvasNSView: NSView {
                 config.preferences.isElementFullscreenEnabled = false
                 let wv = WKWebView(frame: frame, configuration: config)
                 wv.allowsBackForwardNavigationGestures = false
+                wv.navigationDelegate = self
                 wv.load(URLRequest(url: url))
                 addSubview(wv)
                 webViews[part.id] = wv
@@ -1097,5 +1099,28 @@ extension CardCanvasNSView: NSTextFieldDelegate {
             return true
         }
         return false
+    }
+}
+
+// MARK: - WKNavigationDelegate (web view error handling)
+
+extension CardCanvasNSView: WKNavigationDelegate {
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        handleWebViewError(webView: webView, error: error)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        handleWebViewError(webView: webView, error: error)
+    }
+
+    private func handleWebViewError(webView: WKWebView, error: Error) {
+        // Find the part ID for this webview and show the error as placeholder text
+        if let partId = webViews.first(where: { $0.value === webView })?.key {
+            webView.removeFromSuperview()
+            webViews.removeValue(forKey: partId)
+            loadedURLs.removeValue(forKey: partId)
+            coordinator?.updatePartText(id: partId, text: "Error: \(error.localizedDescription)")
+            needsDisplay = true
+        }
     }
 }
