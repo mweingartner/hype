@@ -7,6 +7,7 @@ struct CardCanvasView: NSViewRepresentable {
     let currentCardId: UUID
     let currentTool: ToolName
     @Binding var selectedPartId: UUID?
+    let editingBackground: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -18,6 +19,7 @@ struct CardCanvasView: NSViewRepresentable {
         view.currentCardId = currentCardId
         view.currentTool = currentTool
         view.selectedPartId = selectedPartId
+        view.editingBackground = editingBackground
         view.coordinator = context.coordinator
         return view
     }
@@ -29,6 +31,7 @@ struct CardCanvasView: NSViewRepresentable {
         nsView.currentCardId = currentCardId
         nsView.currentTool = currentTool
         nsView.selectedPartId = selectedPartId
+        nsView.editingBackground = editingBackground
         nsView.coordinator = context.coordinator
         nsView.updateCursor()
         nsView.needsDisplay = true
@@ -148,6 +151,7 @@ class CardCanvasNSView: NSView {
     var currentCardId: UUID = UUID()
     var currentTool: ToolName = .browse
     var selectedPartId: UUID?
+    var editingBackground: Bool = false
     weak var coordinator: CardCanvasView.Coordinator?
 
     private let renderer = CardRenderer()
@@ -182,6 +186,11 @@ class CardCanvasNSView: NSView {
         case bottomRight, bottomCenter, bottomLeft, leftCenter
     }
 
+    /// The background ID for the current card, used when creating background parts.
+    private var currentBackgroundId: UUID? {
+        document.cards.first(where: { $0.id == currentCardId })?.backgroundId
+    }
+
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
@@ -209,6 +218,12 @@ class CardCanvasNSView: NSView {
 
         // Update web views for webpage parts
         updateWebViews()
+
+        // Draw background-editing indicator stripe
+        if editingBackground {
+            ctx.setFillColor(NSColor.systemBlue.withAlphaComponent(0.15).cgColor)
+            ctx.fill(CGRect(x: 0, y: 0, width: bounds.width, height: 3))
+        }
 
         // Draw rubber-band rectangle
         if isDragging, let start = dragStart, let current = dragCurrent {
@@ -369,7 +384,22 @@ class CardCanvasNSView: NSView {
             return
         }
 
-        let hitPart = renderer.partAtPoint(point, document: document, cardId: currentCardId)
+        let rawHitPart = renderer.partAtPoint(point, document: document, cardId: currentCardId)
+
+        // Filter hit part based on editing mode: only allow selecting parts
+        // on the layer being edited.
+        let hitPart: Part?
+        if let part = rawHitPart {
+            if editingBackground && part.cardId != nil {
+                hitPart = nil  // Can't select card parts when editing background
+            } else if !editingBackground && part.backgroundId != nil && part.cardId == nil {
+                hitPart = nil  // Can't select background parts when editing card
+            } else {
+                hitPart = part
+            }
+        } else {
+            hitPart = nil
+        }
 
         // Double-click on a part in browse mode → open properties for editing
         let toolCheck = ToolState(currentTool: currentTool.rawValue)
@@ -520,7 +550,8 @@ class CardCanvasNSView: NSView {
                     // Create a transparent field at the click location
                     var newField = Part(
                         partType: .field,
-                        cardId: currentCardId,
+                        cardId: editingBackground ? nil : currentCardId,
+                        backgroundId: editingBackground ? currentBackgroundId : nil,
                         name: "Text \(document.partsForCard(currentCardId).count + 1)",
                         left: Double(x1),
                         top: Double(y1),
@@ -575,7 +606,8 @@ class CardCanvasNSView: NSView {
         case .createPart(let partType, let rect, let extras):
             var newPart = Part(
                 partType: partType,
-                cardId: currentCardId,
+                cardId: editingBackground ? nil : currentCardId,
+                backgroundId: editingBackground ? currentBackgroundId : nil,
                 left: rect.origin.x,
                 top: rect.origin.y,
                 width: rect.size.width,

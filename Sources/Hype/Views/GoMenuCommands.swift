@@ -19,6 +19,10 @@ struct GoMenuCommands: Commands {
 struct ObjectsMenuCommands: Commands {
     var body: some Commands {
         CommandMenu("Objects") {
+            Button("Edit Background") { NotificationCenter.default.post(name: .toggleEditBackground, object: true) }
+                .keyboardShortcut("b", modifiers: [.command, .shift])
+            Button("Edit Card") { NotificationCenter.default.post(name: .toggleEditBackground, object: false) }
+            Divider()
             Button("New Card") { NotificationCenter.default.post(name: .addNewCard, object: nil) }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
             Button("Delete Card") { NotificationCenter.default.post(name: .deleteCurrentCard, object: nil) }
@@ -58,4 +62,5 @@ extension Notification.Name {
     static let deleteCurrentCard = Notification.Name("deleteCurrentCard")
     static let editPartProperties = Notification.Name("editPartProperties")
     static let addNewBackground = Notification.Name("addNewBackground")
+    static let toggleEditBackground = Notification.Name("toggleEditBackground")
 }

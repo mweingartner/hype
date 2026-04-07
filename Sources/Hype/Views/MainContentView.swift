@@ -6,6 +6,7 @@ struct MainContentView: View {
     @State private var currentCardId: UUID?
     @State private var currentTool: ToolName = .browse
     @State private var selectedPartId: UUID?
+    @State private var editingBackground: Bool = false
 
     private var toolState: ToolState {
         var state = ToolState(currentTool: currentTool.rawValue)
@@ -27,7 +28,8 @@ struct MainContentView: View {
                     document: $document,
                     currentCardId: currentCardId ?? document.document.sortedCards.first?.id ?? UUID(),
                     currentTool: currentTool,
-                    selectedPartId: $selectedPartId
+                    selectedPartId: $selectedPartId,
+                    editingBackground: editingBackground
                 )
                 .frame(
                     minWidth: CGFloat(document.document.stack.width),
@@ -104,6 +106,10 @@ struct MainContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .addNewBackground)) { _ in
             addNewBackground()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleEditBackground)) { notification in
+            editingBackground = (notification.object as? Bool) ?? false
+            selectedPartId = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: .editPartProperties)) { notification in
             // Double-click in browse mode opens part properties
@@ -184,7 +190,14 @@ struct MainContentView: View {
         let (index, count) = CardNavigator.cardPosition(currentCardId: cardId, document: document.document)
         let card = document.document.cards.first { $0.id == cardId }
         let name = card?.name.isEmpty == false ? card!.name : "Card \(index + 1)"
-        return "\(name) -- \(index + 1) of \(count)"
+        let bgIndicator: String
+        if editingBackground, let card = card {
+            let bgName = document.document.backgroundForCard(card)?.name ?? "Background"
+            bgIndicator = " [Editing Background: \(bgName)]"
+        } else {
+            bgIndicator = ""
+        }
+        return "\(name) -- \(index + 1) of \(count)\(bgIndicator)"
     }
 
     private var toolModeText: String {
