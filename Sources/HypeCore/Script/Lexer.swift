@@ -27,7 +27,13 @@ public struct Lexer: Sendable {
         "stack": .stack, "field": .field, "fld": .field,
         "button": .button, "btn": .button,
         "webpage": .webpage,
-        "mod": .mod, "create": .create, "show": .show, "ai": .ai,
+        "mod": .mod, "div": .intDiv, "create": .create, "show": .show,
+        "add": .add, "subtract": .subtract, "multiply": .multiply, "divide": .divide,
+        "delete": .delete,
+        "find": .find, "select": .select, "sort": .sort,
+        "hide": .hide, "lock": .lock, "unlock": .unlock, "open": .open,
+        "by": .by, "from": .from, "times": .times, "down": .down,
+        "ai": .ai,
     ]
 
     public init(source: String) {

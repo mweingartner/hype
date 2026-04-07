@@ -389,6 +389,84 @@ public struct Interpreter: Sendable {
             // The actual cycling is handled by the UI layer since it requires timed delays.
             throw ControlSignal.showAllCards
 
+        case .addTo(let valueExpr, let targetExpr):
+            let value = try evaluate(valueExpr, env: &env, document: document, context: context)
+            if case .variable(let name) = targetExpr {
+                let existing = env.getVariable(name)
+                env.setVariable(name, formatNumber(toNumber(existing) + toNumber(value)))
+            } else if case .objectRef(let ref) = targetExpr {
+                let ident = try evaluate(ref.identifier, env: &env, document: document, context: context)
+                if let idx = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
+                    let existing = document.parts[idx].textContent
+                    document.parts[idx].textContent = formatNumber(toNumber(existing) + toNumber(value))
+                }
+            }
+
+        case .subtractFrom(let valueExpr, let targetExpr):
+            let value = try evaluate(valueExpr, env: &env, document: document, context: context)
+            if case .variable(let name) = targetExpr {
+                let existing = env.getVariable(name)
+                env.setVariable(name, formatNumber(toNumber(existing) - toNumber(value)))
+            }
+
+        case .multiplyBy(let targetExpr, let valueExpr):
+            let value = try evaluate(valueExpr, env: &env, document: document, context: context)
+            if case .variable(let name) = targetExpr {
+                let existing = env.getVariable(name)
+                env.setVariable(name, formatNumber(toNumber(existing) * toNumber(value)))
+            }
+
+        case .divideBy(let targetExpr, let valueExpr):
+            let value = try evaluate(valueExpr, env: &env, document: document, context: context)
+            if case .variable(let name) = targetExpr {
+                let existing = env.getVariable(name)
+                let divisor = toNumber(value)
+                env.setVariable(name, divisor != 0 ? formatNumber(toNumber(existing) / divisor) : "INF")
+            }
+
+        case .deleteObject(let expr):
+            if case .objectRef(let ref) = expr {
+                let ident = try evaluate(ref.identifier, env: &env, document: document, context: context)
+                if let idx = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
+                    document.parts.remove(at: idx)
+                }
+            }
+
+        case .findText(let expr):
+            // Stub: find is complex — for now store the search text in `it`.
+            let text = try evaluate(expr, env: &env, document: document, context: context)
+            env.it = text
+
+        case .selectObject:
+            break // UI operation — stub
+
+        case .sortCards(let byExpr):
+            // Sort cards by evaluating the expression for each card.
+            let _ = try evaluate(byExpr, env: &env, document: document, context: context)
+            // Complex — stub for now
+
+        case .hideObject(let expr):
+            if case .objectRef(let ref) = expr {
+                let ident = try evaluate(ref.identifier, env: &env, document: document, context: context)
+                if let idx = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
+                    document.parts[idx].visible = false
+                }
+            }
+
+        case .showObject(let expr):
+            if case .objectRef(let ref) = expr {
+                let ident = try evaluate(ref.identifier, env: &env, document: document, context: context)
+                if let idx = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
+                    document.parts[idx].visible = true
+                }
+            }
+
+        case .lockScreen, .unlockScreen:
+            break // UI operation — stub
+
+        case .openStack:
+            break // Complex — stub
+
         case .send, .wait, .beep, .play:
             // Stubs for future implementation.
             break
@@ -408,6 +486,32 @@ public struct Interpreter: Sendable {
             return val
 
         case .variable(let name):
+            // Check constants first.
+            switch name.lowercased() {
+            case "empty": return ""
+            case "quote": return "\""
+            case "space": return " "
+            case "tab": return "\t"
+            case "return", "cr": return "\r"
+            case "linefeed", "lf": return "\n"
+            case "comma": return ","
+            case "colon": return ":"
+            case "pi": return String(Double.pi)
+            case "zero": return "0"
+            case "one": return "1"
+            case "two": return "2"
+            case "three": return "3"
+            case "four": return "4"
+            case "five": return "5"
+            case "six": return "6"
+            case "seven": return "7"
+            case "eight": return "8"
+            case "nine": return "9"
+            case "ten": return "10"
+            case "up": return "up"
+            case "down": return "down"
+            default: break
+            }
             return env.getVariable(name)
 
         case .it:
@@ -498,6 +602,9 @@ public struct Interpreter: Sendable {
         case .modulo:
             let r = toNumber(rVal)
             return r == 0 ? "0" : formatNumber(toNumber(lVal).truncatingRemainder(dividingBy: r))
+        case .intDiv:
+            let divisor = toNumber(rVal)
+            return divisor != 0 ? String(Int(toNumber(lVal) / divisor)) : "0"
         case .equal:          return lVal.lowercased() == rVal.lowercased() ? "true" : "false"
         case .notEqual:       return lVal.lowercased() != rVal.lowercased() ? "true" : "false"
         case .lessThan:       return toNumber(lVal) < toNumber(rVal) ? "true" : "false"
@@ -536,6 +643,54 @@ public struct Interpreter: Sendable {
         case "max":
             guard args.count >= 2 else { return args.first ?? "0" }
             return formatNumber(max(toNumber(args[0]), toNumber(args[1])))
+
+        // Math functions
+        case "sin": return formatNumber(Foundation.sin(toNumber(args.first ?? "0")))
+        case "cos": return formatNumber(Foundation.cos(toNumber(args.first ?? "0")))
+        case "tan": return formatNumber(Foundation.tan(toNumber(args.first ?? "0")))
+        case "atan": return formatNumber(Foundation.atan(toNumber(args.first ?? "0")))
+        case "sqrt": return formatNumber(Foundation.sqrt(toNumber(args.first ?? "0")))
+        case "exp": return formatNumber(Foundation.exp(toNumber(args.first ?? "0")))
+        case "ln": return formatNumber(Foundation.log(toNumber(args.first ?? "0")))
+        case "log2": return formatNumber(Foundation.log2(toNumber(args.first ?? "0")))
+
+        // String functions
+        case "chartonum":
+            let str = args.first ?? ""
+            return str.isEmpty ? "0" : String(Int(str.unicodeScalars.first?.value ?? 0))
+        case "numtochar":
+            let num = Int(toNumber(args.first ?? "0"))
+            return num > 0 && num < 65536 ? String(Character(UnicodeScalar(num)!)) : ""
+        case "value":
+            return args.first ?? ""
+
+        // Mouse functions (return static defaults since we're not in a live event loop)
+        case "mouse": return "up"
+        case "mouseclick": return "false"
+        case "mouseh": return "0"
+        case "mousev": return "0"
+        case "mouseloc": return "0,0"
+
+        // Key functions
+        case "commandkey": return "up"
+        case "shiftkey": return "up"
+        case "optionkey": return "up"
+
+        // Other (stubs — full implementation requires runtime context)
+        case "target": return ""
+        case "result": return ""
+        case "param": return args.first ?? ""
+        case "paramcount": return "0"
+        case "params": return ""
+
+        // Sum and average
+        case "sum":
+            let total = args.reduce(0.0) { $0 + toNumber($1) }
+            return formatNumber(total)
+        case "average":
+            let total = args.reduce(0.0) { $0 + toNumber($1) }
+            return args.isEmpty ? "0" : formatNumber(total / Double(args.count))
+
         default:
             return ""
         }
@@ -567,14 +722,77 @@ public struct Interpreter: Sendable {
                 return String(Int(Date().timeIntervalSince1970 * 60))
             case "seconds":
                 return String(Int(Date().timeIntervalSince1970))
+            case "itemdelimiter":
+                return ","
+            case "numberformat":
+                return "0.######"
+            case "lockscreen":
+                return "false"
             default:
                 return env.getVariable(property)
             }
         }
 
         // Property of target.
-        let targetVal = try evaluate(target!, env: &env, document: document, context: context)
-        // Try to find the part by name or UUID.
+        let targetExpr = target!
+        let targetVal = try evaluate(targetExpr, env: &env, document: document, context: context)
+
+        // "the number of cards/buttons/fields"
+        if lower == "number" {
+            switch targetVal.lowercased() {
+            case "cards":
+                return String(document.cards.count)
+            case "backgrounds":
+                return String(document.backgrounds.count)
+            case "buttons", "card buttons":
+                return String(document.partsForCard(context.currentCardId).filter { $0.partType == .button }.count)
+            case "fields", "card fields":
+                return String(document.partsForCard(context.currentCardId).filter { $0.partType == .field }.count)
+            default: break
+            }
+        }
+
+        // Property of a specific part via object reference.
+        if case .objectRef(let ref) = targetExpr {
+            let ident = try evaluate(ref.identifier, env: &env, document: document, context: context)
+            if let idx = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
+                let part = document.parts[idx]
+                switch lower {
+                case "name":        return part.name
+                case "id":          return part.id.uuidString
+                case "left":        return formatNumber(part.left)
+                case "top":         return formatNumber(part.top)
+                case "width":       return formatNumber(part.width)
+                case "height":      return formatNumber(part.height)
+                case "right":       return formatNumber(part.left + part.width)
+                case "bottom":      return formatNumber(part.top + part.height)
+                case "loc", "location":
+                    return "\(formatNumber(part.left + part.width / 2)),\(formatNumber(part.top + part.height / 2))"
+                case "rect", "rectangle":
+                    return "\(formatNumber(part.left)),\(formatNumber(part.top)),\(formatNumber(part.left + part.width)),\(formatNumber(part.top + part.height))"
+                case "visible":     return part.visible ? "true" : "false"
+                case "enabled":     return part.enabled ? "true" : "false"
+                case "hilite":      return part.hilite ? "true" : "false"
+                case "style":
+                    return part.partType == .button ? part.buttonStyle.rawValue : part.fieldStyle.rawValue
+                case "textfont", "font": return part.textFont
+                case "textsize", "size": return formatNumber(part.textSize)
+                case "textstyle":   return part.textStyle
+                case "textalign":   return part.textAlign.rawValue
+                case "script":      return part.script
+                case "showname":    return part.showName ? "true" : "false"
+                case "autohilite":  return part.autoHilite ? "true" : "false"
+                case "locktext":    return part.lockText ? "true" : "false"
+                case "widemargins": return part.wideMargins ? "true" : "false"
+                case "dontwrap":    return part.dontWrap ? "true" : "false"
+                case "url":         return part.url
+                case "text", "textcontent": return part.textContent
+                default:            return ""
+                }
+            }
+        }
+
+        // Fallback: try to find the part by name or UUID.
         if let part = findPart(targetVal, document: document) {
             switch lower {
             case "name":     return part.name

@@ -122,6 +122,18 @@ public struct Parser: Sendable {
         case .visual:   return try parseVisualStatement()
         case .create:   return try parseCreateStatement()
         case .show:     return try parseShowStatement()
+        case .add:      return try parseAddStatement()
+        case .subtract: return try parseSubtractStatement()
+        case .multiply: return try parseMultiplyCmd()
+        case .divide:   return try parseDivideCmd()
+        case .delete:   return try parseDeleteStatement()
+        case .find:     return try parseFindStatement()
+        case .select:   return try parseSelectStatement()
+        case .sort:     return try parseSortStatement()
+        case .hide:     return try parseHideStatement()
+        case .lock:     return try parseLockStatement()
+        case .unlock:   return try parseUnlockStatement()
+        case .open:     return try parseOpenStatement()
         default:
             // Bare expression (function call, etc.)
             let expr = try parseExpression()
@@ -427,10 +439,125 @@ public struct Parser: Sendable {
                 return .showAllCards
             }
         }
-        // Fallback: treat as expression statement
+        // "show <object>" — show field 1, show button "OK", etc.
         let expr = try parseExpression()
         skipNewlines()
-        return .expressionStatement(expr)
+        return .showObject(expr)
+    }
+
+    // MARK: - HypeTalk compliance commands
+
+    private mutating func parseAddStatement() throws -> Statement {
+        _ = try expect(.add)
+        let value = try parseExpression()
+        _ = try expect(.to)
+        let target = try parseExpression()
+        skipNewlines()
+        return .addTo(value: value, variable: target)
+    }
+
+    private mutating func parseSubtractStatement() throws -> Statement {
+        _ = try expect(.subtract)
+        let value = try parseExpression()
+        _ = try expect(.from)
+        let target = try parseExpression()
+        skipNewlines()
+        return .subtractFrom(value: value, variable: target)
+    }
+
+    private mutating func parseMultiplyCmd() throws -> Statement {
+        _ = try expect(.multiply)
+        let target = try parseExpression()
+        _ = try expect(.by)
+        let value = try parseExpression()
+        skipNewlines()
+        return .multiplyBy(variable: target, value: value)
+    }
+
+    private mutating func parseDivideCmd() throws -> Statement {
+        _ = try expect(.divide)
+        let target = try parseExpression()
+        _ = try expect(.by)
+        let value = try parseExpression()
+        skipNewlines()
+        return .divideBy(variable: target, value: value)
+    }
+
+    private mutating func parseDeleteStatement() throws -> Statement {
+        _ = try expect(.delete)
+        let target = try parseExpression()
+        skipNewlines()
+        return .deleteObject(target)
+    }
+
+    private mutating func parseFindStatement() throws -> Statement {
+        _ = try expect(.find)
+        let text = try parseExpression()
+        skipNewlines()
+        return .findText(text)
+    }
+
+    private mutating func parseSelectStatement() throws -> Statement {
+        _ = try expect(.select)
+        let target = try parseExpression()
+        skipNewlines()
+        return .selectObject(target)
+    }
+
+    private mutating func parseSortStatement() throws -> Statement {
+        _ = try expect(.sort)
+        // skip optional "cards"
+        if current.type == .card { _ = advance() }
+        if current.type == .identifier && current.value.lowercased() == "cards" { _ = advance() }
+        _ = try expect(.by)
+        let expr = try parseExpression()
+        skipNewlines()
+        return .sortCards(by: expr)
+    }
+
+    private mutating func parseHideStatement() throws -> Statement {
+        _ = try expect(.hide)
+        let target = try parseExpression()
+        skipNewlines()
+        return .hideObject(target)
+    }
+
+    private mutating func parseLockStatement() throws -> Statement {
+        _ = try expect(.lock)
+        // "lock screen"
+        if current.type == .identifier && current.value.lowercased() == "screen" {
+            _ = advance()
+            skipNewlines()
+            return .lockScreen
+        }
+        let target = try parseExpression()
+        skipNewlines()
+        return .expressionStatement(target) // fallback
+    }
+
+    private mutating func parseUnlockStatement() throws -> Statement {
+        _ = try expect(.unlock)
+        if current.type == .identifier && current.value.lowercased() == "screen" {
+            _ = advance()
+            skipNewlines()
+            return .unlockScreen
+        }
+        let target = try parseExpression()
+        skipNewlines()
+        return .expressionStatement(target)
+    }
+
+    private mutating func parseOpenStatement() throws -> Statement {
+        _ = try expect(.open)
+        if current.type == .stack {
+            _ = advance()
+            let name = try parseExpression()
+            skipNewlines()
+            return .openStack(name)
+        }
+        let target = try parseExpression()
+        skipNewlines()
+        return .expressionStatement(target)
     }
 
     // MARK: - Expression parsing (precedence climbing)
@@ -539,13 +666,14 @@ public struct Parser: Sendable {
 
     private mutating func parseMultiplication() throws -> Expression {
         var left = try parsePower()
-        while current.type == .multiply || current.type == .divide || current.type == .mod {
+        while current.type == .multiply || current.type == .divide || current.type == .mod || current.type == .intDiv {
             let op = advance()
             let binOp: BinaryOp
             switch op.type {
             case .multiply: binOp = .multiply
             case .divide:   binOp = .divide
             case .mod:      binOp = .modulo
+            case .intDiv:   binOp = .intDiv
             default:        binOp = .multiply
             }
             let right = try parsePower()
@@ -654,6 +782,15 @@ public struct Parser: Sendable {
                 return .propertyAccess("number", expr)
             }
             return .variable("number")
+
+        case .down:
+            let tok = advance()
+            return .literal(tok.value)
+
+        case .from, .by, .times:
+            // These keywords can appear as identifiers in some contexts.
+            let tok = advance()
+            return .literal(tok.value)
 
         default:
             throw ParseError.unexpected(current, expected: "expression")

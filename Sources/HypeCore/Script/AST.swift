@@ -30,6 +30,7 @@ public enum BinaryOp: String, Sendable {
     case divide = "/"
     case power = "^"
     case modulo = "mod"
+    case intDiv = "div"
     case equal = "="
     case notEqual = "<>"
     case lessThan = "<"
@@ -97,6 +98,19 @@ public indirect enum Statement: Sendable {
     case createCard(backgroundName: Expression?)  // "create a new card [with background "name"]"
     case createBackground(name: Expression)        // "create background "name""
     case showAllCards                              // "show all cards"
+    case addTo(value: Expression, variable: Expression)          // add 5 to x
+    case subtractFrom(value: Expression, variable: Expression)   // subtract 1 from x
+    case multiplyBy(variable: Expression, value: Expression)     // multiply x by 2
+    case divideBy(variable: Expression, value: Expression)       // divide x by 3
+    case deleteObject(Expression)                                // delete button 1
+    case findText(Expression)                                    // find "hello"
+    case selectObject(Expression)                                // select field 1
+    case sortCards(by: Expression)                               // sort cards by field "Name"
+    case hideObject(Expression)                                  // hide field 1
+    case showObject(Expression)                                  // show field 1
+    case lockScreen                                              // lock screen
+    case unlockScreen                                            // unlock screen
+    case openStack(Expression)                                   // open stack "file"
 }
 
 /// Preposition for put statements.
