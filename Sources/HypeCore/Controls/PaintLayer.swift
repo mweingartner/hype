@@ -44,7 +44,7 @@ public final class PaintLayer: @unchecked Sendable {
         }
     }
 
-    /// Render the paint layer onto a CGContext.
+    /// Render the paint layer onto a CGContext (handles flipped coordinate system).
     public func render(into ctx: CGContext) {
         guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
               let provider = CGDataProvider(data: imageData as CFData),
@@ -59,7 +59,13 @@ public final class PaintLayer: @unchecked Sendable {
                 intent: .defaultIntent
               ) else { return }
 
+        // The view is flipped (isFlipped = true, top-left origin) but CGContext.draw
+        // uses bottom-left origin. Flip locally to render correctly.
+        ctx.saveGState()
+        ctx.translateBy(x: 0, y: CGFloat(height))
+        ctx.scaleBy(x: 1, y: -1)
         ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        ctx.restoreGState()
     }
 
     /// Draw a filled or stroked rectangle.

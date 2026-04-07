@@ -251,6 +251,9 @@ class CardCanvasNSView: NSView {
     var editingBackground: Bool = false
     weak var coordinator: CardCanvasView.Coordinator?
 
+    /// Eraser radius in pixels (adjustable with [ and ] keys).
+    var eraserRadius: Int = 10
+
     private let renderer = CardRenderer()
     private let mouseHandler = MouseHandler()
     private let alignmentEngine = AlignmentEngine()
@@ -349,6 +352,19 @@ class CardCanvasNSView: NSView {
                     coordinator?.deletePart(id: id)
                 }
                 needsDisplay = true
+                return
+            }
+        }
+
+        // [ and ] keys: resize eraser
+        if currentTool == .eraser {
+            if event.keyCode == 33 { // [ key — decrease
+                eraserRadius = max(3, eraserRadius - 2)
+                updateCursor()
+                return
+            } else if event.keyCode == 30 { // ] key — increase
+                eraserRadius = min(50, eraserRadius + 2)
+                updateCursor()
                 return
             }
         }
@@ -580,7 +596,21 @@ class CardCanvasNSView: NSView {
                 NSCursor.crosshair.set()
             }
         case .paint:
-            NSCursor.crosshair.set()
+            switch currentTool {
+            case .eraser:
+                // Create a circle cursor matching eraser size
+                let size = CGFloat(eraserRadius * 2)
+                let image = NSImage(size: NSSize(width: size, height: size))
+                image.lockFocus()
+                NSColor.gray.withAlphaComponent(0.5).setStroke()
+                NSBezierPath(ovalIn: NSRect(x: 0.5, y: 0.5, width: size - 1, height: size - 1)).stroke()
+                image.unlockFocus()
+                NSCursor(image: image, hotSpot: NSPoint(x: size / 2, y: size / 2)).set()
+            case .bucket:
+                NSCursor.crosshair.set()
+            default:
+                NSCursor.crosshair.set()
+            }
         }
     }
 
@@ -688,7 +718,7 @@ class CardCanvasNSView: NSView {
                 pl.spray(cx: x, cy: y, radius: 12, density: 20, color: NSColor.black)
             case .eraser:
                 let pl = paintLayerForCurrentCard()
-                pl.erase(cx: x, cy: y, radius: 10)
+                pl.erase(cx: x, cy: y, radius: eraserRadius)
             case .bucket:
                 let pl = paintLayerForCurrentCard()
                 pl.floodFill(x: x, y: y, color: NSColor.black)
@@ -833,7 +863,7 @@ class CardCanvasNSView: NSView {
                 pl.spray(cx: x, cy: y, radius: 12, density: 15, color: NSColor.black)
             case .eraser:
                 let pl = paintLayerForCurrentCard()
-                pl.erase(cx: x, cy: y, radius: 10)
+                pl.erase(cx: x, cy: y, radius: eraserRadius)
             case .line, .rect, .oval, .text:
                 // Rubber-band preview -- update drag current
                 dragCurrent = point
