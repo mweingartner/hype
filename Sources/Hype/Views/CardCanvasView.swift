@@ -15,6 +15,7 @@ struct CardCanvasView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> CardCanvasNSView {
         let view = CardCanvasNSView()
+        view.wantsLayer = true  // Layer-backed so subviews (NSTextField) composite properly
         view.document = document.document
         view.currentCardId = currentCardId
         view.currentTool = currentTool
@@ -34,7 +35,13 @@ struct CardCanvasView: NSViewRepresentable {
         nsView.editingBackground = editingBackground
         nsView.coordinator = context.coordinator
         nsView.updateCursor()
-        nsView.needsDisplay = true
+        // Only redraw if not actively editing a field — constant redraws
+        // during editing can interfere with the NSTextField overlay
+        if nsView.isFieldEditing {
+            nsView.setNeedsDisplay(nsView.bounds.insetBy(dx: -1, dy: -1))
+        } else {
+            nsView.needsDisplay = true
+        }
     }
 
     /// Coordinator bridges NSView callbacks back to SwiftUI state.
@@ -270,6 +277,9 @@ class CardCanvasNSView: NSView {
         document.cards.first(where: { $0.id == currentCardId })?.backgroundId
     }
 
+    /// Whether a field is currently being edited inline.
+    var isFieldEditing: Bool { activeFieldEditor != nil }
+
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
@@ -442,11 +452,11 @@ class CardCanvasNSView: NSView {
         coordinator?.dispatchMessage("openField", to: part.id)
 
         // Create the text field overlay, matching the part's position and style exactly
-        let padding: CGFloat = part.wideMargins ? 8 : 4
         let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
         let textField = NSTextField(frame: frame)
         textField.stringValue = part.textContent
         textField.font = NSFont(name: part.textFont, size: CGFloat(part.textSize)) ?? NSFont.systemFont(ofSize: CGFloat(part.textSize))
+        textField.textColor = .black
         textField.isBordered = true
         textField.bezelStyle = .roundedBezel
         textField.drawsBackground = true
@@ -458,10 +468,16 @@ class CardCanvasNSView: NSView {
         textField.alignment = part.textAlign == .center ? .center : part.textAlign == .right ? .right : .left
         textField.cell?.wraps = !part.dontWrap
         textField.cell?.isScrollable = true
+        textField.wantsLayer = true
+        textField.layer?.zPosition = 1000  // Ensure it's above all canvas drawing
 
         addSubview(textField, positioned: .above, relativeTo: nil)
         needsDisplay = true  // Redraw canvas to hide the underlying part
-        window?.makeFirstResponder(textField)
+
+        // Delay makeFirstResponder to ensure the text field is fully in the view hierarchy
+        DispatchQueue.main.async { [weak self] in
+            self?.window?.makeFirstResponder(textField)
+        }
 
         activeFieldEditor = textField
         activeFieldPartId = part.id

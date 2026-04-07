@@ -2,6 +2,9 @@ import SwiftUI
 import HypeCore
 import UniformTypeIdentifiers
 
+/// System font families, loaded once for the font picker.
+private let systemFontFamilies: [String] = NSFontManager.shared.availableFontFamilies.sorted()
+
 struct PropertyInspector: View {
     @Binding var document: HypeDocumentWrapper
     @Binding var selectedPartIds: Set<UUID>
@@ -356,7 +359,16 @@ struct PropertyInspector: View {
     private func textFormattingSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Text Formatting").font(.subheadline).foregroundColor(.secondary)
-            propertyRow("Font", binding: bindPartString(part.id, \.textFont))
+            HStack {
+                Text("Font").frame(width: 40, alignment: .trailing).font(.system(size: 11))
+                Picker("", selection: bindPartString(part.id, \.textFont)) {
+                    ForEach(systemFontFamilies, id: \.self) { fontName in
+                        Text(fontName).font(.system(size: 11)).tag(fontName)
+                    }
+                }
+                .labelsHidden()
+                .font(.system(size: 11))
+            }
             numberField("Size", binding: bindPartDouble(part.id, \.textSize))
             Picker("Align", selection: bindPartTextAlign(part.id)) {
                 Image(systemName: "text.alignleft").tag(HypeCore.TextAlignment.left)
