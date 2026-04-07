@@ -48,6 +48,18 @@ struct ArrangeMenuCommands: Commands {
                 .keyboardShortcut("+", modifiers: [.command, .shift])
             Button("Send to Back") { NotificationCenter.default.post(name: .sendToBack, object: nil) }
                 .keyboardShortcut("-", modifiers: [.command, .shift])
+            Divider()
+            Button("Align Left") { NotificationCenter.default.post(name: .alignLeft, object: nil) }
+                .keyboardShortcut("[", modifiers: [.command, .shift])
+            Button("Align Right") { NotificationCenter.default.post(name: .alignRight, object: nil) }
+                .keyboardShortcut("]", modifiers: [.command, .shift])
+            Button("Align Top") { NotificationCenter.default.post(name: .alignTop, object: nil) }
+            Button("Align Bottom") { NotificationCenter.default.post(name: .alignBottom, object: nil) }
+            Button("Align Horizontal Center") { NotificationCenter.default.post(name: .alignHCenter, object: nil) }
+            Button("Align Vertical Center") { NotificationCenter.default.post(name: .alignVCenter, object: nil) }
+            Divider()
+            Button("Distribute Horizontally") { NotificationCenter.default.post(name: .distributeH, object: nil) }
+            Button("Distribute Vertically") { NotificationCenter.default.post(name: .distributeV, object: nil) }
         }
     }
 }
@@ -84,6 +96,14 @@ extension Notification.Name {
     static let bringToFront = Notification.Name("bringToFront")
     static let sendToBack = Notification.Name("sendToBack")
     static let toggleAI = Notification.Name("toggleAI")
+    static let alignLeft = Notification.Name("alignLeft")
+    static let alignRight = Notification.Name("alignRight")
+    static let alignTop = Notification.Name("alignTop")
+    static let alignBottom = Notification.Name("alignBottom")
+    static let alignHCenter = Notification.Name("alignHCenter")
+    static let alignVCenter = Notification.Name("alignVCenter")
+    static let distributeH = Notification.Name("distributeH")
+    static let distributeV = Notification.Name("distributeV")
 }
 
 struct AIMenuCommands: Commands {

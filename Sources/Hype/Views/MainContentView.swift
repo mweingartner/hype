@@ -5,20 +5,20 @@ struct MainContentView: View {
     @Binding var document: HypeDocumentWrapper
     @State private var currentCardId: UUID?
     @State private var currentTool: ToolName = .browse
-    @State private var selectedPartId: UUID?
+    @State private var selectedPartIds: Set<UUID> = []
     @State private var editingBackground: Bool = false
     @State private var showAI: Bool = false
 
     private var toolState: ToolState {
         var state = ToolState(currentTool: currentTool.rawValue)
-        state.selectedPartId = selectedPartId
+        state.selectedPartId = selectedPartIds.first
         return state
     }
 
     private var showInspector: Bool {
         // Show inspector whenever a part is selected — in any tool mode.
         // In browse mode you can double-click to select a part for editing.
-        selectedPartId != nil
+        !selectedPartIds.isEmpty
     }
 
     var body: some View {
@@ -26,13 +26,21 @@ struct MainContentView: View {
             .onAppear {
                 currentCardId = document.document.sortedCards.first?.id
             }
-            .modifier(NavigationNotificationHandler(
+            .modifier(NavigationHandlers(
                 document: $document,
                 currentCardId: $currentCardId,
                 currentTool: $currentTool,
-                selectedPartId: $selectedPartId,
+                selectedPartIds: $selectedPartIds,
                 editingBackground: $editingBackground,
                 showAI: $showAI
+            ))
+            .modifier(ArrangeHandlers(
+                document: $document,
+                selectedPartIds: $selectedPartIds
+            ))
+            .modifier(AlignmentHandlers(
+                document: $document,
+                selectedPartIds: $selectedPartIds
             ))
     }
 
@@ -79,7 +87,7 @@ struct MainContentView: View {
                 document: $document,
                 currentCardId: currentCardId ?? document.document.sortedCards.first?.id ?? UUID(),
                 currentTool: currentTool,
-                selectedPartId: $selectedPartId,
+                selectedPartIds: $selectedPartIds,
                 editingBackground: editingBackground
             )
             .frame(
@@ -106,7 +114,7 @@ struct MainContentView: View {
     @ViewBuilder
     private var sidePanels: some View {
         if showInspector {
-            PropertyInspector(document: $document, partId: selectedPartId, selectedPartId: $selectedPartId)
+            PropertyInspector(document: $document, selectedPartIds: $selectedPartIds)
         }
         if showAI {
             AIChatPanel(document: $document, currentCardId: $currentCardId)
@@ -129,14 +137,14 @@ struct MainContentView: View {
         guard let cardId = currentCardId,
               let newId = CardNavigator.navigate(direction: .previous, currentCardId: cardId, document: document.document) else { return }
         currentCardId = newId
-        selectedPartId = nil
+        selectedPartIds = []
     }
 
     private func navigateNext() {
         guard let cardId = currentCardId,
               let newId = CardNavigator.navigate(direction: .next, currentCardId: cardId, document: document.document) else { return }
         currentCardId = newId
-        selectedPartId = nil
+        selectedPartIds = []
     }
 
     // MARK: - Info text
@@ -173,7 +181,7 @@ struct MainContentView: View {
         ForEach(ToolName.allCases, id: \.self) { tool in
             Button(action: {
                 currentTool = tool
-                selectedPartId = nil
+                selectedPartIds = []
             }) {
                 Image(systemName: tool.systemImageName)
                     .foregroundColor(currentTool == tool ? .accentColor : .primary)
@@ -183,14 +191,14 @@ struct MainContentView: View {
     }
 }
 
-// MARK: - Notification Handler Modifier
+// MARK: - Notification Handler Modifiers
 
-/// Extracts all notification handlers into a ViewModifier to reduce body complexity.
-private struct NavigationNotificationHandler: ViewModifier {
+/// Sub-modifier for navigation, tool, card, and background notifications.
+private struct NavigationHandlers: ViewModifier {
     @Binding var document: HypeDocumentWrapper
     @Binding var currentCardId: UUID?
     @Binding var currentTool: ToolName
-    @Binding var selectedPartId: UUID?
+    @Binding var selectedPartIds: Set<UUID>
     @Binding var editingBackground: Bool
     @Binding var showAI: Bool
 
@@ -201,18 +209,18 @@ private struct NavigationNotificationHandler: ViewModifier {
                       let cardId = currentCardId else { return }
                 if let newId = CardNavigator.navigate(direction: direction, currentCardId: cardId, document: document.document) {
                     currentCardId = newId
-                    selectedPartId = nil
+                    selectedPartIds = []
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .selectTool)) { notification in
                 guard let tool = notification.object as? ToolName else { return }
                 currentTool = tool
-                selectedPartId = nil
+                selectedPartIds = []
             }
             .onReceive(NotificationCenter.default.publisher(for: .navigateToCard)) { notification in
                 guard let cardId = notification.object as? UUID else { return }
                 currentCardId = cardId
-                selectedPartId = nil
+                selectedPartIds = []
             }
             .onReceive(NotificationCenter.default.publisher(for: .addNewCard)) { _ in
                 addNewCard()
@@ -221,29 +229,18 @@ private struct NavigationNotificationHandler: ViewModifier {
                 deleteCurrentCard()
             }
             .onReceive(NotificationCenter.default.publisher(for: .addNewBackground)) { _ in
-                addNewBackground()
+                let count = document.document.backgrounds.count
+                let _ = document.document.addBackground(name: "Background \(count + 1)")
             }
             .onReceive(NotificationCenter.default.publisher(for: .toggleEditBackground)) { notification in
                 editingBackground = (notification.object as? Bool) ?? false
-                selectedPartId = nil
+                selectedPartIds = []
             }
             .onReceive(NotificationCenter.default.publisher(for: .editPartProperties)) { notification in
                 if let partId = notification.object as? UUID {
-                    selectedPartId = partId
+                    selectedPartIds = [partId]
                     currentTool = .select
                 }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .bringForward)) { _ in
-                if let id = selectedPartId { document.document.bringForward(id: id) }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .sendBackward)) { _ in
-                if let id = selectedPartId { document.document.sendBackward(id: id) }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .bringToFront)) { _ in
-                if let id = selectedPartId { document.document.bringToFront(id: id) }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .sendToBack)) { _ in
-                if let id = selectedPartId { document.document.sendToBack(id: id) }
             }
             .onReceive(NotificationCenter.default.publisher(for: .toggleAI)) { _ in
                 showAI.toggle()
@@ -256,7 +253,7 @@ private struct NavigationNotificationHandler: ViewModifier {
         let currentIndex = sorted.firstIndex(where: { $0.id == cardId })
         let newCard = document.document.addCard(afterIndex: currentIndex)
         currentCardId = newCard.id
-        selectedPartId = nil
+        selectedPartIds = []
     }
 
     private func deleteCurrentCard() {
@@ -272,12 +269,116 @@ private struct NavigationNotificationHandler: ViewModifier {
             }
             document.document.cards.removeAll { $0.id == cardId }
             currentCardId = nextId
-            selectedPartId = nil
+            selectedPartIds = []
+        }
+    }
+}
+
+/// Sub-modifier for draw-order (arrange) notifications.
+private struct ArrangeHandlers: ViewModifier {
+    @Binding var document: HypeDocumentWrapper
+    @Binding var selectedPartIds: Set<UUID>
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .bringForward)) { _ in
+                if let id = selectedPartIds.first { document.document.bringForward(id: id) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .sendBackward)) { _ in
+                if let id = selectedPartIds.first { document.document.sendBackward(id: id) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .bringToFront)) { _ in
+                if let id = selectedPartIds.first { document.document.bringToFront(id: id) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .sendToBack)) { _ in
+                if let id = selectedPartIds.first { document.document.sendToBack(id: id) }
+            }
+    }
+}
+
+/// Sub-modifier for alignment and distribution notifications.
+private struct AlignmentHandlers: ViewModifier {
+    @Binding var document: HypeDocumentWrapper
+    @Binding var selectedPartIds: Set<UUID>
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .alignLeft)) { _ in
+                alignSelectedParts(.left)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .alignRight)) { _ in
+                alignSelectedParts(.right)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .alignTop)) { _ in
+                alignSelectedParts(.top)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .alignBottom)) { _ in
+                alignSelectedParts(.bottom)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .alignHCenter)) { _ in
+                alignSelectedParts(.hCenter)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .alignVCenter)) { _ in
+                alignSelectedParts(.vCenter)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .distributeH)) { _ in
+                alignSelectedParts(.distributeH)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .distributeV)) { _ in
+                alignSelectedParts(.distributeV)
+            }
+    }
+
+    private enum AlignmentType {
+        case left, right, top, bottom, hCenter, vCenter, distributeH, distributeV
+    }
+
+    private func alignSelectedParts(_ alignment: AlignmentType) {
+        let ids = selectedPartIds
+        guard ids.count >= 2 else { return }
+        let parts = document.document.parts.filter { ids.contains($0.id) }
+        guard parts.count >= 2 else { return }
+
+        switch alignment {
+        case .left:
+            let minLeft = parts.map(\.left).min()!
+            for id in ids { document.document.updatePart(id: id) { $0.left = minLeft } }
+        case .right:
+            let maxRight = parts.map { $0.left + $0.width }.max()!
+            for id in ids { document.document.updatePart(id: id) { $0.left = maxRight - $0.width } }
+        case .top:
+            let minTop = parts.map(\.top).min()!
+            for id in ids { document.document.updatePart(id: id) { $0.top = minTop } }
+        case .bottom:
+            let maxBottom = parts.map { $0.top + $0.height }.max()!
+            for id in ids { document.document.updatePart(id: id) { $0.top = maxBottom - $0.height } }
+        case .hCenter:
+            let avgCenterX = parts.map { $0.left + $0.width / 2 }.reduce(0, +) / Double(parts.count)
+            for id in ids { document.document.updatePart(id: id) { $0.left = avgCenterX - $0.width / 2 } }
+        case .vCenter:
+            let avgCenterY = parts.map { $0.top + $0.height / 2 }.reduce(0, +) / Double(parts.count)
+            for id in ids { document.document.updatePart(id: id) { $0.top = avgCenterY - $0.height / 2 } }
+        case .distributeH:
+            let sorted = parts.sorted { $0.left < $1.left }
+            guard sorted.count >= 3 else { return }
+            let totalSpan = sorted.last!.left - sorted.first!.left
+            let step = totalSpan / Double(sorted.count - 1)
+            for (i, part) in sorted.enumerated() {
+                if i > 0 && i < sorted.count - 1 {
+                    document.document.updatePart(id: part.id) { $0.left = sorted.first!.left + step * Double(i) }
+                }
+            }
+        case .distributeV:
+            let sorted = parts.sorted { $0.top < $1.top }
+            guard sorted.count >= 3 else { return }
+            let totalSpan = sorted.last!.top - sorted.first!.top
+            let step = totalSpan / Double(sorted.count - 1)
+            for (i, part) in sorted.enumerated() {
+                if i > 0 && i < sorted.count - 1 {
+                    document.document.updatePart(id: part.id) { $0.top = sorted.first!.top + step * Double(i) }
+                }
+            }
         }
     }
 
-    private func addNewBackground() {
-        let count = document.document.backgrounds.count
-        let _ = document.document.addBackground(name: "Background \(count + 1)")
-    }
 }

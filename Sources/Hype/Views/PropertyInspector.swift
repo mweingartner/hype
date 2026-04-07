@@ -4,13 +4,14 @@ import UniformTypeIdentifiers
 
 struct PropertyInspector: View {
     @Binding var document: HypeDocumentWrapper
-    let partId: UUID?
-    @Binding var selectedPartId: UUID?
+    @Binding var selectedPartIds: Set<UUID>
     @State private var showingScript = false
 
     var body: some View {
         Group {
-            if let partId = partId,
+            if selectedPartIds.count > 1 {
+                multiSelectionView
+            } else if let partId = selectedPartIds.first,
                let part = document.document.parts.first(where: { $0.id == partId }) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
@@ -68,7 +69,7 @@ struct PropertyInspector: View {
                         // Delete part
                         Button(role: .destructive, action: {
                             let idToDelete = part.id
-                            selectedPartId = nil
+                            selectedPartIds = []
                             document.document.removePart(id: idToDelete)
                         }) {
                             HStack {
@@ -93,6 +94,70 @@ struct PropertyInspector: View {
         }
         .frame(width: 260)
         .background(Color(NSColor.controlBackgroundColor))
+    }
+
+    // MARK: - Multi-selection view
+
+    private var multiSelectionView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("\(selectedPartIds.count) parts selected")
+                    .font(.headline)
+                    .padding(.bottom, 4)
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("ALIGNMENT")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.secondary)
+
+                    HStack(spacing: 4) {
+                        alignButton("Align Left", icon: "align.horizontal.left", notificationName: .alignLeft)
+                        alignButton("Align Center", icon: "align.horizontal.center", notificationName: .alignHCenter)
+                        alignButton("Align Right", icon: "align.horizontal.right", notificationName: .alignRight)
+                    }
+                    HStack(spacing: 4) {
+                        alignButton("Align Top", icon: "align.vertical.top", notificationName: .alignTop)
+                        alignButton("Align Middle", icon: "align.vertical.center", notificationName: .alignVCenter)
+                        alignButton("Align Bottom", icon: "align.vertical.bottom", notificationName: .alignBottom)
+                    }
+                    HStack(spacing: 4) {
+                        alignButton("Distribute H", icon: "distribute.horizontal.center", notificationName: .distributeH)
+                        alignButton("Distribute V", icon: "distribute.vertical.center", notificationName: .distributeV)
+                    }
+                }
+
+                Divider()
+
+                // Delete all selected
+                Button(role: .destructive, action: {
+                    let ids = selectedPartIds
+                    selectedPartIds = []
+                    for id in ids {
+                        document.document.removePart(id: id)
+                    }
+                }) {
+                    HStack {
+                        Image(systemName: "trash")
+                        Text("Delete \(selectedPartIds.count) Parts")
+                    }
+                    .foregroundColor(.red)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding()
+        }
+    }
+
+    private func alignButton(_ tooltip: String, icon: String, notificationName: Notification.Name) -> some View {
+        Button(action: {
+            NotificationCenter.default.post(name: notificationName, object: nil)
+        }) {
+            Image(systemName: icon)
+                .frame(width: 28, height: 28)
+        }
+        .help(tooltip)
     }
 
     // MARK: - Sections

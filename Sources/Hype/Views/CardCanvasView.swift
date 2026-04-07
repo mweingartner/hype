@@ -6,7 +6,7 @@ struct CardCanvasView: NSViewRepresentable {
     @Binding var document: HypeDocumentWrapper
     let currentCardId: UUID
     let currentTool: ToolName
-    @Binding var selectedPartId: UUID?
+    @Binding var selectedPartIds: Set<UUID>
     let editingBackground: Bool
 
     func makeCoordinator() -> Coordinator {
@@ -18,7 +18,7 @@ struct CardCanvasView: NSViewRepresentable {
         view.document = document.document
         view.currentCardId = currentCardId
         view.currentTool = currentTool
-        view.selectedPartId = selectedPartId
+        view.selectedPartIds = selectedPartIds
         view.editingBackground = editingBackground
         view.coordinator = context.coordinator
         return view
@@ -30,7 +30,7 @@ struct CardCanvasView: NSViewRepresentable {
         nsView.document = document.document
         nsView.currentCardId = currentCardId
         nsView.currentTool = currentTool
-        nsView.selectedPartId = selectedPartId
+        nsView.selectedPartIds = selectedPartIds
         nsView.editingBackground = editingBackground
         nsView.coordinator = context.coordinator
         nsView.updateCursor()
@@ -47,8 +47,28 @@ struct CardCanvasView: NSViewRepresentable {
             self.parent = parent
         }
 
+        /// Clear selection and select a single part (or none).
         func selectPart(_ id: UUID?) {
-            parent.selectedPartId = id
+            if let id = id {
+                parent.selectedPartIds = [id]
+            } else {
+                parent.selectedPartIds = []
+            }
+        }
+
+        /// Add a part to the existing selection.
+        func addToSelection(_ id: UUID) {
+            parent.selectedPartIds.insert(id)
+        }
+
+        /// Remove a part from the existing selection.
+        func removeFromSelection(_ id: UUID) {
+            parent.selectedPartIds.remove(id)
+        }
+
+        /// Set the full selection to a specific set of IDs.
+        func selectParts(_ ids: Set<UUID>) {
+            parent.selectedPartIds = ids
         }
 
         func addPart(_ part: Part) {
@@ -115,7 +135,7 @@ struct CardCanvasView: NSViewRepresentable {
         }
 
         func deletePart(id: UUID) {
-            parent.selectedPartId = nil
+            parent.selectedPartIds.remove(id)
             parent.document.document.removePart(id: id)
         }
 
@@ -160,7 +180,7 @@ class CardCanvasNSView: NSView {
     var document: HypeDocument = HypeDocument()
     var currentCardId: UUID = UUID()
     var currentTool: ToolName = .browse
-    var selectedPartId: UUID?
+    var selectedPartIds: Set<UUID> = []
     var editingBackground: Bool = false
     weak var coordinator: CardCanvasView.Coordinator?
 
@@ -190,6 +210,9 @@ class CardCanvasNSView: NSView {
     // Pencil freeform points collected during drag
     private var pencilPoints: [PathPoint] = []
 
+    // Marquee selection state
+    private var isMarqueeSelecting = false
+
     // Alignment snap guides currently visible
     private var activeGuides: [SnapGuide] = []
 
@@ -214,10 +237,12 @@ class CardCanvasNSView: NSView {
             return
         }
 
-        // Delete or Backspace: delete the selected part
+        // Delete or Backspace: delete all selected parts
         if event.keyCode == 51 || event.keyCode == 117 {  // 51 = Backspace, 117 = Forward Delete
-            if let partId = selectedPartId {
-                coordinator?.deletePart(id: partId)
+            if !selectedPartIds.isEmpty {
+                for id in selectedPartIds {
+                    coordinator?.deletePart(id: id)
+                }
                 needsDisplay = true
                 return
             }
@@ -237,10 +262,11 @@ class CardCanvasNSView: NSView {
             paintLayer.render(into: ctx)
         }
 
-        // Draw selection overlay
-        if let selectedId = selectedPartId,
-           let part = document.parts.first(where: { $0.id == selectedId }) {
-            drawSelectionOverlay(ctx: ctx, part: part)
+        // Draw selection overlay for all selected parts
+        for selectedId in selectedPartIds {
+            if let part = document.parts.first(where: { $0.id == selectedId }) {
+                drawSelectionOverlay(ctx: ctx, part: part)
+            }
         }
 
         // Draw alignment guides
@@ -450,30 +476,49 @@ class CardCanvasNSView: NSView {
         }
 
         var toolState = ToolState(currentTool: currentTool.rawValue)
-        toolState.selectedPartId = selectedPartId
+        toolState.selectedPartId = selectedPartIds.first
 
         let result = mouseHandler.handleMouseDown(tool: toolState, hitPart: hitPart, point: point)
 
         // Before handling the tool result, check if we're clicking a resize handle
-        // on the already-selected part
-        if currentTool == .select, let _ = selectedPartId {
+        // on an already-selected part (only when single selection)
+        if currentTool == .select, selectedPartIds.count == 1 {
             let handle = hitTestResizeHandle(point)
             if handle != .none {
                 resizeHandle = handle
                 dragStart = point
-                draggedPartId = selectedPartId
+                draggedPartId = selectedPartIds.first
                 return
             }
         }
 
         switch result {
         case .selectPart(let id):
-            coordinator?.selectPart(id)
+            if event.modifierFlags.contains(.shift) {
+                // Shift-click: toggle part in selection
+                if selectedPartIds.contains(id) {
+                    coordinator?.removeFromSelection(id)
+                } else {
+                    coordinator?.addToSelection(id)
+                }
+            } else {
+                coordinator?.selectPart(id)
+            }
             resizeHandle = .none
             draggedPartId = id
             dragStart = point
         case .deselectAll:
-            coordinator?.selectPart(nil)
+            if currentTool == .select {
+                // Start marquee selection on empty space
+                coordinator?.selectPart(nil)
+                dragStart = point
+                dragCurrent = point
+                isDragging = true
+                isMarqueeSelecting = true
+                needsDisplay = true
+            } else {
+                coordinator?.selectPart(nil)
+            }
         case .sendMessage(let partId, let message):
             // Check if we clicked a field in browse mode — start editing
             if let part = document.parts.first(where: { $0.id == partId }),
@@ -541,6 +586,12 @@ class CardCanvasNSView: NSView {
                 )
                 activeGuides = snap.guides
                 coordinator?.resizePart(id: partId, handle: resizeHandle, dx: dx, dy: dy)
+            } else if selectedPartIds.count > 1 && selectedPartIds.contains(partId) {
+                // Move ALL selected parts by the same delta
+                for id in selectedPartIds {
+                    coordinator?.movePart(id: id, dx: dx, dy: dy)
+                }
+                activeGuides = []
             } else {
                 // Move the part with alignment snapping
                 let otherParts = allOtherParts(excluding: partId)
@@ -682,6 +733,28 @@ class CardCanvasNSView: NSView {
             return
         }
 
+        // Complete marquee selection
+        if isMarqueeSelecting, let start = dragStart, let current = dragCurrent {
+            let marqueeRect = CGRect(
+                x: min(start.x, current.x),
+                y: min(start.y, current.y),
+                width: abs(current.x - start.x),
+                height: abs(current.y - start.y)
+            )
+            let allParts = allVisibleParts()
+            let selected = allParts.filter { part in
+                let partRect = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+                return marqueeRect.intersects(partRect)
+            }
+            coordinator?.selectParts(Set(selected.map(\.id)))
+            isMarqueeSelecting = false
+            isDragging = false
+            dragStart = nil
+            dragCurrent = nil
+            needsDisplay = true
+            return
+        }
+
         if draggedPartId != nil {
             draggedPartId = nil
             dragStart = nil
@@ -709,7 +782,7 @@ class CardCanvasNSView: NSView {
 
         let hitPart = renderer.partAtPoint(point, document: document, cardId: currentCardId)
         var toolState = ToolState(currentTool: currentTool.rawValue)
-        toolState.selectedPartId = selectedPartId
+        toolState.selectedPartId = selectedPartIds.first
 
         let cgDragStart: CGPoint? = dragStart
         let result = mouseHandler.handleMouseUp(tool: toolState, hitPart: hitPart, dragStart: cgDragStart, point: point)
@@ -838,7 +911,8 @@ class CardCanvasNSView: NSView {
 
     /// Check if a point hits a resize handle on the selected part.
     private func hitTestResizeHandle(_ point: CGPoint) -> ResizeHandle {
-        guard let selectedId = selectedPartId,
+        guard selectedPartIds.count == 1,
+              let selectedId = selectedPartIds.first,
               let part = document.parts.first(where: { $0.id == selectedId }) else {
             return .none
         }
@@ -879,6 +953,22 @@ class CardCanvasNSView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         // View is already flipped (isFlipped = true), so no additional transform needed
         return point
+    }
+
+    /// Get all visible parts on the current card/background (respects editing mode).
+    private func allVisibleParts() -> [Part] {
+        let cardParts = document.partsForCard(currentCardId)
+        let bgParts: [Part]
+        if let card = document.cards.first(where: { $0.id == currentCardId }) {
+            bgParts = document.partsForBackground(card.backgroundId)
+        } else {
+            bgParts = []
+        }
+        if editingBackground {
+            return bgParts.filter { $0.visible }
+        } else {
+            return (cardParts + bgParts).filter { $0.visible }
+        }
     }
 
     /// Get all parts on the current card/background except the one being manipulated.
