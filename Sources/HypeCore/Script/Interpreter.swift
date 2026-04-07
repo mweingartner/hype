@@ -286,6 +286,74 @@ public struct Interpreter: Sendable {
                             if let idx = document.cards.firstIndex(where: { $0.id == context.currentCardId }) {
                                 document.cards[idx].marked = isTruthy(value)
                             }
+                        case "right":
+                            let newRight = toNumber(value)
+                            document.parts[partIndex].width = newRight - document.parts[partIndex].left
+                        case "bottom":
+                            let newBottom = toNumber(value)
+                            document.parts[partIndex].height = newBottom - document.parts[partIndex].top
+                        case "topleft":
+                            let components = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+                            if components.count >= 2 {
+                                document.parts[partIndex].left = components[0]
+                                document.parts[partIndex].top = components[1]
+                            }
+                        case "bottomright":
+                            let components = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+                            if components.count >= 2 {
+                                document.parts[partIndex].width = components[0] - document.parts[partIndex].left
+                                document.parts[partIndex].height = components[1] - document.parts[partIndex].top
+                            }
+                        case "icon":
+                            if let uuid = UUID(uuidString: value) {
+                                document.parts[partIndex].iconId = uuid
+                            }
+                        case "scroll", "scrollpos":
+                            break  // Would need scroll position tracking
+                        case "sharedtext":
+                            break  // Would need shared text model field
+                        case "sharedhilite":
+                            break  // Would need shared hilite model field
+                        case "showlines":
+                            break  // Would need field property
+                        case "showpict":
+                            break  // Would need show picture property
+                        case "fixedlineheight":
+                            break  // Would need model property
+                        case "multiplelines":
+                            break  // Would need model property
+                        case "dontsearch":
+                            break  // Would need model property
+                        case "autoselect":
+                            break  // Would need model property
+                        case "autotab":
+                            break  // Would need model property
+                        case "textheight":
+                            document.parts[partIndex].textSize = toNumber(value) / 1.3
+                        case "cantdelete":
+                            break  // Would need model property
+                        case "cantmodify":
+                            break  // Would need model property
+                        case "centered":
+                            document.parts[partIndex].textAlign = isTruthy(value) ? .center : .left
+                        case "fill_color":
+                            document.parts[partIndex].fillColor = value
+                        case "stroke_color":
+                            document.parts[partIndex].strokeColor = value
+                        case "strokewidth", "stroke_width":
+                            document.parts[partIndex].strokeWidth = toNumber(value)
+                        case "cornerradius", "corner_radius":
+                            document.parts[partIndex].cornerRadius = toNumber(value)
+                        case "shapetype", "shape_type":
+                            if let st = ShapeType(rawValue: value) {
+                                document.parts[partIndex].shapeType = st
+                            }
+                        case "richtext", "rich_text":
+                            document.parts[partIndex].richText = isTruthy(value)
+                        case "enterkeyenabled":
+                            document.parts[partIndex].enterKeyEnabled = isTruthy(value)
+                        case "invertonclick":
+                            document.parts[partIndex].invertOnClick = isTruthy(value)
                         default:
                             env.setVariable(property, value)
                         }
@@ -838,6 +906,22 @@ public struct Interpreter: Sendable {
         case "value":
             return args.first ?? ""
 
+        // Date and time functions
+        case "date":
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            return formatter.string(from: Date())
+        case "time":
+            let formatter = DateFormatter()
+            formatter.timeStyle = .medium
+            return formatter.string(from: Date())
+        case "ticks":
+            return String(Int(Date().timeIntervalSince1970 * 60))
+        case "seconds":
+            return String(Int(Date().timeIntervalSince1970))
+        case "number":
+            return args.first ?? "0"
+
         // Mouse functions (return static defaults since we're not in a live event loop)
         case "mouse": return "up"
         case "mouseclick": return "false"
@@ -846,9 +930,24 @@ public struct Interpreter: Sendable {
         case "mouseloc": return "0,0"
 
         // Key functions
-        case "commandkey": return "up"
-        case "shiftkey": return "up"
-        case "optionkey": return "up"
+        case "shiftkey":
+            #if canImport(AppKit)
+            return NSEvent.modifierFlags.contains(.shift) ? "down" : "up"
+            #else
+            return "up"
+            #endif
+        case "commandkey":
+            #if canImport(AppKit)
+            return NSEvent.modifierFlags.contains(.command) ? "down" : "up"
+            #else
+            return "up"
+            #endif
+        case "optionkey":
+            #if canImport(AppKit)
+            return NSEvent.modifierFlags.contains(.option) ? "down" : "up"
+            #else
+            return "up"
+            #endif
 
         // Other (stubs — full implementation requires runtime context)
         case "target": return ""
@@ -1020,6 +1119,30 @@ public struct Interpreter: Sendable {
                 return "false"
             case "variablewatcher":
                 return "false"
+            case "freesize":
+                return "0"
+            case "size":
+                return "0"
+            case "brush":
+                return "8"
+            case "filled":
+                return "false"
+            case "grid":
+                return "false"
+            case "linesize":
+                return "1"
+            case "pattern":
+                return "1"
+            case "centered":
+                return "false"
+            case "polysides":
+                return "4"
+            case "commandchar":
+                return ""
+            case "markchar", "checkmark":
+                return "\u{2713}"
+            case "menumessage":
+                return ""
             default:
                 return env.getVariable(property)
             }
@@ -1116,7 +1239,32 @@ public struct Interpreter: Sendable {
                     return "false"
                 case "cantdelete":   return "false"
                 case "cantmodify":   return "false"
-                case "centered":     return "false"
+                case "centered":
+                    return part.textAlign == .center ? "true" : "false"
+                case "filled":
+                    return part.partType == .shape ? (part.fillColor != "#FFFFFF" && part.fillColor != "#00000000" ? "true" : "false") : "false"
+                case "linesize":
+                    return formatNumber(part.strokeWidth)
+                case "icon":
+                    return part.iconId?.uuidString ?? "0"
+                case "size":
+                    return "\(formatNumber(part.width)),\(formatNumber(part.height))"
+                case "fillcolor", "fill_color":
+                    return part.fillColor
+                case "strokecolor", "stroke_color":
+                    return part.strokeColor
+                case "strokewidth", "stroke_width":
+                    return formatNumber(part.strokeWidth)
+                case "cornerradius", "corner_radius":
+                    return formatNumber(part.cornerRadius)
+                case "shapetype", "shape_type":
+                    return part.shapeType.rawValue
+                case "richtext", "rich_text":
+                    return part.richText ? "true" : "false"
+                case "enterkeyenabled":
+                    return part.enterKeyEnabled ? "true" : "false"
+                case "invertonclick":
+                    return part.invertOnClick ? "true" : "false"
                 default:            return ""
                 }
             }

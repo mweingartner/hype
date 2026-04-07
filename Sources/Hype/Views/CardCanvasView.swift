@@ -73,6 +73,14 @@ struct CardCanvasView: NSViewRepresentable {
 
         func addPart(_ part: Part) {
             parent.document.document.addPart(part)
+            // Dispatch creation message
+            let message: String
+            switch part.partType {
+            case .button: message = "newButton"
+            case .field:  message = "newField"
+            default:      message = "newButton"
+            }
+            dispatchMessage(message, to: part.id)
         }
 
         func movePart(id: UUID, dx: Double, dy: Double) {
@@ -135,6 +143,16 @@ struct CardCanvasView: NSViewRepresentable {
         }
 
         func deletePart(id: UUID) {
+            // Dispatch delete message before removing
+            if let part = parent.document.document.parts.first(where: { $0.id == id }) {
+                let message: String
+                switch part.partType {
+                case .button: message = "deleteButton"
+                case .field:  message = "deleteField"
+                default:      message = "deleteButton"
+                }
+                dispatchMessage(message, to: id)
+            }
             parent.selectedPartIds.remove(id)
             parent.document.document.removePart(id: id)
         }
@@ -230,6 +248,16 @@ class CardCanvasNSView: NSView {
 
     // Alignment snap guides currently visible
     private var activeGuides: [SnapGuide] = []
+
+    // Idle timer for dispatching idle messages in browse mode
+    private var idleTimer: Timer?
+
+    // Timer for mouseStillDown messages while mouse is held
+    private var mouseStillDownTimer: Timer?
+    private var mouseStillDownPartId: UUID?
+
+    // Throttle mouseWithin dispatches
+    private var lastMouseWithinTime: Date = .distantPast
 
     /// Which resize handle is being dragged.
     enum ResizeHandle {
@@ -469,6 +497,33 @@ class CardCanvasNSView: NSView {
         }
     }
 
+    // MARK: - Idle Timer
+
+    private func startIdleTimer() {
+        idleTimer?.invalidate()
+        idleTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            let toolState = ToolState(currentTool: self.currentTool.rawValue)
+            if toolState.category == .browse && self.activeFieldEditor == nil {
+                self.coordinator?.dispatchMessageToCard("idle")
+            }
+        }
+    }
+
+    private func stopIdleTimer() {
+        idleTimer?.invalidate()
+        idleTimer = nil
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow == nil {
+            stopIdleTimer()
+            mouseStillDownTimer?.invalidate()
+            mouseStillDownTimer = nil
+        }
+    }
+
     override func resetCursorRects() {
         let toolState = ToolState(currentTool: currentTool.rawValue)
         let cursor: NSCursor
@@ -490,6 +545,7 @@ class CardCanvasNSView: NSView {
             options: [.mouseMoved, .activeInKeyWindow, .mouseEnteredAndExited],
             owner: self
         ))
+        startIdleTimer()
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -506,6 +562,15 @@ class CardCanvasNSView: NSView {
             // Enter new part
             if let newId = newHoverId {
                 coordinator?.dispatchMessage("mouseEnter", to: newId)
+            }
+        }
+
+        // Dispatch mouseWithin (throttled to every 100ms)
+        if let partId = hoveredPartId, Date().timeIntervalSince(lastMouseWithinTime) > 0.1 {
+            lastMouseWithinTime = Date()
+            let toolState = ToolState(currentTool: currentTool.rawValue)
+            if toolState.category == .browse {
+                coordinator?.dispatchMessage("mouseWithin", to: partId)
             }
         }
     }
@@ -640,6 +705,13 @@ class CardCanvasNSView: NSView {
                 return
             }
             coordinator?.dispatchMessage(message, to: partId)
+            // Start mouseStillDown timer for held clicks in browse mode
+            mouseStillDownPartId = partId
+            mouseStillDownTimer?.invalidate()
+            mouseStillDownTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                guard let self = self, let pid = self.mouseStillDownPartId else { return }
+                self.coordinator?.dispatchMessage("mouseStillDown", to: pid)
+            }
         case .beginDrag(let startX, let startY):
             dragStart = CGPoint(x: startX, y: startY)
             dragCurrent = dragStart
@@ -728,6 +800,11 @@ class CardCanvasNSView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        // Cancel mouseStillDown timer
+        mouseStillDownTimer?.invalidate()
+        mouseStillDownTimer = nil
+        mouseStillDownPartId = nil
+
         let point = flippedPoint(for: event)
 
         // Handle paint tool mouseUp (shape tools create Parts, bitmap tools use PaintLayer)

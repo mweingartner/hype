@@ -331,12 +331,18 @@ private struct NavigationHandlers: ViewModifier {
         let sorted = document.document.sortedCards
         let currentIndex = sorted.firstIndex(where: { $0.id == cardId })
         let newCard = document.document.addCard(afterIndex: currentIndex)
+        // Dispatch newCard message
+        let dispatcher = MessageDispatcher()
+        let _ = dispatcher.dispatch(message: "newCard", params: [], targetId: newCard.id, document: document.document, currentCardId: newCard.id)
         navigateToCard(newCard.id)
     }
 
     private func deleteCurrentCard() {
         guard let cardId = currentCardId else { return }
         guard document.document.cards.count > 1 else { return }
+        // Dispatch deleteCard message before removing
+        let dispatcher = MessageDispatcher()
+        let _ = dispatcher.dispatch(message: "deleteCard", params: [], targetId: cardId, document: document.document, currentCardId: cardId)
         let sorted = document.document.sortedCards
         if let idx = sorted.firstIndex(where: { $0.id == cardId }) {
             let nextId = idx + 1 < sorted.count ? sorted[idx + 1].id :
