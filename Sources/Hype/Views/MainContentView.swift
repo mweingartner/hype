@@ -115,9 +115,21 @@ struct MainContentView: View {
             // Double-click in browse mode opens part properties
             if let partId = notification.object as? UUID {
                 selectedPartId = partId
-                // Switch to select tool so the inspector shows properly
                 currentTool = .select
             }
+        }
+        // Draw order
+        .onReceive(NotificationCenter.default.publisher(for: .bringForward)) { _ in
+            if let id = selectedPartId { document.document.bringForward(id: id) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .sendBackward)) { _ in
+            if let id = selectedPartId { document.document.sendBackward(id: id) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .bringToFront)) { _ in
+            if let id = selectedPartId { document.document.bringToFront(id: id) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .sendToBack)) { _ in
+            if let id = selectedPartId { document.document.sendToBack(id: id) }
         }
     }
 

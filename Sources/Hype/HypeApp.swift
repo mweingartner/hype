@@ -14,6 +14,7 @@ struct HypeApp: App {
             }
             GoMenuCommands()
             ObjectsMenuCommands()
+            ArrangeMenuCommands()
             ToolsMenuCommands()
         }
     }

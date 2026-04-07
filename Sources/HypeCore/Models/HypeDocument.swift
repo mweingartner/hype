@@ -111,4 +111,34 @@ public struct HypeDocument: Codable, Sendable {
             transform(&parts[index])
         }
     }
+
+    // MARK: - Draw Order
+
+    /// Move a part one position forward (draws later = on top).
+    public mutating func bringForward(id: UUID) {
+        guard let index = parts.firstIndex(where: { $0.id == id }),
+              index + 1 < parts.count else { return }
+        parts.swapAt(index, index + 1)
+    }
+
+    /// Move a part one position backward (draws earlier = behind).
+    public mutating func sendBackward(id: UUID) {
+        guard let index = parts.firstIndex(where: { $0.id == id }),
+              index > 0 else { return }
+        parts.swapAt(index, index - 1)
+    }
+
+    /// Move a part to the front (last in array = drawn on top of everything).
+    public mutating func bringToFront(id: UUID) {
+        guard let index = parts.firstIndex(where: { $0.id == id }) else { return }
+        let part = parts.remove(at: index)
+        parts.append(part)
+    }
+
+    /// Move a part to the back (first in array = drawn behind everything).
+    public mutating func sendToBack(id: UUID) {
+        guard let index = parts.firstIndex(where: { $0.id == id }) else { return }
+        let part = parts.remove(at: index)
+        parts.insert(part, at: 0)
+    }
 }

@@ -36,6 +36,22 @@ struct ObjectsMenuCommands: Commands {
     }
 }
 
+struct ArrangeMenuCommands: Commands {
+    var body: some Commands {
+        CommandMenu("Arrange") {
+            Button("Bring Forward") { NotificationCenter.default.post(name: .bringForward, object: nil) }
+                .keyboardShortcut("+", modifiers: .command)
+            Button("Send Backward") { NotificationCenter.default.post(name: .sendBackward, object: nil) }
+                .keyboardShortcut("-", modifiers: .command)
+            Divider()
+            Button("Bring to Front") { NotificationCenter.default.post(name: .bringToFront, object: nil) }
+                .keyboardShortcut("+", modifiers: [.command, .shift])
+            Button("Send to Back") { NotificationCenter.default.post(name: .sendToBack, object: nil) }
+                .keyboardShortcut("-", modifiers: [.command, .shift])
+        }
+    }
+}
+
 struct ToolsMenuCommands: Commands {
     var body: some Commands {
         CommandMenu("Tools") {
@@ -63,4 +79,8 @@ extension Notification.Name {
     static let editPartProperties = Notification.Name("editPartProperties")
     static let addNewBackground = Notification.Name("addNewBackground")
     static let toggleEditBackground = Notification.Name("toggleEditBackground")
+    static let bringForward = Notification.Name("bringForward")
+    static let sendBackward = Notification.Name("sendBackward")
+    static let bringToFront = Notification.Name("bringToFront")
+    static let sendToBack = Notification.Name("sendToBack")
 }
