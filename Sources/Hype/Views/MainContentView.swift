@@ -7,6 +7,7 @@ struct MainContentView: View {
     @State private var currentTool: ToolName = .browse
     @State private var selectedPartId: UUID?
     @State private var editingBackground: Bool = false
+    @State private var showAI: Bool = false
 
     private var toolState: ToolState {
         var state = ToolState(currentTool: currentTool.rawValue)
@@ -21,40 +22,24 @@ struct MainContentView: View {
     }
 
     var body: some View {
+        mainContent
+            .onAppear {
+                currentCardId = document.document.sortedCards.first?.id
+            }
+            .modifier(NavigationNotificationHandler(
+                document: $document,
+                currentCardId: $currentCardId,
+                currentTool: $currentTool,
+                selectedPartId: $selectedPartId,
+                editingBackground: $editingBackground,
+                showAI: $showAI
+            ))
+    }
+
+    private var mainContent: some View {
         HSplitView {
-            // Canvas area
-            VStack(spacing: 0) {
-                CardCanvasView(
-                    document: $document,
-                    currentCardId: currentCardId ?? document.document.sortedCards.first?.id ?? UUID(),
-                    currentTool: currentTool,
-                    selectedPartId: $selectedPartId,
-                    editingBackground: editingBackground
-                )
-                .frame(
-                    minWidth: CGFloat(document.document.stack.width),
-                    minHeight: CGFloat(document.document.stack.height)
-                )
-                .background(Color.gray.opacity(0.3))
-
-                // Status bar
-                HStack {
-                    Text(cardInfoText)
-                        .font(.system(size: 11))
-                    Spacer()
-                    Text(toolModeText)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 2)
-                .background(Color(NSColor.controlBackgroundColor))
-            }
-
-            // Property inspector sidebar
-            if showInspector {
-                PropertyInspector(document: $document, partId: selectedPartId, selectedPartId: $selectedPartId)
-            }
+            canvasArea
+            sidePanels
         }
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
@@ -62,7 +47,6 @@ struct MainContentView: View {
 
                 Spacer()
 
-                // Navigation buttons
                 Button(action: navigatePrevious) {
                     Image(systemName: "chevron.left")
                 }
@@ -74,62 +58,58 @@ struct MainContentView: View {
                 }
                 .help("Next Card")
                 .disabled(!canNavigateNext)
+
+                Divider()
+
+                Button(action: { showAI.toggle() }) {
+                    Image(systemName: "sparkles")
+                        .foregroundColor(showAI ? .accentColor : .primary)
+                }
+                .help("AI Assistant")
             }
         }
-        .onAppear {
-            currentCardId = document.document.sortedCards.first?.id
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .navigateCard)) { notification in
-            guard let direction = notification.object as? NavigationDirection,
-                  let cardId = currentCardId else { return }
-            if let newId = CardNavigator.navigate(direction: direction, currentCardId: cardId, document: document.document) {
-                currentCardId = newId
-                selectedPartId = nil
+    }
+
+    // MARK: - Canvas and Panels
+
+    @ViewBuilder
+    private var canvasArea: some View {
+        VStack(spacing: 0) {
+            CardCanvasView(
+                document: $document,
+                currentCardId: currentCardId ?? document.document.sortedCards.first?.id ?? UUID(),
+                currentTool: currentTool,
+                selectedPartId: $selectedPartId,
+                editingBackground: editingBackground
+            )
+            .frame(
+                minWidth: CGFloat(document.document.stack.width),
+                minHeight: CGFloat(document.document.stack.height)
+            )
+            .background(Color.gray.opacity(0.3))
+
+            // Status bar
+            HStack {
+                Text(cardInfoText)
+                    .font(.system(size: 11))
+                Spacer()
+                Text(toolModeText)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .background(Color(NSColor.controlBackgroundColor))
         }
-        .onReceive(NotificationCenter.default.publisher(for: .selectTool)) { notification in
-            guard let tool = notification.object as? ToolName else { return }
-            currentTool = tool
-            selectedPartId = nil
+    }
+
+    @ViewBuilder
+    private var sidePanels: some View {
+        if showInspector {
+            PropertyInspector(document: $document, partId: selectedPartId, selectedPartId: $selectedPartId)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .navigateToCard)) { notification in
-            // Script-driven navigation (e.g., "go next card" in a handler)
-            guard let cardId = notification.object as? UUID else { return }
-            currentCardId = cardId
-            selectedPartId = nil
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .addNewCard)) { _ in
-            addNewCard()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .deleteCurrentCard)) { _ in
-            deleteCurrentCard()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .addNewBackground)) { _ in
-            addNewBackground()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleEditBackground)) { notification in
-            editingBackground = (notification.object as? Bool) ?? false
-            selectedPartId = nil
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .editPartProperties)) { notification in
-            // Double-click in browse mode opens part properties
-            if let partId = notification.object as? UUID {
-                selectedPartId = partId
-                currentTool = .select
-            }
-        }
-        // Draw order
-        .onReceive(NotificationCenter.default.publisher(for: .bringForward)) { _ in
-            if let id = selectedPartId { document.document.bringForward(id: id) }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .sendBackward)) { _ in
-            if let id = selectedPartId { document.document.sendBackward(id: id) }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .bringToFront)) { _ in
-            if let id = selectedPartId { document.document.bringToFront(id: id) }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .sendToBack)) { _ in
-            if let id = selectedPartId { document.document.sendToBack(id: id) }
+        if showAI {
+            AIChatPanel(document: $document, currentCardId: $currentCardId)
         }
     }
 
@@ -157,42 +137,6 @@ struct MainContentView: View {
               let newId = CardNavigator.navigate(direction: .next, currentCardId: cardId, document: document.document) else { return }
         currentCardId = newId
         selectedPartId = nil
-    }
-
-    // MARK: - Card Management
-
-    private func addNewCard() {
-        guard let cardId = currentCardId else { return }
-        let sorted = document.document.sortedCards
-        let currentIndex = sorted.firstIndex(where: { $0.id == cardId })
-        let newCard = document.document.addCard(afterIndex: currentIndex)
-        currentCardId = newCard.id
-        selectedPartId = nil
-    }
-
-    private func deleteCurrentCard() {
-        guard let cardId = currentCardId else { return }
-        guard document.document.cards.count > 1 else { return } // Keep at least one card
-        // Navigate to previous or next before deleting
-        let sorted = document.document.sortedCards
-        if let idx = sorted.firstIndex(where: { $0.id == cardId }) {
-            let nextId = idx + 1 < sorted.count ? sorted[idx + 1].id :
-                         idx > 0 ? sorted[idx - 1].id : nil
-            // Remove all parts on this card
-            let cardParts = document.document.partsForCard(cardId)
-            for part in cardParts {
-                document.document.removePart(id: part.id)
-            }
-            // Remove the card
-            document.document.cards.removeAll { $0.id == cardId }
-            currentCardId = nextId
-            selectedPartId = nil
-        }
-    }
-
-    private func addNewBackground() {
-        let count = document.document.backgrounds.count
-        let _ = document.document.addBackground(name: "Background \(count + 1)")
     }
 
     // MARK: - Info text
@@ -236,5 +180,104 @@ struct MainContentView: View {
             }
             .help(tool.rawValue.capitalized)
         }
+    }
+}
+
+// MARK: - Notification Handler Modifier
+
+/// Extracts all notification handlers into a ViewModifier to reduce body complexity.
+private struct NavigationNotificationHandler: ViewModifier {
+    @Binding var document: HypeDocumentWrapper
+    @Binding var currentCardId: UUID?
+    @Binding var currentTool: ToolName
+    @Binding var selectedPartId: UUID?
+    @Binding var editingBackground: Bool
+    @Binding var showAI: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .navigateCard)) { notification in
+                guard let direction = notification.object as? NavigationDirection,
+                      let cardId = currentCardId else { return }
+                if let newId = CardNavigator.navigate(direction: direction, currentCardId: cardId, document: document.document) {
+                    currentCardId = newId
+                    selectedPartId = nil
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .selectTool)) { notification in
+                guard let tool = notification.object as? ToolName else { return }
+                currentTool = tool
+                selectedPartId = nil
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .navigateToCard)) { notification in
+                guard let cardId = notification.object as? UUID else { return }
+                currentCardId = cardId
+                selectedPartId = nil
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .addNewCard)) { _ in
+                addNewCard()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .deleteCurrentCard)) { _ in
+                deleteCurrentCard()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .addNewBackground)) { _ in
+                addNewBackground()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleEditBackground)) { notification in
+                editingBackground = (notification.object as? Bool) ?? false
+                selectedPartId = nil
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .editPartProperties)) { notification in
+                if let partId = notification.object as? UUID {
+                    selectedPartId = partId
+                    currentTool = .select
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .bringForward)) { _ in
+                if let id = selectedPartId { document.document.bringForward(id: id) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .sendBackward)) { _ in
+                if let id = selectedPartId { document.document.sendBackward(id: id) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .bringToFront)) { _ in
+                if let id = selectedPartId { document.document.bringToFront(id: id) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .sendToBack)) { _ in
+                if let id = selectedPartId { document.document.sendToBack(id: id) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleAI)) { _ in
+                showAI.toggle()
+            }
+    }
+
+    private func addNewCard() {
+        guard let cardId = currentCardId else { return }
+        let sorted = document.document.sortedCards
+        let currentIndex = sorted.firstIndex(where: { $0.id == cardId })
+        let newCard = document.document.addCard(afterIndex: currentIndex)
+        currentCardId = newCard.id
+        selectedPartId = nil
+    }
+
+    private func deleteCurrentCard() {
+        guard let cardId = currentCardId else { return }
+        guard document.document.cards.count > 1 else { return }
+        let sorted = document.document.sortedCards
+        if let idx = sorted.firstIndex(where: { $0.id == cardId }) {
+            let nextId = idx + 1 < sorted.count ? sorted[idx + 1].id :
+                         idx > 0 ? sorted[idx - 1].id : nil
+            let cardParts = document.document.partsForCard(cardId)
+            for part in cardParts {
+                document.document.removePart(id: part.id)
+            }
+            document.document.cards.removeAll { $0.id == cardId }
+            currentCardId = nextId
+            selectedPartId = nil
+        }
+    }
+
+    private func addNewBackground() {
+        let count = document.document.backgrounds.count
+        let _ = document.document.addBackground(name: "Background \(count + 1)")
     }
 }

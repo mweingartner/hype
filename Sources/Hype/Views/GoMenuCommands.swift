@@ -83,4 +83,16 @@ extension Notification.Name {
     static let sendBackward = Notification.Name("sendBackward")
     static let bringToFront = Notification.Name("bringToFront")
     static let sendToBack = Notification.Name("sendToBack")
+    static let toggleAI = Notification.Name("toggleAI")
+}
+
+struct AIMenuCommands: Commands {
+    var body: some Commands {
+        CommandMenu("AI") {
+            Button("Show AI Assistant") {
+                NotificationCenter.default.post(name: .toggleAI, object: nil)
+            }
+            .keyboardShortcut("i", modifiers: [.command, .shift])
+        }
+    }
 }

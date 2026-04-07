@@ -16,6 +16,11 @@ struct HypeApp: App {
             ObjectsMenuCommands()
             ArrangeMenuCommands()
             ToolsMenuCommands()
+            AIMenuCommands()
+        }
+
+        Settings {
+            PreferencesView()
         }
     }
 }
