@@ -37,6 +37,8 @@ public struct Part: Identifiable, Codable, Sendable {
     public var showName: Bool
     public var iconId: UUID?
     public var family: Int
+    /// Newline-separated list of items for popup buttons. First item is the selected value.
+    public var popupItems: String
 
     // Field-specific
     public var fieldStyle: FieldStyle
@@ -102,6 +104,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.showName = true
         self.iconId = nil
         self.family = 0
+        self.popupItems = ""
         self.fieldStyle = .rectangle
         self.lockText = false
         self.dontWrap = false
@@ -148,6 +151,7 @@ public struct Part: Identifiable, Codable, Sendable {
         showName = try container.decode(Bool.self, forKey: .showName)
         iconId = try container.decodeIfPresent(UUID.self, forKey: .iconId)
         family = try container.decode(Int.self, forKey: .family)
+        popupItems = try container.decodeIfPresent(String.self, forKey: .popupItems) ?? ""
         fieldStyle = try container.decode(FieldStyle.self, forKey: .fieldStyle)
         lockText = try container.decode(Bool.self, forKey: .lockText)
         dontWrap = try container.decode(Bool.self, forKey: .dontWrap)

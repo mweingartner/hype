@@ -240,13 +240,25 @@ struct PropertyInspector: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Button").font(.subheadline).foregroundColor(.secondary)
             Picker("Style", selection: bindPartButtonStyle(part.id)) {
-                ForEach(HypeCore.ButtonStyle.allCases, id: \.self) { style in
+                ForEach(HypeCore.ButtonStyle.pickerCases, id: \.self) { style in
                     Text(style.rawValue).tag(style)
                 }
             }
             propertyRow("Label", binding: bindPartString(part.id, \.textContent))
             Toggle("Show Name", isOn: bindPartBool(part.id, \.showName))
             Toggle("Auto Hilite", isOn: bindPartBool(part.id, \.autoHilite))
+
+            // Popup items editor (only shown for popup style)
+            if part.buttonStyle == .popup {
+                Divider()
+                Text("POPUP ITEMS").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+                Text("One item per line. First item is the default selection.")
+                    .font(.system(size: 10)).foregroundColor(.secondary)
+                TextEditor(text: bindPartString(part.id, \.popupItems))
+                    .font(.system(size: 11, design: .monospaced))
+                    .frame(height: 80)
+                    .border(Color.gray.opacity(0.5))
+            }
         }
     }
 

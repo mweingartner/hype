@@ -105,30 +105,44 @@ public enum ButtonRenderer {
             return
 
         case .popup:
-            ctx.setFillColor(fillColor)
-            ctx.fill(rect)
+            // macOS-style popup button with rounded corners
+            let popupPath = CGPath(roundedRect: rect, cornerWidth: 6, cornerHeight: 6, transform: nil)
+            ctx.addPath(popupPath)
+            ctx.setFillColor(NSColor.white.cgColor)
+            ctx.fillPath()
+            ctx.addPath(popupPath)
             ctx.setStrokeColor(NSColor.separatorColor.cgColor)
-            ctx.stroke(rect)
-            // Draw dropdown arrow
-            let arrowX = rect.maxX - 20
-            ctx.move(to: CGPoint(x: arrowX, y: rect.midY + 3))
-            ctx.addLine(to: CGPoint(x: arrowX + 6, y: rect.midY - 3))
-            ctx.addLine(to: CGPoint(x: arrowX + 12, y: rect.midY + 3))
+            ctx.setLineWidth(1)
+            ctx.strokePath()
+            // Draw unfilled dropdown chevron arrows (up/down)
+            let arrowX = rect.maxX - 18
+            let arrowCY = rect.midY
             ctx.setStrokeColor(NSColor.black.cgColor)
             ctx.setLineWidth(1.5)
+            // Up chevron
+            ctx.move(to: CGPoint(x: arrowX, y: arrowCY - 2))
+            ctx.addLine(to: CGPoint(x: arrowX + 4, y: arrowCY - 6))
+            ctx.addLine(to: CGPoint(x: arrowX + 8, y: arrowCY - 2))
             ctx.strokePath()
-            // Show first line of textContent as selected item, or the part name
+            // Down chevron
+            ctx.move(to: CGPoint(x: arrowX, y: arrowCY + 2))
+            ctx.addLine(to: CGPoint(x: arrowX + 4, y: arrowCY + 6))
+            ctx.addLine(to: CGPoint(x: arrowX + 8, y: arrowCY + 2))
+            ctx.strokePath()
+            // Show selected item (textContent) or first popup item, or name
             let popupLabel: String
-            let lines = part.textContent.split(separator: "\n", omittingEmptySubsequences: false)
-            if let firstLine = lines.first, !firstLine.isEmpty {
-                popupLabel = String(firstLine)
+            if !part.textContent.isEmpty {
+                popupLabel = part.textContent
             } else {
-                popupLabel = part.showName ? part.name : ""
+                let items = part.popupItems.split(separator: "\n", omittingEmptySubsequences: true)
+                if let first = items.first {
+                    popupLabel = String(first)
+                } else {
+                    popupLabel = part.showName ? part.name : "Select..."
+                }
             }
-            if !popupLabel.isEmpty {
-                drawLabel(ctx: ctx, text: popupLabel, at: CGPoint(x: rect.minX + 8, y: rect.midY),
-                         font: part.textFont, size: part.textSize, color: textColor, align: .left)
-            }
+            drawLabel(ctx: ctx, text: popupLabel, at: CGPoint(x: rect.minX + 8, y: rect.midY),
+                     font: part.textFont, size: part.textSize, color: textColor, align: .left)
             ctx.restoreGState()
             return
 

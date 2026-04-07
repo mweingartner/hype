@@ -438,6 +438,36 @@ class CardCanvasNSView: NSView {
 
     // MARK: - Inline Field Editing
 
+    /// Show a popup menu for a popup-style button.
+    private func showPopupMenu(for part: Part, at point: CGPoint) {
+        let menu = NSMenu()
+        let items = part.popupItems.split(separator: "\n", omittingEmptySubsequences: true)
+        if items.isEmpty {
+            menu.addItem(NSMenuItem(title: "(No items defined)", action: nil, keyEquivalent: ""))
+        } else {
+            for item in items {
+                let menuItem = NSMenuItem(title: String(item), action: #selector(popupMenuItemSelected(_:)), keyEquivalent: "")
+                menuItem.target = self
+                menuItem.representedObject = (part.id, String(item))
+                // Check the currently selected item
+                if part.textContent == String(item) {
+                    menuItem.state = .on
+                }
+                menu.addItem(menuItem)
+            }
+        }
+        let screenPoint = NSPoint(x: part.left, y: part.top + part.height)
+        menu.popUp(positioning: nil, at: screenPoint, in: self)
+    }
+
+    @objc private func popupMenuItemSelected(_ sender: NSMenuItem) {
+        guard let (partId, selectedText) = sender.representedObject as? (UUID, String) else { return }
+        coordinator?.updatePartText(id: partId, text: selectedText)
+        // Dispatch mouseUp so scripts can respond to the selection
+        coordinator?.dispatchMessage("mouseUp", to: partId)
+        needsDisplay = true
+    }
+
     private func startFieldEditing(part: Part) {
         // Don't edit if locked
         guard part.partType == .field && !part.lockText else { return }
@@ -726,6 +756,12 @@ class CardCanvasNSView: NSView {
             if let part = document.parts.first(where: { $0.id == partId }),
                part.partType == .field && !part.lockText {
                 startFieldEditing(part: part)
+                return
+            }
+            // Check if we clicked a popup button — show popup menu
+            if let part = document.parts.first(where: { $0.id == partId }),
+               part.partType == .button && part.buttonStyle == .popup {
+                showPopupMenu(for: part, at: point)
                 return
             }
             coordinator?.dispatchMessage(message, to: partId)

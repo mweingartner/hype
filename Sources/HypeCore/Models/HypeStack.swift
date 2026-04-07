@@ -14,6 +14,12 @@ public enum PartType: String, Codable, Sendable {
 public enum ButtonStyle: String, Codable, Sendable, CaseIterable {
     case transparent, opaque, rectangle, roundRect, shadow
     case checkBox, radioButton, standard, `default`, popup, oval, toggle
+
+    /// Styles shown in the UI picker (excludes legacy/redundant styles).
+    public static let pickerCases: [ButtonStyle] = [
+        .standard, .default, .shadow, .transparent, .oval, .toggle,
+        .checkBox, .radioButton, .popup,
+    ]
 }
 
 /// Field visual styles.
