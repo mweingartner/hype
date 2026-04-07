@@ -134,6 +134,34 @@ public struct Parser: Sendable {
         case .lock:     return try parseLockStatement()
         case .unlock:   return try parseUnlockStatement()
         case .open:     return try parseOpenStatement()
+        case .choose:   return try parseChooseStatement()
+        case .close:    return try parseCloseStatement()
+        case .save:     return try parseSaveStatement()
+        case .quit:     _ = advance(); skipNewlines(); return .quitApp
+        case .mark:     return try parseMarkStatement()
+        case .unmark:   return try parseUnmarkStatement()
+        case .edit:     return try parseEditStatement()
+        case .typeText: return try parseTypeStatement()
+        case .push:     return try parsePushStatement()
+        case .pop:      _ = advance(); skipNewlines(); return .pop
+        case .click:    return try parseClickStatement()
+        case .drag:     return try parseDragStatement()
+        case .help:     _ = advance(); skipNewlines(); return .helpCmd
+        case .debug:    _ = advance(); skipNewlines(); return .debugCmd
+        case .dial:     return try parseDialStatement()
+        case .reset:    return try parseResetStatement()
+        case .print:    return try parsePrintStatement()
+        case .disable:  return try parseDisableStatement()
+        case .enable:   return try parseEnableStatement()
+        case .run:      return try parseRunStatement()
+        case .request:  return try parseRequestStatement()
+        case .reply:    return try parseReplyStatement()
+        case .start:    return try parseStartStatement()
+        case .stop:     return try parseStopStatement()
+        case .copy:     return try parseCopyStatement()
+        case .export:   return try parseExportStatement()
+        case .import:   return try parseImportStatement()
+        case .convert:  return try parseConvertStatement()
         default:
             // Bare expression (function call, etc.)
             let expr = try parseExpression()
@@ -560,6 +588,235 @@ public struct Parser: Sendable {
         return .expressionStatement(target)
     }
 
+    // MARK: - Phase 2 command parsers
+
+    private mutating func parseChooseStatement() throws -> Statement {
+        _ = try expect(.choose)
+        let tool = try parseExpression()
+        // Skip optional "tool" keyword
+        if current.type == .identifier && current.value.lowercased() == "tool" { _ = advance() }
+        skipNewlines()
+        return .chooseTool(tool)
+    }
+
+    private mutating func parseCloseStatement() throws -> Statement {
+        _ = try expect(.close)
+        // "close window" or "close <expr>"
+        if current.type == .identifier && current.value.lowercased() == "window" {
+            _ = advance()
+            skipNewlines()
+            return .closeWindow
+        }
+        let _ = try parseExpression()
+        skipNewlines()
+        return .closeWindow
+    }
+
+    private mutating func parseSaveStatement() throws -> Statement {
+        _ = try expect(.save)
+        // Skip optional "this"
+        _ = match(.this)
+        // Skip optional "stack"
+        _ = match(.stack)
+        skipNewlines()
+        return .saveStack
+    }
+
+    private mutating func parseMarkStatement() throws -> Statement {
+        _ = try expect(.mark)
+        if current.type == .newline || current.type == .eof {
+            skipNewlines()
+            return .markCard(nil)
+        }
+        let expr = try parseExpression()
+        skipNewlines()
+        return .markCard(expr)
+    }
+
+    private mutating func parseUnmarkStatement() throws -> Statement {
+        _ = try expect(.unmark)
+        if current.type == .newline || current.type == .eof {
+            skipNewlines()
+            return .unmarkCard(nil)
+        }
+        let expr = try parseExpression()
+        skipNewlines()
+        return .unmarkCard(expr)
+    }
+
+    private mutating func parseEditStatement() throws -> Statement {
+        _ = try expect(.edit)
+        // "edit script of <expr>" or "edit <expr>"
+        if current.type == .identifier && current.value.lowercased() == "script" {
+            _ = advance()
+            _ = match(.of)
+        }
+        let target = try parseExpression()
+        skipNewlines()
+        return .editScriptOf(target)
+    }
+
+    private mutating func parseTypeStatement() throws -> Statement {
+        _ = try expect(.typeText)
+        let text = try parseExpression()
+        skipNewlines()
+        return .typeText(text)
+    }
+
+    private mutating func parsePushStatement() throws -> Statement {
+        _ = try expect(.push)
+        if current.type == .newline || current.type == .eof {
+            skipNewlines()
+            return .push(nil)
+        }
+        let expr = try parseExpression()
+        skipNewlines()
+        return .push(expr)
+    }
+
+    private mutating func parseClickStatement() throws -> Statement {
+        _ = try expect(.click)
+        // Skip optional "at"
+        if current.type == .identifier && current.value.lowercased() == "at" { _ = advance() }
+        let loc = try parseExpression()
+        skipNewlines()
+        return .clickAt(loc)
+    }
+
+    private mutating func parseDragStatement() throws -> Statement {
+        _ = try expect(.drag)
+        // Skip optional "from"
+        _ = match(.from)
+        let fromExpr = try parseExpression()
+        _ = try expect(.to)
+        let toExpr = try parseExpression()
+        skipNewlines()
+        return .dragFrom(fromExpr, toExpr)
+    }
+
+    private mutating func parseDialStatement() throws -> Statement {
+        _ = try expect(.dial)
+        let expr = try parseExpression()
+        skipNewlines()
+        return .dialCmd(expr)
+    }
+
+    private mutating func parseResetStatement() throws -> Statement {
+        _ = try expect(.reset)
+        if current.type == .newline || current.type == .eof {
+            skipNewlines()
+            return .resetCmd(nil)
+        }
+        let expr = try parseExpression()
+        skipNewlines()
+        return .resetCmd(expr)
+    }
+
+    private mutating func parsePrintStatement() throws -> Statement {
+        _ = try expect(.print)
+        if current.type == .newline || current.type == .eof {
+            skipNewlines()
+            return .printCmd(nil)
+        }
+        let expr = try parseExpression()
+        skipNewlines()
+        return .printCmd(expr)
+    }
+
+    private mutating func parseDisableStatement() throws -> Statement {
+        _ = try expect(.disable)
+        let expr = try parseExpression()
+        skipNewlines()
+        return .disableCmd(expr)
+    }
+
+    private mutating func parseEnableStatement() throws -> Statement {
+        _ = try expect(.enable)
+        let expr = try parseExpression()
+        skipNewlines()
+        return .enableCmd(expr)
+    }
+
+    private mutating func parseRunStatement() throws -> Statement {
+        _ = try expect(.run)
+        let expr = try parseExpression()
+        skipNewlines()
+        return .runCmd(expr)
+    }
+
+    private mutating func parseRequestStatement() throws -> Statement {
+        _ = try expect(.request)
+        let expr = try parseExpression()
+        skipNewlines()
+        return .requestCmd(expr)
+    }
+
+    private mutating func parseReplyStatement() throws -> Statement {
+        _ = try expect(.reply)
+        let expr = try parseExpression()
+        skipNewlines()
+        return .replyCmd(expr)
+    }
+
+    private mutating func parseStartStatement() throws -> Statement {
+        _ = try expect(.start)
+        _ = match(.using)
+        let expr = try parseExpression()
+        skipNewlines()
+        return .startUsing(expr)
+    }
+
+    private mutating func parseStopStatement() throws -> Statement {
+        _ = try expect(.stop)
+        _ = match(.using)
+        let expr = try parseExpression()
+        skipNewlines()
+        return .stopUsing(expr)
+    }
+
+    private mutating func parseCopyStatement() throws -> Statement {
+        _ = try expect(.copy)
+        // "copy template" or just "copy"
+        if current.type == .template {
+            _ = advance()
+            skipNewlines()
+            return .copyTemplate
+        }
+        // Consume remaining expression if any
+        if current.type != .newline && current.type != .eof {
+            let _ = try parseExpression()
+        }
+        skipNewlines()
+        return .copyTemplate
+    }
+
+    private mutating func parseExportStatement() throws -> Statement {
+        _ = try expect(.export)
+        // Skip optional "paint"
+        _ = match(.paint)
+        let expr = try parseExpression()
+        skipNewlines()
+        return .exportPaint(expr)
+    }
+
+    private mutating func parseImportStatement() throws -> Statement {
+        _ = try expect(.import)
+        // Skip optional "paint"
+        _ = match(.paint)
+        let expr = try parseExpression()
+        skipNewlines()
+        return .importPaint(expr)
+    }
+
+    private mutating func parseConvertStatement() throws -> Statement {
+        _ = try expect(.convert)
+        let source = try parseExpression()
+        _ = try expect(.to)
+        let target = try parseExpression()
+        skipNewlines()
+        return .convert(source, target)
+    }
+
     // MARK: - Expression parsing (precedence climbing)
 
     /// Parse a full expression.
@@ -609,11 +866,42 @@ public struct Parser: Sendable {
         // `is`
         if current.type == .is {
             _ = advance()
-            // `is not` -> notEqual
+            // `is not` variants
             if current.type == .not {
                 _ = advance()
+                if current.type == .identifier && current.value.lowercased() == "in" {
+                    _ = advance()
+                    let right = try parseAddition()
+                    return .isNotIn(left, right)
+                }
+                if current.type == .identifier && current.value.lowercased() == "within" {
+                    _ = advance()
+                    let right = try parseAddition()
+                    return .isNotWithin(left, right)
+                }
+                if current.type == .identifier && (current.value.lowercased() == "a" || current.value.lowercased() == "an") {
+                    _ = advance()
+                    let typeName = advance().value
+                    return .isNotA(left, typeName)
+                }
+                // Regular "is not" (inequality)
                 let right = try parseConcatenation()
                 return .binary(left, .notEqual, right)
+            }
+            if current.type == .identifier && current.value.lowercased() == "in" {
+                _ = advance()
+                let right = try parseAddition()
+                return .isIn(left, right)
+            }
+            if current.type == .identifier && current.value.lowercased() == "within" {
+                _ = advance()
+                let right = try parseAddition()
+                return .isWithin(left, right)
+            }
+            if current.type == .identifier && (current.value.lowercased() == "a" || current.value.lowercased() == "an") {
+                _ = advance()
+                let typeName = advance().value
+                return .isA(left, typeName)
             }
             let right = try parseConcatenation()
             return .binary(left, .equal, right)
@@ -747,6 +1035,17 @@ public struct Parser: Sendable {
             _ = try expect(.rparen)
             return expr
 
+        case .identifier where current.value.lowercased() == "there":
+            _ = advance() // consume "there"
+            _ = match(.is)
+            let negated = current.type == .identifier && current.value.lowercased() == "no"
+            if negated { _ = advance() }
+            let hasArticle = current.type == .identifier && (current.value.lowercased() == "a" || current.value.lowercased() == "an")
+            if hasArticle { _ = advance() }
+            let objectType = advance().value
+            let nameExpr = try parseExpression()
+            return negated ? .thereIsNo(objectType, nameExpr) : .thereIsA(objectType, nameExpr)
+
         case .identifier:
             let tok = advance()
             // Check for function call: name(args)
@@ -787,7 +1086,12 @@ public struct Parser: Sendable {
             let tok = advance()
             return .literal(tok.value)
 
-        case .from, .by, .times:
+        case .from, .by, .times,
+             .choose, .close, .save, .quit, .mark, .unmark, .push, .pop,
+             .click, .drag, .run, .print, .help, .debug, .reset,
+             .export, .import, .copy, .disable, .enable, .edit, .dial,
+             .request, .reply, .start, .stop, .using, .template, .paint,
+             .report, .file, .printing, .convert, .typeText:
             // These keywords can appear as identifiers in some contexts.
             let tok = advance()
             return .literal(tok.value)

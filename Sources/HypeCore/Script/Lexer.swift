@@ -34,6 +34,18 @@ public struct Lexer: Sendable {
         "hide": .hide, "lock": .lock, "unlock": .unlock, "open": .open,
         "by": .by, "from": .from, "times": .times, "down": .down,
         "ai": .ai,
+        "choose": .choose, "close": .close, "save": .save, "quit": .quit,
+        "mark": .mark, "unmark": .unmark, "push": .push, "pop": .pop,
+        "click": .click, "drag": .drag, "run": .run, "print": .print,
+        "help": .help, "debug": .debug, "reset": .reset,
+        "export": .export, "import": .import, "copy": .copy,
+        "disable": .disable, "enable": .enable, "edit": .edit,
+        "type": .typeText, "dial": .dial,
+        "request": .request, "reply": .reply,
+        "start": .start, "stop": .stop, "using": .using,
+        "template": .template, "paint": .paint,
+        "report": .report, "file": .file, "printing": .printing,
+        "convert": .convert,
     ]
 
     public init(source: String) {

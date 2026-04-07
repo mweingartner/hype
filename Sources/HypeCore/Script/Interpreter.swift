@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// HypeTalk values are all strings, coerced to numbers for arithmetic.
 public typealias Value = String
@@ -233,6 +236,56 @@ public struct Interpreter: Sendable {
                             document.parts[partIndex].fillColor = value
                         case "strokecolor":
                             document.parts[partIndex].strokeColor = value
+                        case "left", "left_pos":
+                            document.parts[partIndex].left = toNumber(value)
+                        case "top", "top_pos":
+                            document.parts[partIndex].top = toNumber(value)
+                        case "width":
+                            document.parts[partIndex].width = toNumber(value)
+                        case "height":
+                            document.parts[partIndex].height = toNumber(value)
+                        case "hilite":
+                            document.parts[partIndex].hilite = isTruthy(value)
+                        case "autohilite":
+                            document.parts[partIndex].autoHilite = isTruthy(value)
+                        case "showname":
+                            document.parts[partIndex].showName = isTruthy(value)
+                        case "locktext":
+                            document.parts[partIndex].lockText = isTruthy(value)
+                        case "dontwrap":
+                            document.parts[partIndex].dontWrap = isTruthy(value)
+                        case "widemargins":
+                            document.parts[partIndex].wideMargins = isTruthy(value)
+                        case "style":
+                            if document.parts[partIndex].partType == .button {
+                                document.parts[partIndex].buttonStyle = ButtonStyle(rawValue: value) ?? .roundRect
+                            } else if document.parts[partIndex].partType == .field {
+                                document.parts[partIndex].fieldStyle = FieldStyle(rawValue: value) ?? .rectangle
+                            }
+                        case "script":
+                            document.parts[partIndex].script = value
+                        case "family":
+                            document.parts[partIndex].family = Int(toNumber(value))
+                        case "textstyle":
+                            document.parts[partIndex].textStyle = value
+                        case "rect", "rectangle":
+                            let components = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+                            if components.count == 4 {
+                                document.parts[partIndex].left = components[0]
+                                document.parts[partIndex].top = components[1]
+                                document.parts[partIndex].width = components[2] - components[0]
+                                document.parts[partIndex].height = components[3] - components[1]
+                            }
+                        case "loc", "location":
+                            let components = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+                            if components.count == 2 {
+                                document.parts[partIndex].left = components[0] - document.parts[partIndex].width / 2
+                                document.parts[partIndex].top = components[1] - document.parts[partIndex].height / 2
+                            }
+                        case "marked":
+                            if let idx = document.cards.firstIndex(where: { $0.id == context.currentCardId }) {
+                                document.cards[idx].marked = isTruthy(value)
+                            }
                         default:
                             env.setVariable(property, value)
                         }
@@ -470,6 +523,61 @@ public struct Interpreter: Sendable {
         case .send, .wait, .beep, .play:
             // Stubs for future implementation.
             break
+
+        // Phase 2: Implemented commands
+
+        case .chooseTool(let expr):
+            let toolName = try evaluate(expr, env: &env, document: document, context: context)
+            env.it = toolName
+
+        case .markCard(let expr):
+            if let cardExpr = expr {
+                let ident = try evaluate(cardExpr, env: &env, document: document, context: context)
+                if let idx = document.cards.firstIndex(where: { $0.name.lowercased() == ident.lowercased() }) {
+                    document.cards[idx].marked = true
+                } else if let uuid = UUID(uuidString: ident),
+                          let idx = document.cards.firstIndex(where: { $0.id == uuid }) {
+                    document.cards[idx].marked = true
+                }
+            } else {
+                if let idx = document.cards.firstIndex(where: { $0.id == context.currentCardId }) {
+                    document.cards[idx].marked = true
+                }
+            }
+
+        case .unmarkCard(let expr):
+            if let cardExpr = expr {
+                let ident = try evaluate(cardExpr, env: &env, document: document, context: context)
+                if let idx = document.cards.firstIndex(where: { $0.name.lowercased() == ident.lowercased() }) {
+                    document.cards[idx].marked = false
+                } else if let uuid = UUID(uuidString: ident),
+                          let idx = document.cards.firstIndex(where: { $0.id == uuid }) {
+                    document.cards[idx].marked = false
+                }
+            } else {
+                if let idx = document.cards.firstIndex(where: { $0.id == context.currentCardId }) {
+                    document.cards[idx].marked = false
+                }
+            }
+
+        case .typeText(let expr):
+            let text = try evaluate(expr, env: &env, document: document, context: context)
+            env.it = text
+
+        case .convert(let sourceExpr, let targetExpr):
+            let _ = try evaluate(sourceExpr, env: &env, document: document, context: context)
+            let _ = try evaluate(targetExpr, env: &env, document: document, context: context)
+            // Stub: conversion between date/time formats not yet implemented
+
+        case .closeWindow, .saveStack, .quitApp, .editScriptOf:
+            break // UI operations — stubs requiring platform integration
+
+        // Phase 2: Stub commands (recognized but no-op)
+        case .push, .pop, .clickAt, .dragFrom, .doMenuCmd, .disableCmd, .enableCmd,
+             .helpCmd, .debugCmd, .dialCmd, .resetCmd, .printCmd, .readCmd, .writeCmd,
+             .replyCmd, .requestCmd, .runCmd, .startUsing, .stopUsing,
+             .copyTemplate, .exportPaint, .importPaint:
+            break
         }
     }
 
@@ -585,6 +693,72 @@ public struct Interpreter: Sendable {
         case .objectRef(let ref):
             let identVal = try evaluate(ref.identifier, env: &env, document: document, context: context)
             return resolveObjectRef(ref.objectType, identifier: identVal, document: document, context: context)
+
+        case .isIn(let left, let right):
+            let lVal = try evaluate(left, env: &env, document: document, context: context)
+            let rVal = try evaluate(right, env: &env, document: document, context: context)
+            return rVal.lowercased().contains(lVal.lowercased()) ? "true" : "false"
+
+        case .isNotIn(let left, let right):
+            let lVal = try evaluate(left, env: &env, document: document, context: context)
+            let rVal = try evaluate(right, env: &env, document: document, context: context)
+            return rVal.lowercased().contains(lVal.lowercased()) ? "false" : "true"
+
+        case .isWithin(let left, let right):
+            let lVal = try evaluate(left, env: &env, document: document, context: context)
+            let rVal = try evaluate(right, env: &env, document: document, context: context)
+            let point = lVal.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            let rect = rVal.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            if point.count >= 2 && rect.count >= 4 {
+                let inside = point[0] >= rect[0] && point[0] <= rect[2] && point[1] >= rect[1] && point[1] <= rect[3]
+                return inside ? "true" : "false"
+            }
+            return "false"
+
+        case .isNotWithin(let left, let right):
+            let lVal = try evaluate(left, env: &env, document: document, context: context)
+            let rVal = try evaluate(right, env: &env, document: document, context: context)
+            let point = lVal.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            let rect = rVal.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            if point.count >= 2 && rect.count >= 4 {
+                let inside = point[0] >= rect[0] && point[0] <= rect[2] && point[1] >= rect[1] && point[1] <= rect[3]
+                return inside ? "false" : "true"
+            }
+            return "true"
+
+        case .isA(let expr, let typeName):
+            let val = try evaluate(expr, env: &env, document: document, context: context)
+            switch typeName.lowercased() {
+            case "number", "integer", "float": return Double(val) != nil ? "true" : "false"
+            case "logical", "boolean", "bool": return (val.lowercased() == "true" || val.lowercased() == "false") ? "true" : "false"
+            case "point": return val.split(separator: ",").count == 2 ? "true" : "false"
+            case "rect", "rectangle": return val.split(separator: ",").count == 4 ? "true" : "false"
+            case "date": return "false"
+            case "empty": return val.isEmpty ? "true" : "false"
+            default: return "false"
+            }
+
+        case .isNotA(let expr, let typeName):
+            let val = try evaluate(expr, env: &env, document: document, context: context)
+            switch typeName.lowercased() {
+            case "number", "integer", "float": return Double(val) != nil ? "false" : "true"
+            case "logical", "boolean", "bool": return (val.lowercased() == "true" || val.lowercased() == "false") ? "false" : "true"
+            case "point": return val.split(separator: ",").count == 2 ? "false" : "true"
+            case "rect", "rectangle": return val.split(separator: ",").count == 4 ? "false" : "true"
+            case "date": return "true"
+            case "empty": return val.isEmpty ? "false" : "true"
+            default: return "true"
+            }
+
+        case .thereIsA(_, let nameExpr):
+            let name = try evaluate(nameExpr, env: &env, document: document, context: context)
+            let found = document.parts.contains { $0.name.lowercased() == name.lowercased() }
+            return found ? "true" : "false"
+
+        case .thereIsNo(_, let nameExpr):
+            let name = try evaluate(nameExpr, env: &env, document: document, context: context)
+            let found = document.parts.contains { $0.name.lowercased() == name.lowercased() }
+            return found ? "false" : "true"
         }
     }
 
@@ -691,6 +865,70 @@ public struct Interpreter: Sendable {
             let total = args.reduce(0.0) { $0 + toNumber($1) }
             return args.isEmpty ? "0" : formatNumber(total / Double(args.count))
 
+        // Financial functions
+        case "annuity":
+            let rate = toNumber(args.first ?? "0")
+            let periods = toNumber(args.count > 1 ? args[1] : "0")
+            return rate == 0 ? formatNumber(periods) : formatNumber((1 - pow(1 + rate, -periods)) / rate)
+        case "compound":
+            let rate = toNumber(args.first ?? "0")
+            let periods = toNumber(args.count > 1 ? args[1] : "0")
+            return formatNumber(pow(1 + rate, periods))
+
+        // Math extras
+        case "exp1":
+            return formatNumber(Foundation.exp(toNumber(args.first ?? "0")) - 1)
+        case "exp2":
+            return formatNumber(pow(2, toNumber(args.first ?? "0")))
+        case "ln1":
+            return formatNumber(Foundation.log(1 + toNumber(args.first ?? "0")))
+
+        // System info
+        case "screenrect":
+            #if canImport(AppKit)
+            if let screen = NSScreen.main {
+                let r = screen.frame
+                return "\(Int(r.minX)),\(Int(r.minY)),\(Int(r.maxX)),\(Int(r.maxY))"
+            }
+            #endif
+            return "0,0,1920,1080"
+        case "diskspace":
+            if let attrs = try? FileManager.default.attributesOfFileSystem(forPath: "/"),
+               let space = attrs[.systemFreeSize] as? Int64 {
+                return String(space)
+            }
+            return "0"
+        case "systemversion":
+            return ProcessInfo.processInfo.operatingSystemVersionString
+        case "version":
+            return "Hype 2.0"
+        case "heapspace", "stackspace":
+            return String(ProcessInfo.processInfo.physicalMemory)
+        case "environment":
+            return "Hype"
+        case "tool":
+            return "browse"
+        case "windows":
+            return "Hype"
+
+        // Click/selection/find stubs
+        case "clickchunk", "clickh", "clickv", "clickline", "clickloc", "clicktext":
+            return ""
+        case "foundchunk", "foundfield", "foundline", "foundtext":
+            return ""
+        case "selectedbutton", "selectedchunk", "selectedfield", "selectedline", "selectedloc", "selectedtext":
+            return ""
+        case "sound":
+            return "done"
+        case "programs":
+            return "Hype"
+        case "menus":
+            return ""
+        case "destination":
+            return ""
+        case "stacks":
+            return "Hype"
+
         default:
             return ""
         }
@@ -727,6 +965,60 @@ public struct Interpreter: Sendable {
             case "numberformat":
                 return "0.######"
             case "lockscreen":
+                return "false"
+            case "editbkgnd":
+                return "false"
+            case "userlevel":
+                return "5"
+            case "version":
+                return "Hype 2.0"
+            case "environment":
+                return "Hype"
+            case "language", "scriptinglanguage":
+                return "HyperTalk"
+            case "cursor":
+                return "hand"
+            case "lockmessages":
+                return "false"
+            case "lockerrordialogs":
+                return "false"
+            case "lockrecent":
+                return "false"
+            case "dragspeed":
+                return "0"
+            case "powerkeys":
+                return "true"
+            case "blindtyping":
+                return "false"
+            case "textarrows":
+                return "true"
+            case "dialingtime":
+                return "0"
+            case "dialingvolume":
+                return "0"
+            case "address":
+                return ""
+            case "longwindowtitles":
+                return "false"
+            case "multispace":
+                return "false"
+            case "reporttemplates":
+                return ""
+            case "scripteditor":
+                return ""
+            case "scripttextfont":
+                return "Monaco"
+            case "scripttextsize":
+                return "12"
+            case "stacksinuse":
+                return ""
+            case "suspended":
+                return "false"
+            case "tracedelay":
+                return "0"
+            case "messagewatcher":
+                return "false"
+            case "variablewatcher":
                 return "false"
             default:
                 return env.getVariable(property)
@@ -787,6 +1079,44 @@ public struct Interpreter: Sendable {
                 case "dontwrap":    return part.dontWrap ? "true" : "false"
                 case "url":         return part.url
                 case "text", "textcontent": return part.textContent
+                case "topleft":
+                    return "\(formatNumber(part.left)),\(formatNumber(part.top))"
+                case "bottomright":
+                    return "\(formatNumber(part.left + part.width)),\(formatNumber(part.top + part.height))"
+                case "number", "partnumber":
+                    let allParts = document.partsForCard(context.currentCardId)
+                    if let pidx = allParts.firstIndex(where: { $0.id == part.id }) {
+                        return String(pidx + 1)
+                    }
+                    return "0"
+                case "owner":
+                    if let cardId = part.cardId, let card = document.cards.first(where: { $0.id == cardId }) {
+                        return card.name.isEmpty ? "card id \(cardId)" : "card \"\(card.name)\""
+                    }
+                    if let bgId = part.backgroundId, let bg = document.backgrounds.first(where: { $0.id == bgId }) {
+                        return bg.name.isEmpty ? "bkgnd id \(bgId)" : "bkgnd \"\(bg.name)\""
+                    }
+                    return ""
+                case "family":       return String(part.family)
+                case "scroll", "scrollpos": return "0"
+                case "sharedtext":   return "false"
+                case "sharedhilite": return "false"
+                case "showlines":    return "false"
+                case "showpict":     return "true"
+                case "fixedlineheight": return "false"
+                case "multiplelines": return "true"
+                case "dontsearch":   return "false"
+                case "autoselect":   return "false"
+                case "autotab":      return "false"
+                case "textheight":   return formatNumber(part.textSize * 1.3)
+                case "marked":
+                    if let card = document.cards.first(where: { $0.id == context.currentCardId }) {
+                        return card.marked ? "true" : "false"
+                    }
+                    return "false"
+                case "cantdelete":   return "false"
+                case "cantmodify":   return "false"
+                case "centered":     return "false"
                 default:            return ""
                 }
             }

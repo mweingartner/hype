@@ -42,6 +42,13 @@ public enum TokenType: String, Sendable {
     case create, show, add, subtract, delete, find, select, sort
     case hide, lock, unlock, open, intDiv
 
+    // Phase 2 commands
+    case choose, close, save, quit, mark, unmark, push, pop
+    case click, drag, run, print, help, debug, reset
+    case export, `import`, copy, disable, enable, edit, dial
+    case request, reply, start, stop, using, template, paint, report, file, printing
+    case convert, typeText
+
     // Prepositions & modifiers
     case by, from, times, down
 

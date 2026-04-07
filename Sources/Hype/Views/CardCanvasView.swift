@@ -139,6 +139,12 @@ struct CardCanvasView: NSViewRepresentable {
             parent.document.document.removePart(id: id)
         }
 
+        /// Dispatch a HypeTalk message to the current card (for card-level events).
+        func dispatchMessageToCard(_ message: String) {
+            let cardId = parent.currentCardId
+            let _ = dispatcher.dispatch(message: message, params: [], targetId: cardId, document: parent.document.document, currentCardId: cardId)
+        }
+
         /// Dispatch a HypeTalk message through the object hierarchy.
         /// This is the runtime — when you click a button in browse mode,
         /// its mouseUp handler fires, which can navigate, modify parts, etc.
@@ -216,6 +222,12 @@ class CardCanvasNSView: NSView {
     // Marquee selection state
     private var isMarqueeSelecting = false
 
+    // Mouse hover tracking for mouseEnter/mouseLeave messages
+    private var hoveredPartId: UUID?
+
+    // Original text when field editing starts (for closeField vs exitField)
+    private var originalFieldText: String?
+
     // Alignment snap guides currently visible
     private var activeGuides: [SnapGuide] = []
 
@@ -238,6 +250,25 @@ class CardCanvasNSView: NSView {
         if activeFieldEditor != nil {
             super.keyDown(with: event)
             return
+        }
+
+        // In browse mode, dispatch keyboard messages to the current card
+        let browseToolCheck = ToolState(currentTool: currentTool.rawValue)
+        if browseToolCheck.category == .browse {
+            switch event.keyCode {
+            case 36: // Return
+                coordinator?.dispatchMessageToCard("returnKey")
+            case 76: // Enter
+                coordinator?.dispatchMessageToCard("enterKey")
+            case 48: // Tab
+                coordinator?.dispatchMessageToCard("tabKey")
+            case 123, 124, 125, 126: // Arrow keys
+                coordinator?.dispatchMessageToCard("arrowKey")
+            default:
+                if event.modifierFlags.contains(.command) {
+                    coordinator?.dispatchMessageToCard("commandKeyDown")
+                }
+            }
         }
 
         // Delete or Backspace: delete all selected parts
@@ -375,6 +406,12 @@ class CardCanvasNSView: NSView {
         // Remove existing editor
         endFieldEditing()
 
+        // Store original text for closeField vs exitField determination
+        originalFieldText = part.textContent
+
+        // Dispatch openField lifecycle message
+        coordinator?.dispatchMessage("openField", to: part.id)
+
         let textField = NSTextField(frame: CGRect(x: part.left, y: part.top, width: part.width, height: part.height))
         textField.stringValue = part.textContent
         textField.font = NSFont(name: part.textFont, size: CGFloat(part.textSize)) ?? NSFont.systemFont(ofSize: CGFloat(part.textSize))
@@ -399,10 +436,19 @@ class CardCanvasNSView: NSView {
             // Save the text back to the part
             let text = editor.stringValue
             coordinator?.updatePartText(id: partId, text: text)
+
+            // Dispatch closeField (text changed) or exitField (text unchanged)
+            if text != originalFieldText {
+                coordinator?.dispatchMessage("closeField", to: partId)
+            } else {
+                coordinator?.dispatchMessage("exitField", to: partId)
+            }
+
             editor.removeFromSuperview()
         }
         activeFieldEditor = nil
         activeFieldPartId = nil
+        originalFieldText = nil
     }
 
     // MARK: - Cursor
@@ -432,6 +478,36 @@ class CardCanvasNSView: NSView {
         case .paint: cursor = .crosshair
         }
         addCursorRect(bounds, cursor: cursor)
+    }
+
+    // MARK: - Tracking areas for mouseMoved
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .activeInKeyWindow, .mouseEnteredAndExited],
+            owner: self
+        ))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let point = flippedPoint(for: event)
+        let hitPart = renderer.partAtPoint(point, document: document, cardId: currentCardId)
+        let newHoverId = hitPart?.id
+
+        if newHoverId != hoveredPartId {
+            // Leave old part
+            if let oldId = hoveredPartId {
+                coordinator?.dispatchMessage("mouseLeave", to: oldId)
+            }
+            hoveredPartId = newHoverId
+            // Enter new part
+            if let newId = newHoverId {
+                coordinator?.dispatchMessage("mouseEnter", to: newId)
+            }
+        }
     }
 
     // MARK: - Mouse events
@@ -494,9 +570,10 @@ class CardCanvasNSView: NSView {
             hitPart = nil
         }
 
-        // Double-click on a part in browse mode → open properties for editing
+        // Double-click on a part in browse mode → dispatch message and open properties
         let toolCheck = ToolState(currentTool: currentTool.rawValue)
         if event.clickCount == 2 && toolCheck.category == .browse, let part = hitPart {
+            coordinator?.dispatchMessage("mouseDoubleClick", to: part.id)
             NotificationCenter.default.post(name: .editPartProperties, object: part.id)
             return
         }

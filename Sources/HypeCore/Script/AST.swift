@@ -20,6 +20,14 @@ public indirect enum Expression: Sendable {
     case stringConcat(Expression, Expression)     // x & y
     case spacedConcat(Expression, Expression)     // x && y
     case empty
+    case isIn(Expression, Expression)             // "x" is in "xyz"
+    case isNotIn(Expression, Expression)          // "x" is not in "xyz"
+    case isWithin(Expression, Expression)         // point is within rect
+    case isNotWithin(Expression, Expression)      // point is not within rect
+    case isA(Expression, String)                  // x is a number
+    case isNotA(Expression, String)               // x is not a number
+    case thereIsA(String, Expression)             // there is a button "OK"
+    case thereIsNo(String, Expression)            // there is no button "OK"
 }
 
 /// Binary operators.
@@ -111,6 +119,41 @@ public indirect enum Statement: Sendable {
     case lockScreen                                              // lock screen
     case unlockScreen                                            // unlock screen
     case openStack(Expression)                                   // open stack "file"
+
+    // Phase 2: HypeTalk compliance commands
+    case convert(Expression, Expression)                         // convert X to Y
+    case closeWindow                                             // close window
+    case saveStack                                               // save this stack
+    case quitApp                                                 // quit
+    case editScriptOf(Expression)                                // edit script of button 1
+    case chooseTool(Expression)                                  // choose browse tool
+    case markCard(Expression?)                                   // mark this card
+    case unmarkCard(Expression?)                                 // unmark this card
+    case typeText(Expression)                                    // type "hello"
+
+    // Stub commands (recognized but no-op)
+    case push(Expression?)                                       // push card
+    case pop                                                     // pop card
+    case clickAt(Expression)                                     // click at 100,200
+    case dragFrom(Expression, Expression)                        // drag from x to y
+    case doMenuCmd(Expression)                                   // doMenu "item"
+    case disableCmd(Expression)                                  // disable menu
+    case enableCmd(Expression)                                   // enable menu
+    case helpCmd                                                 // help
+    case debugCmd                                                // debug
+    case dialCmd(Expression)                                     // dial "number"
+    case resetCmd(Expression?)                                   // reset
+    case printCmd(Expression?)                                   // print card
+    case readCmd(Expression)                                     // read from file
+    case writeCmd(Expression, Expression)                        // write to file
+    case replyCmd(Expression)                                    // reply
+    case requestCmd(Expression)                                  // request
+    case runCmd(Expression)                                      // run
+    case startUsing(Expression)                                  // start using stack
+    case stopUsing(Expression)                                   // stop using stack
+    case copyTemplate                                            // copy template
+    case exportPaint(Expression)                                 // export paint
+    case importPaint(Expression)                                 // import paint
 }
 
 /// Preposition for put statements.

@@ -25,6 +25,12 @@ struct MainContentView: View {
         mainContent
             .onAppear {
                 currentCardId = document.document.sortedCards.first?.id
+                // Dispatch stack and card lifecycle messages
+                if let cardId = currentCardId {
+                    let dispatcher = MessageDispatcher()
+                    let _ = dispatcher.dispatch(message: "openStack", params: [], targetId: document.document.stack.id, document: document.document, currentCardId: cardId)
+                    let _ = dispatcher.dispatch(message: "openCard", params: [], targetId: cardId, document: document.document, currentCardId: cardId)
+                }
             }
             .modifier(NavigationHandlers(
                 document: $document,
@@ -136,15 +142,46 @@ struct MainContentView: View {
     private func navigatePrevious() {
         guard let cardId = currentCardId,
               let newId = CardNavigator.navigate(direction: .previous, currentCardId: cardId, document: document.document) else { return }
-        currentCardId = newId
-        selectedPartIds = []
+        navigateToCard(newId)
     }
 
     private func navigateNext() {
         guard let cardId = currentCardId,
               let newId = CardNavigator.navigate(direction: .next, currentCardId: cardId, document: document.document) else { return }
-        currentCardId = newId
+        navigateToCard(newId)
+    }
+
+    /// Navigate to a new card, dispatching HypeTalk lifecycle messages.
+    private func navigateToCard(_ newCardId: UUID) {
+        let dispatcher = MessageDispatcher()
+        let doc = document.document
+
+        // Close old card and potentially old background
+        if let oldCardId = currentCardId {
+            let oldBgId = doc.cards.first(where: { $0.id == oldCardId })?.backgroundId
+            let _ = dispatcher.dispatch(message: "closeCard", params: [], targetId: oldCardId, document: doc, currentCardId: oldCardId)
+
+            // Background change?
+            let newBgId = doc.cards.first(where: { $0.id == newCardId })?.backgroundId
+            if oldBgId != newBgId {
+                if let bid = oldBgId {
+                    let _ = dispatcher.dispatch(message: "closeBackground", params: [], targetId: bid, document: doc, currentCardId: oldCardId)
+                }
+            }
+        }
+
+        currentCardId = newCardId
         selectedPartIds = []
+
+        // Open new background if changed, then open new card
+        if let oldCardId = document.document.sortedCards.first(where: { $0.id != newCardId })?.id {
+            let oldBgId = doc.cards.first(where: { $0.id == oldCardId })?.backgroundId
+            let newBgId = doc.cards.first(where: { $0.id == newCardId })?.backgroundId
+            if oldBgId != newBgId, let bid = newBgId {
+                let _ = dispatcher.dispatch(message: "openBackground", params: [], targetId: bid, document: document.document, currentCardId: newCardId)
+            }
+        }
+        let _ = dispatcher.dispatch(message: "openCard", params: [], targetId: newCardId, document: document.document, currentCardId: newCardId)
     }
 
     // MARK: - Info text
@@ -208,8 +245,7 @@ private struct NavigationHandlers: ViewModifier {
                 guard let direction = notification.object as? NavigationDirection,
                       let cardId = currentCardId else { return }
                 if let newId = CardNavigator.navigate(direction: direction, currentCardId: cardId, document: document.document) {
-                    currentCardId = newId
-                    selectedPartIds = []
+                    navigateToCard(newId)
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .selectTool)) { notification in
@@ -219,8 +255,7 @@ private struct NavigationHandlers: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: .navigateToCard)) { notification in
                 guard let cardId = notification.object as? UUID else { return }
-                currentCardId = cardId
-                selectedPartIds = []
+                navigateToCard(cardId)
             }
             .onReceive(NotificationCenter.default.publisher(for: .addNewCard)) { _ in
                 addNewCard()
@@ -250,6 +285,31 @@ private struct NavigationHandlers: ViewModifier {
             }
     }
 
+    /// Navigate to a new card, dispatching HypeTalk lifecycle messages.
+    private func navigateToCard(_ newCardId: UUID) {
+        let dispatcher = MessageDispatcher()
+        let doc = document.document
+
+        // Close old card and potentially old background
+        if let oldCardId = currentCardId {
+            let oldBgId = doc.cards.first(where: { $0.id == oldCardId })?.backgroundId
+            let _ = dispatcher.dispatch(message: "closeCard", params: [], targetId: oldCardId, document: doc, currentCardId: oldCardId)
+
+            let newBgId = doc.cards.first(where: { $0.id == newCardId })?.backgroundId
+            if oldBgId != newBgId {
+                if let bid = oldBgId {
+                    let _ = dispatcher.dispatch(message: "closeBackground", params: [], targetId: bid, document: doc, currentCardId: oldCardId)
+                }
+            }
+        }
+
+        currentCardId = newCardId
+        selectedPartIds = []
+
+        // Open new card (and new background if changed)
+        let _ = dispatcher.dispatch(message: "openCard", params: [], targetId: newCardId, document: document.document, currentCardId: newCardId)
+    }
+
     /// Cycle through every card in the deck with a 1-second pause, then return to the first card.
     private func cycleAllCards() {
         let sorted = document.document.sortedCards
@@ -271,8 +331,7 @@ private struct NavigationHandlers: ViewModifier {
         let sorted = document.document.sortedCards
         let currentIndex = sorted.firstIndex(where: { $0.id == cardId })
         let newCard = document.document.addCard(afterIndex: currentIndex)
-        currentCardId = newCard.id
-        selectedPartIds = []
+        navigateToCard(newCard.id)
     }
 
     private func deleteCurrentCard() {
@@ -287,8 +346,12 @@ private struct NavigationHandlers: ViewModifier {
                 document.document.removePart(id: part.id)
             }
             document.document.cards.removeAll { $0.id == cardId }
-            currentCardId = nextId
-            selectedPartIds = []
+            if let nextId = nextId {
+                navigateToCard(nextId)
+            } else {
+                currentCardId = nil
+                selectedPartIds = []
+            }
         }
     }
 }
