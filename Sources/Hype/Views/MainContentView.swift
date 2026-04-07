@@ -109,8 +109,8 @@ struct MainContentView: View {
                 Text(cardInfoText)
                     .font(.system(size: 11))
                 Spacer()
-                // Paint color picker (shown for spray, bucket, pencil tools)
-                if toolState.category == .paint && (currentTool == .spray || currentTool == .bucket) {
+                // Paint color picker (shown for spray, bucket, pencil, eraser tools)
+                if currentTool == .spray || currentTool == .bucket || currentTool == .pencil || currentTool == .eraser {
                     ColorPicker("", selection: $paintColor, supportsOpacity: false)
                         .labelsHidden()
                         .frame(width: 24, height: 18)

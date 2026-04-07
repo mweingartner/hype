@@ -169,6 +169,8 @@ public final class PaintLayer: @unchecked Sendable {
     }
 
     /// Flood fill from a point with the given color.
+    /// Only fills if the target pixel has been painted (non-transparent).
+    /// Filling from a fully transparent pixel would flood the entire canvas.
     public func floodFill(x: Int, y: Int, color: NSColor) {
         guard x >= 0, y >= 0, x < width, y < height else { return }
         let targetOffset = (y * width + x) * 4
@@ -177,6 +179,9 @@ public final class PaintLayer: @unchecked Sendable {
         let targetG = imageData[targetOffset + 1]
         let targetB = imageData[targetOffset + 2]
         let targetA = imageData[targetOffset + 3]
+
+        // Don't fill from fully transparent pixels — would flood the entire canvas
+        guard targetA > 0 else { return }
 
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         color.usingColorSpace(.sRGB)?.getRed(&r, green: &g, blue: &b, alpha: &a)
@@ -187,8 +192,10 @@ public final class PaintLayer: @unchecked Sendable {
 
         var stack: [(Int, Int)] = [(x, y)]
         var visited = Set<Int>()
+        let maxPixels = width * height / 2  // Safety limit: don't fill more than half the canvas
 
         while let (cx, cy) = stack.popLast() {
+            guard visited.count < maxPixels else { break }
             let key = cy * width + cx
             guard cx >= 0, cy >= 0, cx < width, cy < height else { continue }
             guard !visited.contains(key) else { continue }
