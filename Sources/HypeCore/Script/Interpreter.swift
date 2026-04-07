@@ -721,15 +721,19 @@ public struct Interpreter: Sendable {
             return context.targetId.uuidString
 
         case .this:
-            // `this` returns the current part's primary content:
-            // - For fields: textContent
-            // - For buttons: name (the label)
+            // `this` returns the current part's primary content value:
+            // - For fields: textContent (what the user typed)
+            // - For popup buttons: textContent (the selected menu item)
+            // - For other buttons: name if showName, else textContent
             // - For other parts: name
             if let part = document.parts.first(where: { $0.id == context.targetId }) {
                 switch part.partType {
                 case .field:
                     return part.textContent
                 case .button:
+                    if part.buttonStyle == .popup {
+                        return part.textContent  // Selected popup item
+                    }
                     return part.showName ? part.name : part.textContent
                 default:
                     return part.name
