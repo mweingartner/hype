@@ -147,6 +147,7 @@ class CardCanvasNSView: NSView {
 
     private let renderer = CardRenderer()
     private let mouseHandler = MouseHandler()
+    private let alignmentEngine = AlignmentEngine()
 
     // Active WKWebViews for webpage parts (keyed by part ID)
     private var webViews: [UUID: WKWebView] = [:]
@@ -159,6 +160,9 @@ class CardCanvasNSView: NSView {
     private var isDragging = false
     private var draggedPartId: UUID?
     private var resizeHandle: ResizeHandle = .none
+
+    // Alignment snap guides currently visible
+    private var activeGuides: [SnapGuide] = []
 
     /// Which resize handle is being dragged.
     enum ResizeHandle {
@@ -178,6 +182,11 @@ class CardCanvasNSView: NSView {
         if let selectedId = selectedPartId,
            let part = document.parts.first(where: { $0.id == selectedId }) {
             drawSelectionOverlay(ctx: ctx, part: part)
+        }
+
+        // Draw alignment guides
+        if !activeGuides.isEmpty {
+            drawAlignmentGuides(ctx: ctx)
         }
 
         // Update web views for webpage parts
@@ -321,11 +330,34 @@ class CardCanvasNSView: NSView {
             let dx = Double(point.x - start.x)
             let dy = Double(point.y - start.y)
             if resizeHandle != .none {
-                // Resize the part using the handle
+                // Resize the part using the handle, with size-matching snap
+                let otherParts = allOtherParts(excluding: partId)
+                var proposedPart = document.parts.first(where: { $0.id == partId })!
+                // Apply raw resize to get proposed dimensions
+                proposedPart.width += dx
+                proposedPart.height += dy
+                let snap = alignmentEngine.computeResizeSnap(
+                    resizingPart: proposedPart,
+                    otherParts: otherParts,
+                    canvasWidth: Double(bounds.width),
+                    canvasHeight: Double(bounds.height)
+                )
+                activeGuides = snap.guides
                 coordinator?.resizePart(id: partId, handle: resizeHandle, dx: dx, dy: dy)
             } else {
-                // Move the part
-                coordinator?.movePart(id: partId, dx: dx, dy: dy)
+                // Move the part with alignment snapping
+                let otherParts = allOtherParts(excluding: partId)
+                var proposedPart = document.parts.first(where: { $0.id == partId })!
+                proposedPart.left += dx
+                proposedPart.top += dy
+                let snap = alignmentEngine.computeMoveSnap(
+                    movingPart: proposedPart,
+                    otherParts: otherParts,
+                    canvasWidth: Double(bounds.width),
+                    canvasHeight: Double(bounds.height)
+                )
+                activeGuides = snap.guides
+                coordinator?.movePart(id: partId, dx: dx + snap.dx, dy: dy + snap.dy)
             }
             dragStart = point
             needsDisplay = true
@@ -342,6 +374,8 @@ class CardCanvasNSView: NSView {
             draggedPartId = nil
             dragStart = nil
             resizeHandle = .none
+            activeGuides = []
+            needsDisplay = true
             return
         }
 
@@ -528,5 +562,48 @@ class CardCanvasNSView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         // View is already flipped (isFlipped = true), so no additional transform needed
         return point
+    }
+
+    /// Get all parts on the current card/background except the one being manipulated.
+    private func allOtherParts(excluding partId: UUID) -> [Part] {
+        let cardParts = document.partsForCard(currentCardId)
+        let bgParts: [Part]
+        if let card = document.cards.first(where: { $0.id == currentCardId }) {
+            bgParts = document.partsForBackground(card.backgroundId)
+        } else {
+            bgParts = []
+        }
+        return (cardParts + bgParts).filter { $0.id != partId }
+    }
+
+    /// Draw alignment snap guides on the canvas.
+    private func drawAlignmentGuides(ctx: CGContext) {
+        for guide in activeGuides {
+            ctx.saveGState()
+
+            let color: NSColor
+            switch guide.kind {
+            case .edge:    color = NSColor.systemBlue.withAlphaComponent(0.6)
+            case .center:  color = NSColor.systemPurple.withAlphaComponent(0.6)
+            case .canvas:  color = NSColor.systemRed.withAlphaComponent(0.4)
+            case .spacing: color = NSColor.systemGreen.withAlphaComponent(0.5)
+            }
+
+            ctx.setStrokeColor(color.cgColor)
+            ctx.setLineWidth(0.5)
+            ctx.setLineDash(phase: 0, lengths: [3, 3])
+
+            switch guide.orientation {
+            case .vertical:
+                ctx.move(to: CGPoint(x: guide.position, y: 0))
+                ctx.addLine(to: CGPoint(x: guide.position, y: Double(bounds.height)))
+            case .horizontal:
+                ctx.move(to: CGPoint(x: 0, y: guide.position))
+                ctx.addLine(to: CGPoint(x: Double(bounds.width), y: guide.position))
+            }
+            ctx.strokePath()
+
+            ctx.restoreGState()
+        }
     }
 }
