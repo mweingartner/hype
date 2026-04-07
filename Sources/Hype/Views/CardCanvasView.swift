@@ -1,5 +1,35 @@
 import SwiftUI
 import HypeCore
+import AppKit
+
+/// AppKit-based dialog provider that shows real NSAlert/NSTextField dialogs.
+final class AppKitDialogProvider: DialogProvider, @unchecked Sendable {
+    func showAnswer(prompt: String) -> String {
+        let alert = NSAlert()
+        alert.messageText = prompt
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+        return "OK"
+    }
+
+    func showAsk(prompt: String) -> String {
+        let alert = NSAlert()
+        alert.messageText = prompt
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        input.stringValue = ""
+        alert.accessoryView = input
+        alert.window.initialFirstResponder = input
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            return input.stringValue
+        }
+        return ""
+    }
+}
 import WebKit
 
 struct CardCanvasView: NSViewRepresentable {
@@ -165,9 +195,11 @@ struct CardCanvasView: NSViewRepresentable {
         }
 
         /// Dispatch a HypeTalk message to the current card (for card-level events).
+        private let dialogProvider = AppKitDialogProvider()
+
         func dispatchMessageToCard(_ message: String) {
             let cardId = parent.currentCardId
-            let _ = dispatcher.dispatch(message: message, params: [], targetId: cardId, document: parent.document.document, currentCardId: cardId)
+            let _ = dispatcher.dispatch(message: message, params: [], targetId: cardId, document: parent.document.document, currentCardId: cardId, dialogProvider: dialogProvider)
         }
 
         /// Dispatch a HypeTalk message through the object hierarchy.
@@ -180,7 +212,8 @@ struct CardCanvasView: NSViewRepresentable {
                 params: [],
                 targetId: partId,
                 document: parent.document.document,
-                currentCardId: cardId
+                currentCardId: cardId,
+                dialogProvider: dialogProvider
             )
 
             // Handle execution results

@@ -15,15 +15,25 @@ struct ScriptTemplate: Identifiable {
 private let scriptTemplates: [ScriptTemplate] = [
     // Event Handlers
     ScriptTemplate(name: "on mouseUp", category: "Events",
-        code: "on mouseUp\n  \n  \nend mouseUp"),
+        code: "on mouseUp\n  \nend mouseUp"),
     ScriptTemplate(name: "on mouseDown", category: "Events",
-        code: "on mouseDown\n  \n  \nend mouseDown"),
+        code: "on mouseDown\n  \nend mouseDown"),
+    ScriptTemplate(name: "on mouseEnter", category: "Events",
+        code: "on mouseEnter\n  \nend mouseEnter"),
+    ScriptTemplate(name: "on mouseLeave", category: "Events",
+        code: "on mouseLeave\n  \nend mouseLeave"),
     ScriptTemplate(name: "on openCard", category: "Events",
-        code: "on openCard\n  \n  \nend openCard"),
+        code: "on openCard\n  \nend openCard"),
     ScriptTemplate(name: "on closeCard", category: "Events",
-        code: "on closeCard\n  \n  \nend closeCard"),
+        code: "on closeCard\n  \nend closeCard"),
+    ScriptTemplate(name: "on openField", category: "Events",
+        code: "on openField\n  \nend openField"),
+    ScriptTemplate(name: "on closeField", category: "Events",
+        code: "on closeField\n  \nend closeField"),
+    ScriptTemplate(name: "on enterKey", category: "Events",
+        code: "on enterKey\n  \nend enterKey"),
     ScriptTemplate(name: "on idle", category: "Events",
-        code: "on idle\n  \n  \nend idle"),
+        code: "on idle\n  \nend idle"),
 
     // Navigation
     ScriptTemplate(name: "go next", category: "Navigation",
@@ -36,34 +46,68 @@ private let scriptTemplates: [ScriptTemplate] = [
         code: "go first"),
     ScriptTemplate(name: "go last", category: "Navigation",
         code: "go last"),
-    ScriptTemplate(name: "go to card \"name\"", category: "Navigation",
+    ScriptTemplate(name: "go to card", category: "Navigation",
         code: "go to card \"Card Name\""),
+    ScriptTemplate(name: "show all cards", category: "Navigation",
+        code: "show all cards"),
+    ScriptTemplate(name: "create card", category: "Navigation",
+        code: "create a new card"),
+    ScriptTemplate(name: "create card (bg)", category: "Navigation",
+        code: "create a new card with background \"Background 1\""),
 
-    // Variables
+    // Variables & Data
     ScriptTemplate(name: "put into variable", category: "Variables",
         code: "put \"value\" into myVar"),
     ScriptTemplate(name: "put into field", category: "Variables",
         code: "put \"Hello\" into field \"Name\""),
     ScriptTemplate(name: "get field value", category: "Variables",
         code: "get field \"Name\""),
+    ScriptTemplate(name: "add to variable", category: "Variables",
+        code: "add 1 to counter"),
+    ScriptTemplate(name: "subtract from", category: "Variables",
+        code: "subtract 1 from counter"),
+    ScriptTemplate(name: "multiply by", category: "Variables",
+        code: "multiply price by 1.08"),
+    ScriptTemplate(name: "divide by", category: "Variables",
+        code: "divide total by count"),
     ScriptTemplate(name: "global variable", category: "Variables",
         code: "global gMyGlobal"),
 
     // Control Flow
     ScriptTemplate(name: "if / then / else", category: "Control",
-        code: "if condition then\n  \n  \nelse\n  \n  \nend if"),
+        code: "if condition then\n  \nelse\n  \nend if"),
     ScriptTemplate(name: "repeat N times", category: "Control",
-        code: "repeat 10\n  \n  \nend repeat"),
+        code: "repeat 10\n  \nend repeat"),
     ScriptTemplate(name: "repeat with counter", category: "Control",
-        code: "repeat with i = 1 to 10\n  \n  \nend repeat"),
+        code: "repeat with i = 1 to 10\n  \nend repeat"),
+    ScriptTemplate(name: "repeat while", category: "Control",
+        code: "repeat while condition\n  \nend repeat"),
     ScriptTemplate(name: "exit repeat", category: "Control",
         code: "exit repeat"),
+    ScriptTemplate(name: "next repeat", category: "Control",
+        code: "next repeat"),
 
     // Dialogs
-    ScriptTemplate(name: "ask (input dialog)", category: "Dialogs",
-        code: "ask \"What is your name?\""),
     ScriptTemplate(name: "answer (alert)", category: "Dialogs",
         code: "answer \"Hello, World!\""),
+    ScriptTemplate(name: "ask (input dialog)", category: "Dialogs",
+        code: "ask \"What is your name?\""),
+
+    // Object Commands
+    ScriptTemplate(name: "set property", category: "Objects",
+        code: "set the name of button 1 to \"New Name\""),
+    ScriptTemplate(name: "set style", category: "Objects",
+        code: "set the style of button \"btn\" to \"default\""),
+    ScriptTemplate(name: "set url of webpage", category: "Objects",
+        code: "set the url of webpage \"web\" to \"https://example.com\""),
+    ScriptTemplate(name: "hide part", category: "Objects",
+        code: "hide field \"secret\""),
+    ScriptTemplate(name: "show part", category: "Objects",
+        code: "show field \"secret\""),
+    ScriptTemplate(name: "delete part", category: "Objects",
+        code: "delete button \"old\""),
+    ScriptTemplate(name: "mark card", category: "Objects",
+        code: "mark this card"),
 
     // Commands
     ScriptTemplate(name: "beep", category: "Commands",
@@ -72,10 +116,12 @@ private let scriptTemplates: [ScriptTemplate] = [
         code: "wait 2"),
     ScriptTemplate(name: "visual effect", category: "Commands",
         code: "visual effect dissolve"),
-    ScriptTemplate(name: "set property", category: "Commands",
-        code: "set the name of me to \"New Name\""),
     ScriptTemplate(name: "pass message", category: "Commands",
         code: "pass mouseUp"),
+    ScriptTemplate(name: "send message", category: "Commands",
+        code: "send \"mouseUp\" to button \"other\""),
+    ScriptTemplate(name: "do expression", category: "Commands",
+        code: "do field \"script\""),
 
     // Functions
     ScriptTemplate(name: "custom function", category: "Functions",
@@ -86,14 +132,28 @@ private let scriptTemplates: [ScriptTemplate] = [
         code: "offset(\"needle\", \"haystack\")"),
     ScriptTemplate(name: "random()", category: "Functions",
         code: "random(100)"),
+    ScriptTemplate(name: "sqrt()", category: "Functions",
+        code: "sqrt(16)"),
+    ScriptTemplate(name: "the number of", category: "Functions",
+        code: "the number of cards"),
 
-    // AI (Phase 5)
+    // Operators
+    ScriptTemplate(name: "is in", category: "Operators",
+        code: "\"abc\" is in \"xabcx\""),
+    ScriptTemplate(name: "is a number", category: "Operators",
+        code: "x is a number"),
+    ScriptTemplate(name: "there is a", category: "Operators",
+        code: "there is a button \"OK\""),
+    ScriptTemplate(name: "contains", category: "Operators",
+        code: "field \"data\" contains \"search\""),
+
+    // AI
     ScriptTemplate(name: "ask AI", category: "AI",
         code: "ask ai \"Summarize this text\""),
 ]
 
 /// Grouped categories in display order.
-private let categoryOrder = ["Events", "Navigation", "Variables", "Control", "Dialogs", "Commands", "Functions", "AI"]
+private let categoryOrder = ["Events", "Navigation", "Variables", "Control", "Dialogs", "Objects", "Commands", "Functions", "Operators", "AI"]
 
 // MARK: - Script Editor View
 

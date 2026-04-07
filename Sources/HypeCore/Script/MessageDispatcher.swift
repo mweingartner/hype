@@ -13,7 +13,8 @@ public struct MessageDispatcher: Sendable {
         params: [Value],
         targetId: UUID,
         document: HypeDocument,
-        currentCardId: UUID
+        currentCardId: UUID,
+        dialogProvider: DialogProvider = StubDialogProvider()
     ) -> ExecutionResult {
         let chain = buildHierarchy(targetId: targetId, document: document, currentCardId: currentCardId)
 
@@ -33,7 +34,7 @@ public struct MessageDispatcher: Sendable {
             }) else { continue }
 
             // Execute the handler.
-            let context = ExecutionContext(targetId: objectId, currentCardId: currentCardId, document: document)
+            let context = ExecutionContext(targetId: objectId, currentCardId: currentCardId, document: document, dialogProvider: dialogProvider)
             let interpreter = Interpreter()
             let result = interpreter.execute(handler: handler, params: params, context: context)
 

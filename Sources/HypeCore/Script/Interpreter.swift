@@ -6,18 +6,35 @@ import AppKit
 /// HypeTalk values are all strings, coerced to numbers for arithmetic.
 public typealias Value = String
 
+/// Provider for UI dialogs (ask/answer) — injected by the UI layer.
+public protocol DialogProvider: Sendable {
+    /// Show an alert dialog with a message. Returns the button clicked ("OK", "Cancel", etc.)
+    func showAnswer(prompt: String) -> String
+    /// Show an input dialog with a prompt. Returns the user's input, or empty if cancelled.
+    func showAsk(prompt: String) -> String
+}
+
+/// Default dialog provider that just returns the prompt (used when no UI is available).
+public struct StubDialogProvider: DialogProvider, Sendable {
+    public init() {}
+    public func showAnswer(prompt: String) -> String { return "OK" }
+    public func showAsk(prompt: String) -> String { return "" }
+}
+
 /// Context for script execution.
 public struct ExecutionContext: Sendable {
     public var targetId: UUID
     public var currentCardId: UUID
     public var document: HypeDocument
     public var instructionLimit: Int
+    public var dialogProvider: DialogProvider
 
-    public init(targetId: UUID, currentCardId: UUID, document: HypeDocument, instructionLimit: Int = 1_000_000) {
+    public init(targetId: UUID, currentCardId: UUID, document: HypeDocument, instructionLimit: Int = 1_000_000, dialogProvider: DialogProvider = StubDialogProvider()) {
         self.targetId = targetId
         self.currentCardId = currentCardId
         self.document = document
         self.instructionLimit = instructionLimit
+        self.dialogProvider = dialogProvider
     }
 }
 
@@ -476,12 +493,14 @@ public struct Interpreter: Sendable {
             }
 
         case .ask(let prompt):
-            let value = try evaluate(prompt, env: &env, document: document, context: context)
-            env.it = value // In a real implementation, this would show a dialog.
+            let promptText = try evaluate(prompt, env: &env, document: document, context: context)
+            let userInput = context.dialogProvider.showAsk(prompt: promptText)
+            env.it = userInput
 
         case .answer(let prompt):
-            let value = try evaluate(prompt, env: &env, document: document, context: context)
-            env.it = value // In a real implementation, this would show a dialog.
+            let promptText = try evaluate(prompt, env: &env, document: document, context: context)
+            let response = context.dialogProvider.showAnswer(prompt: promptText)
+            env.it = response
 
         case .visual(let effectExpr):
             // Visual effects are a presentation concern — record but do not act.
