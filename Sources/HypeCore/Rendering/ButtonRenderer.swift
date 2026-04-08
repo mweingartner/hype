@@ -9,7 +9,15 @@ public enum ButtonRenderer {
         ctx.saveGState()
 
         let fillColor = part.hilite ? NSColor.controlAccentColor.cgColor : NSColor.white.cgColor
-        let textColor = part.hilite ? NSColor.white.cgColor : (part.enabled ? NSColor.black.cgColor : NSColor.gray.cgColor)
+        // For checkboxes, radio buttons, and toggles, the label color stays black
+        // because hilite only affects the indicator (check/dot/switch), not the label background
+        let textColor: CGColor
+        switch part.buttonStyle {
+        case .checkBox, .radioButton, .toggle:
+            textColor = part.enabled ? NSColor.black.cgColor : NSColor.gray.cgColor
+        default:
+            textColor = part.hilite ? NSColor.white.cgColor : (part.enabled ? NSColor.black.cgColor : NSColor.gray.cgColor)
+        }
 
         switch part.buttonStyle {
         case .transparent:
