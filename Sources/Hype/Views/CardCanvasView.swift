@@ -196,6 +196,23 @@ struct CardCanvasView: NSViewRepresentable {
             parent.document.document.updatePart(id: id) { $0.hilite.toggle() }
         }
 
+        /// Select a radio button and deselect all other radio buttons in the same family.
+        func selectRadioButton(id: UUID, family: Int) {
+            // Clear hilite on all radio buttons in the same family on the current card
+            let cardId = parent.currentCardId
+            let parts = parent.document.document.partsForCard(cardId)
+            for part in parts where part.partType == .button && part.buttonStyle == .radioButton && part.family == family {
+                parent.document.document.updatePart(id: part.id) { $0.hilite = (part.id == id) }
+            }
+            // Also check background parts
+            if let card = parent.document.document.cards.first(where: { $0.id == cardId }) {
+                let bgParts = parent.document.document.partsForBackground(card.backgroundId)
+                for part in bgParts where part.partType == .button && part.buttonStyle == .radioButton && part.family == family {
+                    parent.document.document.updatePart(id: part.id) { $0.hilite = (part.id == id) }
+                }
+            }
+        }
+
         func deletePart(id: UUID) {
             // Dispatch delete message before removing
             if let part = parent.document.document.parts.first(where: { $0.id == id }) {
@@ -1258,6 +1275,21 @@ class CardCanvasNSView: NSView {
                 // Handle image invert-on-click
                 if part.partType == .image && part.invertOnClick {
                     coordinator?.togglePartHilite(id: part.id)
+                }
+                // Auto-hilite for buttons: checkboxes and toggles toggle on click,
+                // radio buttons set hilite (and clear siblings in same family)
+                if part.partType == .button {
+                    switch part.buttonStyle {
+                    case .checkBox, .toggle:
+                        coordinator?.togglePartHilite(id: part.id)
+                    case .radioButton:
+                        // Set this radio button, clear others in the same family
+                        coordinator?.selectRadioButton(id: part.id, family: part.family)
+                    default:
+                        // Standard buttons with autoHilite get a momentary flash
+                        // (hilite is visual only during click, not persistent)
+                        break
+                    }
                 }
                 coordinator?.dispatchMessage("mouseUp", to: part.id)
             }
