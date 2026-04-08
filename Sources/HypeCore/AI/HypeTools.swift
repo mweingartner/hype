@@ -71,10 +71,24 @@ public struct HypeToolDefinitions {
             "on_background": ("string", "Set to 'true' to place on the card's background", false),
         ]),
 
+        makeTool(name: "create_chart", description: "Create a chart control. Specify type (bar/line/area/point/pie/rule), title, and data as JSON.", params: [
+            "name": ("string", "Chart name", true),
+            "chart_type": ("string", "Chart type: bar, line, area, point, pie, rule", true),
+            "title": ("string", "Chart title", false),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "data_json": ("string", "JSON array of data points: [{\"label\":\"Jan\",\"value\":120}]", false),
+            "series_name": ("string", "Series name", false),
+            "series_color": ("string", "Series color hex", false),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
         // Part modification
         makeTool(name: "set_part_property", description: """
             Set a property on a part by name. Available properties: name, left, top, width, height, \
-            text, url, videoURL, fillColor, strokeColor, strokeWidth, cornerRadius, visible, enabled, hilite, \
+            text, url, videoURL, chartdata, charttype, charttitle, fillColor, strokeColor, strokeWidth, cornerRadius, visible, enabled, hilite, \
             autoHilite, showName, lockText, textFont, textSize, textAlign, textStyle, script, style. \
             For 'style': button styles are transparent/opaque/rectangle/roundRect/shadow/checkBox/radioButton/standard/default/popup/oval/toggle. \
             Field styles are transparent/opaque/rectangle/shadow/scrolling. \

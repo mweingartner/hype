@@ -33,6 +33,7 @@ struct PropertyInspector: View {
                         case .webpage: webpageSection(part: part)
                         case .image: imageSection(part: part)
                         case .video: videoSection(part: part)
+                        case .chart: chartSection(part: part)
                         }
 
                         // Font controls for buttons and fields
@@ -422,6 +423,202 @@ struct PropertyInspector: View {
                 Image(systemName: "text.alignright").tag(HypeCore.TextAlignment.right)
             }
             .pickerStyle(.segmented)
+        }
+    }
+
+    @ViewBuilder
+    private func chartSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Chart").font(.subheadline).foregroundColor(.secondary)
+
+            let config = ChartConfig.fromJSON(part.chartData) ?? ChartConfig()
+
+            Picker("Type", selection: bindChartType(part.id)) {
+                ForEach(ChartType.allCases, id: \.self) { type in
+                    Text(type.rawValue.capitalized).tag(type)
+                }
+            }
+
+            propertyRow("Title", binding: bindChartField(part.id, \.title))
+            Toggle("Show Legend", isOn: bindChartBool(part.id, \.showLegend))
+            Toggle("Show Grid", isOn: bindChartBool(part.id, \.showGrid))
+
+            propertyRow("X Label", binding: bindChartField(part.id, \.xAxisLabel))
+            propertyRow("Y Label", binding: bindChartField(part.id, \.yAxisLabel))
+
+            Divider()
+
+            // Series management
+            ForEach(Array(config.series.enumerated()), id: \.element.id) { index, series in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Series \(index + 1)").font(.system(size: 10, weight: .bold))
+                        Spacer()
+                        ColorPicker("", selection: bindSeriesColor(part.id, seriesIndex: index))
+                            .labelsHidden().frame(width: 20)
+                        Button(action: { removeSeries(partId: part.id, index: index) }) {
+                            Image(systemName: "minus.circle").foregroundColor(.red)
+                        }.buttonStyle(.borderless)
+                    }
+                    TextField("Name", text: bindSeriesName(part.id, seriesIndex: index))
+                        .textFieldStyle(.roundedBorder).font(.system(size: 11))
+
+                    // Data points
+                    ForEach(Array(series.data.enumerated()), id: \.element.id) { di, _ in
+                        HStack(spacing: 4) {
+                            TextField("Label", text: bindDataLabel(part.id, seriesIndex: index, dataIndex: di))
+                                .textFieldStyle(.roundedBorder).font(.system(size: 10))
+                            TextField("Value", value: bindDataValue(part.id, seriesIndex: index, dataIndex: di), format: .number)
+                                .textFieldStyle(.roundedBorder).font(.system(size: 10)).frame(width: 60)
+                            Button(action: { removeDataPoint(partId: part.id, seriesIndex: index, dataIndex: di) }) {
+                                Image(systemName: "xmark").font(.system(size: 8))
+                            }.buttonStyle(.borderless)
+                        }
+                    }
+                    Button("+ Add Data Point") { addDataPoint(partId: part.id, seriesIndex: index) }
+                        .font(.system(size: 10))
+                }
+                .padding(4)
+                .background(Color.gray.opacity(0.05))
+                .cornerRadius(4)
+            }
+
+            Button("+ Add Series") { addSeries(partId: part.id) }
+                .font(.system(size: 10))
+        }
+    }
+
+    // MARK: - Chart Binding Helpers
+
+    private func modifyChartConfig(partId: UUID, transform: (inout ChartConfig) -> Void) {
+        let existing = document.document.parts.first(where: { $0.id == partId })?.chartData ?? ""
+        var config = ChartConfig.fromJSON(existing) ?? ChartConfig()
+        transform(&config)
+        document.document.updatePart(id: partId) { $0.chartData = config.toJSON() }
+    }
+
+    private func bindChartType(_ id: UUID) -> Binding<ChartType> {
+        Binding(
+            get: { ChartConfig.fromJSON(document.document.parts.first(where: { $0.id == id })?.chartData ?? "")?.chartType ?? .bar },
+            set: { newVal in modifyChartConfig(partId: id) { $0.chartType = newVal } }
+        )
+    }
+
+    private func bindChartField(_ id: UUID, _ keyPath: WritableKeyPath<ChartConfig, String>) -> Binding<String> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == id })?.chartData ?? ""
+                return ChartConfig.fromJSON(json)?[keyPath: keyPath] ?? ""
+            },
+            set: { newVal in modifyChartConfig(partId: id) { $0[keyPath: keyPath] = newVal } }
+        )
+    }
+
+    private func bindChartBool(_ id: UUID, _ keyPath: WritableKeyPath<ChartConfig, Bool>) -> Binding<Bool> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == id })?.chartData ?? ""
+                return ChartConfig.fromJSON(json)?[keyPath: keyPath] ?? true
+            },
+            set: { newVal in modifyChartConfig(partId: id) { $0[keyPath: keyPath] = newVal } }
+        )
+    }
+
+    private func bindSeriesName(_ id: UUID, seriesIndex: Int) -> Binding<String> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == id })?.chartData ?? ""
+                let config = ChartConfig.fromJSON(json) ?? ChartConfig()
+                guard seriesIndex < config.series.count else { return "" }
+                return config.series[seriesIndex].name
+            },
+            set: { newVal in
+                modifyChartConfig(partId: id) { config in
+                    guard seriesIndex < config.series.count else { return }
+                    config.series[seriesIndex].name = newVal
+                }
+            }
+        )
+    }
+
+    private func bindSeriesColor(_ id: UUID, seriesIndex: Int) -> Binding<Color> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == id })?.chartData ?? ""
+                let config = ChartConfig.fromJSON(json) ?? ChartConfig()
+                guard seriesIndex < config.series.count else { return .blue }
+                return Color(hex: config.series[seriesIndex].color)
+            },
+            set: { newVal in
+                modifyChartConfig(partId: id) { config in
+                    guard seriesIndex < config.series.count else { return }
+                    config.series[seriesIndex].color = newVal.toHex()
+                }
+            }
+        )
+    }
+
+    private func bindDataLabel(_ id: UUID, seriesIndex: Int, dataIndex: Int) -> Binding<String> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == id })?.chartData ?? ""
+                let config = ChartConfig.fromJSON(json) ?? ChartConfig()
+                guard seriesIndex < config.series.count, dataIndex < config.series[seriesIndex].data.count else { return "" }
+                return config.series[seriesIndex].data[dataIndex].label
+            },
+            set: { newVal in
+                modifyChartConfig(partId: id) { config in
+                    guard seriesIndex < config.series.count, dataIndex < config.series[seriesIndex].data.count else { return }
+                    config.series[seriesIndex].data[dataIndex].label = newVal
+                }
+            }
+        )
+    }
+
+    private func bindDataValue(_ id: UUID, seriesIndex: Int, dataIndex: Int) -> Binding<Double> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == id })?.chartData ?? ""
+                let config = ChartConfig.fromJSON(json) ?? ChartConfig()
+                guard seriesIndex < config.series.count, dataIndex < config.series[seriesIndex].data.count else { return 0 }
+                return config.series[seriesIndex].data[dataIndex].value
+            },
+            set: { newVal in
+                modifyChartConfig(partId: id) { config in
+                    guard seriesIndex < config.series.count, dataIndex < config.series[seriesIndex].data.count else { return }
+                    config.series[seriesIndex].data[dataIndex].value = newVal
+                }
+            }
+        )
+    }
+
+    private func addSeries(partId: UUID) {
+        modifyChartConfig(partId: partId) { config in
+            let colors = ["#4A90D9", "#E74C3C", "#2ECC71", "#F39C12", "#9B59B6", "#1ABC9C"]
+            let colorIndex = config.series.count % colors.count
+            config.series.append(ChartSeries(name: "Series \(config.series.count + 1)", color: colors[colorIndex]))
+        }
+    }
+
+    private func removeSeries(partId: UUID, index: Int) {
+        modifyChartConfig(partId: partId) { config in
+            guard index < config.series.count else { return }
+            config.series.remove(at: index)
+        }
+    }
+
+    private func addDataPoint(partId: UUID, seriesIndex: Int) {
+        modifyChartConfig(partId: partId) { config in
+            guard seriesIndex < config.series.count else { return }
+            let count = config.series[seriesIndex].data.count
+            config.series[seriesIndex].data.append(ChartDataPoint(label: "Item \(count + 1)", value: 0))
+        }
+    }
+
+    private func removeDataPoint(partId: UUID, seriesIndex: Int, dataIndex: Int) {
+        modifyChartConfig(partId: partId) { config in
+            guard seriesIndex < config.series.count, dataIndex < config.series[seriesIndex].data.count else { return }
+            config.series[seriesIndex].data.remove(at: dataIndex)
         }
     }
 

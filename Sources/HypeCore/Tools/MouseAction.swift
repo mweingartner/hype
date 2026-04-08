@@ -80,6 +80,7 @@ public struct MouseHandler: Sendable {
             case "webpage": partType = .webpage
             case "image": partType = .image
             case "video": partType = .video
+            case "chart": partType = .chart
             default: return .none
             }
             return .createPart(partType, rect, extras)

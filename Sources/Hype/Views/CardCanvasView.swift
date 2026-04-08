@@ -347,6 +347,11 @@ class CardCanvasNSView: NSView {
     // Track which video URLs are loaded to avoid redundant loads
     private var loadedVideoURLs: [UUID: String] = [:]
 
+    // Active NSHostingViews for chart parts (keyed by part ID)
+    private var chartViews: [UUID: NSView] = [:]
+    // Track which chart data is loaded to avoid redundant recreations
+    private var loadedChartData: [UUID: String] = [:]
+
     // Paint layers keyed by card ID
     private var paintLayers: [UUID: PaintLayer] = [:]
 
@@ -546,6 +551,9 @@ class CardCanvasNSView: NSView {
 
         // Update video players for video parts
         updateVideoPlayers()
+
+        // Update chart views for chart parts
+        updateChartViews()
 
         // Dim card parts and draw border when editing background
         if editingBackground {
@@ -1492,6 +1500,73 @@ class CardCanvasNSView: NSView {
             videoPlayers[id]?.removeFromSuperview()
             videoPlayers.removeValue(forKey: id)
             loadedVideoURLs.removeValue(forKey: id)
+        }
+    }
+
+    // MARK: - Chart View Management
+
+    /// Create, update, or remove NSHostingViews for chart parts on the current card.
+    private func updateChartViews() {
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let isBrowseMode = toolState.category == .browse
+
+        let cardParts = document.partsForCard(currentCardId)
+        let bgParts: [Part]
+        if let card = document.cards.first(where: { $0.id == currentCardId }) {
+            bgParts = document.partsForBackground(card.backgroundId)
+        } else {
+            bgParts = []
+        }
+        let allParts = cardParts + bgParts
+        let chartParts = allParts.filter { $0.partType == .chart && $0.visible }
+
+        // In edit mode or no chart parts, hide all chart views
+        if !isBrowseMode || chartParts.isEmpty {
+            for (_, view) in chartViews {
+                view.removeFromSuperview()
+            }
+            chartViews.removeAll()
+            loadedChartData.removeAll()
+            return
+        }
+
+        // Track which parts are still active
+        var activeIds = Set<UUID>()
+
+        for part in chartParts {
+            activeIds.insert(part.id)
+            guard !part.chartData.isEmpty else { continue }
+
+            let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+
+            if let existing = chartViews[part.id] {
+                existing.frame = frame
+                if loadedChartData[part.id] != part.chartData {
+                    // Data changed — recreate the hosting view
+                    existing.removeFromSuperview()
+                    chartViews.removeValue(forKey: part.id)
+                    loadedChartData.removeValue(forKey: part.id)
+                    // Fall through to creation below
+                } else {
+                    continue
+                }
+            }
+
+            if let config = ChartConfig.fromJSON(part.chartData) {
+                let chartView = ChartHostView(config: config)
+                let hostingView = NSHostingView(rootView: chartView)
+                hostingView.frame = frame
+                addSubview(hostingView, positioned: .above, relativeTo: nil)
+                chartViews[part.id] = hostingView
+                loadedChartData[part.id] = part.chartData
+            }
+        }
+
+        // Remove views for parts that no longer exist
+        for id in chartViews.keys where !activeIds.contains(id) {
+            chartViews[id]?.removeFromSuperview()
+            chartViews.removeValue(forKey: id)
+            loadedChartData.removeValue(forKey: id)
         }
     }
 

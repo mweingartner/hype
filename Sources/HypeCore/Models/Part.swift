@@ -65,6 +65,9 @@ public struct Part: Identifiable, Codable, Sendable {
     // Video-specific
     public var videoURL: String
 
+    // Chart-specific
+    public var chartData: String  // JSON-encoded ChartConfig
+
     // Image-specific
     public var imageData: Data?
     public var invertOnClick: Bool
@@ -124,6 +127,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.url = partType == .webpage ? "http://" : ""
         self.urlSourceFieldId = nil
         self.videoURL = ""
+        self.chartData = ""
         self.imageData = nil
         self.invertOnClick = false
         self.script = ""
@@ -172,6 +176,7 @@ public struct Part: Identifiable, Codable, Sendable {
         url = try container.decode(String.self, forKey: .url)
         urlSourceFieldId = try container.decodeIfPresent(UUID.self, forKey: .urlSourceFieldId)
         videoURL = try container.decodeIfPresent(String.self, forKey: .videoURL) ?? ""
+        chartData = try container.decodeIfPresent(String.self, forKey: .chartData) ?? ""
         imageData = try container.decodeIfPresent(Data.self, forKey: .imageData)
         invertOnClick = try container.decodeIfPresent(Bool.self, forKey: .invertOnClick) ?? false
         script = try container.decode(String.self, forKey: .script)

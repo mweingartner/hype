@@ -2,12 +2,12 @@ import Foundation
 
 /// The five HyperCard object types.
 public enum ObjectType: String, Codable, Sendable {
-    case stack, background, card, button, field, shape, webpage, image, video
+    case stack, background, card, button, field, shape, webpage, image, video, chart
 }
 
 /// Part type discriminator.
 public enum PartType: String, Codable, Sendable {
-    case button, field, shape, webpage, image, video
+    case button, field, shape, webpage, image, video, chart
 }
 
 /// Button visual styles.

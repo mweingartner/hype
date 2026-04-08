@@ -284,6 +284,8 @@ public struct Interpreter: Sendable {
                             default:
                                 break
                             }
+                        case "chartdata", "chart_data":
+                            document.parts[partIndex].chartData = value
                         case "script":
                             document.parts[partIndex].script = value
                         case "family":
@@ -1229,6 +1231,7 @@ public struct Interpreter: Sendable {
                 case "widemargins": return part.wideMargins ? "true" : "false"
                 case "dontwrap":    return part.dontWrap ? "true" : "false"
                 case "url":         return part.url
+                case "chartdata", "chart_data": return part.chartData
                 case "text", "textcontent": return part.textContent
                 case "topleft":
                     return "\(formatNumber(part.left)),\(formatNumber(part.top))"

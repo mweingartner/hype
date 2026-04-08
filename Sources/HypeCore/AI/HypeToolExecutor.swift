@@ -161,6 +161,41 @@ public struct HypeToolExecutor: Sendable {
             let videoLayer = place.backgroundId != nil ? " on background" : ""
             return "Created video '\(part.name)' with URL \(part.videoURL)\(videoLayer)"
 
+        case "create_chart":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            var part = Part(
+                partType: .chart,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
+                name: arguments["name"] ?? "Chart",
+                left: Double(arguments["left"] ?? "100") ?? 100,
+                top: Double(arguments["top"] ?? "100") ?? 100,
+                width: Double(arguments["width"] ?? "300") ?? 300,
+                height: Double(arguments["height"] ?? "200") ?? 200
+            )
+            let chartType = ChartType(rawValue: arguments["chart_type"] ?? "bar") ?? .bar
+            var config = ChartConfig(chartType: chartType, title: arguments["title"] ?? "")
+            // Parse data points if provided
+            var dataPoints: [ChartDataPoint] = []
+            if let dataJSON = arguments["data_json"],
+               let jsonData = dataJSON.data(using: .utf8),
+               let rawPoints = try? JSONDecoder().decode([[String: String]].self, from: jsonData) {
+                for raw in rawPoints {
+                    let label = raw["label"] ?? ""
+                    let value = Double(raw["value"] ?? "0") ?? 0
+                    dataPoints.append(ChartDataPoint(label: label, value: value))
+                }
+            }
+            let seriesName = arguments["series_name"] ?? "Series 1"
+            let seriesColor = arguments["series_color"] ?? "#4A90D9"
+            if !dataPoints.isEmpty {
+                config.series.append(ChartSeries(name: seriesName, color: seriesColor, data: dataPoints))
+            }
+            part.chartData = config.toJSON()
+            document.addPart(part)
+            let chartLayer = place.backgroundId != nil ? " on background" : ""
+            return "Created chart '\(part.name)' (\(chartType.rawValue))\(chartLayer)"
+
         case "set_part_property":
             let partName = arguments["part_name"] ?? ""
             let property = arguments["property"] ?? ""
@@ -217,6 +252,16 @@ public struct HypeToolExecutor: Sendable {
                 case "textstyle": document.parts[index].textStyle = value
                 case "strokewidth": document.parts[index].strokeWidth = Double(value) ?? 1
                 case "cornerradius": document.parts[index].cornerRadius = Double(value) ?? 8
+                case "chartdata", "chart_data":
+                    document.parts[index].chartData = value
+                case "charttype", "chart_type":
+                    var config = ChartConfig.fromJSON(document.parts[index].chartData) ?? ChartConfig()
+                    config.chartType = ChartType(rawValue: value) ?? .bar
+                    document.parts[index].chartData = config.toJSON()
+                case "charttitle", "chart_title":
+                    var config = ChartConfig.fromJSON(document.parts[index].chartData) ?? ChartConfig()
+                    config.title = value
+                    document.parts[index].chartData = config.toJSON()
                 default: return "Unknown property '\(property)'"
                 }
                 return "Set \(property) of '\(partName)' to '\(value)'"
