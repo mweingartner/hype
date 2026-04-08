@@ -463,13 +463,15 @@ struct PropertyInspector: View {
                     TextField("Name", text: bindSeriesName(part.id, seriesIndex: index))
                         .textFieldStyle(.roundedBorder).font(.system(size: 11))
 
-                    // Data points
+                    // Data points with per-point color
                     ForEach(Array(series.data.enumerated()), id: \.element.id) { di, _ in
-                        HStack(spacing: 4) {
+                        HStack(spacing: 3) {
+                            ColorPicker("", selection: bindDataPointColor(part.id, seriesIndex: index, dataIndex: di, seriesColor: series.color))
+                                .labelsHidden().frame(width: 18, height: 18)
                             TextField("Label", text: bindDataLabel(part.id, seriesIndex: index, dataIndex: di))
                                 .textFieldStyle(.roundedBorder).font(.system(size: 10))
                             TextField("Value", value: bindDataValue(part.id, seriesIndex: index, dataIndex: di), format: .number)
-                                .textFieldStyle(.roundedBorder).font(.system(size: 10)).frame(width: 60)
+                                .textFieldStyle(.roundedBorder).font(.system(size: 10)).frame(width: 55)
                             Button(action: { removeDataPoint(partId: part.id, seriesIndex: index, dataIndex: di) }) {
                                 Image(systemName: "xmark").font(.system(size: 8))
                             }.buttonStyle(.borderless)
@@ -613,6 +615,26 @@ struct PropertyInspector: View {
             let count = config.series[seriesIndex].data.count
             config.series[seriesIndex].data.append(ChartDataPoint(label: "Item \(count + 1)", value: 0))
         }
+    }
+
+    private func bindDataPointColor(_ id: UUID, seriesIndex: Int, dataIndex: Int, seriesColor: String) -> Binding<Color> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == id })?.chartData ?? ""
+                let config = ChartConfig.fromJSON(json) ?? ChartConfig()
+                guard seriesIndex < config.series.count, dataIndex < config.series[seriesIndex].data.count else { return Color(hex: seriesColor) }
+                if let pointColor = config.series[seriesIndex].data[dataIndex].color, !pointColor.isEmpty {
+                    return Color(hex: pointColor)
+                }
+                return Color(hex: seriesColor)
+            },
+            set: { newVal in
+                modifyChartConfig(partId: id) { config in
+                    guard seriesIndex < config.series.count, dataIndex < config.series[seriesIndex].data.count else { return }
+                    config.series[seriesIndex].data[dataIndex].color = newVal.toHex()
+                }
+            }
+        )
     }
 
     private func removeDataPoint(partId: UUID, seriesIndex: Int, dataIndex: Int) {

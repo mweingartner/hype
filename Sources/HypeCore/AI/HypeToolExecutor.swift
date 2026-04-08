@@ -175,22 +175,44 @@ public struct HypeToolExecutor: Sendable {
             )
             let chartType = ChartType(rawValue: arguments["chart_type"] ?? "bar") ?? .bar
             var config = ChartConfig(chartType: chartType, title: arguments["title"] ?? "")
-            // Parse data points if provided
+            // Parse data points from multiple formats
             var dataPoints: [ChartDataPoint] = []
-            if let dataJSON = arguments["data_json"],
-               let jsonData = dataJSON.data(using: .utf8),
-               let rawPoints = try? JSONDecoder().decode([[String: String]].self, from: jsonData) {
-                for raw in rawPoints {
-                    let label = raw["label"] ?? ""
-                    let value = Double(raw["value"] ?? "0") ?? 0
-                    dataPoints.append(ChartDataPoint(label: label, value: value))
+
+            if let dataJSON = arguments["data_json"], !dataJSON.isEmpty {
+                if let jsonData = dataJSON.data(using: .utf8) {
+                    // Try array of {"label":"X","value":"Y"} or {"label":"X","value":123}
+                    if let rawPoints = try? JSONSerialization.jsonObject(with: jsonData) as? [[String: Any]] {
+                        for raw in rawPoints {
+                            let label = raw["label"] as? String ?? ""
+                            let value: Double
+                            if let v = raw["value"] as? Double { value = v }
+                            else if let v = raw["value"] as? Int { value = Double(v) }
+                            else if let v = raw["value"] as? String { value = Double(v) ?? 0 }
+                            else { value = 0 }
+                            let color = raw["color"] as? String
+                            dataPoints.append(ChartDataPoint(label: label, value: value, color: color))
+                        }
+                    }
                 }
             }
+
+            // Also try simple "data" parameter: "Jan=120,Feb=150,Mar=180"
+            if dataPoints.isEmpty, let simpleData = arguments["data"], !simpleData.isEmpty {
+                let pairs = simpleData.split(separator: ",")
+                for pair in pairs {
+                    let parts = pair.split(separator: "=", maxSplits: 1)
+                    if parts.count == 2 {
+                        let label = parts[0].trimmingCharacters(in: .whitespaces)
+                        let value = Double(parts[1].trimmingCharacters(in: .whitespaces)) ?? 0
+                        dataPoints.append(ChartDataPoint(label: label, value: value))
+                    }
+                }
+            }
+
             let seriesName = arguments["series_name"] ?? "Series 1"
             let seriesColor = arguments["series_color"] ?? "#4A90D9"
-            if !dataPoints.isEmpty {
-                config.series.append(ChartSeries(name: seriesName, color: seriesColor, data: dataPoints))
-            }
+            // Always create a series (even empty) so the chart has structure
+            config.series.append(ChartSeries(name: seriesName, color: seriesColor, data: dataPoints))
             part.chartData = config.toJSON()
             document.addPart(part)
             let chartLayer = place.backgroundId != nil ? " on background" : ""

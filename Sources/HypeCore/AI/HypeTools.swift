@@ -71,7 +71,7 @@ public struct HypeToolDefinitions {
             "on_background": ("string", "Set to 'true' to place on the card's background", false),
         ]),
 
-        makeTool(name: "create_chart", description: "Create a chart control. Specify type (bar/line/area/point/pie/rule), title, and data as JSON.", params: [
+        makeTool(name: "create_chart", description: "Create a chart control with data. Use the 'data' parameter for simple data (e.g., 'Jan=120,Feb=150,Mar=180') or 'data_json' for JSON format.", params: [
             "name": ("string", "Chart name", true),
             "chart_type": ("string", "Chart type: bar, line, area, point, pie, rule", true),
             "title": ("string", "Chart title", false),
@@ -79,9 +79,10 @@ public struct HypeToolDefinitions {
             "top": ("string", "Y position", true),
             "width": ("string", "Width", true),
             "height": ("string", "Height", true),
+            "data": ("string", "Simple data format: label=value pairs separated by commas, e.g. 'Jan=120,Feb=150,Mar=180'", false),
             "data_json": ("string", "JSON array of data points: [{\"label\":\"Jan\",\"value\":120}]", false),
             "series_name": ("string", "Series name", false),
-            "series_color": ("string", "Series color hex", false),
+            "series_color": ("string", "Series color hex, e.g. #FF6B6B", false),
             "on_background": ("string", "true to place on background", false),
         ]),
 

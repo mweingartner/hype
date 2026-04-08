@@ -24,43 +24,51 @@ struct ChartHostView: View {
         .background(Color.white)
     }
 
+    /// Resolve the color for a data point: use point color if set, otherwise series color.
+    private func pointColor(_ point: ChartDataPoint, series: ChartSeries) -> Color {
+        if let pc = point.color, !pc.isEmpty {
+            return Color(hex: pc)
+        }
+        return Color(hex: series.color)
+    }
+
     @ViewBuilder
     private var standardChart: some View {
         Chart {
             ForEach(config.series) { series in
                 ForEach(series.data) { point in
+                    let color = pointColor(point, series: series)
                     switch config.chartType {
                     case .bar:
                         BarMark(
                             x: .value(config.xAxisLabel.isEmpty ? "Category" : config.xAxisLabel, point.label),
                             y: .value(config.yAxisLabel.isEmpty ? "Value" : config.yAxisLabel, point.value)
                         )
-                        .foregroundStyle(Color(hex: series.color))
+                        .foregroundStyle(color)
                     case .line:
                         LineMark(
                             x: .value(config.xAxisLabel.isEmpty ? "Category" : config.xAxisLabel, point.label),
                             y: .value(config.yAxisLabel.isEmpty ? "Value" : config.yAxisLabel, point.value)
                         )
-                        .foregroundStyle(Color(hex: series.color))
+                        .foregroundStyle(color)
                     case .area:
                         AreaMark(
                             x: .value(config.xAxisLabel.isEmpty ? "Category" : config.xAxisLabel, point.label),
                             y: .value(config.yAxisLabel.isEmpty ? "Value" : config.yAxisLabel, point.value)
                         )
-                        .foregroundStyle(Color(hex: series.color).opacity(0.3))
+                        .foregroundStyle(color.opacity(0.3))
                     case .point:
                         PointMark(
                             x: .value(config.xAxisLabel.isEmpty ? "Category" : config.xAxisLabel, point.label),
                             y: .value(config.yAxisLabel.isEmpty ? "Value" : config.yAxisLabel, point.value)
                         )
-                        .foregroundStyle(Color(hex: series.color))
+                        .foregroundStyle(color)
                     case .rule:
                         RuleMark(y: .value("Value", point.value))
-                            .foregroundStyle(Color(hex: series.color))
+                            .foregroundStyle(color)
                             .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 5]))
                     case .pie:
-                        // Handled separately
-                        let _ = point  // suppress unused warning
+                        let _ = point
                     }
                 }
             }
@@ -77,7 +85,7 @@ struct ChartHostView: View {
                     innerRadius: .ratio(0.5),
                     angularInset: 2
                 )
-                .foregroundStyle(by: .value("Category", point.label))
+                .foregroundStyle(pointColor(point, series: series))
                 .cornerRadius(4)
             }
             .chartLegend(config.showLegend ? .visible : .hidden)
