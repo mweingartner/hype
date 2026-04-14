@@ -1,0 +1,29 @@
+{
+  "activityEntities" : [
+    "projectCreated",
+    [
+      {
+        "createdDate" : "2026-04-09T03:03:18Z",
+        "event" : "projectCreated",
+        "id" : "474500AE-E8E1-4860-8DA9-FF5791498FE2",
+        "subtitle" : "HypeTalk",
+        "title" : "Project Created"
+      }
+    ]
+  ],
+  "authorName" : "Michael Weingartner",
+  "createdDate" : "2026-04-09T03:03:18Z",
+  "description" : "Intended as local model for an app designed to create scripts in a proprietary scripting language called HypeTalk.",
+  "id" : "E6C83726-F0E4-44EE-8254-1D3CA09D1638",
+  "license" : "",
+  "location" : "",
+  "modifiedDate" : "2026-04-09T03:03:18Z",
+  "projectName" : "HypeTalk",
+  "settingsEntity" : {
+    "snapshotOnExtendTraining" : true,
+    "snapshotOnResumeTraining" : false
+  },
+  "taskType" : "textClassifier",
+  "title" : "Text Classification",
+  "version" : "1.1"
+}

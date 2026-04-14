@@ -59,9 +59,26 @@ public actor AIService {
     }
 
     private func askLocal(prompt: String, context: String?) async throws -> AIResponse {
-        // Placeholder for Apple Foundation Models (on-device)
-        // In production, this would use the Foundation Models framework
-        return AIResponse(text: "[Local AI not configured — install a model to use local inference]", provider: "local", tokensUsed: 0)
+        let host = (UserDefaults.standard.string(forKey: "ollamaHost")?.isEmpty == false)
+            ? (UserDefaults.standard.string(forKey: "ollamaHost") ?? "localhost")
+            : "localhost"
+        let port = (UserDefaults.standard.string(forKey: "ollamaPort")?.isEmpty == false)
+            ? (UserDefaults.standard.string(forKey: "ollamaPort") ?? "11434")
+            : "11434"
+        let model = (UserDefaults.standard.string(forKey: "ollamaModel")?.isEmpty == false)
+            ? (UserDefaults.standard.string(forKey: "ollamaModel") ?? "llama3.2")
+            : "llama3.2"
+        let client = OllamaToolClient(host: host, port: port, model: model)
+
+        let composedPrompt: String
+        if let context, !context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            composedPrompt = "Context:\n\(context)\n\nPrompt:\n\(prompt)"
+        } else {
+            composedPrompt = prompt
+        }
+
+        let response = try await client.generate(prompt: composedPrompt)
+        return AIResponse(text: response, provider: "ollama", tokensUsed: 0)
     }
 
     private func askCloud(prompt: String, context: String?, system: String?) async throws -> AIResponse {

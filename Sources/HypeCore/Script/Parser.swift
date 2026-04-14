@@ -40,6 +40,34 @@ public struct Parser: Sendable {
         while current.type == .newline { pos += 1 }
     }
 
+    /// Check for trailing "on background" / "on bg" after a create
+    /// button/field statement. Consumes the tokens if matched.
+    private mutating func checkOnBackground() -> Bool {
+        if current.type == .on {
+            let cp = pos
+            _ = advance()  // on
+            if current.type == .background {
+                _ = advance()  // background / bg
+                return true
+            }
+            pos = cp  // rewind — not "on background"
+        }
+        return false
+    }
+
+    /// Non-destructive lookahead. `peek(0)` returns `current`,
+    /// `peek(1)` returns the next token, etc. Returns `nil` past
+    /// the end of the token stream rather than the EOF token — the
+    /// caller can distinguish "no such token" from "EOF reached".
+    /// Used by statement dispatch for identifier keywords (e.g.
+    /// `fill` / `clear`) that are only reserved when followed by a
+    /// specific next token like `.tilemap`.
+    private func peek(_ offset: Int) -> Token? {
+        let index = pos + offset
+        guard index >= 0 && index < tokens.count else { return nil }
+        return tokens[index]
+    }
+
     // MARK: - Top-level
 
     /// Parse the full script into handler declarations.
@@ -156,12 +184,77 @@ public struct Parser: Sendable {
         case .run:      return try parseRunStatement()
         case .request:  return try parseRequestStatement()
         case .reply:    return try parseReplyStatement()
+        case .listen:   return try parseListenStatement()
+        case .connect:  return try parseConnectStatement()
+        case .send:     return try parseSendStatement()
         case .start:    return try parseStartStatement()
         case .stop:     return try parseStopStatement()
         case .copy:     return try parseCopyStatement()
         case .export:   return try parseExportStatement()
         case .import:   return try parseImportStatement()
         case .convert:  return try parseConvertStatement()
+        case .constrain: return try parseConstrainStatement()
+        case .play:     return try parsePlayStatement()
+        case .beep:     return try parseBeepStatement()
+        case .wait:     return try parseWaitStatement()
+        case .animate:  return try parseAnimateStatement()
+        case .identifier:
+            // Check for SpriteKit commands and aliases
+            switch current.value.lowercased() {
+            case "new":
+                // "new card" → alias for "create a new card"
+                if peek(1)?.type == .card {
+                    _ = advance()  // new
+                    _ = advance()  // card
+                    var bgName: Expression? = nil
+                    if current.type == .with {
+                        _ = advance()
+                        if current.type == .background { _ = advance() }
+                        bgName = try parseExpression()
+                    }
+                    skipNewlines()
+                    return .createCard(backgroundName: bgName)
+                }
+                let expr = try parseExpression()
+                skipNewlines()
+                return .expressionStatement(expr)
+            case "pause":
+                return try parsePauseSceneStatement()
+            case "resume":
+                return try parseResumeSceneStatement()
+            case "remove":
+                return try parseRemoveSpriteStatement()
+            case "apply":
+                return try parseApplyStatement()
+            case "fill":
+                // `fill tilemap "X" with N` — bulk-paint every cell
+                // of a tile map. Only consume the `fill` identifier
+                // when followed by the `.tilemap` token; otherwise
+                // leave it for the bare-expression fallback so
+                // `fill` keeps working as an identifier elsewhere.
+                if peek(1)?.type == .tilemap {
+                    return try parseFillTileMapStatement()
+                }
+                let expr = try parseExpression()
+                skipNewlines()
+                return .expressionStatement(expr)
+            case "clear":
+                // `clear tilemap "X"` — clear every cell of a tile
+                // map (equivalent to `fill tilemap "X" with -1`).
+                // Same peek-gate as `fill` so `clear` remains
+                // available as a variable name.
+                if peek(1)?.type == .tilemap {
+                    return try parseClearTileMapStatement()
+                }
+                let expr = try parseExpression()
+                skipNewlines()
+                return .expressionStatement(expr)
+            default:
+                // Bare expression (function call, etc.)
+                let expr = try parseExpression()
+                skipNewlines()
+                return .expressionStatement(expr)
+            }
         default:
             // Bare expression (function call, etc.)
             let expr = try parseExpression()
@@ -189,12 +282,40 @@ public struct Parser: Sendable {
     private mutating func parseGetStatement() throws -> Statement {
         _ = try expect(.get)
         let expr = try parseExpression()
+        // Extension: `get <expr> into <target>` is accepted as sugar
+        // for `put <expr> into <target>`. Classic HyperTalk didn't
+        // have this form — `get` always put the value in `it` — but
+        // users intuitively reach for it (and the user who reported
+        // this bug wrote it that way), and supporting it costs one
+        // branch here. The desugared put is what the interpreter
+        // already knows how to execute, so no runtime changes are
+        // needed.
+        if current.type == .into {
+            _ = advance()
+            let target = try parseExpression()
+            skipNewlines()
+            return .put(source: expr, preposition: .into, target: target)
+        }
         skipNewlines()
         return .get(expr)
     }
 
     private mutating func parseSetStatement() throws -> Statement {
         _ = try expect(.set)
+        // `set tile col,row of tilemap "name" to tileIndex`
+        if current.type == .tile {
+            _ = advance()
+            let col = try parseExpression()
+            _ = try expect(.comma)
+            let row = try parseExpression()
+            _ = try expect(.of)
+            _ = match(.tilemap)
+            let tilemap = try parseExpression()
+            _ = try expect(.to)
+            let tileIndex = try parseExpression()
+            skipNewlines()
+            return .setTile(column: col, row: row, tilemap: tilemap, tileIndex: tileIndex)
+        }
         // `set the <property> of <target> to <value>`
         _ = match(.the)
         let propTok = advance()
@@ -402,6 +523,28 @@ public struct Parser: Sendable {
 
     private mutating func parseAskStatement() throws -> Statement {
         _ = try expect(.ask)
+        if current.type == .ai {
+            _ = advance()
+            let prompt = try parseExpression()
+            var model: Expression? = nil
+            var callback: Expression? = nil
+            if current.type == .with || current.type == .using {
+                _ = advance()
+                if current.type == .identifier && current.value.lowercased() == "model" {
+                    _ = advance()
+                    model = try parseExpression()
+                    if current.type == .with {
+                        _ = advance()
+                    }
+                }
+                if current.type == .message || (current.type == .identifier && current.value.lowercased() == "message") {
+                    _ = advance()
+                    callback = try parseExpression()
+                }
+            }
+            skipNewlines()
+            return .askAI(prompt: prompt, model: model, callback: callback)
+        }
         let expr = try parseExpression()
         skipNewlines()
         return .ask(prompt: expr)
@@ -414,16 +557,82 @@ public struct Parser: Sendable {
         return .answer(prompt: expr)
     }
 
+    /// Parse: `visual [effect] <name> [<duration>]`
+    ///
+    /// The effect name is consumed as a **literal string**, not
+    /// evaluated as an expression. `visual effect dissolve` means
+    /// the literal word "dissolve", not a variable named `dissolve`.
+    /// This matches HyperCard's syntax where effect names are
+    /// unquoted keywords. Multi-word names like "wipe left" are
+    /// joined: we consume identifier tokens until we hit a number
+    /// (duration), newline, or EOF.
+    ///
+    /// Quoted strings also work: `visual effect "dissolve"`.
+    ///
+    /// Examples:
+    ///   visual effect dissolve
+    ///   visual effect dissolve 1.5
+    ///   visual effect wipe left
+    ///   visual effect "push" 2
     private mutating func parseVisualStatement() throws -> Statement {
         _ = try expect(.visual)
-        _ = match(.effect)
-        let expr = try parseExpression()
+        _ = match(.effect) // optional "effect" keyword
+
+        // If it's a quoted string, parse it normally
+        let expr: Expression
+        if current.type == .string {
+            expr = try parsePrimary()
+        } else {
+            // Consume one or more tokens as a literal effect name.
+            // Effect names like "dissolve", "push", "wipe left",
+            // "iris open", "flip horizontal" may contain words that
+            // the lexer maps to keyword tokens (push → .push,
+            // open → .open, down → .down, etc.). We accept ANY
+            // token that isn't a number, newline, or EOF as part
+            // of the effect name so all combinations work unquoted.
+            var nameParts: [String] = []
+            while current.type != .newline &&
+                  current.type != .eof &&
+                  current.type != .integer &&
+                  current.type != .float {
+                nameParts.append(advance().value)
+            }
+            if nameParts.isEmpty {
+                throw ParseError.unexpected(current, expected: "effect name")
+            }
+            expr = .literal(nameParts.joined(separator: " "))
+        }
+
+        // Optional duration (number literal on the same line)
+        var duration: Expression? = nil
+        if current.type == .integer || current.type == .float {
+            duration = try parsePrimary()
+        }
         skipNewlines()
-        return .visual(effectName: expr)
+        return .visual(effectName: expr, duration: duration)
     }
 
     private mutating func parseCreateStatement() throws -> Statement {
         _ = try expect(.create)
+
+        // "create button "name" [on background]"
+        // "create btn "name" [on background]"
+        if current.type == .button {
+            _ = advance()
+            let name = try parsePrimary()
+            let onBg = checkOnBackground()
+            skipNewlines()
+            return .createButton(name: name, onBackground: onBg)
+        }
+
+        // "create field "name" [on background]" / "create fld "name" [on background]"
+        if current.type == .field {
+            _ = advance()
+            let name = try parsePrimary()
+            let onBg = checkOnBackground()
+            skipNewlines()
+            return .createField(name: name, onBackground: onBg)
+        }
 
         // "create background "name""
         if current.type == .background {
@@ -431,6 +640,81 @@ public struct Parser: Sendable {
             let name = try parseExpression()
             skipNewlines()
             return .createBackground(name: name)
+        }
+
+        // "create group "name" [in group "parentName"]"
+        if current.type == .identifier && current.value.lowercased() == "group" {
+            _ = advance()
+            let name = try parseExpression()
+            var parentExpr: Expression? = nil
+            if current.type == .identifier && current.value.lowercased() == "in" {
+                _ = advance()
+                if current.type == .identifier && current.value.lowercased() == "group" { _ = advance() }
+                parentExpr = try parseExpression()
+            }
+            skipNewlines()
+            return .createGroup(name: name, parent: parentExpr)
+        }
+
+        // "create sprite "name" [in scene/group "sceneName"] [with asset "assetName"]"
+        if current.type == .sprite {
+            _ = advance()
+            let name = try parseExpression()
+            var sceneExpr: Expression? = nil
+            if current.type == .identifier && current.value.lowercased() == "in" {
+                _ = advance()
+                // Accept both "in scene X" and "in group X"
+                if current.type == .identifier && current.value.lowercased() == "group" {
+                    _ = advance()
+                }
+                _ = match(.scene)
+                sceneExpr = try parseExpression()
+            }
+            var assetExpr: Expression? = nil
+            if current.type == .with {
+                _ = advance()
+                if current.type == .identifier && current.value.lowercased() == "asset" { _ = advance() }
+                assetExpr = try parseExpression()
+            }
+            skipNewlines()
+            return .createSprite(name: name, scene: sceneExpr, asset: assetExpr)
+        }
+
+        // "create scene "name" [in spritearea "areaName"] [with size W,H]"
+        if current.type == .scene {
+            _ = advance()
+            let name = try parseExpression()
+            var inAreaExpr: Expression? = nil
+            if current.type == .identifier && current.value.lowercased() == "in" {
+                _ = advance()
+                _ = match(.spritearea)
+                inAreaExpr = try parseExpression()
+            }
+            var widthExpr: Expression? = nil
+            var heightExpr: Expression? = nil
+            if current.type == .with {
+                _ = advance()
+                if current.type == .identifier && current.value.lowercased() == "size" { _ = advance() }
+                widthExpr = try parseExpression()
+                _ = match(.comma)
+                heightExpr = try parseExpression()
+            }
+            skipNewlines()
+            return .createSpriteScene(name: name, inArea: inAreaExpr, width: widthExpr, height: heightExpr)
+        }
+
+        // "create spritearea "name" [at rect L,T,W,H]"
+        if current.type == .spritearea {
+            _ = advance()
+            let name = try parseExpression()
+            var rectExpr: Expression? = nil
+            if current.type == .identifier && current.value.lowercased() == "at" {
+                _ = advance()
+                if current.type == .identifier && current.value.lowercased() == "rect" { _ = advance() }
+                rectExpr = try parseExpression()
+            }
+            skipNewlines()
+            return .createSpriteArea(name: name, rect: rectExpr)
         }
 
         // "create a new card [with background "name"]" or "create card [with background "name"]"
@@ -453,7 +737,110 @@ public struct Parser: Sendable {
             return .createCard(backgroundName: bgName)
         }
 
-        throw ParseError.unexpected(current, expected: "card or background")
+        // "create tilemap "name" [columns N] [rows N] [tilesize N] [with tileset "name"]"
+        if current.type == .tilemap {
+            _ = advance()
+            let name = try parseExpression()
+            var cols: Expression? = nil
+            var rows: Expression? = nil
+            var tileSize: Expression? = nil
+            var tileset: Expression? = nil
+            while current.type == .identifier || current.type == .with {
+                let kw = current.value.lowercased()
+                if kw == "columns" { _ = advance(); cols = try parseExpression() }
+                else if kw == "rows" { _ = advance(); rows = try parseExpression() }
+                else if kw == "tilesize" { _ = advance(); tileSize = try parseExpression() }
+                else if kw == "with" || kw == "tileset" {
+                    _ = advance()
+                    if current.type == .identifier && current.value.lowercased() == "tileset" { _ = advance() }
+                    tileset = try parseExpression()
+                }
+                else { break }
+            }
+            skipNewlines()
+            return .createTileMap(name: name, columns: cols, rows: rows, tileSize: tileSize, tileset: tileset)
+        }
+
+        // "create camera "name""
+        if current.type == .camera {
+            _ = advance()
+            let name = try parseExpression()
+            skipNewlines()
+            return .createCamera(name: name)
+        }
+
+        // "create physicsfield "name" type linearGravity [strength N] [direction X,Y]"
+        if current.type == .identifier && current.value.lowercased() == "physicsfield" {
+            _ = advance()
+            let name = try parseExpression()
+            var typeExpr: Expression = .literal("linearGravity")
+            if current.type == .identifier && current.value.lowercased() == "type" {
+                _ = advance()
+                typeExpr = try parseExpression()
+            }
+            var strengthExpr: Expression? = nil
+            if current.type == .identifier && current.value.lowercased() == "strength" {
+                _ = advance()
+                strengthExpr = try parseExpression()
+            }
+            var directionExpr: Expression? = nil
+            if current.type == .identifier && current.value.lowercased() == "direction" {
+                _ = advance()
+                directionExpr = try parseExpression()
+            }
+            skipNewlines()
+            return .createPhysicsField(name: name, type: typeExpr, strength: strengthExpr, direction: directionExpr)
+        }
+
+        // "create joint "name" type pin from sprite "a" to sprite "b""
+        if current.type == .joint {
+            _ = advance()
+            let name = try parseExpression()
+            // Expect "type <jointType>"
+            var typeExpr: Expression = .literal("pin")
+            if current.type == .identifier && current.value.lowercased() == "type" {
+                _ = advance()
+                typeExpr = try parseExpression()
+            }
+            // Expect "from sprite <nodeA>"
+            if current.type == .from { _ = advance() }
+            if current.type == .sprite { _ = advance() }
+            let nodeA = try parseExpression()
+            // Expect "to sprite <nodeB>"
+            _ = try expect(.to)
+            if current.type == .sprite { _ = advance() }
+            let nodeB = try parseExpression()
+            skipNewlines()
+            return .createJoint(name: name, type: typeExpr, nodeA: nodeA, nodeB: nodeB)
+        }
+
+        throw ParseError.unexpected(current, expected: "card, background, sprite, scene, spritearea, tilemap, camera, or joint")
+    }
+
+    /// Parse: `constrain sprite "enemy" distance 50 to 200 from sprite "player"`
+    private mutating func parseConstrainStatement() throws -> Statement {
+        _ = try expect(.constrain)
+        // source node: "sprite <name>"
+        if current.type == .sprite { _ = advance() }
+        let source = try parseExpression()
+        // constraint type: "distance", "orient", "position"
+        let typeExpr = try parseExpression()
+        // optional min and max: "50 to 200"
+        var minExpr: Expression? = nil
+        var maxExpr: Expression? = nil
+        if current.type == .integer || current.type == .float {
+            minExpr = try parseExpression()
+            if current.type == .to {
+                _ = advance()
+                maxExpr = try parseExpression()
+            }
+        }
+        // "from sprite <target>"
+        if current.type == .from { _ = advance() }
+        if current.type == .sprite { _ = advance() }
+        let target = try parseExpression()
+        skipNewlines()
+        return .createConstraint(type: typeExpr, source: source, target: target, min: minExpr, max: maxExpr)
     }
 
     private mutating func parseShowStatement() throws -> Statement {
@@ -583,6 +970,24 @@ public struct Parser: Sendable {
             skipNewlines()
             return .openStack(name)
         }
+        // "open scene "name" [with transition "fade" [duration 1.0]]"
+        if current.type == .scene {
+            _ = advance()
+            let name = try parseExpression()
+            var transitionExpr: Expression? = nil
+            var durationExpr: Expression? = nil
+            if current.type == .with {
+                _ = advance()
+                if current.type == .transition { _ = advance() }
+                transitionExpr = try parseExpression()
+                if current.type == .identifier && current.value.lowercased() == "duration" {
+                    _ = advance()
+                    durationExpr = try parseExpression()
+                }
+            }
+            skipNewlines()
+            return .openScene(name: name, transition: transitionExpr, duration: durationExpr)
+        }
         let target = try parseExpression()
         skipNewlines()
         return .expressionStatement(target)
@@ -601,6 +1006,12 @@ public struct Parser: Sendable {
 
     private mutating func parseCloseStatement() throws -> Statement {
         _ = try expect(.close)
+        if current.type == .connection {
+            _ = advance()
+            let expr = try parseExpression()
+            skipNewlines()
+            return .closeConnection(expr)
+        }
         // "close window" or "close <expr>"
         if current.type == .identifier && current.value.lowercased() == "window" {
             _ = advance()
@@ -739,6 +1150,20 @@ public struct Parser: Sendable {
 
     private mutating func parseRunStatement() throws -> Statement {
         _ = try expect(.run)
+        // "run action "name" on sprite "spriteName""
+        if current.type == .action {
+            _ = advance()
+            let actionExpr = try parseExpression()
+            // expect "on"
+            if current.type == .on {
+                _ = advance()
+            }
+            // skip optional "sprite" keyword
+            _ = match(.sprite)
+            let nodeExpr = try parseExpression()
+            skipNewlines()
+            return .runSpriteAction(action: actionExpr, node: nodeExpr)
+        }
         let expr = try parseExpression()
         skipNewlines()
         return .runCmd(expr)
@@ -746,16 +1171,189 @@ public struct Parser: Sendable {
 
     private mutating func parseRequestStatement() throws -> Statement {
         _ = try expect(.request)
-        let expr = try parseExpression()
+        if current.type == .identifier && current.value.lowercased() == "appleevent" {
+            let expr = try parseExpression()
+            skipNewlines()
+            return .runCmd(expr)
+        }
+        let url = try parseExpression()
+        var method: Expression? = nil
+        var headers: Expression? = nil
+        var body: Expression? = nil
+        var username: Expression? = nil
+        var password: Expression? = nil
+        var callback: Expression? = nil
+        while current.type != .newline && current.type != .eof {
+            switch current.type {
+            case .method:
+                _ = advance()
+                method = try parseExpression()
+            case .headers:
+                _ = advance()
+                headers = try parseExpression()
+            case .body:
+                _ = advance()
+                body = try parseExpression()
+            case .username:
+                _ = advance()
+                username = try parseExpression()
+            case .password:
+                _ = advance()
+                password = try parseExpression()
+            case .with:
+                _ = advance()
+                if current.type == .message || (current.type == .identifier && current.value.lowercased() == "message") {
+                    _ = advance()
+                }
+                callback = try parseExpression()
+            default:
+                let _ = try parseExpression()
+            }
+        }
         skipNewlines()
-        return .requestCmd(expr)
+        return .requestURL(url: url, method: method, headers: headers, body: body, username: username, password: password, callback: callback)
     }
 
     private mutating func parseReplyStatement() throws -> Statement {
         _ = try expect(.reply)
-        let expr = try parseExpression()
+        _ = match(.to)
+        _ = match(.request)
+        let request = try parseExpression()
+        _ = match(.with)
+        if current.type == .status {
+            _ = advance()
+        }
+        let status = try parseExpression()
+        var headers: Expression? = nil
+        var body: Expression? = nil
+        while current.type != .newline && current.type != .eof {
+            switch current.type {
+            case .headers:
+                _ = advance()
+                headers = try parseExpression()
+            case .body:
+                _ = advance()
+                body = try parseExpression()
+            default:
+                let _ = try parseExpression()
+            }
+        }
         skipNewlines()
-        return .replyCmd(expr)
+        return .replyRequest(request: request, status: status, headers: headers, body: body)
+    }
+
+    private mutating func parseListenStatement() throws -> Statement {
+        _ = try expect(.listen)
+        if current.type == .identifier && current.value.lowercased() == "for" {
+            _ = advance()
+        }
+        if current.type == .http {
+            _ = advance()
+            _ = match(.on)
+            _ = match(.port)
+            let port = try parseExpression()
+            var host: Expression? = nil
+            var method: Expression? = nil
+            var path: Expression? = nil
+            var callback: Expression?
+            while current.type != .newline && current.type != .eof {
+                switch current.type {
+                case .host:
+                    _ = advance()
+                    host = try parseExpression()
+                case .method:
+                    _ = advance()
+                    method = try parseExpression()
+                case .identifier where current.value.lowercased() == "path":
+                    _ = advance()
+                    path = try parseExpression()
+                case .with:
+                    _ = advance()
+                    if current.type == .message || (current.type == .identifier && current.value.lowercased() == "message") {
+                        _ = advance()
+                    }
+                    callback = try parseExpression()
+                default:
+                    let _ = try parseExpression()
+                }
+            }
+            skipNewlines()
+            guard let callback else {
+                throw ParseError.unexpected(current, expected: "callback message")
+            }
+            return .listenHTTP(port: port, host: host, method: method, path: path, callback: callback)
+        }
+        if current.type == .tcp {
+            _ = advance()
+            _ = match(.on)
+            _ = match(.port)
+            let port = try parseExpression()
+            var host: Expression? = nil
+            var callback: Expression?
+            while current.type != .newline && current.type != .eof {
+                switch current.type {
+                case .host:
+                    _ = advance()
+                    host = try parseExpression()
+                case .with:
+                    _ = advance()
+                    if current.type == .message || (current.type == .identifier && current.value.lowercased() == "message") {
+                        _ = advance()
+                    }
+                    callback = try parseExpression()
+                default:
+                    let _ = try parseExpression()
+                }
+            }
+            skipNewlines()
+            guard let callback else {
+                throw ParseError.unexpected(current, expected: "callback message")
+            }
+            return .listenTCP(port: port, host: host, callback: callback)
+        }
+        throw ParseError.unexpected(current, expected: "http or tcp")
+    }
+
+    private mutating func parseConnectStatement() throws -> Statement {
+        _ = try expect(.connect)
+        _ = match(.to)
+        _ = match(.host)
+        let host = try parseExpression()
+        _ = match(.on)
+        _ = match(.port)
+        let port = try parseExpression()
+        var tls: Expression? = nil
+        var callback: Expression?
+        while current.type != .newline && current.type != .eof {
+            switch current.type {
+            case .tls:
+                _ = advance()
+                tls = try parseExpression()
+            case .with:
+                _ = advance()
+                if current.type == .message || (current.type == .identifier && current.value.lowercased() == "message") {
+                    _ = advance()
+                }
+                callback = try parseExpression()
+            default:
+                let _ = try parseExpression()
+            }
+        }
+        skipNewlines()
+        guard let callback else {
+            throw ParseError.unexpected(current, expected: "callback message")
+        }
+        return .connectTCP(host: host, port: port, tls: tls, callback: callback)
+    }
+
+    private mutating func parseSendStatement() throws -> Statement {
+        _ = try expect(.send)
+        let data = try parseExpression()
+        _ = match(.to)
+        _ = match(.connection)
+        let connection = try parseExpression()
+        skipNewlines()
+        return .sendToConnection(data: data, connection: connection)
     }
 
     private mutating func parseStartStatement() throws -> Statement {
@@ -768,6 +1366,12 @@ public struct Parser: Sendable {
 
     private mutating func parseStopStatement() throws -> Statement {
         _ = try expect(.stop)
+        if current.type == .listener {
+            _ = advance()
+            let expr = try parseExpression()
+            skipNewlines()
+            return .stopListener(expr)
+        }
         _ = match(.using)
         let expr = try parseExpression()
         skipNewlines()
@@ -815,6 +1419,175 @@ public struct Parser: Sendable {
         let target = try parseExpression()
         skipNewlines()
         return .convert(source, target)
+    }
+
+    // MARK: - Sound command parsers
+
+    private mutating func parsePlayStatement() throws -> Statement {
+        _ = try expect(.play)
+        // play stop
+        if current.type == .stop {
+            _ = advance()
+            skipNewlines()
+            return .playStop
+        }
+        // play <soundExpr> [tempo N] [<notesExpr>]
+        let sound = try parseExpression()
+        var tempo: Expression? = nil
+        var notes: Expression? = nil
+        // Check for optional "tempo N"
+        if current.type == .identifier && current.value.lowercased() == "tempo" {
+            _ = advance()
+            tempo = try parsePrimary()
+        }
+        // Check for optional notes string (must be on the same logical line)
+        if current.type == .string {
+            notes = try parsePrimary()
+        }
+        skipNewlines()
+        return .playSound(sound: sound, notes: notes, tempo: tempo)
+    }
+
+    private mutating func parseBeepStatement() throws -> Statement {
+        _ = try expect(.beep)
+        // beep [N]
+        if current.type == .integer || current.type == .float || current.type == .identifier || current.type == .lparen {
+            let count = try parseExpression()
+            skipNewlines()
+            return .beep(count)
+        }
+        skipNewlines()
+        return .beep(nil)
+    }
+
+    private mutating func parseWaitStatement() throws -> Statement {
+        _ = try expect(.wait)
+        // wait until <condition>
+        if current.type == .identifier && current.value.lowercased() == "until" {
+            _ = advance()
+            let condition = try parseExpression()
+            skipNewlines()
+            return .waitUntil(condition)
+        }
+        // wait <duration> [seconds|ticks]
+        let duration = try parseExpression()
+        // Optionally consume a trailing "seconds" or "ticks" unit keyword
+        if current.type == .identifier {
+            let unit = current.value.lowercased()
+            if unit == "seconds" || unit == "second" || unit == "ticks" || unit == "tick" {
+                _ = advance()
+            }
+        }
+        skipNewlines()
+        return .waitDuration(duration)
+    }
+
+    /// Parse: `animate [the] <property> of <target> to <value> over <duration> [seconds]`
+    private mutating func parseAnimateStatement() throws -> Statement {
+        _ = try expect(.animate)
+        _ = match(.the)  // optional "the"
+        let propTok = advance()
+        let property = propTok.value
+        _ = try expect(.of)
+        let target = try parseExpression()
+        _ = try expect(.to)
+        let toValue = try parseExpression()
+        // Expect "over" keyword
+        guard current.type == .identifier && current.value.lowercased() == "over" else {
+            throw ParseError.unexpected(current, expected: "over")
+        }
+        _ = advance()
+        let duration = try parseExpression()
+        // Optional "seconds" / "second" unit
+        if current.type == .identifier {
+            let unit = current.value.lowercased()
+            if unit == "seconds" || unit == "second" {
+                _ = advance()
+            }
+        }
+        skipNewlines()
+        return .animateProperty(property: property, target: target, toValue: toValue, duration: duration)
+    }
+
+    // MARK: - SpriteKit command parsers
+
+    /// Parse `pause scene ["name"]`
+    private mutating func parsePauseSceneStatement() throws -> Statement {
+        _ = advance() // consume "pause"
+        _ = match(.scene) // optional "scene" keyword
+        var nameExpr: Expression? = nil
+        if current.type != .newline && current.type != .eof {
+            nameExpr = try parseExpression()
+        }
+        skipNewlines()
+        return .pauseScene(nameExpr)
+    }
+
+    /// Parse `resume scene ["name"]`
+    private mutating func parseResumeSceneStatement() throws -> Statement {
+        _ = advance() // consume "resume"
+        _ = match(.scene) // optional "scene" keyword
+        var nameExpr: Expression? = nil
+        if current.type != .newline && current.type != .eof {
+            nameExpr = try parseExpression()
+        }
+        skipNewlines()
+        return .resumeScene(nameExpr)
+    }
+
+    /// Parse `remove sprite "name"`
+    private mutating func parseRemoveSpriteStatement() throws -> Statement {
+        _ = advance() // consume "remove"
+        _ = match(.sprite) // optional "sprite" keyword
+        let nameExpr = try parseExpression()
+        skipNewlines()
+        return .removeSpriteNode(nameExpr)
+    }
+
+    /// Parse `apply force "10,20" to sprite "ball"` or `apply impulse "5,0" to sprite "ball"`
+    private mutating func parseApplyStatement() throws -> Statement {
+        _ = advance() // consume "apply"
+        let typeWord = current.value.lowercased()
+        _ = advance() // consume "force" or "impulse"
+        let value = try parseExpression()
+        _ = match(.to) // consume "to"
+        _ = match(.sprite) // optional "sprite" keyword
+        let node = try parseExpression()
+        skipNewlines()
+        if typeWord == "force" {
+            return .applyForce(node: node, force: value)
+        } else {
+            return .applyImpulse(node: node, impulse: value)
+        }
+    }
+
+    /// Parse `fill tilemap "X" with N` — paint every cell of a
+    /// tile map with the same tile index. The `fill` keyword is
+    /// handled in the identifier-dispatch branch of
+    /// `parseStatement` so it only activates when followed by the
+    /// `.tilemap` token, keeping `fill` free as an identifier in
+    /// other contexts.
+    private mutating func parseFillTileMapStatement() throws -> Statement {
+        _ = advance() // consume "fill"
+        _ = try expect(.tilemap)
+        let tilemapExpr = try parseExpression()
+        // Accept either `with N` (preferred) or bare `N`.
+        if current.type == .with {
+            _ = advance()
+        }
+        let tileIndexExpr = try parseExpression()
+        skipNewlines()
+        return .fillTileMap(tilemap: tilemapExpr, tileIndex: tileIndexExpr)
+    }
+
+    /// Parse `clear tilemap "X"` — sugar for `fill tilemap "X"
+    /// with -1`. Same identifier-dispatch gate as `fill`.
+    private mutating func parseClearTileMapStatement() throws -> Statement {
+        _ = advance() // consume "clear"
+        _ = try expect(.tilemap)
+        let tilemapExpr = try parseExpression()
+        skipNewlines()
+        return .clearTileMap(tilemap: tilemapExpr)
     }
 
     // MARK: - Expression parsing (precedence climbing)
@@ -981,6 +1754,11 @@ public struct Parser: Sendable {
     }
 
     private mutating func parseUnary() throws -> Expression {
+        if current.type == .await {
+            _ = advance()
+            let expr = try parseUnary()
+            return .await(expr)
+        }
         if current.type == .minus {
             _ = advance()
             let expr = try parseUnary()
@@ -1026,8 +1804,86 @@ public struct Parser: Sendable {
         case .the:
             return try parseTheExpression()
 
-        case .card, .background, .field, .button, .stack, .webpage:
+        case .word, .char, .character, .item, .line:
+            // Chunk expressions:
+            //   "item 1 of x"           single chunk
+            //   "word 2 to 4 of x"      inclusive range chunk
+            //   "lines 1 to N of y"     plural keyword + range
+            //
+            // Plural chunk tokens (items/words/chars/lines) share
+            // the same token type as their singular forms thanks to
+            // the lexer aliases, so grammar here is identical for
+            // both spellings.
+            let chunkType = chunkTypeFromToken(current.type)!
+            _ = advance()
+            let fromExpr = try parsePrimary()
+            if current.type == .to {
+                _ = advance()  // consume "to"
+                let toExpr = try parsePrimary()
+                _ = try expect(.of)
+                let source = try parsePrimary()
+                return .chunk(chunkType, .range(fromExpr, toExpr), source)
+            }
+            _ = try expect(.of)
+            let source = try parsePrimary()
+            return .chunk(chunkType, .single(fromExpr), source)
+
+        case .card, .background, .field, .button, .stack, .webpage, .sprite, .spritearea, .request, .connection, .listener:
             return try parseObjectReference()
+
+        case .identifier where ["label", "shape", "audio", "chart"].contains(current.value.lowercased()):
+            // Scene node types and chart parts recognized as object
+            // references: label "name", shape "name", audio "name",
+            // chart "name" / chart 1.
+            return try parseObjectReference()
+
+        case .identifier where current.value.lowercased() == "data":
+            // Possible compound data-point reference:
+            //   data point <ref> [of series <ref>] (of|in) chart <ref>
+            //
+            // "data" is NOT a lexer keyword — matched by value so
+            // existing scripts using "data" as a variable name
+            // still work. Only enter the compound-ref path when the
+            // next token is the identifier "point"; otherwise treat
+            // "data" as a plain variable.
+            let nextTok = pos + 1 < tokens.count ? tokens[pos + 1] : Token(type: .eof, value: "", line: 0)
+            if nextTok.type == .identifier && nextTok.value.lowercased() == "point" {
+                _ = advance()  // data
+                _ = advance()  // point
+                return try parseChartDataPointRest()
+            }
+            let tok = advance()
+            return .variable(tok.value)
+
+        case .identifier where current.value.lowercased() == "point":
+            // Alternative short form of the data-point reference:
+            //   point <ref> [of series <ref>] (of|in) chart <ref>
+            //
+            // Users (including the original bug reporter) reach for
+            // `point i of chart "X"` without the leading "data" —
+            // accept that as a synonym so the grammar matches the
+            // HyperTalk-style sentences people actually write.
+            // As with `data`, we only enter this path when followed
+            // by an index and a chart clause; lone `point` keeps
+            // working as a variable name.
+            //
+            // Disambiguation: the token after `point` must be a
+            // number or a string literal (the point reference). If
+            // it's something else, treat `point` as a plain
+            // variable.
+            let pointNext = pos + 1 < tokens.count ? tokens[pos + 1] : Token(type: .eof, value: "", line: 0)
+            let looksLikePointRef = (
+                pointNext.type == .integer ||
+                pointNext.type == .float ||
+                pointNext.type == .string ||
+                pointNext.type == .identifier
+            )
+            if looksLikePointRef {
+                _ = advance()  // point
+                return try parseChartDataPointRest()
+            }
+            let pointTok = advance()
+            return .variable(pointTok.value)
 
         case .lparen:
             _ = advance()
@@ -1062,6 +1918,23 @@ public struct Parser: Sendable {
                 _ = try expect(.rparen)
                 return .functionCall(tok.value, args)
             }
+            // HyperTalk-era prefix-function syntax: `random 5`,
+            // `abs -5`, `sqrt 16`, `length "hello"` — a unary
+            // built-in followed by a single primary-expression
+            // argument, no parens required. This is what users
+            // (and LLMs trained on HyperTalk docs) naturally reach
+            // for. We keep the match narrow: only names in a known
+            // unary-builtins set, and only when the next token can
+            // start a primary expression (number, string, paren,
+            // the, me, it, this, another identifier, chunk/ordinal
+            // keyword). That avoids accidentally swallowing normal
+            // subsequent tokens like `into`, `then`, `is`, binary
+            // operators, or end-of-statement.
+            if Self.unaryPrefixBuiltins.contains(tok.value.lowercased()),
+               Self.canStartPrimaryExpression(current.type) {
+                let arg = try parsePrimary()
+                return .functionCall(tok.value, [arg])
+            }
             return .variable(tok.value)
 
         case .first, .second, .third, .last, .middle, .any:
@@ -1073,11 +1946,111 @@ public struct Parser: Sendable {
             return .literal(tok.value)
 
         case .number:
-            // `number of ...`
-            _ = advance()
+            // `number of ...` — counts various collections. Beyond
+            // the existing support for number-of-cards / buttons /
+            // fields / backgrounds, this now also recognises:
+            //
+            //   the number of points (of|in) chart "X"
+            //   the number of data points (of|in) chart "X"
+            //
+            // which return the data-point count of the chart's
+            // first series. These two forms intercept the parser
+            // here and produce a dedicated `numberOfPoints`
+            // property access whose target is the chart reference,
+            // bypassing the generic `parseExpression()` path that
+            // would otherwise choke on the `in chart` continuation.
+            _ = advance()  // number
             if current.type == .of {
-                _ = advance()
-                let expr = try parseExpression()
+                _ = advance()  // of
+
+                // Try to match `points` or `data points` followed by
+                // an `(of|in) chart <ref>` clause.
+                let checkpoint = pos
+                let matchedPoints: Bool = {
+                    // Consume `data` if present so the singular and
+                    // `data points` forms both work.
+                    if current.type == .identifier && current.value.lowercased() == "data" {
+                        _ = advance()
+                    }
+                    if current.type == .identifier && current.value.lowercased() == "points" {
+                        _ = advance()
+                        return true
+                    }
+                    return false
+                }()
+                if matchedPoints {
+                    // Next we need `(of|in) chart <ref>`.
+                    let linkOK = (current.type == .of ||
+                                  (current.type == .identifier && current.value.lowercased() == "in"))
+                    if linkOK {
+                        _ = advance()
+                        if current.type == .identifier && current.value.lowercased() == "chart" {
+                            _ = advance()
+                            let chartExpr = try parsePrimary()
+                            return .propertyAccess("numberOfPoints", chartExpr)
+                        }
+                    }
+                    // Not the chart form — rewind so the generic
+                    // `number of <expr>` branch runs below.
+                    pos = checkpoint
+                }
+
+                // Compound collection names: `bg fields`, `bg buttons`,
+                // `card fields`, `card buttons`. The singular keyword
+                // tokens (.background, .card, .field, .button) would
+                // otherwise trigger parseObjectReference() and fail, so
+                // we intercept them here and emit a literal string that
+                // the interpreter's "number" handler recognises.
+                if current.type == .background {
+                    let cp = pos
+                    _ = advance()  // bg / background
+                    let next = current.type
+                    let nextVal = current.value.lowercased()
+                    if next == .field || (next == .identifier && nextVal == "fields") {
+                        _ = advance()
+                        return .propertyAccess("number", .literal("bg fields"))
+                    } else if next == .button || (next == .identifier && nextVal == "buttons") {
+                        _ = advance()
+                        return .propertyAccess("number", .literal("bg buttons"))
+                    }
+                    pos = cp  // rewind — not a compound bg form
+                }
+                if current.type == .card {
+                    let cp = pos
+                    _ = advance()  // card
+                    let next = current.type
+                    let nextVal = current.value.lowercased()
+                    if next == .field || (next == .identifier && nextVal == "fields") {
+                        _ = advance()
+                        return .propertyAccess("number", .literal("card fields"))
+                    } else if next == .button || (next == .identifier && nextVal == "buttons") {
+                        _ = advance()
+                        return .propertyAccess("number", .literal("card buttons"))
+                    }
+                    pos = cp  // rewind — not a compound card form
+                }
+
+                // Known collection identifiers must be emitted as
+                // literals so the interpreter matches them by name.
+                // Without this, `backgrounds` would be parsed as
+                // `.variable("backgrounds")` which evaluates to "" (an
+                // undefined variable), breaking the number-of lookup.
+                if current.type == .identifier {
+                    switch current.value.lowercased() {
+                    case "cards", "backgrounds", "buttons", "fields",
+                         "parts", "windows", "menus", "marked":
+                        let tok = advance()
+                        return .propertyAccess("number", .literal(tok.value))
+                    default: break
+                    }
+                }
+
+                // Use parsePrimary() — NOT parseExpression() — so that
+                // operators like `div` bind to the *result* of the
+                // property access instead of being swallowed as part of
+                // the target. E.g. `the number of cards div 2` parses
+                // as `(the number of cards) div 2`.
+                let expr = try parsePrimary()
                 return .propertyAccess("number", expr)
             }
             return .variable("number")
@@ -1090,8 +2063,12 @@ public struct Parser: Sendable {
              .choose, .close, .save, .quit, .mark, .unmark, .push, .pop,
              .click, .drag, .run, .print, .help, .debug, .reset,
              .export, .import, .copy, .disable, .enable, .edit, .dial,
-             .request, .reply, .start, .stop, .using, .template, .paint,
-             .report, .file, .printing, .convert, .typeText:
+             .reply, .start, .stop, .using, .template, .paint,
+             .report, .file, .printing, .convert, .typeText,
+             .sprite, .scene, .spritearea, .emitter, .action,
+             .joint, .constrain, .listen, .http, .tcp, .message,
+             .method, .headers, .body, .username, .password, .host,
+             .port, .status, .tls, .connect, .send:
             // These keywords can appear as identifiers in some contexts.
             let tok = advance()
             return .literal(tok.value)
@@ -1103,13 +2080,75 @@ public struct Parser: Sendable {
 
     private mutating func parseTheExpression() throws -> Expression {
         _ = try expect(.the)
+
+        // HyperTalk idiom: several expression forms may be preceded
+        // by an optional article `the`. Previously this function
+        // swallowed whatever token came next as a property name,
+        // which broke:
+        //
+        //   the item 1 of "a,b,c"          (chunk expression)
+        //   the items 2 to 4 of X          (chunk range)
+        //   the first word of "hello w"    (ordinal chunk)
+        //   the number of cards            (number-of-X)
+        //   the number of points in chart "X"
+        //
+        // because tokens like `.item` and `.number` got consumed as
+        // property names and the chunk/ordinal/number-of-X parser
+        // branches (which live in parsePrimary) were never reached.
+        //
+        // Fix: when the token after `the` is one of the special
+        // forms that parsePrimary already knows how to parse, just
+        // delegate back to parsePrimary. The `the` article is
+        // syntactic sugar — parsePrimary's chunk/ordinal/number
+        // branches produce the same AST either way.
+        //
+        switch current.type {
+        case .word, .char, .character, .item, .line, .number,
+             .first, .second, .third, .last, .middle, .any:
+            return try parsePrimary()
+        default:
+            break
+        }
+
+        // `the tile at <col>,<row> of tilemap "X"` — read a single
+        // cell from a tile map. We intercept the `.tile` token here
+        // so it isn't mistaken for a generic property name, and so
+        // the `at` + comma + `of tilemap` scaffolding has somewhere
+        // structured to live. `at` is a plain identifier (not a
+        // reserved token type) so we gate on the identifier value.
+        if current.type == .tile {
+            _ = advance()  // tile
+            // Accept either `at col,row` or bare `col,row`; the
+            // `at` word is ergonomic but optional.
+            if current.type == .identifier && current.value.lowercased() == "at" {
+                _ = advance()
+            }
+            let colExpr = try parsePrimary()
+            _ = try expect(.comma)
+            let rowExpr = try parsePrimary()
+            _ = try expect(.of)
+            _ = match(.tilemap)
+            let tilemapExpr = try parsePrimary()
+            return .tileAt(column: colExpr, row: rowExpr, tilemap: tilemapExpr)
+        }
+
+        if current.type == .identifier && current.value.lowercased() == "header" {
+            _ = advance()
+            let headerName = try parseExpression()
+            _ = try expect(.of)
+            let target = try parsePrimary()
+            return .headerAccess(headerName, target)
+        }
+
         let propTok = advance()
         let property = propTok.value
 
         // `the <property> of <expr>`
         if current.type == .of {
             _ = advance()
-            let target = try parseExpression()
+            // Use parsePrimary so we don't consume comparison operators (is, =, etc.)
+            // e.g. `the hilite of me is "true"` → target is `me`, not `me is "true"`
+            let target = try parsePrimary()
             return .propertyAccess(property, target)
         }
 
@@ -1120,8 +2159,77 @@ public struct Parser: Sendable {
     private mutating func parseObjectReference() throws -> Expression {
         let typeTok = advance()
         let objType = typeTok.value.lowercased()
+        // `stack` is a singleton — there's only one per document,
+        // so it doesn't take an identifier after it (unlike
+        // `card "Card 1"` or `button "OK"`). Trying to parse one
+        // would consume the next real token (e.g. `into`) and throw.
+        if objType == "stack" {
+            return .objectRef(ObjectRefExpr(objectType: "stack", identifier: .literal("stack")))
+        }
         let ident = try parsePrimary()
         return .objectRef(ObjectRefExpr(objectType: objType, identifier: ident))
+    }
+
+    /// Parse the remainder of a compound data-point reference after
+    /// `data point` / `point` has already been consumed.
+    ///
+    /// Grammar:
+    ///
+    ///     [data] point <pointRef> [(of|in) series <seriesRef>] (of|in) chart <chartRef>
+    ///
+    /// `<pointRef>` / `<seriesRef>` / `<chartRef>` are primary
+    /// expressions — typically a number literal (1-based index) or
+    /// a string literal (name). The `(of|in) series <...>` clause
+    /// is optional; when omitted we default to series 1 so
+    /// single-series charts read naturally
+    /// (`the color of point 3 of chart "Sales"`).
+    ///
+    /// Both `of` and `in` are accepted as the link preposition so
+    /// users can write `point 1 in chart "Sales"` or `point 1 of
+    /// chart "Sales"` interchangeably — HyperTalk-era scripts used
+    /// both.
+    private mutating func parseChartDataPointRest() throws -> Expression {
+        let pointExpr = try parsePrimary()
+
+        // Require either `of` (a reserved keyword) or the identifier
+        // `in` as the preposition that links the point to its
+        // container.
+        try expectOfOrIn()
+
+        var seriesExpr: Expression = .literal("1")
+        if current.type == .identifier && current.value.lowercased() == "series" {
+            _ = advance()  // series
+            seriesExpr = try parsePrimary()
+            try expectOfOrIn()
+        }
+
+        // Expect the word "chart" next. It may arrive either as the
+        // .identifier "chart" or (if ever promoted to a keyword) as
+        // its own token type — check both.
+        if current.type == .identifier && current.value.lowercased() == "chart" {
+            _ = advance()
+        } else {
+            throw ParseError.unexpected(current, expected: "chart")
+        }
+        let chartExpr = try parsePrimary()
+
+        return .chartDataPointRef(chart: chartExpr, series: seriesExpr, point: pointExpr)
+    }
+
+    /// Consume either an `.of` token or the identifier `in`, or
+    /// throw a parse error mentioning both as valid. Used by the
+    /// data-point reference parser where users reach for either
+    /// preposition interchangeably.
+    private mutating func expectOfOrIn() throws {
+        if current.type == .of {
+            _ = advance()
+            return
+        }
+        if current.type == .identifier && current.value.lowercased() == "in" {
+            _ = advance()
+            return
+        }
+        throw ParseError.unexpected(current, expected: "of or in")
     }
 
     private mutating func parseOrdinalChunk() throws -> Expression {
@@ -1159,6 +2267,51 @@ public struct Parser: Sendable {
         case .item:                return .item
         case .line:                return .line
         default:                   return nil
+        }
+    }
+
+    /// HyperTalk-era unary built-in functions that accept prefix
+    /// syntax (`abs -5`, `sqrt 16`, `random 10`) in addition to the
+    /// paren-call form (`abs(-5)`, `sqrt(16)`, `random(10)`).
+    ///
+    /// Any name in this set, when it appears as an identifier
+    /// followed immediately by something that can start a primary
+    /// expression, is parsed as a single-argument function call.
+    /// Names lookup is lowercased for case-insensitive matching.
+    private static let unaryPrefixBuiltins: Set<String> = [
+        "random", "abs", "round", "trunc", "sqrt",
+        "sin", "cos", "tan", "atan", "exp", "ln", "log2",
+        "chartonum", "numtochar", "length", "value", "ollama",
+    ]
+
+    /// Can the given token type start a *primary* expression?
+    ///
+    /// Used by the prefix-function heuristic to decide whether to
+    /// consume the next token as a unary built-in's argument.
+    /// Intentionally excludes:
+    ///
+    /// - binary operators (`+`, `-`, `*`, `/`, `mod`, etc.) — those
+    ///   bind tighter than prefix-function calls, so `abs - 5`
+    ///   should parse as `(abs) - 5` not `abs(-5)`. Users who want
+    ///   negative arguments can write `abs(-5)` explicitly.
+    /// - statement terminators (`newline`, `eof`) and connectives
+    ///   (`into`, `to`, `then`, `is`, `of`, `end`, `else`, etc.)
+    ///
+    /// If we return `false` the identifier falls through to the
+    /// variable-reference case, preserving every existing script
+    /// that uses these names as variables or method targets.
+    private static func canStartPrimaryExpression(_ type: TokenType) -> Bool {
+        switch type {
+        case .integer, .float, .string, .identifier, .lparen,
+             .the, .it, .me, .this, .empty, .await,
+             .word, .char, .character, .item, .line, .number,
+             .first, .second, .third, .last, .middle, .any,
+             .not,
+             .card, .background, .field, .button, .stack, .webpage,
+             .sprite, .spritearea, .request, .connection, .listener:
+            return true
+        default:
+            return false
         }
     }
 }

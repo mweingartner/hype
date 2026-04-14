@@ -7,19 +7,36 @@ public enum ObjectType: String, Codable, Sendable {
 
 /// Part type discriminator.
 public enum PartType: String, Codable, Sendable {
-    case button, field, shape, webpage, image, video, chart
+    case button, field, shape, webpage, image, video, chart, spriteArea
 }
 
 /// Button visual styles.
 public enum ButtonStyle: String, Codable, Sendable, CaseIterable {
     case transparent, opaque, rectangle, roundRect, shadow
-    case checkBox, radioButton, standard, `default`, popup, oval, toggle
+    case checkBox, standard, `default`, popup, oval, toggle
 
     /// Styles shown in the UI picker (excludes legacy/redundant styles).
     public static let pickerCases: [ButtonStyle] = [
         .standard, .default, .shadow, .transparent, .oval, .toggle,
-        .checkBox, .radioButton, .popup,
+        .checkBox, .popup,
     ]
+
+    /// Custom decoder that maps the removed `"radioButton"` raw value
+    /// to `.standard` so older .hype files still load cleanly.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        if raw == "radioButton" {
+            self = .standard
+        } else if let style = ButtonStyle(rawValue: raw) {
+            self = style
+        } else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unknown ButtonStyle '\(raw)'"
+            )
+        }
+    }
 }
 
 /// Field visual styles.

@@ -78,6 +78,12 @@ struct ToolsMenuCommands: Commands {
             Button("Line") { NotificationCenter.default.post(name: .selectTool, object: ToolName.line) }
             Button("Rectangle") { NotificationCenter.default.post(name: .selectTool, object: ToolName.rect) }
             Button("Oval") { NotificationCenter.default.post(name: .selectTool, object: ToolName.oval) }
+            Divider()
+            Button("Sprite Area") { NotificationCenter.default.post(name: .selectTool, object: ToolName.spriteArea) }
+            Button("Sprite Repository...") {
+                NotificationCenter.default.post(name: .openSpriteRepository, object: nil)
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
         }
     }
 }
@@ -105,6 +111,53 @@ extension Notification.Name {
     static let distributeH = Notification.Name("distributeH")
     static let distributeV = Notification.Name("distributeV")
     static let showAllCards = Notification.Name("showAllCards")
+    static let openSpriteRepository = Notification.Name("openSpriteRepository")
+    /// Posted by `CardCanvasView.Coordinator` when a HypeTalk runtime
+    /// or parse error is surfaced during dispatch. `userInfo` contains:
+    ///   - `"target"`: a `ScriptTarget` value (part / card / background
+    ///     / stack / hype) identifying the script to open
+    ///   - `"partId"`: a `UUID` (only when target is `.part(_)`), used
+    ///     as the legacy `partId` argument to `openScriptEditorWindow`
+    ///   - `"line"`: an `Int` line number (1-based) to highlight in the
+    ///     script editor, or `0` if the error has no line info
+    ///   - `"message"`: a `String` error description for display
+    ///   - `"handler"`: a `String` handler name (e.g. "idle") for
+    ///     context in the error banner
+    ///
+    /// `MainContentView` listens for this and opens the script editor
+    /// for the offending object with the error line highlighted.
+    static let showScriptError = Notification.Name("showScriptError")
+    /// Posted by `openScriptEditorWindow` when it reuses an
+    /// already-open script editor window for a runtime error
+    /// instead of opening a new one. The currently-displayed
+    /// `ScriptEditor` listens for this and refreshes its red error
+    /// stripe and the bottom error banner without rebuilding the
+    /// view. `userInfo` carries:
+    ///   - `"identityKey"`: a `String` matching `ScriptTarget
+    ///     .identityKey` so a stale editor for some other target
+    ///     ignores the broadcast
+    ///   - `"line"`: an `Int` 1-based line number to highlight
+    ///   - `"message"`: a `String` description for the banner
+    ///
+    /// This is the second half of the "no runaway windows on
+    /// repeated runtime errors" fix — the first half is the
+    /// dedup map in `openScriptEditorWindow` itself.
+    static let refreshScriptError = Notification.Name("refreshScriptError")
+    /// Posted by `CardCanvasNSView.mouseUp` when the user Cmd+clicks
+    /// a part or empty space in browse mode. `userInfo` carries
+    /// either `"partId": UUID` (for a part) or `"cardId": UUID`
+    /// (for the card). `MainContentView` listens and opens the
+    /// script editor via `openScriptEditorWindow`.
+    static let openPartScriptEditor = Notification.Name("openPartScriptEditor")
+    /// Reveal a node inside a Sprite Area inspector. `userInfo` carries
+    /// `partId`, `sceneId`, and `nodeId`.
+    static let revealSpriteNode = Notification.Name("revealSpriteNode")
+    /// Internal follow-up posted by `MainContentView` after it has
+    /// selected the owning part and navigated to the right card.
+    static let focusSpriteNodeInInspector = Notification.Name("focusSpriteNodeInInspector")
+    /// Select an asset inside the detached Sprite Repository window.
+    /// `userInfo["assetId"]` contains the repository asset UUID.
+    static let selectSpriteRepositoryAsset = Notification.Name("selectSpriteRepositoryAsset")
 }
 
 struct AIMenuCommands: Commands {
@@ -116,4 +169,22 @@ struct AIMenuCommands: Commands {
             .keyboardShortcut("i", modifiers: [.command, .shift])
         }
     }
+}
+
+/// Adds items to the existing Window menu (created by DocumentGroup)
+/// rather than creating a duplicate "Window" menu.
+struct WindowMenuCommands: Commands {
+    var body: some Commands {
+        CommandGroup(after: .windowList) {
+            Divider()
+            Button("Show Console") {
+                NotificationCenter.default.post(name: .showConsole, object: nil)
+            }
+            .keyboardShortcut("j", modifiers: [.command, .shift])
+        }
+    }
+}
+
+extension Notification.Name {
+    static let showConsole = Notification.Name("showConsole")
 }

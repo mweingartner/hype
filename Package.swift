@@ -23,5 +23,10 @@ let package = Package(
             dependencies: ["HypeCore"],
             path: "Tests/HypeCoreTests"
         ),
+        .testTarget(
+            name: "HypeTests",
+            dependencies: ["Hype", "HypeCore"],
+            path: "Tests/HypeTests"
+        ),
     ]
 )

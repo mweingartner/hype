@@ -1,6 +1,37 @@
 import SwiftUI
 import HypeCore
 
+/// Return the live canvas dimensions by finding the actual
+/// `CardCanvasNSView` in the key window's view hierarchy.
+/// Falls back to the stack model dimensions when no canvas is
+/// found (e.g. during tests or before the window is shown).
+///
+/// IMPORTANT: uses the CardCanvasNSView's bounds — NOT the
+/// window's contentView bounds, which includes the toolbar,
+/// sidebar, and status bar. Using the wrong bounds causes
+/// bottom-constrained parts to render below the visible canvas
+/// edge on card navigation.
+private func liveCanvasSize(fallbackStack stack: Stack) -> (Double, Double) {
+    if let window = NSApp?.keyWindow ?? NSApp?.mainWindow,
+       let canvas = findCardCanvas(in: window.contentView) {
+        let size = canvas.bounds.size
+        if size.width > 0, size.height > 0 {
+            return (Double(size.width), Double(size.height))
+        }
+    }
+    return (Double(stack.width), Double(stack.height))
+}
+
+/// Recursively search the view hierarchy for a CardCanvasNSView.
+private func findCardCanvas(in view: NSView?) -> CardCanvasNSView? {
+    guard let view = view else { return nil }
+    if let canvas = view as? CardCanvasNSView { return canvas }
+    for subview in view.subviews {
+        if let found = findCardCanvas(in: subview) { return found }
+    }
+    return nil
+}
+
 struct MainContentView: View {
     @Binding var document: HypeDocumentWrapper
     @State private var currentCardId: UUID?
@@ -9,6 +40,10 @@ struct MainContentView: View {
     @State private var editingBackground: Bool = false
     @State private var showAI: Bool = false
     @State private var paintColor: Color = .black
+    @State private var pencilRadius: Double = 2
+    @State private var showRepository: Bool = false
+    @State private var showNetworkPanel: Bool = false
+    @State private var runtimeStatus = RuntimeStatusSnapshot(requests: [], listeners: [], connections: [])
 
     private var toolState: ToolState {
         var state = ToolState(currentTool: currentTool.rawValue)
@@ -17,21 +52,32 @@ struct MainContentView: View {
     }
 
     private var showInspector: Bool {
-        // Show inspector whenever a part is selected — in any tool mode.
-        // In browse mode you can double-click to select a part for editing.
-        !selectedPartIds.isEmpty
+        // Always show inspector — when no part is selected, shows script editors for card/bg/stack/hype
+        true
     }
 
     var body: some View {
         mainContent
             .onAppear {
                 currentCardId = document.document.sortedCards.first?.id
-                // Dispatch stack and card lifecycle messages
+                refreshRuntimeStatus()
                 if let cardId = currentCardId {
-                    let dispatcher = MessageDispatcher()
-                    let _ = dispatcher.dispatch(message: "openStack", params: [], targetId: document.document.stack.id, document: document.document, currentCardId: cardId)
-                    let _ = dispatcher.dispatch(message: "openCard", params: [], targetId: cardId, document: document.document, currentCardId: cardId)
+                    Task {
+                        await dispatchLifecycleAsync("openStack", targetId: document.document.stack.id, currentCardId: cardId)
+                        await dispatchLifecycleAsync("openCard", targetId: cardId, currentCardId: cardId)
+                    }
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .stackRuntimeDocumentDidChange)) { notification in
+                guard let stackId = notification.userInfo?["stackId"] as? UUID,
+                      stackId == document.document.stack.id,
+                      let updated = notification.userInfo?["document"] as? HypeDocument else { return }
+                document.document = updated
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .stackRuntimeStatusDidChange)) { notification in
+                guard let stackId = notification.userInfo?["stackId"] as? UUID,
+                      stackId == document.document.stack.id else { return }
+                refreshRuntimeStatus()
             }
             .modifier(NavigationHandlers(
                 document: $document,
@@ -39,7 +85,8 @@ struct MainContentView: View {
                 currentTool: $currentTool,
                 selectedPartIds: $selectedPartIds,
                 editingBackground: $editingBackground,
-                showAI: $showAI
+                showAI: $showAI,
+                showRepository: $showRepository
             ))
             .modifier(ArrangeHandlers(
                 document: $document,
@@ -76,12 +123,35 @@ struct MainContentView: View {
 
                 Divider()
 
+                Button(action: {
+                    // The sprite repository now lives in its own
+                    // detached NSWindow (see openSpriteRepositoryWindow)
+                    // so it can be freely resized, remembers its
+                    // size across sessions, and stays open while
+                    // the user works on a card. The old .sheet
+                    // presentation was fixed at 600x400 and
+                    // couldn't grow — users with many assets had
+                    // to scroll through a tiny grid.
+                    openSpriteRepositoryWindow(document: $document)
+                }) {
+                    Image(systemName: "tray.2")
+                }
+                .help("Sprite Repository")
+
                 Button(action: { showAI.toggle() }) {
                     Image(systemName: "sparkles")
                         .foregroundColor(showAI ? .accentColor : .primary)
                 }
                 .help("AI Assistant")
+
+                Button(action: { showNetworkPanel = true }) {
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                }
+                .help("Stack Network")
             }
+        }
+        .sheet(isPresented: $showNetworkPanel) {
+            NetworkPanelView(document: $document, runtimeStatus: runtimeStatus)
         }
     }
 
@@ -96,7 +166,8 @@ struct MainContentView: View {
                 currentTool: currentTool,
                 selectedPartIds: $selectedPartIds,
                 editingBackground: editingBackground,
-                paintColorHex: paintColor.toHex()
+                paintColorHex: paintColor.toHex(),
+                pencilRadius: Int(pencilRadius)
             )
             .frame(
                 minWidth: CGFloat(document.document.stack.width),
@@ -131,7 +202,9 @@ struct MainContentView: View {
     @ViewBuilder
     private var sidePanels: some View {
         if showInspector {
-            PropertyInspector(document: $document, selectedPartIds: $selectedPartIds)
+            PropertyInspector(document: $document, selectedPartIds: $selectedPartIds,
+                              currentTool: currentTool, currentCardId: currentCardId,
+                              paintColor: $paintColor, pencilRadius: $pencilRadius)
         }
         if showAI {
             AIChatPanel(document: $document, currentCardId: $currentCardId)
@@ -162,22 +235,74 @@ struct MainContentView: View {
         navigateToCard(newId)
     }
 
+    /// Dispatch a lifecycle / system HypeTalk message and write any
+    /// document mutations the handler produced back into the
+    /// SwiftUI document binding.
+    ///
+    /// Earlier versions of every lifecycle call site used
+    /// `let _ = dispatcher.dispatch(...)`, which ran the handler
+    /// but silently threw away its mutated document. A handler
+    /// like `on openCard / put "Hello" into field "title" / end
+    /// openCard` would run, set the field in its local document
+    /// snapshot, and then have that entire mutation discarded.
+    /// This helper fixes that.
+    ///
+    /// There's an intentional duplicate of this helper in
+    /// `NavigationHandlers` below, which has its own separate
+    /// `document` binding and its own lifecycle call sites. Both
+    /// copies do the same thing — kept independent so each struct
+    /// remains self-contained.
+    private func dispatchLifecycle(
+        _ message: String,
+        targetId: UUID,
+        currentCardId: UUID
+    ) {
+        Task {
+            await dispatchLifecycleAsync(message, targetId: targetId, currentCardId: currentCardId)
+        }
+    }
+
+    @MainActor
+    private func dispatchLifecycleAsync(
+        _ message: String,
+        targetId: UUID,
+        currentCardId: UUID
+    ) async {
+        let snapshot = document.document
+        let config = runtimeConfiguration()
+        let runtime = await StackRuntimeRegistry.shared.runtime(for: snapshot, configuration: config)
+        let result = await runtime.dispatchAndWait(
+            message,
+            params: [],
+            targetId: targetId,
+            currentCardId: currentCardId
+        )
+        if let modified = result.modifiedDocument {
+            document.document = modified
+        }
+        if case .error = result.status, let err = result.error {
+            HypeLogger.shared.error("\(err.handler) line \(err.line): \(err.message)", source: "Script")
+        }
+    }
+
     /// Navigate to a new card, dispatching HypeTalk lifecycle messages.
     private func navigateToCard(_ newCardId: UUID) {
-        let dispatcher = MessageDispatcher()
-        let doc = document.document
+        Task {
+            await navigateToCardAsync(newCardId)
+        }
+    }
 
+    @MainActor
+    private func navigateToCardAsync(_ newCardId: UUID) async {
         // Close old card and potentially old background
         if let oldCardId = currentCardId {
-            let oldBgId = doc.cards.first(where: { $0.id == oldCardId })?.backgroundId
-            let _ = dispatcher.dispatch(message: "closeCard", params: [], targetId: oldCardId, document: doc, currentCardId: oldCardId)
+            let oldBgId = document.document.cards.first(where: { $0.id == oldCardId })?.backgroundId
+            await dispatchLifecycleAsync("closeCard", targetId: oldCardId, currentCardId: oldCardId)
 
             // Background change?
-            let newBgId = doc.cards.first(where: { $0.id == newCardId })?.backgroundId
-            if oldBgId != newBgId {
-                if let bid = oldBgId {
-                    let _ = dispatcher.dispatch(message: "closeBackground", params: [], targetId: bid, document: doc, currentCardId: oldCardId)
-                }
+            let newBgId = document.document.cards.first(where: { $0.id == newCardId })?.backgroundId
+            if oldBgId != newBgId, let bid = oldBgId {
+                await dispatchLifecycleAsync("closeBackground", targetId: bid, currentCardId: oldCardId)
             }
         }
 
@@ -186,13 +311,13 @@ struct MainContentView: View {
 
         // Open new background if changed, then open new card
         if let oldCardId = document.document.sortedCards.first(where: { $0.id != newCardId })?.id {
-            let oldBgId = doc.cards.first(where: { $0.id == oldCardId })?.backgroundId
-            let newBgId = doc.cards.first(where: { $0.id == newCardId })?.backgroundId
+            let oldBgId = document.document.cards.first(where: { $0.id == oldCardId })?.backgroundId
+            let newBgId = document.document.cards.first(where: { $0.id == newCardId })?.backgroundId
             if oldBgId != newBgId, let bid = newBgId {
-                let _ = dispatcher.dispatch(message: "openBackground", params: [], targetId: bid, document: document.document, currentCardId: newCardId)
+                await dispatchLifecycleAsync("openBackground", targetId: bid, currentCardId: newCardId)
             }
         }
-        let _ = dispatcher.dispatch(message: "openCard", params: [], targetId: newCardId, document: document.document, currentCardId: newCardId)
+        await dispatchLifecycleAsync("openCard", targetId: newCardId, currentCardId: newCardId)
 
         // Resolve constraints for the new card
         resolveConstraints()
@@ -209,11 +334,15 @@ struct MainContentView: View {
         let partIds = Set(allParts.map(\.id))
         let relevantConstraints = document.document.constraints.filter { partIds.contains($0.sourcePartId) }
 
+        // Use the actual canvas bounds so constraints resolve to
+        // the live window edges. Fall back to stack dimensions
+        // if the window isn't available.
+        let (cw, ch) = liveCanvasSize(fallbackStack: document.document.stack)
         let updates = solver.solve(
             constraints: relevantConstraints,
             parts: allParts,
-            canvasWidth: Double(document.document.stack.width),
-            canvasHeight: Double(document.document.stack.height)
+            canvasWidth: cw,
+            canvasHeight: ch
         )
 
         for (partId, geom) in updates {
@@ -234,9 +363,8 @@ struct MainContentView: View {
         let card = document.document.cards.first { $0.id == cardId }
         let name = card?.name.isEmpty == false ? card!.name : "Card \(index + 1)"
         let bgIndicator: String
-        if editingBackground, let card = card {
-            let bgName = document.document.backgroundForCard(card)?.name ?? "Background"
-            bgIndicator = " [Editing Background: \(bgName)]"
+        if editingBackground {
+            bgIndicator = " -- Background Edit"
         } else {
             bgIndicator = ""
         }
@@ -268,6 +396,22 @@ struct MainContentView: View {
             .help(tool.rawValue.capitalized)
         }
     }
+
+    private func runtimeConfiguration() -> StackRuntimeConfiguration {
+        StackRuntimeConfiguration(aiProvider: OllamaAIScriptingProvider())
+    }
+
+    private func refreshRuntimeStatus() {
+        let snapshot = document.document
+        let config = runtimeConfiguration()
+        Task {
+            let runtime = await StackRuntimeRegistry.shared.runtime(for: snapshot, configuration: config)
+            let status = await runtime.statusSnapshot()
+            await MainActor.run {
+                runtimeStatus = status
+            }
+        }
+    }
 }
 
 // MARK: - Notification Handler Modifiers
@@ -280,6 +424,7 @@ private struct NavigationHandlers: ViewModifier {
     @Binding var selectedPartIds: Set<UUID>
     @Binding var editingBackground: Bool
     @Binding var showAI: Bool
+    @Binding var showRepository: Bool
 
     func body(content: Content) -> some View {
         content
@@ -306,8 +451,7 @@ private struct NavigationHandlers: ViewModifier {
                 deleteCurrentCard()
             }
             .onReceive(NotificationCenter.default.publisher(for: .addNewBackground)) { _ in
-                let count = document.document.backgrounds.count
-                let _ = document.document.addBackground(name: "Background \(count + 1)")
+                addNewBackgroundFlow()
             }
             .onReceive(NotificationCenter.default.publisher(for: .toggleEditBackground)) { notification in
                 editingBackground = (notification.object as? Bool) ?? false
@@ -322,39 +466,218 @@ private struct NavigationHandlers: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .toggleAI)) { _ in
                 showAI.toggle()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .openSpriteRepository)) { _ in
+                // The menu/shortcut no longer toggles a sheet —
+                // it opens (or surfaces) the detached browser
+                // window. openSpriteRepositoryWindow is idempotent:
+                // a second invocation re-orders the existing
+                // window to the front instead of creating a
+                // duplicate.
+                openSpriteRepositoryWindow(document: $document)
+            }
             .onReceive(NotificationCenter.default.publisher(for: .showAllCards)) { _ in
                 cycleAllCards()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .revealSpriteNode)) { notification in
+                revealSpriteNode(notification: notification)
+            }
             .onReceive(NotificationCenter.default.publisher(for: .hypeQuit)) { _ in
-                // Dispatch "quit" system message to the current card before app terminates
+                // Dispatch "quit" system message to the current card
+                // before app terminates. The quit handler runs
+                // synchronously and any document mutations it makes
+                // are written back before the app exits.
                 if let cardId = currentCardId {
-                    let dispatcher = MessageDispatcher()
-                    let _ = dispatcher.dispatch(
-                        message: "quit",
-                        params: [],
-                        targetId: cardId,
-                        document: document.document,
-                        currentCardId: cardId
-                    )
+                    dispatchLifecycle("quit", targetId: cardId, currentCardId: cardId)
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .showScriptError)) { notification in
+                // Runtime / parse error from HypeTalk dispatch.
+                //
+                // Two things have to happen in lockstep here, both
+                // motivated by a real bug a user hit: a buggy
+                // `on idle` handler kept throwing every 500 ms,
+                // and the editor opened a fresh window each time
+                // because (a) we didn't dedupe and (b) the idle
+                // timer kept firing in browse mode.
+                //
+                // 1. Drop out of browse mode into edit mode (the
+                //    `.select` tool sits in the .edit category, so
+                //    `CardCanvasNSView.startIdleTimer`'s
+                //    `category == .browse` guard immediately stops
+                //    every subsequent tick). This is the primary
+                //    fix — once the timer stops firing, no more
+                //    error events get generated and the user can
+                //    actually fix the script.
+                //
+                // 2. Open (or refresh) the script editor for the
+                //    offending object. `openScriptEditorWindow` is
+                //    now idempotent per target — a second call for
+                //    the same target reuses the existing window
+                //    and just refreshes its highlight, so even
+                //    other event paths (mouseEnter, etc.) can't
+                //    spawn duplicates.
+                currentTool = .select
+                selectedPartIds = []
+                openScriptErrorEditor(notification: notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openPartScriptEditor)) { notification in
+                // Cmd+click in browse mode: open the script editor
+                // for the clicked part (or the card if empty space).
+                // Reuses the existing openScriptEditorWindow which
+                // already handles dedup, resize persistence, and
+                // error highlighting.
+                let info = notification.userInfo ?? [:]
+                if let partId = info["partId"] as? UUID {
+                    openScriptEditorWindow(document: $document, partId: partId, target: .part(partId))
+                } else if let cardId = info["cardId"] as? UUID {
+                    openScriptEditorWindow(document: $document, target: .card(cardId))
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showConsole)) { _ in
+                openConsoleWindow()
+            }
+    }
+
+    /// Parse a `.showScriptError` notification payload and open the
+    /// script editor for the offending object with the runtime error
+    /// line pre-highlighted. Falls back gracefully if any field is
+    /// missing so a malformed notification never crashes the UI.
+    private func openScriptErrorEditor(notification: Notification) {
+        let info = notification.userInfo ?? [:]
+        let target = resolvedScriptTarget(from: info)
+        let line = info["line"] as? Int
+        let message = info["message"] as? String
+        let partId = info["partId"] as? UUID ?? resolvedPartID(from: info)
+        openScriptEditorWindow(
+            document: $document,
+            partId: partId,
+            target: target,
+            initialErrorLine: line,
+            initialErrorMessage: message
+        )
+    }
+
+    private func resolvedScriptTarget(from info: [AnyHashable: Any]) -> ScriptTarget? {
+        if let target = info["target"] as? ScriptTarget {
+            return target
+        }
+        guard let objectId = info["objectId"] as? UUID else { return nil }
+        if document.document.parts.contains(where: { $0.id == objectId }) {
+            return .part(objectId)
+        }
+        if document.document.cards.contains(where: { $0.id == objectId }) {
+            return .card(objectId)
+        }
+        if document.document.backgrounds.contains(where: { $0.id == objectId }) {
+            return .background(objectId)
+        }
+        if document.document.stack.id == objectId {
+            return .stack
+        }
+        if objectId == MessageDispatcher.hypeScriptSentinel {
+            return .hype
+        }
+        return nil
+    }
+
+    private func resolvedPartID(from info: [AnyHashable: Any]) -> UUID? {
+        guard let objectId = info["objectId"] as? UUID,
+              document.document.parts.contains(where: { $0.id == objectId }) else { return nil }
+        return objectId
+    }
+
+    private func revealSpriteNode(notification: Notification) {
+        let info = notification.userInfo ?? [:]
+        guard let partId = info["partId"] as? UUID else { return }
+
+        if let part = document.document.parts.first(where: { $0.id == partId }) {
+            if let ownerCardId = part.cardId {
+                if currentCardId != ownerCardId {
+                    navigateToCard(ownerCardId)
+                }
+            } else if let bgId = part.backgroundId,
+                      let ownerCardId = document.document.cards.first(where: { $0.backgroundId == bgId })?.id,
+                      currentCardId != ownerCardId {
+                navigateToCard(ownerCardId)
+            }
+        }
+
+        currentTool = .select
+        selectedPartIds = [partId]
+
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .focusSpriteNodeInInspector,
+                object: nil,
+                userInfo: info
+            )
+        }
+    }
+
+    /// Dispatch a lifecycle / system HypeTalk message and apply any
+    /// document mutations the handler produced back into the SwiftUI
+    /// document binding.
+    ///
+    /// Earlier versions of every lifecycle call site used
+    /// `let _ = dispatcher.dispatch(...)`, which ran the handler but
+    /// silently threw away its mutated document. A handler like
+    /// `on openCard / put "Hello" into field "title" / end openCard`
+    /// would run, set the field in its local document snapshot, and
+    /// then have that entire mutation discarded on return. This
+    /// helper fixes that by writing `result.modifiedDocument` back
+    /// into `document.document` whenever the handler produced one.
+    private func dispatchLifecycle(
+        _ message: String,
+        targetId: UUID,
+        currentCardId: UUID
+    ) {
+        Task {
+            await dispatchLifecycleAsync(message, targetId: targetId, currentCardId: currentCardId)
+        }
     }
 
     /// Navigate to a new card, dispatching HypeTalk lifecycle messages.
     private func navigateToCard(_ newCardId: UUID) {
-        let dispatcher = MessageDispatcher()
-        let doc = document.document
+        Task {
+            await navigateToCardAsync(newCardId)
+        }
+    }
 
+    @MainActor
+    private func dispatchLifecycleAsync(
+        _ message: String,
+        targetId: UUID,
+        currentCardId: UUID
+    ) async {
+        let snapshot = document.document
+        let runtime = await StackRuntimeRegistry.shared.runtime(
+            for: snapshot,
+            configuration: StackRuntimeConfiguration(aiProvider: OllamaAIScriptingProvider())
+        )
+        let result = await runtime.dispatchAndWait(
+            message,
+            params: [],
+            targetId: targetId,
+            currentCardId: currentCardId
+        )
+        if let modified = result.modifiedDocument {
+            document.document = modified
+        }
+        if case .error = result.status, let err = result.error {
+            HypeLogger.shared.error("\(err.handler) line \(err.line): \(err.message)", source: "Script")
+        }
+    }
+
+    @MainActor
+    private func navigateToCardAsync(_ newCardId: UUID) async {
         // Close old card and potentially old background
         if let oldCardId = currentCardId {
-            let oldBgId = doc.cards.first(where: { $0.id == oldCardId })?.backgroundId
-            let _ = dispatcher.dispatch(message: "closeCard", params: [], targetId: oldCardId, document: doc, currentCardId: oldCardId)
+            let oldBgId = document.document.cards.first(where: { $0.id == oldCardId })?.backgroundId
+            await dispatchLifecycleAsync("closeCard", targetId: oldCardId, currentCardId: oldCardId)
 
-            let newBgId = doc.cards.first(where: { $0.id == newCardId })?.backgroundId
-            if oldBgId != newBgId {
-                if let bid = oldBgId {
-                    let _ = dispatcher.dispatch(message: "closeBackground", params: [], targetId: bid, document: doc, currentCardId: oldCardId)
-                }
+            let newBgId = document.document.cards.first(where: { $0.id == newCardId })?.backgroundId
+            if oldBgId != newBgId, let bid = oldBgId {
+                await dispatchLifecycleAsync("closeBackground", targetId: bid, currentCardId: oldCardId)
             }
         }
 
@@ -362,7 +685,7 @@ private struct NavigationHandlers: ViewModifier {
         selectedPartIds = []
 
         // Open new card (and new background if changed)
-        let _ = dispatcher.dispatch(message: "openCard", params: [], targetId: newCardId, document: document.document, currentCardId: newCardId)
+        await dispatchLifecycleAsync("openCard", targetId: newCardId, currentCardId: newCardId)
 
         // Resolve constraints for the new card
         resolveConstraints(document: &document.document, cardId: newCardId)
@@ -378,11 +701,12 @@ private struct NavigationHandlers: ViewModifier {
         let partIds = Set(allParts.map(\.id))
         let relevantConstraints = document.constraints.filter { partIds.contains($0.sourcePartId) }
 
+        let (cw, ch) = liveCanvasSize(fallbackStack: document.stack)
         let updates = solver.solve(
             constraints: relevantConstraints,
             parts: allParts,
-            canvasWidth: Double(document.stack.width),
-            canvasHeight: Double(document.stack.height)
+            canvasWidth: cw,
+            canvasHeight: ch
         )
 
         for (partId, geom) in updates {
@@ -416,18 +740,47 @@ private struct NavigationHandlers: ViewModifier {
         let sorted = document.document.sortedCards
         let currentIndex = sorted.firstIndex(where: { $0.id == cardId })
         let newCard = document.document.addCard(afterIndex: currentIndex)
-        // Dispatch newCard message
-        let dispatcher = MessageDispatcher()
-        let _ = dispatcher.dispatch(message: "newCard", params: [], targetId: newCard.id, document: document.document, currentCardId: newCard.id)
+        // Dispatch newCard — a handler may initialise part state on
+        // the freshly-created card, and that mutation must be
+        // written back.
+        dispatchLifecycle("newCard", targetId: newCard.id, currentCardId: newCard.id)
         navigateToCard(newCard.id)
+    }
+
+    /// Create a new background after prompting for a name.
+    /// The background simply appears in the inspector picker;
+    /// no card is auto-created and no navigation happens.
+    private func addNewBackgroundFlow() {
+        let count = document.document.backgrounds.count
+        let suggestedName = "Background \(count + 1)"
+
+        let alert = NSAlert()
+        alert.messageText = "New Background"
+        alert.informativeText = "Name the new background."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Create")
+        alert.addButton(withTitle: "Cancel")
+        let nameField = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        nameField.stringValue = suggestedName
+        nameField.placeholderString = suggestedName
+        alert.accessoryView = nameField
+        alert.window.initialFirstResponder = nameField
+
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+
+        let typed = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = typed.isEmpty ? suggestedName : typed
+
+        let _ = document.document.addBackground(name: name)
     }
 
     private func deleteCurrentCard() {
         guard let cardId = currentCardId else { return }
         guard document.document.cards.count > 1 else { return }
-        // Dispatch deleteCard message before removing
-        let dispatcher = MessageDispatcher()
-        let _ = dispatcher.dispatch(message: "deleteCard", params: [], targetId: cardId, document: document.document, currentCardId: cardId)
+        // Dispatch deleteCard before removing — handler may save
+        // state elsewhere, e.g. into a stack-level field or global.
+        dispatchLifecycle("deleteCard", targetId: cardId, currentCardId: cardId)
         let sorted = document.document.sortedCards
         if let idx = sorted.firstIndex(where: { $0.id == cardId }) {
             let nextId = idx + 1 < sorted.count ? sorted[idx + 1].id :

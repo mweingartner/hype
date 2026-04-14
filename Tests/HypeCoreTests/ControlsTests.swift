@@ -82,4 +82,16 @@ struct PaintLayerTests {
         layer.clear()
         #expect(layer.isEmpty)
     }
+
+    @Test func drawCircleMakesNonEmpty() {
+        let layer = PaintLayer(width: 100, height: 100)
+        layer.drawCircle(cx: 50, cy: 50, radius: 5, color: .red)
+        #expect(!layer.isEmpty)
+    }
+
+    @Test func drawThickLineMakesNonEmpty() {
+        let layer = PaintLayer(width: 200, height: 200)
+        layer.drawThickLine(x0: 10, y0: 10, x1: 190, y1: 190, radius: 3, color: .blue)
+        #expect(!layer.isEmpty)
+    }
 }

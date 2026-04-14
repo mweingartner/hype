@@ -1,0 +1,1060 @@
+import Foundation
+
+public struct SceneBlueprint: Codable, Sendable {
+    public var size: SizeSpec
+    public var backgroundColor: String
+    public var gravity: VectorSpec
+    public var scaleMode: SceneScaleMode
+    public var showsPhysics: Bool
+    public var showsFPS: Bool
+    public var showsNodeCount: Bool
+    public var sceneScript: String
+    public var nodes: [SceneBlueprintNode]
+
+    public init(
+        size: SizeSpec,
+        backgroundColor: String,
+        gravity: VectorSpec,
+        scaleMode: SceneScaleMode,
+        showsPhysics: Bool,
+        showsFPS: Bool,
+        showsNodeCount: Bool,
+        sceneScript: String,
+        nodes: [SceneBlueprintNode]
+    ) {
+        self.size = size
+        self.backgroundColor = backgroundColor
+        self.gravity = gravity
+        self.scaleMode = scaleMode
+        self.showsPhysics = showsPhysics
+        self.showsFPS = showsFPS
+        self.showsNodeCount = showsNodeCount
+        self.sceneScript = sceneScript
+        self.nodes = nodes
+    }
+}
+
+public struct SceneBlueprintNode: Codable, Sendable {
+    public var name: String
+    public var nodeType: NodeType
+    public var position: PointSpec
+    public var size: SizeSpec?
+    public var alpha: Double?
+    public var isHidden: Bool?
+    public var assetName: String?
+    public var text: String?
+    public var fontName: String?
+    public var fontSize: Double?
+    public var fontColor: String?
+    public var shapeType: SpriteShapeType?
+    public var fillColor: String?
+    public var strokeColor: String?
+    public var lineWidth: Double?
+    public var cornerRadius: Double?
+    public var parentName: String?
+    public var physicsEnabled: Bool
+    public var physicsBodyType: PhysicsBodyType?
+    public var dynamic: Bool?
+    public var affectedByGravity: Bool?
+    public var restitution: Double?
+    public var friction: Double?
+    public var allowsRotation: Bool?
+    public var linearDamping: Double?
+    public var velocity: VectorSpec?
+    public var cameraTarget: String?
+    public var tileMapColumns: Int?
+    public var tileMapRows: Int?
+    public var tileSetAssetName: String?
+    public var tileWidth: Double?
+    public var tileHeight: Double?
+    public var audioAssetName: String?
+    public var videoAssetName: String?
+    public var particleColor: String?
+    public var script: String?
+
+    public init(
+        name: String,
+        nodeType: NodeType,
+        position: PointSpec,
+        size: SizeSpec? = nil,
+        alpha: Double? = nil,
+        isHidden: Bool? = nil,
+        assetName: String? = nil,
+        text: String? = nil,
+        fontName: String? = nil,
+        fontSize: Double? = nil,
+        fontColor: String? = nil,
+        shapeType: SpriteShapeType? = nil,
+        fillColor: String? = nil,
+        strokeColor: String? = nil,
+        lineWidth: Double? = nil,
+        cornerRadius: Double? = nil,
+        parentName: String? = nil,
+        physicsEnabled: Bool = false,
+        physicsBodyType: PhysicsBodyType? = nil,
+        dynamic: Bool? = nil,
+        affectedByGravity: Bool? = nil,
+        restitution: Double? = nil,
+        friction: Double? = nil,
+        allowsRotation: Bool? = nil,
+        linearDamping: Double? = nil,
+        velocity: VectorSpec? = nil,
+        cameraTarget: String? = nil,
+        tileMapColumns: Int? = nil,
+        tileMapRows: Int? = nil,
+        tileSetAssetName: String? = nil,
+        tileWidth: Double? = nil,
+        tileHeight: Double? = nil,
+        audioAssetName: String? = nil,
+        videoAssetName: String? = nil,
+        particleColor: String? = nil,
+        script: String? = nil
+    ) {
+        self.name = name
+        self.nodeType = nodeType
+        self.position = position
+        self.size = size
+        self.alpha = alpha
+        self.isHidden = isHidden
+        self.assetName = assetName
+        self.text = text
+        self.fontName = fontName
+        self.fontSize = fontSize
+        self.fontColor = fontColor
+        self.shapeType = shapeType
+        self.fillColor = fillColor
+        self.strokeColor = strokeColor
+        self.lineWidth = lineWidth
+        self.cornerRadius = cornerRadius
+        self.parentName = parentName
+        self.physicsEnabled = physicsEnabled
+        self.physicsBodyType = physicsBodyType
+        self.dynamic = dynamic
+        self.affectedByGravity = affectedByGravity
+        self.restitution = restitution
+        self.friction = friction
+        self.allowsRotation = allowsRotation
+        self.linearDamping = linearDamping
+        self.velocity = velocity
+        self.cameraTarget = cameraTarget
+        self.tileMapColumns = tileMapColumns
+        self.tileMapRows = tileMapRows
+        self.tileSetAssetName = tileSetAssetName
+        self.tileWidth = tileWidth
+        self.tileHeight = tileHeight
+        self.audioAssetName = audioAssetName
+        self.videoAssetName = videoAssetName
+        self.particleColor = particleColor
+        self.script = script
+    }
+}
+
+public struct SceneCreateProposal: Codable, Sendable {
+    public var areaName: String
+    public var sceneName: String
+    public var createSpriteAreaIfMissing: Bool
+    public var summary: String
+    public var checklist: [SceneChecklistItem]
+    public var scene: SceneBlueprint
+
+    public init(
+        areaName: String,
+        sceneName: String,
+        createSpriteAreaIfMissing: Bool,
+        summary: String,
+        checklist: [SceneChecklistItem],
+        scene: SceneBlueprint
+    ) {
+        self.areaName = areaName
+        self.sceneName = sceneName
+        self.createSpriteAreaIfMissing = createSpriteAreaIfMissing
+        self.summary = summary
+        self.checklist = checklist
+        self.scene = scene
+    }
+}
+
+public struct SceneRepairProposal: Codable, Sendable {
+    public var areaName: String
+    public var summary: String
+    public var issues: [SceneDiagnosticIssue]
+    public var diff: SceneDiff
+
+    public init(
+        areaName: String,
+        summary: String,
+        issues: [SceneDiagnosticIssue],
+        diff: SceneDiff
+    ) {
+        self.areaName = areaName
+        self.summary = summary
+        self.issues = issues
+        self.diff = diff
+    }
+}
+
+public actor SceneAuthoringAssistant {
+    private let client: OllamaToolClient
+
+    public init(client: OllamaToolClient) {
+        self.client = client
+    }
+
+    public func createProposal(
+        userRequest: String,
+        document: HypeDocument,
+        currentCardId: UUID
+    ) async throws -> SceneCreateProposal {
+        let context = sceneContext(document: document, currentCardId: currentCardId)
+        let prompt = """
+        Build a starter SpriteKit scene plan for Hype. Prefer native SpriteKit primitives over per-frame scripting. \
+        Make the scene easy for a user to continue editing by naming nodes clearly, using cameras/tilemaps/physics when appropriate, \
+        and keeping scripts short with TODO comments instead of large logic dumps. \
+        For requests involving bouncing, gravity, collisions, or objects staying inside a sprite area, use SpriteKit physics bodies, \
+        restitution, velocity, and boundary nodes instead of `on idle` or `on frameUpdate` scripts.
+
+        USER REQUEST:
+        \(userRequest)
+
+        CURRENT HYPE CONTEXT:
+        \(context)
+        """
+        let messages = [
+            OllamaMessage(
+                role: "system",
+                content: """
+                You are planning a Hype SpriteKit scene. Output only JSON matching the provided schema.
+                Use asset names exactly as they appear in the repository.
+                If no sprite area exists yet, set createSpriteAreaIfMissing to true and choose a sensible areaName.
+                Include a clear checklist so the editor can walk the user through the remaining setup work.
+                Do not use sceneScript or node scripts to fake movement, bouncing, gravity, or collisions when SpriteKit physics can express the behavior.
+                For a bouncing object inside a sprite area, create a dynamic body with high restitution, a starting velocity, and static bounds or wall nodes.
+                """
+            ),
+            OllamaMessage(role: "user", content: prompt)
+        ]
+
+        let result: (response: OllamaChatResponse, decoded: SceneCreateProposal) =
+            try await client.structuredChat(
+                messages: messages,
+                format: Self.sceneCreateFormat
+            )
+        return Self.normalizeCreateProposal(result.decoded, for: userRequest)
+    }
+
+    public func repairProposal(
+        userRequest: String,
+        spriteAreaName: String,
+        scene: SceneSpec,
+        repository: SpriteRepository
+    ) async throws -> SceneRepairProposal {
+        let diagnostics = scene.diagnostics(using: repository)
+        let prompt = """
+        Diagnose and repair a Hype SpriteKit scene. Prefer minimal, validated changes.
+
+        USER REQUEST:
+        \(userRequest)
+
+        TARGET SPRITE AREA:
+        \(spriteAreaName)
+
+        SCENE JSON:
+        \(scene.toJSON())
+
+        LOCAL DIAGNOSTICS:
+        \(Self.jsonString(for: diagnostics))
+        """
+        let messages = [
+            OllamaMessage(
+                role: "system",
+                content: """
+                You are repairing a Hype SpriteKit scene. Output only JSON matching the provided schema.
+                Use the diff to propose focused fixes. Prefer updateNodes/removeNodeIds/sceneUpdates over addNodes unless a new node is required.
+                Treat sprite-area requests as scene and node authoring, not generic part scripting.
+                Do not use sceneUpdates.script or node script changes to fake movement, bouncing, gravity, collisions, or staying inside bounds when SpriteKit physics can express it.
+                If keyboard input is requested, use event handlers only to adjust velocity, forces, or actions on SpriteKit nodes.
+                """
+            ),
+            OllamaMessage(role: "user", content: prompt)
+        ]
+
+        let result: (response: OllamaChatResponse, decoded: SceneRepairProposal) =
+            try await client.structuredChat(
+                messages: messages,
+                format: Self.sceneRepairFormat
+            )
+        return Self.normalizeRepairProposal(result.decoded, for: userRequest, currentScene: scene)
+    }
+
+    private func sceneContext(document: HypeDocument, currentCardId: UUID) -> String {
+        let currentCard = document.cards.first(where: { $0.id == currentCardId })
+        let cardName = currentCard?.name.isEmpty == false ? currentCard!.name : "Current Card"
+        let spriteAreas = document.effectivePartsForCard(currentCardId).filter { $0.partType == .spriteArea }
+        let areaLines = spriteAreas.map { part -> String in
+            guard let areaSpec = part.spriteAreaSpecModel,
+                  let scene = areaSpec.activeScene else {
+                return "Sprite area '\(part.name)' has no active scene."
+            }
+            return "Sprite area '\(part.name)' active scene '\(scene.name)' size \(Int(scene.size.width))x\(Int(scene.size.height)) with \(scene.allNodes.count) nodes."
+        }
+        let assetLines = document.spriteRepository.assets.map { asset in
+            var line = "\(asset.kind.rawValue) '\(asset.name)'"
+            if asset.isTileSet {
+                line += " tileset \(asset.tileColumns)x\(asset.tileRows) of \(asset.tileWidth)x\(asset.tileHeight)"
+            }
+            return line
+        }
+        return """
+        Card: \(cardName)
+        Sprite areas: \(areaLines.isEmpty ? "none" : areaLines.joined(separator: " "))
+        Repository assets: \(assetLines.isEmpty ? "none" : assetLines.joined(separator: ", "))
+        """
+    }
+
+    private static func jsonString<T: Encodable>(for value: T) -> String {
+        guard let data = try? JSONEncoder().encode(value),
+              let string = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return string
+    }
+
+    static func normalizeCreateProposal(_ proposal: SceneCreateProposal, for userRequest: String) -> SceneCreateProposal {
+        var normalized = proposal
+        let wantsPhysicsBounce = wantsPhysicsBounce(for: userRequest)
+
+        guard wantsPhysicsBounce else { return normalized }
+
+        normalized.scene.gravity = VectorSpec(dx: 0, dy: 0)
+        if isManualMovementScript(normalized.scene.sceneScript) {
+            normalized.scene.sceneScript = ""
+        }
+
+        if let primaryIndex = normalized.scene.nodes.firstIndex(where: { $0.physicsEnabled && ($0.dynamic ?? true) }) ??
+            normalized.scene.nodes.firstIndex(where: { $0.nodeType == .sprite || $0.nodeType == .shape }) {
+            normalized.scene.nodes[primaryIndex] = normalizedPhysicsBounceNode(normalized.scene.nodes[primaryIndex])
+        } else {
+            normalized.scene.nodes.append(defaultBounceNode(in: normalized.scene.size))
+        }
+
+        if !normalized.scene.nodes.contains(where: isBoundaryNode) {
+            normalized.scene.nodes.append(contentsOf: boundaryNodes(for: normalized.scene.size))
+        }
+
+        if !normalized.checklist.contains(where: { $0.key == "physics" }) {
+            normalized.checklist.append(
+                SceneChecklistItem(
+                    key: "physics",
+                    title: "Physics Setup",
+                    status: .complete,
+                    detail: "The moving object uses a physics body and static wall nodes keep it inside the sprite area."
+                )
+            )
+        }
+        if !normalized.summary.lowercased().contains("physics") {
+            normalized.summary += " Uses SpriteKit physics bodies and boundary walls instead of an idle script."
+        }
+        return normalized
+    }
+
+    static func normalizeRepairProposal(
+        _ proposal: SceneRepairProposal,
+        for userRequest: String,
+        currentScene: SceneSpec
+    ) -> SceneRepairProposal {
+        var normalized = proposal
+        guard wantsPhysicsBounce(for: userRequest) else { return normalized }
+
+        var sceneUpdates = normalized.diff.sceneUpdates ?? SceneUpdate()
+        sceneUpdates.gravity = VectorSpec(dx: 0, dy: 0)
+        if containsFrameDrivenSceneScript(sceneUpdates.script) {
+            sceneUpdates.script = ""
+        }
+        normalized.diff.sceneUpdates = sceneUpdates
+
+        if let targetId = primaryBounceNodeID(in: currentScene, diff: normalized.diff) {
+            upsertBounceNodeUpdate(targetId: targetId, scene: currentScene, diff: &normalized.diff)
+        } else {
+            normalized.diff.addNodes = (normalized.diff.addNodes ?? []) + [defaultBounceHypeNode(in: currentScene.size)]
+        }
+
+        if !sceneHasBoundaryNodes(currentScene) &&
+            !(normalized.diff.addNodes ?? []).contains(where: isBoundaryNode) {
+            normalized.diff.addNodes = (normalized.diff.addNodes ?? []) + boundaryHypeNodes(for: currentScene.size)
+        }
+
+        if !normalized.summary.lowercased().contains("physics") {
+            normalized.summary += " Uses SpriteKit physics and boundary nodes instead of an idle script."
+        }
+        return normalized
+    }
+
+    private static func wantsPhysicsBounce(for userRequest: String) -> Bool {
+        let lower = userRequest.lowercased()
+        return (lower.contains("bounce") || lower.contains("bouncing") || lower.contains("ricochet") || lower.contains("rebound")) &&
+            (lower.contains("sprite") || lower.contains("spritearea") || lower.contains("sprite area") || lower.contains("scene"))
+    }
+
+    private static func isManualMovementScript(_ script: String) -> Bool {
+        let lower = script.lowercased()
+        return (lower.contains("on idle") || lower.contains("on frameupdate")) &&
+            (lower.contains("set the loc of sprite") || lower.contains("add dx to") || lower.contains("add dy to"))
+    }
+
+    private static func containsFrameDrivenSceneScript(_ script: String?) -> Bool {
+        let lower = script?.lowercased() ?? ""
+        return lower.contains("on idle") || lower.contains("on frameupdate")
+    }
+
+    private static func normalizedPhysicsBounceNode(_ node: SceneBlueprintNode) -> SceneBlueprintNode {
+        var node = node
+        node.physicsEnabled = true
+        node.dynamic = true
+        node.affectedByGravity = false
+        node.physicsBodyType = node.physicsBodyType ?? defaultBounceBodyType(for: node)
+        node.restitution = max(node.restitution ?? 0.95, 0.95)
+        node.friction = min(node.friction ?? 0.05, 0.05)
+        node.allowsRotation = node.allowsRotation ?? false
+        node.linearDamping = node.linearDamping ?? 0
+        if node.velocity == nil {
+            node.velocity = VectorSpec(dx: 220, dy: 170)
+        }
+        if isManualMovementScript(node.script ?? "") {
+            node.script = ""
+        }
+        if node.size == nil {
+            node.size = SizeSpec(width: 40, height: 40)
+        }
+        if node.nodeType == .shape && node.shapeType == nil {
+            node.shapeType = .circle
+        }
+        return node
+    }
+
+    private static func defaultBounceNode(in size: SizeSpec) -> SceneBlueprintNode {
+        SceneBlueprintNode(
+            name: "blue_ball",
+            nodeType: .shape,
+            position: PointSpec(x: size.width / 2, y: size.height / 2),
+            size: SizeSpec(width: 40, height: 40),
+            shapeType: .circle,
+            fillColor: "#4AA8FF",
+            strokeColor: "#1D5FBD",
+            lineWidth: 2,
+            physicsEnabled: true,
+            physicsBodyType: .circle,
+            dynamic: true,
+            affectedByGravity: false,
+            restitution: 0.98,
+            friction: 0.02,
+            allowsRotation: false,
+            linearDamping: 0,
+            velocity: VectorSpec(dx: 220, dy: 170)
+        )
+    }
+
+    private static func isBoundaryNode(_ node: SceneBlueprintNode) -> Bool {
+        let lower = node.name.lowercased()
+        return (lower.contains("wall") || lower.contains("boundary") || lower.contains("bounds")) &&
+            node.physicsEnabled &&
+            (node.dynamic == false || node.physicsBodyType == .rect || node.physicsBodyType == .edge)
+    }
+
+    private static func boundaryNodes(for size: SizeSpec) -> [SceneBlueprintNode] {
+        let thickness = 20.0
+        let halfThickness = thickness / 2
+        return [
+            SceneBlueprintNode(
+                name: "_leftWall",
+                nodeType: .shape,
+                position: PointSpec(x: halfThickness, y: size.height / 2),
+                size: SizeSpec(width: thickness, height: size.height),
+                alpha: 0,
+                isHidden: true,
+                shapeType: .rect,
+                fillColor: "#000000",
+                strokeColor: "#000000",
+                lineWidth: 0,
+                physicsEnabled: true,
+                physicsBodyType: .rect,
+                dynamic: false,
+                affectedByGravity: false,
+                restitution: 1,
+                friction: 0,
+                allowsRotation: false
+            ),
+            SceneBlueprintNode(
+                name: "_rightWall",
+                nodeType: .shape,
+                position: PointSpec(x: max(size.width - halfThickness, halfThickness), y: size.height / 2),
+                size: SizeSpec(width: thickness, height: size.height),
+                alpha: 0,
+                isHidden: true,
+                shapeType: .rect,
+                fillColor: "#000000",
+                strokeColor: "#000000",
+                lineWidth: 0,
+                physicsEnabled: true,
+                physicsBodyType: .rect,
+                dynamic: false,
+                affectedByGravity: false,
+                restitution: 1,
+                friction: 0,
+                allowsRotation: false
+            ),
+            SceneBlueprintNode(
+                name: "_topWall",
+                nodeType: .shape,
+                position: PointSpec(x: size.width / 2, y: max(size.height - halfThickness, halfThickness)),
+                size: SizeSpec(width: size.width, height: thickness),
+                alpha: 0,
+                isHidden: true,
+                shapeType: .rect,
+                fillColor: "#000000",
+                strokeColor: "#000000",
+                lineWidth: 0,
+                physicsEnabled: true,
+                physicsBodyType: .rect,
+                dynamic: false,
+                affectedByGravity: false,
+                restitution: 1,
+                friction: 0,
+                allowsRotation: false
+            ),
+            SceneBlueprintNode(
+                name: "_bottomWall",
+                nodeType: .shape,
+                position: PointSpec(x: size.width / 2, y: halfThickness),
+                size: SizeSpec(width: size.width, height: thickness),
+                alpha: 0,
+                isHidden: true,
+                shapeType: .rect,
+                fillColor: "#000000",
+                strokeColor: "#000000",
+                lineWidth: 0,
+                physicsEnabled: true,
+                physicsBodyType: .rect,
+                dynamic: false,
+                affectedByGravity: false,
+                restitution: 1,
+                friction: 0,
+                allowsRotation: false
+            )
+        ]
+    }
+
+    private static func defaultBounceBodyType(for node: SceneBlueprintNode) -> PhysicsBodyType {
+        if node.nodeType == .shape, node.shapeType == .circle {
+            return .circle
+        }
+        if let size = node.size, abs(size.width - size.height) < 0.5 {
+            return .circle
+        }
+        return .rect
+    }
+
+    private static func primaryBounceNodeID(in scene: SceneSpec, diff: SceneDiff) -> UUID? {
+        if let updated = diff.updateNodes?.first(where: { scene.node(id: $0.id) != nil }) {
+            return updated.id
+        }
+        if let named = scene.node(named: "blue_ball") {
+            return named.id
+        }
+        if let firstDynamic = scene.allNodes.first(where: {
+            ($0.nodeType == .sprite || $0.nodeType == .shape) &&
+            ($0.physicsBody?.isDynamic ?? true)
+        }) {
+            return firstDynamic.id
+        }
+        return scene.allNodes.first(where: { $0.nodeType == .sprite || $0.nodeType == .shape })?.id
+    }
+
+    private static func upsertBounceNodeUpdate(targetId: UUID, scene: SceneSpec, diff: inout SceneDiff) {
+        let targetNode = scene.node(id: targetId)
+        let bodyType: PhysicsBodyType
+        if let node = targetNode {
+            bodyType = defaultBounceBodyType(for: node)
+        } else {
+            bodyType = .circle
+        }
+
+        let size = targetNode?.size ?? SizeSpec(width: 40, height: 40)
+        var properties = [
+            "script": "",
+            "physics.enabled": "true",
+            "physics.bodyType": bodyType.rawValue,
+            "physics.isDynamic": "true",
+            "physics.affectedByGravity": "false",
+            "physics.restitution": "0.98",
+            "physics.friction": "0.02",
+            "physics.allowsRotation": "false",
+            "physics.linearDamping": "0",
+            "physics.velocityX": "220",
+            "physics.velocityY": "170",
+            "size.width": "\(Int(size.width))",
+            "size.height": "\(Int(size.height))"
+        ]
+
+        if targetNode?.nodeType == .shape {
+            properties["shape.shapeType"] = bodyType == .circle ? "circle" : "rect"
+        }
+
+        var updates = diff.updateNodes ?? []
+        if let index = updates.firstIndex(where: { $0.id == targetId }) {
+            for (key, value) in properties {
+                updates[index].properties[key] = value
+            }
+        } else {
+            updates.append(NodeUpdate(id: targetId, properties: properties))
+        }
+        diff.updateNodes = updates
+    }
+
+    private static func sceneHasBoundaryNodes(_ scene: SceneSpec) -> Bool {
+        scene.allNodes.contains(where: isBoundaryNode)
+    }
+
+    private static func isBoundaryNode(_ node: HypeNodeSpec) -> Bool {
+        let lower = node.name.lowercased()
+        return (lower.contains("wall") || lower.contains("boundary") || lower.contains("bounds")) &&
+            node.physicsBody != nil &&
+            (node.physicsBody?.isDynamic == false || node.physicsBody?.bodyType == .rect || node.physicsBody?.bodyType == .edge)
+    }
+
+    private static func boundaryHypeNodes(for size: SizeSpec) -> [HypeNodeSpec] {
+        let thickness = 20.0
+        let halfThickness = thickness / 2
+        return [
+            HypeNodeSpec(
+                name: "_leftWall",
+                nodeType: .shape,
+                position: PointSpec(x: halfThickness, y: size.height / 2),
+                alpha: 0,
+                isHidden: true,
+                size: SizeSpec(width: thickness, height: size.height),
+                shapeSpec: ShapeNodeSpec(shapeType: .rect, fillColor: "#000000", strokeColor: "#000000", lineWidth: 0),
+                physicsBody: PhysicsBodySpec(
+                    bodyType: .rect,
+                    isDynamic: false,
+                    restitution: 1,
+                    friction: 0,
+                    affectedByGravity: false,
+                    allowsRotation: false
+                )
+            ),
+            HypeNodeSpec(
+                name: "_rightWall",
+                nodeType: .shape,
+                position: PointSpec(x: max(size.width - halfThickness, halfThickness), y: size.height / 2),
+                alpha: 0,
+                isHidden: true,
+                size: SizeSpec(width: thickness, height: size.height),
+                shapeSpec: ShapeNodeSpec(shapeType: .rect, fillColor: "#000000", strokeColor: "#000000", lineWidth: 0),
+                physicsBody: PhysicsBodySpec(
+                    bodyType: .rect,
+                    isDynamic: false,
+                    restitution: 1,
+                    friction: 0,
+                    affectedByGravity: false,
+                    allowsRotation: false
+                )
+            ),
+            HypeNodeSpec(
+                name: "_topWall",
+                nodeType: .shape,
+                position: PointSpec(x: size.width / 2, y: max(size.height - halfThickness, halfThickness)),
+                alpha: 0,
+                isHidden: true,
+                size: SizeSpec(width: size.width, height: thickness),
+                shapeSpec: ShapeNodeSpec(shapeType: .rect, fillColor: "#000000", strokeColor: "#000000", lineWidth: 0),
+                physicsBody: PhysicsBodySpec(
+                    bodyType: .rect,
+                    isDynamic: false,
+                    restitution: 1,
+                    friction: 0,
+                    affectedByGravity: false,
+                    allowsRotation: false
+                )
+            ),
+            HypeNodeSpec(
+                name: "_bottomWall",
+                nodeType: .shape,
+                position: PointSpec(x: size.width / 2, y: halfThickness),
+                alpha: 0,
+                isHidden: true,
+                size: SizeSpec(width: size.width, height: thickness),
+                shapeSpec: ShapeNodeSpec(shapeType: .rect, fillColor: "#000000", strokeColor: "#000000", lineWidth: 0),
+                physicsBody: PhysicsBodySpec(
+                    bodyType: .rect,
+                    isDynamic: false,
+                    restitution: 1,
+                    friction: 0,
+                    affectedByGravity: false,
+                    allowsRotation: false
+                )
+            )
+        ]
+    }
+
+    private static func defaultBounceHypeNode(in size: SizeSpec) -> HypeNodeSpec {
+        HypeNodeSpec(
+            name: "blue_ball",
+            nodeType: .shape,
+            position: PointSpec(x: size.width / 2, y: size.height / 2),
+            alpha: 1,
+            isHidden: false,
+            size: SizeSpec(width: 40, height: 40),
+            shapeSpec: ShapeNodeSpec(shapeType: .circle, fillColor: "#4AA8FF", strokeColor: "#1D5FBD", lineWidth: 2),
+            physicsBody: PhysicsBodySpec(
+                bodyType: .circle,
+                isDynamic: true,
+                restitution: 0.98,
+                friction: 0.02,
+                affectedByGravity: false,
+                allowsRotation: false,
+                linearDamping: 0,
+                velocityX: 220,
+                velocityY: 170
+            )
+        )
+    }
+
+    private static func defaultBounceBodyType(for node: HypeNodeSpec) -> PhysicsBodyType {
+        if node.nodeType == .shape, node.shapeSpec?.shapeType == .circle {
+            return .circle
+        }
+        if let size = node.size, abs(size.width - size.height) < 0.5 {
+            return .circle
+        }
+        return .rect
+    }
+
+    private static var sceneCreateFormat: OllamaResponseFormat {
+        .schema(OllamaJSONSchema(object: [
+            "type": "object",
+            "required": ["areaName", "sceneName", "createSpriteAreaIfMissing", "summary", "checklist", "scene"],
+            "properties": [
+                "areaName": ["type": "string"],
+                "sceneName": ["type": "string"],
+                "createSpriteAreaIfMissing": ["type": "boolean"],
+                "summary": ["type": "string"],
+                "checklist": [
+                    "type": "array",
+                    "items": checklistItemSchema()
+                ],
+                "scene": sceneBlueprintSchema()
+            ]
+        ]))
+    }
+
+    private static var sceneRepairFormat: OllamaResponseFormat {
+        .schema(OllamaJSONSchema(object: [
+            "type": "object",
+            "required": ["areaName", "summary", "issues", "diff"],
+            "properties": [
+                "areaName": ["type": "string"],
+                "summary": ["type": "string"],
+                "issues": [
+                    "type": "array",
+                    "items": diagnosticIssueSchema()
+                ],
+                "diff": sceneDiffSchema()
+            ]
+        ]))
+    }
+
+    private static func checklistItemSchema() -> [String: Any] {
+        [
+            "type": "object",
+            "required": ["key", "title", "status", "detail"],
+            "properties": [
+                "key": ["type": "string"],
+                "title": ["type": "string"],
+                "status": [
+                    "type": "string",
+                    "enum": ["complete", "recommended", "missing"]
+                ],
+                "detail": ["type": "string"]
+            ]
+        ]
+    }
+
+    private static func diagnosticIssueSchema() -> [String: Any] {
+        [
+            "type": "object",
+            "required": ["severity", "message"],
+            "properties": [
+                "severity": [
+                    "type": "string",
+                    "enum": ["info", "warning", "error"]
+                ],
+                "message": ["type": "string"]
+            ]
+        ]
+    }
+
+    private static func pointSchema() -> [String: Any] {
+        [
+            "type": "object",
+            "required": ["x", "y"],
+            "properties": [
+                "x": ["type": "number"],
+                "y": ["type": "number"]
+            ]
+        ]
+    }
+
+    private static func sizeSchema() -> [String: Any] {
+        [
+            "type": "object",
+            "required": ["width", "height"],
+            "properties": [
+                "width": ["type": "number"],
+                "height": ["type": "number"]
+            ]
+        ]
+    }
+
+    private static func vectorSchema() -> [String: Any] {
+        [
+            "type": "object",
+            "required": ["dx", "dy"],
+            "properties": [
+                "dx": ["type": "number"],
+                "dy": ["type": "number"]
+            ]
+        ]
+    }
+
+    private static func sceneBlueprintSchema() -> [String: Any] {
+        [
+            "type": "object",
+            "required": ["size", "backgroundColor", "gravity", "scaleMode", "showsPhysics", "showsFPS", "showsNodeCount", "sceneScript", "nodes"],
+            "properties": [
+                "size": sizeSchema(),
+                "backgroundColor": ["type": "string"],
+                "gravity": vectorSchema(),
+                "scaleMode": [
+                    "type": "string",
+                    "enum": ["fill", "aspectFill", "aspectFit", "resizeFill"]
+                ],
+                "showsPhysics": ["type": "boolean"],
+                "showsFPS": ["type": "boolean"],
+                "showsNodeCount": ["type": "boolean"],
+                "sceneScript": ["type": "string"],
+                "nodes": [
+                    "type": "array",
+                    "items": sceneBlueprintNodeSchema()
+                ]
+            ]
+        ]
+    }
+
+    private static func sceneBlueprintNodeSchema() -> [String: Any] {
+        [
+            "type": "object",
+            "required": ["name", "nodeType", "position", "physicsEnabled"],
+            "properties": [
+                "name": ["type": "string"],
+                "nodeType": [
+                    "type": "string",
+                    "enum": ["sprite", "group", "label", "shape", "emitter", "audio", "tileMap", "camera", "video", "crop", "effect", "light"]
+                ],
+                "position": pointSchema(),
+                "size": sizeSchema(),
+                "alpha": ["type": "number"],
+                "isHidden": ["type": "boolean"],
+                "assetName": ["type": "string"],
+                "text": ["type": "string"],
+                "fontName": ["type": "string"],
+                "fontSize": ["type": "number"],
+                "fontColor": ["type": "string"],
+                "shapeType": [
+                    "type": "string",
+                    "enum": ["rect", "circle", "ellipse", "path"]
+                ],
+                "fillColor": ["type": "string"],
+                "strokeColor": ["type": "string"],
+                "lineWidth": ["type": "number"],
+                "cornerRadius": ["type": "number"],
+                "parentName": ["type": "string"],
+                "physicsEnabled": ["type": "boolean"],
+                "physicsBodyType": [
+                    "type": "string",
+                    "enum": ["circle", "rect", "texture", "none", "edge"]
+                ],
+                "dynamic": ["type": "boolean"],
+                "affectedByGravity": ["type": "boolean"],
+                "restitution": ["type": "number"],
+                "friction": ["type": "number"],
+                "allowsRotation": ["type": "boolean"],
+                "linearDamping": ["type": "number"],
+                "velocity": vectorSchema(),
+                "cameraTarget": ["type": "string"],
+                "tileMapColumns": ["type": "integer"],
+                "tileMapRows": ["type": "integer"],
+                "tileSetAssetName": ["type": "string"],
+                "tileWidth": ["type": "number"],
+                "tileHeight": ["type": "number"],
+                "audioAssetName": ["type": "string"],
+                "videoAssetName": ["type": "string"],
+                "particleColor": ["type": "string"],
+                "script": ["type": "string"]
+            ]
+        ]
+    }
+
+    private static func sceneDiffSchema() -> [String: Any] {
+        [
+            "type": "object",
+            "properties": [
+                "addNodes": [
+                    "type": "array",
+                    "items": hypeNodeSpecSchema()
+                ],
+                "removeNodeIds": [
+                    "type": "array",
+                    "items": ["type": "string"]
+                ],
+                "updateNodes": [
+                    "type": "array",
+                    "items": nodeUpdateSchema()
+                ],
+                "sceneUpdates": sceneUpdateSchema()
+            ]
+        ]
+    }
+
+    private static func sceneUpdateSchema() -> [String: Any] {
+        [
+            "type": "object",
+            "properties": [
+                "name": ["type": "string"],
+                "size": sizeSchema(),
+                "gravity": vectorSchema(),
+                "backgroundColor": ["type": "string"],
+                "script": ["type": "string"],
+                "isPaused": ["type": "boolean"],
+                "showsPhysics": ["type": "boolean"],
+                "showsFPS": ["type": "boolean"],
+                "showsNodeCount": ["type": "boolean"],
+                "scaleMode": [
+                    "type": "string",
+                    "enum": ["fill", "aspectFill", "aspectFit", "resizeFill"]
+                ]
+            ]
+        ]
+    }
+
+    private static func nodeUpdateSchema() -> [String: Any] {
+        [
+            "type": "object",
+            "required": ["id", "properties"],
+            "properties": [
+                "id": ["type": "string"],
+                "properties": [
+                    "type": "object",
+                    "additionalProperties": ["type": "string"]
+                ],
+                "removeAllActions": ["type": "boolean"],
+                "removeChildIds": [
+                    "type": "array",
+                    "items": ["type": "string"]
+                ],
+                "addChildren": [
+                    "type": "array",
+                    "items": hypeNodeSpecSchema()
+                ]
+            ]
+        ]
+    }
+
+    private static func hypeNodeSpecSchema() -> [String: Any] {
+        [
+            "type": "object",
+            "required": [
+                "id", "name", "nodeType", "position", "zPosition", "rotation",
+                "xScale", "yScale", "alpha", "isHidden", "actions", "children", "script"
+            ],
+            "properties": [
+                "id": ["type": "string"],
+                "name": ["type": "string"],
+                "nodeType": [
+                    "type": "string",
+                    "enum": ["sprite", "group", "label", "shape", "emitter", "audio", "tileMap", "camera", "video", "crop", "effect", "light"]
+                ],
+                "position": pointSchema(),
+                "zPosition": ["type": "number"],
+                "rotation": ["type": "number"],
+                "xScale": ["type": "number"],
+                "yScale": ["type": "number"],
+                "alpha": ["type": "number"],
+                "isHidden": ["type": "boolean"],
+                "assetRef": [
+                    "type": "object",
+                    "required": ["id", "name", "mimeType"],
+                    "properties": [
+                        "id": ["type": "string"],
+                        "name": ["type": "string"],
+                        "mimeType": ["type": "string"]
+                    ]
+                ],
+                "size": sizeSchema(),
+                "text": ["type": "string"],
+                "fontName": ["type": "string"],
+                "fontSize": ["type": "number"],
+                "fontColor": ["type": "string"],
+                "shapeSpec": [
+                    "type": "object",
+                    "properties": [
+                        "shapeType": [
+                            "type": "string",
+                            "enum": ["rect", "circle", "ellipse", "path"]
+                        ],
+                        "fillColor": ["type": "string"],
+                        "strokeColor": ["type": "string"],
+                        "lineWidth": ["type": "number"],
+                        "cornerRadius": ["type": "number"]
+                    ]
+                ],
+                "tileMapSpec": [
+                    "type": "object",
+                    "properties": [
+                        "columns": ["type": "integer"],
+                        "rows": ["type": "integer"],
+                        "tileWidth": ["type": "number"],
+                        "tileHeight": ["type": "number"],
+                        "tileSetColumns": ["type": "integer"]
+                    ]
+                ],
+                "cameraTarget": ["type": "string"],
+                "physicsBody": [
+                    "type": "object",
+                    "properties": [
+                        "bodyType": [
+                            "type": "string",
+                            "enum": ["circle", "rect", "texture", "none", "edge"]
+                        ],
+                        "isDynamic": ["type": "boolean"],
+                        "affectedByGravity": ["type": "boolean"],
+                        "allowsRotation": ["type": "boolean"],
+                        "restitution": ["type": "number"],
+                        "friction": ["type": "number"],
+                        "linearDamping": ["type": "number"],
+                        "velocityX": ["type": "number"],
+                        "velocityY": ["type": "number"]
+                    ]
+                ],
+                "actions": [
+                    "type": "array",
+                    "items": ["type": "object"]
+                ],
+                "children": [
+                    "type": "array",
+                    "items": ["type": "object"]
+                ],
+                "script": ["type": "string"]
+            ]
+        ]
+    }
+}

@@ -1,9 +1,32 @@
 import Foundation
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// Executes AI tool calls against a HypeDocument.
 public struct HypeToolExecutor: Sendable {
 
     public init() {}
+
+    /// Heuristic: does the given asset name contain a substring
+    /// commonly used in tile-set art assets? Used by the import
+    /// paths (AI tool + SpriteRepositoryView) to default newly
+    /// imported images to `.tileSet` when the filename strongly
+    /// suggests it. Safe to be approximate — the user can always
+    /// toggle kind manually in the repository browser's detail
+    /// panel.
+    ///
+    /// `public` so `SpriteRepositoryView` in the Hype target can
+    /// share the same heuristic without reimplementing it.
+    public static func filenameLooksLikeTileset(_ name: String) -> Bool {
+        let lower = name.lowercased()
+        // Matches "tileset", "tile_set", "tiles", "tilemap" and
+        // common prefixes/suffixes like "grass_tileset" or
+        // "dungeon-tiles". Matching is substring-based so
+        // "tile" alone wouldn't count — that's too loose.
+        let keywords = ["tileset", "tile_set", "tile-set", "tilemap", "tilesheet", "tiles"]
+        return keywords.contains { lower.contains($0) }
+    }
 
     /// Determine whether to place on card or background based on arguments.
     private func placement(arguments: [String: String], currentCardId: UUID, document: HypeDocument) -> (cardId: UUID?, backgroundId: UUID?) {
@@ -26,6 +49,181 @@ public struct HypeToolExecutor: Sendable {
         }
         // Wrap bare commands in on mouseUp
         return "on mouseUp\n  \(trimmed)\nend mouseUp"
+    }
+
+    /// Parse-validate a HypeTalk script and return a user-readable
+    /// error suffix (starting with "; parse error: ...") if the
+    /// script doesn't compile. Returns an empty string when the
+    /// script is valid or empty.
+    ///
+    /// Tool-call results append this string when the AI sets a
+    /// script field, so the AI sees its own parse errors and can
+    /// correct the next tool call. Without this, invalid scripts
+    /// are silently stored — the part is created successfully but
+    /// no handler ever fires at runtime, and the AI has no
+    /// feedback to learn from.
+    private func scriptParseErrorSuffix(_ script: String) -> String {
+        let trimmed = script.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        var lexer = Lexer(source: script)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        do {
+            _ = try parser.parse()
+            return ""
+        } catch let error as ParseError {
+            return "; parse error in script: \(error.errorDescription ?? String(describing: error))"
+        } catch {
+            return "; parse error in script: \(error.localizedDescription)"
+        }
+    }
+
+    /// Response body for the `check_script` tool call. Returns a
+    /// clear OK / FAIL string the AI can pattern-match on to decide
+    /// whether to iterate.
+    ///
+    /// Empty scripts are treated as a soft fail ("nothing to check")
+    /// so the AI doesn't slip through an accidentally blank script.
+    /// Bare command scripts are auto-wrapped in `on mouseUp ... end
+    /// mouseUp` (matching what `create_button` does) before parsing,
+    /// so a validator call on `"go next"` passes just like the
+    /// stored form would.
+    func checkScriptResponse(_ script: String) -> String {
+        let trimmed = script.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "EMPTY: check_script received an empty script. Nothing to validate — pass the HypeTalk source you intend to store."
+        }
+        // Auto-wrap bare commands the same way the storage tools do,
+        // so the AI can validate either a full handler block or a
+        // one-liner like "go next" and get the same answer either way.
+        let wrapped = wrapScript(script)
+        var lexer = Lexer(source: wrapped)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        do {
+            let parsed = try parser.parse()
+            let n = parsed.handlers.count
+            let plural = n == 1 ? "handler" : "handlers"
+            let handlerNames = parsed.handlers.map { "'\($0.name)'" }.joined(separator: ", ")
+            if n == 0 {
+                return "OK: script parsed, but it contains no handler blocks. If you meant to attach a one-liner to a button, create_button auto-wraps it in 'on mouseUp ... end mouseUp'."
+            }
+            return "OK: \(n) \(plural) parsed (\(handlerNames)). Script is ready to store."
+        } catch let error as ParseError {
+            let description = error.errorDescription ?? String(describing: error)
+            return "FAIL: \(description). Fix the script and call check_script again."
+        } catch {
+            return "FAIL: \(error.localizedDescription). Fix the script and call check_script again."
+        }
+    }
+
+    /// Build a comprehensive description of a part including all relevant properties.
+    private func describePartFull(_ p: Part) -> String {
+        var props: [String] = []
+        let layer = p.backgroundId != nil ? " (background)" : ""
+        props.append("[\(p.partType.rawValue)] '\(p.name)'\(layer) at (\(Int(p.left)),\(Int(p.top))) \(Int(p.width))x\(Int(p.height))")
+
+        // State
+        if !p.visible { props.append("visible=false") }
+        if !p.enabled { props.append("enabled=false") }
+
+        // Type-specific properties
+        switch p.partType {
+        case .button:
+            props.append("style=\(p.buttonStyle.rawValue)")
+            if p.hilite { props.append("hilite=true") }
+            if !p.showName { props.append("showName=false") }
+            if !p.popupItems.isEmpty { props.append("popupItems=\"\(p.popupItems.replacingOccurrences(of: "\n", with: "|"))\"") }
+            if !p.textContent.isEmpty { props.append("text=\"\(p.textContent)\"") }
+        case .field:
+            props.append("style=\(p.fieldStyle.rawValue)")
+            if !p.textContent.isEmpty {
+                let preview = String(p.textContent.prefix(100))
+                props.append("text=\"\(preview)\(p.textContent.count > 100 ? "..." : "")\"")
+            }
+            if p.lockText { props.append("lockText=true") }
+            if p.enterKeyEnabled { props.append("enterKeyEnabled=true") }
+        case .shape:
+            props.append("shapeType=\(p.shapeType.rawValue)")
+            if !p.fillColor.isEmpty { props.append("fillColor=\(p.fillColor)") }
+            if !p.strokeColor.isEmpty { props.append("strokeColor=\(p.strokeColor)") }
+            if p.strokeWidth != 1 { props.append("strokeWidth=\(p.strokeWidth)") }
+            if p.cornerRadius != 8 { props.append("cornerRadius=\(p.cornerRadius)") }
+        case .webpage:
+            props.append("url=\"\(p.url)\"")
+        case .video:
+            props.append("videoURL=\"\(p.videoURL)\"")
+        case .image:
+            props.append("hasImage=\(p.imageData != nil)")
+            if p.invertOnClick { props.append("invertOnClick=true") }
+        case .chart:
+            if let config = ChartConfig.fromJSON(p.chartData) {
+                props.append("chartType=\(config.chartType.rawValue)")
+                if !config.title.isEmpty { props.append("chartTitle=\"\(config.title)\"") }
+                if !config.xAxisLabel.isEmpty { props.append("xAxisLabel=\"\(config.xAxisLabel)\"") }
+                if !config.yAxisLabel.isEmpty { props.append("yAxisLabel=\"\(config.yAxisLabel)\"") }
+                props.append("showLegend=\(config.showLegend)")
+                props.append("showGrid=\(config.showGrid)")
+                for series in config.series {
+                    let dataDesc = series.data.map { "\($0.name)=\($0.value)" }.joined(separator: ",")
+                    props.append("series '\(series.name)' color=\(series.color) data=[\(dataDesc)]")
+                }
+            }
+        case .spriteArea:
+            if let areaSpec = p.spriteAreaSpecModel,
+               let sceneConfig = areaSpec.activeScene {
+                props.append("sceneName=\(sceneConfig.name)")
+                props.append("sceneCount=\(areaSpec.scenes.count)")
+                props.append("sceneSize=\(Int(sceneConfig.size.width))x\(Int(sceneConfig.size.height))")
+                props.append("nodeCount=\(sceneConfig.nodes.count)")
+            }
+        }
+
+        // Common text styling (if non-default)
+        if p.textFont != "System" && !p.textFont.isEmpty { props.append("font=\(p.textFont)") }
+        if p.textSize != 14 && p.textSize != 0 { props.append("textSize=\(p.textSize)") }
+        if p.textAlign != .left { props.append("textAlign=\(p.textAlign.rawValue)") }
+        if p.textStyle != "plain" && !p.textStyle.isEmpty { props.append("textStyle=\(p.textStyle)") }
+
+        // Script
+        if !p.script.isEmpty {
+            let scriptPreview = String(p.script.prefix(80))
+            props.append("script=\"\(scriptPreview)\(p.script.count > 80 ? "..." : "")\"")
+        }
+
+        return props.joined(separator: ", ")
+    }
+
+    private func spriteAreaIndex(named areaName: String, in document: HypeDocument) -> Int? {
+        document.parts.firstIndex(where: {
+            $0.partType == .spriteArea && $0.name.lowercased() == areaName.lowercased()
+        })
+    }
+
+    @discardableResult
+    private func modifyActiveScene(
+        partIndex: Int,
+        document: inout HypeDocument,
+        transform: (inout SceneSpec) -> Void
+    ) -> Bool {
+        guard document.parts.indices.contains(partIndex) else { return false }
+        var part = document.parts[partIndex]
+        part.updateActiveSceneSpec(transform)
+        document.parts[partIndex] = part
+        return true
+    }
+
+    @discardableResult
+    private func modifySpriteAreaSpec(
+        partIndex: Int,
+        document: inout HypeDocument,
+        transform: (inout SpriteAreaSpec) -> Void
+    ) -> Bool {
+        guard document.parts.indices.contains(partIndex) else { return false }
+        var part = document.parts[partIndex]
+        part.updateSpriteAreaSpec(transform)
+        document.parts[partIndex] = part
+        return true
     }
 
     /// Execute a tool call and return the result string.
@@ -74,15 +272,20 @@ public struct HypeToolExecutor: Sendable {
                 width: Double(arguments["width"] ?? "120") ?? 120,
                 height: Double(arguments["height"] ?? "40") ?? 40
             )
+            // Apply stack-level default font
+            let stackFont = document.stack.defaultFont
+            if !stackFont.isEmpty { part.textFont = stackFont }
             if let style = arguments["style"], let bs = ButtonStyle(rawValue: style) {
                 part.buttonStyle = bs
             }
+            var parseSuffix = ""
             if let script = arguments["script"] {
                 part.script = wrapScript(script)
+                parseSuffix = scriptParseErrorSuffix(part.script)
             }
             document.addPart(part)
             let layer = place.backgroundId != nil ? " on background" : ""
-            return "Created button '\(part.name)'\(layer)"
+            return "Created button '\(part.name)'\(layer)\(parseSuffix)"
 
         case "create_field":
             let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
@@ -96,14 +299,21 @@ public struct HypeToolExecutor: Sendable {
                 width: Double(arguments["width"] ?? "200") ?? 200,
                 height: Double(arguments["height"] ?? "30") ?? 30
             )
+            // Apply stack-level default font
+            let stackFont = document.stack.defaultFont
+            if !stackFont.isEmpty { part.textFont = stackFont }
             if let text = arguments["text"] { part.textContent = text }
             if let style = arguments["style"], let fs = FieldStyle(rawValue: style) {
                 part.fieldStyle = fs
             }
-            if let script = arguments["script"] { part.script = wrapScript(script) }
+            var parseSuffixField = ""
+            if let script = arguments["script"] {
+                part.script = wrapScript(script)
+                parseSuffixField = scriptParseErrorSuffix(part.script)
+            }
             document.addPart(part)
             let layer = place.backgroundId != nil ? " on background" : ""
-            return "Created field '\(part.name)'\(layer)"
+            return "Created field '\(part.name)'\(layer)\(parseSuffixField)"
 
         case "create_shape":
             let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
@@ -174,23 +384,39 @@ public struct HypeToolExecutor: Sendable {
                 height: Double(arguments["height"] ?? "200") ?? 200
             )
             let chartType = ChartType(rawValue: arguments["chart_type"] ?? "bar") ?? .bar
+            // Default-initialise ChartConfig (showLegend/showGrid both true)
+            // then override each field if the AI supplied it. The x/y axis
+            // labels are a named chart part (title + series) that the
+            // ChartHostView renders with sensible fallbacks, but we still
+            // let the caller set them explicitly here — that ensures a
+            // chart created for a specific domain (e.g. "Month" / "Sales")
+            // gets the right labels at create time instead of depending
+            // on a follow-up set_part_property call.
             var config = ChartConfig(chartType: chartType, title: arguments["title"] ?? "")
+            if let xl = arguments["x_axis_label"] { config.xAxisLabel = xl }
+            if let yl = arguments["y_axis_label"] { config.yAxisLabel = yl }
+            if let sl = arguments["show_legend"] {
+                config.showLegend = (sl.lowercased() == "true")
+            }
+            if let sg = arguments["show_grid"] {
+                config.showGrid = (sg.lowercased() == "true")
+            }
             // Parse data points from multiple formats
             var dataPoints: [ChartDataPoint] = []
 
             if let dataJSON = arguments["data_json"], !dataJSON.isEmpty {
                 if let jsonData = dataJSON.data(using: .utf8) {
-                    // Try array of {"label":"X","value":"Y"} or {"label":"X","value":123}
+                    // Try array of {"name":"X","value":123,"color":"#hex"} (also accepts legacy "label" key)
                     if let rawPoints = try? JSONSerialization.jsonObject(with: jsonData) as? [[String: Any]] {
                         for raw in rawPoints {
-                            let label = raw["label"] as? String ?? ""
+                            let name = raw["name"] as? String ?? raw["label"] as? String ?? ""
                             let value: Double
                             if let v = raw["value"] as? Double { value = v }
                             else if let v = raw["value"] as? Int { value = Double(v) }
                             else if let v = raw["value"] as? String { value = Double(v) ?? 0 }
                             else { value = 0 }
-                            let color = raw["color"] as? String
-                            dataPoints.append(ChartDataPoint(label: label, value: value, color: color))
+                            let color = raw["color"] as? String ?? ""
+                            dataPoints.append(ChartDataPoint(name: name, value: value, color: color))
                         }
                     }
                 }
@@ -202,9 +428,9 @@ public struct HypeToolExecutor: Sendable {
                 for pair in pairs {
                     let parts = pair.split(separator: "=", maxSplits: 1)
                     if parts.count == 2 {
-                        let label = parts[0].trimmingCharacters(in: .whitespaces)
+                        let name = parts[0].trimmingCharacters(in: .whitespaces)
                         let value = Double(parts[1].trimmingCharacters(in: .whitespaces)) ?? 0
-                        dataPoints.append(ChartDataPoint(label: label, value: value))
+                        dataPoints.append(ChartDataPoint(name: name, value: value))
                     }
                 }
             }
@@ -236,7 +462,16 @@ public struct HypeToolExecutor: Sendable {
                 case "strokecolor", "stroke_color": document.parts[index].strokeColor = value
                 case "visible": document.parts[index].visible = (value.lowercased() == "true")
                 case "enabled": document.parts[index].enabled = (value.lowercased() == "true")
-                case "script": document.parts[index].script = value
+                case "script":
+                    // Wrap bare commands and validate the final
+                    // script so the AI sees parse errors in the
+                    // returned result.
+                    let wrapped = wrapScript(value)
+                    document.parts[index].script = wrapped
+                    let suffix = scriptParseErrorSuffix(wrapped)
+                    if !suffix.isEmpty {
+                        return "Set script of '\(partName)'\(suffix)"
+                    }
                 case "style":
                     let part = document.parts[index]
                     switch part.partType {
@@ -284,6 +519,22 @@ public struct HypeToolExecutor: Sendable {
                     var config = ChartConfig.fromJSON(document.parts[index].chartData) ?? ChartConfig()
                     config.title = value
                     document.parts[index].chartData = config.toJSON()
+                case "xaxislabel", "x_axis_label", "xlabel", "x_label":
+                    var config = ChartConfig.fromJSON(document.parts[index].chartData) ?? ChartConfig()
+                    config.xAxisLabel = value
+                    document.parts[index].chartData = config.toJSON()
+                case "yaxislabel", "y_axis_label", "ylabel", "y_label":
+                    var config = ChartConfig.fromJSON(document.parts[index].chartData) ?? ChartConfig()
+                    config.yAxisLabel = value
+                    document.parts[index].chartData = config.toJSON()
+                case "showlegend", "show_legend":
+                    var config = ChartConfig.fromJSON(document.parts[index].chartData) ?? ChartConfig()
+                    config.showLegend = (value.lowercased() == "true")
+                    document.parts[index].chartData = config.toJSON()
+                case "showgrid", "show_grid":
+                    var config = ChartConfig.fromJSON(document.parts[index].chartData) ?? ChartConfig()
+                    config.showGrid = (value.lowercased() == "true")
+                    document.parts[index].chartData = config.toJSON()
                 default: return "Unknown property '\(property)'"
                 }
                 return "Set \(property) of '\(partName)' to '\(value)'"
@@ -298,11 +549,95 @@ public struct HypeToolExecutor: Sendable {
             }
             return "Part '\(partName)' not found"
 
+        case "check_script":
+            // Standalone syntax checker the AI is instructed to call
+            // BEFORE storing any script. This complements the
+            // `scriptParseErrorSuffix` that already runs on
+            // create_button / create_field / set_part_property — the
+            // AI should use `check_script` first so it never even
+            // reaches the storage call with broken code. The tool
+            // wraps bare command scripts the same way the storage
+            // tools do, so a one-liner like "go next" validates as
+            // though it were attached to a button.
+            let rawScript = arguments["script"] ?? ""
+            return checkScriptResponse(rawScript)
+
+        case "set_chart_data_point_color":
+            // Structured setter for per-data-point colors on a chart.
+            // Complements the HypeTalk `set the color of data point N of
+            // series N of chart "X" to "#RRGGBB"` surface — the AI can
+            // use whichever path fits the tool-calling style.
+            let chartName = arguments["chart_name"] ?? ""
+            let seriesRef = arguments["series"] ?? "1"
+            let pointRef = arguments["point"] ?? ""
+            let color = arguments["color"] ?? ""
+            guard !chartName.isEmpty, !pointRef.isEmpty, !color.isEmpty else {
+                return "set_chart_data_point_color requires chart_name, point, and color"
+            }
+            guard let partIndex = document.parts.firstIndex(where: {
+                $0.partType == .chart && $0.name.lowercased() == chartName.lowercased()
+            }) else {
+                return "Chart '\(chartName)' not found"
+            }
+            guard var config = ChartConfig.fromJSON(document.parts[partIndex].chartData) else {
+                return "Chart '\(chartName)' has no data"
+            }
+            // Resolve series by 1-based index or name.
+            let seriesIdx: Int
+            if let num = Int(seriesRef), num > 0, num <= config.series.count {
+                seriesIdx = num - 1
+            } else if let idx = config.series.firstIndex(where: {
+                $0.name.lowercased() == seriesRef.lowercased()
+            }) {
+                seriesIdx = idx
+            } else {
+                return "Series '\(seriesRef)' not found in chart '\(chartName)'"
+            }
+            // Resolve point by 1-based index or name.
+            let pointIdx: Int
+            if let num = Int(pointRef), num > 0, num <= config.series[seriesIdx].data.count {
+                pointIdx = num - 1
+            } else if let idx = config.series[seriesIdx].data.firstIndex(where: {
+                $0.name.lowercased() == pointRef.lowercased()
+            }) {
+                pointIdx = idx
+            } else {
+                return "Data point '\(pointRef)' not found in series '\(config.series[seriesIdx].name)'"
+            }
+            config.series[seriesIdx].data[pointIdx].color = color
+            document.parts[partIndex].chartData = config.toJSON()
+            let pointName = config.series[seriesIdx].data[pointIdx].name
+            return "Set color of '\(pointName)' in chart '\(chartName)' to \(color)"
+
+        case "get_chart_data_points":
+            // Read-side companion: dump the series + per-point names,
+            // values, and effective colors for a chart. Useful after
+            // set_chart_data_point_color for the AI to verify its edit.
+            let chartName = arguments["chart_name"] ?? ""
+            guard let part = document.parts.first(where: {
+                $0.partType == .chart && $0.name.lowercased() == chartName.lowercased()
+            }) else {
+                return "Chart '\(chartName)' not found"
+            }
+            guard let config = ChartConfig.fromJSON(part.chartData) else {
+                return "Chart '\(chartName)' has no data"
+            }
+            if config.series.isEmpty { return "Chart '\(chartName)' has no series" }
+            var lines: [String] = ["Chart '\(chartName)' (\(config.chartType.rawValue)):"]
+            for (sidx, series) in config.series.enumerated() {
+                lines.append("  Series \(sidx + 1) '\(series.name)' color=\(series.color):")
+                for (pidx, point) in series.data.enumerated() {
+                    let effective = point.color.isEmpty ? series.color : point.color
+                    lines.append("    Point \(pidx + 1) '\(point.name)'=\(point.value) color=\(effective)\(point.color.isEmpty ? " (inherited)" : "")")
+                }
+            }
+            return lines.joined(separator: "\n")
+
         case "get_stack_info":
             let cardCount = document.cards.count
             let bgNames = document.backgrounds.map(\.name).joined(separator: ", ")
             let currentCard = document.cards.first(where: { $0.id == currentCardId })
-            return "Stack '\(document.stack.name)': \(cardCount) cards, backgrounds: [\(bgNames)], current card: \(currentCard?.name ?? "unnamed")"
+            return "Stack '\(document.stack.name)': \(cardCount) cards, size: \(document.stack.width)x\(document.stack.height), backgrounds: [\(bgNames)], current card: \(currentCard?.name ?? "unnamed")"
 
         case "get_card_parts":
             let cardParts = document.partsForCard(currentCardId)
@@ -312,10 +647,8 @@ public struct HypeToolExecutor: Sendable {
                 if allParts.isEmpty {
                     return "No parts on current card"
                 }
-                let descriptions = allParts.map { p in
-                    "[\(p.partType.rawValue)] '\(p.name)' at (\(Int(p.left)),\(Int(p.top))) \(Int(p.width))x\(Int(p.height))"
-                }
-                return "Parts on current card: \(descriptions.joined(separator: "; "))"
+                let descriptions = allParts.map { p in describePartFull(p) }
+                return "Parts on current card:\n\(descriptions.joined(separator: "\n"))"
             }
             return "No parts"
 
@@ -357,6 +690,402 @@ public struct HypeToolExecutor: Sendable {
             } catch {
                 return "List error: \(error.localizedDescription)"
             }
+
+        case "create_sprite_area":
+            let name = arguments["name"] ?? "Sprite Area"
+            let sceneName = arguments["scene_name"] ?? "main"
+            let left = Double(arguments["left"] ?? "20") ?? 20
+            let top = Double(arguments["top"] ?? "20") ?? 20
+            let width = Double(arguments["width"] ?? "400") ?? 400
+            let height = Double(arguments["height"] ?? "300") ?? 300
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+
+            var newPart = Part(partType: .spriteArea, cardId: place.cardId, backgroundId: place.backgroundId,
+                               name: name, left: left, top: top, width: width, height: height)
+            newPart.setSpriteAreaSpec(
+                SpriteAreaSpec(defaultSceneNamed: sceneName, fallbackSize: SizeSpec(width: width, height: height))
+            )
+            document.addPart(newPart)
+            return "Created sprite area '\(name)' with scene '\(sceneName)' at (\(Int(left)),\(Int(top))) \(Int(width))x\(Int(height))"
+
+        case "get_scene_spec":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            guard let part = document.parts.first(where: { $0.partType == .spriteArea && $0.name.lowercased() == areaName.lowercased() }) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            return part.activeSceneSpec?.toJSON() ?? "No scene spec"
+
+        case "apply_scene_diff":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let diffJson = arguments["diff_json"] ?? ""
+            guard let partIdx = spriteAreaIndex(named: areaName, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            guard var spec = document.parts[partIdx].activeSceneSpec else {
+                return "Invalid scene spec"
+            }
+            guard let diffData = diffJson.data(using: .utf8),
+                  let diff = try? JSONDecoder().decode(SceneDiff.self, from: diffData) else {
+                return "Invalid diff JSON"
+            }
+            diff.apply(to: &spec)
+            _ = modifyActiveScene(partIndex: partIdx, document: &document) { $0 = spec }
+            return "Applied scene diff to '\(areaName)'. Scene now has \(spec.nodes.count) nodes."
+
+        case "add_sprite_to_scene":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let spriteName = arguments["sprite_name"] ?? "sprite"
+            let assetName = arguments["asset_name"]
+            let x = Double(arguments["x"] ?? "100") ?? 100
+            let y = Double(arguments["y"] ?? "100") ?? 100
+            let w: Double? = arguments["width"].flatMap { Double($0) }
+            let h: Double? = arguments["height"].flatMap { Double($0) }
+            guard let partIdx = spriteAreaIndex(named: areaName, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            guard document.parts[partIdx].activeSceneSpec != nil else {
+                return "Invalid scene spec"
+            }
+            var newNode = HypeNodeSpec(name: spriteName, nodeType: .sprite)
+            newNode.position = PointSpec(x: x, y: y)
+            if let w = w, let h = h { newNode.size = SizeSpec(width: w, height: h) }
+            // Look up asset in repository
+            if let an = assetName, let asset = document.spriteRepository.asset(byName: an) {
+                newNode.assetRef = document.spriteRepository.assetRef(for: asset)
+            }
+            _ = modifyActiveScene(partIndex: partIdx, document: &document) { $0.nodes.append(newNode) }
+            return "Added sprite '\(spriteName)' to scene in '\(areaName)' at (\(Int(x)),\(Int(y)))"
+
+        case "create_tilemap":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let tilemapName = arguments["tilemap_name"] ?? "tilemap"
+            let cols = Int(arguments["columns"] ?? "10") ?? 10
+            let rows = Int(arguments["rows"] ?? "10") ?? 10
+            // Whether the caller supplied an explicit tile_size —
+            // needed so the asset metadata can fill in a default
+            // without overriding a user-chosen size.
+            let explicitTileSize: Double? = arguments["tile_size"].flatMap { Double($0) }
+            let tilesetAsset = arguments["tileset_asset"]
+            guard let partIdx = spriteAreaIndex(named: areaName, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            guard document.parts[partIdx].activeSceneSpec != nil else {
+                return "Invalid scene spec"
+            }
+            let initialTileSize = explicitTileSize ?? 32
+            var tmSpec = TileMapSpec(columns: cols, rows: rows, tileWidth: initialTileSize, tileHeight: initialTileSize)
+            tmSpec.tileData = Array(repeating: Array(repeating: -1, count: cols), count: rows)
+            var tilesetInfo = ""
+            if let tsName = tilesetAsset, let asset = document.spriteRepository.asset(byName: tsName) {
+                tmSpec.tileSetAssetRef = document.spriteRepository.assetRef(for: asset)
+                // See Interpreter.createTileMap for the full
+                // rationale. Without this wire-up,
+                // TileMapSpec.tileSetColumns defaulted to 1 and
+                // multi-column tilesets rendered as a vertical strip.
+                if asset.isTileSet {
+                    tmSpec.tileSetColumns = asset.tileColumns
+                    if explicitTileSize == nil {
+                        tmSpec.tileWidth = Double(asset.tileWidth)
+                        tmSpec.tileHeight = Double(asset.tileHeight)
+                    }
+                    tilesetInfo = ", tileset '\(asset.name)' (\(asset.tileColumns)x\(asset.tileRows) tiles, \(asset.tileWidth)x\(asset.tileHeight)px each)"
+                } else {
+                    tilesetInfo = ", tileset '\(asset.name)' (NOT CLASSIFIED — call classify_asset_as_tileset first for correct multi-column rendering)"
+                }
+            }
+            var tmNode = HypeNodeSpec(name: tilemapName, nodeType: .tileMap, position: PointSpec(x: 0, y: 0))
+            tmNode.tileMapSpec = tmSpec
+            _ = modifyActiveScene(partIndex: partIdx, document: &document) { $0.nodes.append(tmNode) }
+            let effectiveTileSize = Int(tmSpec.tileWidth)
+            return "Created tile map '\(tilemapName)' (\(cols)x\(rows) cells, \(effectiveTileSize)x\(effectiveTileSize)px tiles) in '\(areaName)'\(tilesetInfo)"
+
+        case "classify_asset_as_tileset":
+            // Mark an existing repository asset as a tile set and
+            // stamp its grid metadata. Without this classification,
+            // create_tilemap has no way to know how to slice the
+            // sprite sheet and falls back to tileSetColumns=1.
+            let assetName = arguments["asset_name"] ?? ""
+            let tileW = Int(arguments["tile_width"] ?? "0") ?? 0
+            let tileH = Int(arguments["tile_height"] ?? "0") ?? 0
+            let explicitCols = Int(arguments["tile_columns"] ?? "0")
+            let explicitRows = Int(arguments["tile_rows"] ?? "0")
+            guard tileW > 0, tileH > 0 else {
+                return "classify_asset_as_tileset: tile_width and tile_height are required and must be > 0"
+            }
+            guard let assetIdx = document.spriteRepository.assets.firstIndex(where: {
+                $0.name.lowercased() == assetName.lowercased()
+            }) else {
+                return "Asset '\(assetName)' not found in repository"
+            }
+            let asset = document.spriteRepository.assets[assetIdx]
+            guard asset.width > 0, asset.height > 0 else {
+                return "Asset '\(assetName)' has no image dimensions — can't classify as tileset"
+            }
+            // Auto-derive columns/rows from image dimensions when
+            // not supplied. If the image is a non-integer multiple
+            // of the tile size we still round down so partial
+            // trailing tiles are dropped rather than crashing the
+            // renderer.
+            let cols = explicitCols ?? 0 > 0 ? explicitCols! : max(1, asset.width / tileW)
+            let rows = explicitRows ?? 0 > 0 ? explicitRows! : max(1, asset.height / tileH)
+            document.spriteRepository.updateAsset(id: asset.id) { mut in
+                mut.kind = .tileSet
+                mut.tileWidth = tileW
+                mut.tileHeight = tileH
+                mut.tileColumns = cols
+                mut.tileRows = rows
+            }
+            return "Classified '\(assetName)' as tileset: \(cols)x\(rows) grid of \(tileW)x\(tileH)px tiles (\(cols * rows) total)"
+
+        case "set_tile":
+            // Structured per-cell tile setter. Complements HypeTalk's
+            // `set tile col,row of tilemap "X" to N`. The tile_index
+            // is a 0-based index into the tile set's tile groups
+            // (left-to-right, top-to-bottom). Pass -1 to clear a
+            // cell (empty tile).
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let tilemapName = arguments["tilemap_name"] ?? ""
+            guard let col = Int(arguments["column"] ?? "") else {
+                return "set_tile: column is required"
+            }
+            guard let row = Int(arguments["row"] ?? "") else {
+                return "set_tile: row is required"
+            }
+            guard let tileIndex = Int(arguments["tile_index"] ?? "") else {
+                return "set_tile: tile_index is required (-1 for empty)"
+            }
+            guard let partIdx = spriteAreaIndex(named: areaName, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            guard let spec = document.parts[partIdx].activeSceneSpec else {
+                return "Invalid scene spec in '\(areaName)'"
+            }
+            guard let node = spec.node(named: tilemapName), node.nodeType == .tileMap else {
+                return "Tile map '\(tilemapName)' not found in '\(areaName)'"
+            }
+            guard var tmSpec = node.tileMapSpec else {
+                return "Tile map '\(tilemapName)' has no tile map spec"
+            }
+            guard col >= 0, col < tmSpec.columns, row >= 0, row < tmSpec.rows else {
+                return "set_tile: (\(col),\(row)) is out of bounds for tile map '\(tilemapName)' (\(tmSpec.columns)x\(tmSpec.rows))"
+            }
+            // Pad tileData to full dimensions if it was never
+            // initialised — a brand-new tilemap gets an empty
+            // [[Int]] which we lazily grow here.
+            while tmSpec.tileData.count < tmSpec.rows {
+                tmSpec.tileData.append(Array(repeating: -1, count: tmSpec.columns))
+            }
+            for r in 0..<tmSpec.tileData.count {
+                while tmSpec.tileData[r].count < tmSpec.columns {
+                    tmSpec.tileData[r].append(-1)
+                }
+            }
+            tmSpec.tileData[row][col] = tileIndex
+            _ = modifyActiveScene(partIndex: partIdx, document: &document) { scene in
+                _ = scene.updateNode(id: node.id) { $0.tileMapSpec = tmSpec }
+            }
+            return "Set tile (\(col),\(row)) of '\(tilemapName)' to \(tileIndex)"
+
+        case "fill_tilemap":
+            // Fill every cell of a tile map with the same tile
+            // index. Useful for painting a ground layer before
+            // stamping obstacles.
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let tilemapName = arguments["tilemap_name"] ?? ""
+            guard let tileIndex = Int(arguments["tile_index"] ?? "") else {
+                return "fill_tilemap: tile_index is required (-1 to clear)"
+            }
+            guard let partIdx = spriteAreaIndex(named: areaName, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            guard let spec = document.parts[partIdx].activeSceneSpec else {
+                return "Invalid scene spec in '\(areaName)'"
+            }
+            guard let node = spec.node(named: tilemapName), node.nodeType == .tileMap else {
+                return "Tile map '\(tilemapName)' not found in '\(areaName)'"
+            }
+            guard var tmSpec = node.tileMapSpec else {
+                return "Tile map '\(tilemapName)' has no tile map spec"
+            }
+            tmSpec.tileData = Array(
+                repeating: Array(repeating: tileIndex, count: tmSpec.columns),
+                count: tmSpec.rows
+            )
+            _ = modifyActiveScene(partIndex: partIdx, document: &document) { scene in
+                _ = scene.updateNode(id: node.id) { $0.tileMapSpec = tmSpec }
+            }
+            return "Filled tile map '\(tilemapName)' (\(tmSpec.columns)x\(tmSpec.rows)) with tile index \(tileIndex)"
+
+        case "get_tilemap_info":
+            // Diagnostic companion for tile map authoring. Reports
+            // dimensions, tile size, tileset binding, and a
+            // compact tileData preview so the AI can verify what
+            // it just built.
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let tilemapName = arguments["tilemap_name"] ?? ""
+            guard let part = document.parts.first(where: {
+                $0.partType == .spriteArea && $0.name.lowercased() == areaName.lowercased()
+            }) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            guard let spec = SceneSpec.fromJSON(part.sceneSpec) else {
+                return "Invalid scene spec in '\(areaName)'"
+            }
+            guard let node = spec.node(named: tilemapName), node.nodeType == .tileMap else {
+                return "Tile map '\(tilemapName)' not found in '\(areaName)'"
+            }
+            guard let tmSpec = node.tileMapSpec else {
+                return "Tile map '\(tilemapName)' has no tile map spec"
+            }
+            var lines: [String] = [
+                "Tile map '\(tilemapName)' in '\(areaName)':",
+                "  Grid: \(tmSpec.columns) cols \u{00d7} \(tmSpec.rows) rows",
+                "  Tile size: \(Int(tmSpec.tileWidth))\u{00d7}\(Int(tmSpec.tileHeight)) px",
+                "  Tileset columns (sprite sheet): \(tmSpec.tileSetColumns)",
+            ]
+            if let ref = tmSpec.tileSetAssetRef,
+               let asset = document.spriteRepository.asset(byId: ref.id) {
+                let classification = asset.isTileSet
+                    ? "tileSet (\(asset.tileColumns)x\(asset.tileRows))"
+                    : "\(asset.kind.rawValue) (UNCLASSIFIED)"
+                lines.append("  Tileset asset: '\(asset.name)' \(classification)")
+            } else {
+                lines.append("  Tileset asset: (none)")
+            }
+            // Count non-empty cells and show a tiny preview of the
+            // top-left corner (up to 8x8) so the AI can sanity-check
+            // tile placement.
+            let nonEmpty = tmSpec.tileData.reduce(0) { acc, row in
+                acc + row.filter { $0 >= 0 }.count
+            }
+            lines.append("  Non-empty cells: \(nonEmpty)/\(tmSpec.columns * tmSpec.rows)")
+            let previewRows = min(tmSpec.tileData.count, 8)
+            let previewCols = min(tmSpec.columns, 8)
+            if previewRows > 0 && previewCols > 0 {
+                lines.append("  Preview (top-left \(previewCols)x\(previewRows)):")
+                for r in 0..<previewRows {
+                    let row = tmSpec.tileData[r]
+                    let cells = (0..<min(previewCols, row.count)).map { c -> String in
+                        let v = row[c]
+                        return v < 0 ? "  ." : String(format: "%3d", v)
+                    }
+                    lines.append("    " + cells.joined(separator: " "))
+                }
+            }
+            return lines.joined(separator: "\n")
+
+        case "create_camera":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let cameraName = arguments["camera_name"] ?? "camera"
+            guard let partIdx = spriteAreaIndex(named: areaName, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            guard let spec = document.parts[partIdx].activeSceneSpec else {
+                return "Invalid scene spec"
+            }
+            let camNode = HypeNodeSpec(name: cameraName, nodeType: .camera, position: PointSpec(x: spec.size.width / 2, y: spec.size.height / 2))
+            _ = modifyActiveScene(partIndex: partIdx, document: &document) { $0.nodes.append(camNode) }
+            return "Created camera '\(cameraName)' in '\(areaName)' at center (\(Int(spec.size.width / 2)),\(Int(spec.size.height / 2)))"
+
+        case "list_repository_assets":
+            if document.spriteRepository.assets.isEmpty {
+                return "Sprite Repository is empty"
+            }
+            let descriptions = document.spriteRepository.assets.map { a -> String in
+                var line = "[\(a.kind.rawValue)] '\(a.name)' \(a.width)x\(a.height) (\(a.data.count) bytes, \(a.slices.count) slices"
+                if a.isTileSet {
+                    line += ", tileset \(a.tileColumns)x\(a.tileRows) of \(a.tileWidth)x\(a.tileHeight)px"
+                }
+                return line + ")"
+            }
+            return "Repository assets:\n\(descriptions.joined(separator: "\n"))"
+
+        case "import_repository_asset":
+            let name = arguments["name"] ?? "asset"
+            let filePath = arguments["file_path"] ?? ""
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: filePath)) else {
+                return "Could not read file at '\(filePath)'"
+            }
+            #if canImport(AppKit)
+            guard let image = NSImage(data: data) else {
+                return "Could not load image from '\(filePath)'"
+            }
+            let size = image.size
+            var asset = SpriteAsset(name: name, data: data, width: Int(size.width), height: Int(size.height))
+            // Soft classification: if the filename hints at a
+            // tileset, flag the asset as `.tileSet`. The AI should
+            // still call `classify_asset_as_tileset` to set the
+            // actual tile dimensions — this step only flips the
+            // kind so the asset shows up as a tileset candidate in
+            // the repository browser.
+            if Self.filenameLooksLikeTileset(name) {
+                asset.kind = .tileSet
+            }
+            document.spriteRepository.addAsset(asset)
+            let hint = asset.kind == .tileSet
+                ? " (auto-classified as tileSet by filename — call classify_asset_as_tileset to set tile dimensions)"
+                : ""
+            return "Imported '\(name)' (\(Int(size.width))x\(Int(size.height))) into Sprite Repository\(hint)"
+            #else
+            let asset = SpriteAsset(name: name, data: data)
+            document.spriteRepository.addAsset(asset)
+            return "Imported '\(name)' into Sprite Repository (dimensions unknown without AppKit)"
+            #endif
+
+        case "capture_scene_snapshot":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            guard let part = document.parts.first(where: { $0.partType == .spriteArea && $0.name.lowercased() == areaName.lowercased() }) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            guard let spec = part.activeSceneSpec else { return "No scene" }
+            var lines: [String] = [
+                "Scene '\(spec.name)' (\(Int(spec.size.width))x\(Int(spec.size.height)))",
+                "Gravity: \(spec.gravity.dx),\(spec.gravity.dy)",
+                "Paused: \(spec.isPaused)",
+                "Nodes (\(spec.allNodes.count)):"
+            ]
+            for node in spec.allNodes {
+                var desc = "  [\(node.nodeType.rawValue)] '\(node.name)' at (\(Int(node.position.x)),\(Int(node.position.y)))"
+                if let size = node.size { desc += " \(Int(size.width))x\(Int(size.height))" }
+                if let pb = node.physicsBody { desc += " [physics:\(pb.bodyType.rawValue)]" }
+                if let text = node.text { desc += " text=\"\(text)\"" }
+                if let ref = node.assetRef { desc += " asset=\"\(ref.name)\"" }
+                lines.append(desc)
+            }
+            if !spec.joints.isEmpty {
+                lines.append("Joints (\(spec.joints.count)):")
+                for j in spec.joints {
+                    lines.append("  \(j.jointType.rawValue) '\(j.nodeA)' <-> '\(j.nodeB)'")
+                }
+            }
+            if !spec.fields.isEmpty {
+                lines.append("Fields (\(spec.fields.count)):")
+                for f in spec.fields {
+                    lines.append("  \(f.fieldType.rawValue) strength=\(f.strength)")
+                }
+            }
+            return lines.joined(separator: "\n")
+
+        case "get_scene_diagnostics":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            guard let part = document.parts.first(where: { $0.partType == .spriteArea && $0.name.lowercased() == areaName.lowercased() }) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            guard let spec = part.activeSceneSpec else { return "Error: invalid scene spec JSON" }
+            let report = spec.diagnostics(using: document.spriteRepository)
+            if report.issues.isEmpty {
+                return """
+                No issues found. Scene is healthy.
+                Nodes: \(report.nodeCount)
+                Physics bodies: \(report.physicsBodyCount)
+                Textured nodes: \(report.texturedNodeCount)
+                Referenced assets: \(report.referencedAssetIDs.count)
+                """
+            }
+            let lines = report.issues.map { issue in
+                "\(issue.severity.rawValue.uppercased()): \(issue.message)"
+            }
+            return "Diagnostics for '\(areaName)':\n" + lines.joined(separator: "\n")
 
         default:
             return "Unknown tool: \(toolName)"

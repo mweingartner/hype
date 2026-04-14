@@ -11,10 +11,35 @@ public indirect enum Expression: Sendable {
     case this  // the current part's content (textContent for fields, name for buttons)
     case binary(Expression, BinaryOp, Expression)
     case unary(UnaryOp, Expression)
+    case await(Expression)
     case functionCall(String, [Expression])
     case propertyAccess(String, Expression?)     // "the name of card 1"
+    case headerAccess(Expression, Expression)    // the header "X" of request id
     case chunk(ChunkType, ChunkRange, Expression) // "word 3 of field 1"
     case objectRef(ObjectRefExpr)
+    /// A nested reference to a single data point inside a chart's series.
+    ///
+    /// Produced by the grammar `data point <ref> [of series <ref>] of chart <ref>`
+    /// and used exclusively as the `of` target of a `propertyAccess` or a
+    /// `set` statement. The three sub-expressions each resolve to a string
+    /// at runtime: the chart name or 1-based index, the series name or
+    /// 1-based index (defaults to `"1"` when the grammar omits `of series`),
+    /// and the data point name or 1-based index. The interpreter locates
+    /// the target `ChartDataPoint` inside `Part.chartData`'s encoded
+    /// `ChartConfig` on each access, so reads and writes always see the
+    /// live value.
+    case chartDataPointRef(chart: Expression, series: Expression, point: Expression)
+    /// Read a tile index from a tile map at a given column/row.
+    ///
+    /// Produced by the grammar `the tile at <col>,<row> of tilemap "X"`.
+    /// The interpreter resolves the sprite area + tile map node on the
+    /// current card, reads the indexed cell from `TileMapSpec.tileData`,
+    /// and returns the tile index as a string. Returns `"-1"` when the
+    /// cell is out of bounds or empty — callers can treat that as the
+    /// "no tile" sentinel. Used both for game-logic introspection
+    /// (`if the tile at 5,3 of tilemap "map" is 7 then ...`) and for
+    /// debugging tilemap contents at runtime.
+    case tileAt(column: Expression, row: Expression, tilemap: Expression)
     case not(Expression)
     case contains(Expression, Expression)         // "x contains y"
     case stringConcat(Expression, Expression)     // x & y
@@ -95,16 +120,26 @@ public indirect enum Statement: Sendable {
     case returnValue(Expression)
     case globalDecl([String])
     case ask(prompt: Expression)
+    case askAI(prompt: Expression, model: Expression?, callback: Expression?)
     case answer(prompt: Expression)
-    case visual(effectName: Expression)
+    case visual(effectName: Expression, duration: Expression?)
     case send(message: String, target: Expression)
     case expressionStatement(Expression)
     case doBlock(Expression)
-    case wait(Expression)
+    // Animation
+    case animateProperty(property: String, target: Expression, toValue: Expression, duration: Expression)
+
+    // Sound commands
+    case playSound(sound: Expression, notes: Expression?, tempo: Expression?)
+    case playStop
     case beep(Expression?)
-    case play(Expression)
+    // Wait commands
+    case waitDuration(Expression)
+    case waitUntil(Expression)
     case createCard(backgroundName: Expression?)  // "create a new card [with background "name"]"
     case createBackground(name: Expression)        // "create background "name""
+    case createButton(name: Expression, onBackground: Bool)  // "create button "name" [on background]"
+    case createField(name: Expression, onBackground: Bool)   // "create field "name" [on background]"
     case showAllCards                              // "show all cards"
     case addTo(value: Expression, variable: Expression)          // add 5 to x
     case subtractFrom(value: Expression, variable: Expression)   // subtract 1 from x
@@ -131,6 +166,34 @@ public indirect enum Statement: Sendable {
     case unmarkCard(Expression?)                                 // unmark this card
     case typeText(Expression)                                    // type "hello"
 
+    // SpriteKit commands
+    case createSprite(name: Expression, scene: Expression?, asset: Expression?)
+    case createGroup(name: Expression, parent: Expression?)
+    case createSpriteScene(name: Expression, inArea: Expression?, width: Expression?, height: Expression?)
+    case createSpriteArea(name: Expression, rect: Expression?)
+    case setSpriteNodeProperty(property: String, node: Expression, value: Expression)
+    case runSpriteAction(action: Expression, node: Expression)
+    case removeSpriteNode(Expression)
+    case pauseScene(Expression?)
+    case resumeScene(Expression?)
+    case createTileMap(name: Expression, columns: Expression?, rows: Expression?, tileSize: Expression?, tileset: Expression?)
+    case createCamera(name: Expression)
+    case createJoint(name: Expression, type: Expression, nodeA: Expression, nodeB: Expression)
+    case createConstraint(type: Expression, source: Expression, target: Expression, min: Expression?, max: Expression?)
+    case createPhysicsField(name: Expression, type: Expression, strength: Expression?, direction: Expression?)
+    case openScene(name: Expression, transition: Expression?, duration: Expression?)
+    case setTile(column: Expression, row: Expression, tilemap: Expression, tileIndex: Expression)
+    /// Fill every cell of the named tile map with the given tile
+    /// index. Grammar: `fill tilemap "X" with N`. An `N` of -1 clears
+    /// the tile map. Used for painting base layers before stamping
+    /// obstacles with `set tile col,row of tilemap "X" to N`.
+    case fillTileMap(tilemap: Expression, tileIndex: Expression)
+    /// Clear every cell of the named tile map. Grammar: `clear
+    /// tilemap "X"`. Equivalent to `fill tilemap "X" with -1`.
+    case clearTileMap(tilemap: Expression)
+    case applyForce(node: Expression, force: Expression)      // apply force 10,20 to sprite "ball"
+    case applyImpulse(node: Expression, impulse: Expression)  // apply impulse 5,0 to sprite "ball"
+
     // Stub commands (recognized but no-op)
     case push(Expression?)                                       // push card
     case pop                                                     // pop card
@@ -146,8 +209,14 @@ public indirect enum Statement: Sendable {
     case printCmd(Expression?)                                   // print card
     case readCmd(Expression)                                     // read from file
     case writeCmd(Expression, Expression)                        // write to file
-    case replyCmd(Expression)                                    // reply
-    case requestCmd(Expression)                                  // request
+    case replyRequest(request: Expression, status: Expression, headers: Expression?, body: Expression?)
+    case requestURL(url: Expression, method: Expression?, headers: Expression?, body: Expression?, username: Expression?, password: Expression?, callback: Expression?)
+    case listenHTTP(port: Expression, host: Expression?, method: Expression?, path: Expression?, callback: Expression)
+    case listenTCP(port: Expression, host: Expression?, callback: Expression)
+    case connectTCP(host: Expression, port: Expression, tls: Expression?, callback: Expression)
+    case sendToConnection(data: Expression, connection: Expression)
+    case closeConnection(Expression)
+    case stopListener(Expression)
     case runCmd(Expression)                                      // run
     case startUsing(Expression)                                  // start using stack
     case stopUsing(Expression)                                   // stop using stack

@@ -17,7 +17,7 @@ public enum TokenType: String, Sendable {
     case the, of, to, with
 
     // Special identifiers
-    case it, me, this, empty
+    case it, me, this, empty, await
 
     // Chunk types
     case word, char, character, item, line, number
@@ -48,9 +48,16 @@ public enum TokenType: String, Sendable {
     case export, `import`, copy, disable, enable, edit, dial
     case request, reply, start, stop, using, template, paint, report, file, printing
     case convert, typeText
+    case method, headers, body, username, password, host, port, message, listen, http, tcp, connection, listener, status, tls, connect, send
 
     // Prepositions & modifiers
     case by, from, times, down
+
+    // SpriteKit object types
+    case sprite, scene, spritearea, emitter, action, tilemap, camera, transition, tile, joint, constrain
+
+    // Audio & animation commands
+    case play, beep, wait, animate
 
     // AI (Phase 5 placeholder)
     case ai

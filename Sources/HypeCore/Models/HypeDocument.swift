@@ -7,24 +7,55 @@ public struct HypeDocument: Codable, Sendable {
     public var cards: [Card]
     public var parts: [Part]
     public var constraints: [LayoutConstraint]
+    public var spriteRepository: SpriteRepository
+    public var aiPromptHistory: [String]
+    public var defaultBackgroundId: UUID?
+
+    /// HypeTalk `global` variables that outlive any single handler
+    /// invocation. HyperCard's semantics: globals are initialised
+    /// to empty on first reference and persist for the lifetime of
+    /// the running stack (i.e. across every handler dispatch, every
+    /// card / background / stack script, every idle tick). Before
+    /// this field existed, each `MessageDispatcher.dispatch` call
+    /// constructed a fresh interpreter with empty globals, so a
+    /// script like `on idle / add 5 to rot / end idle` would read
+    /// `rot` as empty on every tick and never accumulate. Now the
+    /// interpreter seeds `env.globals` from this dictionary on
+    /// entry and writes them back on exit, which is what HyperCard
+    /// has always done.
+    ///
+    /// Not persisted: this field is intentionally excluded from
+    /// encoding/decoding so globals don't leak between stack
+    /// sessions via the `.hype` file. They live only for the
+    /// running session.
+    public var scriptGlobals: [String: String]
 
     public init(
         stack: Stack = Stack(),
         backgrounds: [Background] = [],
         cards: [Card] = [],
         parts: [Part] = [],
-        constraints: [LayoutConstraint] = []
+        constraints: [LayoutConstraint] = [],
+        spriteRepository: SpriteRepository = SpriteRepository(),
+        aiPromptHistory: [String] = [],
+        scriptGlobals: [String: String] = [:],
+        defaultBackgroundId: UUID? = nil
     ) {
         self.stack = stack
         self.backgrounds = backgrounds
         self.cards = cards
         self.parts = parts
         self.constraints = constraints
+        self.spriteRepository = spriteRepository
+        self.aiPromptHistory = aiPromptHistory
+        self.scriptGlobals = scriptGlobals
+        self.defaultBackgroundId = defaultBackgroundId
     }
 
-    // Custom decoder for backward compatibility — old documents lack `constraints`.
+    // Custom decoder for backward compatibility.
     enum CodingKeys: String, CodingKey {
-        case stack, backgrounds, cards, parts, constraints
+        case stack, backgrounds, cards, parts, constraints, spriteRepository, aiPromptHistory, defaultBackgroundId
+        // `scriptGlobals` is NOT in the coding keys — session-only.
     }
 
     public init(from decoder: Decoder) throws {
@@ -34,6 +65,10 @@ public struct HypeDocument: Codable, Sendable {
         cards = try container.decode([Card].self, forKey: .cards)
         parts = try container.decode([Part].self, forKey: .parts)
         constraints = try container.decodeIfPresent([LayoutConstraint].self, forKey: .constraints) ?? []
+        spriteRepository = try container.decodeIfPresent(SpriteRepository.self, forKey: .spriteRepository) ?? SpriteRepository()
+        aiPromptHistory = try container.decodeIfPresent([String].self, forKey: .aiPromptHistory) ?? []
+        defaultBackgroundId = try container.decodeIfPresent(UUID.self, forKey: .defaultBackgroundId)
+        scriptGlobals = [:]  // session-only, always starts empty on load
     }
 
     /// Create a new empty document with one default background and card.
@@ -41,7 +76,7 @@ public struct HypeDocument: Codable, Sendable {
         let stack = Stack(name: name)
         let bg = Background(stackId: stack.id, name: "Background 1")
         let card = Card(stackId: stack.id, backgroundId: bg.id, name: "Card 1")
-        return HypeDocument(stack: stack, backgrounds: [bg], cards: [card], parts: [])
+        return HypeDocument(stack: stack, backgrounds: [bg], cards: [card], parts: [], defaultBackgroundId: bg.id)
     }
 
     /// Get cards sorted by sortKey.
@@ -59,9 +94,26 @@ public struct HypeDocument: Codable, Sendable {
         parts.filter { $0.backgroundId == backgroundId && $0.cardId == nil }
     }
 
+    /// Get the effective visible parts for a card, including any
+    /// background-shared parts owned by that card's background.
+    public func effectivePartsForCard(_ cardId: UUID) -> [Part] {
+        let cardParts = partsForCard(cardId)
+        guard let card = cards.first(where: { $0.id == cardId }) else { return cardParts }
+        return cardParts + partsForBackground(card.backgroundId)
+    }
+
     /// Get the background for a card.
     public func backgroundForCard(_ card: Card) -> Background? {
         backgrounds.first { $0.id == card.backgroundId }
+    }
+
+    /// The effective default background ID — validates that the stored
+    /// ID still references a live background, falling back to the first.
+    public var resolvedDefaultBackgroundId: UUID? {
+        if let id = defaultBackgroundId, backgrounds.contains(where: { $0.id == id }) {
+            return id
+        }
+        return backgrounds.first?.id
     }
 
     /// Create a new background with the given name. Names must be unique in the stack.
@@ -76,6 +128,27 @@ public struct HypeDocument: Codable, Sendable {
         let bg = Background(stackId: stack.id, name: finalName, sortKey: String(format: "a%06d", backgrounds.count))
         backgrounds.append(bg)
         return bg
+    }
+
+    /// Remove a background by ID. Refuses to delete the last background.
+    /// Orphaned cards are reassigned to the resolved default background.
+    /// If the deleted background was the default, promotes the first remaining.
+    @discardableResult
+    public mutating func removeBackground(id: UUID) -> Bool {
+        guard backgrounds.count > 1 else { return false }
+        backgrounds.removeAll { $0.id == id }
+        // Remove parts owned by this background
+        parts.removeAll { $0.backgroundId == id && $0.cardId == nil }
+        // Reassign orphaned cards to the default
+        let fallback = resolvedDefaultBackgroundId ?? backgrounds.first!.id
+        for i in cards.indices where cards[i].backgroundId == id {
+            cards[i].backgroundId = fallback
+        }
+        // If deleted was the default, promote first remaining
+        if defaultBackgroundId == id {
+            defaultBackgroundId = backgrounds.first?.id
+        }
+        return true
     }
 
     /// Find a background by name (case-insensitive).
@@ -99,7 +172,7 @@ public struct HypeDocument: Codable, Sendable {
         } else if let afterIdx = afterIndex, afterIdx < sortedCards.count {
             bgId = sortedCards[afterIdx].backgroundId
         } else {
-            bgId = backgrounds.first?.id ?? UUID()
+            bgId = resolvedDefaultBackgroundId ?? UUID()
         }
         let index = (afterIndex ?? cards.count - 1) + 1
         let sortKey = String(format: "a%06d", index)

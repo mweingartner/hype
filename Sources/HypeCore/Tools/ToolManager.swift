@@ -18,7 +18,7 @@ public struct ToolState: Sendable {
     public var category: ToolCategory {
         switch currentTool {
         case "browse": return .browse
-        case "button", "field", "shape", "webpage", "image", "video", "chart", "select": return .edit
+        case "button", "field", "shape", "webpage", "image", "video", "chart", "spriteArea", "select": return .edit
         default: return .paint
         }
     }

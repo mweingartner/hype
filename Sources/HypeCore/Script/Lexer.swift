@@ -18,9 +18,14 @@ public struct Lexer: Sendable {
         "true": .true, "false": .false, "not": .not, "and": .and, "or": .or,
         "is": .is, "contains": .contains, "into": .into, "after": .after,
         "before": .before, "the": .the, "of": .of, "to": .to, "with": .with,
-        "it": .it, "me": .me, "this": .this, "empty": .empty,
+        "it": .it, "me": .me, "this": .this, "empty": .empty, "await": .await,
         "word": .word, "char": .char, "character": .character,
         "item": .item, "line": .line, "number": .number,
+        // Plural chunk keywords — accepted as aliases for the
+        // singular forms so scripts can write naturally as either
+        // "the first item of X" or "the items 1 to 3 of X".
+        "words": .word, "chars": .char, "characters": .character,
+        "items": .item, "lines": .line,
         "first": .first, "second": .second, "third": .third,
         "last": .last, "middle": .middle, "any": .any,
         "card": .card, "background": .background, "bg": .background,
@@ -33,6 +38,11 @@ public struct Lexer: Sendable {
         "find": .find, "select": .select, "sort": .sort,
         "hide": .hide, "lock": .lock, "unlock": .unlock, "open": .open,
         "by": .by, "from": .from, "times": .times, "down": .down,
+        "sprite": .sprite, "scene": .scene, "spritearea": .spritearea,
+        "emitter": .emitter, "action": .action,
+        "tilemap": .tilemap, "camera": .camera, "transition": .transition, "tile": .tile,
+        "joint": .joint, "constrain": .constrain,
+        "play": .play, "beep": .beep, "wait": .wait, "animate": .animate,
         "ai": .ai,
         "choose": .choose, "close": .close, "save": .save, "quit": .quit,
         "mark": .mark, "unmark": .unmark, "push": .push, "pop": .pop,
@@ -46,6 +56,12 @@ public struct Lexer: Sendable {
         "template": .template, "paint": .paint,
         "report": .report, "file": .file, "printing": .printing,
         "convert": .convert,
+        "method": .method, "headers": .headers, "body": .body,
+        "username": .username, "password": .password,
+        "host": .host, "port": .port, "message": .message,
+        "listen": .listen, "http": .http, "tcp": .tcp,
+        "connection": .connection, "listener": .listener,
+        "status": .status, "tls": .tls, "connect": .connect, "send": .send,
     ]
 
     public init(source: String) {

@@ -1,0 +1,150 @@
+{
+  "activityEntities" : [
+    "trainingDataAdded",
+    [
+      {
+        "createdDate" : "2026-04-09T03:03:46Z",
+        "event" : "trainingDataAdded",
+        "id" : "C8C33749-9CFD-47AA-AAB3-E1BB0241AEF6",
+        "subtitle" : "hype-v2",
+        "title" : "Training Data Added"
+      }
+    ],
+    "experimentCreated",
+    [
+      {
+        "createdDate" : "2026-04-09T03:03:19Z",
+        "event" : "experimentCreated",
+        "id" : "0D3F432E-EAE2-4D2C-9D9A-01F026B1F196",
+        "subtitle" : "HypeTalk 1",
+        "title" : "Model Source Created"
+      }
+    ]
+  ],
+  "contentDataResult" : {
+    "createdDate" : "2026-04-09T03:03:38Z"
+  },
+  "createdDate" : "2026-04-09T03:03:19Z",
+  "evaluationContainerEntity" : {
+    "createdDate" : "2026-04-09T03:03:46Z",
+    "evaluationEntities" : [
+
+    ],
+    "id" : "08b15f0e-ec1c-4da0-8a4b-d5d14dfcbfdc",
+    "modifiedDate" : "2026-04-09T03:03:46Z",
+    "previewType" : "textClassifier",
+    "testingEvaluationEntity" : {
+      "analysedDataType" : "none",
+      "createdDate" : "2026-04-09T03:03:19Z",
+      "dataResult" : {
+        "createdDate" : "2026-04-09T03:03:38Z"
+      },
+      "id" : "f8f74756-c01f-4e59-877e-8d1599142cfa"
+    },
+    "trainingEvaluationEntity" : {
+      "analysedDataType" : "none",
+      "createdDate" : "2026-04-09T03:03:19Z",
+      "dataResult" : {
+        "createdDate" : "2026-04-09T03:03:38Z"
+      },
+      "id" : "8938b683-0700-4c7f-aa21-f989233c1350"
+    },
+    "validationEvaluationEntity" : {
+      "analysedDataType" : "auto",
+      "createdDate" : "2026-04-09T03:03:19Z",
+      "dataResult" : {
+        "createdDate" : "2026-04-09T03:03:38Z"
+      },
+      "id" : "e5595780-51bd-45cc-90ff-9527dc8165c1"
+    }
+  },
+  "evaluationEntity" : {
+    "analysedDataType" : "none",
+    "dataResult" : {
+
+    },
+    "id" : "4195227d-fa9b-42d9-8c05-fb502aabbcfe"
+  },
+  "evaluationState" : "uninitialized",
+  "id" : "638AFABE-309C-49E9-AFF8-83C174A47BED",
+  "modelEntity" : {
+    "createdDate" : "2026-04-09T03:03:19Z",
+    "experimentID" : "638AFABE-309C-49E9-AFF8-83C174A47BED",
+    "id" : "CCE1BE43-FECC-4163-9897-21453A054CA2",
+    "modifiedDate" : "2026-04-09T03:03:19Z",
+    "title" : "",
+    "version" : "1.0"
+  },
+  "modifiedDate" : "2026-04-09T03:03:46Z",
+  "preferredFilename" : "HypeTalk 1",
+  "settingEntity" : {
+    "algorithmType" : "maxEnt",
+    "augmentations" : [
+
+    ],
+    "featureNames" : [
+
+    ],
+    "handActionClassifierAugmentations" : [
+
+    ],
+    "handPoseClassifierAugmentations" : [
+
+    ],
+    "harVideoAugmentations" : 0,
+    "seedType" : "default",
+    "styleTransferAlgorithmType" : "image",
+    "taskType" : "textClassifier",
+    "textClassifierArabicLanguage" : "automatic",
+    "textClassifierCJKLanguage" : "automatic",
+    "textClassifierCyrillicLanguage" : "automatic",
+    "textClassifierIndicLanguage" : "automatic",
+    "textClassifierLatin" : "automatic",
+    "textClassifierScript" : "latin",
+    "textClassifierThaiLanguage" : "automatic"
+  },
+  "snapshotRole" : {
+    "withoutSnapshots" : 0
+  },
+  "state" : "uninitialized",
+  "title" : "HypeTalk 1",
+  "trainingEntity" : {
+    "analysedDataType" : "datasource",
+    "checkpointMetrics" : {
+
+    },
+    "dataResult" : {
+      "createdDate" : "2026-04-09T03:03:38Z",
+      "dataSourceID" : "4F31F942-F690-409B-8F12-B0F7C1194043",
+      "dataURL" : "file:///Users/mweingar/dev/hype-v2/",
+      "error" : {
+        "code" : 0,
+        "domain" : "com.apple.CreateML.xpc",
+        "errorType" : "error",
+        "reason" : "No data found for label 'Tests'."
+      }
+    },
+    "dataSourceID" : "4F31F942-F690-409B-8F12-B0F7C1194043",
+    "featureExtractionCheckpointMayBeAvailable" : false,
+    "progress" : [
+
+    ],
+    "snapshottableCheckpoints" : {
+
+    }
+  },
+  "validationEntity" : {
+    "analysedDataType" : "auto",
+    "dataResult" : {
+      "createdDate" : "2026-04-09T03:03:38Z"
+    },
+    "splitOptions" : {
+      "strategy" : {
+        "automatic" : {
+
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

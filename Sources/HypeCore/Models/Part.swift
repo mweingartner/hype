@@ -18,6 +18,17 @@ public struct Part: Identifiable, Codable, Sendable {
     public var top: Double
     public var width: Double
     public var height: Double
+    /// Rotation in degrees, clockwise, applied around the part's
+    /// centre. Settable and readable via HypeTalk as
+    /// `the rotation of <part>` / `set the rotation of <part> to N`.
+    ///
+    /// Currently only honoured by the shape and image renderers —
+    /// rotating buttons, fields, and other interactive parts
+    /// would break hit-testing and native-control overlays so
+    /// those types ignore the value. The field still lives on
+    /// every Part for uniform get/set, and `0` (the default) is
+    /// equivalent to "not rotated".
+    public var rotation: Double
 
     // State
     public var visible: Bool
@@ -36,6 +47,9 @@ public struct Part: Identifiable, Codable, Sendable {
     public var buttonStyle: ButtonStyle
     public var showName: Bool
     public var iconId: UUID?
+    // Deprecated: `family` is kept for backward compatibility with
+    // older .hype documents but is no longer used by any renderer
+    // or click handler.
     public var family: Int
     /// Newline-separated list of items for popup buttons. First item is the selected value.
     public var popupItems: String
@@ -72,6 +86,9 @@ public struct Part: Identifiable, Codable, Sendable {
     public var imageData: Data?
     public var invertOnClick: Bool
 
+    // SpriteKit scene-specific
+    public var sceneSpec: String  // JSON-encoded SceneSpec or SpriteAreaSpec
+
     // Script
     public var script: String
 
@@ -97,15 +114,16 @@ public struct Part: Identifiable, Codable, Sendable {
         self.top = top
         self.width = width
         self.height = height
+        self.rotation = 0
         self.visible = true
         self.enabled = true
         self.hilite = false
         self.autoHilite = true
         self.textContent = ""
-        self.textFont = "SF Pro"
+        self.textFont = "Apple Braille"
         self.textSize = 14
         self.textStyle = "plain"
-        self.textAlign = .center
+        self.textAlign = (partType == .field) ? .left : .center
         self.buttonStyle = .roundRect
         self.showName = true
         self.iconId = nil
@@ -130,6 +148,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.chartData = ""
         self.imageData = nil
         self.invertOnClick = false
+        self.sceneSpec = ""
         self.script = ""
     }
 
@@ -146,6 +165,10 @@ public struct Part: Identifiable, Codable, Sendable {
         top = try container.decode(Double.self, forKey: .top)
         width = try container.decode(Double.self, forKey: .width)
         height = try container.decode(Double.self, forKey: .height)
+        // `rotation` was added after the initial Part schema —
+        // accept missing values and default to 0 so older .hype
+        // files still load.
+        rotation = try container.decodeIfPresent(Double.self, forKey: .rotation) ?? 0
         visible = try container.decode(Bool.self, forKey: .visible)
         enabled = try container.decode(Bool.self, forKey: .enabled)
         hilite = try container.decode(Bool.self, forKey: .hilite)
@@ -179,6 +202,7 @@ public struct Part: Identifiable, Codable, Sendable {
         chartData = try container.decodeIfPresent(String.self, forKey: .chartData) ?? ""
         imageData = try container.decodeIfPresent(Data.self, forKey: .imageData)
         invertOnClick = try container.decodeIfPresent(Bool.self, forKey: .invertOnClick) ?? false
+        sceneSpec = try container.decodeIfPresent(String.self, forKey: .sceneSpec) ?? ""
         script = try container.decode(String.self, forKey: .script)
     }
 }

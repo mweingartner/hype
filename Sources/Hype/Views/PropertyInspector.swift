@@ -8,7 +8,18 @@ private let systemFontFamilies: [String] = NSFontManager.shared.availableFontFam
 struct PropertyInspector: View {
     @Binding var document: HypeDocumentWrapper
     @Binding var selectedPartIds: Set<UUID>
+    var currentTool: ToolName = .browse
+    var currentCardId: UUID? = nil
+    @Binding var paintColor: Color
+    @Binding var pencilRadius: Double
     @State private var showingScript = false
+    @State private var showingCardScript = false
+    @State private var showingBgScript = false
+    @State private var showingStackScript = false
+    @State private var showingHypeScript = false
+    @State private var selectedNodeId: UUID?
+    @State private var draggedNodeId: UUID?
+    @State private var sceneGuideContext: SpriteSceneGuideContext?
 
     var body: some View {
         Group {
@@ -34,6 +45,7 @@ struct PropertyInspector: View {
                         case .image: imageSection(part: part)
                         case .video: videoSection(part: part)
                         case .chart: chartSection(part: part)
+                        case .spriteArea: spriteAreaSection(part: part)
                         }
 
                         // Font controls for buttons and fields
@@ -50,7 +62,9 @@ struct PropertyInspector: View {
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundColor(.secondary)
 
-                            Button(action: { showingScript = true }) {
+                            Button(action: {
+                                openScriptEditorWindow(document: $document, partId: partId, target: .part(partId))
+                            }) {
                                 HStack {
                                     Image(systemName: "applescript")
                                     Text(part.script.isEmpty ? "Add Script..." : "Edit Script...")
@@ -63,10 +77,6 @@ struct PropertyInspector: View {
                                     .foregroundColor(.secondary)
                                     .lineLimit(3)
                             }
-                        }
-                        .sheet(isPresented: $showingScript) {
-                            ScriptEditorSheet(document: $document, partId: partId)
-                                .frame(width: 500, height: 400)
                         }
 
                         Divider()
@@ -93,18 +103,57 @@ struct PropertyInspector: View {
                     }
                     .padding()
                 }
+            } else if currentTool == .pencil || currentTool == .spray || currentTool == .eraser {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Paint Tools")
+                            .font(.headline)
+                            .padding(.bottom, 4)
+
+                        paintToolSection
+                    }
+                    .padding()
+                }
             } else {
-                VStack {
-                    Spacer()
-                    Text("Select a part to\nedit its properties")
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                    Spacer()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Scripts")
+                            .font(.headline)
+                            .padding(.bottom, 4)
+                        scriptsSection
+                    }
+                    .padding()
                 }
             }
         }
         .frame(width: 260)
         .background(Color(NSColor.controlBackgroundColor))
+        .sheet(item: $sceneGuideContext) { context in
+            SpriteSceneSetupGuide(
+                document: $document,
+                partId: context.partId,
+                sceneId: context.sceneId
+            ) {
+                sceneGuideContext = nil
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .focusSpriteNodeInInspector)) { notification in
+            let info = notification.userInfo ?? [:]
+            guard let partId = info["partId"] as? UUID,
+                  let nodeId = info["nodeId"] as? UUID else { return }
+            guard selectedPartIds.contains(partId) else { return }
+            if let sceneId = info["sceneId"] as? UUID {
+                document.document.updatePart(id: partId) { part in
+                    part.updateSpriteAreaSpec { areaSpec in
+                        _ = areaSpec.activateScene(id: sceneId)
+                    }
+                }
+            }
+            selectedNodeId = nodeId
+        }
+        .onChange(of: selectedPartIds) { _, _ in
+            selectedNodeId = nil
+        }
     }
 
     // MARK: - Multi-selection view
@@ -216,6 +265,216 @@ struct PropertyInspector: View {
         .help(tooltip)
     }
 
+    // MARK: - Paint Tool Section
+
+    @ViewBuilder
+    private var paintToolSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            let toolLabel = currentTool == .pencil ? "Pencil" : currentTool == .spray ? "Spray" : "Eraser"
+            Text(toolLabel).font(.subheadline).bold()
+
+            if currentTool == .pencil || currentTool == .spray {
+                HStack {
+                    Text("Aperture")
+                        .font(.system(size: 11))
+                    Slider(value: $pencilRadius, in: 1...50, step: 1)
+                    Text("\(Int(pencilRadius))")
+                        .font(.system(size: 11, design: .monospaced))
+                        .frame(width: 24, alignment: .trailing)
+                }
+            }
+
+            if currentTool == .eraser {
+                HStack {
+                    Text("Radius")
+                        .font(.system(size: 11))
+                    Slider(value: $pencilRadius, in: 1...50, step: 1)
+                    Text("\(Int(pencilRadius))")
+                        .font(.system(size: 11, design: .monospaced))
+                        .frame(width: 24, alignment: .trailing)
+                }
+            }
+
+            if currentTool != .eraser {
+                ColorPicker("Color", selection: $paintColor, supportsOpacity: false)
+            }
+        }
+    }
+
+    // MARK: - Scripts Section (no part selected)
+
+    @ViewBuilder
+    private var scriptsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let cardId = currentCardId {
+                let card = document.document.cards.first(where: { $0.id == cardId })
+                let cardName = card?.name.isEmpty == false ? card!.name : "Card"
+
+                Button(action: {
+                    openScriptEditorWindow(document: $document, target: .card(cardId))
+                }) {
+                    HStack {
+                        Image(systemName: "rectangle.portrait")
+                        Text("Edit \(cardName) Script...")
+                    }
+                }
+
+                if let bgId = card?.backgroundId {
+                    let bg = document.document.backgrounds.first(where: { $0.id == bgId })
+                    let bgName = bg?.name.isEmpty == false ? bg!.name : "Background"
+                    Button(action: {
+                        openScriptEditorWindow(document: $document, target: .background(bgId))
+                    }) {
+                        HStack {
+                            Image(systemName: "rectangle.on.rectangle")
+                            Text("Edit \(bgName) Script...")
+                        }
+                    }
+                }
+            }
+
+            Button(action: {
+                openScriptEditorWindow(document: $document, target: .stack)
+            }) {
+                HStack {
+                    Image(systemName: "square.stack.3d.up")
+                    Text("Edit Stack Script...")
+                }
+            }
+
+            Divider()
+
+            // BACKGROUNDS browser
+            //
+            // Lists every background in the stack and lets the user
+            // re-bind the current card to a different one. Without
+            // this UI the only way to "use" a background was via
+            // HypeTalk or a manual edit of the saved file — which
+            // is what made `New Background...` look like a no-op
+            // (the background existed but no surface in the app
+            // showed it). The picker also includes a count so the
+            // user gets immediate confirmation that creating a new
+            // background actually worked.
+            backgroundsPicker
+
+            Divider()
+
+            Button(action: {
+                openScriptEditorWindow(document: $document, target: .hype)
+            }) {
+                HStack {
+                    Image(systemName: "sparkles")
+                    Text("Edit Hype Script...")
+                }
+            }
+
+            Text("Messages pass: part → card → background → stack → Hype")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+                .padding(.top, 4)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Listing of every background in the stack with a picker
+    /// that re-assigns the current card to a different one,
+    /// default-star controls, and delete buttons.
+    @ViewBuilder
+    private var backgroundsPicker: some View {
+        let backgrounds = document.document.backgrounds
+        let defaultId = document.document.resolvedDefaultBackgroundId
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Text("BACKGROUNDS").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+                Text("(\(backgrounds.count))").font(.system(size: 10)).foregroundColor(.secondary)
+                Spacer()
+                Button(action: {
+                    NotificationCenter.default.post(name: .addNewBackground, object: nil)
+                }) {
+                    Image(systemName: "plus.circle")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+                .help("New Background...")
+            }
+
+            // Picker for the current card's background.
+            if let cardId = currentCardId,
+               let cardIdx = document.document.cards.firstIndex(where: { $0.id == cardId }) {
+                Picker("Card uses", selection: bindCardBackground(cardIndex: cardIdx)) {
+                    ForEach(backgrounds, id: \.id) { bg in
+                        Text(bg.name.isEmpty ? "Background \(bg.id.uuidString.prefix(4))" : bg.name)
+                            .tag(bg.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .font(.system(size: 11))
+            }
+
+            // Background list with default star, card count, and delete.
+            ForEach(backgrounds, id: \.id) { bg in
+                let isDefault = bg.id == defaultId
+                let cardCount = document.document.cardsForBackground(bg.id).count
+                HStack(spacing: 4) {
+                    Button(action: {
+                        document.document.defaultBackgroundId = bg.id
+                    }) {
+                        Image(systemName: isDefault ? "star.fill" : "star")
+                            .font(.system(size: 10))
+                            .foregroundColor(isDefault ? .orange : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(isDefault ? "Default background" : "Set as default background")
+
+                    Text(bg.name.isEmpty ? "Background \(bg.id.uuidString.prefix(4))" : bg.name)
+                        .font(.system(size: 10))
+                        .foregroundColor(.primary)
+                    Spacer()
+                    Text("\(cardCount)")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .help("\(cardCount) card\(cardCount == 1 ? "" : "s") on this background")
+
+                    Button(action: {
+                        deleteBackground(id: bg.id, name: bg.name)
+                    }) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 10))
+                            .foregroundColor(backgrounds.count > 1 ? .secondary : .secondary.opacity(0.3))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(backgrounds.count <= 1)
+                    .help(backgrounds.count > 1 ? "Delete background" : "Cannot delete the last background")
+                }
+            }
+        }
+    }
+
+    /// Show a confirmation alert and remove the background if confirmed.
+    private func deleteBackground(id: UUID, name: String) {
+        let alert = NSAlert()
+        alert.messageText = "Delete Background"
+        alert.informativeText = "Delete \"\(name)\"? Cards using it will be reassigned to the default background."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+        document.document.removeBackground(id: id)
+    }
+
+    /// Binding for the current card's `backgroundId`, with the
+    /// write side updating the card model directly. Lets the
+    /// SwiftUI Picker drive the actual document state.
+    private func bindCardBackground(cardIndex: Int) -> Binding<UUID> {
+        Binding(
+            get: { document.document.cards[cardIndex].backgroundId },
+            set: { newId in
+                document.document.cards[cardIndex].backgroundId = newId
+            }
+        )
+    }
+
     // MARK: - Sections
 
     @ViewBuilder
@@ -267,6 +526,7 @@ struct PropertyInspector: View {
                     .frame(height: 80)
                     .border(Color.gray.opacity(0.5))
             }
+
         }
     }
 
@@ -400,6 +660,1373 @@ struct PropertyInspector: View {
                 document.document.updatePart(id: partId) { $0.imageData = data }
             }
         }
+    }
+
+    @ViewBuilder
+    private func spriteAreaSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Sprite Area").font(.subheadline).bold()
+
+            if let areaSpec = part.spriteAreaSpecModel,
+               let spec = areaSpec.activeScene {
+                HStack {
+                    Text("Active Scene").font(.system(size: 11))
+                    Spacer()
+                    Picker("Active Scene", selection: bindActiveSceneId(part.id)) {
+                        ForEach(areaSpec.scenes) { entry in
+                            Text(entry.scene.name).tag(entry.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .font(.system(size: 11))
+                    Button(action: { addScene(partId: part.id) }) {
+                        Image(systemName: "plus.circle")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Add Scene")
+                }
+
+                HStack(spacing: 8) {
+                    Button("Guide Setup") {
+                        sceneGuideContext = SpriteSceneGuideContext(partId: part.id, sceneId: areaSpec.activeSceneEntry?.id)
+                    }
+                    .font(.system(size: 10))
+                    .buttonStyle(.borderless)
+
+                    Button("Scene Script") {
+                        if let sceneId = areaSpec.activeSceneEntry?.id {
+                            openScriptEditorWindow(document: $document, target: .scene(partId: part.id, sceneId: sceneId))
+                        }
+                    }
+                    .font(.system(size: 10))
+                    .buttonStyle(.borderless)
+
+                    Button("Repository") {
+                        openSpriteRepositoryWindow(document: $document)
+                    }
+                    .font(.system(size: 10))
+                    .buttonStyle(.borderless)
+                }
+
+                propertyRow("Scene Name", binding: bindSceneSpecString(part.id, \.name))
+                propertyRow("Nodes", value: "\(spec.nodes.count)")
+                propertyRow("Size", value: "\(Int(spec.size.width)) \u{00d7} \(Int(spec.size.height))")
+
+                let checklist = spec.authoringChecklist(using: document.document.spriteRepository)
+                Divider()
+                Text("Setup Checklist").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+                ForEach(checklist) { item in
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: checklistIcon(for: item.status))
+                            .font(.system(size: 9))
+                            .foregroundColor(checklistColor(for: item.status))
+                            .frame(width: 12)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.title).font(.system(size: 10, weight: .medium))
+                            Text(item.detail).font(.system(size: 9)).foregroundColor(.secondary)
+                        }
+                    }
+                }
+
+                Picker("Scale", selection: bindSceneScaleMode(part.id)) {
+                    ForEach(SceneScaleMode.allCases, id: \.self) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .font(.system(size: 11))
+
+                Divider()
+                Text("Physics").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+                HStack {
+                    Text("Gravity").font(.system(size: 11))
+                    Spacer()
+                    numberField("dx", binding: bindSceneSpecDouble(part.id, \.gravity.dx))
+                    numberField("dy", binding: bindSceneSpecDouble(part.id, \.gravity.dy))
+                }
+
+                Divider()
+                Text("Controls").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+                HStack(spacing: 8) {
+                    Button(action: { toggleScenePause(partId: part.id) }) {
+                        Image(systemName: spec.isPaused ? "play.fill" : "pause.fill")
+                    }
+                    .help(spec.isPaused ? "Play" : "Pause")
+
+                    Button(action: { stepScene(partId: part.id) }) {
+                        Image(systemName: "forward.frame.fill")
+                    }
+                    .help("Step One Frame")
+
+                    Button(action: { reloadScene(partId: part.id) }) {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .help("Reload Scene")
+                }
+                .buttonStyle(.borderless)
+
+                Divider()
+                Text("Debug").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+                Toggle("Show FPS", isOn: bindSceneSpecBool(part.id, \.showsFPS))
+                Toggle("Show Physics", isOn: bindSceneSpecBool(part.id, \.showsPhysics))
+                Toggle("Show Node Count", isOn: bindSceneSpecBool(part.id, \.showsNodeCount))
+                Toggle("Paused", isOn: bindSceneSpecBool(part.id, \.isPaused))
+
+                Divider()
+                Text("Nodes").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+
+                if !spec.nodes.isEmpty {
+                    nodeTreeView(partId: part.id, nodes: spec.nodes, depth: 0)
+
+                    // Drop zone for reparenting to top level
+                    HStack {
+                        Image(systemName: "arrow.turn.up.left")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                        Text("Drop here for top level")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(4)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.gray.opacity(0.05))
+                    .cornerRadius(4)
+                    .onDrop(of: [.text], isTargeted: nil) { providers in
+                        guard let sourceId = draggedNodeId else { return false }
+                        modifySceneSpec(partId: part.id) { spec in
+                            guard let sourceNode = Self.removeNodeFromTree(nodeId: sourceId, from: &spec.nodes) else { return }
+                            spec.nodes.append(sourceNode)
+                        }
+                        draggedNodeId = nil
+                        return true
+                    }
+                }
+
+                Menu {
+                    Button("Sprite")  { addSpriteNode(partId: part.id) }
+                    Button("Shape")   { addShapeNode(partId: part.id) }
+                    Button("Label")   { addLabelNode(partId: part.id) }
+                    Divider()
+                    Button("Emitter") { addEmitterNode(partId: part.id) }
+                    Button("Audio")   { addAudioNode(partId: part.id) }
+                    Button("Video")   { addVideoNode(partId: part.id) }
+                    Divider()
+                    Button("Camera")  { addCameraNode(partId: part.id) }
+                    Divider()
+                    Button("Group")   { addGroupNode(partId: part.id) }
+                } label: {
+                    Label("Add Node", systemImage: "plus.circle")
+                        .font(.system(size: 11))
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("No scene configured")
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 11))
+                    Button("Open Guided Setup") {
+                        sceneGuideContext = SpriteSceneGuideContext(partId: part.id, sceneId: nil)
+                    }
+                    .font(.system(size: 10))
+                    .buttonStyle(.borderless)
+                }
+            }
+        }
+    }
+
+    private func checklistIcon(for status: SceneChecklistStatus) -> String {
+        switch status {
+        case .complete: return "checkmark.circle.fill"
+        case .recommended: return "exclamationmark.circle"
+        case .missing: return "xmark.circle"
+        }
+    }
+
+    private func checklistColor(for status: SceneChecklistStatus) -> Color {
+        switch status {
+        case .complete: return .green
+        case .recommended: return .orange
+        case .missing: return .red
+        }
+    }
+
+    private func nodeIcon(_ type: NodeType) -> String {
+        switch type {
+        case .sprite: return "photo"
+        case .label: return "textformat"
+        case .shape: return "square"
+        case .group: return "folder"
+        case .emitter: return "sparkles"
+        case .audio: return "waveform"
+        case .tileMap: return "square.grid.3x3"
+        case .camera: return "camera"
+        case .video: return "play.rectangle"
+        case .crop: return "crop"
+        case .effect: return "wand.and.stars"
+        case .light: return "lightbulb"
+        }
+    }
+
+    // MARK: - Node Tree View
+
+    private func nodeTreeView(partId: UUID, nodes: [HypeNodeSpec], depth: Int) -> AnyView {
+        AnyView(
+            ForEach(nodes) { node in
+                VStack(alignment: .leading, spacing: 0) {
+                    // Node header row — indented by depth
+                    HStack(spacing: 4) {
+                        Spacer().frame(width: CGFloat(depth) * 16)
+
+                        // Disclosure triangle for nodes with children
+                        if !node.children.isEmpty {
+                            Image(systemName: selectedNodeId == node.id ? "chevron.down" : "chevron.right")
+                                .font(.system(size: 8))
+                                .foregroundColor(.secondary)
+                        } else {
+                            Spacer().frame(width: 10)
+                        }
+
+                        Image(systemName: nodeIcon(node.nodeType))
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                        TextField("name", text: bindNodeName(partId: partId, nodeId: node.id))
+                            .font(.system(size: 11))
+                            .textFieldStyle(.plain)
+                            .frame(maxWidth: .infinity)
+                        if !node.children.isEmpty {
+                            Text("(\(node.children.count))")
+                                .font(.system(size: 8))
+                                .foregroundColor(.secondary)
+                        }
+                        Text(node.nodeType.rawValue)
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                        Button(action: {
+                            openScriptEditorWindow(document: $document, target: .node(partId: partId, nodeId: node.id))
+                        }) {
+                            Image(systemName: "applescript")
+                                .font(.system(size: 11))
+                        }
+                        .buttonStyle(.borderless)
+                        Button(action: { removeSceneNode(partId: partId, nodeId: node.id) }) {
+                            Image(systemName: "minus.circle.fill")
+                                .foregroundColor(.red)
+                                .font(.system(size: 12))
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectedNodeId = selectedNodeId == node.id ? nil : node.id }
+                    .padding(.vertical, 2)
+                    .background(selectedNodeId == node.id ? Color.accentColor.opacity(0.08) : Color.clear)
+                    .cornerRadius(4)
+                    // Drag source
+                    .onDrag {
+                        draggedNodeId = node.id
+                        return NSItemProvider(object: node.id.uuidString as NSString)
+                    }
+                    // Drop target — reparent dragged node to this node
+                    .onDrop(of: [.text], isTargeted: nil) { providers in
+                        guard let sourceId = draggedNodeId, sourceId != node.id else { return false }
+                        modifySceneSpec(partId: partId) { spec in
+                            guard let sourceNode = Self.removeNodeFromTree(nodeId: sourceId, from: &spec.nodes) else { return }
+                            Self.addNodeToParentInTree(node: sourceNode, parentId: node.id, nodes: &spec.nodes)
+                        }
+                        draggedNodeId = nil
+                        return true
+                    }
+
+                    // Expanded detail panel
+                    if selectedNodeId == node.id {
+                        nodeDetailPanel(partId: partId, node: node)
+                            .padding(.leading, CGFloat(depth) * 16 + 16)
+                            .padding(.vertical, 4)
+                            .background(Color.gray.opacity(0.05))
+                            .cornerRadius(4)
+                    }
+
+                    // Recursively show children
+                    if !node.children.isEmpty {
+                        nodeTreeView(partId: partId, nodes: node.children, depth: depth + 1)
+                    }
+                }
+            }
+        )
+    }
+
+    // MARK: - Node Hierarchy Helpers
+
+    /// Recursively remove a node by ID from a node tree. Returns the removed node.
+    @discardableResult
+    private static func removeNodeFromTree(nodeId: UUID, from nodes: inout [HypeNodeSpec]) -> HypeNodeSpec? {
+        if let idx = nodes.firstIndex(where: { $0.id == nodeId }) {
+            return nodes.remove(at: idx)
+        }
+        for i in 0..<nodes.count {
+            if let removed = removeNodeFromTree(nodeId: nodeId, from: &nodes[i].children) {
+                return removed
+            }
+        }
+        return nil
+    }
+
+    /// Recursively add a node as a child of a target parent node by ID.
+    private static func addNodeToParentInTree(node: HypeNodeSpec, parentId: UUID, nodes: inout [HypeNodeSpec]) {
+        for i in 0..<nodes.count {
+            if nodes[i].id == parentId {
+                nodes[i].children.append(node)
+                return
+            }
+            addNodeToParentInTree(node: node, parentId: parentId, nodes: &nodes[i].children)
+        }
+    }
+
+    /// Recursively add a node as a child of a target parent node by name.
+    private static func addNodeToParentByName(node: HypeNodeSpec, parentName: String, nodes: inout [HypeNodeSpec]) -> Bool {
+        for i in 0..<nodes.count {
+            if nodes[i].name.lowercased() == parentName.lowercased() {
+                nodes[i].children.append(node)
+                return true
+            }
+            if addNodeToParentByName(node: node, parentName: parentName, nodes: &nodes[i].children) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Recursively update a node by ID in a node tree.
+    @discardableResult
+    private static func updateNodeInTree(nodeId: UUID, in nodes: inout [HypeNodeSpec], transform: (inout HypeNodeSpec) -> Void) -> Bool {
+        for i in 0..<nodes.count {
+            if nodes[i].id == nodeId {
+                transform(&nodes[i])
+                return true
+            }
+            if updateNodeInTree(nodeId: nodeId, in: &nodes[i].children, transform: transform) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Recursively find a node by ID in a node tree.
+    private static func findNodeById(_ nodeId: UUID, in nodes: [HypeNodeSpec]) -> HypeNodeSpec? {
+        for node in nodes {
+            if node.id == nodeId { return node }
+            if let found = findNodeById(nodeId, in: node.children) { return found }
+        }
+        return nil
+    }
+
+    /// Find the parent name of a node by ID. Returns empty string if top-level.
+    private static func findParentName(of nodeId: UUID, in nodes: [HypeNodeSpec], parentName: String) -> String? {
+        for node in nodes {
+            if node.id == nodeId { return parentName }
+            if let result = findParentName(of: nodeId, in: node.children, parentName: node.name) {
+                return result
+            }
+        }
+        return nil
+    }
+
+    /// Collect all group names in the node tree, excluding a specific node ID.
+    private func getAllGroupNames(partId: UUID, excludeNodeId: UUID) -> [String] {
+        let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+        guard let spec = SceneSpec.fromJSON(json) else { return [] }
+        var names: [String] = []
+        Self.collectGroupNames(from: spec.nodes, excluding: excludeNodeId, into: &names)
+        return names
+    }
+
+    private static func collectGroupNames(from nodes: [HypeNodeSpec], excluding: UUID, into names: inout [String]) {
+        for node in nodes {
+            if node.nodeType == .group && node.id != excluding && !node.name.isEmpty {
+                names.append(node.name)
+            }
+            collectGroupNames(from: node.children, excluding: excluding, into: &names)
+        }
+    }
+
+    /// Binding for the parent of a node — used in the Parent picker.
+    private func bindNodeParent(partId: UUID, nodeId: UUID) -> Binding<String> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                guard let spec = SceneSpec.fromJSON(json) else { return "" }
+                return Self.findParentName(of: nodeId, in: spec.nodes, parentName: "") ?? ""
+            },
+            set: { newParent in
+                modifySceneSpec(partId: partId) { spec in
+                    guard let node = Self.removeNodeFromTree(nodeId: nodeId, from: &spec.nodes) else { return }
+                    if newParent.isEmpty {
+                        spec.nodes.append(node)
+                    } else {
+                        if !Self.addNodeToParentByName(node: node, parentName: newParent, nodes: &spec.nodes) {
+                            // If parent not found, add to top level as fallback
+                            spec.nodes.append(node)
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    /// Helper binding for SceneSpec boolean properties.
+    private func bindSceneSpecBool(_ partId: UUID, _ keyPath: WritableKeyPath<SceneSpec, Bool>) -> Binding<Bool> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return spec[keyPath: keyPath]
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { $0[keyPath: keyPath] = newVal }
+            }
+        )
+    }
+
+    /// Reads the SceneSpec JSON from a part, applies a mutation, and writes it back.
+    private func modifySceneSpec(partId: UUID, transform: (inout SceneSpec) -> Void) {
+        document.document.updatePart(id: partId) { part in
+            part.updateActiveSceneSpec(transform)
+        }
+    }
+
+    private func bindActiveSceneId(_ partId: UUID) -> Binding<UUID> {
+        Binding(
+            get: {
+                document.document.parts.first(where: { $0.id == partId })?.activeSceneID ?? UUID()
+            },
+            set: { newSceneId in
+                document.document.updatePart(id: partId) { part in
+                    part.updateSpriteAreaSpec { areaSpec in
+                        _ = areaSpec.activateScene(id: newSceneId)
+                    }
+                }
+            }
+        )
+    }
+
+    private func addScene(partId: UUID) {
+        document.document.updatePart(id: partId) { part in
+            part.updateSpriteAreaSpec { areaSpec in
+                _ = areaSpec.addScene(named: "Scene", basedOn: areaSpec.activeScene)
+            }
+        }
+    }
+
+    /// Binding helper for SceneSpec string properties.
+    private func bindSceneSpecString(_ partId: UUID, _ keyPath: WritableKeyPath<SceneSpec, String>) -> Binding<String> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return spec[keyPath: keyPath]
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { $0[keyPath: keyPath] = newVal }
+            }
+        )
+    }
+
+    /// Binding helper for SceneSpec double properties.
+    private func bindSceneSpecDouble(_ partId: UUID, _ keyPath: WritableKeyPath<SceneSpec, Double>) -> Binding<Double> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return spec[keyPath: keyPath]
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { $0[keyPath: keyPath] = newVal }
+            }
+        )
+    }
+
+    private func addSpriteNode(partId: UUID) {
+        modifySceneSpec(partId: partId) { spec in
+            let count = spec.nodes.count + 1
+            let node = HypeNodeSpec(
+                name: "sprite \(count)",
+                nodeType: .sprite,
+                position: PointSpec(x: 100, y: 100),
+                size: SizeSpec(width: 48, height: 48)
+            )
+            spec.nodes.append(node)
+        }
+    }
+
+    private func addShapeNode(partId: UUID) {
+        modifySceneSpec(partId: partId) { spec in
+            let count = spec.nodes.count + 1
+            let node = HypeNodeSpec(
+                name: "shape \(count)",
+                nodeType: .shape,
+                position: PointSpec(x: 100, y: 100),
+                shapeSpec: ShapeNodeSpec(shapeType: .rect, fillColor: "#FFFFFF", strokeColor: "#000000", lineWidth: 1)
+            )
+            spec.nodes.append(node)
+        }
+    }
+
+    private func addLabelNode(partId: UUID) {
+        modifySceneSpec(partId: partId) { spec in
+            let count = spec.nodes.count + 1
+            let node = HypeNodeSpec(
+                name: "label \(count)",
+                nodeType: .label,
+                position: PointSpec(x: 100, y: 100),
+                text: "Label",
+                fontName: "Helvetica",
+                fontSize: 24,
+                fontColor: "#000000"
+            )
+            spec.nodes.append(node)
+        }
+    }
+
+    private func addEmitterNode(partId: UUID) {
+        modifySceneSpec(partId: partId) { spec in
+            let count = spec.nodes.count + 1
+            var node = HypeNodeSpec(
+                name: "emitter \(count)",
+                nodeType: .emitter,
+                position: PointSpec(x: 100, y: 100)
+            )
+            node.emitterSpec = EmitterSpec()
+            spec.nodes.append(node)
+        }
+    }
+
+    private func addVideoNode(partId: UUID) {
+        modifySceneSpec(partId: partId) { spec in
+            let count = spec.nodes.count + 1
+            let node = HypeNodeSpec(
+                name: "video \(count)",
+                nodeType: .video,
+                position: PointSpec(x: 100, y: 100),
+                size: SizeSpec(width: 320, height: 240),
+                videoAutoplay: true
+            )
+            spec.nodes.append(node)
+        }
+    }
+
+    private func addAudioNode(partId: UUID) {
+        modifySceneSpec(partId: partId) { spec in
+            let count = spec.nodes.count + 1
+            var node = HypeNodeSpec(
+                name: "audio \(count)",
+                nodeType: .audio,
+                position: PointSpec(x: 100, y: 100)
+            )
+            node.audioAutoplay = true
+            node.audioLoop = false
+            spec.nodes.append(node)
+        }
+    }
+
+    private func addCameraNode(partId: UUID) {
+        modifySceneSpec(partId: partId) { spec in
+            let count = spec.nodes.count + 1
+            let node = HypeNodeSpec(
+                name: "camera \(count)",
+                nodeType: .camera,
+                position: PointSpec(x: spec.size.width / 2, y: spec.size.height / 2)
+            )
+            spec.nodes.append(node)
+        }
+    }
+
+    private func addGroupNode(partId: UUID) {
+        modifySceneSpec(partId: partId) { spec in
+            let count = spec.nodes.count + 1
+            let node = HypeNodeSpec(
+                name: "group \(count)",
+                nodeType: .group,
+                position: PointSpec(x: 0, y: 0)
+            )
+            spec.nodes.append(node)
+        }
+    }
+
+    private func bindSceneScaleMode(_ partId: UUID) -> Binding<SceneScaleMode> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                return SceneSpec.fromJSON(json)?.scaleMode ?? .aspectFit
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { $0.scaleMode = newVal }
+            }
+        )
+    }
+
+    private func removeSceneNode(partId: UUID, nodeId: UUID) {
+        modifySceneSpec(partId: partId) { spec in
+            Self.removeNodeFromTree(nodeId: nodeId, from: &spec.nodes)
+        }
+    }
+
+    // MARK: - Scene Controls
+
+    private func toggleScenePause(partId: UUID) {
+        modifySceneSpec(partId: partId) { spec in
+            spec.isPaused.toggle()
+        }
+    }
+
+    private func stepScene(partId: UUID) {
+        // Step = unpause for one frame, then re-pause
+        modifySceneSpec(partId: partId) { spec in
+            spec.isPaused = false
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            modifySceneSpec(partId: partId) { spec in
+                spec.isPaused = true
+            }
+        }
+    }
+
+    private func reloadScene(partId: UUID) {
+        // Force a scene rebuild by clearing and restoring the sceneSpec
+        guard let idx = document.document.parts.firstIndex(where: { $0.id == partId }) else { return }
+        let spec = document.document.parts[idx].sceneSpec
+        document.document.parts[idx].sceneSpec = ""
+        DispatchQueue.main.async {
+            document.document.parts[idx].sceneSpec = spec
+        }
+    }
+
+    private func bindNodeName(partId: UUID, nodeId: UUID) -> Binding<String> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return Self.findNodeById(nodeId, in: spec.nodes)?.name ?? ""
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) { $0.name = newVal }
+                }
+            }
+        )
+    }
+
+    // MARK: - Node Detail Panel
+
+    @ViewBuilder
+    private func nodeDetailPanel(partId: UUID, node: HypeNodeSpec) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Button("Node Script") {
+                    openScriptEditorWindow(document: $document, target: .node(partId: partId, nodeId: node.id))
+                }
+                .font(.system(size: 10))
+                .buttonStyle(.borderless)
+
+                if let assetId = node.assetRef?.id {
+                    Button("Reveal Asset") {
+                        openSpriteRepositoryWindow(document: $document, initialAssetId: assetId)
+                    }
+                    .font(.system(size: 10))
+                    .buttonStyle(.borderless)
+                }
+            }
+
+            // -- Common properties (all node types) --
+            Text("POSITION").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+            HStack {
+                numberField("X", binding: bindNodePositionX(partId: partId, nodeId: node.id))
+                numberField("Y", binding: bindNodePositionY(partId: partId, nodeId: node.id))
+            }
+            HStack {
+                numberField("W", binding: bindNodeWidth(partId: partId, nodeId: node.id))
+                numberField("H", binding: bindNodeHeight(partId: partId, nodeId: node.id))
+            }
+            HStack {
+                numberField("Rotation", binding: bindNodeDouble(partId: partId, nodeId: node.id, \.rotation))
+                numberField("Z", binding: bindNodeDouble(partId: partId, nodeId: node.id, \.zPosition))
+            }
+            HStack {
+                Text("Alpha").font(.system(size: 10)).foregroundColor(.secondary)
+                Slider(value: bindNodeDouble(partId: partId, nodeId: node.id, \.alpha), in: 0...1)
+                Text(String(format: "%.1f", node.alpha)).font(.system(size: 10, design: .monospaced)).frame(width: 28)
+            }
+            Toggle("Hidden", isOn: bindNodeBool(partId: partId, nodeId: node.id, \.isHidden))
+                .font(.system(size: 11))
+
+            // Parent assignment
+            let allGroupNames = getAllGroupNames(partId: partId, excludeNodeId: node.id)
+            if !allGroupNames.isEmpty {
+                Picker("Parent", selection: bindNodeParent(partId: partId, nodeId: node.id)) {
+                    Text("(top level)").tag("" as String)
+                    ForEach(allGroupNames, id: \.self) { name in
+                        Text(name).tag(name)
+                    }
+                }
+                .font(.system(size: 11))
+            }
+
+            Divider()
+
+            // -- Type-specific properties --
+            switch node.nodeType {
+            case .sprite:
+                spriteNodeProperties(partId: partId, node: node)
+            case .label:
+                labelNodeProperties(partId: partId, node: node)
+            case .shape:
+                shapeNodeProperties(partId: partId, node: node)
+            case .audio:
+                audioNodeProperties(partId: partId, node: node)
+            case .emitter:
+                emitterNodeProperties(partId: partId, node: node)
+            case .video:
+                videoNodeProperties(partId: partId, node: node)
+            case .crop:
+                Text("CROP").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                Text("Uses asset as mask texture").font(.system(size: 10)).foregroundColor(.secondary)
+                spriteNodeProperties(partId: partId, node: node)
+            case .effect:
+                Text("EFFECT").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                Text("Applies Core Image filter").font(.system(size: 10)).foregroundColor(.secondary)
+            case .light:
+                Text("LIGHT").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                Text("Illuminates sprites with lighting").font(.system(size: 10)).foregroundColor(.secondary)
+            case .group, .tileMap, .camera:
+                EmptyView()
+            }
+
+            // -- Physics properties (all node types except group) --
+            if node.nodeType != .group {
+                Divider()
+                physicsNodeProperties(partId: partId, node: node)
+            }
+        }
+    }
+
+    // MARK: - Type-Specific Node Properties
+
+    @ViewBuilder
+    private func spriteNodeProperties(partId: UUID, node: HypeNodeSpec) -> some View {
+        Text("SPRITE").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+
+        let imageAssets = document.document.spriteRepository.assets.filter {
+            $0.kind == .imageTexture || $0.kind == .spriteSheet
+        }
+
+        if imageAssets.isEmpty {
+            Text("No assets -- open Sprite Repository to import")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+        } else {
+            Picker("Asset", selection: bindNodeAsset(partId: partId, nodeId: node.id)) {
+                Text("None").tag(nil as UUID?)
+                ForEach(imageAssets) { asset in
+                    Text(asset.name).tag(asset.id as UUID?)
+                }
+            }
+            .font(.system(size: 11))
+
+            // Show thumbnail preview of selected asset
+            if let ref = node.assetRef, let asset = document.document.spriteRepository.asset(byId: ref.id) {
+                if let img = NSImage(data: asset.data) {
+                    Image(nsImage: img)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxHeight: 48)
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(4)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func labelNodeProperties(partId: UUID, node: HypeNodeSpec) -> some View {
+        Text("LABEL").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+        propertyRow("Text", binding: bindNodeOptionalString(partId: partId, nodeId: node.id, \.text))
+
+        Picker("Font", selection: bindNodeOptionalString(partId: partId, nodeId: node.id, \.fontName)) {
+            ForEach(systemFontFamilies, id: \.self) { fontName in
+                Text(fontName).font(.system(size: 11)).tag(fontName as String?)
+            }
+        }
+        .font(.system(size: 11))
+
+        numberField("Size", binding: bindNodeOptionalDouble(partId: partId, nodeId: node.id, \.fontSize))
+
+        ColorPicker("Color", selection: bindNodeColor(partId: partId, nodeId: node.id, getter: { $0.fontColor }, setter: { $0.fontColor = $1 }))
+    }
+
+    @ViewBuilder
+    private func shapeNodeProperties(partId: UUID, node: HypeNodeSpec) -> some View {
+        Text("SHAPE").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+
+        Picker("Type", selection: bindShapeType(partId: partId, nodeId: node.id)) {
+            ForEach(SpriteShapeType.allCases, id: \.self) { type in
+                Text(type.rawValue).tag(type)
+            }
+        }
+        .font(.system(size: 11))
+
+        ColorPicker("Fill", selection: bindShapeFillColor(partId: partId, nodeId: node.id))
+        ColorPicker("Stroke", selection: bindShapeStrokeColor(partId: partId, nodeId: node.id))
+        numberField("Line Width", binding: bindShapeLineWidth(partId: partId, nodeId: node.id))
+        numberField("Corner Radius", binding: bindShapeCornerRadius(partId: partId, nodeId: node.id))
+    }
+
+    @ViewBuilder
+    private func audioNodeProperties(partId: UUID, node: HypeNodeSpec) -> some View {
+        Text("AUDIO").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+
+        let audioAssets = document.document.spriteRepository.assets.filter { $0.kind == .audioClip }
+
+        if audioAssets.isEmpty {
+            Text("No audio assets -- open Sprite Repository to import")
+                .font(.system(size: 10)).foregroundColor(.secondary)
+        } else {
+            Picker("Asset", selection: bindNodeAsset(partId: partId, nodeId: node.id)) {
+                Text("None").tag(nil as UUID?)
+                ForEach(audioAssets) { asset in
+                    Text(asset.name).tag(asset.id as UUID?)
+                }
+            }
+            .font(.system(size: 11))
+        }
+
+        Toggle("Loop", isOn: bindNodeOptionalBool(partId: partId, nodeId: node.id, \.audioLoop))
+            .font(.system(size: 11))
+        Toggle("Autoplay", isOn: bindNodeOptionalBool(partId: partId, nodeId: node.id, \.audioAutoplay))
+            .font(.system(size: 11))
+        HStack {
+            Text("Volume").font(.system(size: 10)).foregroundColor(.secondary)
+            Slider(value: bindNodeOptionalDouble(partId: partId, nodeId: node.id, \.audioVolume), in: 0...1)
+        }
+    }
+
+    @ViewBuilder
+    private func videoNodeProperties(partId: UUID, node: HypeNodeSpec) -> some View {
+        Text("VIDEO").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+
+        let videoAssets = document.document.spriteRepository.assets.filter { $0.kind == .videoClip }
+
+        if videoAssets.isEmpty {
+            Text("No video assets -- open Sprite Repository to import")
+                .font(.system(size: 10)).foregroundColor(.secondary)
+        } else {
+            Picker("Asset", selection: bindNodeAsset(partId: partId, nodeId: node.id)) {
+                Text("None").tag(nil as UUID?)
+                ForEach(videoAssets) { asset in
+                    Text(asset.name).tag(asset.id as UUID?)
+                }
+            }
+            .font(.system(size: 11))
+        }
+
+        Toggle("Loop", isOn: bindNodeOptionalBool(partId: partId, nodeId: node.id, \.videoLoop))
+            .font(.system(size: 11))
+        Toggle("Autoplay", isOn: bindNodeOptionalBool(partId: partId, nodeId: node.id, \.videoAutoplay))
+            .font(.system(size: 11))
+
+        HStack {
+            numberField("W", binding: bindNodeWidth(partId: partId, nodeId: node.id))
+            numberField("H", binding: bindNodeHeight(partId: partId, nodeId: node.id))
+        }
+    }
+
+    @ViewBuilder
+    private func emitterNodeProperties(partId: UUID, node: HypeNodeSpec) -> some View {
+        Text("EMITTER").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+
+        HStack {
+            numberField("Birth Rate", binding: bindEmitterDouble(partId: partId, nodeId: node.id, \.particleBirthRate))
+            numberField("Lifetime", binding: bindEmitterDouble(partId: partId, nodeId: node.id, \.particleLifetime))
+        }
+        HStack {
+            numberField("Speed", binding: bindEmitterDouble(partId: partId, nodeId: node.id, \.particleSpeed))
+            numberField("Speed Range", binding: bindEmitterDouble(partId: partId, nodeId: node.id, \.particleSpeedRange))
+        }
+        HStack {
+            numberField("Angle", binding: bindEmitterDouble(partId: partId, nodeId: node.id, \.emissionAngle))
+            numberField("Angle Range", binding: bindEmitterDouble(partId: partId, nodeId: node.id, \.emissionAngleRange))
+        }
+        HStack {
+            Text("Alpha").font(.system(size: 10)).foregroundColor(.secondary)
+            Slider(value: bindEmitterDouble(partId: partId, nodeId: node.id, \.particleAlpha), in: 0...1)
+            Text(String(format: "%.1f", node.emitterSpec?.particleAlpha ?? 1))
+                .font(.system(size: 10, design: .monospaced)).frame(width: 28)
+        }
+        numberField("Alpha Speed", binding: bindEmitterDouble(partId: partId, nodeId: node.id, \.particleAlphaSpeed))
+        HStack {
+            Text("Scale").font(.system(size: 10)).foregroundColor(.secondary)
+            Slider(value: bindEmitterDouble(partId: partId, nodeId: node.id, \.particleScale), in: 0...2)
+            Text(String(format: "%.2f", node.emitterSpec?.particleScale ?? 0.3))
+                .font(.system(size: 10, design: .monospaced)).frame(width: 36)
+        }
+        numberField("Scale Speed", binding: bindEmitterDouble(partId: partId, nodeId: node.id, \.particleScaleSpeed))
+        ColorPicker("Particle Color", selection: bindEmitterColor(partId: partId, nodeId: node.id))
+        HStack {
+            numberField("Pos Range X", binding: bindEmitterDouble(partId: partId, nodeId: node.id, \.particlePositionRangeX))
+            numberField("Pos Range Y", binding: bindEmitterDouble(partId: partId, nodeId: node.id, \.particlePositionRangeY))
+        }
+    }
+
+    // MARK: - Emitter Binding Helpers
+
+    /// Generic Double binding for EmitterSpec fields.
+    private func bindEmitterDouble(partId: UUID, nodeId: UUID, _ keyPath: WritableKeyPath<EmitterSpec, Double>) -> Binding<Double> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                guard let node = Self.findNodeById(nodeId, in: spec.nodes),
+                      let emitter = node.emitterSpec else { return 0 }
+                return emitter[keyPath: keyPath]
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) {
+                        if $0.emitterSpec == nil { $0.emitterSpec = EmitterSpec() }
+                        $0.emitterSpec?[keyPath: keyPath] = newVal
+                    }
+                }
+            }
+        )
+    }
+
+    /// Color binding for EmitterSpec particle color.
+    private func bindEmitterColor(partId: UUID, nodeId: UUID) -> Binding<Color> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                let hex = Self.findNodeById(nodeId, in: spec.nodes)?.emitterSpec?.particleColor ?? "#FFFFFF"
+                return Color(hex: hex)
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) {
+                        if $0.emitterSpec == nil { $0.emitterSpec = EmitterSpec() }
+                        $0.emitterSpec?.particleColor = newVal.toHex()
+                    }
+                }
+            }
+        )
+    }
+
+    // MARK: - Physics Node Properties
+
+    @ViewBuilder
+    private func physicsNodeProperties(partId: UUID, node: HypeNodeSpec) -> some View {
+        Text("PHYSICS").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+
+        // Enable physics toggle
+        Toggle("Enable Physics", isOn: bindNodeHasPhysics(partId: partId, nodeId: node.id))
+            .font(.system(size: 11))
+
+        if node.physicsBody != nil {
+            // Body type picker
+            Picker("Body", selection: bindPhysicsBodyType(partId: partId, nodeId: node.id)) {
+                Text("Circle").tag(PhysicsBodyType.circle)
+                Text("Rectangle").tag(PhysicsBodyType.rect)
+            }
+            .font(.system(size: 11))
+
+            Toggle("Dynamic", isOn: bindPhysicsBool(partId: partId, nodeId: node.id, \.isDynamic))
+                .font(.system(size: 11))
+            Toggle("Gravity", isOn: bindPhysicsBool(partId: partId, nodeId: node.id, \.affectedByGravity))
+                .font(.system(size: 11))
+            Toggle("Rotation", isOn: bindPhysicsBool(partId: partId, nodeId: node.id, \.allowsRotation))
+                .font(.system(size: 11))
+
+            HStack {
+                Text("Bounce").font(.system(size: 10)).foregroundColor(.secondary)
+                Slider(value: bindPhysicsDouble(partId: partId, nodeId: node.id, \.restitution), in: 0...1)
+                Text(String(format: "%.1f", node.physicsBody?.restitution ?? 0.2))
+                    .font(.system(size: 10, design: .monospaced)).frame(width: 28)
+            }
+            HStack {
+                Text("Friction").font(.system(size: 10)).foregroundColor(.secondary)
+                Slider(value: bindPhysicsDouble(partId: partId, nodeId: node.id, \.friction), in: 0...1)
+                Text(String(format: "%.1f", node.physicsBody?.friction ?? 0.2))
+                    .font(.system(size: 10, design: .monospaced)).frame(width: 28)
+            }
+        }
+    }
+
+    // MARK: - Physics Binding Helpers
+
+    private func bindNodeHasPhysics(partId: UUID, nodeId: UUID) -> Binding<Bool> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return Self.findNodeById(nodeId, in: spec.nodes)?.physicsBody != nil
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) {
+                        if newVal {
+                            $0.physicsBody = PhysicsBodySpec()
+                        } else {
+                            $0.physicsBody = nil
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    private func bindPhysicsBodyType(partId: UUID, nodeId: UUID) -> Binding<PhysicsBodyType> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return Self.findNodeById(nodeId, in: spec.nodes)?.physicsBody?.bodyType ?? .rect
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) {
+                        if $0.physicsBody == nil { $0.physicsBody = PhysicsBodySpec() }
+                        $0.physicsBody?.bodyType = newVal
+                    }
+                }
+            }
+        )
+    }
+
+    private func bindPhysicsBool(partId: UUID, nodeId: UUID, _ keyPath: WritableKeyPath<PhysicsBodySpec, Bool>) -> Binding<Bool> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return Self.findNodeById(nodeId, in: spec.nodes)?.physicsBody?[keyPath: keyPath] ?? true
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) {
+                        if $0.physicsBody == nil { $0.physicsBody = PhysicsBodySpec() }
+                        $0.physicsBody?[keyPath: keyPath] = newVal
+                    }
+                }
+            }
+        )
+    }
+
+    private func bindPhysicsDouble(partId: UUID, nodeId: UUID, _ keyPath: WritableKeyPath<PhysicsBodySpec, Double>) -> Binding<Double> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return Self.findNodeById(nodeId, in: spec.nodes)?.physicsBody?[keyPath: keyPath] ?? 0
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) {
+                        if $0.physicsBody == nil { $0.physicsBody = PhysicsBodySpec() }
+                        $0.physicsBody?[keyPath: keyPath] = newVal
+                    }
+                }
+            }
+        )
+    }
+
+    // MARK: - Node Binding Helpers
+
+    /// Generic Double binding for HypeNodeSpec fields.
+    private func bindNodeDouble(partId: UUID, nodeId: UUID, _ keyPath: WritableKeyPath<HypeNodeSpec, Double>) -> Binding<Double> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return Self.findNodeById(nodeId, in: spec.nodes)?[keyPath: keyPath] ?? 0
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) { $0[keyPath: keyPath] = newVal }
+                }
+            }
+        )
+    }
+
+    /// Generic Bool binding for HypeNodeSpec fields.
+    private func bindNodeBool(partId: UUID, nodeId: UUID, _ keyPath: WritableKeyPath<HypeNodeSpec, Bool>) -> Binding<Bool> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return Self.findNodeById(nodeId, in: spec.nodes)?[keyPath: keyPath] ?? false
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) { $0[keyPath: keyPath] = newVal }
+                }
+            }
+        )
+    }
+
+    /// Binding for optional Double fields on HypeNodeSpec.
+    private func bindNodeOptionalDouble(partId: UUID, nodeId: UUID, _ keyPath: WritableKeyPath<HypeNodeSpec, Double?>) -> Binding<Double> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return Self.findNodeById(nodeId, in: spec.nodes)?[keyPath: keyPath] ?? 0
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) { $0[keyPath: keyPath] = newVal }
+                }
+            }
+        )
+    }
+
+    /// Binding for optional String fields on HypeNodeSpec.
+    private func bindNodeOptionalString(partId: UUID, nodeId: UUID, _ keyPath: WritableKeyPath<HypeNodeSpec, String?>) -> Binding<String> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return Self.findNodeById(nodeId, in: spec.nodes)?[keyPath: keyPath] ?? ""
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) { $0[keyPath: keyPath] = newVal }
+                }
+            }
+        )
+    }
+
+    /// Binding for optional Bool fields on HypeNodeSpec.
+    private func bindNodeOptionalBool(partId: UUID, nodeId: UUID, _ keyPath: WritableKeyPath<HypeNodeSpec, Bool?>) -> Binding<Bool> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return Self.findNodeById(nodeId, in: spec.nodes)?[keyPath: keyPath] ?? false
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) { $0[keyPath: keyPath] = newVal }
+                }
+            }
+        )
+    }
+
+    /// Binding for node position X coordinate.
+    private func bindNodePositionX(partId: UUID, nodeId: UUID) -> Binding<Double> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return Self.findNodeById(nodeId, in: spec.nodes)?.position.x ?? 0
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) { $0.position.x = newVal }
+                }
+            }
+        )
+    }
+
+    /// Binding for node position Y coordinate.
+    private func bindNodePositionY(partId: UUID, nodeId: UUID) -> Binding<Double> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return Self.findNodeById(nodeId, in: spec.nodes)?.position.y ?? 0
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) { $0.position.y = newVal }
+                }
+            }
+        )
+    }
+
+    /// Binding for node width, creating SizeSpec if nil.
+    private func bindNodeWidth(partId: UUID, nodeId: UUID) -> Binding<Double> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return Self.findNodeById(nodeId, in: spec.nodes)?.size?.width ?? 50
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) {
+                        if $0.size == nil {
+                            $0.size = SizeSpec(width: newVal, height: 50)
+                        } else {
+                            $0.size?.width = newVal
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    /// Binding for node height, creating SizeSpec if nil.
+    private func bindNodeHeight(partId: UUID, nodeId: UUID) -> Binding<Double> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return Self.findNodeById(nodeId, in: spec.nodes)?.size?.height ?? 50
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) {
+                        if $0.size == nil {
+                            $0.size = SizeSpec(width: 50, height: newVal)
+                        } else {
+                            $0.size?.height = newVal
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    /// Binding for node asset reference (optional UUID).
+    private func bindNodeAsset(partId: UUID, nodeId: UUID) -> Binding<UUID?> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return Self.findNodeById(nodeId, in: spec.nodes)?.assetRef?.id
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) {
+                        if let assetId = newVal,
+                           let asset = document.document.spriteRepository.asset(byId: assetId) {
+                            $0.assetRef = AssetRef(id: asset.id, name: asset.name, mimeType: asset.mimeType)
+                        } else {
+                            $0.assetRef = nil
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    /// Generic color binding for HypeNodeSpec using getter/setter closures on hex strings.
+    private func bindNodeColor(partId: UUID, nodeId: UUID, getter: @escaping (HypeNodeSpec) -> String?, setter: @escaping (inout HypeNodeSpec, String?) -> Void) -> Binding<Color> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                guard let node = Self.findNodeById(nodeId, in: spec.nodes),
+                      let hex = getter(node) else { return .black }
+                return Color(hex: hex)
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) { setter(&$0, newVal.toHex()) }
+                }
+            }
+        )
+    }
+
+    /// Binding for shape type, creating default ShapeNodeSpec if nil.
+    private func bindShapeType(partId: UUID, nodeId: UUID) -> Binding<SpriteShapeType> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return Self.findNodeById(nodeId, in: spec.nodes)?.shapeSpec?.shapeType ?? .rect
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) {
+                        if $0.shapeSpec == nil { $0.shapeSpec = ShapeNodeSpec() }
+                        $0.shapeSpec?.shapeType = newVal
+                    }
+                }
+            }
+        )
+    }
+
+    /// Binding for shape fill color.
+    private func bindShapeFillColor(partId: UUID, nodeId: UUID) -> Binding<Color> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                let hex = Self.findNodeById(nodeId, in: spec.nodes)?.shapeSpec?.fillColor ?? "#FFFFFF"
+                return Color(hex: hex)
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) {
+                        if $0.shapeSpec == nil { $0.shapeSpec = ShapeNodeSpec() }
+                        $0.shapeSpec?.fillColor = newVal.toHex()
+                    }
+                }
+            }
+        )
+    }
+
+    /// Binding for shape stroke color.
+    private func bindShapeStrokeColor(partId: UUID, nodeId: UUID) -> Binding<Color> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                let hex = Self.findNodeById(nodeId, in: spec.nodes)?.shapeSpec?.strokeColor ?? "#000000"
+                return Color(hex: hex)
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) {
+                        if $0.shapeSpec == nil { $0.shapeSpec = ShapeNodeSpec() }
+                        $0.shapeSpec?.strokeColor = newVal.toHex()
+                    }
+                }
+            }
+        )
+    }
+
+    /// Binding for shape line width.
+    private func bindShapeLineWidth(partId: UUID, nodeId: UUID) -> Binding<Double> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return Self.findNodeById(nodeId, in: spec.nodes)?.shapeSpec?.lineWidth ?? 1
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) {
+                        if $0.shapeSpec == nil { $0.shapeSpec = ShapeNodeSpec() }
+                        $0.shapeSpec?.lineWidth = newVal
+                    }
+                }
+            }
+        )
+    }
+
+    /// Binding for shape corner radius.
+    private func bindShapeCornerRadius(partId: UUID, nodeId: UUID) -> Binding<Double> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
+                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
+                return Self.findNodeById(nodeId, in: spec.nodes)?.shapeSpec?.cornerRadius ?? 0
+            },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) {
+                        if $0.shapeSpec == nil { $0.shapeSpec = ShapeNodeSpec() }
+                        $0.shapeSpec?.cornerRadius = newVal
+                    }
+                }
+            }
+        )
     }
 
     @ViewBuilder
@@ -566,12 +2193,12 @@ struct PropertyInspector: View {
                 let json = document.document.parts.first(where: { $0.id == id })?.chartData ?? ""
                 let config = ChartConfig.fromJSON(json) ?? ChartConfig()
                 guard seriesIndex < config.series.count, dataIndex < config.series[seriesIndex].data.count else { return "" }
-                return config.series[seriesIndex].data[dataIndex].label
+                return config.series[seriesIndex].data[dataIndex].name
             },
             set: { newVal in
                 modifyChartConfig(partId: id) { config in
                     guard seriesIndex < config.series.count, dataIndex < config.series[seriesIndex].data.count else { return }
-                    config.series[seriesIndex].data[dataIndex].label = newVal
+                    config.series[seriesIndex].data[dataIndex].name = newVal
                 }
             }
         )
@@ -613,7 +2240,7 @@ struct PropertyInspector: View {
         modifyChartConfig(partId: partId) { config in
             guard seriesIndex < config.series.count else { return }
             let count = config.series[seriesIndex].data.count
-            config.series[seriesIndex].data.append(ChartDataPoint(label: "Item \(count + 1)", value: 0))
+            config.series[seriesIndex].data.append(ChartDataPoint(name: "Item \(count + 1)", value: 0))
         }
     }
 
@@ -623,7 +2250,8 @@ struct PropertyInspector: View {
                 let json = document.document.parts.first(where: { $0.id == id })?.chartData ?? ""
                 let config = ChartConfig.fromJSON(json) ?? ChartConfig()
                 guard seriesIndex < config.series.count, dataIndex < config.series[seriesIndex].data.count else { return Color(hex: seriesColor) }
-                if let pointColor = config.series[seriesIndex].data[dataIndex].color, !pointColor.isEmpty {
+                let pointColor = config.series[seriesIndex].data[dataIndex].color
+                if !pointColor.isEmpty {
                     return Color(hex: pointColor)
                 }
                 return Color(hex: seriesColor)
@@ -773,27 +2401,310 @@ struct PropertyInspector: View {
     }
 }
 
-// MARK: - Script Editor Sheet
+// MARK: - Script Editor Sheet (used as fallback for .sheet() presentation)
 
 struct ScriptEditorSheet: View {
     @Binding var document: HypeDocumentWrapper
-    let partId: UUID?
+    var partId: UUID? = nil
+    var target: ScriptTarget? = nil
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(spacing: 0) {
-            ScriptEditor(document: $document, partId: partId, onDone: {
-                dismiss()
-            })
+            ScriptEditor(document: $document, partId: partId, target: target, onDone: { dismiss() })
             HStack {
                 Spacer()
-                Button("Done") {
-                    // Trigger the onDone callback which applies script and dismisses
-                    dismiss()
-                }
-                .keyboardShortcut(.return)
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.return)
             }
             .padding(8)
+        }
+        .frame(minWidth: 500, idealWidth: 650, maxWidth: .infinity,
+               minHeight: 400, idealHeight: 500, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Resizable Script Editor Window
+
+/// Keeps a strong reference to open script editor windows, keyed by
+/// `ScriptTarget.identityKey`. The dictionary is the deduplication
+/// substrate behind `openScriptEditorWindow`: a second invocation
+/// for the same target finds the existing window and refreshes it
+/// in place rather than opening a duplicate.
+///
+/// Why: a runtime error inside an `on idle` handler used to spawn
+/// a new script editor window every 500 ms (the idle timer
+/// interval) until the user managed to quit the app. The dedup
+/// map combined with the auto-switch-to-edit-mode in
+/// `MainContentView`'s `.showScriptError` observer means the
+/// script editor opens once, the idle timer stops on the same
+/// turn, and the user is left looking at exactly one error
+/// surface they can fix.
+///
+/// Windows that don't have an identifiable target (the legacy
+/// "open from a property inspector button" path) are stored under
+/// a generated UUID key so they still get cleaned up on close but
+/// don't collide with target-keyed windows.
+@MainActor
+private var activeScriptWindows: [String: NSWindow] = [:]
+
+/// Generate a unique key for a target, falling back to a fresh
+/// UUID for opens that have no resolvable target. Used by
+/// `openScriptEditorWindow` to find or create the window slot.
+@MainActor
+private func scriptWindowKey(for target: ScriptTarget?, partId: UUID?) -> String {
+    if let target = target { return target.identityKey }
+    if let partId = partId { return "part:\(partId.uuidString)" }
+    return "unkeyed:\(UUID().uuidString)"
+}
+
+/// Opens the ScriptEditor in a movable, resizable NSWindow with light appearance.
+///
+/// `initialErrorLine` and `initialErrorMessage` let the caller surface
+/// a runtime error on editor open — the offending line is highlighted
+/// in red and the message banner at the bottom shows the description.
+/// Both are optional; passing `nil` (the default) opens the editor
+/// clean as it did before.
+///
+/// **Idempotent.** If a script editor window for the same target is
+/// already open, this function brings it forward and posts a
+/// `.refreshScriptError` notification with the new highlight line
+/// and banner instead of opening a duplicate window. This prevents
+/// the runaway-windows scenario where a buggy `on idle` handler
+/// spawned a new editor every 500 ms.
+@MainActor
+func openScriptEditorWindow(
+    document: Binding<HypeDocumentWrapper>,
+    partId: UUID? = nil,
+    target: ScriptTarget? = nil,
+    initialErrorLine: Int? = nil,
+    initialErrorMessage: String? = nil
+) {
+    let key = scriptWindowKey(for: target, partId: partId)
+
+    // If a window for this target is already open, reuse it.
+    // Bring it forward, refresh the error highlight, and return
+    // without creating a second window.
+    if let existing = activeScriptWindows[key] {
+        existing.makeKeyAndOrderFront(nil)
+        // Push the new error context into the live ScriptEditor
+        // for that window. The editor's notification observer
+        // checks the identityKey so a script editor for another
+        // target ignores this broadcast.
+        var refreshInfo: [AnyHashable: Any] = ["identityKey": key]
+        if let line = initialErrorLine { refreshInfo["line"] = line }
+        if let message = initialErrorMessage { refreshInfo["message"] = message }
+        NotificationCenter.default.post(
+            name: .refreshScriptError,
+            object: nil,
+            userInfo: refreshInfo
+        )
+        return
+    }
+
+    let savedWidth = UserDefaults.standard.double(forKey: "scriptEditorWidth")
+    let savedHeight = UserDefaults.standard.double(forKey: "scriptEditorHeight")
+    let width = savedWidth > 0 ? savedWidth : 650
+    let height = savedHeight > 0 ? savedHeight : 500
+
+    let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+        styleMask: [.titled, .closable, .resizable, .miniaturizable],
+        backing: .buffered,
+        defer: false
+    )
+    // Build a descriptive window title from the target
+    let doc = document.wrappedValue.document
+    let windowTitle: String
+    if let t = target {
+        switch t {
+        case .part(let id):
+            if let part = doc.parts.first(where: { $0.id == id }) {
+                let typeName = part.partType.rawValue.capitalized
+                let name = part.name.isEmpty ? "Untitled" : part.name
+                windowTitle = "\(name) (\(typeName)) — Script Editor"
+            } else {
+                windowTitle = "Part — Script Editor"
+            }
+        case .card(let id):
+            let card = doc.cards.first(where: { $0.id == id })
+            let name = card?.name.isEmpty == false ? card!.name : "Card"
+            windowTitle = "\(name) — Script Editor"
+        case .background(let id):
+            let bg = doc.backgrounds.first(where: { $0.id == id })
+            let name = bg?.name.isEmpty == false ? bg!.name : "Background"
+            windowTitle = "\(name) — Script Editor"
+        case .scene(let partId, let sceneId):
+            let part = doc.parts.first(where: { $0.id == partId })
+            let areaSpec = part?.spriteAreaSpecModel
+            let scene = areaSpec?.scenes.first(where: { $0.id == sceneId })?.scene
+            let areaName = part?.name.isEmpty == false ? part!.name : "Sprite Area"
+            let sceneName = scene?.name.isEmpty == false ? scene!.name : "Scene"
+            windowTitle = "\(areaName) / \(sceneName) — Script Editor"
+        case .node(let partId, let nodeId):
+            let part = doc.parts.first(where: { $0.id == partId })
+            let areaSpec = part?.spriteAreaSpecModel
+            let node = areaSpec?.scenes.lazy.compactMap { $0.scene.node(id: nodeId) }.first
+            let areaName = part?.name.isEmpty == false ? part!.name : "Sprite Area"
+            let nodeName = node?.name.isEmpty == false ? node!.name : "Node"
+            let nodeType = node?.nodeType.rawValue.capitalized ?? "Node"
+            windowTitle = "\(areaName) / \(nodeName) (\(nodeType)) — Script Editor"
+        case .stack:
+            windowTitle = "\(doc.stack.name) (Stack) — Script Editor"
+        case .hype:
+            windowTitle = "Hype App — Script Editor"
+        }
+    } else if let pid = partId, let part = doc.parts.first(where: { $0.id == pid }) {
+        let typeName = part.partType.rawValue.capitalized
+        let name = part.name.isEmpty ? "Untitled" : part.name
+        windowTitle = "\(name) (\(typeName)) — Script Editor"
+    } else {
+        windowTitle = "Script Editor"
+    }
+    window.title = windowTitle
+    window.minSize = NSSize(width: 450, height: 350)
+    window.isReleasedWhenClosed = false
+    window.appearance = NSAppearance(named: .aqua)
+
+    // Build the editor view with light color scheme forced at every level
+    let closeAction: () -> Void = { [weak window] in window?.close() }
+    let editorView = VStack(spacing: 0) {
+        ScriptEditor(
+            document: document,
+            partId: partId,
+            target: target,
+            initialErrorLine: initialErrorLine,
+            initialErrorMessage: initialErrorMessage,
+            identityKey: key,
+            onDone: closeAction
+        )
+        HStack {
+            Spacer()
+            Button("Done") { closeAction() }
+                .keyboardShortcut(.return)
+        }
+        .padding(8)
+    }
+    .environment(\.colorScheme, .light)
+    .colorScheme(.light)
+    .preferredColorScheme(.light)
+
+    let hostingView = NSHostingView(rootView: editorView)
+    hostingView.appearance = NSAppearance(named: .aqua)
+    window.contentView = hostingView
+    window.center()
+    window.makeKeyAndOrderFront(nil)
+
+    activeScriptWindows[key] = window
+
+    NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: .main) { _ in
+        MainActor.assumeIsolated {
+            UserDefaults.standard.set(window.frame.width, forKey: "scriptEditorWidth")
+            UserDefaults.standard.set(window.frame.height, forKey: "scriptEditorHeight")
+        }
+    }
+    NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in
+        MainActor.assumeIsolated {
+            // Remove from the dedup map by key so a future
+            // openScriptEditorWindow call for this target opens a
+            // fresh window rather than poking at a deallocated one.
+            // Discard the returned NSWindow? explicitly so the
+            // closure's inferred return type stays Void.
+            _ = activeScriptWindows.removeValue(forKey: key)
+        }
+    }
+}
+
+// MARK: - Resizable Sprite Repository Window
+
+/// Keeps a strong reference to open sprite repository windows. As
+/// with `activeScriptWindows` above, the window is detached from
+/// SwiftUI's view graph so it needs its own retain cycle manager
+/// or macOS will deallocate it the moment the opener's stack frame
+/// returns.
+@MainActor
+private var activeSpriteRepositoryWindows: [NSWindow] = []
+
+/// Opens the SpriteRepositoryView in a movable, resizable NSWindow
+/// with light appearance. Replaces the previous `.sheet`-based
+/// presentation, which used a fixed 600×400 frame and couldn't be
+/// resized — users asked to see more thumbnails at once and to
+/// keep the browser open while working on a card. A detached
+/// window supports both.
+///
+/// The window remembers its size across sessions via UserDefaults
+/// under the `spriteRepositoryWidth` / `spriteRepositoryHeight`
+/// keys, mirroring how `openScriptEditorWindow` persists its own
+/// frame.
+@MainActor
+func openSpriteRepositoryWindow(
+    document: Binding<HypeDocumentWrapper>,
+    initialAssetId: UUID? = nil
+) {
+    // Reuse an existing window instead of stacking duplicates if
+    // the user clicks the toolbar button twice. The browser is
+    // effectively a singleton from the user's perspective.
+    if let existing = activeSpriteRepositoryWindows.first {
+        existing.makeKeyAndOrderFront(nil)
+        if let initialAssetId {
+            NotificationCenter.default.post(
+                name: .selectSpriteRepositoryAsset,
+                object: nil,
+                userInfo: ["assetId": initialAssetId]
+            )
+        }
+        return
+    }
+
+    let savedWidth = UserDefaults.standard.double(forKey: "spriteRepositoryWidth")
+    let savedHeight = UserDefaults.standard.double(forKey: "spriteRepositoryHeight")
+    let width = savedWidth > 0 ? savedWidth : 780
+    let height = savedHeight > 0 ? savedHeight : 520
+
+    let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+        styleMask: [.titled, .closable, .resizable, .miniaturizable],
+        backing: .buffered,
+        defer: false
+    )
+    window.title = "Sprite Repository"
+    window.minSize = NSSize(width: 560, height: 360)
+    window.isReleasedWhenClosed = false
+    window.appearance = NSAppearance(named: .aqua)
+
+    let closeAction: () -> Void = { [weak window] in window?.close() }
+    let browserView = SpriteRepositoryView(document: document, onDone: closeAction)
+        .environment(\.colorScheme, .light)
+        .colorScheme(.light)
+        .preferredColorScheme(.light)
+
+    let hostingView = NSHostingView(rootView: browserView)
+    hostingView.appearance = NSAppearance(named: .aqua)
+    window.contentView = hostingView
+    window.center()
+    window.makeKeyAndOrderFront(nil)
+
+    if let initialAssetId {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .selectSpriteRepositoryAsset,
+                object: nil,
+                userInfo: ["assetId": initialAssetId]
+            )
+        }
+    }
+
+    activeSpriteRepositoryWindows.append(window)
+
+    NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: .main) { _ in
+        MainActor.assumeIsolated {
+            UserDefaults.standard.set(window.frame.width, forKey: "spriteRepositoryWidth")
+            UserDefaults.standard.set(window.frame.height, forKey: "spriteRepositoryHeight")
+        }
+    }
+    NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak window] _ in
+        MainActor.assumeIsolated {
+            if let w = window { activeSpriteRepositoryWindows.removeAll { $0 === w } }
         }
     }
 }

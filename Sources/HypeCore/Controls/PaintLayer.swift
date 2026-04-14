@@ -138,6 +138,38 @@ public final class PaintLayer: @unchecked Sendable {
         }
     }
 
+    /// Draw a filled circle at (cx, cy) with the given radius and color.
+    public func drawCircle(cx: Int, cy: Int, radius: Int, color: NSColor) {
+        if radius <= 1 {
+            plot(x: cx, y: cy, color: color)
+            return
+        }
+        for dy in -radius...radius {
+            for dx in -radius...radius {
+                if dx * dx + dy * dy <= radius * radius {
+                    plot(x: cx + dx, y: cy + dy, color: color)
+                }
+            }
+        }
+    }
+
+    /// Draw a thick line from (x0,y0) to (x1,y1) by stamping circles along a Bresenham path.
+    public func drawThickLine(x0: Int, y0: Int, x1: Int, y1: Int, radius: Int, color: NSColor) {
+        var x = x0, y = y0
+        let dx = abs(x1 - x0), dy = abs(y1 - y0)
+        let sx = x0 < x1 ? 1 : -1
+        let sy = y0 < y1 ? 1 : -1
+        var err = dx - dy
+
+        while true {
+            drawCircle(cx: x, cy: y, radius: radius, color: color)
+            if x == x1 && y == y1 { break }
+            let e2 = 2 * err
+            if e2 > -dy { err -= dy; x += sx }
+            if e2 < dx { err += dx; y += sy }
+        }
+    }
+
     /// Spray random dots in a radius (like a spray can).
     public func spray(cx: Int, cy: Int, radius: Int, density: Int, color: NSColor) {
         for _ in 0..<density {

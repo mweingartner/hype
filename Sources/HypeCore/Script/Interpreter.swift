@@ -14,11 +14,44 @@ public protocol DialogProvider: Sendable {
     func showAsk(prompt: String) -> String
 }
 
+public extension DialogProvider {
+    func showAnswerAsync(prompt: String) async -> String {
+        await MainActor.run {
+            showAnswer(prompt: prompt)
+        }
+    }
+
+    func showAskAsync(prompt: String) async -> String {
+        await MainActor.run {
+            showAsk(prompt: prompt)
+        }
+    }
+}
+
 /// Default dialog provider that just returns the prompt (used when no UI is available).
 public struct StubDialogProvider: DialogProvider, Sendable {
     public init() {}
     public func showAnswer(prompt: String) -> String { return "OK" }
     public func showAsk(prompt: String) -> String { return "" }
+}
+
+/// Protocol for bitmap drawing from scripts (e.g. `drag from x,y to x,y`).
+public protocol DrawingProvider: Sendable {
+    func drawLine(from: (Int, Int), to: (Int, Int), radius: Int, colorHex: String)
+}
+
+public extension DrawingProvider {
+    func drawLineAsync(from: (Int, Int), to: (Int, Int), radius: Int, colorHex: String) async {
+        await MainActor.run {
+            drawLine(from: from, to: to, radius: radius, colorHex: colorHex)
+        }
+    }
+}
+
+/// Default drawing provider that does nothing (used when no UI is available).
+public struct StubDrawingProvider: DrawingProvider, Sendable {
+    public init() {}
+    public func drawLine(from: (Int, Int), to: (Int, Int), radius: Int, colorHex: String) {}
 }
 
 /// Context for script execution.
@@ -28,13 +61,50 @@ public struct ExecutionContext: Sendable {
     public var document: HypeDocument
     public var instructionLimit: Int
     public var dialogProvider: DialogProvider
+    public var drawingProvider: DrawingProvider
+    public var aiProvider: any AIScriptingProvider
+    public var runtimeProvider: (any ScriptRuntimeProviding)?
+    public var mouseX: Double
+    public var mouseY: Double
+    public var scriptContext: ScriptDispatchContext?
 
-    public init(targetId: UUID, currentCardId: UUID, document: HypeDocument, instructionLimit: Int = 1_000_000, dialogProvider: DialogProvider = StubDialogProvider()) {
+    public init(targetId: UUID, currentCardId: UUID, document: HypeDocument, instructionLimit: Int = 1_000_000,
+                dialogProvider: DialogProvider = StubDialogProvider(),
+                drawingProvider: DrawingProvider = StubDrawingProvider(),
+                aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
+                runtimeProvider: (any ScriptRuntimeProviding)? = nil,
+                mouseX: Double = 0, mouseY: Double = 0) {
         self.targetId = targetId
         self.currentCardId = currentCardId
         self.document = document
         self.instructionLimit = instructionLimit
         self.dialogProvider = dialogProvider
+        self.drawingProvider = drawingProvider
+        self.aiProvider = aiProvider
+        self.runtimeProvider = runtimeProvider
+        self.mouseX = mouseX
+        self.mouseY = mouseY
+        self.scriptContext = nil
+    }
+
+    public init(targetId: UUID, currentCardId: UUID, document: HypeDocument, instructionLimit: Int = 1_000_000,
+                dialogProvider: DialogProvider = StubDialogProvider(),
+                drawingProvider: DrawingProvider = StubDrawingProvider(),
+                aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
+                runtimeProvider: (any ScriptRuntimeProviding)? = nil,
+                mouseX: Double = 0, mouseY: Double = 0,
+                scriptContext: ScriptDispatchContext? = nil) {
+        self.targetId = targetId
+        self.currentCardId = currentCardId
+        self.document = document
+        self.instructionLimit = instructionLimit
+        self.dialogProvider = dialogProvider
+        self.drawingProvider = drawingProvider
+        self.aiProvider = aiProvider
+        self.runtimeProvider = runtimeProvider
+        self.mouseX = mouseX
+        self.mouseY = mouseY
+        self.scriptContext = scriptContext
     }
 }
 
@@ -46,6 +116,11 @@ public struct ExecutionResult: Sendable {
     public var error: ScriptError?
     public var navigationTarget: UUID?
     public var showAllCards: Bool
+    /// The visual effect name requested by a `visual effect` statement, if any.
+    public var visualEffect: String?
+    /// Duration in seconds for the visual effect transition.
+    /// `nil` means use the default (1.0 seconds).
+    public var visualEffectDuration: Double?
 
     public init(
         status: ExecutionStatus,
@@ -53,7 +128,9 @@ public struct ExecutionResult: Sendable {
         modifiedDocument: HypeDocument? = nil,
         error: ScriptError? = nil,
         navigationTarget: UUID? = nil,
-        showAllCards: Bool = false
+        showAllCards: Bool = false,
+        visualEffect: String? = nil,
+        visualEffectDuration: Double? = nil
     ) {
         self.status = status
         self.returnValue = returnValue
@@ -61,6 +138,8 @@ public struct ExecutionResult: Sendable {
         self.error = error
         self.navigationTarget = navigationTarget
         self.showAllCards = showAllCards
+        self.visualEffect = visualEffect
+        self.visualEffectDuration = visualEffectDuration
     }
 }
 
@@ -70,15 +149,28 @@ public enum ExecutionStatus: Sendable {
 }
 
 /// A runtime script error.
+///
+/// The `objectId` field identifies which script-owning object
+/// (part, card, background, stack, or the app-level "Hype" sentinel)
+/// produced the error. It is populated by `MessageDispatcher.dispatch`
+/// after the interpreter returns — the interpreter itself doesn't set
+/// it, because errors thrown from deep inside `executeStatement` have
+/// no convenient hook to the dispatch-level context. Having the owner
+/// ID on the error lets the view layer (`CardCanvasView.Coordinator`)
+/// post a `.showScriptError` notification with enough context for
+/// `MainContentView` to open the script editor for the right object
+/// and highlight the offending line.
 public struct ScriptError: Error, Sendable {
     public var message: String
     public var line: Int
     public var handler: String
+    public var objectId: UUID?
 
-    public init(message: String, line: Int, handler: String) {
+    public init(message: String, line: Int, handler: String, objectId: UUID? = nil) {
         self.message = message
         self.line = line
         self.handler = handler
+        self.objectId = objectId
     }
 }
 
@@ -120,6 +212,14 @@ private enum ControlSignal: Error {
     case showAllCards
 }
 
+private final class _InterpreterResultBox<T: Sendable>: @unchecked Sendable {
+    var value: T?
+}
+
+private enum _InterpreterSyncGate {
+    static let semaphore = DispatchSemaphore(value: 1)
+}
+
 // MARK: - Interpreter
 
 /// Tree-walking interpreter for HypeTalk scripts.
@@ -129,10 +229,23 @@ public struct Interpreter: Sendable {
 
     /// Execute a handler with the given parameters and context.
     public func execute(handler: Handler, params: [Value], context: ExecutionContext) -> ExecutionResult {
-        var env = Environment(globals: [:])
-        var instructionCount = 0
+        blockingWait {
+            await executeAsync(handler: handler, params: params, context: context)
+        }
+    }
+
+    public func executeAsync(handler: Handler, params: [Value], context: ExecutionContext) async -> ExecutionResult {
         var document = context.document
+        // Seed the environment's globals from the document's
+        // session-level scriptGlobals. This is the fix for "on idle
+        // / add 5 to rot / end idle" — without this, `rot` would
+        // reset to empty on every dispatch and never accumulate.
+        // HypeTalk globals live for the stack session (until the
+        // stack closes), matching classic HyperCard semantics.
+        var env = Environment(globals: document.scriptGlobals)
+        var instructionCount = 0
         var navigationTarget: UUID? = nil
+        var visualEffect: String? = nil
 
         // Bind parameters.
         for (i, paramName) in handler.params.enumerated() {
@@ -142,16 +255,31 @@ public struct Interpreter: Sendable {
 
         do {
             for stmt in handler.body {
-                try executeStatement(stmt, env: &env, document: &document,
-                                     context: context, instructionCount: &instructionCount,
-                                     navigationTarget: &navigationTarget, handler: handler)
+                try await executeStatement(stmt, env: &env, document: &document,
+                                           context: context, instructionCount: &instructionCount,
+                                           navigationTarget: &navigationTarget, handler: handler)
             }
         } catch ControlSignal.passMessage {
-            return ExecutionResult(status: .passed, modifiedDocument: document)
+            document.scriptGlobals = env.globals
+            // Carry visual effect and navigation target through
+            // even when the handler passes the message. A script
+            // like `visual effect dissolve / go next / pass mouseUp`
+            // sets both before passing — dropping them here makes
+            // the transition invisible.
+            visualEffect = env.locals["_visualEffect"]
+            let veDuration = Double(env.locals["_visualEffectDuration"] ?? "")
+            return ExecutionResult(status: .passed, modifiedDocument: document,
+                                   navigationTarget: navigationTarget,
+                                   visualEffect: visualEffect, visualEffectDuration: veDuration)
         } catch ControlSignal.exitHandler(let returnVal) {
+            document.scriptGlobals = env.globals
+            visualEffect = env.locals["_visualEffect"]
+            let veDuration = Double(env.locals["_visualEffectDuration"] ?? "")
             return ExecutionResult(status: .completed, returnValue: returnVal,
-                                   modifiedDocument: document, navigationTarget: navigationTarget)
+                                   modifiedDocument: document, navigationTarget: navigationTarget,
+                                   visualEffect: visualEffect, visualEffectDuration: veDuration)
         } catch ControlSignal.showAllCards {
+            document.scriptGlobals = env.globals
             return ExecutionResult(status: .completed, modifiedDocument: document, showAllCards: true)
         } catch let error as ScriptError {
             return ExecutionResult(status: .error, error: error)
@@ -160,8 +288,50 @@ public struct Interpreter: Sendable {
             return ExecutionResult(status: .error, error: scriptError)
         }
 
+        // Normal completion: write accumulated globals back so the
+        // next dispatch (e.g. the next idle tick) reads the
+        // mutated values.
+        document.scriptGlobals = env.globals
+        visualEffect = env.locals["_visualEffect"]
+        let veDuration = Double(env.locals["_visualEffectDuration"] ?? "")
         return ExecutionResult(status: .completed, returnValue: env.it,
-                               modifiedDocument: document, navigationTarget: navigationTarget)
+                               modifiedDocument: document, navigationTarget: navigationTarget,
+                               visualEffect: visualEffect, visualEffectDuration: veDuration)
+    }
+
+    private func blockingWait<T: Sendable>(_ operation: @escaping @Sendable () async -> T) -> T {
+        _InterpreterSyncGate.semaphore.wait()
+        defer { _InterpreterSyncGate.semaphore.signal() }
+        let semaphore = DispatchSemaphore(value: 0)
+        let box = _InterpreterResultBox<T>()
+        if Thread.isMainThread {
+            Task.detached {
+                box.value = await operation()
+                semaphore.signal()
+            }
+        } else {
+            Task { @MainActor in
+                box.value = await operation()
+                semaphore.signal()
+            }
+        }
+        semaphore.wait()
+        return box.value!
+    }
+
+    private func evaluateOptional(
+        _ expr: Expression?,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async throws -> Value? {
+        guard let expr else { return nil }
+        return try await evaluate(expr, env: &env, document: document, context: context)
+    }
+
+    private func sleepOutsideRuntime(seconds: TimeInterval) async throws {
+        guard seconds > 0 else { return }
+        try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
     }
 
     // MARK: - Statement execution
@@ -174,7 +344,7 @@ public struct Interpreter: Sendable {
         instructionCount: inout Int,
         navigationTarget: inout UUID?,
         handler: Handler
-    ) throws {
+    ) async throws {
         instructionCount += 1
         if instructionCount > context.instructionLimit {
             throw ScriptError(message: "Instruction limit exceeded", line: handler.line, handler: handler.name)
@@ -182,7 +352,7 @@ public struct Interpreter: Sendable {
 
         switch stmt {
         case .put(let source, let prep, let target):
-            let value = try evaluate(source, env: &env, document: document, context: context)
+            let value = try await evaluate(source, env: &env, document: document, context: context)
             switch target {
             case .variable(let name):
                 switch prep {
@@ -203,7 +373,7 @@ public struct Interpreter: Sendable {
                 }
             case .objectRef(let ref):
                 // Put into a field or button by name/number
-                let ident = try evaluate(ref.identifier, env: &env, document: document, context: context)
+                let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
                 if let partIndex = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
                     switch prep {
                     case .into:
@@ -222,164 +392,154 @@ public struct Interpreter: Sendable {
             }
 
         case .get(let expr):
-            env.it = try evaluate(expr, env: &env, document: document, context: context)
+            env.it = try await evaluate(expr, env: &env, document: document, context: context)
 
         case .set(let property, let target, let toExpr):
-            let value = try evaluate(toExpr, env: &env, document: document, context: context)
+            let value = try await evaluate(toExpr, env: &env, document: document, context: context)
             if let targetExpr = target {
+                // Chart data-point reference set path:
+                //   set the color of data point N of [series N of] chart "X" to "#FF0000"
+                //
+                // This branch is delegated to a separate helper
+                // (`applyChartDataPointSet`) because Swift allocates
+                // locals for ALL cases of a `switch` at function
+                // entry — inlining the ChartPointLocation /
+                // ChartConfig handling here bloats executeStatement's
+                // stack frame enough to push deeply-recursive scripts
+                // (e.g. nested-if handlers) past the test thread's
+                // guard page. Keeping it in a leaf helper confines
+                // those locals to that helper's own, shallow frame.
+                if case .chartDataPointRef = targetExpr {
+                    try await applyChartDataPointSet(
+                        property: property,
+                        target: targetExpr,
+                        value: value,
+                        env: &env,
+                        document: &document,
+                        context: context
+                    )
+                    break
+                }
                 // Try to resolve target as an object reference
                 if case .objectRef(let ref) = targetExpr {
-                    let ident = try evaluate(ref.identifier, env: &env, document: document, context: context)
+                    // Handle scene node property setting via SceneSpec (sprite, label, shape, etc.)
+                    let sceneNodeTypes = ["sprite", "label", "shape", "emitter", "audio", "tilemap", "camera", "video", "crop", "effect", "light", "group"]
+                    if sceneNodeTypes.contains(ref.objectType) {
+                        let nodeName = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+                        if let location = nodeLocation(
+                            named: nodeName,
+                            objectType: ref.objectType,
+                            document: document,
+                            currentCardId: context.currentCardId
+                        ) {
+                            _ = mutateActiveScene(partIndex: location.partIndex, document: &document) { spec in
+                                _ = spec.updateNode(id: location.node.id) { node in
+                                    applyNodePropertySet(property: property, value: value, to: &node)
+                                }
+                            }
+                        }
+                    } else if ref.objectType == "scene" {
+                        let sceneName = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+                        if let location = sceneLocation(named: sceneName, document: document, currentCardId: context.currentCardId) {
+                            _ = mutateSpriteAreaSpec(partIndex: location.partIndex, document: &document) { areaSpec in
+                                if let index = areaSpec.scenes.firstIndex(where: { $0.scene.name.lowercased() == sceneName.lowercased() }) {
+                                    switch property.lowercased() {
+                                    case "name":
+                                        areaSpec.scenes[index].scene.name = value
+                                    case "backgroundcolor":
+                                        areaSpec.scenes[index].scene.backgroundColor = value
+                                    case "gravity":
+                                        let comps = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+                                        if comps.count >= 2 {
+                                            areaSpec.scenes[index].scene.gravity = VectorSpec(dx: comps[0], dy: comps[1])
+                                        }
+                                    case "paused", "ispaused":
+                                        areaSpec.scenes[index].scene.isPaused = isTruthy(value)
+                                    default:
+                                        break
+                                    }
+                                    if areaSpec.scenes[index].id == areaSpec.activeSceneID {
+                                        areaSpec.setActiveScene(areaSpec.scenes[index].scene)
+                                    }
+                                }
+                            }
+                        }
+                    } else if ref.objectType == "card" && property.lowercased() == "background" {
+                    // `set the background of card "X" to "bgName"`
+                    let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+                    let cardIndex: Int?
+                    if let ci = document.cards.firstIndex(where: { $0.name.lowercased() == ident.lowercased() }) {
+                        cardIndex = ci
+                    } else if let num = Int(ident), num >= 1, num <= document.sortedCards.count {
+                        let cardId = document.sortedCards[num - 1].id
+                        cardIndex = document.cards.firstIndex(where: { $0.id == cardId })
+                    } else {
+                        cardIndex = nil
+                    }
+                    if let ci = cardIndex,
+                       let bg = document.backgroundByName(value) {
+                        document.cards[ci].backgroundId = bg.id
+                    }
+                    } else if ref.objectType == "stack" {
+                    // Stack-level property set: `set the defaultFont of stack to "Helvetica"`
+                    switch property.lowercased() {
+                    case "name":
+                        document.stack.name = value
+                    case "defaultfont", "default_font", "textfont", "font":
+                        document.stack.defaultFont = value
+                    default:
+                        break
+                    }
+                    } else {
+                    let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
                     if let partIndex = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
-                        // Set the property on the part
-                        switch property.lowercased() {
-                        case "url":
-                            document.parts[partIndex].url = value
-                        case "name":
-                            document.parts[partIndex].name = value
-                        case "textcontent", "text":
-                            document.parts[partIndex].textContent = value
-                        case "visible":
-                            document.parts[partIndex].visible = isTruthy(value)
-                        case "enabled":
-                            document.parts[partIndex].enabled = isTruthy(value)
-                        case "textalign":
-                            document.parts[partIndex].textAlign = TextAlignment(rawValue: value.lowercased()) ?? .left
-                        case "textfont", "font":
-                            document.parts[partIndex].textFont = value
-                        case "textsize", "size":
-                            document.parts[partIndex].textSize = toNumber(value)
-                        case "fillcolor":
-                            document.parts[partIndex].fillColor = value
-                        case "strokecolor":
-                            document.parts[partIndex].strokeColor = value
-                        case "left", "left_pos":
-                            document.parts[partIndex].left = toNumber(value)
-                        case "top", "top_pos":
-                            document.parts[partIndex].top = toNumber(value)
-                        case "width":
-                            document.parts[partIndex].width = toNumber(value)
-                        case "height":
-                            document.parts[partIndex].height = toNumber(value)
-                        case "hilite":
-                            document.parts[partIndex].hilite = isTruthy(value)
-                        case "autohilite":
-                            document.parts[partIndex].autoHilite = isTruthy(value)
-                        case "showname":
-                            document.parts[partIndex].showName = isTruthy(value)
-                        case "locktext":
-                            document.parts[partIndex].lockText = isTruthy(value)
-                        case "dontwrap":
-                            document.parts[partIndex].dontWrap = isTruthy(value)
-                        case "widemargins":
-                            document.parts[partIndex].wideMargins = isTruthy(value)
-                        case "style":
-                            switch document.parts[partIndex].partType {
-                            case .button:
-                                document.parts[partIndex].buttonStyle = ButtonStyle(rawValue: value) ?? .roundRect
-                            case .field:
-                                document.parts[partIndex].fieldStyle = FieldStyle(rawValue: value) ?? .rectangle
-                            case .shape:
-                                document.parts[partIndex].shapeType = ShapeType(rawValue: value) ?? .rectangle
-                            default:
-                                break
+                        applyPartPropertySet(
+                            partIndex: partIndex,
+                            property: property,
+                            value: value,
+                            env: &env,
+                            document: &document,
+                            context: context
+                        )
+                    } else {
+                        env.setVariable(property, value)
+                    }
+                    } // close else (non-sprite objectRef)
+                } else if case .me = targetExpr {
+                    if let partIndex = document.parts.firstIndex(where: { $0.id == context.targetId }) {
+                        applyPartPropertySet(
+                            partIndex: partIndex,
+                            property: property,
+                            value: value,
+                            env: &env,
+                            document: &document,
+                            context: context
+                        )
+                    } else if let spriteTarget = locateSpriteTarget(id: context.targetId, document: document, currentCardId: context.currentCardId) {
+                        if let nodeId = spriteTarget.nodeId {
+                            _ = mutateActiveScene(partIndex: spriteTarget.partIndex, document: &document) { spec in
+                                _ = spec.updateNode(id: nodeId) { node in
+                                    applyNodePropertySet(property: property, value: value, to: &node)
+                                }
                             }
-                        case "chartdata", "chart_data":
-                            document.parts[partIndex].chartData = value
-                        case "script":
-                            document.parts[partIndex].script = value
-                        case "family":
-                            document.parts[partIndex].family = Int(toNumber(value))
-                        case "textstyle":
-                            document.parts[partIndex].textStyle = value
-                        case "rect", "rectangle":
-                            let components = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
-                            if components.count == 4 {
-                                document.parts[partIndex].left = components[0]
-                                document.parts[partIndex].top = components[1]
-                                document.parts[partIndex].width = components[2] - components[0]
-                                document.parts[partIndex].height = components[3] - components[1]
+                        } else {
+                            _ = mutateActiveScene(partIndex: spriteTarget.partIndex, document: &document) { scene in
+                                switch property.lowercased() {
+                                case "name":
+                                    scene.name = value
+                                case "backgroundcolor":
+                                    scene.backgroundColor = value
+                                case "gravity":
+                                    let comps = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+                                    if comps.count >= 2 {
+                                        scene.gravity = VectorSpec(dx: comps[0], dy: comps[1])
+                                    }
+                                case "paused", "ispaused":
+                                    scene.isPaused = isTruthy(value)
+                                default:
+                                    break
+                                }
                             }
-                        case "loc", "location":
-                            let components = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
-                            if components.count == 2 {
-                                document.parts[partIndex].left = components[0] - document.parts[partIndex].width / 2
-                                document.parts[partIndex].top = components[1] - document.parts[partIndex].height / 2
-                            }
-                        case "marked":
-                            if let idx = document.cards.firstIndex(where: { $0.id == context.currentCardId }) {
-                                document.cards[idx].marked = isTruthy(value)
-                            }
-                        case "right":
-                            let newRight = toNumber(value)
-                            document.parts[partIndex].width = newRight - document.parts[partIndex].left
-                        case "bottom":
-                            let newBottom = toNumber(value)
-                            document.parts[partIndex].height = newBottom - document.parts[partIndex].top
-                        case "topleft":
-                            let components = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
-                            if components.count >= 2 {
-                                document.parts[partIndex].left = components[0]
-                                document.parts[partIndex].top = components[1]
-                            }
-                        case "bottomright":
-                            let components = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
-                            if components.count >= 2 {
-                                document.parts[partIndex].width = components[0] - document.parts[partIndex].left
-                                document.parts[partIndex].height = components[1] - document.parts[partIndex].top
-                            }
-                        case "icon":
-                            if let uuid = UUID(uuidString: value) {
-                                document.parts[partIndex].iconId = uuid
-                            }
-                        case "scroll", "scrollpos":
-                            break  // Would need scroll position tracking
-                        case "sharedtext":
-                            break  // Would need shared text model field
-                        case "sharedhilite":
-                            break  // Would need shared hilite model field
-                        case "showlines":
-                            break  // Would need field property
-                        case "showpict":
-                            break  // Would need show picture property
-                        case "fixedlineheight":
-                            break  // Would need model property
-                        case "multiplelines":
-                            break  // Would need model property
-                        case "dontsearch":
-                            break  // Would need model property
-                        case "autoselect":
-                            break  // Would need model property
-                        case "autotab":
-                            break  // Would need model property
-                        case "textheight":
-                            document.parts[partIndex].textSize = toNumber(value) / 1.3
-                        case "cantdelete":
-                            break  // Would need model property
-                        case "cantmodify":
-                            break  // Would need model property
-                        case "centered":
-                            document.parts[partIndex].textAlign = isTruthy(value) ? .center : .left
-                        case "fill_color":
-                            document.parts[partIndex].fillColor = value
-                        case "stroke_color":
-                            document.parts[partIndex].strokeColor = value
-                        case "strokewidth", "stroke_width":
-                            document.parts[partIndex].strokeWidth = toNumber(value)
-                        case "cornerradius", "corner_radius":
-                            document.parts[partIndex].cornerRadius = toNumber(value)
-                        case "shapetype", "shape_type":
-                            if let st = ShapeType(rawValue: value) {
-                                document.parts[partIndex].shapeType = st
-                            }
-                        case "richtext", "rich_text":
-                            document.parts[partIndex].richText = isTruthy(value)
-                        case "enterkeyenabled":
-                            document.parts[partIndex].enterKeyEnabled = isTruthy(value)
-                        case "invertonclick":
-                            document.parts[partIndex].invertOnClick = isTruthy(value)
-                        default:
-                            env.setVariable(property, value)
                         }
                     } else {
                         env.setVariable(property, value)
@@ -392,7 +552,7 @@ public struct Interpreter: Sendable {
             }
 
         case .go(let dest):
-            let destValue = try evaluate(dest, env: &env, document: document, context: context)
+            let destValue = try await evaluate(dest, env: &env, document: document, context: context)
             // Try to resolve destination to a card UUID.
             if let uuid = UUID(uuidString: destValue) {
                 navigationTarget = uuid
@@ -403,28 +563,28 @@ public struct Interpreter: Sendable {
             }
 
         case .ifThenElse(let cond, let thenBlock, let elseBlock):
-            let condValue = try evaluate(cond, env: &env, document: document, context: context)
+            let condValue = try await evaluate(cond, env: &env, document: document, context: context)
             if isTruthy(condValue) {
                 for s in thenBlock {
-                    try executeStatement(s, env: &env, document: &document, context: context,
+                    try await executeStatement(s, env: &env, document: &document, context: context,
                                          instructionCount: &instructionCount,
                                          navigationTarget: &navigationTarget, handler: handler)
                 }
             } else if let elseStmts = elseBlock {
                 for s in elseStmts {
-                    try executeStatement(s, env: &env, document: &document, context: context,
+                    try await executeStatement(s, env: &env, document: &document, context: context,
                                          instructionCount: &instructionCount,
                                          navigationTarget: &navigationTarget, handler: handler)
                 }
             }
 
         case .repeatCount(let countExpr, let body):
-            let countStr = try evaluate(countExpr, env: &env, document: document, context: context)
+            let countStr = try await evaluate(countExpr, env: &env, document: document, context: context)
             let count = Int(toNumber(countStr))
             for _ in 0..<max(0, count) {
                 do {
                     for s in body {
-                        try executeStatement(s, env: &env, document: &document, context: context,
+                        try await executeStatement(s, env: &env, document: &document, context: context,
                                              instructionCount: &instructionCount,
                                              navigationTarget: &navigationTarget, handler: handler)
                     }
@@ -437,11 +597,11 @@ public struct Interpreter: Sendable {
 
         case .repeatWhile(let cond, let body):
             while true {
-                let condValue = try evaluate(cond, env: &env, document: document, context: context)
+                let condValue = try await evaluate(cond, env: &env, document: document, context: context)
                 if !isTruthy(condValue) { break }
                 do {
                     for s in body {
-                        try executeStatement(s, env: &env, document: &document, context: context,
+                        try await executeStatement(s, env: &env, document: &document, context: context,
                                              instructionCount: &instructionCount,
                                              navigationTarget: &navigationTarget, handler: handler)
                     }
@@ -453,15 +613,15 @@ public struct Interpreter: Sendable {
             }
 
         case .repeatWith(let varName, let fromExpr, let toExpr, let body):
-            let fromVal = Int(toNumber(try evaluate(fromExpr, env: &env, document: document, context: context)))
-            let toVal = Int(toNumber(try evaluate(toExpr, env: &env, document: document, context: context)))
+            let fromVal = Int(toNumber(try await evaluate(fromExpr, env: &env, document: document, context: context)))
+            let toVal = Int(toNumber(try await evaluate(toExpr, env: &env, document: document, context: context)))
             let step = fromVal <= toVal ? 1 : -1
             var i = fromVal
             while (step > 0 && i <= toVal) || (step < 0 && i >= toVal) {
                 env.setVariable(varName, String(i))
                 do {
                     for s in body {
-                        try executeStatement(s, env: &env, document: &document, context: context,
+                        try await executeStatement(s, env: &env, document: &document, context: context,
                                              instructionCount: &instructionCount,
                                              navigationTarget: &navigationTarget, handler: handler)
                     }
@@ -486,7 +646,7 @@ public struct Interpreter: Sendable {
             throw ControlSignal.exitHandler(nil)
 
         case .returnValue(let expr):
-            let value = try evaluate(expr, env: &env, document: document, context: context)
+            let value = try await evaluate(expr, env: &env, document: document, context: context)
             throw ControlSignal.exitHandler(value)
 
         case .globalDecl(let names):
@@ -495,31 +655,58 @@ public struct Interpreter: Sendable {
             }
 
         case .ask(let prompt):
-            let promptText = try evaluate(prompt, env: &env, document: document, context: context)
-            let userInput = context.dialogProvider.showAsk(prompt: promptText)
+            let promptText = try await evaluate(prompt, env: &env, document: document, context: context)
+            let userInput = await context.dialogProvider.showAskAsync(prompt: promptText)
             env.it = userInput
 
+        case .askAI(let prompt, let modelExpr, let callbackExpr):
+            let promptText = try await evaluate(prompt, env: &env, document: document, context: context)
+            let modelName = try await evaluateOptional(modelExpr, env: &env, document: document, context: context)
+            if let callbackExpr, let runtime = context.runtimeProvider {
+                let callbackName = try await evaluate(callbackExpr, env: &env, document: document, context: context)
+                let requestID = try await runtime.startAIRequest(
+                    prompt: promptText,
+                    model: modelName,
+                    callbackMessage: callbackName,
+                    owner: RuntimeOwnerContext(
+                        targetId: context.targetId,
+                        currentCardId: context.currentCardId,
+                        scriptContext: context.scriptContext
+                    )
+                )
+                env.it = requestID.uuidString
+            } else {
+                env.it = try await context.aiProvider.generate(prompt: promptText, model: modelName)
+            }
+
         case .answer(let prompt):
-            let promptText = try evaluate(prompt, env: &env, document: document, context: context)
-            let response = context.dialogProvider.showAnswer(prompt: promptText)
+            let promptText = try await evaluate(prompt, env: &env, document: document, context: context)
+            let response = await context.dialogProvider.showAnswerAsync(prompt: promptText)
             env.it = response
 
-        case .visual(let effectExpr):
-            // Visual effects are a presentation concern — record but do not act.
-            _ = try evaluate(effectExpr, env: &env, document: document, context: context)
+        case .visual(let effectExpr, let durationExpr):
+            // Record the requested visual effect name (and optional
+            // duration) so the presentation layer can apply it as a
+            // SpriteKit transition on the next card navigation.
+            let effectName = try await evaluate(effectExpr, env: &env, document: document, context: context)
+            env.locals["_visualEffect"] = effectName
+            if let durExpr = durationExpr {
+                let dur = try await evaluate(durExpr, env: &env, document: document, context: context)
+                env.locals["_visualEffectDuration"] = dur
+            }
 
         case .expressionStatement(let expr):
-            _ = try evaluate(expr, env: &env, document: document, context: context)
+            _ = try await evaluate(expr, env: &env, document: document, context: context)
 
         case .doBlock(let expr):
-            let scriptText = try evaluate(expr, env: &env, document: document, context: context)
+            let scriptText = try await evaluate(expr, env: &env, document: document, context: context)
             // Simplified: parse and execute inline. Not fully implemented.
             _ = scriptText
 
         case .createCard(let bgNameExpr):
             var bgName: String? = nil
             if let expr = bgNameExpr {
-                bgName = try evaluate(expr, env: &env, document: document, context: context)
+                bgName = try await evaluate(expr, env: &env, document: document, context: context)
             }
             let newCard = document.addCard(
                 afterIndex: document.sortedCards.firstIndex(where: { $0.id == context.currentCardId }),
@@ -528,8 +715,34 @@ public struct Interpreter: Sendable {
             navigationTarget = newCard.id
 
         case .createBackground(let nameExpr):
-            let name = try evaluate(nameExpr, env: &env, document: document, context: context)
+            let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
             let _ = document.addBackground(name: name)
+
+        case .createButton(let nameExpr, let onBackground):
+            let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
+            var part: Part
+            if onBackground {
+                let bgId = document.cards.first(where: { $0.id == context.currentCardId })?.backgroundId
+                part = Part(partType: .button, backgroundId: bgId, name: name)
+            } else {
+                part = Part(partType: .button, cardId: context.currentCardId, name: name)
+            }
+            let stackFont = document.stack.defaultFont
+            if !stackFont.isEmpty { part.textFont = stackFont }
+            document.addPart(part)
+
+        case .createField(let nameExpr, let onBackground):
+            let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
+            var part: Part
+            if onBackground {
+                let bgId = document.cards.first(where: { $0.id == context.currentCardId })?.backgroundId
+                part = Part(partType: .field, backgroundId: bgId, name: name)
+            } else {
+                part = Part(partType: .field, cardId: context.currentCardId, name: name)
+            }
+            let stackFont = document.stack.defaultFont
+            if !stackFont.isEmpty { part.textFont = stackFont }
+            document.addPart(part)
 
         case .showAllCards:
             // Signal the UI to cycle through all cards with animation.
@@ -537,12 +750,12 @@ public struct Interpreter: Sendable {
             throw ControlSignal.showAllCards
 
         case .addTo(let valueExpr, let targetExpr):
-            let value = try evaluate(valueExpr, env: &env, document: document, context: context)
+            let value = try await evaluate(valueExpr, env: &env, document: document, context: context)
             if case .variable(let name) = targetExpr {
                 let existing = env.getVariable(name)
                 env.setVariable(name, formatNumber(toNumber(existing) + toNumber(value)))
             } else if case .objectRef(let ref) = targetExpr {
-                let ident = try evaluate(ref.identifier, env: &env, document: document, context: context)
+                let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
                 if let idx = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
                     let existing = document.parts[idx].textContent
                     document.parts[idx].textContent = formatNumber(toNumber(existing) + toNumber(value))
@@ -550,21 +763,21 @@ public struct Interpreter: Sendable {
             }
 
         case .subtractFrom(let valueExpr, let targetExpr):
-            let value = try evaluate(valueExpr, env: &env, document: document, context: context)
+            let value = try await evaluate(valueExpr, env: &env, document: document, context: context)
             if case .variable(let name) = targetExpr {
                 let existing = env.getVariable(name)
                 env.setVariable(name, formatNumber(toNumber(existing) - toNumber(value)))
             }
 
         case .multiplyBy(let targetExpr, let valueExpr):
-            let value = try evaluate(valueExpr, env: &env, document: document, context: context)
+            let value = try await evaluate(valueExpr, env: &env, document: document, context: context)
             if case .variable(let name) = targetExpr {
                 let existing = env.getVariable(name)
                 env.setVariable(name, formatNumber(toNumber(existing) * toNumber(value)))
             }
 
         case .divideBy(let targetExpr, let valueExpr):
-            let value = try evaluate(valueExpr, env: &env, document: document, context: context)
+            let value = try await evaluate(valueExpr, env: &env, document: document, context: context)
             if case .variable(let name) = targetExpr {
                 let existing = env.getVariable(name)
                 let divisor = toNumber(value)
@@ -573,7 +786,7 @@ public struct Interpreter: Sendable {
 
         case .deleteObject(let expr):
             if case .objectRef(let ref) = expr {
-                let ident = try evaluate(ref.identifier, env: &env, document: document, context: context)
+                let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
                 if let idx = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
                     document.parts.remove(at: idx)
                 }
@@ -581,7 +794,7 @@ public struct Interpreter: Sendable {
 
         case .findText(let expr):
             // Stub: find is complex — for now store the search text in `it`.
-            let text = try evaluate(expr, env: &env, document: document, context: context)
+            let text = try await evaluate(expr, env: &env, document: document, context: context)
             env.it = text
 
         case .selectObject:
@@ -589,12 +802,12 @@ public struct Interpreter: Sendable {
 
         case .sortCards(let byExpr):
             // Sort cards by evaluating the expression for each card.
-            let _ = try evaluate(byExpr, env: &env, document: document, context: context)
+            let _ = try await evaluate(byExpr, env: &env, document: document, context: context)
             // Complex — stub for now
 
         case .hideObject(let expr):
             if case .objectRef(let ref) = expr {
-                let ident = try evaluate(ref.identifier, env: &env, document: document, context: context)
+                let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
                 if let idx = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
                     document.parts[idx].visible = false
                 }
@@ -602,7 +815,7 @@ public struct Interpreter: Sendable {
 
         case .showObject(let expr):
             if case .objectRef(let ref) = expr {
-                let ident = try evaluate(ref.identifier, env: &env, document: document, context: context)
+                let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
                 if let idx = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
                     document.parts[idx].visible = true
                 }
@@ -614,19 +827,168 @@ public struct Interpreter: Sendable {
         case .openStack:
             break // Complex — stub
 
-        case .send, .wait, .beep, .play:
-            // Stubs for future implementation.
-            break
+        case .send(let message, let target):
+            let targetValue = try await evaluate(target, env: &env, document: document, context: context)
+            if let targetID = UUID(uuidString: targetValue), let runtime = context.runtimeProvider {
+                try await runtime.send(message, toConnection: targetID)
+            }
+
+        case .playSound(let soundExpr, let notesExpr, let tempoExpr):
+            let soundName = try await evaluate(soundExpr, env: &env, document: document, context: context)
+            #if canImport(AppKit)
+            if let notesExprVal = notesExpr {
+                let noteString = try await evaluate(notesExprVal, env: &env, document: document, context: context)
+                let tempo: Int
+                if let tExpr = tempoExpr {
+                    tempo = Int(toNumber(try await evaluate(tExpr, env: &env, document: document, context: context)))
+                } else {
+                    tempo = 120
+                }
+                SoundPlayer.shared.playNotes(instrument: soundName, noteString: noteString, tempo: tempo, document: document)
+            } else {
+                SoundPlayer.shared.play(name: soundName, document: document)
+            }
+            #endif
+
+        case .playStop:
+            #if canImport(AppKit)
+            SoundPlayer.shared.stop()
+            #endif
+
+        case .beep(let countExpr):
+            #if canImport(AppKit)
+            let count: Int
+            if let expr = countExpr {
+                count = max(1, Int(toNumber(try await evaluate(expr, env: &env, document: document, context: context))))
+            } else {
+                count = 1
+            }
+            for _ in 0..<count {
+                NSSound.beep()
+            }
+            #endif
+
+        case .waitDuration(let expr):
+            let val = try await evaluate(expr, env: &env, document: document, context: context)
+            let seconds = toNumber(val)
+            if seconds > 0 {
+                if let runtime = context.runtimeProvider {
+                    try await runtime.sleep(seconds: min(seconds, 300))
+                } else {
+                    try await sleepOutsideRuntime(seconds: min(seconds, 300))
+                }
+            }
+
+        case .waitUntil(let condition):
+            // Poll the condition every 50ms, cap at 30 seconds.
+            let maxWait = 30.0
+            let start = Date()
+            while Date().timeIntervalSince(start) < maxWait {
+                let condVal = try await evaluate(condition, env: &env, document: document, context: context)
+                if isTruthy(condVal) { break }
+                if let runtime = context.runtimeProvider {
+                    try await runtime.sleep(seconds: 0.05)
+                } else {
+                    try await sleepOutsideRuntime(seconds: 0.05)
+                }
+            }
+
+        // Animation
+        case .animateProperty(let property, let targetExpr, let toValueExpr, let durationExpr):
+            let toValueStr = try await evaluate(toValueExpr, env: &env, document: document, context: context)
+            let durationVal = toNumber(try await evaluate(durationExpr, env: &env, document: document, context: context))
+
+            // Resolve the target part
+            if case .objectRef(let ref) = targetExpr {
+                let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+                if let partIndex = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
+                    let part = document.parts[partIndex]
+                    let prop = property.lowercased()
+
+                    #if canImport(AppKit)
+                    if prop == "loc" || prop == "location" {
+                        // Point animation: parse current loc and target loc
+                        let currentX = part.left + part.width / 2
+                        let currentY = part.top + part.height / 2
+                        let components = toValueStr.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+                        if components.count >= 2 {
+                            PartAnimator.shared.animate(
+                                partId: part.id,
+                                property: "loc",
+                                fromValue: currentX,
+                                toValue: components[0],
+                                fromValueY: currentY,
+                                toValueY: components[1],
+                                duration: durationVal
+                            )
+                        }
+                    } else {
+                        // Scalar animation (left, top, width, height, rotation)
+                        let fromValue: Double
+                        switch prop {
+                        case "left":     fromValue = part.left
+                        case "top":      fromValue = part.top
+                        case "width":    fromValue = part.width
+                        case "height":   fromValue = part.height
+                        case "rotation": fromValue = part.rotation
+                        default:         fromValue = 0
+                        }
+                        let toVal = toNumber(toValueStr)
+                        PartAnimator.shared.animate(
+                            partId: part.id,
+                            property: prop,
+                            fromValue: fromValue,
+                            toValue: toVal,
+                            duration: durationVal
+                        )
+                    }
+                    #endif
+                }
+            } else if case .me = targetExpr,
+                      let partIndex = document.parts.firstIndex(where: { $0.id == context.targetId }) {
+                let part = document.parts[partIndex]
+                let prop = property.lowercased()
+                #if canImport(AppKit)
+                if prop == "loc" || prop == "location" {
+                    let currentX = part.left + part.width / 2
+                    let currentY = part.top + part.height / 2
+                    let components = toValueStr.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+                    if components.count >= 2 {
+                        PartAnimator.shared.animate(
+                            partId: part.id, property: "loc",
+                            fromValue: currentX, toValue: components[0],
+                            fromValueY: currentY, toValueY: components[1],
+                            duration: durationVal
+                        )
+                    }
+                } else {
+                    let fromValue: Double
+                    switch prop {
+                    case "left":     fromValue = part.left
+                    case "top":      fromValue = part.top
+                    case "width":    fromValue = part.width
+                    case "height":   fromValue = part.height
+                    case "rotation": fromValue = part.rotation
+                    default:         fromValue = 0
+                    }
+                    PartAnimator.shared.animate(
+                        partId: part.id, property: prop,
+                        fromValue: fromValue, toValue: toNumber(toValueStr),
+                        duration: durationVal
+                    )
+                }
+                #endif
+            }
 
         // Phase 2: Implemented commands
 
         case .chooseTool(let expr):
-            let toolName = try evaluate(expr, env: &env, document: document, context: context)
+            let toolName = try await evaluate(expr, env: &env, document: document, context: context)
             env.it = toolName
 
         case .markCard(let expr):
             if let cardExpr = expr {
-                let ident = try evaluate(cardExpr, env: &env, document: document, context: context)
+                let ident = try await evaluate(cardExpr, env: &env, document: document, context: context)
                 if let idx = document.cards.firstIndex(where: { $0.name.lowercased() == ident.lowercased() }) {
                     document.cards[idx].marked = true
                 } else if let uuid = UUID(uuidString: ident),
@@ -641,7 +1003,7 @@ public struct Interpreter: Sendable {
 
         case .unmarkCard(let expr):
             if let cardExpr = expr {
-                let ident = try evaluate(cardExpr, env: &env, document: document, context: context)
+                let ident = try await evaluate(cardExpr, env: &env, document: document, context: context)
                 if let idx = document.cards.firstIndex(where: { $0.name.lowercased() == ident.lowercased() }) {
                     document.cards[idx].marked = false
                 } else if let uuid = UUID(uuidString: ident),
@@ -655,21 +1017,591 @@ public struct Interpreter: Sendable {
             }
 
         case .typeText(let expr):
-            let text = try evaluate(expr, env: &env, document: document, context: context)
+            let text = try await evaluate(expr, env: &env, document: document, context: context)
             env.it = text
 
         case .convert(let sourceExpr, let targetExpr):
-            let _ = try evaluate(sourceExpr, env: &env, document: document, context: context)
-            let _ = try evaluate(targetExpr, env: &env, document: document, context: context)
+            let _ = try await evaluate(sourceExpr, env: &env, document: document, context: context)
+            let _ = try await evaluate(targetExpr, env: &env, document: document, context: context)
             // Stub: conversion between date/time formats not yet implemented
 
         case .closeWindow, .saveStack, .quitApp, .editScriptOf:
             break // UI operations — stubs requiring platform integration
 
+        case .dragFrom(let fromExpr, let toExpr):
+            let fromVal = try await evaluate(fromExpr, env: &env, document: document, context: context)
+            let toVal = try await evaluate(toExpr, env: &env, document: document, context: context)
+            let fromParts = fromVal.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            let toParts = toVal.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            if fromParts.count >= 2 && toParts.count >= 2 {
+                let x0 = Int(Double(fromParts[0]) ?? 0)
+                let y0 = Int(Double(fromParts[1]) ?? 0)
+                let x1 = Int(Double(toParts[0]) ?? 0)
+                let y1 = Int(Double(toParts[1]) ?? 0)
+                let radius = Int(toNumber(env.getVariable("pencilsize")))
+                let colorHex = env.getVariable("pencilcolor")
+                await context.drawingProvider.drawLineAsync(from: (x0, y0), to: (x1, y1),
+                                                            radius: max(1, radius == 0 ? 2 : radius),
+                                                            colorHex: colorHex.isEmpty ? "#000000" : colorHex)
+            }
+
+        case .requestURL(let urlExpr, let methodExpr, let headersExpr, let bodyExpr, let usernameExpr, let passwordExpr, let callbackExpr):
+            guard let runtime = context.runtimeProvider else {
+                throw ScriptError(message: "Network runtime is unavailable", line: handler.line, handler: handler.name)
+            }
+            let url = try await evaluate(urlExpr, env: &env, document: document, context: context)
+            let method = try await evaluateOptional(methodExpr, env: &env, document: document, context: context) ?? "GET"
+            let headers = try await evaluateOptional(headersExpr, env: &env, document: document, context: context) ?? ""
+            let body = try await evaluateOptional(bodyExpr, env: &env, document: document, context: context) ?? ""
+            let username = try await evaluateOptional(usernameExpr, env: &env, document: document, context: context)
+            let password = try await evaluateOptional(passwordExpr, env: &env, document: document, context: context)
+            let callback = try await evaluateOptional(callbackExpr, env: &env, document: document, context: context)
+            let id = try await runtime.startHTTPRequest(
+                OutboundHTTPRequestSpec(url: url, method: method, headersText: headers, body: body, username: username, password: password, callbackMessage: callback),
+                owner: RuntimeOwnerContext(targetId: context.targetId, currentCardId: context.currentCardId, scriptContext: context.scriptContext)
+            )
+            env.it = id.uuidString
+
+        case .replyRequest(let requestExpr, let statusExpr, let headersExpr, let bodyExpr):
+            guard let runtime = context.runtimeProvider else {
+                throw ScriptError(message: "Network runtime is unavailable", line: handler.line, handler: handler.name)
+            }
+            let requestID = UUID(uuidString: try await evaluate(requestExpr, env: &env, document: document, context: context))
+            guard let requestID else {
+                throw ScriptError(message: "Invalid request handle", line: handler.line, handler: handler.name)
+            }
+            let status = Int(toNumber(try await evaluate(statusExpr, env: &env, document: document, context: context)))
+            let headers = try await evaluateOptional(headersExpr, env: &env, document: document, context: context) ?? ""
+            let body = try await evaluateOptional(bodyExpr, env: &env, document: document, context: context) ?? ""
+            try await runtime.reply(to: requestID, status: status, headersText: headers, body: body)
+            env.it = requestID.uuidString
+
+        case .listenHTTP(let portExpr, let hostExpr, let methodExpr, let pathExpr, let callbackExpr):
+            guard let runtime = context.runtimeProvider else {
+                throw ScriptError(message: "Network runtime is unavailable", line: handler.line, handler: handler.name)
+            }
+            let port = Int(toNumber(try await evaluate(portExpr, env: &env, document: document, context: context)))
+            let host = try await evaluateOptional(hostExpr, env: &env, document: document, context: context) ?? "127.0.0.1"
+            let method = try await evaluateOptional(methodExpr, env: &env, document: document, context: context)
+            let path = try await evaluateOptional(pathExpr, env: &env, document: document, context: context)
+            let callback = try await evaluate(callbackExpr, env: &env, document: document, context: context)
+            let listenerID = try await runtime.startListener(
+                ListenerSpec(transport: .http, host: host, port: port, bindScope: .loopback, callbackMessage: callback, httpMethod: method, httpPath: path),
+                owner: RuntimeOwnerContext(targetId: context.targetId, currentCardId: context.currentCardId, scriptContext: context.scriptContext)
+            )
+            env.it = listenerID.uuidString
+
+        case .listenTCP(let portExpr, let hostExpr, let callbackExpr):
+            guard let runtime = context.runtimeProvider else {
+                throw ScriptError(message: "Network runtime is unavailable", line: handler.line, handler: handler.name)
+            }
+            let port = Int(toNumber(try await evaluate(portExpr, env: &env, document: document, context: context)))
+            let host = try await evaluateOptional(hostExpr, env: &env, document: document, context: context) ?? "127.0.0.1"
+            let callback = try await evaluate(callbackExpr, env: &env, document: document, context: context)
+            let listenerID = try await runtime.startListener(
+                ListenerSpec(transport: .tcp, host: host, port: port, bindScope: .loopback, callbackMessage: callback),
+                owner: RuntimeOwnerContext(targetId: context.targetId, currentCardId: context.currentCardId, scriptContext: context.scriptContext)
+            )
+            env.it = listenerID.uuidString
+
+        case .connectTCP(let hostExpr, let portExpr, let tlsExpr, let callbackExpr):
+            guard let runtime = context.runtimeProvider else {
+                throw ScriptError(message: "Network runtime is unavailable", line: handler.line, handler: handler.name)
+            }
+            let host = try await evaluate(hostExpr, env: &env, document: document, context: context)
+            let port = Int(toNumber(try await evaluate(portExpr, env: &env, document: document, context: context)))
+            let tlsValue = try await evaluateOptional(tlsExpr, env: &env, document: document, context: context)
+            let tls = tlsValue.map(isTruthy) ?? false
+            let callback = try await evaluate(callbackExpr, env: &env, document: document, context: context)
+            let connectionID = try await runtime.connectTCP(
+                TCPConnectionSpec(host: host, port: port, tls: tls, callbackMessage: callback),
+                owner: RuntimeOwnerContext(targetId: context.targetId, currentCardId: context.currentCardId, scriptContext: context.scriptContext)
+            )
+            env.it = connectionID.uuidString
+
+        case .sendToConnection(let dataExpr, let connectionExpr):
+            guard let runtime = context.runtimeProvider else {
+                throw ScriptError(message: "Network runtime is unavailable", line: handler.line, handler: handler.name)
+            }
+            let data = try await evaluate(dataExpr, env: &env, document: document, context: context)
+            let connectionID = UUID(uuidString: try await evaluate(connectionExpr, env: &env, document: document, context: context))
+            guard let connectionID else {
+                throw ScriptError(message: "Invalid connection handle", line: handler.line, handler: handler.name)
+            }
+            try await runtime.send(data, toConnection: connectionID)
+            env.it = connectionID.uuidString
+
+        case .closeConnection(let connectionExpr):
+            guard let runtime = context.runtimeProvider else { break }
+            if let connectionID = UUID(uuidString: try await evaluate(connectionExpr, env: &env, document: document, context: context)) {
+                await runtime.closeConnection(connectionID)
+                env.it = connectionID.uuidString
+            }
+
+        case .stopListener(let listenerExpr):
+            guard let runtime = context.runtimeProvider else { break }
+            if let listenerID = UUID(uuidString: try await evaluate(listenerExpr, env: &env, document: document, context: context)) {
+                await runtime.stopListener(listenerID)
+                env.it = listenerID.uuidString
+            }
+
+        // MARK: SpriteKit commands
+
+        case .createSpriteArea(let nameExpr, let rectExpr):
+            let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
+            var newPart = Part(partType: .spriteArea, cardId: context.currentCardId, name: name)
+            if let rExpr = rectExpr {
+                let rectStr = try await evaluate(rExpr, env: &env, document: document, context: context)
+                let comps = rectStr.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+                if comps.count >= 4 {
+                    newPart.left = comps[0]
+                    newPart.top = comps[1]
+                    newPart.width = comps[2]
+                    newPart.height = comps[3]
+                }
+            } else {
+                newPart.width = 400
+                newPart.height = 300
+            }
+            let defaultAreaSpec = SpriteAreaSpec(
+                defaultSceneNamed: name,
+                fallbackSize: SizeSpec(width: newPart.width, height: newPart.height)
+            )
+            newPart.setSpriteAreaSpec(defaultAreaSpec)
+            document.addPart(newPart)
+
+        case .createSpriteScene(let nameExpr, let inAreaExpr, let widthExpr, let heightExpr):
+            let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
+            let areaName = inAreaExpr != nil
+                ? try await evaluate(inAreaExpr!, env: &env, document: document, context: context)
+                : nil
+            if let idx = resolveSpriteAreaPartIndex(named: areaName, document: document, currentCardId: context.currentCardId) {
+                let width = widthExpr != nil
+                    ? toNumber(try await evaluate(widthExpr!, env: &env, document: document, context: context))
+                    : nil
+                let height = heightExpr != nil
+                    ? toNumber(try await evaluate(heightExpr!, env: &env, document: document, context: context))
+                    : nil
+                _ = mutateSpriteAreaSpec(partIndex: idx, document: &document) { areaSpec in
+                    let fallbackSize = SizeSpec(
+                        width: width ?? areaSpec.designSize.width,
+                        height: height ?? areaSpec.designSize.height
+                    )
+                    let template = areaSpec.activeScene ?? SceneSpec(size: fallbackSize, scaleMode: areaSpec.scaleMode)
+                    var entry = areaSpec.addScene(named: name, basedOn: template)
+                    var scene = entry.scene
+                    if let width { scene.size.width = width }
+                    if let height { scene.size.height = height }
+                    scene.scaleMode = areaSpec.scaleMode
+                    scene.showsPhysics = areaSpec.showsPhysics
+                    scene.showsFPS = areaSpec.showsFPS
+                    scene.showsNodeCount = areaSpec.showsNodeCount
+                    entry.scene = scene
+                    if let entryIndex = areaSpec.scenes.firstIndex(where: { $0.id == entry.id }) {
+                        areaSpec.scenes[entryIndex] = entry
+                    }
+                    areaSpec.activeSceneID = entry.id
+                    areaSpec.setActiveScene(scene)
+                }
+            }
+
+        case .createGroup(let nameExpr, let parentExpr):
+            let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
+            let parentName = parentExpr != nil
+                ? try await evaluate(parentExpr!, env: &env, document: document, context: context)
+                : nil
+            if let idx = resolveSpriteAreaPartIndex(document: document, currentCardId: context.currentCardId) {
+                _ = mutateActiveScene(partIndex: idx, document: &document) { spec in
+                    let newNode = HypeNodeSpec(name: name, nodeType: .group, position: PointSpec(x: 0, y: 0))
+                    if let parentName {
+                        if !Self.addNodeToParent(node: newNode, parentName: parentName, nodes: &spec.nodes) {
+                            spec.nodes.append(newNode)
+                        }
+                    } else {
+                        spec.nodes.append(newNode)
+                    }
+                }
+            }
+
+        case .createSprite(let nameExpr, let sceneExpr, let assetExpr):
+            let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
+            let parentGroupName: String?
+            let partIndex: Int?
+            if let sExpr = sceneExpr {
+                let targetName = try await evaluate(sExpr, env: &env, document: document, context: context)
+                // First check if it matches a sprite area name
+                let areaIndex = resolveSpriteAreaPartIndex(
+                    named: targetName,
+                    document: document,
+                    currentCardId: context.currentCardId
+                )
+                if let ai = areaIndex {
+                    partIndex = ai
+                    parentGroupName = nil
+                } else {
+                    // Treat as a parent group name within the first sprite area
+                    partIndex = resolveSpriteAreaPartIndex(document: document, currentCardId: context.currentCardId)
+                    parentGroupName = targetName
+                }
+            } else {
+                partIndex = resolveSpriteAreaPartIndex(document: document, currentCardId: context.currentCardId)
+                parentGroupName = nil
+            }
+            let assetName = assetExpr != nil
+                ? try await evaluate(assetExpr!, env: &env, document: document, context: context)
+                : nil
+            let spriteAsset: (assetRef: AssetRef, size: SizeSpec)? = {
+                guard let assetName,
+                      let asset = document.spriteRepository.asset(byName: assetName) else {
+                    return nil
+                }
+                return (
+                    assetRef: document.spriteRepository.assetRef(for: asset),
+                    size: SizeSpec(width: Double(asset.width), height: Double(asset.height))
+                )
+            }()
+            if let idx = partIndex {
+                _ = mutateActiveScene(partIndex: idx, document: &document) { spec in
+                    var newNode = HypeNodeSpec(name: name, nodeType: .sprite)
+                    if let spriteAsset {
+                        newNode.assetRef = spriteAsset.assetRef
+                        newNode.size = spriteAsset.size
+                    }
+                    if let groupName = parentGroupName {
+                        if !Self.addNodeToParent(node: newNode, parentName: groupName, nodes: &spec.nodes) {
+                            spec.nodes.append(newNode)
+                        }
+                    } else {
+                        spec.nodes.append(newNode)
+                    }
+                }
+            }
+
+        case .removeSpriteNode(let expr):
+            let name = try await evaluate(expr, env: &env, document: document, context: context)
+            if let areaIndex = resolveSpriteAreaPartIndex(document: document, currentCardId: context.currentCardId) {
+                _ = mutateActiveScene(partIndex: areaIndex, document: &document) { spec in
+                    if let node = spec.node(named: name) {
+                        _ = spec.removeNode(id: node.id)
+                    }
+                }
+            }
+
+        case .pauseScene(let expr):
+            let sceneName = expr != nil ? try await evaluate(expr!, env: &env, document: document, context: context) : nil
+            if let sceneName,
+               let location = sceneLocation(named: sceneName, document: document, currentCardId: context.currentCardId) {
+                _ = mutateSpriteAreaSpec(partIndex: location.partIndex, document: &document) { areaSpec in
+                    if let index = areaSpec.scenes.firstIndex(where: { $0.scene.name.lowercased() == sceneName.lowercased() }) {
+                        areaSpec.scenes[index].scene.isPaused = true
+                        if areaSpec.scenes[index].id == areaSpec.activeSceneID {
+                            areaSpec.setActiveScene(areaSpec.scenes[index].scene)
+                        }
+                    }
+                }
+            } else if let idx = resolveSpriteAreaPartIndex(document: document, currentCardId: context.currentCardId) {
+                _ = mutateActiveScene(partIndex: idx, document: &document) { $0.isPaused = true }
+            }
+
+        case .resumeScene(let expr):
+            let sceneName = expr != nil ? try await evaluate(expr!, env: &env, document: document, context: context) : nil
+            if let sceneName,
+               let location = sceneLocation(named: sceneName, document: document, currentCardId: context.currentCardId) {
+                _ = mutateSpriteAreaSpec(partIndex: location.partIndex, document: &document) { areaSpec in
+                    if let index = areaSpec.scenes.firstIndex(where: { $0.scene.name.lowercased() == sceneName.lowercased() }) {
+                        areaSpec.scenes[index].scene.isPaused = false
+                        if areaSpec.scenes[index].id == areaSpec.activeSceneID {
+                            areaSpec.setActiveScene(areaSpec.scenes[index].scene)
+                        }
+                    }
+                }
+            } else if let idx = resolveSpriteAreaPartIndex(document: document, currentCardId: context.currentCardId) {
+                _ = mutateActiveScene(partIndex: idx, document: &document) { $0.isPaused = false }
+            }
+
+        case .runSpriteAction(let actionExpr, let nodeExpr):
+            let actionName = try await evaluate(actionExpr, env: &env, document: document, context: context)
+            let nodeName: String
+            if case .objectRef(let ref) = nodeExpr {
+                nodeName = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+            } else {
+                nodeName = try await evaluate(nodeExpr, env: &env, document: document, context: context)
+            }
+            if let location = nodeLocation(named: nodeName, document: document, currentCardId: context.currentCardId) {
+                _ = mutateActiveScene(partIndex: location.partIndex, document: &document) { spec in
+                    guard spec.node(id: location.node.id) != nil else { return }
+                    // Parse simple action description: "moveTo x:200 y:300" or just a name
+                    var action = ActionSpec(actionType: .moveTo, name: actionName)
+                    let parts = actionName.lowercased().split(separator: " ").map(String.init)
+                    if let actionType = ActionType(rawValue: parts.first ?? "") {
+                        action.actionType = actionType
+                        for index in stride(from: 1, to: parts.count, by: 2) {
+                            if index + 1 < parts.count {
+                                action.parameters[parts[index]] = parts[index + 1]
+                            }
+                        }
+                    }
+                    _ = spec.updateNode(id: location.node.id) { $0.actions.append(action) }
+                }
+            }
+
+        case .applyForce(let nodeExpr, let forceExpr):
+            let forceVal = try await evaluate(forceExpr, env: &env, document: document, context: context)
+            let comps = forceVal.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            if comps.count >= 2 {
+                let resolvedName: String
+                if case .objectRef(let ref) = nodeExpr {
+                    resolvedName = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+                } else {
+                    resolvedName = try await evaluate(nodeExpr, env: &env, document: document, context: context)
+                }
+                if let location = nodeLocation(named: resolvedName, document: document, currentCardId: context.currentCardId) {
+                    _ = mutateActiveScene(partIndex: location.partIndex, document: &document) { spec in
+                        _ = spec.updateNode(id: location.node.id) { node in
+                            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+                            let curVx = node.physicsBody?.velocityX ?? 0
+                            let curVy = node.physicsBody?.velocityY ?? 0
+                            node.physicsBody?.velocityX = curVx + comps[0]
+                            node.physicsBody?.velocityY = curVy + comps[1]
+                        }
+                    }
+                }
+            }
+
+        case .applyImpulse(let nodeExpr, let impulseExpr):
+            let impulseVal = try await evaluate(impulseExpr, env: &env, document: document, context: context)
+            let comps = impulseVal.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            if comps.count >= 2 {
+                let resolvedName: String
+                if case .objectRef(let ref) = nodeExpr {
+                    resolvedName = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+                } else {
+                    resolvedName = try await evaluate(nodeExpr, env: &env, document: document, context: context)
+                }
+                if let location = nodeLocation(named: resolvedName, document: document, currentCardId: context.currentCardId) {
+                    _ = mutateActiveScene(partIndex: location.partIndex, document: &document) { spec in
+                        _ = spec.updateNode(id: location.node.id) { node in
+                            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+                            node.physicsBody?.velocityX = comps[0]
+                            node.physicsBody?.velocityY = comps[1]
+                        }
+                    }
+                }
+            }
+
+        case .setSpriteNodeProperty(let property, let nodeExpr, let valueExpr):
+            let nodeName = try await evaluate(nodeExpr, env: &env, document: document, context: context)
+            let value = try await evaluate(valueExpr, env: &env, document: document, context: context)
+            if let location = nodeLocation(named: nodeName, document: document, currentCardId: context.currentCardId) {
+                _ = mutateActiveScene(partIndex: location.partIndex, document: &document) { spec in
+                    _ = spec.updateNode(id: location.node.id) { node in
+                        applyNodePropertySet(property: property, value: value, to: &node)
+                    }
+                }
+            }
+
+        case .createTileMap(let nameExpr, let colsExpr, let rowsExpr, let tileSizeExpr, let tilesetExpr):
+            let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
+            let cols = colsExpr != nil ? Int(toNumber(try await evaluate(colsExpr!, env: &env, document: document, context: context))) : 10
+            let rows = rowsExpr != nil ? Int(toNumber(try await evaluate(rowsExpr!, env: &env, document: document, context: context))) : 10
+            let explicitTileSize: Double? = tileSizeExpr != nil
+                ? toNumber(try await evaluate(tileSizeExpr!, env: &env, document: document, context: context))
+                : nil
+            let tilesetName: String? = tilesetExpr != nil ? try await evaluate(tilesetExpr!, env: &env, document: document, context: context) : nil
+            let tileMapAsset: (assetRef: AssetRef, tileColumns: Int, tileWidth: Double, tileHeight: Double, isTileSet: Bool)? = {
+                guard let tilesetName,
+                      let asset = document.spriteRepository.asset(byName: tilesetName) else {
+                    return nil
+                }
+                return (
+                    assetRef: document.spriteRepository.assetRef(for: asset),
+                    tileColumns: asset.tileColumns,
+                    tileWidth: Double(asset.tileWidth),
+                    tileHeight: Double(asset.tileHeight),
+                    isTileSet: asset.isTileSet
+                )
+            }()
+
+            if let idx = resolveSpriteAreaPartIndex(document: document, currentCardId: context.currentCardId) {
+                _ = mutateActiveScene(partIndex: idx, document: &document) { spec in
+                    // Default tile size (32) is overridden by the asset
+                    // metadata below when the referenced asset is a
+                    // classified tile set and the user didn't pass an
+                    // explicit `tilesize N`.
+                    let initialTileSize = explicitTileSize ?? 32.0
+                    var tmSpec = TileMapSpec(columns: cols, rows: rows, tileWidth: initialTileSize, tileHeight: initialTileSize)
+                    tmSpec.tileData = Array(repeating: Array(repeating: -1, count: cols), count: rows)
+                    if let tileMapAsset {
+                        tmSpec.tileSetAssetRef = tileMapAsset.assetRef
+                        // If the asset is a classified tileSet, copy its
+                        // tile metadata onto the new TileMapSpec. This
+                        // is the fix for multi-column tilesets rendering
+                        // as a single vertical strip: SceneBridge reads
+                        // `tileSetColumns` from the spec to slice the
+                        // texture, and before this wire-up it always
+                        // defaulted to 1.
+                        if tileMapAsset.isTileSet {
+                            tmSpec.tileSetColumns = tileMapAsset.tileColumns
+                            // Honour the user's explicit `tilesize N` if
+                            // they passed one — otherwise pick up the
+                            // asset's native tile size so the tilemap
+                            // matches the sprite sheet grid exactly.
+                            if explicitTileSize == nil {
+                                tmSpec.tileWidth = tileMapAsset.tileWidth
+                                tmSpec.tileHeight = tileMapAsset.tileHeight
+                            }
+                        }
+                    }
+                    var node = HypeNodeSpec(name: name, nodeType: .tileMap, position: PointSpec(x: 0, y: 0))
+                    node.tileMapSpec = tmSpec
+                    spec.nodes.append(node)
+                }
+            }
+
+        case .createCamera(let nameExpr):
+            let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
+            if let idx = resolveSpriteAreaPartIndex(document: document, currentCardId: context.currentCardId) {
+                _ = mutateActiveScene(partIndex: idx, document: &document) { spec in
+                    let camNode = HypeNodeSpec(name: name, nodeType: .camera, position: PointSpec(x: spec.size.width / 2, y: spec.size.height / 2))
+                    spec.nodes.append(camNode)
+                }
+            }
+
+        case .createJoint(let nameExpr, let typeExpr, let nodeAExpr, let nodeBExpr):
+            let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
+            let jointTypeStr = try await evaluate(typeExpr, env: &env, document: document, context: context)
+            let nodeAName = try await evaluate(nodeAExpr, env: &env, document: document, context: context)
+            let nodeBName = try await evaluate(nodeBExpr, env: &env, document: document, context: context)
+            if let idx = resolveSpriteAreaPartIndex(document: document, currentCardId: context.currentCardId) {
+                _ = mutateActiveScene(partIndex: idx, document: &document) { spec in
+                    let jType = JointType(rawValue: jointTypeStr.lowercased()) ?? .pin
+                    var joint = JointSpec(jointType: jType, nodeA: nodeAName, nodeB: nodeBName)
+                    joint.id = UUID()
+                    _ = name
+                    spec.joints.append(joint)
+                }
+            }
+
+        case .createConstraint(let typeExpr, let sourceExpr, let targetExpr, let minExpr, let maxExpr):
+            let constraintTypeStr = try await evaluate(typeExpr, env: &env, document: document, context: context)
+            let sourceName = try await evaluate(sourceExpr, env: &env, document: document, context: context)
+            let targetName = try await evaluate(targetExpr, env: &env, document: document, context: context)
+            let minVal: Double? = minExpr != nil ? toNumber(try await evaluate(minExpr!, env: &env, document: document, context: context)) : nil
+            let maxVal: Double? = maxExpr != nil ? toNumber(try await evaluate(maxExpr!, env: &env, document: document, context: context)) : nil
+            if let idx = resolveSpriteAreaPartIndex(document: document, currentCardId: context.currentCardId) {
+                _ = mutateActiveScene(partIndex: idx, document: &document) { spec in
+                    let cType = SceneConstraintType(rawValue: constraintTypeStr.lowercased()) ?? .distance
+                    let constraint = SceneConstraintSpec(
+                        constraintType: cType,
+                        sourceNode: sourceName,
+                        targetNode: targetName,
+                        minDistance: minVal,
+                        maxDistance: maxVal
+                    )
+                    spec.sceneConstraints.append(constraint)
+                }
+            }
+
+        case .createPhysicsField(let nameExpr, let typeExpr, let strengthExpr, let directionExpr):
+            let fieldName = try await evaluate(nameExpr, env: &env, document: document, context: context)
+            let fieldTypeStr = try await evaluate(typeExpr, env: &env, document: document, context: context)
+            let strength: Double = strengthExpr != nil ? toNumber(try await evaluate(strengthExpr!, env: &env, document: document, context: context)) : 1.0
+            let directionValue = directionExpr != nil
+                ? try await evaluate(directionExpr!, env: &env, document: document, context: context)
+                : nil
+            if let idx = resolveSpriteAreaPartIndex(document: document, currentCardId: context.currentCardId) {
+                _ = mutateActiveScene(partIndex: idx, document: &document) { spec in
+                    let fType = FieldType(rawValue: fieldTypeStr) ?? .linearGravity
+                    var fieldSpec = FieldSpec(fieldType: fType, strength: strength)
+                    if let directionValue {
+                        let comps = directionValue.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+                        if comps.count >= 2 {
+                            fieldSpec.direction = PointSpec(x: comps[0], y: comps[1])
+                        }
+                    }
+                    _ = fieldName
+                    spec.fields.append(fieldSpec)
+                }
+            }
+
+        case .openScene(let nameExpr, _, _):
+            let sceneName = try await evaluate(nameExpr, env: &env, document: document, context: context)
+            if let location = sceneLocation(named: sceneName, document: document, currentCardId: context.currentCardId) {
+                _ = mutateSpriteAreaSpec(partIndex: location.partIndex, document: &document) { areaSpec in
+                    _ = areaSpec.activateScene(named: sceneName)
+                }
+            } else if let idx = resolveSpriteAreaPartIndex(document: document, currentCardId: context.currentCardId) {
+                _ = mutateSpriteAreaSpec(partIndex: idx, document: &document) { areaSpec in
+                    let template = areaSpec.activeScene
+                    _ = areaSpec.addScene(named: sceneName, basedOn: template)
+                }
+            }
+            env.it = sceneName
+
+        case .setTile(let colExpr, let rowExpr, let tilemapExpr, let tileIndexExpr):
+            let col = Int(toNumber(try await evaluate(colExpr, env: &env, document: document, context: context)))
+            let row = Int(toNumber(try await evaluate(rowExpr, env: &env, document: document, context: context)))
+            let tilemapName = try await evaluate(tilemapExpr, env: &env, document: document, context: context)
+            let tileIndex = Int(toNumber(try await evaluate(tileIndexExpr, env: &env, document: document, context: context)))
+
+            if let location = nodeLocation(named: tilemapName, objectType: "tilemap", document: document, currentCardId: context.currentCardId) {
+                _ = mutateActiveScene(partIndex: location.partIndex, document: &document) { spec in
+                    _ = spec.updateNode(id: location.node.id) { node in
+                        guard var tmSpec = node.tileMapSpec else { return }
+                        while tmSpec.tileData.count <= row {
+                            tmSpec.tileData.append(Array(repeating: -1, count: tmSpec.columns))
+                        }
+                        while tmSpec.tileData[row].count <= col {
+                            tmSpec.tileData[row].append(-1)
+                        }
+                        tmSpec.tileData[row][col] = tileIndex
+                        node.tileMapSpec = tmSpec
+                    }
+                }
+            }
+
+        case .fillTileMap(let tilemapExpr, let tileIndexExpr):
+            // Paint every cell of the named tile map with the
+            // given tile index. Unlike setTile we don't pad
+            // tileData — we rebuild it to the full spec
+            // dimensions, which is both the shortest path and the
+            // safer one for fill operations (no gaps left over
+            // from a previously smaller map).
+            let tilemapName = try await evaluate(tilemapExpr, env: &env, document: document, context: context)
+            let tileIndex = Int(toNumber(try await evaluate(tileIndexExpr, env: &env, document: document, context: context)))
+            if let location = nodeLocation(named: tilemapName, objectType: "tilemap", document: document, currentCardId: context.currentCardId) {
+                _ = mutateActiveScene(partIndex: location.partIndex, document: &document) { spec in
+                    _ = spec.updateNode(id: location.node.id) { node in
+                        guard var tmSpec = node.tileMapSpec else { return }
+                        tmSpec.tileData = Array(
+                            repeating: Array(repeating: tileIndex, count: tmSpec.columns),
+                            count: tmSpec.rows
+                        )
+                        node.tileMapSpec = tmSpec
+                    }
+                }
+            }
+
+        case .clearTileMap(let tilemapExpr):
+            // Syntactic sugar for `fill tilemap "X" with -1`.
+            let tilemapName = try await evaluate(tilemapExpr, env: &env, document: document, context: context)
+            if let location = nodeLocation(named: tilemapName, objectType: "tilemap", document: document, currentCardId: context.currentCardId) {
+                _ = mutateActiveScene(partIndex: location.partIndex, document: &document) { spec in
+                    _ = spec.updateNode(id: location.node.id) { node in
+                        guard var tmSpec = node.tileMapSpec else { return }
+                        tmSpec.tileData = Array(
+                            repeating: Array(repeating: -1, count: tmSpec.columns),
+                            count: tmSpec.rows
+                        )
+                        node.tileMapSpec = tmSpec
+                    }
+                }
+            }
+
         // Phase 2: Stub commands (recognized but no-op)
-        case .push, .pop, .clickAt, .dragFrom, .doMenuCmd, .disableCmd, .enableCmd,
+        case .push, .pop, .clickAt, .doMenuCmd, .disableCmd, .enableCmd,
              .helpCmd, .debugCmd, .dialCmd, .resetCmd, .printCmd, .readCmd, .writeCmd,
-             .replyCmd, .requestCmd, .runCmd, .startUsing, .stopUsing,
+             .runCmd, .startUsing, .stopUsing,
              .copyTemplate, .exportPaint, .importPaint:
             break
         }
@@ -682,7 +1614,7 @@ public struct Interpreter: Sendable {
         env: inout Environment,
         document: HypeDocument,
         context: ExecutionContext
-    ) throws -> Value {
+    ) async throws -> Value {
         switch expr {
         case .literal(let val):
             return val
@@ -741,70 +1673,130 @@ public struct Interpreter: Sendable {
                     return part.name
                 }
             }
+            if let spriteTarget = locateSpriteTarget(id: context.targetId, document: document, currentCardId: context.currentCardId) {
+                if let nodeId = spriteTarget.nodeId,
+                   let scene = activeScene(partIndex: spriteTarget.partIndex, document: document),
+                   let node = scene.node(id: nodeId) {
+                    return node.name
+                }
+                if let scene = activeScene(partIndex: spriteTarget.partIndex, document: document) {
+                    return scene.name
+                }
+            }
             return ""
 
         case .empty:
             return ""
 
         case .binary(let left, let op, let right):
-            let lVal = try evaluate(left, env: &env, document: document, context: context)
-            let rVal = try evaluate(right, env: &env, document: document, context: context)
+            let lVal = try await evaluate(left, env: &env, document: document, context: context)
+            let rVal = try await evaluate(right, env: &env, document: document, context: context)
             return evaluateBinary(lVal, op, rVal)
 
         case .unary(let op, let operand):
-            let val = try evaluate(operand, env: &env, document: document, context: context)
+            let val = try await evaluate(operand, env: &env, document: document, context: context)
             switch op {
             case .negate: return String(-toNumber(val))
             case .not:    return isTruthy(val) ? "false" : "true"
             }
 
+        case .await(let expr):
+            return try await evaluate(expr, env: &env, document: document, context: context)
+
         case .not(let operand):
-            let val = try evaluate(operand, env: &env, document: document, context: context)
+            let val = try await evaluate(operand, env: &env, document: document, context: context)
             return isTruthy(val) ? "false" : "true"
 
         case .contains(let left, let right):
-            let lVal = try evaluate(left, env: &env, document: document, context: context)
-            let rVal = try evaluate(right, env: &env, document: document, context: context)
+            let lVal = try await evaluate(left, env: &env, document: document, context: context)
+            let rVal = try await evaluate(right, env: &env, document: document, context: context)
             return lVal.lowercased().contains(rVal.lowercased()) ? "true" : "false"
 
         case .stringConcat(let left, let right):
-            let lVal = try evaluate(left, env: &env, document: document, context: context)
-            let rVal = try evaluate(right, env: &env, document: document, context: context)
+            let lVal = try await evaluate(left, env: &env, document: document, context: context)
+            let rVal = try await evaluate(right, env: &env, document: document, context: context)
             return lVal + rVal
 
         case .spacedConcat(let left, let right):
-            let lVal = try evaluate(left, env: &env, document: document, context: context)
-            let rVal = try evaluate(right, env: &env, document: document, context: context)
+            let lVal = try await evaluate(left, env: &env, document: document, context: context)
+            let rVal = try await evaluate(right, env: &env, document: document, context: context)
             return lVal + " " + rVal
 
         case .functionCall(let name, let args):
-            let evaluatedArgs = try args.map { try evaluate($0, env: &env, document: document, context: context) }
-            return evaluateBuiltIn(name, args: evaluatedArgs)
+            var evaluatedArgs: [Value] = []
+            for arg in args {
+                evaluatedArgs.append(try await evaluate(arg, env: &env, document: document, context: context))
+            }
+            return try await evaluateBuiltIn(name, args: evaluatedArgs, context: context)
 
         case .propertyAccess(let property, let target):
-            return try evaluateProperty(property, target: target, env: &env, document: document, context: context)
+            return try await evaluateProperty(property, target: target, env: &env, document: document, context: context)
+
+        case .headerAccess(let nameExpr, let target):
+            let headerName = try await evaluate(nameExpr, env: &env, document: document, context: context)
+            if case .objectRef(let ref) = target {
+                let idValue = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+                if let id = UUID(uuidString: idValue), let runtime = context.runtimeProvider {
+                    return await runtime.runtimeProperty(objectType: ref.objectType, id: id, property: "header", argument: headerName)
+                }
+            }
+            return ""
 
         case .chunk(let chunkType, let range, let source):
-            let sourceVal = try evaluate(source, env: &env, document: document, context: context)
-            return evaluateChunk(chunkType, range: range, source: sourceVal, env: &env, document: document, context: context)
+            let sourceVal = try await evaluate(source, env: &env, document: document, context: context)
+            return await evaluateChunk(chunkType, range: range, source: sourceVal, env: &env, document: document, context: context)
 
         case .objectRef(let ref):
-            let identVal = try evaluate(ref.identifier, env: &env, document: document, context: context)
+            let identVal = try await evaluate(ref.identifier, env: &env, document: document, context: context)
             return resolveObjectRef(ref.objectType, identifier: identVal, document: document, context: context)
 
+        case .chartDataPointRef:
+            // A data-point reference is not a standalone value — it's
+            // only meaningful as the `of` target of a propertyAccess
+            // or a set statement. Delegated to a leaf helper so its
+            // pattern-match bindings don't inflate `evaluate`'s
+            // stack frame for every recursive call.
+            return try await describeChartDataPointRef(expr, env: &env, document: document, context: context)
+
+        case .tileAt(let colExpr, let rowExpr, let tilemapExpr):
+            // Read a tile index from a named tile map at (col,row).
+            // Returns "-1" when the cell is out of bounds or empty
+            // — scripts can treat that as the "no tile" sentinel.
+            // We look only on the current card (like setTile),
+            // which mirrors the other tile-map commands' scope.
+            let col = Int(toNumber(try await evaluate(colExpr, env: &env, document: document, context: context)))
+            let row = Int(toNumber(try await evaluate(rowExpr, env: &env, document: document, context: context)))
+            let tilemapName = try await evaluate(tilemapExpr, env: &env, document: document, context: context)
+            let cardParts = document.partsForCard(context.currentCardId)
+            guard let area = cardParts.first(where: { $0.partType == .spriteArea }),
+                  let spec = SceneSpec.fromJSON(area.sceneSpec),
+                  let node = spec.nodes.first(where: {
+                      $0.name.lowercased() == tilemapName.lowercased() && $0.nodeType == .tileMap
+                  }),
+                  let tmSpec = node.tileMapSpec
+            else {
+                return "-1"
+            }
+            guard row >= 0, row < tmSpec.tileData.count,
+                  col >= 0, col < tmSpec.tileData[row].count
+            else {
+                return "-1"
+            }
+            return String(tmSpec.tileData[row][col])
+
         case .isIn(let left, let right):
-            let lVal = try evaluate(left, env: &env, document: document, context: context)
-            let rVal = try evaluate(right, env: &env, document: document, context: context)
+            let lVal = try await evaluate(left, env: &env, document: document, context: context)
+            let rVal = try await evaluate(right, env: &env, document: document, context: context)
             return rVal.lowercased().contains(lVal.lowercased()) ? "true" : "false"
 
         case .isNotIn(let left, let right):
-            let lVal = try evaluate(left, env: &env, document: document, context: context)
-            let rVal = try evaluate(right, env: &env, document: document, context: context)
+            let lVal = try await evaluate(left, env: &env, document: document, context: context)
+            let rVal = try await evaluate(right, env: &env, document: document, context: context)
             return rVal.lowercased().contains(lVal.lowercased()) ? "false" : "true"
 
         case .isWithin(let left, let right):
-            let lVal = try evaluate(left, env: &env, document: document, context: context)
-            let rVal = try evaluate(right, env: &env, document: document, context: context)
+            let lVal = try await evaluate(left, env: &env, document: document, context: context)
+            let rVal = try await evaluate(right, env: &env, document: document, context: context)
             let point = lVal.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
             let rect = rVal.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
             if point.count >= 2 && rect.count >= 4 {
@@ -814,8 +1806,8 @@ public struct Interpreter: Sendable {
             return "false"
 
         case .isNotWithin(let left, let right):
-            let lVal = try evaluate(left, env: &env, document: document, context: context)
-            let rVal = try evaluate(right, env: &env, document: document, context: context)
+            let lVal = try await evaluate(left, env: &env, document: document, context: context)
+            let rVal = try await evaluate(right, env: &env, document: document, context: context)
             let point = lVal.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
             let rect = rVal.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
             if point.count >= 2 && rect.count >= 4 {
@@ -825,7 +1817,7 @@ public struct Interpreter: Sendable {
             return "true"
 
         case .isA(let expr, let typeName):
-            let val = try evaluate(expr, env: &env, document: document, context: context)
+            let val = try await evaluate(expr, env: &env, document: document, context: context)
             switch typeName.lowercased() {
             case "number", "integer", "float": return Double(val) != nil ? "true" : "false"
             case "logical", "boolean", "bool": return (val.lowercased() == "true" || val.lowercased() == "false") ? "true" : "false"
@@ -837,7 +1829,7 @@ public struct Interpreter: Sendable {
             }
 
         case .isNotA(let expr, let typeName):
-            let val = try evaluate(expr, env: &env, document: document, context: context)
+            let val = try await evaluate(expr, env: &env, document: document, context: context)
             switch typeName.lowercased() {
             case "number", "integer", "float": return Double(val) != nil ? "false" : "true"
             case "logical", "boolean", "bool": return (val.lowercased() == "true" || val.lowercased() == "false") ? "false" : "true"
@@ -849,12 +1841,12 @@ public struct Interpreter: Sendable {
             }
 
         case .thereIsA(_, let nameExpr):
-            let name = try evaluate(nameExpr, env: &env, document: document, context: context)
+            let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
             let found = document.parts.contains { $0.name.lowercased() == name.lowercased() }
             return found ? "true" : "false"
 
         case .thereIsNo(_, let nameExpr):
-            let name = try evaluate(nameExpr, env: &env, document: document, context: context)
+            let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
             let found = document.parts.contains { $0.name.lowercased() == name.lowercased() }
             return found ? "false" : "true"
         }
@@ -890,7 +1882,11 @@ public struct Interpreter: Sendable {
 
     // MARK: - Built-in functions
 
-    private func evaluateBuiltIn(_ name: String, args: [Value]) -> Value {
+    private func evaluateBuiltIn(
+        _ name: String,
+        args: [Value],
+        context: ExecutionContext
+    ) async throws -> Value {
         switch name.lowercased() {
         case "length":
             return String(args.first?.count ?? 0)
@@ -951,6 +1947,20 @@ public struct Interpreter: Sendable {
             return String(Int(Date().timeIntervalSince1970))
         case "number":
             return args.first ?? "0"
+
+        case "ollama":
+            switch args.count {
+            case 1:
+                return try await context.aiProvider.generate(prompt: args[0], model: nil)
+            case 2:
+                return try await context.aiProvider.generate(prompt: args[1], model: args[0])
+            default:
+                return ""
+            }
+        case "aimodel", "ollamamodel":
+            return context.aiProvider.currentModel()
+        case "aimodels", "ollamamodels":
+            return try await context.aiProvider.availableModels().joined(separator: "\n")
 
         // Mouse functions (return static defaults since we're not in a live event loop)
         case "mouse": return "up"
@@ -1048,7 +2058,11 @@ public struct Interpreter: Sendable {
         case "selectedbutton", "selectedchunk", "selectedfield", "selectedline", "selectedloc", "selectedtext":
             return ""
         case "sound":
+            #if canImport(AppKit)
+            return SoundPlayer.shared.soundName
+            #else
             return "done"
+            #endif
         case "programs":
             return "Hype"
         case "menus":
@@ -1071,12 +2085,16 @@ public struct Interpreter: Sendable {
         env: inout Environment,
         document: HypeDocument,
         context: ExecutionContext
-    ) throws -> Value {
+    ) async throws -> Value {
         let lower = property.lowercased()
 
         // Global properties (no target).
         if target == nil {
             switch lower {
+            case "aimodel", "currentaimodel", "ollamamodel":
+                return context.aiProvider.currentModel()
+            case "aimodels", "availableaimodels", "ollamamodels":
+                return try await context.aiProvider.availableModels().joined(separator: "\n")
             case "date":
                 let formatter = DateFormatter()
                 formatter.dateStyle = .medium
@@ -1089,6 +2107,12 @@ public struct Interpreter: Sendable {
                 return String(Int(Date().timeIntervalSince1970 * 60))
             case "seconds":
                 return String(Int(Date().timeIntervalSince1970))
+            case "mouseloc", "the mouseloc":
+                return "\(formatNumber(context.mouseX)),\(formatNumber(context.mouseY))"
+            case "mouseh":
+                return formatNumber(context.mouseX)
+            case "mousev":
+                return formatNumber(context.mouseY)
             case "itemdelimiter":
                 return ","
             case "numberformat":
@@ -1099,6 +2123,12 @@ public struct Interpreter: Sendable {
                 return "false"
             case "userlevel":
                 return "5"
+            case "sound":
+                #if canImport(AppKit)
+                return SoundPlayer.shared.soundName
+                #else
+                return "done"
+                #endif
             case "version":
                 return "Hype 2.0"
             case "environment":
@@ -1153,8 +2183,12 @@ public struct Interpreter: Sendable {
                 return "0"
             case "size":
                 return "0"
-            case "brush":
-                return "8"
+            case "brush", "pencilsize":
+                let v = env.getVariable("pencilsize")
+                return v.isEmpty ? "2" : v
+            case "pencilcolor":
+                let v = env.getVariable("pencilcolor")
+                return v.isEmpty ? "#000000" : v
             case "filled":
                 return "false"
             case "grid":
@@ -1180,9 +2214,51 @@ public struct Interpreter: Sendable {
 
         // Property of target.
         let targetExpr = target!
-        let targetVal = try evaluate(targetExpr, env: &env, document: document, context: context)
 
-        // "the number of cards/buttons/fields"
+        // `the number of points (of|in) chart "X"` — delegated to
+        // a leaf helper so the locals don't bloat evaluateProperty's
+        // frame.
+        if lower == "numberofpoints" || lower == "number_of_points" {
+            return try await numberOfPointsProperty(targetExpr, env: &env, document: document, context: context)
+        }
+
+        // Chart data-point reference property get — delegated to a
+        // leaf helper for the same stack-frame reason. evaluateProperty
+        // is on the hot recursive path; any large local allocated at
+        // its function entry multiplies by recursion depth and can
+        // overflow the test thread's stack guard page.
+        if case .chartDataPointRef = targetExpr {
+            return try await getChartDataPointProperty(property, target: targetExpr, env: &env, document: document, context: context)
+        }
+
+        if case .objectRef(let ref) = targetExpr,
+           ["request", "listener", "connection"].contains(ref.objectType.lowercased()),
+           let runtime = context.runtimeProvider {
+            let idValue = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+            if let id = UUID(uuidString: idValue) {
+                return await runtime.runtimeProperty(objectType: ref.objectType, id: id, property: property, argument: nil)
+            }
+        }
+
+        let targetVal = try await evaluate(targetExpr, env: &env, document: document, context: context)
+
+        // Stack-level properties: `the defaultFont of stack`, `the name of stack`, etc.
+        if targetVal.lowercased() == "stack" || (targetExpr is Expression && {
+            if case .objectRef(let ref) = targetExpr, ref.objectType == "stack" { return true }
+            return false
+        }()) {
+            switch lower {
+            case "name":        return document.stack.name
+            case "defaultfont", "default_font", "textfont", "font":
+                return document.stack.defaultFont
+            case "width":       return String(document.stack.width)
+            case "height":      return String(document.stack.height)
+            case "script":      return document.stack.script
+            default: break
+            }
+        }
+
+        // "the number of cards/buttons/fields/backgrounds/bg fields/bg buttons"
         if lower == "number" {
             switch targetVal.lowercased() {
             case "cards":
@@ -1193,133 +2269,241 @@ public struct Interpreter: Sendable {
                 return String(document.partsForCard(context.currentCardId).filter { $0.partType == .button }.count)
             case "fields", "card fields":
                 return String(document.partsForCard(context.currentCardId).filter { $0.partType == .field }.count)
+            case "bg buttons", "background buttons":
+                if let bgId = document.cards.first(where: { $0.id == context.currentCardId })?.backgroundId {
+                    return String(document.partsForBackground(bgId).filter { $0.partType == .button }.count)
+                }
+                return "0"
+            case "bg fields", "background fields":
+                if let bgId = document.cards.first(where: { $0.id == context.currentCardId })?.backgroundId {
+                    return String(document.partsForBackground(bgId).filter { $0.partType == .field }.count)
+                }
+                return "0"
             default: break
+            }
+        }
+
+        // Property of a scene node (sprite, label, shape, etc.) via object reference.
+        let sceneNodeTypes = ["sprite", "label", "shape", "emitter", "audio", "tilemap", "camera", "video", "crop", "effect", "light", "group"]
+        if case .objectRef(let ref) = targetExpr, sceneNodeTypes.contains(ref.objectType) {
+            let nodeName = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+            if let location = nodeLocation(
+                named: nodeName,
+                objectType: ref.objectType,
+                document: document,
+                currentCardId: context.currentCardId
+            ) {
+                return nodePropertyValue(location.node, property: lower)
+            }
+            return ""
+        }
+
+        if case .objectRef(let ref) = targetExpr, ref.objectType == "scene" {
+            let sceneName = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+            if let location = sceneLocation(named: sceneName, document: document, currentCardId: context.currentCardId),
+               let scene = location.areaSpec.scene(named: sceneName) {
+                switch lower {
+                case "name": return scene.name
+                case "backgroundcolor": return scene.backgroundColor
+                case "gravity": return "\(formatNumber(scene.gravity.dx)),\(formatNumber(scene.gravity.dy))"
+                case "paused", "ispaused": return scene.isPaused ? "true" : "false"
+                case "width": return formatNumber(scene.size.width)
+                case "height": return formatNumber(scene.size.height)
+                default: return ""
+                }
+            }
+        }
+
+        // Card-level property access via object reference.
+        // `the background of card "X"` returns the background's name.
+        if case .objectRef(let ref) = targetExpr, ref.objectType == "card" {
+            let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+            if lower == "background" {
+                let card: Card?
+                if let c = document.cards.first(where: { $0.name.lowercased() == ident.lowercased() }) {
+                    card = c
+                } else if let num = Int(ident), num >= 1, num <= document.sortedCards.count {
+                    card = document.sortedCards[num - 1]
+                } else {
+                    card = nil
+                }
+                if let card = card,
+                   let bg = document.backgrounds.first(where: { $0.id == card.backgroundId }) {
+                    return bg.name
+                }
+                return ""
             }
         }
 
         // Property of a specific part via object reference.
         if case .objectRef(let ref) = targetExpr {
-            let ident = try evaluate(ref.identifier, env: &env, document: document, context: context)
+            let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
             if let idx = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
-                let part = document.parts[idx]
+                return partPropertyValue(document.parts[idx], property: property, document: document, context: context)
+            }
+        }
+
+        // `me` as target: the part whose script is currently
+        // executing. `the loc of me`, `the rotation of me`, etc.
+        // resolve against `context.targetId`. This is the
+        // canonical HypeTalk way for a handler to read its own
+        // host part's properties.
+        if case .me = targetExpr,
+           let part = document.parts.first(where: { $0.id == context.targetId }) {
+            return partPropertyValue(part, property: property, document: document, context: context)
+        }
+
+        if case .me = targetExpr,
+           let spriteTarget = locateSpriteTarget(id: context.targetId, document: document, currentCardId: context.currentCardId) {
+            if let nodeId = spriteTarget.nodeId,
+               let scene = activeScene(partIndex: spriteTarget.partIndex, document: document),
+               let node = scene.node(id: nodeId) {
+                return nodePropertyValue(node, property: lower)
+            }
+            if let scene = activeScene(partIndex: spriteTarget.partIndex, document: document) {
                 switch lower {
-                case "name":        return part.name
-                case "id":          return part.id.uuidString
-                case "left":        return formatNumber(part.left)
-                case "top":         return formatNumber(part.top)
-                case "width":       return formatNumber(part.width)
-                case "height":      return formatNumber(part.height)
-                case "right":       return formatNumber(part.left + part.width)
-                case "bottom":      return formatNumber(part.top + part.height)
-                case "loc", "location":
-                    return "\(formatNumber(part.left + part.width / 2)),\(formatNumber(part.top + part.height / 2))"
-                case "rect", "rectangle":
-                    return "\(formatNumber(part.left)),\(formatNumber(part.top)),\(formatNumber(part.left + part.width)),\(formatNumber(part.top + part.height))"
-                case "visible":     return part.visible ? "true" : "false"
-                case "enabled":     return part.enabled ? "true" : "false"
-                case "hilite":      return part.hilite ? "true" : "false"
-                case "style":
-                    return part.partType == .button ? part.buttonStyle.rawValue : part.fieldStyle.rawValue
-                case "textfont", "font": return part.textFont
-                case "textsize", "size": return formatNumber(part.textSize)
-                case "textstyle":   return part.textStyle
-                case "textalign":   return part.textAlign.rawValue
-                case "script":      return part.script
-                case "showname":    return part.showName ? "true" : "false"
-                case "autohilite":  return part.autoHilite ? "true" : "false"
-                case "locktext":    return part.lockText ? "true" : "false"
-                case "widemargins": return part.wideMargins ? "true" : "false"
-                case "dontwrap":    return part.dontWrap ? "true" : "false"
-                case "url":         return part.url
-                case "chartdata", "chart_data": return part.chartData
-                case "text", "textcontent": return part.textContent
-                case "topleft":
-                    return "\(formatNumber(part.left)),\(formatNumber(part.top))"
-                case "bottomright":
-                    return "\(formatNumber(part.left + part.width)),\(formatNumber(part.top + part.height))"
-                case "number", "partnumber":
-                    let allParts = document.partsForCard(context.currentCardId)
-                    if let pidx = allParts.firstIndex(where: { $0.id == part.id }) {
-                        return String(pidx + 1)
-                    }
-                    return "0"
-                case "owner":
-                    if let cardId = part.cardId, let card = document.cards.first(where: { $0.id == cardId }) {
-                        return card.name.isEmpty ? "card id \(cardId)" : "card \"\(card.name)\""
-                    }
-                    if let bgId = part.backgroundId, let bg = document.backgrounds.first(where: { $0.id == bgId }) {
-                        return bg.name.isEmpty ? "bkgnd id \(bgId)" : "bkgnd \"\(bg.name)\""
-                    }
-                    return ""
-                case "family":       return String(part.family)
-                case "scroll", "scrollpos": return "0"
-                case "sharedtext":   return "false"
-                case "sharedhilite": return "false"
-                case "showlines":    return "false"
-                case "showpict":     return "true"
-                case "fixedlineheight": return "false"
-                case "multiplelines": return "true"
-                case "dontsearch":   return "false"
-                case "autoselect":   return "false"
-                case "autotab":      return "false"
-                case "textheight":   return formatNumber(part.textSize * 1.3)
-                case "marked":
-                    if let card = document.cards.first(where: { $0.id == context.currentCardId }) {
-                        return card.marked ? "true" : "false"
-                    }
-                    return "false"
-                case "cantdelete":   return "false"
-                case "cantmodify":   return "false"
-                case "centered":
-                    return part.textAlign == .center ? "true" : "false"
-                case "filled":
-                    return part.partType == .shape ? (part.fillColor != "#FFFFFF" && part.fillColor != "#00000000" ? "true" : "false") : "false"
-                case "linesize":
-                    return formatNumber(part.strokeWidth)
-                case "icon":
-                    return part.iconId?.uuidString ?? "0"
-                case "size":
-                    return "\(formatNumber(part.width)),\(formatNumber(part.height))"
-                case "fillcolor", "fill_color":
-                    return part.fillColor
-                case "strokecolor", "stroke_color":
-                    return part.strokeColor
-                case "strokewidth", "stroke_width":
-                    return formatNumber(part.strokeWidth)
-                case "cornerradius", "corner_radius":
-                    return formatNumber(part.cornerRadius)
-                case "shapetype", "shape_type":
-                    return part.shapeType.rawValue
-                case "richtext", "rich_text":
-                    return part.richText ? "true" : "false"
-                case "enterkeyenabled":
-                    return part.enterKeyEnabled ? "true" : "false"
-                case "invertonclick":
-                    return part.invertOnClick ? "true" : "false"
-                default:            return ""
+                case "name": return scene.name
+                case "backgroundcolor": return scene.backgroundColor
+                case "gravity": return "\(formatNumber(scene.gravity.dx)),\(formatNumber(scene.gravity.dy))"
+                case "paused", "ispaused": return scene.isPaused ? "true" : "false"
+                case "width": return formatNumber(scene.size.width)
+                case "height": return formatNumber(scene.size.height)
+                default: break
                 }
             }
         }
 
-        // Fallback: try to find the part by name or UUID.
+        // Fallback: the target expression evaluated to something
+        // that looks like a part identifier (a name or UUID
+        // string, or the UUID that the `me` path produces).
         if let part = findPart(targetVal, document: document) {
-            switch lower {
-            case "name":     return part.name
-            case "id":       return part.id.uuidString
-            case "visible":  return part.visible ? "true" : "false"
-            case "enabled":  return part.enabled ? "true" : "false"
-            case "hilite":   return part.hilite ? "true" : "false"
-            case "left":     return formatNumber(part.left)
-            case "top":      return formatNumber(part.top)
-            case "width":    return formatNumber(part.width)
-            case "height":   return formatNumber(part.height)
-            case "textfont": return part.textFont
-            case "textsize": return formatNumber(part.textSize)
-            default:         return ""
-            }
+            return partPropertyValue(part, property: property, document: document, context: context)
         }
 
         return ""
+    }
+
+    /// Resolve a single part property by name. Shared between the
+    /// `objectRef` path, the `me` path, and the final fallback
+    /// `findPart` path so every way of naming a part produces the
+    /// same surface. Extracted from the inline property switch
+    /// that used to live in `evaluateProperty`'s objectRef branch.
+    private func partPropertyValue(
+        _ part: Part,
+        property: String,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) -> Value {
+        // Chart-specific properties (title, xAxisLabel, etc.) take
+        // precedence over the generic part-property switch so
+        // `the title of chart "Sales"` resolves to the chart's
+        // title field rather than the part name.
+        if let chartProp = chartLevelProperty(property, part: part) {
+            return chartProp
+        }
+        switch property.lowercased() {
+        case "name":        return part.name
+        case "id":          return part.id.uuidString
+        case "left":        return formatNumber(part.left)
+        case "top":         return formatNumber(part.top)
+        case "width":       return formatNumber(part.width)
+        case "height":      return formatNumber(part.height)
+        case "right":       return formatNumber(part.left + part.width)
+        case "bottom":      return formatNumber(part.top + part.height)
+        case "loc", "location":
+            return "\(formatNumber(part.left + part.width / 2)),\(formatNumber(part.top + part.height / 2))"
+        case "rect", "rectangle":
+            return "\(formatNumber(part.left)),\(formatNumber(part.top)),\(formatNumber(part.left + part.width)),\(formatNumber(part.top + part.height))"
+        case "rotation":    return formatNumber(part.rotation)
+        case "visible":     return part.visible ? "true" : "false"
+        case "enabled":     return part.enabled ? "true" : "false"
+        case "hilite":      return part.hilite ? "true" : "false"
+        case "style":
+            return part.partType == .button ? part.buttonStyle.rawValue : part.fieldStyle.rawValue
+        case "textfont", "font": return part.textFont
+        case "textsize", "size": return formatNumber(part.textSize)
+        case "textstyle":   return part.textStyle
+        case "textalign":   return part.textAlign.rawValue
+        case "script":      return part.script
+        case "showname":    return part.showName ? "true" : "false"
+        case "autohilite":  return part.autoHilite ? "true" : "false"
+        case "locktext":    return part.lockText ? "true" : "false"
+        case "widemargins": return part.wideMargins ? "true" : "false"
+        case "dontwrap":    return part.dontWrap ? "true" : "false"
+        case "url":         return part.url
+        case "chartdata", "chart_data": return part.chartData
+        case "text", "textcontent": return part.textContent
+        case "topleft":
+            return "\(formatNumber(part.left)),\(formatNumber(part.top))"
+        case "bottomright":
+            return "\(formatNumber(part.left + part.width)),\(formatNumber(part.top + part.height))"
+        case "number", "partnumber":
+            let allParts = document.partsForCard(context.currentCardId)
+            if let pidx = allParts.firstIndex(where: { $0.id == part.id }) {
+                return String(pidx + 1)
+            }
+            return "0"
+        case "owner":
+            if let cardId = part.cardId, let card = document.cards.first(where: { $0.id == cardId }) {
+                return card.name.isEmpty ? "card id \(cardId)" : "card \"\(card.name)\""
+            }
+            if let bgId = part.backgroundId, let bg = document.backgrounds.first(where: { $0.id == bgId }) {
+                return bg.name.isEmpty ? "bkgnd id \(bgId)" : "bkgnd \"\(bg.name)\""
+            }
+            return ""
+        case "family":       return String(part.family)
+        case "animating":
+            #if canImport(AppKit)
+            return PartAnimator.shared.isAnimating(partId: part.id) ? "true" : "false"
+            #else
+            return "false"
+            #endif
+        case "scroll", "scrollpos": return "0"
+        case "sharedtext":   return "false"
+        case "sharedhilite": return "false"
+        case "showlines":    return "false"
+        case "showpict":     return "true"
+        case "fixedlineheight": return "false"
+        case "multiplelines": return "true"
+        case "dontsearch":   return "false"
+        case "autoselect":   return "false"
+        case "autotab":      return "false"
+        case "textheight":   return formatNumber(part.textSize * 1.3)
+        case "marked":
+            if let card = document.cards.first(where: { $0.id == context.currentCardId }) {
+                return card.marked ? "true" : "false"
+            }
+            return "false"
+        case "cantdelete":   return "false"
+        case "cantmodify":   return "false"
+        case "centered":
+            return part.textAlign == .center ? "true" : "false"
+        case "filled":
+            return part.partType == .shape ? (part.fillColor != "#FFFFFF" && part.fillColor != "#00000000" ? "true" : "false") : "false"
+        case "linesize":
+            return formatNumber(part.strokeWidth)
+        case "icon":
+            return part.iconId?.uuidString ?? "0"
+        case "size":
+            return "\(formatNumber(part.width)),\(formatNumber(part.height))"
+        case "fillcolor", "fill_color":
+            return part.fillColor
+        case "strokecolor", "stroke_color":
+            return part.strokeColor
+        case "strokewidth", "stroke_width":
+            return formatNumber(part.strokeWidth)
+        case "cornerradius", "corner_radius":
+            return formatNumber(part.cornerRadius)
+        case "shapetype", "shape_type":
+            return part.shapeType.rawValue
+        case "richtext", "rich_text":
+            return part.richText ? "true" : "false"
+        case "enterkeyenabled":
+            return part.enterKeyEnabled ? "true" : "false"
+        case "invertonclick":
+            return part.invertOnClick ? "true" : "false"
+        default:            return ""
+        }
     }
 
     // MARK: - Chunk expressions
@@ -1331,7 +2515,10 @@ public struct Interpreter: Sendable {
         env: inout Environment,
         document: HypeDocument,
         context: ExecutionContext
-    ) -> Value {
+    ) async -> Value {
+        // Trim whitespace after the separator for item chunks so
+        // "a, b, c" yields ["a", "b", "c"] not ["a", " b", " c"].
+        // Matches HyperTalk's item chunk semantics.
         let parts: [String]
         switch chunkType {
         case .word:
@@ -1339,21 +2526,43 @@ public struct Interpreter: Sendable {
         case .char, .character:
             parts = source.map(String.init)
         case .item:
-            parts = source.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
+            parts = source.split(separator: ",", omittingEmptySubsequences: false)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
         case .line:
             parts = source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         }
 
+        /// Helper that evaluates a chunk-index expression to an
+        /// integer. Previously this code only unwrapped `.literal`
+        /// cases, which meant `item currentIndex of X` silently
+        /// resolved to `item 1 of X` because `currentIndex` is a
+        /// `.variable`, not a literal. Now we evaluate whatever
+        /// expression the parser produced and coerce to an int.
+        ///
+        /// **Important**: this function is *non-throwing* and uses
+        /// `try?` internally. Earlier we made `evaluateChunk` itself
+        /// `throws`, which propagated chunk-eval errors as runtime
+        /// throws. That turned out to be catastrophic under test:
+        /// Swift Testing installs a `swift_willThrow` hook that
+        /// captures a backtrace on every thrown error, and the
+        /// backtrace capture recursively invokes libswiftCore's
+        /// type-metadata parser (`_gatherGenericParameterCounts` →
+        /// `decodeMangledType`). The combined stack depth of the
+        /// interpreter's recursive `executeStatement` calls + the
+        /// throw-capture backtrace + libswiftCore type-metadata
+        /// recursion blew the test thread's stack guard page and
+        /// crashed with SIGBUS. Keeping this non-throwing
+        /// contains the consequences of a bad chunk index (degrade
+        /// to 0, return empty string) rather than escalating a
+        /// throw through the whole call stack.
+        func indexValue(_ expr: Expression) async -> Int {
+            let str = (try? await evaluate(expr, env: &env, document: document, context: context)) ?? ""
+            return Int(toNumber(str))
+        }
+
         switch range {
         case .single(let indexExpr):
-            // Evaluate index — but we may already have a literal from ordinal parsing.
-            let indexStr: String
-            if case .literal(let v) = indexExpr {
-                indexStr = v
-            } else {
-                indexStr = "1"
-            }
-            let idx = Int(toNumber(indexStr))
+            let idx = await indexValue(indexExpr)
             if idx == -1 {
                 // "last"
                 return parts.last ?? ""
@@ -1369,12 +2578,8 @@ public struct Interpreter: Sendable {
             return ""
 
         case .range(let fromExpr, let toExpr):
-            let fromStr: String
-            if case .literal(let v) = fromExpr { fromStr = v } else { fromStr = "1" }
-            let toStr: String
-            if case .literal(let v) = toExpr { toStr = v } else { toStr = "1" }
-            let from = max(1, Int(toNumber(fromStr)))
-            let to = min(parts.count, Int(toNumber(toStr)))
+            let from = max(1, await indexValue(fromExpr))
+            let to = min(parts.count, await indexValue(toExpr))
             guard from <= to, from >= 1 else { return "" }
             let separator: String
             switch chunkType {
@@ -1405,6 +2610,45 @@ public struct Interpreter: Sendable {
         case "button", "btn":
             if let part = document.parts.first(where: { $0.partType == .button && $0.name.lowercased() == identifier.lowercased() }) {
                 return part.id.uuidString
+            }
+        case "spritearea":
+            if let part = document.parts.first(where: { $0.partType == .spriteArea && $0.name.lowercased() == identifier.lowercased() }) {
+                return part.id.uuidString
+            }
+            // Also try by number
+            let spriteAreas = document.partsForCard(context.currentCardId).filter { $0.partType == .spriteArea }
+            if let idx = Int(identifier), idx >= 1, idx <= spriteAreas.count {
+                return spriteAreas[idx - 1].id.uuidString
+            }
+        case "webpage":
+            if let part = document.parts.first(where: { $0.partType == .webpage && $0.name.lowercased() == identifier.lowercased() }) {
+                return part.id.uuidString
+            }
+        case "image":
+            if let part = document.parts.first(where: { $0.partType == .image && $0.name.lowercased() == identifier.lowercased() }) {
+                return part.id.uuidString
+            }
+        case "video":
+            if let part = document.parts.first(where: { $0.partType == .video && $0.name.lowercased() == identifier.lowercased() }) {
+                return part.id.uuidString
+            }
+        case "chart":
+            if let part = document.parts.first(where: { $0.partType == .chart && $0.name.lowercased() == identifier.lowercased() }) {
+                return part.id.uuidString
+            }
+        case "scene":
+            if let location = sceneLocation(named: identifier, document: document, currentCardId: context.currentCardId),
+               let activeSceneEntry = location.areaSpec.scenes.first(where: { $0.scene.name.lowercased() == identifier.lowercased() }) {
+                return activeSceneEntry.id.uuidString
+            }
+        case "sprite", "label", "shape", "emitter", "audio", "video", "tilemap", "camera", "crop", "effect", "light", "group":
+            if let location = nodeLocation(
+                named: identifier,
+                objectType: objectType,
+                document: document,
+                currentCardId: context.currentCardId
+            ) {
+                return location.node.id.uuidString
             }
         default:
             break
@@ -1450,12 +2694,18 @@ public struct Interpreter: Sendable {
         document: HypeDocument,
         currentCardId: UUID
     ) -> Int? {
-        let targetType: PartType? = objectType == "field" ? .field :
-                                     objectType == "button" ? .button :
-                                     objectType == "btn" ? .button :
-                                     objectType == "fld" ? .field :
-                                     objectType == "webpage" ? .webpage :
-                                     objectType == "shape" ? .shape : nil
+        let targetType: PartType?
+        switch objectType {
+        case "field", "fld": targetType = .field
+        case "button", "btn": targetType = .button
+        case "webpage": targetType = .webpage
+        case "shape": targetType = .shape
+        case "image": targetType = .image
+        case "video": targetType = .video
+        case "chart": targetType = .chart
+        case "spritearea": targetType = .spriteArea
+        default: targetType = nil
+        }
 
         // Get parts on the current card + its background
         let cardParts = document.partsForCard(currentCardId)
@@ -1492,6 +2742,447 @@ public struct Interpreter: Sendable {
         return document.parts.firstIndex(where: { $0.name.lowercased() == identifier.lowercased() })
     }
 
+    // MARK: - Chart data-point resolution
+
+    /// Resolved location of a single `ChartDataPoint` inside a chart
+    /// part, together with the parsed `ChartConfig` so the caller can
+    /// read or mutate and re-serialize atomically.
+    private struct ChartPointLocation {
+        var partIndex: Int
+        var config: ChartConfig
+        var seriesIndex: Int
+        var pointIndex: Int
+    }
+
+    /// Resolve a `chartDataPointRef` (chart, series, point) to the
+    /// concrete part/series/point indices, returning `nil` if any
+    /// step fails (unknown chart name/number, unknown series, unknown
+    /// point, or malformed `chartData` JSON).
+    ///
+    /// Lookup rules:
+    /// - `chart` is resolved by `findPartIndex(objectType: "chart", ...)`.
+    /// - `series` accepts a 1-based integer index or a case-insensitive
+    ///   series name. An empty / missing ref defaults to index 1.
+    /// - `point` accepts a 1-based integer index or a case-insensitive
+    ///   point name.
+    private func resolveChartDataPointLocation(
+        chartExpr: Expression,
+        seriesExpr: Expression,
+        pointExpr: Expression,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async throws -> ChartPointLocation? {
+        let chartIdent = try await evaluate(chartExpr, env: &env, document: document, context: context)
+        guard let partIdx = findPartIndex(
+            "chart",
+            identifier: chartIdent,
+            document: document,
+            currentCardId: context.currentCardId
+        ) else {
+            return nil
+        }
+
+        let chartDataJSON = document.parts[partIdx].chartData
+        guard let config = ChartConfig.fromJSON(chartDataJSON) else {
+            // Chart part has empty / malformed JSON (e.g. brand-new
+            // chart before series have been added). Callers that want
+            // create-on-demand behaviour can catch the nil themselves.
+            return nil
+        }
+
+        // Resolve series index: accept a 1-based integer index or a
+        // case-insensitive series name.
+        let seriesIdent = try await evaluate(seriesExpr, env: &env, document: document, context: context)
+        let seriesIdx: Int
+        if let num = Int(seriesIdent), num > 0, num <= config.series.count {
+            seriesIdx = num - 1
+        } else if let idx = config.series.firstIndex(where: {
+            $0.name.lowercased() == seriesIdent.lowercased()
+        }) {
+            seriesIdx = idx
+        } else {
+            return nil
+        }
+
+        // Resolve point index inside that series: accept a 1-based
+        // integer index or a case-insensitive point name.
+        let pointIdent = try await evaluate(pointExpr, env: &env, document: document, context: context)
+        let pointIdx: Int
+        if let num = Int(pointIdent), num > 0, num <= config.series[seriesIdx].data.count {
+            pointIdx = num - 1
+        } else if let idx = config.series[seriesIdx].data.firstIndex(where: {
+            $0.name.lowercased() == pointIdent.lowercased()
+        }) {
+            pointIdx = idx
+        } else {
+            return nil
+        }
+
+        return ChartPointLocation(
+            partIndex: partIdx,
+            config: config,
+            seriesIndex: seriesIdx,
+            pointIndex: pointIdx
+        )
+    }
+
+    /// Evaluate `the number of (data) points (of|in) chart "X"`.
+    /// Extracted from `evaluateProperty` so its locals stay in a
+    /// leaf frame instead of bloating the main property-access path.
+    private func numberOfPointsProperty(
+        _ targetExpr: Expression,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async throws -> Value {
+        let chartIdent = try await evaluate(targetExpr, env: &env, document: document, context: context)
+        guard let idx = findPartIndex(
+            "chart",
+            identifier: chartIdent,
+            document: document,
+            currentCardId: context.currentCardId
+        ), let config = ChartConfig.fromJSON(document.parts[idx].chartData) else {
+            return "0"
+        }
+        return String(config.series.first?.data.count ?? 0)
+    }
+
+    /// Read a property from a chart data-point reference. Extracted
+    /// from `evaluateProperty` so the ChartPointLocation /
+    /// ChartConfig locals live in a shallow leaf frame instead of
+    /// inflating the main property-access path.
+    private func getChartDataPointProperty(
+        _ property: String,
+        target: Expression,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async throws -> Value {
+        guard case .chartDataPointRef(let chartExpr, let seriesExpr, let pointExpr) = target else {
+            return ""
+        }
+        guard let loc = try await resolveChartDataPointLocation(
+            chartExpr: chartExpr,
+            seriesExpr: seriesExpr,
+            pointExpr: pointExpr,
+            env: &env,
+            document: document,
+            context: context
+        ) else {
+            return ""
+        }
+        let point = loc.config.series[loc.seriesIndex].data[loc.pointIndex]
+        let series = loc.config.series[loc.seriesIndex]
+        switch property.lowercased() {
+        case "color", "fillcolor", "fill_color":
+            // Resolve per-point color with fallback to series color,
+            // matching the ChartHostView rendering logic.
+            return point.color.isEmpty ? series.color : point.color
+        case "rawcolor", "raw_color":
+            return point.color
+        case "value":
+            return formatNumber(point.value)
+        case "name":
+            return point.name
+        default:
+            return ""
+        }
+    }
+
+    /// Evaluate a standalone `chartDataPointRef` expression to a
+    /// human-readable debug string. Kept as a leaf helper so the
+    /// pattern-match locals don't inflate `evaluate`'s main stack
+    /// frame — `evaluate` is called recursively many times per
+    /// script and any bloat there multiplies with recursion depth.
+    private func describeChartDataPointRef(
+        _ expr: Expression,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async throws -> Value {
+        guard case .chartDataPointRef(let chartExpr, let seriesExpr, let pointExpr) = expr else {
+            return ""
+        }
+        let chartName = try await evaluate(chartExpr, env: &env, document: document, context: context)
+        let seriesName = try await evaluate(seriesExpr, env: &env, document: document, context: context)
+        let pointName = try await evaluate(pointExpr, env: &env, document: document, context: context)
+        return "data point \(pointName) of series \(seriesName) of chart \(chartName)"
+    }
+
+    /// Apply a `set the <property> of <target> to <value>` mutation
+    /// once the target has been resolved to a part index. Shared
+    /// between the `objectRef` path and the `me` path so both
+    /// writers end up at the same switch table. Extracted from the
+    /// inline set case in `executeStatement` so the locals don't
+    /// inflate that function's stack frame (which is already ~99 KB
+    /// and recursion-sensitive — see the earlier stack-overflow
+    /// investigation in the event-dispatch fix).
+    ///
+    /// For properties the switch doesn't recognise, this helper
+    /// falls back to `env.setVariable` so unknown-property writes
+    /// still land in a local variable (matching the previous
+    /// default-case behaviour).
+    private func applyPartPropertySet(
+        partIndex: Int,
+        property: String,
+        value: Value,
+        env: inout Environment,
+        document: inout HypeDocument,
+        context: ExecutionContext
+    ) {
+        // Chart-specific properties (title, xAxisLabel, etc.) take
+        // precedence so `set the title of chart "Sales" to "…"`
+        // writes the chart's ChartConfig.
+        if setChartLevelProperty(property, value: value, partIndex: partIndex, document: &document) {
+            return
+        }
+        switch property.lowercased() {
+        case "url":
+            document.parts[partIndex].url = value
+        case "name":
+            document.parts[partIndex].name = value
+        case "textcontent", "text":
+            document.parts[partIndex].textContent = value
+        case "visible":
+            document.parts[partIndex].visible = isTruthy(value)
+        case "enabled":
+            document.parts[partIndex].enabled = isTruthy(value)
+        case "textalign":
+            document.parts[partIndex].textAlign = TextAlignment(rawValue: value.lowercased()) ?? .left
+        case "textfont", "font":
+            document.parts[partIndex].textFont = value
+        case "textsize", "size":
+            document.parts[partIndex].textSize = toNumber(value)
+        case "fillcolor":
+            document.parts[partIndex].fillColor = value
+        case "strokecolor":
+            document.parts[partIndex].strokeColor = value
+        case "left", "left_pos":
+            document.parts[partIndex].left = toNumber(value)
+        case "top", "top_pos":
+            document.parts[partIndex].top = toNumber(value)
+        case "width":
+            document.parts[partIndex].width = toNumber(value)
+        case "height":
+            document.parts[partIndex].height = toNumber(value)
+        case "rotation":
+            document.parts[partIndex].rotation = toNumber(value)
+        case "hilite":
+            document.parts[partIndex].hilite = isTruthy(value)
+        case "autohilite":
+            document.parts[partIndex].autoHilite = isTruthy(value)
+        case "showname":
+            document.parts[partIndex].showName = isTruthy(value)
+        case "locktext":
+            document.parts[partIndex].lockText = isTruthy(value)
+        case "dontwrap":
+            document.parts[partIndex].dontWrap = isTruthy(value)
+        case "widemargins":
+            document.parts[partIndex].wideMargins = isTruthy(value)
+        case "style":
+            switch document.parts[partIndex].partType {
+            case .button:
+                document.parts[partIndex].buttonStyle = ButtonStyle(rawValue: value) ?? .roundRect
+            case .field:
+                document.parts[partIndex].fieldStyle = FieldStyle(rawValue: value) ?? .rectangle
+            case .shape:
+                document.parts[partIndex].shapeType = ShapeType(rawValue: value) ?? .rectangle
+            default:
+                break
+            }
+        case "chartdata", "chart_data":
+            document.parts[partIndex].chartData = value
+        case "script":
+            document.parts[partIndex].script = value
+        case "family":
+            document.parts[partIndex].family = Int(toNumber(value))
+        case "textstyle":
+            document.parts[partIndex].textStyle = value
+        case "rect", "rectangle":
+            let components = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            if components.count == 4 {
+                document.parts[partIndex].left = components[0]
+                document.parts[partIndex].top = components[1]
+                document.parts[partIndex].width = components[2] - components[0]
+                document.parts[partIndex].height = components[3] - components[1]
+            }
+        case "loc", "location":
+            let components = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            if components.count == 2 {
+                document.parts[partIndex].left = components[0] - document.parts[partIndex].width / 2
+                document.parts[partIndex].top = components[1] - document.parts[partIndex].height / 2
+            }
+        case "marked":
+            if let idx = document.cards.firstIndex(where: { $0.id == context.currentCardId }) {
+                document.cards[idx].marked = isTruthy(value)
+            }
+        case "right":
+            let newRight = toNumber(value)
+            document.parts[partIndex].width = newRight - document.parts[partIndex].left
+        case "bottom":
+            let newBottom = toNumber(value)
+            document.parts[partIndex].height = newBottom - document.parts[partIndex].top
+        case "topleft":
+            let components = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            if components.count >= 2 {
+                document.parts[partIndex].left = components[0]
+                document.parts[partIndex].top = components[1]
+            }
+        case "bottomright":
+            let components = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            if components.count >= 2 {
+                document.parts[partIndex].width = components[0] - document.parts[partIndex].left
+                document.parts[partIndex].height = components[1] - document.parts[partIndex].top
+            }
+        case "icon":
+            if let uuid = UUID(uuidString: value) {
+                document.parts[partIndex].iconId = uuid
+            }
+        case "scroll", "scrollpos":
+            break
+        case "sharedtext", "sharedhilite", "showlines", "showpict",
+             "fixedlineheight", "multiplelines", "dontsearch",
+             "autoselect", "autotab", "cantdelete", "cantmodify":
+            break  // model-property gaps — no-op
+        case "textheight":
+            document.parts[partIndex].textSize = toNumber(value) / 1.3
+        case "centered":
+            document.parts[partIndex].textAlign = isTruthy(value) ? .center : .left
+        case "fill_color":
+            document.parts[partIndex].fillColor = value
+        case "stroke_color":
+            document.parts[partIndex].strokeColor = value
+        case "strokewidth", "stroke_width":
+            document.parts[partIndex].strokeWidth = toNumber(value)
+        case "cornerradius", "corner_radius":
+            document.parts[partIndex].cornerRadius = toNumber(value)
+        case "shapetype", "shape_type":
+            if let st = ShapeType(rawValue: value) {
+                document.parts[partIndex].shapeType = st
+            }
+        case "richtext", "rich_text":
+            document.parts[partIndex].richText = isTruthy(value)
+        case "enterkeyenabled":
+            document.parts[partIndex].enterKeyEnabled = isTruthy(value)
+        case "invertonclick":
+            document.parts[partIndex].invertOnClick = isTruthy(value)
+        default:
+            env.setVariable(property, value)
+        }
+    }
+
+    /// Apply a `set` statement whose target is a chartDataPointRef.
+    ///
+    /// Extracted from the giant `executeStatement` `switch` so its
+    /// locals (`ChartPointLocation`, a copy of `ChartConfig`, etc.)
+    /// live in a small leaf frame instead of bloating the main
+    /// executeStatement frame for every recursive call.
+    private func applyChartDataPointSet(
+        property: String,
+        target: Expression,
+        value: Value,
+        env: inout Environment,
+        document: inout HypeDocument,
+        context: ExecutionContext
+    ) async throws {
+        guard case .chartDataPointRef(let chartExpr, let seriesExpr, let pointExpr) = target else {
+            return
+        }
+        guard let loc = try await resolveChartDataPointLocation(
+            chartExpr: chartExpr,
+            seriesExpr: seriesExpr,
+            pointExpr: pointExpr,
+            env: &env,
+            document: document,
+            context: context
+        ) else {
+            return
+        }
+        var config = loc.config
+        switch property.lowercased() {
+        case "color", "fillcolor", "fill_color", "rawcolor", "raw_color":
+            config.series[loc.seriesIndex].data[loc.pointIndex].color = value
+        case "value":
+            config.series[loc.seriesIndex].data[loc.pointIndex].value = toNumber(value)
+        case "name":
+            config.series[loc.seriesIndex].data[loc.pointIndex].name = value
+        default:
+            // Unknown property on a data point — ignore silently
+            // rather than clobbering the chart.
+            return
+        }
+        document.parts[loc.partIndex].chartData = config.toJSON()
+    }
+
+    /// Chart-level properties readable via `the <prop> of chart "X"`.
+    /// Returns `nil` if the property is not a recognised chart-level
+    /// attribute so the caller can fall through to generic part
+    /// property handling.
+    private func chartLevelProperty(
+        _ property: String,
+        part: Part
+    ) -> Value? {
+        guard part.partType == .chart,
+              let config = ChartConfig.fromJSON(part.chartData) else {
+            return nil
+        }
+        switch property.lowercased() {
+        case "title":
+            return config.title
+        case "xaxislabel", "x_axis_label", "xlabel", "x_label":
+            return config.xAxisLabel
+        case "yaxislabel", "y_axis_label", "ylabel", "y_label":
+            return config.yAxisLabel
+        case "showlegend", "show_legend":
+            return config.showLegend ? "true" : "false"
+        case "showgrid", "show_grid":
+            return config.showGrid ? "true" : "false"
+        case "charttype", "chart_type":
+            return config.chartType.rawValue
+        case "seriescount", "series_count":
+            return String(config.series.count)
+        default:
+            return nil
+        }
+    }
+
+    /// Apply a chart-level property set. Returns `true` if the property
+    /// was recognised and applied (even if the value coerces to a
+    /// default), `false` to let the caller fall through to generic
+    /// part-property handling.
+    private func setChartLevelProperty(
+        _ property: String,
+        value: Value,
+        partIndex: Int,
+        document: inout HypeDocument
+    ) -> Bool {
+        guard document.parts[partIndex].partType == .chart else { return false }
+        var config = ChartConfig.fromJSON(document.parts[partIndex].chartData) ?? ChartConfig()
+        switch property.lowercased() {
+        case "title":
+            config.title = value
+        case "xaxislabel", "x_axis_label", "xlabel", "x_label":
+            config.xAxisLabel = value
+        case "yaxislabel", "y_axis_label", "ylabel", "y_label":
+            config.yAxisLabel = value
+        case "showlegend", "show_legend":
+            config.showLegend = isTruthy(value)
+        case "showgrid", "show_grid":
+            config.showGrid = isTruthy(value)
+        case "charttype", "chart_type":
+            if let t = ChartType(rawValue: value.lowercased()) {
+                config.chartType = t
+            } else {
+                return false
+            }
+        default:
+            return false
+        }
+        document.parts[partIndex].chartData = config.toJSON()
+        return true
+    }
+
     /// Convert a HypeTalk value to a number. Non-numeric strings become 0.
     private func toNumber(_ value: Value) -> Double {
         Double(value) ?? 0
@@ -1509,5 +3200,386 @@ public struct Interpreter: Sendable {
     private func isTruthy(_ value: Value) -> Bool {
         let lower = value.lowercased()
         return lower == "true" || lower == "yes" || (Double(value).map { $0 != 0 } ?? false)
+    }
+
+    // MARK: - Sprite Area Helpers
+
+    private struct SpriteTargetLocation {
+        var partIndex: Int
+        var sceneId: UUID
+        var nodeId: UUID?
+    }
+
+    private func spriteAreaPartIndices(document: HypeDocument, currentCardId: UUID) -> [Int] {
+        let cardParts = document.partsForCard(currentCardId)
+        let bgParts = document.cards
+            .first(where: { $0.id == currentCardId })
+            .map { document.partsForBackground($0.backgroundId) } ?? []
+        let ids = Set((cardParts + bgParts).filter { $0.partType == .spriteArea }.map(\.id))
+        return document.parts.indices.filter { ids.contains(document.parts[$0].id) }
+    }
+
+    private func resolveSpriteAreaPartIndex(
+        named areaName: String? = nil,
+        document: HypeDocument,
+        currentCardId: UUID
+    ) -> Int? {
+        if let areaName, !areaName.isEmpty {
+            return document.parts.firstIndex(where: {
+                $0.partType == .spriteArea && $0.name.lowercased() == areaName.lowercased()
+            })
+        }
+        return spriteAreaPartIndices(document: document, currentCardId: currentCardId).first
+    }
+
+    private func spriteAreaSpec(
+        partIndex: Int,
+        document: HypeDocument
+    ) -> SpriteAreaSpec? {
+        guard document.parts.indices.contains(partIndex) else { return nil }
+        return document.parts[partIndex].spriteAreaSpecModel
+    }
+
+    private func activeScene(
+        partIndex: Int,
+        document: HypeDocument
+    ) -> SceneSpec? {
+        spriteAreaSpec(partIndex: partIndex, document: document)?.activeScene
+    }
+
+    @discardableResult
+    private func mutateSpriteAreaSpec(
+        partIndex: Int,
+        document: inout HypeDocument,
+        transform: (inout SpriteAreaSpec) -> Void
+    ) -> Bool {
+        guard document.parts.indices.contains(partIndex) else { return false }
+        var part = document.parts[partIndex]
+        var spec = part.spriteAreaSpecModel ?? SpriteAreaSpec(
+            defaultSceneNamed: part.name.isEmpty ? "main" : part.name,
+            fallbackSize: SizeSpec(width: part.width, height: part.height)
+        )
+        transform(&spec)
+        part.setSpriteAreaSpec(spec)
+        document.parts[partIndex] = part
+        return true
+    }
+
+    @discardableResult
+    private func mutateActiveScene(
+        partIndex: Int,
+        document: inout HypeDocument,
+        transform: (inout SceneSpec) -> Void
+    ) -> Bool {
+        mutateSpriteAreaSpec(partIndex: partIndex, document: &document) { spec in
+            var scene = spec.activeScene ?? SceneSpec(size: spec.designSize, scaleMode: spec.scaleMode)
+            transform(&scene)
+            spec.setActiveScene(scene)
+        }
+    }
+
+    private func locateSpriteTarget(
+        id: UUID,
+        document: HypeDocument,
+        currentCardId: UUID
+    ) -> SpriteTargetLocation? {
+        for partIndex in spriteAreaPartIndices(document: document, currentCardId: currentCardId) {
+            guard let areaSpec = spriteAreaSpec(partIndex: partIndex, document: document),
+                  let activeScene = areaSpec.activeScene,
+                  let sceneEntry = areaSpec.activeSceneEntry else {
+                continue
+            }
+            if sceneEntry.id == id {
+                return SpriteTargetLocation(partIndex: partIndex, sceneId: sceneEntry.id, nodeId: nil)
+            }
+            if activeScene.node(id: id) != nil {
+                return SpriteTargetLocation(partIndex: partIndex, sceneId: sceneEntry.id, nodeId: id)
+            }
+        }
+        return nil
+    }
+
+    private func nodeLocation(
+        named name: String,
+        objectType: String? = nil,
+        document: HypeDocument,
+        currentCardId: UUID
+    ) -> (partIndex: Int, node: HypeNodeSpec)? {
+        for partIndex in spriteAreaPartIndices(document: document, currentCardId: currentCardId) {
+            guard let scene = activeScene(partIndex: partIndex, document: document),
+                  let node = scene.node(named: name) else {
+                continue
+            }
+            if let objectType,
+               !objectType.isEmpty,
+               objectType.lowercased() != node.nodeType.rawValue.lowercased(),
+               !(objectType.lowercased() == "group" && node.nodeType == .group) {
+                continue
+            }
+            return (partIndex, node)
+        }
+        return nil
+    }
+
+    private func sceneLocation(
+        named name: String,
+        document: HypeDocument,
+        currentCardId: UUID
+    ) -> (partIndex: Int, areaSpec: SpriteAreaSpec)? {
+        for partIndex in spriteAreaPartIndices(document: document, currentCardId: currentCardId) {
+            guard let areaSpec = spriteAreaSpec(partIndex: partIndex, document: document) else { continue }
+            if areaSpec.scenes.contains(where: { $0.scene.name.lowercased() == name.lowercased() }) {
+                return (partIndex, areaSpec)
+            }
+        }
+        return nil
+    }
+
+    private func applyNodePropertySet(
+        property: String,
+        value: Value,
+        to node: inout HypeNodeSpec
+    ) {
+        switch property.lowercased() {
+        case "loc", "location", "position":
+            let comps = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            if comps.count >= 2 {
+                node.position = PointSpec(x: comps[0], y: comps[1])
+            }
+        case "rotation":
+            node.rotation = toNumber(value)
+        case "alpha":
+            node.alpha = toNumber(value)
+        case "xscale":
+            node.xScale = toNumber(value)
+        case "yscale":
+            node.yScale = toNumber(value)
+        case "zposition":
+            node.zPosition = toNumber(value)
+        case "hidden":
+            node.isHidden = isTruthy(value)
+        case "name":
+            node.name = value
+        case "text", "contents", "textcontent":
+            node.text = value
+        case "fontname", "font":
+            node.fontName = value
+        case "fontsize", "textsize":
+            node.fontSize = toNumber(value)
+        case "fontcolor", "textcolor", "color":
+            node.fontColor = value
+        case "width":
+            if node.size == nil { node.size = SizeSpec(width: 50, height: 50) }
+            node.size?.width = toNumber(value)
+        case "height":
+            if node.size == nil { node.size = SizeSpec(width: 50, height: 50) }
+            node.size?.height = toNumber(value)
+        case "fillcolor", "fill":
+            if node.shapeSpec == nil { node.shapeSpec = ShapeNodeSpec() }
+            node.shapeSpec?.fillColor = value
+        case "strokecolor", "stroke":
+            if node.shapeSpec == nil { node.shapeSpec = ShapeNodeSpec() }
+            node.shapeSpec?.strokeColor = value
+        case "linewidth", "strokewidth":
+            if node.shapeSpec == nil { node.shapeSpec = ShapeNodeSpec() }
+            node.shapeSpec?.lineWidth = toNumber(value)
+        case "cornerradius":
+            if node.shapeSpec == nil { node.shapeSpec = ShapeNodeSpec() }
+            node.shapeSpec?.cornerRadius = toNumber(value)
+        case "shapetype":
+            if node.shapeSpec == nil { node.shapeSpec = ShapeNodeSpec() }
+            if let st = SpriteShapeType(rawValue: value.lowercased()) {
+                node.shapeSpec?.shapeType = st
+            }
+        case "size":
+            let comps = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            if comps.count >= 2 {
+                node.size = SizeSpec(width: comps[0], height: comps[1])
+            }
+        case "audioloop", "loop":
+            node.audioLoop = isTruthy(value)
+        case "audiovolume", "volume":
+            node.audioVolume = toNumber(value)
+        case "audioautoplay", "autoplay":
+            node.audioAutoplay = isTruthy(value)
+        case "audiopositional", "positional":
+            node.audioPositional = isTruthy(value)
+        case "videoloop":
+            node.videoLoop = isTruthy(value)
+        case "videoautoplay":
+            node.videoAutoplay = isTruthy(value)
+        case "cameratarget", "target":
+            node.cameraTarget = value
+        case "zoom":
+            node.xScale = toNumber(value)
+            node.yScale = toNumber(value)
+        case "columns":
+            if node.tileMapSpec != nil {
+                node.tileMapSpec?.columns = Int(toNumber(value))
+            }
+        case "rows":
+            if node.tileMapSpec != nil {
+                node.tileMapSpec?.rows = Int(toNumber(value))
+            }
+        case "tilesize":
+            if node.tileMapSpec != nil {
+                let size = toNumber(value)
+                node.tileMapSpec?.tileWidth = size
+                node.tileMapSpec?.tileHeight = size
+            }
+        case "particlebirthrate", "birthrate":
+            if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
+            node.emitterSpec?.particleBirthRate = toNumber(value)
+        case "particlelifetime", "lifetime" where node.nodeType == .emitter:
+            if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
+            node.emitterSpec?.particleLifetime = toNumber(value)
+        case "particlespeed", "speed" where node.nodeType == .emitter:
+            if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
+            node.emitterSpec?.particleSpeed = toNumber(value)
+        case "emissionangle":
+            if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
+            node.emitterSpec?.emissionAngle = toNumber(value)
+        case "emissionanglerange":
+            if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
+            node.emitterSpec?.emissionAngleRange = toNumber(value)
+        case "particlealpha" where node.nodeType == .emitter:
+            if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
+            node.emitterSpec?.particleAlpha = toNumber(value)
+        case "particlescale":
+            if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
+            node.emitterSpec?.particleScale = toNumber(value)
+        case "particlecolor":
+            if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
+            node.emitterSpec?.particleColor = value
+        case "velocity":
+            let comps = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            if comps.count >= 2 {
+                if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+                node.physicsBody?.velocityX = comps[0]
+                node.physicsBody?.velocityY = comps[1]
+            }
+        case "angularvelocity":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.angularVelocity = toNumber(value)
+        case "density":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.density = toNumber(value)
+        case "lineardamping", "damping":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.linearDamping = toNumber(value)
+        case "angulardamping":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.angularDamping = toNumber(value)
+        default:
+            break
+        }
+    }
+
+    private func nodePropertyValue(_ node: HypeNodeSpec, property: String) -> Value {
+        switch property.lowercased() {
+        case "name":        return node.name
+        case "loc", "location", "position":
+            return "\(formatNumber(node.position.x)),\(formatNumber(node.position.y))"
+        case "rotation":    return formatNumber(node.rotation)
+        case "alpha":       return formatNumber(node.alpha)
+        case "xscale":      return formatNumber(node.xScale)
+        case "yscale":      return formatNumber(node.yScale)
+        case "zposition":   return formatNumber(node.zPosition)
+        case "hidden":      return node.isHidden ? "true" : "false"
+        case "width":       return formatNumber(node.size?.width ?? 0)
+        case "height":      return formatNumber(node.size?.height ?? 0)
+        case "size":
+            return "\(formatNumber(node.size?.width ?? 0)),\(formatNumber(node.size?.height ?? 0))"
+        case "text", "contents", "textcontent": return node.text ?? ""
+        case "fontname", "font":    return node.fontName ?? ""
+        case "fontsize", "textsize": return formatNumber(node.fontSize ?? 14)
+        case "fontcolor", "textcolor", "color": return node.fontColor ?? "#000000"
+        case "fillcolor", "fill":   return node.shapeSpec?.fillColor ?? ""
+        case "strokecolor", "stroke": return node.shapeSpec?.strokeColor ?? ""
+        case "linewidth", "strokewidth": return formatNumber(node.shapeSpec?.lineWidth ?? 1)
+        case "cornerradius": return formatNumber(node.shapeSpec?.cornerRadius ?? 0)
+        case "shapetype": return node.shapeSpec?.shapeType.rawValue ?? ""
+        case "audioloop", "loop": return (node.audioLoop ?? false) ? "true" : "false"
+        case "audiovolume", "volume": return formatNumber(node.audioVolume ?? 1.0)
+        case "audioautoplay", "autoplay": return (node.audioAutoplay ?? true) ? "true" : "false"
+        case "audiopositional", "positional": return (node.audioPositional ?? false) ? "true" : "false"
+        case "videoloop": return (node.videoLoop ?? false) ? "true" : "false"
+        case "videoautoplay": return (node.videoAutoplay ?? true) ? "true" : "false"
+        case "columns": return node.tileMapSpec != nil ? String(node.tileMapSpec!.columns) : "0"
+        case "rows": return node.tileMapSpec != nil ? String(node.tileMapSpec!.rows) : "0"
+        case "tilesize": return node.tileMapSpec != nil ? formatNumber(node.tileMapSpec!.tileWidth) : "0"
+        case "cameratarget", "target": return node.cameraTarget ?? ""
+        case "zoom": return formatNumber(node.xScale)
+        case "particlebirthrate", "birthrate":
+            return formatNumber(node.emitterSpec?.particleBirthRate ?? 50)
+        case "particlelifetime", "lifetime" where node.nodeType == .emitter:
+            return formatNumber(node.emitterSpec?.particleLifetime ?? 2)
+        case "particlespeed", "speed" where node.nodeType == .emitter:
+            return formatNumber(node.emitterSpec?.particleSpeed ?? 100)
+        case "emissionangle":
+            return formatNumber(node.emitterSpec?.emissionAngle ?? 90)
+        case "emissionanglerange":
+            return formatNumber(node.emitterSpec?.emissionAngleRange ?? 360)
+        case "particlealpha" where node.nodeType == .emitter:
+            return formatNumber(node.emitterSpec?.particleAlpha ?? 1)
+        case "particlescale":
+            return formatNumber(node.emitterSpec?.particleScale ?? 0.3)
+        case "particlecolor":
+            return node.emitterSpec?.particleColor ?? "#FFFFFF"
+        case "velocity":
+            let vx = node.physicsBody?.velocityX ?? 0
+            let vy = node.physicsBody?.velocityY ?? 0
+            return "\(formatNumber(vx)),\(formatNumber(vy))"
+        case "angularvelocity": return formatNumber(node.physicsBody?.angularVelocity ?? 0)
+        case "density": return formatNumber(node.physicsBody?.density ?? 1)
+        case "lineardamping", "damping": return formatNumber(node.physicsBody?.linearDamping ?? 0.1)
+        case "angulardamping": return formatNumber(node.physicsBody?.angularDamping ?? 0.1)
+        case "mass": return formatNumber(node.physicsBody?.mass ?? 1)
+        case "friction": return formatNumber(node.physicsBody?.friction ?? 0.2)
+        case "restitution", "bounce": return formatNumber(node.physicsBody?.restitution ?? 0.2)
+        case "isdynamic", "dynamic": return (node.physicsBody?.isDynamic ?? true) ? "true" : "false"
+        case "affectedbygravity": return (node.physicsBody?.affectedByGravity ?? true) ? "true" : "false"
+        default: return ""
+        }
+    }
+
+    // MARK: - Node Hierarchy Helpers
+
+    /// Recursively search for a parent node by name and add a child node to it.
+    /// Returns true if the parent was found and the child was added.
+    private static func addNodeToParent(node: HypeNodeSpec, parentName: String, nodes: inout [HypeNodeSpec]) -> Bool {
+        for i in 0..<nodes.count {
+            if nodes[i].name.lowercased() == parentName.lowercased() {
+                nodes[i].children.append(node)
+                return true
+            }
+            if addNodeToParent(node: node, parentName: parentName, nodes: &nodes[i].children) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Recursively find a node by name in a node tree. Returns the node if found.
+    private static func findNode(name: String, in nodes: [HypeNodeSpec]) -> HypeNodeSpec? {
+        for node in nodes {
+            if node.name.lowercased() == name.lowercased() { return node }
+            if let found = findNode(name: name, in: node.children) { return found }
+        }
+        return nil
+    }
+
+    /// Recursively remove a node by name from a node tree. Returns the removed node if found.
+    @discardableResult
+    private static func removeNode(name: String, from nodes: inout [HypeNodeSpec]) -> HypeNodeSpec? {
+        if let idx = nodes.firstIndex(where: { $0.name.lowercased() == name.lowercased() }) {
+            return nodes.remove(at: idx)
+        }
+        for i in 0..<nodes.count {
+            if let removed = removeNode(name: name, from: &nodes[i].children) {
+                return removed
+            }
+        }
+        return nil
     }
 }

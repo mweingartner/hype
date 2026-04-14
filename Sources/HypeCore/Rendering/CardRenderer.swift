@@ -8,30 +8,61 @@ public final class CardRenderer: Sendable {
     public init() {}
 
     /// Render a complete card state to an NSImage.
+    ///
+    /// The render() method expects a flipped (top-left origin) CGContext,
+    /// matching the coordinate system of an NSView with isFlipped=true.
+    /// NSImage.lockFocus() provides a bottom-left origin context by default,
+    /// so we use an NSBitmapImageRep with an explicit flip transform.
     @MainActor
     public func renderToImage(
         document: HypeDocument,
         cardId: UUID,
-        size: NSSize
+        size: NSSize,
+        skipPartId: UUID? = nil,
+        nativePartIds: Set<UUID> = []
     ) -> NSImage {
-        let image = NSImage(size: size)
-        image.lockFocus()
-        guard let ctx = NSGraphicsContext.current?.cgContext else {
-            image.unlockFocus()
-            return image
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(size.width),
+            pixelsHigh: Int(size.height),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            return NSImage(size: size)
         }
-        render(ctx: ctx, document: document, cardId: cardId, size: size)
-        image.unlockFocus()
+        guard let gfxContext = NSGraphicsContext(bitmapImageRep: rep) else {
+            return NSImage(size: size)
+        }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = gfxContext
+        let ctx = gfxContext.cgContext
+        // Flip to match the flipped NSView coordinate system (top-left origin)
+        ctx.translateBy(x: 0, y: size.height)
+        ctx.scaleBy(x: 1, y: -1)
+        render(ctx: ctx, document: document, cardId: cardId, size: size, skipPartId: skipPartId, nativePartIds: nativePartIds)
+        NSGraphicsContext.restoreGraphicsState()
+        let image = NSImage(size: size)
+        image.addRepresentation(rep)
         return image
     }
 
     /// Render onto an existing CGContext.
+    ///
+    /// - Parameters:
+    ///   - nativePartIds: Parts whose IDs appear in this set are skipped during
+    ///     CGContext rendering, because they are rendered natively via SpriteKit nodes.
     public func render(
         ctx: CGContext,
         document: HypeDocument,
         cardId: UUID,
         size: NSSize,
-        skipPartId: UUID? = nil
+        skipPartId: UUID? = nil,
+        nativePartIds: Set<UUID> = []
     ) {
         // Layer 1: Background (white)
         ctx.setFillColor(NSColor.white.cgColor)
@@ -45,7 +76,7 @@ public final class CardRenderer: Sendable {
 
         // Layer 2: Background parts
         let bgParts = document.partsForBackground(bg.id)
-        for part in bgParts where part.visible && part.id != skipPartId {
+        for part in bgParts where part.visible && part.id != skipPartId && !nativePartIds.contains(part.id) {
             drawPart(ctx: ctx, part: part, canvasHeight: Double(size.height))
         }
 
@@ -53,7 +84,7 @@ public final class CardRenderer: Sendable {
 
         // Layer 4: Card parts
         let cardParts = document.partsForCard(cardId)
-        for part in cardParts where part.visible && part.id != skipPartId {
+        for part in cardParts where part.visible && part.id != skipPartId && !nativePartIds.contains(part.id) {
             drawPart(ctx: ctx, part: part, canvasHeight: Double(size.height))
         }
     }
@@ -99,6 +130,8 @@ public final class CardRenderer: Sendable {
             VideoRenderer.draw(ctx: ctx, part: part, rect: rect)
         case .chart:
             ChartRenderer.draw(ctx: ctx, part: part, rect: rect)
+        case .spriteArea:
+            SpriteAreaRenderer.draw(ctx: ctx, part: part, rect: rect)
         }
     }
 

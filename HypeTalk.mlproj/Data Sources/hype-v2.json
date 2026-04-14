@@ -1,0 +1,31 @@
+{
+  "activityEntities" : [
+    "dataSourceCreated",
+    [
+      {
+        "createdDate" : "2026-04-09T03:03:38Z",
+        "event" : "dataSourceCreated",
+        "id" : "1BAA2269-5514-4717-96F6-55CEBB676CC6",
+        "subtitle" : "hype-v2",
+        "title" : "Data Source Created"
+      }
+    ]
+  ],
+  "createdDate" : "2026-04-09T03:03:38Z",
+  "dataPathRelativeToProjectURL" : "../",
+  "dataResult" : {
+    "createdDate" : "2026-04-09T03:03:38Z",
+    "dataSourceID" : "4F31F942-F690-409B-8F12-B0F7C1194043",
+    "dataURL" : "file:///Users/mweingar/dev/hype-v2/"
+  },
+  "dataURL" : "file:///Users/mweingar/dev/hype-v2/",
+  "experimentIDs" : [
+    "638AFABE-309C-49E9-AFF8-83C174A47BED"
+  ],
+  "id" : "4F31F942-F690-409B-8F12-B0F7C1194043",
+  "modifiedDate" : "2026-04-09T03:03:38Z",
+  "pathType" : 0,
+  "preferredFilename" : "hype-v2",
+  "title" : "hype-v2",
+  "version" : "1.0"
+}

@@ -8,6 +8,21 @@ public enum ShapeRenderer {
     public static func draw(ctx: CGContext, part: Part, rect: CGRect) {
         ctx.saveGState()
 
+        // Apply rotation around the shape's centre when non-zero.
+        // HypeTalk's `set the rotation of <shape> to N` writes the
+        // angle in degrees, clockwise. Core Graphics rotates
+        // counter-clockwise for positive angles, so we negate the
+        // degrees before converting to radians. The rotation is
+        // translated to the shape's centre so rotation happens in
+        // place rather than around the view origin.
+        if part.rotation != 0 {
+            let cx = rect.midX
+            let cy = rect.midY
+            ctx.translateBy(x: cx, y: cy)
+            ctx.rotate(by: -CGFloat(part.rotation) * .pi / 180)
+            ctx.translateBy(x: -cx, y: -cy)
+        }
+
         let fillColor = (NSColor(hexString: part.fillColor) ?? .white).cgColor
         let strokeColor = (NSColor(hexString: part.strokeColor) ?? .black).cgColor
         ctx.setFillColor(fillColor)
@@ -63,7 +78,7 @@ public enum ShapeRenderer {
 
 // MARK: - NSColor hex extension
 
-extension NSColor {
+public extension NSColor {
     convenience init?(hexString: String) {
         var hex = hexString.trimmingCharacters(in: .whitespacesAndNewlines)
         if hex.hasPrefix("#") { hex.removeFirst() }

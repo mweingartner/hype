@@ -30,9 +30,42 @@ public enum VisualEffect: String, Sendable, CaseIterable {
         }
     }
 
-    /// Parse a HypeTalk effect name (e.g. "wipe left" -> .wipeLeft).
+    /// Parse a HypeTalk effect name into a VisualEffect.
+    ///
+    /// Accepts both the enum raw values (`wipeLeft`, `irisOpen`)
+    /// and the human-friendly aliases users actually type in
+    /// scripts: `dissolve`, `push`, `crossfade`, `doorway`,
+    /// `moveIn`, `reveal`, `flipHorizontal`, `flipVertical`.
+    /// Multi-word names like `"wipe left"` are camelCased before
+    /// lookup.
     public static func fromName(_ name: String) -> VisualEffect {
-        let words = name.lowercased().split(separator: " ")
+        let lower = name.lowercased().trimmingCharacters(in: .whitespaces)
+
+        // Human-friendly aliases first (these are what users type
+        // and what the HypeTalkGuide documents).
+        switch lower {
+        // Single-word aliases
+        case "dissolve", "crossfade":       return .dissolve
+        case "push":                        return .wipeLeft
+        case "doorway":                     return .irisOpen
+        case "reveal":                      return .wipeRight
+        // Multi-word aliases (what users type unquoted)
+        case "wipe left":                   return .wipeLeft
+        case "wipe right":                  return .wipeRight
+        case "wipe up":                     return .wipeUp
+        case "wipe down":                   return .wipeDown
+        case "iris open":                   return .irisOpen
+        case "iris close":                  return .irisClose
+        case "scroll left":                 return .scrollLeft
+        case "scroll right":                return .scrollRight
+        case "move in", "movein":           return .scrollLeft
+        case "flip horizontal", "fliphorizontal": return .wipeLeft
+        case "flip vertical", "flipvertical":     return .wipeUp
+        default: break
+        }
+
+        // Try camelCasing multi-word names (e.g. "wipe left" → "wipeLeft")
+        let words = lower.split(separator: " ")
         guard let first = words.first else { return .none }
         let camel = String(first) + words.dropFirst().map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined()
         return VisualEffect(rawValue: camel) ?? .none

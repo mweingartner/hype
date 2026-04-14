@@ -41,6 +41,23 @@ public enum FieldRenderer {
             ctx.stroke(scrollRect)
         }
 
+        // When the field is visible, always draw a 1-pixel border
+        // so the user can see the field's bounds on the canvas.
+        // This applies to ALL field styles including transparent
+        // and opaque (which otherwise have no visible border).
+        // The border is a subtle gray line that doesn't clash with
+        // the field's own style-specific chrome — for styles that
+        // already have a border (rectangle, shadow, scrolling),
+        // this is a no-op visually since the style border paints
+        // on top. For transparent and opaque fields it's the ONLY
+        // visual indicator of where the field is, which is exactly
+        // the user's request.
+        if part.visible {
+            ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+            ctx.setLineWidth(1)
+            ctx.stroke(rect)
+        }
+
         // Draw text content
         if !part.textContent.isEmpty {
             let padding: CGFloat = part.wideMargins ? 8 : 4

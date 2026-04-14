@@ -13,7 +13,7 @@ public enum ButtonRenderer {
         // because hilite only affects the indicator (check/dot/switch), not the label background
         let textColor: CGColor
         switch part.buttonStyle {
-        case .checkBox, .radioButton, .toggle:
+        case .checkBox, .toggle:
             textColor = part.enabled ? NSColor.black.cgColor : NSColor.gray.cgColor
         default:
             textColor = part.hilite ? NSColor.white.cgColor : (part.enabled ? NSColor.black.cgColor : NSColor.gray.cgColor)
@@ -76,27 +76,6 @@ public enum ButtonRenderer {
             // Label
             drawLabel(ctx: ctx, text: part.showName ? part.name : part.textContent,
                      at: CGPoint(x: rect.minX + boxSize + 8, y: rect.midY),
-                     font: part.textFont, size: part.textSize, color: textColor, align: .left)
-            ctx.restoreGState()
-            return
-
-        case .radioButton:
-            let radius: CGFloat = 8
-            let cx = rect.minX + radius + 4
-            let cy = rect.midY
-            ctx.addArc(center: CGPoint(x: cx, y: cy), radius: radius, startAngle: 0, endAngle: .pi * 2, clockwise: false)
-            ctx.setFillColor(NSColor.white.cgColor)
-            ctx.fillPath()
-            ctx.addArc(center: CGPoint(x: cx, y: cy), radius: radius, startAngle: 0, endAngle: .pi * 2, clockwise: false)
-            ctx.setStrokeColor(NSColor.separatorColor.cgColor)
-            ctx.strokePath()
-            if part.hilite {
-                ctx.addArc(center: CGPoint(x: cx, y: cy), radius: 4, startAngle: 0, endAngle: .pi * 2, clockwise: false)
-                ctx.setFillColor(NSColor.controlAccentColor.cgColor)
-                ctx.fillPath()
-            }
-            drawLabel(ctx: ctx, text: part.showName ? part.name : part.textContent,
-                     at: CGPoint(x: cx + radius + 6, y: cy),
                      font: part.textFont, size: part.textSize, color: textColor, align: .left)
             ctx.restoreGState()
             return

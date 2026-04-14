@@ -2,12 +2,131 @@ import SwiftUI
 import HypeCore
 import UniformTypeIdentifiers
 
-/// App delegate to handle quit lifecycle and dispatch the "quit" system message.
+/// App delegate to handle quit lifecycle, dispatch the "quit" system message,
+/// and save/restore window state across launches.
+@MainActor
 final class HypeAppDelegate: NSObject, NSApplicationDelegate {
+    private let launchState = AppLaunchState()
+    private var pendingWindowFrame: NSRect?
+    private var hasAppliedPendingFrame = false
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        pendingWindowFrame = launchState.visibleWindowFrame(
+            using: NSScreen.screens.map(\.visibleFrame)
+        )
+        installWindowObservers()
+
+        if let lastURL = launchState.lastOpenedFileURL {
+            openDocument(at: lastURL)
+        }
+    }
+
+    func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
+        if launchState.lastOpenedFileURL != nil {
+            return false
+        }
+        return true
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !flag else { return false }
+
+        if let lastURL = launchState.lastOpenedFileURL {
+            openDocument(at: lastURL)
+            return true
+        }
+
+        if let window = sender.windows.first {
+            window.makeKeyAndOrderFront(nil)
+            applyPendingWindowFrame(to: window)
+            return true
+        }
+
+        return false
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         // Dispatch "quit" message to the current card of each open document.
         // This gives scripts a chance to run cleanup handlers before the app exits.
         NotificationCenter.default.post(name: .hypeQuit, object: nil)
+
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            persistState(for: window)
+        }
+
+        if let doc = NSDocumentController.shared.currentDocument ?? NSDocumentController.shared.documents.first,
+           let url = doc.fileURL {
+            launchState.save(fileURL: url)
+        }
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    private func installWindowObservers() {
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(windowDidBecomeMain(_:)), name: NSWindow.didBecomeMainNotification, object: nil)
+        center.addObserver(self, selector: #selector(windowDidMoveOrResize(_:)), name: NSWindow.didMoveNotification, object: nil)
+        center.addObserver(self, selector: #selector(windowDidMoveOrResize(_:)), name: NSWindow.didResizeNotification, object: nil)
+        center.addObserver(self, selector: #selector(windowWillClose(_:)), name: NSWindow.willCloseNotification, object: nil)
+    }
+
+    private func openDocument(at url: URL) {
+        NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { [weak self] document, _, error in
+            guard let self else { return }
+
+            if error != nil && document == nil {
+                self.launchState.clearLastOpenedFile()
+                NSDocumentController.shared.newDocument(nil)
+            }
+
+            if let window = document?.windowControllers.first?.window {
+                self.applyPendingWindowFrame(to: window)
+            } else if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+                self.applyPendingWindowFrame(to: window)
+            }
+        }
+    }
+
+    private func persistState(for window: NSWindow) {
+        launchState.save(windowFrame: window.frame)
+        if let url = fileURL(for: window) {
+            launchState.save(fileURL: url)
+        }
+    }
+
+    private func fileURL(for window: NSWindow) -> URL? {
+        NSDocumentController.shared.documents.first { document in
+            document.windowControllers.contains { $0.window === window }
+        }?.fileURL
+    }
+
+    private func applyPendingWindowFrame(to window: NSWindow?) {
+        guard !hasAppliedPendingFrame,
+              let frame = pendingWindowFrame,
+              let window else { return }
+        window.setFrame(frame, display: true)
+        hasAppliedPendingFrame = true
+    }
+
+    @objc
+    private func windowDidBecomeMain(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        persistState(for: window)
+        applyPendingWindowFrame(to: window)
+    }
+
+    @objc
+    private func windowDidMoveOrResize(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        persistState(for: window)
+    }
+
+    @objc
+    private func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        persistState(for: window)
     }
 }
 
@@ -32,6 +151,7 @@ struct HypeApp: App {
             ArrangeMenuCommands()
             ToolsMenuCommands()
             AIMenuCommands()
+            WindowMenuCommands()
         }
 
         Settings {

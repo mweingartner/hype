@@ -56,18 +56,36 @@ struct MessageBoxView: View {
                 outputText = "Error: No handler found"
                 return
             }
-            let context = ExecutionContext(
-                targetId: document.document.stack.id,
-                currentCardId: currentCardId ?? UUID(),
-                document: document.document
-            )
-            let interpreter = Interpreter()
-            let result = interpreter.execute(handler: handler, params: [], context: context)
-
-            if let err = result.error {
-                outputText = "Error: \(err.message)"
-            } else {
-                outputText = result.returnValue ?? ""
+            let snapshot = document.document
+            let cardId = currentCardId ?? snapshot.sortedCards.first?.id ?? snapshot.stack.id
+            Task {
+                let runtime = await StackRuntimeRegistry.shared.runtime(
+                    for: snapshot,
+                    configuration: StackRuntimeConfiguration(aiProvider: OllamaAIScriptingProvider())
+                )
+                let liveDocument = await runtime.currentDocument()
+                let context = ExecutionContext(
+                    targetId: liveDocument.stack.id,
+                    currentCardId: cardId,
+                    document: liveDocument,
+                    aiProvider: OllamaAIScriptingProvider(),
+                    runtimeProvider: runtime
+                )
+                let interpreter = Interpreter()
+                let result = await interpreter.executeAsync(handler: handler, params: [], context: context)
+                if let modified = result.modifiedDocument {
+                    await runtime.syncDocument(modified)
+                }
+                await MainActor.run {
+                    if let modified = result.modifiedDocument {
+                        document.document = modified
+                    }
+                    if let err = result.error {
+                        outputText = "Error: \(err.message)"
+                    } else {
+                        outputText = result.returnValue ?? ""
+                    }
+                }
             }
         } catch {
             outputText = "Error: \(error.localizedDescription)"

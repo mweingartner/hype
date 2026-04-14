@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 @testable import HypeCore
 
 @Suite("HypeDocument Model Tests")
@@ -117,12 +118,27 @@ struct ModelTests {
         #expect(bgParts[0].id == bgPart.id)
     }
 
+    @Test func effectivePartsForCardIncludesBackgroundParts() {
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        let bgId = doc.cards[0].backgroundId
+        let cardPart = Part(partType: .button, cardId: cardId, name: "Card Button")
+        let bgPart = Part(partType: .field, backgroundId: bgId, name: "Background Field")
+        doc.addPart(cardPart)
+        doc.addPart(bgPart)
+
+        let effective = doc.effectivePartsForCard(cardId)
+        #expect(effective.count == 2)
+        #expect(effective.contains(where: { $0.name == "Card Button" }))
+        #expect(effective.contains(where: { $0.name == "Background Field" }))
+    }
+
     @Test func partDefaultValues() {
         let part = Part(partType: .button)
         #expect(part.visible == true)
         #expect(part.enabled == true)
         #expect(part.hilite == false)
-        #expect(part.textFont == "SF Pro")
+        #expect(part.textFont == "Apple Braille")
         #expect(part.textSize == 14)
         #expect(part.buttonStyle == .roundRect)
         #expect(part.fillColor == "#FFFFFF")
@@ -165,5 +181,119 @@ struct NavigatorTests {
         let (index, count) = CardNavigator.cardPosition(currentCardId: doc.sortedCards[1].id, document: doc)
         #expect(index == 1)
         #expect(count == 3)
+    }
+}
+
+@Suite("Sprite Area Spec Tests")
+struct SpriteAreaSpecTests {
+
+    @Test func legacySceneSpecMigratesToNamedSceneRegistry() {
+        let cardId = UUID()
+        var area = Part(
+            partType: .spriteArea,
+            cardId: cardId,
+            name: "Game Area",
+            left: 0,
+            top: 0,
+            width: 480,
+            height: 320
+        )
+        var legacyScene = SceneSpec(
+            name: "Legacy Scene",
+            size: SizeSpec(width: 480, height: 320),
+            backgroundColor: "#112233",
+            gravity: VectorSpec(dx: 0, dy: -4.5),
+            script: """
+            on openScene
+              pass openScene
+            end openScene
+            """
+        )
+        legacyScene.nodes = [
+            HypeNodeSpec(
+                name: "ball",
+                nodeType: .sprite,
+                position: PointSpec(x: 48, y: 96)
+            )
+        ]
+        area.sceneSpec = legacyScene.toJSON()
+
+        guard let migrated = area.spriteAreaSpecModel else {
+            Issue.record("Legacy SceneSpec should migrate into SpriteAreaSpec")
+            return
+        }
+
+        #expect(migrated.scenes.count == 1)
+        #expect(migrated.activeScene?.name == "Legacy Scene")
+        #expect(migrated.activeScene?.backgroundColor == "#112233")
+        #expect(migrated.activeScene?.gravity.dy == -4.5)
+        #expect(migrated.activeScene?.nodes.first?.name == "ball")
+        #expect(migrated.activeSceneEntry?.id == migrated.activeSceneID)
+
+        var rewritten = area
+        rewritten.setSpriteAreaSpec(migrated)
+
+        #expect(SpriteAreaSpec.fromJSON(rewritten.sceneSpec) != nil)
+        #expect(SceneSpec.fromLegacyJSON(rewritten.sceneSpec) == nil)
+    }
+}
+
+@Suite("SceneDiff Tests")
+struct SceneDiffTests {
+
+    @Test func physicsAndShapePropertiesCanBeUpdatedRecursively() {
+        let childId = UUID()
+        var scene = SceneSpec(
+            name: "main",
+            size: SizeSpec(width: 800, height: 600),
+            nodes: [
+                HypeNodeSpec(
+                    name: "group",
+                    nodeType: .group,
+                    children: [
+                        HypeNodeSpec(
+                            id: childId,
+                            name: "blue_ball",
+                            nodeType: .shape,
+                            position: PointSpec(x: 100, y: 100),
+                            size: SizeSpec(width: 40, height: 40),
+                            shapeSpec: ShapeNodeSpec(shapeType: .rect, fillColor: "#FFFFFF"),
+                            script: "on idle\n  put 1 into x\nend idle"
+                        )
+                    ]
+                )
+            ]
+        )
+
+        let diff = SceneDiff(
+            updateNodes: [
+                NodeUpdate(
+                    id: childId,
+                    properties: [
+                        "script": "",
+                        "shape.shapeType": "circle",
+                        "shape.fillColor": "#4AA8FF",
+                        "physics.enabled": "true",
+                        "physics.bodyType": "circle",
+                        "physics.isDynamic": "true",
+                        "physics.restitution": "0.98",
+                        "physics.velocityX": "220",
+                        "physics.velocityY": "170"
+                    ]
+                )
+            ]
+        )
+
+        diff.apply(to: &scene)
+
+        let ball = scene.node(id: childId)
+        #expect(ball?.script == "")
+        #expect(ball?.shapeSpec?.shapeType == .circle)
+        #expect(ball?.shapeSpec?.fillColor == "#4AA8FF")
+        #expect(ball?.physicsBody?.bodyType == .circle)
+        #expect(ball?.physicsBody?.isDynamic == true)
+        #expect(ball?.physicsBody?.restitution == 0.98)
+        #expect(ball?.physicsBody?.velocityX == 220)
+        #expect(ball?.physicsBody?.velocityY == 170)
     }
 }

@@ -1,6 +1,44 @@
 import SwiftUI
 import HypeCore
 
+// MARK: - Script Target
+
+/// Identifies what object a script editor is editing.
+enum ScriptTarget {
+    case part(UUID)
+    case card(UUID)
+    case background(UUID)
+    case scene(partId: UUID, sceneId: UUID)
+    case node(partId: UUID, nodeId: UUID)
+    case stack
+    case hype  // app-level script stored in UserDefaults
+
+    /// Stable string key used to dedupe open script editor windows
+    /// in `openScriptEditorWindow`. Two `ScriptTarget` values with
+    /// the same identity key represent the same on-screen
+    /// "thing being edited" — the same part, card, background,
+    /// stack, or app script. Used as the dictionary key for
+    /// `activeScriptWindows` so we can find an existing window for
+    /// a given target instead of stacking duplicates on every
+    /// runtime error.
+    ///
+    /// The format is `"<kind>:<id>"` (or just `"<kind>"` for the
+    /// singletons) so it's both human-readable for debugging and
+    /// guaranteed-stable across calls — UUID's `uuidString` is
+    /// canonical.
+    var identityKey: String {
+        switch self {
+        case .part(let id): return "part:\(id.uuidString)"
+        case .card(let id): return "card:\(id.uuidString)"
+        case .background(let id): return "background:\(id.uuidString)"
+        case .scene(let partId, let sceneId): return "scene:\(partId.uuidString):\(sceneId.uuidString)"
+        case .node(let partId, let nodeId): return "node:\(partId.uuidString):\(nodeId.uuidString)"
+        case .stack: return "stack"
+        case .hype: return "hype"
+        }
+    }
+}
+
 // MARK: - Script Command Templates
 
 /// A template snippet for the command palette sidebar.
@@ -22,6 +60,8 @@ private let scriptTemplates: [ScriptTemplate] = [
         code: "on mouseEnter\n  \nend mouseEnter"),
     ScriptTemplate(name: "on mouseLeave", category: "Events",
         code: "on mouseLeave\n  \nend mouseLeave"),
+    ScriptTemplate(name: "on mouseWithin", category: "Events",
+        code: "on mouseWithin\n  -- the mouseLoc returns \"x,y\"\n  put the mouseLoc into pos\nend mouseWithin"),
     ScriptTemplate(name: "on openCard", category: "Events",
         code: "on openCard\n  \nend openCard"),
     ScriptTemplate(name: "on closeCard", category: "Events",
@@ -149,21 +189,124 @@ private let scriptTemplates: [ScriptTemplate] = [
 
     // AI
     ScriptTemplate(name: "ask AI", category: "AI",
-        code: "ask ai \"Summarize this text\""),
+        code: "ask ai \"Summarize the current scene and suggest one improvement\"\nput it into field \"output\""),
+    ScriptTemplate(name: "ask AI with model", category: "AI",
+        code: "ask ai \"Write a title screen tagline\" with model \"llama3.2\"\nput it into field \"output\""),
+    ScriptTemplate(name: "ollama()", category: "AI",
+        code: "put ollama(\"Write one line of dialog for the shopkeeper\") into field \"output\""),
+    ScriptTemplate(name: "ollama(model,prompt)", category: "AI",
+        code: "put ollama(\"llama3.2\", \"Generate a short quest hook\") into field \"output\""),
+    ScriptTemplate(name: "the aiModel", category: "AI",
+        code: "put the aiModel into field \"output\""),
+    ScriptTemplate(name: "the aiModels", category: "AI",
+        code: "put the aiModels into field \"output\""),
+    ScriptTemplate(name: "await ollama()", category: "AI",
+        code: "put await ollama(\"Summarize the current card\") into field \"output\""),
+    ScriptTemplate(name: "ask AI callback", category: "AI",
+        code: "on mouseUp\n  ask ai \"Write a short mission briefing\" with message \"aiFinished\"\nend mouseUp\n\non aiFinished requestId, eventName\n  if eventName is \"completed\" then\n    put the body of request requestId into field \"output\"\n  end if\nend aiFinished"),
+
+    // SpriteKit Events
+    ScriptTemplate(name: "on sceneDidLoad", category: "SpriteKit",
+        code: "on sceneDidLoad\n  \nend sceneDidLoad"),
+    ScriptTemplate(name: "on openScene", category: "SpriteKit",
+        code: "on openScene\n  \nend openScene"),
+    ScriptTemplate(name: "on closeScene", category: "SpriteKit",
+        code: "on closeScene\n  \nend closeScene"),
+    ScriptTemplate(name: "on frameUpdate", category: "SpriteKit",
+        code: "on frameUpdate\n  -- Called every frame\n  -- Use sparingly!\nend frameUpdate"),
+    ScriptTemplate(name: "on beginContact", category: "SpriteKit",
+        code: "on beginContact\n  -- Physics contact started\nend beginContact"),
+    ScriptTemplate(name: "on endContact", category: "SpriteKit",
+        code: "on endContact\n  -- Physics contact ended\nend endContact"),
+    ScriptTemplate(name: "on actionFinished", category: "SpriteKit",
+        code: "on actionFinished\n  -- Action completed\nend actionFinished"),
+    ScriptTemplate(name: "on keyDown", category: "SpriteKit",
+        code: "on keyDown\n  -- Key pressed in scene\nend keyDown"),
+    ScriptTemplate(name: "on keyUp", category: "SpriteKit",
+        code: "on keyUp\n  -- Key released in scene\nend keyUp"),
+
+    // SpriteKit Commands
+    ScriptTemplate(name: "create sprite", category: "SpriteKit",
+        code: "create sprite \"name\" with asset \"assetName\""),
+    ScriptTemplate(name: "create scene", category: "SpriteKit",
+        code: "create scene \"name\" in spritearea \"areaName\" with size 400,300"),
+    ScriptTemplate(name: "create spritearea", category: "SpriteKit",
+        code: "create spritearea \"name\" at rect 20,20,760,560"),
+    ScriptTemplate(name: "HTTP request", category: "Networking",
+        code: "put request \"http://localhost:8080/health\" into reqId\nput the body of request reqId into field \"output\""),
+    ScriptTemplate(name: "HTTP request callback", category: "Networking",
+        code: "on mouseUp\n  request \"http://localhost:8080/score\" with message \"requestFinished\"\nend mouseUp\n\non requestFinished requestId, eventName\n  if eventName is \"completed\" then\n    put the body of request requestId into field \"output\"\n  else\n    put the error of request requestId into field \"output\"\n  end if\nend requestFinished"),
+    ScriptTemplate(name: "HTTP listener", category: "Networking",
+        code: "on openStack\n  listen for http on port 8080 host \"127.0.0.1\" with message \"networkRequest\"\nend openStack\n\non networkRequest requestId, eventName\n  if eventName is \"request\" then\n    reply to request requestId with status 200 body \"hello from Hype\"\n  end if\nend networkRequest"),
+    ScriptTemplate(name: "TCP connect", category: "Networking",
+        code: "on mouseUp\n  connect to host \"127.0.0.1\" on port 9000 with message \"socketEvent\"\nend mouseUp\n\non socketEvent connectionId, eventName\n  if eventName is \"connected\" then\n    send \"ping\" to connection connectionId\n  end if\nend socketEvent"),
+    ScriptTemplate(name: "set sprite property", category: "SpriteKit",
+        code: "set the loc of sprite \"name\" to \"200,200\""),
+    ScriptTemplate(name: "set sprite text", category: "SpriteKit",
+        code: "set the text of sprite \"label1\" to \"Score: 100\""),
+    ScriptTemplate(name: "set sprite color", category: "SpriteKit",
+        code: "set the fillColor of sprite \"shape1\" to \"#FF0000\""),
+    ScriptTemplate(name: "set sprite alpha", category: "SpriteKit",
+        code: "set the alpha of sprite \"player\" to 0.5"),
+    ScriptTemplate(name: "set sprite rotation", category: "SpriteKit",
+        code: "set the rotation of sprite \"player\" to 45"),
+    ScriptTemplate(name: "set sprite hidden", category: "SpriteKit",
+        code: "set the hidden of sprite \"enemy\" to true"),
+    ScriptTemplate(name: "set sprite size", category: "SpriteKit",
+        code: "set the width of sprite \"player\" to 64"),
+    ScriptTemplate(name: "remove sprite", category: "SpriteKit",
+        code: "remove sprite \"name\""),
+    ScriptTemplate(name: "pause scene", category: "SpriteKit",
+        code: "pause scene \"main\""),
+    ScriptTemplate(name: "resume scene", category: "SpriteKit",
+        code: "resume scene \"main\""),
 ]
 
 /// Grouped categories in display order.
-private let categoryOrder = ["Events", "Navigation", "Variables", "Control", "Dialogs", "Objects", "Commands", "Functions", "Operators", "AI"]
+private let categoryOrder = ["Events", "SpriteKit", "Navigation", "Variables", "Control", "Dialogs", "Objects", "Commands", "Functions", "Operators", "AI"]
 
 // MARK: - Script Editor View
 
 struct ScriptEditor: View {
     @Binding var document: HypeDocumentWrapper
-    let partId: UUID?
+    let partId: UUID?  // backward compat — maps to .part(id)
+    var target: ScriptTarget? = nil  // preferred; overrides partId
+    /// Optional 1-based line number to highlight as a runtime error
+    /// location when the editor first appears. Passed through from
+    /// `openScriptEditorWindow` after a `.showScriptError`
+    /// notification fires. `nil` means no highlight.
+    var initialErrorLine: Int? = nil
+    /// Optional error message to display in the red banner at the
+    /// bottom of the editor when it opens from a runtime failure.
+    var initialErrorMessage: String? = nil
+    /// Stable identity key for the target this editor is editing,
+    /// matching `ScriptTarget.identityKey`. Used to filter
+    /// `.refreshScriptError` broadcasts so a script editor for one
+    /// part doesn't react to error refreshes intended for another.
+    /// Optional for backward compatibility with the in-place
+    /// (`.sheet`-based) usage in `PropertyInspector` — when `nil`,
+    /// the editor doesn't subscribe to refreshes at all.
+    var identityKey: String? = nil
     var onDone: (() -> Void)? = nil
+    @AppStorage("hypeAppScript") private var hypeAppScript: String = ""
     @State private var scriptText: String = ""
+    @State private var selectedRange: NSRange = NSRange(location: 0, length: 0)
     @State private var errorMessage: String?
     @State private var selectedCategory: String = "Events"
+    /// The 1-based line number currently highlighted as an error. When
+    /// set, `HypeTalkTextView` draws a red background on that line and
+    /// scrolls it into view. Cleared when the user edits the script.
+    @State private var errorHighlightLine: Int? = nil
+
+    private var resolvedTarget: ScriptTarget? {
+        if let t = target { return t }
+        if let id = partId { return .part(id) }
+        return nil
+    }
+
+    private var partNames: [String] {
+        document.document.parts.map { $0.name }.filter { !$0.isEmpty }
+    }
 
     var body: some View {
         HSplitView {
@@ -178,14 +321,20 @@ struct ScriptEditor: View {
                     Text("Script Editor")
                         .font(.headline)
                     Spacer()
+                    Button("Comment") { toggleComment() }
                     Button("Check Syntax") { checkSyntax() }
+                    Button("Format") { reformatScript() }
                 }
                 .padding(8)
                 .background(Color(NSColor.controlBackgroundColor))
 
                 // Editor
-                TextEditor(text: $scriptText)
-                    .font(.system(.body, design: .monospaced))
+                HypeTalkTextView(
+                    text: $scriptText,
+                    selectedRange: $selectedRange,
+                    partNames: partNames,
+                    errorHighlightLine: $errorHighlightLine
+                )
                     .frame(minHeight: 200)
 
                 // Error display
@@ -199,8 +348,48 @@ struct ScriptEditor: View {
                 }
             }
         }
-        .onAppear { loadScript() }
+        .onAppear {
+            loadScript()
+            // Seed the runtime-error highlight and banner from the
+            // values passed in by `openScriptEditorWindow`. We only
+            // read these on first appearance — subsequent edits
+            // clear the highlight via `onChange(of: scriptText)`.
+            if let line = initialErrorLine, line > 0 {
+                errorHighlightLine = line
+            }
+            if let msg = initialErrorMessage, !msg.isEmpty {
+                errorMessage = msg
+            }
+        }
         .onChange(of: partId) { _, _ in loadScript() }
+        .onChange(of: resolvedTarget?.identityKey) { _, _ in loadScript() }
+        .onChange(of: scriptText) { _, _ in
+            // Once the user starts editing, the runtime error
+            // location is no longer reliable — clear the highlight
+            // and banner so they don't mislead the user into
+            // thinking the red line is still the problem.
+            errorHighlightLine = nil
+            errorMessage = nil
+            applyScript()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .refreshScriptError)) { notification in
+            // A repeated runtime error fired for the same target
+            // while this editor is already on screen. Refresh our
+            // highlight and banner instead of letting
+            // openScriptEditorWindow open a duplicate window.
+            // The identityKey filter prevents a stale editor for
+            // some other part from being repurposed.
+            guard let myKey = identityKey else { return }
+            let info = notification.userInfo ?? [:]
+            guard let theirKey = info["identityKey"] as? String,
+                  theirKey == myKey else { return }
+            if let line = info["line"] as? Int, line > 0 {
+                errorHighlightLine = line
+            }
+            if let msg = info["message"] as? String, !msg.isEmpty {
+                errorMessage = msg
+            }
+        }
         .onDisappear { applyScript() }
     }
 
@@ -255,13 +444,196 @@ struct ScriptEditor: View {
 
     // MARK: - Script Operations
 
+    private func sceneScript(partId: UUID, sceneId: UUID) -> String {
+        guard let part = document.document.parts.first(where: { $0.id == partId }),
+              let areaSpec = part.spriteAreaSpecModel,
+              let entry = areaSpec.scenes.first(where: { $0.id == sceneId }) else {
+            return ""
+        }
+        return entry.scene.script
+    }
+
+    private func nodeScript(partId: UUID, nodeId: UUID) -> String {
+        guard let part = document.document.parts.first(where: { $0.id == partId }),
+              let areaSpec = part.spriteAreaSpecModel else {
+            return ""
+        }
+        for entry in areaSpec.scenes {
+            if let node = entry.scene.node(id: nodeId) {
+                return node.script
+            }
+        }
+        return ""
+    }
+
+    private func nodeInfo(partId: UUID, nodeId: UUID) -> (sceneId: UUID, node: HypeNodeSpec)? {
+        guard let part = document.document.parts.first(where: { $0.id == partId }),
+              let areaSpec = part.spriteAreaSpecModel else {
+            return nil
+        }
+        for entry in areaSpec.scenes {
+            if let node = entry.scene.node(id: nodeId) {
+                return (entry.id, node)
+            }
+        }
+        return nil
+    }
+
+    private func updateSceneScript(partId: UUID, sceneId: UUID, script: String) {
+        document.document.updatePart(id: partId) { part in
+            part.updateSpriteAreaSpec { areaSpec in
+                guard let index = areaSpec.scenes.firstIndex(where: { $0.id == sceneId }) else { return }
+                areaSpec.scenes[index].scene.script = script
+            }
+        }
+    }
+
+    private func updateNodeScript(partId: UUID, nodeId: UUID, script: String) {
+        document.document.updatePart(id: partId) { part in
+            part.updateSpriteAreaSpec { areaSpec in
+                for index in areaSpec.scenes.indices {
+                    var scene = areaSpec.scenes[index].scene
+                    if scene.updateNode(id: nodeId, { $0.script = script }) {
+                        areaSpec.scenes[index].scene = scene
+                        return
+                    }
+                }
+            }
+        }
+    }
+
     private func loadScript() {
-        guard let id = partId,
-              let part = document.document.parts.first(where: { $0.id == id }) else {
-            scriptText = ""
+        guard let t = resolvedTarget else { scriptText = ""; return }
+        switch t {
+        case .part(let id):
+            scriptText = document.document.parts.first(where: { $0.id == id })?.script ?? ""
+        case .card(let id):
+            scriptText = document.document.cards.first(where: { $0.id == id })?.script ?? ""
+        case .background(let id):
+            scriptText = document.document.backgrounds.first(where: { $0.id == id })?.script ?? ""
+        case .scene(let partId, let sceneId):
+            scriptText = sceneScript(partId: partId, sceneId: sceneId)
+        case .node(let partId, let nodeId):
+            scriptText = nodeScript(partId: partId, nodeId: nodeId)
+        case .stack:
+            scriptText = document.document.stack.script
+        case .hype:
+            scriptText = hypeAppScript
+        }
+        if scriptText.isEmpty {
+            scriptText = defaultTemplate(for: resolvedTarget)
+        }
+    }
+
+    private func toggleComment() {
+        let nsString = scriptText as NSString
+        let totalLength = nsString.length
+
+        // Determine which lines are affected by the selection
+        let selRange: NSRange
+        if selectedRange.length > 0 {
+            // Use selected range
+            selRange = selectedRange
+        } else if selectedRange.location <= totalLength {
+            // No selection — use the line the cursor is on
+            selRange = nsString.lineRange(for: NSRange(location: selectedRange.location, length: 0))
+        } else {
             return
         }
-        scriptText = part.script
+
+        // Expand selection to full lines
+        let lineRange = nsString.lineRange(for: selRange)
+        let selectedText = nsString.substring(with: lineRange)
+        let lines = selectedText.components(separatedBy: "\n")
+
+        // Check if all non-empty selected lines are commented
+        let nonEmptyLines = lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let allCommented = !nonEmptyLines.isEmpty && nonEmptyLines.allSatisfy {
+            $0.trimmingCharacters(in: .whitespaces).hasPrefix("--")
+        }
+
+        let newLines: [String]
+        if allCommented {
+            // Uncomment: remove "-- " or "--" from each line
+            newLines = lines.map { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard trimmed.hasPrefix("--") else { return line }
+                if let range = line.range(of: "-- ") {
+                    var m = line; m.removeSubrange(range); return m
+                } else if let range = line.range(of: "--") {
+                    var m = line; m.removeSubrange(range); return m
+                }
+                return line
+            }
+        } else {
+            // Comment: add "-- " after leading whitespace
+            newLines = lines.map { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard !trimmed.isEmpty else { return line }
+                let indent = String(line.prefix(while: { $0 == " " }))
+                return indent + "-- " + trimmed
+            }
+        }
+
+        let replacement = newLines.joined(separator: "\n")
+        scriptText = nsString.replacingCharacters(in: lineRange, with: replacement)
+    }
+
+    private func reformatScript() {
+        let lines = scriptText.components(separatedBy: "\n")
+        var result: [String] = []
+        var indentLevel = 0
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { result.append(""); continue }
+            let lower = trimmed.lowercased()
+            // Decrease indent BEFORE writing: end, else
+            if lower.hasPrefix("end ") || lower == "else" {
+                indentLevel = max(0, indentLevel - 1)
+            }
+            result.append(String(repeating: "  ", count: indentLevel) + trimmed)
+            // Increase indent AFTER writing: on, repeat, function, if...then (multiline), else
+            if lower.hasPrefix("on ") || lower.hasPrefix("repeat") || lower.hasPrefix("function ") || lower == "else" || (lower.hasPrefix("if ") && lower.hasSuffix("then")) {
+                indentLevel += 1
+            }
+        }
+        scriptText = result.joined(separator: "\n")
+    }
+
+    private func defaultTemplate(for target: ScriptTarget?) -> String {
+        guard let t = target else { return "" }
+        switch t {
+        case .part(let id):
+            let part = document.document.parts.first(where: { $0.id == id })
+            if part?.partType == .button {
+                return "on mouseUp\n  \n  pass mouseUp\nend mouseUp"
+            } else if part?.partType == .field {
+                return "on enterKey\n  \nend enterKey"
+            } else if part?.partType == .spriteArea {
+                return "on sceneDidLoad\n  \nend sceneDidLoad"
+            }
+            return ""
+        case .card:
+            return "on openCard\n  \n  pass openCard\nend openCard"
+        case .background:
+            return "on openCard\n  \n  pass openCard\nend openCard"
+        case .scene:
+            return "on sceneDidLoad\n  \nend sceneDidLoad"
+        case .node(let partId, let nodeId):
+            let type = nodeInfo(partId: partId, nodeId: nodeId)?.node.nodeType
+            switch type {
+            case .sprite, .shape, .label:
+                return "on mouseDown\n  \n  pass mouseDown\nend mouseDown"
+            case .audio, .video:
+                return "on openScene\n  \nend openScene"
+            default:
+                return "on mouseDown\n  \nend mouseDown"
+            }
+        case .stack:
+            return "on openStack\n  \nend openStack"
+        case .hype:
+            return "-- Hype app-level script\n-- Handles unhandled messages from all stacks\n"
+        }
     }
 
     private func checkSyntax() {
@@ -282,8 +654,26 @@ struct ScriptEditor: View {
     }
 
     private func applyScript() {
-        checkSyntax()
-        guard errorMessage == nil, let id = partId else { return }
-        document.document.updatePart(id: id) { $0.script = scriptText }
+        guard let t = resolvedTarget else { return }
+        switch t {
+        case .part(let id):
+            document.document.updatePart(id: id) { $0.script = scriptText }
+        case .card(let id):
+            if let idx = document.document.cards.firstIndex(where: { $0.id == id }) {
+                document.document.cards[idx].script = scriptText
+            }
+        case .background(let id):
+            if let idx = document.document.backgrounds.firstIndex(where: { $0.id == id }) {
+                document.document.backgrounds[idx].script = scriptText
+            }
+        case .scene(let partId, let sceneId):
+            updateSceneScript(partId: partId, sceneId: sceneId, script: scriptText)
+        case .node(let partId, let nodeId):
+            updateNodeScript(partId: partId, nodeId: nodeId, script: scriptText)
+        case .stack:
+            document.document.stack.script = scriptText
+        case .hype:
+            hypeAppScript = scriptText
+        }
     }
 }
