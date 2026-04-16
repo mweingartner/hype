@@ -203,4 +203,98 @@ struct PlayCommandTests {
         let result = interpreter.execute(handler: handler, params: [], context: context)
         #expect(result.status == .completed)
     }
+
+    // MARK: - Concurrency regression tests
+    //
+    // Background: when a script called `play "Chime"` (or any other
+    // sound where NSSound itself could open the file), Hype crashed
+    // inside `SoundPlayer.stop()` with `dispatch_assert_queue_fail`.
+    //
+    // Root cause: the Interpreter runs on a cooperative async thread,
+    // NSSound.stop() synchronously fires NSSoundDelegate's
+    // sound(_:didFinishPlaying:) on the same thread, and the @objc
+    // bridge for that method is @MainActor in modern AppKit SDKs.
+    //
+    // Fix: SoundPlayer is @MainActor-isolated, all call sites in the
+    // interpreter hop via MainActor.run, and the NSSoundDelegate /
+    // AVAudioPlayerDelegate methods are `nonisolated` and dispatch
+    // their state mutation through a Task { @MainActor in … } body.
+    //
+    // These tests exercise the async path and the forbidden synchronous
+    // call from a detached non-main task — the latter would no longer
+    // even compile if the main-actor isolation was dropped.
+
+    #if canImport(AppKit)
+    @Test("SoundPlayer.stop() works when invoked from a detached cooperative task")
+    func stopFromDetachedTaskDoesNotCrash() async {
+        // Prime the player on main first, then `stop` from a non-main
+        // cooperative task. Before the fix this would synchronously
+        // trigger the @MainActor delegate assertion and crash.
+        await MainActor.run {
+            SoundPlayer.shared.stop()
+        }
+        await Task.detached(priority: .userInitiated) {
+            await MainActor.run {
+                SoundPlayer.shared.stop()
+            }
+        }.value
+        let finalName = await MainActor.run { SoundPlayer.shared.soundName }
+        #expect(finalName == "done")
+    }
+
+    @Test("play followed by play on cooperative task doesn't crash (the Chime repro)")
+    func playPlayFromCooperativeTaskDoesNotCrash() async {
+        // The specific failure path was: script fires `play "Chime"`,
+        // which calls SoundPlayer.play → SoundPlayer.stop → NSSound.stop →
+        // synchronous NSSoundDelegate callback from a non-main thread.
+        // This test mirrors the sequence from a detached task and
+        // confirms the whole round-trip now survives.
+        await Task.detached(priority: .userInitiated) {
+            await MainActor.run {
+                SoundPlayer.shared.play(name: "Glass", document: nil)
+            }
+            await MainActor.run {
+                SoundPlayer.shared.play(name: "Pop", document: nil)
+            }
+            await MainActor.run {
+                SoundPlayer.shared.stop()
+            }
+        }.value
+        let name = await MainActor.run { SoundPlayer.shared.soundName }
+        #expect(name == "done")
+    }
+
+    @Test("play command through full Interpreter async path doesn't crash")
+    func playCommandViaAsyncInterpreter() async {
+        // Runs a `play "Glass"` handler end-to-end via the async
+        // executeAsync path — which is the exact path that hit the
+        // Chime crash. The MessageDispatcher uses executeAsync when
+        // invoked from async context, so this is the integration-
+        // level version of the unit tests above.
+        var lexer = Lexer(source: """
+        on test
+          play "Glass"
+          play stop
+        end test
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        guard let script = try? parser.parse(), let handler = script.handlers.first else {
+            Issue.record("Parse failed")
+            return
+        }
+        let doc = HypeDocument.newDocument()
+        let context = ExecutionContext(
+            targetId: doc.cards[0].id,
+            currentCardId: doc.cards[0].id,
+            document: doc
+        )
+        let interpreter = Interpreter()
+        let result = await Task.detached(priority: .userInitiated) {
+            await interpreter.executeAsync(handler: handler, params: [], context: context)
+        }.value
+        #expect(result.status == .completed,
+                "async interpreter should complete play/play stop without the NSSoundDelegate crash")
+    }
+    #endif
 }

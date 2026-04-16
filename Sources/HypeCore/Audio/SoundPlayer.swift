@@ -11,9 +11,37 @@ import AVFoundation
 /// the macOS ToneLibrary alert tones and ringtones (e.g. "Sonar",
 /// "Pebble", "Chime"). `ToneSynthesizer` handles melodic note
 /// sequences.
+///
+/// # Concurrency
+///
+/// The class is `@MainActor`-isolated because `NSSoundDelegate` is
+/// declared `@MainActor` in modern AppKit SDKs — synchronously
+/// invoking `NSSound.stop()` from a non-main thread fires the
+/// delegate callback on that same thread, which crashes with
+/// `_dispatch_assert_queue_fail` when Swift's executor check sees
+/// a cooperative-task thread instead of the main queue.
+///
+/// Callers from async contexts (like the `Interpreter`, which runs
+/// on a cooperative thread) MUST hop to `MainActor` before calling
+/// `play` / `stop` / `playNotes` / reading `soundName`. The
+/// Interpreter uses `await MainActor.run { … }` wrappers for this.
+///
+/// The `NSSoundDelegate` and `AVAudioPlayerDelegate` conformance
+/// methods are marked `nonisolated` so the audio frameworks can
+/// safely invoke them from any thread. Their bodies hop back onto
+/// `MainActor` via a Task before touching isolated state.
+@MainActor
 public final class SoundPlayer: NSObject, NSSoundDelegate {
 
-    nonisolated(unsafe) public static let shared = SoundPlayer()
+    /// The shared singleton instance.
+    ///
+    /// Main-actor-isolated (inherited from the class) so construction
+    /// happens safely on the main thread. Since the class has no
+    /// non-Sendable state that escapes its isolation, Swift treats
+    /// the reference itself as implicitly `Sendable` and non-main
+    /// code can still call `MainActor.run { SoundPlayer.shared.… }`
+    /// to reach it.
+    public static let shared = SoundPlayer()
 
     private var currentSound: NSSound?
     private var avPlayer: AVAudioPlayer?
@@ -217,8 +245,13 @@ public final class SoundPlayer: NSObject, NSSoundDelegate {
         toneSynth = synth
 
         synth.playNotes(notes, tempo: tempo, waveform: waveform) { [weak self] in
-            self?.currentName = nil
-            self?.toneSynth = nil
+            // ToneSynthesizer invokes the completion callback on an
+            // arbitrary audio-engine queue. Hop to the main actor
+            // before touching isolated state.
+            Task { @MainActor [weak self] in
+                self?.currentName = nil
+                self?.toneSynth = nil
+            }
         }
     }
 
@@ -250,11 +283,25 @@ public final class SoundPlayer: NSObject, NSSoundDelegate {
     }
 
     // MARK: - NSSoundDelegate
+    //
+    // `NSSoundDelegate.sound(_:didFinishPlaying:)` is declared
+    // `@MainActor` in the modern AppKit SDK, but `NSSound`
+    // synchronously fires this callback from whichever thread
+    // called `stop()`. Marking the implementation `nonisolated`
+    // overrides the protocol's main-actor inference, letting the
+    // callback run safely from any thread. We then hop back to the
+    // main actor to mutate our isolated state.
 
-    public func sound(_ sound: NSSound, didFinishPlaying flag: Bool) {
-        if currentSound === sound {
-            currentSound = nil
-            currentName = nil
+    nonisolated public func sound(_ sound: NSSound, didFinishPlaying flag: Bool) {
+        // Capture only the pointer identity — avoids sending the
+        // non-Sendable NSSound reference across the actor boundary.
+        let soundId = ObjectIdentifier(sound)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if let current = self.currentSound, ObjectIdentifier(current) == soundId {
+                self.currentSound = nil
+                self.currentName = nil
+            }
         }
     }
 }
@@ -262,10 +309,19 @@ public final class SoundPlayer: NSObject, NSSoundDelegate {
 // MARK: - AVAudioPlayerDelegate
 
 extension SoundPlayer: AVAudioPlayerDelegate {
-    public func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        if avPlayer === player {
-            avPlayer = nil
-            currentName = nil
+    nonisolated public func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        // Capture the pointer's bit-identity (via ObjectIdentifier) to
+        // avoid sending the `AVAudioPlayer` reference across actor
+        // boundaries. Only this numeric identity is checked against
+        // the main-actor-held `avPlayer` reference before clearing
+        // isolated state — no racing access to the `player` itself.
+        let playerId = ObjectIdentifier(player)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if let current = self.avPlayer, ObjectIdentifier(current) == playerId {
+                self.avPlayer = nil
+                self.currentName = nil
+            }
         }
     }
 }

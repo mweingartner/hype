@@ -845,6 +845,14 @@ public struct Interpreter: Sendable {
         case .playSound(let soundExpr, let notesExpr, let tempoExpr):
             let soundName = try await evaluate(soundExpr, env: &env, document: document, context: context)
             #if canImport(AppKit)
+            // `SoundPlayer` is @MainActor-isolated because
+            // `NSSoundDelegate` methods fire synchronously on whichever
+            // thread called `stop()` — and those methods are @MainActor
+            // in modern AppKit. The Interpreter runs on a cooperative
+            // task thread, so we must hop before any play/stop call.
+            // Capturing the document inside the closure via a local
+            // let keeps the isolation transfer safe.
+            let capturedDocument = document
             if let notesExprVal = notesExpr {
                 let noteString = try await evaluate(notesExprVal, env: &env, document: document, context: context)
                 let tempo: Int
@@ -853,15 +861,21 @@ public struct Interpreter: Sendable {
                 } else {
                     tempo = 120
                 }
-                SoundPlayer.shared.playNotes(instrument: soundName, noteString: noteString, tempo: tempo, document: document)
+                await MainActor.run {
+                    SoundPlayer.shared.playNotes(instrument: soundName, noteString: noteString, tempo: tempo, document: capturedDocument)
+                }
             } else {
-                SoundPlayer.shared.play(name: soundName, document: document)
+                await MainActor.run {
+                    SoundPlayer.shared.play(name: soundName, document: capturedDocument)
+                }
             }
             #endif
 
         case .playStop:
             #if canImport(AppKit)
-            SoundPlayer.shared.stop()
+            await MainActor.run {
+                SoundPlayer.shared.stop()
+            }
             #endif
 
         case .beep(let countExpr):
@@ -872,8 +886,13 @@ public struct Interpreter: Sendable {
             } else {
                 count = 1
             }
-            for _ in 0..<count {
-                NSSound.beep()
+            // NSSound.beep() is @MainActor in modern AppKit SDKs; hop
+            // to main so it can be invoked from the interpreter's
+            // cooperative task thread without an executor assertion.
+            await MainActor.run {
+                for _ in 0..<count {
+                    NSSound.beep()
+                }
             }
             #endif
 
@@ -2068,7 +2087,8 @@ public struct Interpreter: Sendable {
             return ""
         case "sound":
             #if canImport(AppKit)
-            return SoundPlayer.shared.soundName
+            // SoundPlayer is @MainActor — hop before touching it.
+            return await MainActor.run { SoundPlayer.shared.soundName }
             #else
             return "done"
             #endif
@@ -2134,7 +2154,8 @@ public struct Interpreter: Sendable {
                 return "5"
             case "sound":
                 #if canImport(AppKit)
-                return SoundPlayer.shared.soundName
+                // SoundPlayer is @MainActor — hop before touching it.
+                return await MainActor.run { SoundPlayer.shared.soundName }
                 #else
                 return "done"
                 #endif
