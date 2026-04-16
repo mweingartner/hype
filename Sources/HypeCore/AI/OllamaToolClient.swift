@@ -326,10 +326,66 @@ public actor OllamaToolClient {
     private let port: String
     private let model: String
 
-    public init(host: String = "localhost", port: String = "11434", model: String = "llama3.2") {
+    /// Timeout policy for Ollama requests.
+    ///
+    /// URLSession applies two timeouts:
+    ///   * `request` — the idle timeout; reset whenever bytes
+    ///     arrive. Ollama's `/api/chat` with `stream: false`
+    ///     buffers the full generation and sends it all at once, so
+    ///     with a 120s idle timeout and a 3-minute model generation
+    ///     the connection gets killed with `NSURLErrorTimedOut`
+    ///     before any bytes arrive.
+    ///   * `resource` — the total end-to-end time. Caps the total
+    ///     wall clock regardless of idle resets.
+    ///
+    /// The defaults here are *generous* because local models on a
+    /// laptop (especially 14B+ class models, or any model loading
+    /// cold from disk) routinely need several minutes to produce a
+    /// recursive structured JSON response. Callers that want
+    /// tighter limits can set `.fast(...)` or provide a custom
+    /// `Timeouts`.
+    public struct Timeouts: Sendable, Equatable {
+        public var request: TimeInterval
+        public var resource: TimeInterval
+
+        public init(request: TimeInterval, resource: TimeInterval) {
+            self.request = request
+            self.resource = resource
+        }
+
+        /// Short end-to-end operations: listing available models, etc.
+        public static let quick = Timeouts(request: 30, resource: 60)
+        /// Free-form single-shot generation or chat.
+        public static let chat = Timeouts(request: 300, resource: 300)
+        /// Structured / schema-constrained generation — much slower
+        /// because the server runs token-by-token grammar checks and
+        /// recursive JSON schemas are O(tokens × depth).
+        public static let structured = Timeouts(request: 600, resource: 600)
+    }
+
+    private let timeouts: Timeouts
+    private let session: URLSession
+
+    public init(
+        host: String = "localhost",
+        port: String = "11434",
+        model: String = "llama3.2",
+        timeouts: Timeouts = .structured
+    ) {
         self.host = host
         self.port = port
         self.model = model
+        self.timeouts = timeouts
+
+        // A dedicated URLSession so the resource timeout lines up
+        // with the structured-chat budget. `URLSession.shared` has
+        // different defaults that the per-request timeoutInterval
+        // can't override.
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = timeouts.request
+        config.timeoutIntervalForResource = timeouts.resource
+        config.waitsForConnectivity = false
+        self.session = URLSession(configuration: config)
     }
 
     /// The base URL for the Ollama server.
@@ -339,13 +395,45 @@ public actor OllamaToolClient {
         guard let url = URL(string: "\(baseURL)/api/tags") else {
             throw OllamaError.requestFailed("Invalid URL")
         }
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let (data, response) = try await sessionData(from: url, endpoint: "/api/tags")
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw OllamaError.requestFailed(errorText)
         }
         let tags = try JSONDecoder().decode(OllamaModelTagsResponse.self, from: data)
         return tags.models.map(\.name)
+    }
+
+    /// Wrap `session.data(from:)` to catch `URLError.timedOut` and
+    /// re-throw as our richer `OllamaError.requestTimedOut` so
+    /// callers (and the chat UI) can distinguish a timeout from a
+    /// generic transport failure and suggest concrete next steps.
+    private func sessionData(from url: URL, endpoint: String) async throws -> (Data, URLResponse) {
+        do {
+            return try await session.data(from: url)
+        } catch let urlError as URLError where urlError.code == .timedOut {
+            throw OllamaError.requestTimedOut(
+                endpoint: endpoint,
+                model: model,
+                seconds: timeouts.request
+            )
+        } catch {
+            throw error
+        }
+    }
+
+    private func sessionData(for request: URLRequest, endpoint: String) async throws -> (Data, URLResponse) {
+        do {
+            return try await session.data(for: request)
+        } catch let urlError as URLError where urlError.code == .timedOut {
+            throw OllamaError.requestTimedOut(
+                endpoint: endpoint,
+                model: model,
+                seconds: timeouts.request
+            )
+        } catch {
+            throw error
+        }
     }
 
     public func generate(
@@ -359,7 +447,7 @@ public actor OllamaToolClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 120
+        request.timeoutInterval = timeouts.request
 
         var body: [String: Any] = [
             "model": overrideModel ?? model,
@@ -371,7 +459,7 @@ public actor OllamaToolClient {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await sessionData(for: request, endpoint: "/api/generate")
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw OllamaError.requestFailed(errorText)
@@ -393,7 +481,7 @@ public actor OllamaToolClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 120
+        request.timeoutInterval = timeouts.request
 
         let body = try Self.requestBodyObject(
             model: model,
@@ -403,7 +491,7 @@ public actor OllamaToolClient {
         )
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await sessionData(for: request, endpoint: "/api/chat")
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw OllamaError.requestFailed(errorText)
@@ -682,6 +770,14 @@ public enum OllamaError: Error, LocalizedError {
     case noResponse
     case noStructuredContent
     case structuredDecodeFailed(String)
+    /// The request exceeded its configured idle or resource timeout.
+    ///
+    /// Far more common than a real hang: local model servers take
+    /// minutes when generating constrained JSON, running 14B+ models,
+    /// or cold-loading a model from disk. The message reports the
+    /// model, endpoint, and configured timeout so the caller can
+    /// suggest a smaller model, a warm restart, or a longer budget.
+    case requestTimedOut(endpoint: String, model: String, seconds: TimeInterval)
 
     public var errorDescription: String? {
         switch self {
@@ -689,6 +785,14 @@ public enum OllamaError: Error, LocalizedError {
         case .noResponse: return "No response from Ollama"
         case .noStructuredContent: return "Ollama response did not include structured content"
         case .structuredDecodeFailed(let msg): return "Could not decode structured Ollama response: \(msg)"
+        case .requestTimedOut(let endpoint, let model, let seconds):
+            let s = Int(seconds.rounded())
+            return "Ollama \(endpoint) timed out after \(s)s talking to model \"\(model)\". "
+                 + "Either the model is still loading (cold start), the generation is "
+                 + "genuinely slow for this prompt, or the server is unreachable. "
+                 + "Try: (1) wait a moment and retry, (2) switch to a smaller model, "
+                 + "(3) pre-load the model with `ollama run \(model) ''`, "
+                 + "(4) confirm `curl http://localhost:11434/api/tags` responds."
         }
     }
 }

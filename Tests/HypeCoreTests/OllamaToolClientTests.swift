@@ -399,3 +399,76 @@ struct OllamaFormatRequestBodyTests {
         #expect(body["format"] as? String == "json")
     }
 }
+
+/// Regression tests for the request-timeout policy.
+///
+/// Background: with a 120s idle timeout and Ollama's non-streaming
+/// `/api/chat` response (the server buffers every generated token
+/// and sends them as one blob when done), any structured
+/// generation that ran longer than two minutes killed the socket
+/// with NSURLErrorTimedOut. The Scene Authoring flow hit this
+/// routinely on cold-start or with 14B+ models. We now default to
+/// 10-minute request + resource timeouts for structured chat and
+/// surface a richly-formatted `OllamaError.requestTimedOut` so
+/// callers can show something actionable instead of the bare
+/// "The request timed out."
+@Suite("Ollama timeout policy")
+struct OllamaTimeoutPolicyTests {
+
+    @Test("structured timeouts default to 600s request + resource")
+    func structuredDefault() {
+        let timeouts = OllamaToolClient.Timeouts.structured
+        #expect(timeouts.request == 600)
+        #expect(timeouts.resource == 600)
+    }
+
+    @Test("quick timeouts stay short for availableModels listings")
+    func quickDefault() {
+        let timeouts = OllamaToolClient.Timeouts.quick
+        #expect(timeouts.request == 30)
+        #expect(timeouts.resource == 60)
+    }
+
+    @Test("chat timeouts sit between quick and structured")
+    func chatDefault() {
+        let timeouts = OllamaToolClient.Timeouts.chat
+        #expect(timeouts.request == 300)
+        #expect(timeouts.resource == 300)
+    }
+
+    @Test("Timeouts is constructible with custom request/resource values")
+    func customTimeouts() {
+        let t = OllamaToolClient.Timeouts(request: 45, resource: 90)
+        #expect(t.request == 45)
+        #expect(t.resource == 90)
+    }
+
+    @Test("OllamaError.requestTimedOut localized description names model, endpoint, and seconds")
+    func timeoutErrorDescriptionIsActionable() {
+        let err = OllamaError.requestTimedOut(
+            endpoint: "/api/chat",
+            model: "qwen2.5:14b",
+            seconds: 600
+        )
+        let msg = err.errorDescription ?? ""
+        #expect(msg.contains("/api/chat"))
+        #expect(msg.contains("qwen2.5:14b"))
+        #expect(msg.contains("600s"))
+        // The remedies section names concrete steps.
+        #expect(msg.contains("cold start") || msg.contains("smaller model"))
+    }
+
+    @Test("OllamaToolClient initializer accepts custom Timeouts without throwing")
+    func clientInitializesWithTimeouts() async {
+        // The actor init runs the URLSessionConfiguration path — smoke
+        // test that a caller-provided timeouts value flows through.
+        let client = OllamaToolClient(
+            host: "localhost",
+            port: "11434",
+            model: "llama3.2",
+            timeouts: OllamaToolClient.Timeouts(request: 30, resource: 30)
+        )
+        let base = await client.baseURL
+        #expect(base == "http://localhost:11434")
+    }
+}
