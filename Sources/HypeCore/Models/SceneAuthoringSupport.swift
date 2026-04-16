@@ -24,6 +24,26 @@ public struct SceneChecklistItem: Identifiable, Codable, Sendable, Equatable {
         self.status = status
         self.detail = detail
     }
+
+    // Lenient decoder for AI-produced checklist entries: unknown
+    // status words ("done", "todo", "optional") map to the nearest
+    // canonical value instead of failing decode.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.key = (try? c.decode(String.self, forKey: .key)) ?? ""
+        self.title = (try? c.decode(String.self, forKey: .title)) ?? ""
+        if let raw = try? c.decode(String.self, forKey: .status) {
+            switch raw.lowercased() {
+            case "complete", "completed", "done", "ok", "passed": self.status = .complete
+            case "recommended", "suggested", "optional", "todo": self.status = .recommended
+            case "missing", "incomplete", "required": self.status = .missing
+            default: self.status = .recommended
+            }
+        } else {
+            self.status = .recommended
+        }
+        self.detail = (try? c.decode(String.self, forKey: .detail)) ?? ""
+    }
 }
 
 public enum SceneDiagnosticSeverity: String, Codable, Sendable, Equatable {
@@ -40,6 +60,23 @@ public struct SceneDiagnosticIssue: Identifiable, Codable, Sendable, Equatable {
     public init(severity: SceneDiagnosticSeverity, message: String) {
         self.severity = severity
         self.message = message
+    }
+
+    // Lenient decoder: unknown severity words map to `.info` so the
+    // rest of the repair plan still applies.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let raw = try? c.decode(String.self, forKey: .severity) {
+            switch raw.lowercased() {
+            case "error", "critical", "fatal": self.severity = .error
+            case "warning", "warn", "caution": self.severity = .warning
+            case "info", "informational", "note", "notice": self.severity = .info
+            default: self.severity = .info
+            }
+        } else {
+            self.severity = .info
+        }
+        self.message = (try? c.decode(String.self, forKey: .message)) ?? ""
     }
 }
 

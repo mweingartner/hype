@@ -412,22 +412,236 @@ public actor OllamaToolClient {
         return try JSONDecoder().decode(OllamaChatResponse.self, from: data)
     }
 
+    /// Send a chat request and decode the model's reply into a typed
+    /// `Response`. Local models frequently return JSON in ways that
+    /// break naive decoding, so this function is intentionally
+    /// tolerant and walks through a series of fallbacks before
+    /// giving up:
+    ///
+    /// 1. Try decoding `message.content` as-is.
+    /// 2. Strip markdown code fences (```json / ```) and try again.
+    /// 3. Extract the first balanced `{...}` JSON object embedded in
+    ///    any surrounding prose and try again.
+    /// 4. If `content` is empty or still fails, read any JSON payload
+    ///    attached to a single `tool_calls` entry (some
+    ///    OpenAI-compatible servers return structured output that
+    ///    way when they see a `format` hint).
+    ///
+    /// When every pass fails, the thrown error carries both the
+    /// original `DecodingError` description AND a short preview of
+    /// the raw response so callers can surface something useful to
+    /// the user instead of Swift's opaque "data couldn't be read"
+    /// localizedDescription.
     public func structuredChat<Response: Decodable>(
         messages: [OllamaMessage],
         tools: [OllamaTool] = [],
         format: OllamaResponseFormat
     ) async throws -> (response: OllamaChatResponse, decoded: Response) {
         let response = try await chat(messages: messages, tools: tools, format: format)
-        guard let content = response.message.content,
-              let data = content.data(using: .utf8) else {
+        let (decoded, _) = try Self.decodeStructuredResponse(Response.self, from: response)
+        return (response, decoded)
+    }
+
+    /// Internal, pure, testable decoder. Handles the fallback
+    /// cascade described on `structuredChat` above. Returns the
+    /// decoded value and the raw JSON blob it came from (the latter
+    /// is useful for telemetry / error-surfacing).
+    static func decodeStructuredResponse<Response: Decodable>(
+        _ responseType: Response.Type,
+        from response: OllamaChatResponse
+    ) throws -> (decoded: Response, rawJSON: String) {
+        let decoder = JSONDecoder()
+        var lastDecodeError: Error?
+        var previewSource: String?
+
+        // Gather every candidate JSON string the model might have
+        // produced, in descending order of likelihood.
+        var candidates: [String] = []
+
+        if let content = response.message.content {
+            previewSource = content
+
+            // 1) content as-is
+            candidates.append(content)
+
+            // 2) content with markdown code fences stripped
+            if let stripped = Self.stripCodeFences(content), stripped != content {
+                candidates.append(stripped)
+            }
+
+            // 3) first balanced {...} object embedded in prose
+            if let extracted = Self.extractFirstJSONObject(from: content),
+               extracted != content {
+                candidates.append(extracted)
+            }
+        }
+
+        // 4) tool_calls payload — some servers return structured output there
+        if let toolCalls = response.message.tool_calls, !toolCalls.isEmpty {
+            // Rebuild the arguments map as a compact JSON object.
+            let call = toolCalls[0]
+            var obj: [String: Any] = [:]
+            for (k, v) in call.function.arguments {
+                obj[k] = Self.parseScalarJSONValue(v)
+            }
+            if let data = try? JSONSerialization.data(withJSONObject: obj, options: []),
+               let s = String(data: data, encoding: .utf8) {
+                candidates.append(s)
+                previewSource = previewSource ?? s
+            }
+        }
+
+        for candidate in candidates {
+            guard let data = candidate.data(using: .utf8) else { continue }
+            do {
+                let decoded = try decoder.decode(Response.self, from: data)
+                return (decoded, candidate)
+            } catch {
+                lastDecodeError = error
+            }
+        }
+
+        if candidates.isEmpty {
             throw OllamaError.noStructuredContent
         }
-        do {
-            let decoded = try JSONDecoder().decode(Response.self, from: data)
-            return (response, decoded)
-        } catch {
-            throw OllamaError.structuredDecodeFailed(error.localizedDescription)
+
+        let reason = Self.describeDecodeFailure(lastDecodeError, preview: previewSource)
+        throw OllamaError.structuredDecodeFailed(reason)
+    }
+
+    /// Strip a single pair of markdown code fences around a JSON
+    /// payload. Recognizes ```json, ```JSON, or a bare ``` fence.
+    /// Returns nil when the input doesn't look fenced, so callers can
+    /// skip the extra decode attempt.
+    static func stripCodeFences(_ content: String) -> String? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("```") else { return nil }
+
+        var body = trimmed
+        // Drop the opening fence up through the first newline.
+        if let firstNewline = body.firstIndex(of: "\n") {
+            body = String(body[body.index(after: firstNewline)...])
+        } else {
+            // Single-line ```{...}``` is weird but supported.
+            body = String(body.dropFirst(3))
         }
+
+        // Drop the closing ``` if present.
+        if let closeRange = body.range(of: "```", options: .backwards) {
+            body = String(body[..<closeRange.lowerBound])
+        }
+
+        return body.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Walk `content` character-by-character to find the first
+    /// balanced JSON object (starting with `{`) and return it as a
+    /// substring. Respects string literals so a `{` or `}` inside a
+    /// quoted string doesn't throw off the depth counter. Returns
+    /// nil when no balanced object is found.
+    static func extractFirstJSONObject(from content: String) -> String? {
+        guard let start = content.firstIndex(of: "{") else { return nil }
+        var depth = 0
+        var inString = false
+        var escape = false
+        let scalars = content[start...]
+        var index = start
+
+        for ch in scalars {
+            if escape {
+                escape = false
+            } else if inString {
+                if ch == "\\" { escape = true }
+                else if ch == "\"" { inString = false }
+            } else {
+                switch ch {
+                case "\"": inString = true
+                case "{": depth += 1
+                case "}":
+                    depth -= 1
+                    if depth == 0 {
+                        let end = content.index(after: index)
+                        return String(content[start..<end])
+                    }
+                default: break
+                }
+            }
+            index = content.index(after: index)
+        }
+        return nil
+    }
+
+    /// Turn a flat `[String: String]` argument map (as produced by
+    /// OllamaToolCallFunction's canonical decoder) back into a
+    /// loosely-typed Foundation-JSON value: JSON strings stay
+    /// strings, but "true"/"false"/numbers/nested-JSON become their
+    /// native types. This lets the tool_calls fallback feed back
+    /// into strict `JSONDecoder` cleanly.
+    static func parseScalarJSONValue(_ s: String) -> Any {
+        if s == "true" { return true }
+        if s == "false" { return false }
+        if s == "null" { return NSNull() }
+        if let i = Int64(s) { return NSNumber(value: i) }
+        if let d = Double(s), !d.isNaN { return NSNumber(value: d) }
+        // If the argument looks like nested JSON (object or array),
+        // parse it so the outer JSONSerialization produces a nested
+        // object instead of a re-quoted string.
+        let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        if (trimmed.hasPrefix("{") && trimmed.hasSuffix("}")) ||
+            (trimmed.hasPrefix("[") && trimmed.hasSuffix("]")) {
+            if let data = trimmed.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: data) {
+                return obj
+            }
+        }
+        return s
+    }
+
+    /// Build a user-facing error description that keeps Swift's
+    /// "codingPath" context when available (far more actionable than
+    /// "The data couldn't be read…") and tacks on a short preview of
+    /// the raw content so the caller / log / UI can tell *what* the
+    /// model actually sent.
+    static func describeDecodeFailure(_ error: Error?, preview: String?) -> String {
+        var detail = "unknown"
+        if let error = error as? DecodingError {
+            switch error {
+            case .typeMismatch(let type, let ctx):
+                detail = "type mismatch for \(type) at \(Self.formatCodingPath(ctx.codingPath)) — \(ctx.debugDescription)"
+            case .valueNotFound(let type, let ctx):
+                detail = "missing value for \(type) at \(Self.formatCodingPath(ctx.codingPath)) — \(ctx.debugDescription)"
+            case .keyNotFound(let key, let ctx):
+                detail = "missing key '\(key.stringValue)' at \(Self.formatCodingPath(ctx.codingPath))"
+            case .dataCorrupted(let ctx):
+                detail = "data corrupted at \(Self.formatCodingPath(ctx.codingPath)) — \(ctx.debugDescription)"
+            @unknown default:
+                detail = error.localizedDescription
+            }
+        } else if let error {
+            detail = error.localizedDescription
+        }
+
+        if let preview, !preview.isEmpty {
+            let snippet = Self.previewSnippet(preview)
+            return "\(detail) — model said: \(snippet)"
+        }
+        return detail
+    }
+
+    private static func formatCodingPath(_ path: [CodingKey]) -> String {
+        if path.isEmpty { return "<root>" }
+        return path.map { $0.stringValue }.joined(separator: ".")
+    }
+
+    private static func previewSnippet(_ text: String) -> String {
+        let oneLine = text
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+        let trimmed = oneLine.trimmingCharacters(in: .whitespaces)
+        let maxLen = 180
+        if trimmed.count <= maxLen { return "\"\(trimmed)\"" }
+        let prefix = trimmed.prefix(maxLen)
+        return "\"\(prefix)…\" (+\(trimmed.count - maxLen) more chars)"
     }
 
     static func requestBodyObject(

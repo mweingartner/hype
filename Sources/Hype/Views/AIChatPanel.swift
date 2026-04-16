@@ -558,7 +558,23 @@ struct AIChatPanel: View {
                 return true
             }
         } catch {
-            messages.append((role: "assistant", content: "Structured scene planning failed: \(error.localizedDescription)"))
+            // Include the selected model in the error so users know
+            // whether to switch to a bigger model or simplify the
+            // prompt. `OllamaError.structuredDecodeFailed` already
+            // carries a short preview of what the model actually
+            // said, but the model name itself comes from here.
+            let localized = error.localizedDescription
+            let hint: String
+            if case OllamaError.structuredDecodeFailed = error {
+                hint = "\n\nThe model \"\(ollamaModel)\" sent back a response that didn't match the scene schema. Try a larger model (e.g. qwen2.5:14b, llama3.1:70b) or simplify the request — the JSON fallback extractor already strips markdown fences, prose, and unknown enum values, so the issue is with the raw shape of the response."
+            } else if case OllamaError.noStructuredContent = error {
+                hint = "\n\nThe model \"\(ollamaModel)\" returned an empty response. Make sure Ollama is running and the model is loaded."
+            } else if case OllamaError.requestFailed = error {
+                hint = "\n\nCheck that Ollama is running at \(ollamaHost):\(ollamaPort) and the model \"\(ollamaModel)\" is installed (`ollama pull \(ollamaModel)`)."
+            } else {
+                hint = ""
+            }
+            messages.append((role: "assistant", content: "Structured scene planning failed: \(localized)\(hint)"))
             return true
         }
     }

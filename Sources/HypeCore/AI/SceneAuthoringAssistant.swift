@@ -1,5 +1,102 @@
 import Foundation
 
+// MARK: - Lenient enum decoding for AI-produced JSON
+//
+// Local LLMs frequently produce plausible but not-exactly-spec enum
+// values when asked for structured output. For example the user asks
+// for a "triangle", the model emits `"shapeType": "triangle"`, and a
+// strict `Codable` enum decode fails with `dataCorrupted`, aborting
+// the entire scene plan. These helpers accept the raw string, apply
+// a small normalization table (case-insensitive, common synonyms),
+// then fall back to a caller-supplied default when the value doesn't
+// match. The result: one off-spec field degrades gracefully instead
+// of taking down the whole response.
+extension SceneScaleMode {
+    fileprivate static func decodeLenient<K: CodingKey>(
+        from container: KeyedDecodingContainer<K>,
+        forKey key: K,
+        default fallback: SceneScaleMode
+    ) -> SceneScaleMode {
+        guard let raw = try? container.decode(String.self, forKey: key) else { return fallback }
+        let normalized = raw.lowercased().replacingOccurrences(of: "_", with: "")
+        switch normalized {
+        case "fill": return .fill
+        case "aspectfill", "aspect-fill": return .aspectFill
+        case "aspectfit", "aspect-fit": return .aspectFit
+        case "resizefill", "resize-fill", "resize": return .resizeFill
+        default: return fallback
+        }
+    }
+}
+
+extension NodeType {
+    fileprivate static func decodeLenient<K: CodingKey>(
+        from container: KeyedDecodingContainer<K>,
+        forKey key: K,
+        default fallback: NodeType
+    ) -> NodeType {
+        guard let raw = try? container.decode(String.self, forKey: key) else { return fallback }
+        let n = raw.lowercased().replacingOccurrences(of: "_", with: "")
+        switch n {
+        case "sprite", "image": return .sprite
+        case "group", "container": return .group
+        case "label", "text": return .label
+        case "shape", "rect", "rectangle", "circle", "ellipse", "triangle", "polygon", "path":
+            return .shape
+        case "emitter", "particles", "particle": return .emitter
+        case "audio", "sound": return .audio
+        case "tilemap", "tiles": return .tileMap
+        case "camera": return .camera
+        case "video", "movie": return .video
+        case "crop": return .crop
+        case "effect": return .effect
+        case "light": return .light
+        default: return fallback
+        }
+    }
+}
+
+extension SpriteShapeType {
+    fileprivate static func decodeLenient<K: CodingKey>(
+        from container: KeyedDecodingContainer<K>,
+        forKey key: K
+    ) -> SpriteShapeType? {
+        guard let raw = try? container.decode(String.self, forKey: key) else { return nil }
+        let n = raw.lowercased().replacingOccurrences(of: "_", with: "")
+        switch n {
+        case "rect", "rectangle", "square", "box": return .rect
+        case "circle", "round", "disc": return .circle
+        case "ellipse", "oval": return .ellipse
+        // Triangles and other polygons are drawn as paths in the
+        // renderer. The model tends to use the word the user said,
+        // so map every unknown polygon-ish name here rather than
+        // failing decode.
+        case "path", "polygon", "triangle", "tri", "diamond",
+             "pentagon", "hexagon", "octagon", "star", "arrow":
+            return .path
+        default: return nil
+        }
+    }
+}
+
+extension PhysicsBodyType {
+    fileprivate static func decodeLenient<K: CodingKey>(
+        from container: KeyedDecodingContainer<K>,
+        forKey key: K
+    ) -> PhysicsBodyType? {
+        guard let raw = try? container.decode(String.self, forKey: key) else { return nil }
+        let n = raw.lowercased().replacingOccurrences(of: "_", with: "")
+        switch n {
+        case "circle", "round": return .circle
+        case "rect", "rectangle", "box", "square": return .rect
+        case "texture", "pixel": return .texture
+        case "none", "off", "disabled": return .none
+        case "edge", "border", "boundary": return .edge
+        default: return nil
+        }
+    }
+}
+
 public struct SceneBlueprint: Codable, Sendable {
     public var size: SizeSpec
     public var backgroundColor: String
@@ -31,6 +128,25 @@ public struct SceneBlueprint: Codable, Sendable {
         self.showsNodeCount = showsNodeCount
         self.sceneScript = sceneScript
         self.nodes = nodes
+    }
+
+    // Every field has a reasonable default so local models that omit
+    // some of the flags (common with 3B-7B models) still decode.
+    // Unknown enum values for `scaleMode` fall back to `.aspectFit`.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.size = (try? c.decode(SizeSpec.self, forKey: .size))
+            ?? SizeSpec(width: 800, height: 600)
+        self.backgroundColor = (try? c.decode(String.self, forKey: .backgroundColor))
+            ?? "#FFFFFF"
+        self.gravity = (try? c.decode(VectorSpec.self, forKey: .gravity))
+            ?? VectorSpec(dx: 0, dy: 0)
+        self.scaleMode = SceneScaleMode.decodeLenient(from: c, forKey: .scaleMode, default: .aspectFit)
+        self.showsPhysics = (try? c.decode(Bool.self, forKey: .showsPhysics)) ?? false
+        self.showsFPS = (try? c.decode(Bool.self, forKey: .showsFPS)) ?? false
+        self.showsNodeCount = (try? c.decode(Bool.self, forKey: .showsNodeCount)) ?? false
+        self.sceneScript = (try? c.decode(String.self, forKey: .sceneScript)) ?? ""
+        self.nodes = (try? c.decode([SceneBlueprintNode].self, forKey: .nodes)) ?? []
     }
 }
 
@@ -147,6 +263,63 @@ public struct SceneBlueprintNode: Codable, Sendable {
         self.particleColor = particleColor
         self.script = script
     }
+
+    // Lenient decoder: accept missing defaults and off-enum values.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // `name` is required upstream, but if the model forgot it we
+        // synthesize a placeholder so the rest of the node still
+        // decodes and normalization can give it a real name later.
+        self.name = (try? c.decode(String.self, forKey: .name)) ?? "node"
+        self.nodeType = NodeType.decodeLenient(from: c, forKey: .nodeType, default: .sprite)
+        self.position = (try? c.decode(PointSpec.self, forKey: .position)) ?? PointSpec()
+        self.size = try? c.decode(SizeSpec.self, forKey: .size)
+        self.alpha = try? c.decode(Double.self, forKey: .alpha)
+        self.isHidden = try? c.decode(Bool.self, forKey: .isHidden)
+        self.assetName = try? c.decode(String.self, forKey: .assetName)
+        self.text = try? c.decode(String.self, forKey: .text)
+        self.fontName = try? c.decode(String.self, forKey: .fontName)
+        self.fontSize = try? c.decode(Double.self, forKey: .fontSize)
+        self.fontColor = try? c.decode(String.self, forKey: .fontColor)
+
+        // If the model wrote "triangle" or "square", promote the
+        // node to nodeType=shape so the blueprint-to-HypeNodeSpec
+        // mapper produces a shape node with a sensible shapeType.
+        // Decode shape lenient first so we can use it to correct
+        // nodeType if the model said "sprite" but gave a shape name.
+        let lenientShape = SpriteShapeType.decodeLenient(from: c, forKey: .shapeType)
+        self.shapeType = lenientShape
+        // Heuristic correction: a "sprite" with an explicit shapeType
+        // is really a shape node. This is what callers expect.
+        if self.nodeType == .sprite && lenientShape != nil {
+            self.nodeType = .shape
+        }
+
+        self.fillColor = try? c.decode(String.self, forKey: .fillColor)
+        self.strokeColor = try? c.decode(String.self, forKey: .strokeColor)
+        self.lineWidth = try? c.decode(Double.self, forKey: .lineWidth)
+        self.cornerRadius = try? c.decode(Double.self, forKey: .cornerRadius)
+        self.parentName = try? c.decode(String.self, forKey: .parentName)
+        self.physicsEnabled = (try? c.decode(Bool.self, forKey: .physicsEnabled)) ?? false
+        self.physicsBodyType = PhysicsBodyType.decodeLenient(from: c, forKey: .physicsBodyType)
+        self.dynamic = try? c.decode(Bool.self, forKey: .dynamic)
+        self.affectedByGravity = try? c.decode(Bool.self, forKey: .affectedByGravity)
+        self.restitution = try? c.decode(Double.self, forKey: .restitution)
+        self.friction = try? c.decode(Double.self, forKey: .friction)
+        self.allowsRotation = try? c.decode(Bool.self, forKey: .allowsRotation)
+        self.linearDamping = try? c.decode(Double.self, forKey: .linearDamping)
+        self.velocity = try? c.decode(VectorSpec.self, forKey: .velocity)
+        self.cameraTarget = try? c.decode(String.self, forKey: .cameraTarget)
+        self.tileMapColumns = try? c.decode(Int.self, forKey: .tileMapColumns)
+        self.tileMapRows = try? c.decode(Int.self, forKey: .tileMapRows)
+        self.tileSetAssetName = try? c.decode(String.self, forKey: .tileSetAssetName)
+        self.tileWidth = try? c.decode(Double.self, forKey: .tileWidth)
+        self.tileHeight = try? c.decode(Double.self, forKey: .tileHeight)
+        self.audioAssetName = try? c.decode(String.self, forKey: .audioAssetName)
+        self.videoAssetName = try? c.decode(String.self, forKey: .videoAssetName)
+        self.particleColor = try? c.decode(String.self, forKey: .particleColor)
+        self.script = try? c.decode(String.self, forKey: .script)
+    }
 }
 
 public struct SceneCreateProposal: Codable, Sendable {
@@ -172,6 +345,23 @@ public struct SceneCreateProposal: Codable, Sendable {
         self.checklist = checklist
         self.scene = scene
     }
+
+    // Lenient decoder — accept missing metadata fields so a scene
+    // that the model got mostly right still applies.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.areaName = (try? c.decode(String.self, forKey: .areaName)) ?? "main"
+        self.sceneName = (try? c.decode(String.self, forKey: .sceneName)) ?? "main"
+        self.createSpriteAreaIfMissing =
+            (try? c.decode(Bool.self, forKey: .createSpriteAreaIfMissing)) ?? true
+        self.summary = (try? c.decode(String.self, forKey: .summary)) ?? ""
+        self.checklist = (try? c.decode([SceneChecklistItem].self, forKey: .checklist)) ?? []
+        // The `scene` field is the only thing that absolutely must be
+        // present — everything else can degrade. If the model omits
+        // it we still throw so the caller knows the whole plan is
+        // unusable.
+        self.scene = try c.decode(SceneBlueprint.self, forKey: .scene)
+    }
 }
 
 public struct SceneRepairProposal: Codable, Sendable {
@@ -190,6 +380,14 @@ public struct SceneRepairProposal: Codable, Sendable {
         self.summary = summary
         self.issues = issues
         self.diff = diff
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.areaName = (try? c.decode(String.self, forKey: .areaName)) ?? "main"
+        self.summary = (try? c.decode(String.self, forKey: .summary)) ?? ""
+        self.issues = (try? c.decode([SceneDiagnosticIssue].self, forKey: .issues)) ?? []
+        self.diff = (try? c.decode(SceneDiff.self, forKey: .diff)) ?? SceneDiff()
     }
 }
 
