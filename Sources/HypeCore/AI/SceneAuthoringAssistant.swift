@@ -29,53 +29,23 @@ extension SceneScaleMode {
     }
 }
 
-extension NodeType {
-    fileprivate static func decodeLenient<K: CodingKey>(
-        from container: KeyedDecodingContainer<K>,
-        forKey key: K,
-        default fallback: NodeType
-    ) -> NodeType {
-        guard let raw = try? container.decode(String.self, forKey: key) else { return fallback }
-        let n = raw.lowercased().replacingOccurrences(of: "_", with: "")
-        switch n {
-        case "sprite", "image": return .sprite
-        case "group", "container": return .group
-        case "label", "text": return .label
-        case "shape", "rect", "rectangle", "circle", "ellipse", "triangle", "polygon", "path":
-            return .shape
-        case "emitter", "particles", "particle": return .emitter
-        case "audio", "sound": return .audio
-        case "tilemap", "tiles": return .tileMap
-        case "camera": return .camera
-        case "video", "movie": return .video
-        case "crop": return .crop
-        case "effect": return .effect
-        case "light": return .light
-        default: return fallback
-        }
-    }
-}
-
+// The public `decodeTolerant` on `NodeType`, `SpriteShapeType`, and
+// `PhysicsBodyType` (defined in `SceneSpec.swift`) always returns a
+// non-optional value — that's the behavior the loading path wants
+// (any malformed JSON still produces a usable object). The AI
+// `SceneBlueprintNode` path, however, needs to distinguish "the
+// model didn't mention this field" from "the model sent a known
+// value" so it can promote a mis-declared sprite+shape combo to a
+// shape node. These `decodeLenient` wrappers return an optional to
+// preserve that distinction for AI-only code.
 extension SpriteShapeType {
     fileprivate static func decodeLenient<K: CodingKey>(
         from container: KeyedDecodingContainer<K>,
         forKey key: K
     ) -> SpriteShapeType? {
-        guard let raw = try? container.decode(String.self, forKey: key) else { return nil }
-        let n = raw.lowercased().replacingOccurrences(of: "_", with: "")
-        switch n {
-        case "rect", "rectangle", "square", "box": return .rect
-        case "circle", "round", "disc": return .circle
-        case "ellipse", "oval": return .ellipse
-        // Triangles and other polygons are drawn as paths in the
-        // renderer. The model tends to use the word the user said,
-        // so map every unknown polygon-ish name here rather than
-        // failing decode.
-        case "path", "polygon", "triangle", "tri", "diamond",
-             "pentagon", "hexagon", "octagon", "star", "arrow":
-            return .path
-        default: return nil
-        }
+        guard container.contains(key),
+              (try? container.decodeNil(forKey: key)) == false else { return nil }
+        return decodeTolerant(from: container, forKey: key, default: .rect)
     }
 }
 
@@ -84,16 +54,9 @@ extension PhysicsBodyType {
         from container: KeyedDecodingContainer<K>,
         forKey key: K
     ) -> PhysicsBodyType? {
-        guard let raw = try? container.decode(String.self, forKey: key) else { return nil }
-        let n = raw.lowercased().replacingOccurrences(of: "_", with: "")
-        switch n {
-        case "circle", "round": return .circle
-        case "rect", "rectangle", "box", "square": return .rect
-        case "texture", "pixel": return .texture
-        case "none", "off", "disabled": return .none
-        case "edge", "border", "boundary": return .edge
-        default: return nil
-        }
+        guard container.contains(key),
+              (try? container.decodeNil(forKey: key)) == false else { return nil }
+        return decodeTolerant(from: container, forKey: key, default: .rect)
     }
 }
 
@@ -271,7 +234,7 @@ public struct SceneBlueprintNode: Codable, Sendable {
         // synthesize a placeholder so the rest of the node still
         // decodes and normalization can give it a real name later.
         self.name = (try? c.decode(String.self, forKey: .name)) ?? "node"
-        self.nodeType = NodeType.decodeLenient(from: c, forKey: .nodeType, default: .sprite)
+        self.nodeType = NodeType.decodeTolerant(from: c, forKey: .nodeType, default: .sprite)
         self.position = (try? c.decode(PointSpec.self, forKey: .position)) ?? PointSpec()
         self.size = try? c.decode(SizeSpec.self, forKey: .size)
         self.alpha = try? c.decode(Double.self, forKey: .alpha)

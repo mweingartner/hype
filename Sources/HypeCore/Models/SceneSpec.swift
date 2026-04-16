@@ -305,6 +305,111 @@ public struct HypeNodeSpec: Identifiable, Codable, Sendable {
         self.children = children
         self.script = script
     }
+
+    /// Tolerant decoder for AI-produced JSON.
+    ///
+    /// Local LLMs routinely emit nodes with missing required fields,
+    /// unknown enum values (e.g. `"nodeType": "triangle"`), or bare
+    /// string IDs that aren't UUIDs. Before this lenient decoder, any
+    /// such deviation caused the enclosing `addNodes: [HypeNodeSpec]?`
+    /// in `SceneDiff` to decode as nil, silently erasing the entire
+    /// scene-repair diff and making the AI appear broken ("I asked for
+    /// three shapes and nothing showed up"). The canonical/manual
+    /// `init(...)` path is unaffected — all tolerance lives here.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = HypeNodeSpec.decodeUUIDTolerant(from: c, forKey: .id) ?? UUID()
+        self.name = (try? c.decode(String.self, forKey: .name)) ?? ""
+
+        // Lenient nodeType: accept synonyms; default to .sprite.
+        self.nodeType = NodeType.decodeTolerant(
+            from: c, forKey: .nodeType, default: .sprite
+        )
+
+        self.position = (try? c.decode(PointSpec.self, forKey: .position)) ?? PointSpec()
+        self.zPosition = (try? c.decode(Double.self, forKey: .zPosition)) ?? 0
+        self.rotation = (try? c.decode(Double.self, forKey: .rotation)) ?? 0
+        self.xScale = (try? c.decode(Double.self, forKey: .xScale)) ?? 1
+        self.yScale = (try? c.decode(Double.self, forKey: .yScale)) ?? 1
+        self.alpha = (try? c.decode(Double.self, forKey: .alpha)) ?? 1
+        self.isHidden = (try? c.decode(Bool.self, forKey: .isHidden)) ?? false
+
+        self.assetRef = try? c.decode(AssetRef.self, forKey: .assetRef)
+        self.size = try? c.decode(SizeSpec.self, forKey: .size)
+        self.text = try? c.decode(String.self, forKey: .text)
+        self.fontName = try? c.decode(String.self, forKey: .fontName)
+        self.fontSize = try? c.decode(Double.self, forKey: .fontSize)
+        self.fontColor = try? c.decode(String.self, forKey: .fontColor)
+        self.shapeSpec = try? c.decode(ShapeNodeSpec.self, forKey: .shapeSpec)
+        self.audioLoop = try? c.decode(Bool.self, forKey: .audioLoop)
+        self.audioVolume = try? c.decode(Double.self, forKey: .audioVolume)
+        self.audioAutoplay = try? c.decode(Bool.self, forKey: .audioAutoplay)
+        self.audioPositional = try? c.decode(Bool.self, forKey: .audioPositional)
+        self.emitterSpec = try? c.decode(EmitterSpec.self, forKey: .emitterSpec)
+        self.tileMapSpec = try? c.decode(TileMapSpec.self, forKey: .tileMapSpec)
+        self.videoLoop = try? c.decode(Bool.self, forKey: .videoLoop)
+        self.videoAutoplay = try? c.decode(Bool.self, forKey: .videoAutoplay)
+        self.cameraTarget = try? c.decode(String.self, forKey: .cameraTarget)
+        self.physicsBody = try? c.decode(PhysicsBodySpec.self, forKey: .physicsBody)
+        self.actions = (try? c.decode([ActionSpec].self, forKey: .actions)) ?? []
+        self.children = (try? c.decode([HypeNodeSpec].self, forKey: .children)) ?? []
+        self.script = (try? c.decode(String.self, forKey: .script)) ?? ""
+
+        // Heuristic: a node declared as `sprite` but with an explicit
+        // shapeSpec is really a shape node. Same correction as
+        // SceneBlueprintNode. This catches models that default
+        // nodeType to "sprite" regardless of the payload.
+        if self.nodeType == .sprite && self.shapeSpec != nil {
+            self.nodeType = .shape
+        }
+    }
+
+    /// Accept either a UUID-string or anything else (including a model-
+    /// invented handle like "red_square"). If the value isn't a valid
+    /// UUID, callers get nil so they can mint a fresh one.
+    private static func decodeUUIDTolerant<K: CodingKey>(
+        from c: KeyedDecodingContainer<K>,
+        forKey key: K
+    ) -> UUID? {
+        if let uuid = try? c.decode(UUID.self, forKey: key) { return uuid }
+        if let s = try? c.decode(String.self, forKey: key), let uuid = UUID(uuidString: s) {
+            return uuid
+        }
+        return nil
+    }
+}
+
+extension NodeType {
+    /// Public tolerant decode used by both `HypeNodeSpec` and the AI
+    /// `SceneBlueprintNode`. Accepts common synonyms, collapses any
+    /// polygon-ish word to `.shape`, and falls back to a caller-
+    /// supplied default for truly unknown values.
+    public static func decodeTolerant<K: CodingKey>(
+        from container: KeyedDecodingContainer<K>,
+        forKey key: K,
+        default fallback: NodeType
+    ) -> NodeType {
+        guard let raw = try? container.decode(String.self, forKey: key) else { return fallback }
+        let n = raw.lowercased().replacingOccurrences(of: "_", with: "")
+        switch n {
+        case "sprite", "image": return .sprite
+        case "group", "container": return .group
+        case "label", "text": return .label
+        case "shape", "rect", "rectangle", "square", "circle", "ellipse",
+             "triangle", "polygon", "path", "diamond", "pentagon",
+             "hexagon", "octagon", "star", "arrow":
+            return .shape
+        case "emitter", "particles", "particle": return .emitter
+        case "audio", "sound": return .audio
+        case "tilemap", "tiles": return .tileMap
+        case "camera": return .camera
+        case "video", "movie": return .video
+        case "crop": return .crop
+        case "effect": return .effect
+        case "light": return .light
+        default: return fallback
+        }
+    }
 }
 
 public extension HypeNodeSpec {
@@ -516,6 +621,46 @@ public struct ShapeNodeSpec: Codable, Sendable {
         self.cornerRadius = cornerRadius
         self.path = path
     }
+
+    /// Tolerant decoder: unknown `shapeType` values map to nearest
+    /// canonical form (e.g. "square" → .rect, "triangle" → .path,
+    /// "star" → .path) instead of failing decode. Missing numeric
+    /// fields default to the same values as the designated init.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.shapeType = SpriteShapeType.decodeTolerant(
+            from: c, forKey: .shapeType, default: .rect
+        )
+        self.fillColor = (try? c.decode(String.self, forKey: .fillColor)) ?? "#FFFFFF"
+        self.strokeColor = (try? c.decode(String.self, forKey: .strokeColor)) ?? "#000000"
+        self.lineWidth = (try? c.decode(Double.self, forKey: .lineWidth)) ?? 1
+        self.cornerRadius = (try? c.decode(Double.self, forKey: .cornerRadius)) ?? 0
+        self.path = try? c.decode([PointSpec].self, forKey: .path)
+    }
+}
+
+extension SpriteShapeType {
+    /// Public tolerant decode. "square"/"box"/"rectangle" → .rect,
+    /// "round"/"disc" → .circle, "oval" → .ellipse, and every
+    /// polygon-ish name ("triangle", "star", "arrow", etc.) → .path
+    /// so the SceneBridge triangle renderer gets a chance at it.
+    public static func decodeTolerant<K: CodingKey>(
+        from container: KeyedDecodingContainer<K>,
+        forKey key: K,
+        default fallback: SpriteShapeType
+    ) -> SpriteShapeType {
+        guard let raw = try? container.decode(String.self, forKey: key) else { return fallback }
+        let n = raw.lowercased().replacingOccurrences(of: "_", with: "")
+        switch n {
+        case "rect", "rectangle", "square", "box": return .rect
+        case "circle", "round", "disc": return .circle
+        case "ellipse", "oval": return .ellipse
+        case "path", "polygon", "triangle", "tri", "diamond",
+             "pentagon", "hexagon", "octagon", "star", "arrow":
+            return .path
+        default: return fallback
+        }
+    }
 }
 
 // MARK: - Tile Map
@@ -650,6 +795,58 @@ public struct PhysicsBodySpec: Codable, Sendable {
         self.velocityX = velocityX
         self.velocityY = velocityY
         self.angularVelocity = angularVelocity
+    }
+
+    /// Tolerant decoder: AI-produced JSON routinely omits required
+    /// physics fields or names the body type with a word that isn't
+    /// in the enum ("polygon"). All scalar/bool fields get the same
+    /// defaults as the canonical initializer, and `bodyType` falls
+    /// back to `.rect` through the tolerant enum decoder.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.bodyType = PhysicsBodyType.decodeTolerant(
+            from: c, forKey: .bodyType, default: .rect
+        )
+        self.isDynamic = (try? c.decode(Bool.self, forKey: .isDynamic)) ?? true
+        self.categoryBitmask = (try? c.decode(UInt32.self, forKey: .categoryBitmask)) ?? 0xFFFFFFFF
+        self.contactTestBitmask = (try? c.decode(UInt32.self, forKey: .contactTestBitmask)) ?? 0
+        self.collisionBitmask = (try? c.decode(UInt32.self, forKey: .collisionBitmask)) ?? 0xFFFFFFFF
+        self.restitution = (try? c.decode(Double.self, forKey: .restitution)) ?? 0.2
+        self.friction = (try? c.decode(Double.self, forKey: .friction)) ?? 0.2
+        self.mass = try? c.decode(Double.self, forKey: .mass)
+        self.affectedByGravity = (try? c.decode(Bool.self, forKey: .affectedByGravity)) ?? true
+        self.allowsRotation = (try? c.decode(Bool.self, forKey: .allowsRotation)) ?? true
+        self.density = try? c.decode(Double.self, forKey: .density)
+        self.linearDamping = try? c.decode(Double.self, forKey: .linearDamping)
+        self.angularDamping = try? c.decode(Double.self, forKey: .angularDamping)
+        self.velocityX = try? c.decode(Double.self, forKey: .velocityX)
+        self.velocityY = try? c.decode(Double.self, forKey: .velocityY)
+        self.angularVelocity = try? c.decode(Double.self, forKey: .angularVelocity)
+    }
+}
+
+extension PhysicsBodyType {
+    public static func decodeTolerant<K: CodingKey>(
+        from container: KeyedDecodingContainer<K>,
+        forKey key: K,
+        default fallback: PhysicsBodyType
+    ) -> PhysicsBodyType {
+        guard let raw = try? container.decode(String.self, forKey: key) else { return fallback }
+        let n = raw.lowercased().replacingOccurrences(of: "_", with: "")
+        switch n {
+        case "circle", "round": return .circle
+        case "rect", "rectangle", "box", "square": return .rect
+        case "texture", "pixel": return .texture
+        case "none", "off", "disabled": return .none
+        case "edge", "border", "boundary": return .edge
+        // Polygon-ish physics bodies fall back to .rect because SpriteKit
+        // has no "arbitrary polygon" body type; rect is the best
+        // approximation for triangles/stars/etc. at their AABB.
+        case "polygon", "triangle", "tri", "diamond", "pentagon",
+             "hexagon", "octagon", "star", "arrow":
+            return .rect
+        default: return fallback
+        }
     }
 }
 

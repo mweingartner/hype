@@ -162,8 +162,8 @@ struct StructuredChatDecodingTests {
         #expect(node.physicsEnabled == false)
     }
 
-    @Test("unknown physicsBodyType 'octagon' is dropped silently")
-    func unknownPhysicsBodyTypeDropped() throws {
+    @Test("unknown physicsBodyType 'octagon' falls back to .rect (AABB approximation)")
+    func unknownPhysicsBodyTypeFallsBackToRect() throws {
         let json = """
         {
             "name": "x",
@@ -174,7 +174,9 @@ struct StructuredChatDecodingTests {
         }
         """
         let node = try JSONDecoder().decode(SceneBlueprintNode.self, from: json.data(using: .utf8)!)
-        #expect(node.physicsBodyType == nil)
+        // Polygon-ish body types map to .rect so SpriteKit has a usable
+        // body shape (its AABB) instead of dropping physics entirely.
+        #expect(node.physicsBodyType == .rect)
     }
 
     // MARK: - Lenient top-level proposal decoding

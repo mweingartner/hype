@@ -222,7 +222,20 @@ final class SceneBridge {
                         }
                         shape = SKShapeNode(path: path)
                     } else {
-                        shape = SKShapeNode(rectOf: CGSize(width: size.width, height: size.height))
+                        // No explicit path — render as an upward-pointing
+                        // triangle fitting the node's declared size. This
+                        // makes "triangle" (and other polygon names the
+                        // tolerant decoder maps to .path) render as a
+                        // recognizable shape instead of a silent empty
+                        // node or a fallback rect.
+                        let halfW = CGFloat(size.width / 2)
+                        let halfH = CGFloat(size.height / 2)
+                        let path = CGMutablePath()
+                        path.move(to: CGPoint(x: 0, y: halfH))
+                        path.addLine(to: CGPoint(x: -halfW, y: -halfH))
+                        path.addLine(to: CGPoint(x: halfW, y: -halfH))
+                        path.closeSubpath()
+                        shape = SKShapeNode(path: path)
                     }
                 }
                 shape.fillColor = nsColor(from: shapeSpec.fillColor)
