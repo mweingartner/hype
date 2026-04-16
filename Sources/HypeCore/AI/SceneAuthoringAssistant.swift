@@ -347,11 +347,16 @@ public struct SceneCreateProposal: Codable, Sendable {
     }
 
     // Lenient decoder — accept missing metadata fields so a scene
-    // that the model got mostly right still applies.
+    // that the model got mostly right still applies. Empty-string
+    // fallbacks for areaName / sceneName are deliberate: callers
+    // detect empties and substitute real context (the targeted
+    // sprite area's name, the active scene name) instead of a
+    // literal placeholder that might accidentally collide with a
+    // real object's name.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.areaName = (try? c.decode(String.self, forKey: .areaName)) ?? "main"
-        self.sceneName = (try? c.decode(String.self, forKey: .sceneName)) ?? "main"
+        self.areaName = (try? c.decode(String.self, forKey: .areaName)) ?? ""
+        self.sceneName = (try? c.decode(String.self, forKey: .sceneName)) ?? ""
         self.createSpriteAreaIfMissing =
             (try? c.decode(Bool.self, forKey: .createSpriteAreaIfMissing)) ?? true
         self.summary = (try? c.decode(String.self, forKey: .summary)) ?? ""
@@ -384,7 +389,11 @@ public struct SceneRepairProposal: Codable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.areaName = (try? c.decode(String.self, forKey: .areaName)) ?? "main"
+        // Empty-string fallback (not "main") so the caller's
+        // authoritative overwrite or the applyRepairProposal
+        // resolve-by-card fallback has a clear signal that the model
+        // didn't name the area itself.
+        self.areaName = (try? c.decode(String.self, forKey: .areaName)) ?? ""
         self.summary = (try? c.decode(String.self, forKey: .summary)) ?? ""
         self.issues = (try? c.decode([SceneDiagnosticIssue].self, forKey: .issues)) ?? []
         self.diff = (try? c.decode(SceneDiff.self, forKey: .diff)) ?? SceneDiff()
@@ -437,7 +446,62 @@ public actor SceneAuthoringAssistant {
                 messages: messages,
                 format: Self.sceneCreateFormat
             )
-        return Self.normalizeCreateProposal(result.decoded, for: userRequest)
+        // Best-effort correction: if the user prompt explicitly names an
+        // existing sprite area on the current card, honor THAT name even
+        // if the model returned something else (or blank). Same rationale
+        // as the repair path — the model routinely confuses scene names
+        // with area names, especially when the user prompt mentions both.
+        var proposal = result.decoded
+        Self.applyUserRequestOverrides(
+            to: &proposal,
+            userRequest: userRequest,
+            document: document,
+            currentCardId: currentCardId
+        )
+        return Self.normalizeCreateProposal(proposal, for: userRequest)
+    }
+
+    /// Override `areaName` / `sceneName` when the user prompt explicitly
+    /// names an existing sprite area or scene. Prevents the model-level
+    /// confusion of scene vs. area names from targeting the wrong part.
+    static func applyUserRequestOverrides(
+        to proposal: inout SceneCreateProposal,
+        userRequest: String,
+        document: HypeDocument,
+        currentCardId: UUID
+    ) {
+        let lower = userRequest.lowercased()
+        let areas = document.effectivePartsForCard(currentCardId).filter {
+            $0.partType == .spriteArea
+        }
+
+        // 1) If the prompt names a real sprite area, lock areaName to it.
+        if let named = areas.first(where: {
+            !$0.name.isEmpty && lower.contains($0.name.lowercased())
+        }) {
+            proposal.areaName = named.name
+            // 2) And if that area has a scene whose name appears in the
+            // prompt too, use that — otherwise use the active scene.
+            if let spec = named.spriteAreaSpecModel {
+                let sceneNames = spec.scenes.map { $0.scene.name.lowercased() }
+                if let match = sceneNames.first(where: {
+                    !$0.isEmpty && lower.contains($0)
+                }) {
+                    proposal.sceneName = match
+                } else if proposal.sceneName.isEmpty, let active = spec.activeScene {
+                    proposal.sceneName = active.name
+                }
+            }
+        } else if proposal.areaName.isEmpty,
+                  let only = areas.first, areas.count == 1 {
+            // 3) No mention in prompt and nothing from the model, but
+            // there's exactly one sprite area on this card — use it.
+            proposal.areaName = only.name
+            if proposal.sceneName.isEmpty,
+               let active = only.spriteAreaSpecModel?.activeScene {
+                proposal.sceneName = active.name
+            }
+        }
     }
 
     public func repairProposal(
@@ -481,7 +545,15 @@ public actor SceneAuthoringAssistant {
                 messages: messages,
                 format: Self.sceneRepairFormat
             )
-        return Self.normalizeRepairProposal(result.decoded, for: userRequest, currentScene: scene)
+        // The caller told us which sprite area to target. Authoritatively
+        // overwrite whatever the model returned (or whatever the lenient
+        // decoder filled in for a missing field) so downstream code can
+        // always find the right part. Without this, a model that omits
+        // `areaName` triggers the fallback "main" and applyRepairProposal
+        // surfaces "Could not find sprite area 'main' to repair."
+        var proposal = result.decoded
+        proposal.areaName = spriteAreaName
+        return Self.normalizeRepairProposal(proposal, for: userRequest, currentScene: scene)
     }
 
     private func sceneContext(document: HypeDocument, currentCardId: UUID) -> String {

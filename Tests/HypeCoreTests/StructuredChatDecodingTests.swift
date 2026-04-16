@@ -200,7 +200,10 @@ struct StructuredChatDecodingTests {
         """
         let data = json.data(using: .utf8)!
         let proposal = try JSONDecoder().decode(SceneCreateProposal.self, from: data)
-        #expect(proposal.areaName == "main")  // fallback
+        // areaName falls back to empty string (not "main") so callers
+        // can detect the miss and substitute real context via
+        // `applyUserRequestOverrides` or the apply-step resolver.
+        #expect(proposal.areaName.isEmpty)
         #expect(proposal.summary == "")       // fallback
     }
 
@@ -398,6 +401,174 @@ struct StructuredChatDecodingTests {
     }
 
     // MARK: - Real-world failure reproduction from the bug report
+
+    // MARK: - Area-name confusion (the "Could not find sprite area 'main'" bug)
+
+    @Test("lenient decoder leaves empty areaName when model omits it, not 'main'")
+    func lenientDecoderAreaNameEmptyByDefault() throws {
+        // Strip `areaName` from an otherwise-valid proposal. The previous
+        // fallback was "main" — which the applyRepairProposal step then
+        // treated as a real area name and couldn't find. The correct
+        // behavior is an empty string so downstream logic can detect the
+        // miss and substitute the caller's known target.
+        let json = """
+        {
+            "sceneName": "main",
+            "createSpriteAreaIfMissing": false,
+            "summary": "",
+            "checklist": [],
+            "scene": {
+                "size": { "width": 100, "height": 100 },
+                "backgroundColor": "#000",
+                "gravity": { "dx": 0, "dy": 0 },
+                "scaleMode": "aspectFit",
+                "showsPhysics": false,
+                "showsFPS": false,
+                "showsNodeCount": false,
+                "sceneScript": "",
+                "nodes": []
+            }
+        }
+        """
+        let proposal = try JSONDecoder().decode(
+            SceneCreateProposal.self,
+            from: json.data(using: .utf8)!
+        )
+        #expect(proposal.areaName.isEmpty)
+    }
+
+    @Test("lenient decoder leaves empty repair areaName when model omits it")
+    func lenientDecoderRepairAreaNameEmptyByDefault() throws {
+        let json = """
+        { "summary": "fix", "issues": [], "diff": {} }
+        """
+        let proposal = try JSONDecoder().decode(
+            SceneRepairProposal.self,
+            from: json.data(using: .utf8)!
+        )
+        #expect(proposal.areaName.isEmpty)
+    }
+
+    @Test("applyUserRequestOverrides locks areaName to prompt-mentioned sprite area")
+    func overridesLockToPromptMentionedArea() {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        var area = Part(partType: .spriteArea, cardId: cardId, name: "bounder")
+        let spec = SpriteAreaSpec(
+            defaultSceneNamed: "main",
+            fallbackSize: SizeSpec(width: 400, height: 300)
+        )
+        area.setSpriteAreaSpec(spec)
+        doc.addPart(area)
+
+        var proposal = SceneCreateProposal(
+            areaName: "main",  // wrong — model confused scene name with area name
+            sceneName: "",
+            createSpriteAreaIfMissing: false,
+            summary: "",
+            checklist: [],
+            scene: SceneBlueprint(
+                size: SizeSpec(width: 400, height: 300),
+                backgroundColor: "#FFF",
+                gravity: VectorSpec(dx: 0, dy: 0),
+                scaleMode: .aspectFit,
+                showsPhysics: false,
+                showsFPS: false,
+                showsNodeCount: false,
+                sceneScript: "",
+                nodes: []
+            )
+        )
+        SceneAuthoringAssistant.applyUserRequestOverrides(
+            to: &proposal,
+            userRequest: "add sprites to the bounder Spritearea. Scene name is main.",
+            document: doc,
+            currentCardId: cardId
+        )
+        #expect(proposal.areaName == "bounder")
+        #expect(proposal.sceneName == "main")
+    }
+
+    @Test("applyUserRequestOverrides picks lone sprite area when prompt names none")
+    func overridesPickLoneArea() {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        var area = Part(partType: .spriteArea, cardId: cardId, name: "playground")
+        let spec = SpriteAreaSpec(
+            defaultSceneNamed: "level1",
+            fallbackSize: SizeSpec(width: 400, height: 300)
+        )
+        area.setSpriteAreaSpec(spec)
+        doc.addPart(area)
+
+        var proposal = SceneCreateProposal(
+            areaName: "",  // empty after lenient decode
+            sceneName: "",
+            createSpriteAreaIfMissing: false,
+            summary: "",
+            checklist: [],
+            scene: SceneBlueprint(
+                size: SizeSpec(width: 400, height: 300),
+                backgroundColor: "#FFF",
+                gravity: VectorSpec(dx: 0, dy: 0),
+                scaleMode: .aspectFit,
+                showsPhysics: false,
+                showsFPS: false,
+                showsNodeCount: false,
+                sceneScript: "",
+                nodes: []
+            )
+        )
+        SceneAuthoringAssistant.applyUserRequestOverrides(
+            to: &proposal,
+            userRequest: "just add some sprites",
+            document: doc,
+            currentCardId: cardId
+        )
+        #expect(proposal.areaName == "playground")
+        #expect(proposal.sceneName == "level1")
+    }
+
+    @Test("applyUserRequestOverrides respects user-mentioned scene alongside area")
+    func overridesPickMentionedScene() {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        var area = Part(partType: .spriteArea, cardId: cardId, name: "bounder")
+        var spec = SpriteAreaSpec(
+            defaultSceneNamed: "main",
+            fallbackSize: SizeSpec(width: 400, height: 300)
+        )
+        _ = spec.addScene(named: "bonus", basedOn: nil)
+        area.setSpriteAreaSpec(spec)
+        doc.addPart(area)
+
+        var proposal = SceneCreateProposal(
+            areaName: "",
+            sceneName: "",
+            createSpriteAreaIfMissing: false,
+            summary: "",
+            checklist: [],
+            scene: SceneBlueprint(
+                size: SizeSpec(width: 400, height: 300),
+                backgroundColor: "#FFF",
+                gravity: VectorSpec(dx: 0, dy: 0),
+                scaleMode: .aspectFit,
+                showsPhysics: false,
+                showsFPS: false,
+                showsNodeCount: false,
+                sceneScript: "",
+                nodes: []
+            )
+        )
+        SceneAuthoringAssistant.applyUserRequestOverrides(
+            to: &proposal,
+            userRequest: "put sprites in the bonus scene of the bounder area",
+            document: doc,
+            currentCardId: cardId
+        )
+        #expect(proposal.areaName == "bounder")
+        #expect(proposal.sceneName == "bonus")
+    }
 
     @Test("real-world bug: triangle-with-physics response decodes via full fallback chain")
     func triangleBugRepro() throws {

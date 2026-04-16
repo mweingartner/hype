@@ -370,9 +370,16 @@ struct AIChatPanel: View {
     }
 
     private func applyRepairProposal(_ proposal: SceneRepairProposal) {
-        guard let index = document.document.parts.firstIndex(where: {
-            $0.partType == .spriteArea && $0.name.lowercased() == proposal.areaName.lowercased()
-        }) else {
+        // Try the exact name the proposal carries. If the model (or the
+        // lenient decoder fallback) produced a bad name, fall through
+        // to the first sprite area on the current card — that's what
+        // `preferredRepairSpriteArea` already handed to the assistant
+        // as the repair target, so the applied diff still lands on the
+        // intended part. This prevents the classic "Could not find
+        // sprite area 'main' to repair" error when the model confuses
+        // a scene name with an area name.
+        let resolvedIndex = resolveSpriteAreaIndex(named: proposal.areaName)
+        guard let index = resolvedIndex else {
             messages.append((role: "assistant", content: "Could not find sprite area '\(proposal.areaName)' to repair."))
             return
         }
@@ -381,6 +388,32 @@ struct AIChatPanel: View {
                 proposal.diff.apply(to: &scene)
             }
         }
+    }
+
+    /// Find a sprite area Part by name, falling back to the first
+    /// sprite area visible on the current card when the lookup fails.
+    /// Used by both repair and create apply paths so off-name proposals
+    /// from the model don't abort the whole operation.
+    private func resolveSpriteAreaIndex(named name: String) -> Int? {
+        let target = name.lowercased()
+        if let exact = document.document.parts.firstIndex(where: {
+            $0.partType == .spriteArea && $0.name.lowercased() == target
+        }) {
+            return exact
+        }
+        guard let cardId = currentCardId ?? document.document.sortedCards.first?.id else {
+            return nil
+        }
+        // Visible-on-current-card sprite areas (card-level + background).
+        let visible = document.document.effectivePartsForCard(cardId).filter {
+            $0.partType == .spriteArea
+        }
+        // Prefer a single card-level sprite area when there's no ambiguity.
+        if let only = visible.first, visible.count == 1 {
+            return document.document.parts.firstIndex(where: { $0.id == only.id })
+        }
+        // Otherwise, any sprite area in the document — better than aborting.
+        return document.document.parts.firstIndex(where: { $0.partType == .spriteArea })
     }
 
     private func ensureSpriteAreaPartIndex(named name: String, cardId: UUID, sceneSize: SizeSpec) -> Int? {
