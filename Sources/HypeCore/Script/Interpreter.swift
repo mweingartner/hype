@@ -423,7 +423,10 @@ public struct Interpreter: Sendable {
                 // Try to resolve target as an object reference
                 if case .objectRef(let ref) = targetExpr {
                     // Handle scene node property setting via SceneSpec (sprite, label, shape, etc.)
+                    // If the node isn't found, fall through to try as a Part (handles ambiguous
+                    // types like "video" which can be both a scene node and a card-level Part).
                     let sceneNodeTypes = ["sprite", "label", "shape", "emitter", "audio", "tilemap", "camera", "video", "crop", "effect", "light", "group"]
+                    var handledAsNode = false
                     if sceneNodeTypes.contains(ref.objectType) {
                         let nodeName = try await evaluate(ref.identifier, env: &env, document: document, context: context)
                         if let location = nodeLocation(
@@ -437,8 +440,10 @@ public struct Interpreter: Sendable {
                                     applyNodePropertySet(property: property, value: value, to: &node)
                                 }
                             }
+                            handledAsNode = true
                         }
-                    } else if ref.objectType == "scene" {
+                    }
+                    if !handledAsNode && ref.objectType == "scene" {
                         let sceneName = try await evaluate(ref.identifier, env: &env, document: document, context: context)
                         if let location = sceneLocation(named: sceneName, document: document, currentCardId: context.currentCardId) {
                             _ = mutateSpriteAreaSpec(partIndex: location.partIndex, document: &document) { areaSpec in
@@ -455,6 +460,10 @@ public struct Interpreter: Sendable {
                                         }
                                     case "paused", "ispaused":
                                         areaSpec.scenes[index].scene.isPaused = isTruthy(value)
+                                    case "width":
+                                        areaSpec.scenes[index].scene.size.width = Double(value) ?? areaSpec.scenes[index].scene.size.width
+                                    case "height":
+                                        areaSpec.scenes[index].scene.size.height = Double(value) ?? areaSpec.scenes[index].scene.size.height
                                     default:
                                         break
                                     }
@@ -464,7 +473,7 @@ public struct Interpreter: Sendable {
                                 }
                             }
                         }
-                    } else if ref.objectType == "card" && property.lowercased() == "background" {
+                    } else if !handledAsNode && ref.objectType == "card" && property.lowercased() == "background" {
                     // `set the background of card "X" to "bgName"`
                     let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
                     let cardIndex: Int?
@@ -480,7 +489,7 @@ public struct Interpreter: Sendable {
                        let bg = document.backgroundByName(value) {
                         document.cards[ci].backgroundId = bg.id
                     }
-                    } else if ref.objectType == "stack" {
+                    } else if !handledAsNode && ref.objectType == "stack" {
                     // Stack-level property set: `set the defaultFont of stack to "Helvetica"`
                     switch property.lowercased() {
                     case "name":
@@ -490,7 +499,7 @@ public struct Interpreter: Sendable {
                     default:
                         break
                     }
-                    } else {
+                    } else if !handledAsNode {
                     let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
                     if let partIndex = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
                         applyPartPropertySet(
@@ -2284,6 +2293,8 @@ public struct Interpreter: Sendable {
         }
 
         // Property of a scene node (sprite, label, shape, etc.) via object reference.
+        // If the node isn't found, fall through to try as a Part (handles ambiguous
+        // types like "video" which can be both a scene node and a card-level Part).
         let sceneNodeTypes = ["sprite", "label", "shape", "emitter", "audio", "tilemap", "camera", "video", "crop", "effect", "light", "group"]
         if case .objectRef(let ref) = targetExpr, sceneNodeTypes.contains(ref.objectType) {
             let nodeName = try await evaluate(ref.identifier, env: &env, document: document, context: context)
@@ -2295,7 +2306,7 @@ public struct Interpreter: Sendable {
             ) {
                 return nodePropertyValue(location.node, property: lower)
             }
-            return ""
+            // Don't return "" — fall through to try as a card-level Part
         }
 
         if case .objectRef(let ref) = targetExpr, ref.objectType == "scene" {
@@ -2404,8 +2415,8 @@ public struct Interpreter: Sendable {
         switch property.lowercased() {
         case "name":        return part.name
         case "id":          return part.id.uuidString
-        case "left":        return formatNumber(part.left)
-        case "top":         return formatNumber(part.top)
+        case "left", "left_pos":  return formatNumber(part.left)
+        case "top", "top_pos":    return formatNumber(part.top)
         case "width":       return formatNumber(part.width)
         case "height":      return formatNumber(part.height)
         case "right":       return formatNumber(part.left + part.width)
@@ -2502,6 +2513,31 @@ public struct Interpreter: Sendable {
             return part.enterKeyEnabled ? "true" : "false"
         case "invertonclick":
             return part.invertOnClick ? "true" : "false"
+        case "videourl", "video_url":
+            return part.videoURL
+        case "popupitems", "popup_items":
+            return part.popupItems
+        case "htmlcontent", "html_content":
+            return part.htmlContent
+        // SpriteArea-specific properties (read from SpriteAreaSpec JSON)
+        case "scalemode", "scale_mode":
+            if let spec = part.spriteAreaSpecModel { return spec.scaleMode.rawValue }
+            return ""
+        case "showsphysics", "shows_physics":
+            if let spec = part.spriteAreaSpecModel { return spec.showsPhysics ? "true" : "false" }
+            return "false"
+        case "showsfps", "shows_fps":
+            if let spec = part.spriteAreaSpecModel { return spec.showsFPS ? "true" : "false" }
+            return "false"
+        case "showsnodecount", "shows_node_count":
+            if let spec = part.spriteAreaSpecModel { return spec.showsNodeCount ? "true" : "false" }
+            return "false"
+        case "scenename", "scene_name", "activescene", "active_scene":
+            if let spec = part.spriteAreaSpecModel { return spec.activeScene?.name ?? "" }
+            return ""
+        case "scenecount", "scene_count":
+            if let spec = part.spriteAreaSpecModel { return String(spec.scenes.count) }
+            return "0"
         default:            return ""
         }
     }
@@ -2954,9 +2990,9 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].textFont = value
         case "textsize", "size":
             document.parts[partIndex].textSize = toNumber(value)
-        case "fillcolor":
+        case "fillcolor", "fill_color":
             document.parts[partIndex].fillColor = value
-        case "strokecolor":
+        case "strokecolor", "stroke_color":
             document.parts[partIndex].strokeColor = value
         case "left", "left_pos":
             document.parts[partIndex].left = toNumber(value)
@@ -3049,10 +3085,6 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].textSize = toNumber(value) / 1.3
         case "centered":
             document.parts[partIndex].textAlign = isTruthy(value) ? .center : .left
-        case "fill_color":
-            document.parts[partIndex].fillColor = value
-        case "stroke_color":
-            document.parts[partIndex].strokeColor = value
         case "strokewidth", "stroke_width":
             document.parts[partIndex].strokeWidth = toNumber(value)
         case "cornerradius", "corner_radius":
@@ -3067,6 +3099,33 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].enterKeyEnabled = isTruthy(value)
         case "invertonclick":
             document.parts[partIndex].invertOnClick = isTruthy(value)
+        case "videourl", "video_url":
+            document.parts[partIndex].videoURL = value
+        case "popupitems", "popup_items":
+            document.parts[partIndex].popupItems = value
+        case "htmlcontent", "html_content":
+            document.parts[partIndex].htmlContent = value
+        case "linesize":
+            document.parts[partIndex].strokeWidth = toNumber(value)
+        // SpriteArea-specific properties (write to SpriteAreaSpec JSON)
+        case "scalemode", "scale_mode":
+            if document.parts[partIndex].partType == .spriteArea {
+                document.parts[partIndex].updateSpriteAreaSpec { spec in
+                    if let mode = SceneScaleMode(rawValue: value) { spec.scaleMode = mode }
+                }
+            }
+        case "showsphysics", "shows_physics":
+            if document.parts[partIndex].partType == .spriteArea {
+                document.parts[partIndex].updateSpriteAreaSpec { spec in spec.showsPhysics = isTruthy(value) }
+            }
+        case "showsfps", "shows_fps":
+            if document.parts[partIndex].partType == .spriteArea {
+                document.parts[partIndex].updateSpriteAreaSpec { spec in spec.showsFPS = isTruthy(value) }
+            }
+        case "showsnodecount", "shows_node_count":
+            if document.parts[partIndex].partType == .spriteArea {
+                document.parts[partIndex].updateSpriteAreaSpec { spec in spec.showsNodeCount = isTruthy(value) }
+            }
         default:
             env.setVariable(property, value)
         }
@@ -3470,6 +3529,33 @@ public struct Interpreter: Sendable {
         case "angulardamping":
             if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
             node.physicsBody?.angularDamping = toNumber(value)
+        case "mass":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.mass = toNumber(value)
+        case "friction":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.friction = toNumber(value)
+        case "restitution", "bounce":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.restitution = toNumber(value)
+        case "isdynamic", "dynamic":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.isDynamic = isTruthy(value)
+        case "affectedbygravity":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.affectedByGravity = isTruthy(value)
+        case "allowsrotation":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.allowsRotation = isTruthy(value)
+        case "categorybitmask", "category":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.categoryBitmask = UInt32(toNumber(value))
+        case "contacttestbitmask", "contacttest":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.contactTestBitmask = UInt32(toNumber(value))
+        case "collisionbitmask", "collision":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.collisionBitmask = UInt32(toNumber(value))
         default:
             break
         }
@@ -3539,6 +3625,10 @@ public struct Interpreter: Sendable {
         case "restitution", "bounce": return formatNumber(node.physicsBody?.restitution ?? 0.2)
         case "isdynamic", "dynamic": return (node.physicsBody?.isDynamic ?? true) ? "true" : "false"
         case "affectedbygravity": return (node.physicsBody?.affectedByGravity ?? true) ? "true" : "false"
+        case "allowsrotation": return (node.physicsBody?.allowsRotation ?? true) ? "true" : "false"
+        case "categorybitmask", "category": return String(node.physicsBody?.categoryBitmask ?? 0xFFFFFFFF)
+        case "contacttestbitmask", "contacttest": return String(node.physicsBody?.contactTestBitmask ?? 0)
+        case "collisionbitmask", "collision": return String(node.physicsBody?.collisionBitmask ?? 0xFFFFFFFF)
         default: return ""
         }
     }

@@ -36,7 +36,7 @@ public enum TokenType: String, Sendable {
     case lparen, rparen, comma, newline, eof
 
     // Object references
-    case card, background, stack, field, button, webpage
+    case card, background, stack, field, button, webpage, image, video
 
     // Commands
     case create, show, add, subtract, delete, find, select, sort

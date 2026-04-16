@@ -52,7 +52,7 @@ public struct HypeTalkHighlighter: Sendable {
 
     private static let objectTypes: Set<String> = [
         "card", "background", "bg", "field", "fld", "button", "btn",
-        "sprite", "scene", "spritearea", "stack", "webpage", "emitter",
+        "sprite", "scene", "spritearea", "stack", "webpage", "image", "video", "emitter",
         "action", "ai", "paint", "file", "printing",
     ]
 

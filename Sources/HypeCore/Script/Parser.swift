@@ -1828,7 +1828,7 @@ public struct Parser: Sendable {
             let source = try parsePrimary()
             return .chunk(chunkType, .single(fromExpr), source)
 
-        case .card, .background, .field, .button, .stack, .webpage, .sprite, .spritearea, .request, .connection, .listener:
+        case .card, .background, .field, .button, .stack, .webpage, .image, .video, .sprite, .spritearea, .scene, .request, .connection, .listener:
             return try parseObjectReference()
 
         case .identifier where ["label", "shape", "audio", "chart"].contains(current.value.lowercased()):

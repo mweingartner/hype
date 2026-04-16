@@ -31,7 +31,7 @@ public struct Lexer: Sendable {
         "card": .card, "background": .background, "bg": .background,
         "stack": .stack, "field": .field, "fld": .field,
         "button": .button, "btn": .button,
-        "webpage": .webpage,
+        "webpage": .webpage, "image": .image, "video": .video,
         "mod": .mod, "div": .intDiv, "create": .create, "show": .show,
         "add": .add, "subtract": .subtract, "multiply": .multiply, "divide": .divide,
         "delete": .delete,
