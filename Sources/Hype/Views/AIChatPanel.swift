@@ -607,8 +607,22 @@ struct AIChatPanel: View {
                 // detailed actionable message; no need to append
                 // more boilerplate.
                 hint = ""
-            } else if case OllamaError.requestFailed = error {
-                hint = "\n\nCheck that Ollama is running at \(ollamaHost):\(ollamaPort) and the model \"\(ollamaModel)\" is installed (`ollama pull \(ollamaModel)`)."
+            } else if case OllamaError.requestFailed(let msg) = error {
+                // A handful of Ollama models (Gemma family, older
+                // fine-tunes) lack the tokenizer metadata needed for
+                // grammar-constrained decoding. The server returns
+                // that specific error BEFORE we even get a response,
+                // so the auto-retry-without-format path in
+                // OllamaToolClient.structuredChat already fires. If
+                // the retry also fails we end up here with the
+                // original message still in hand — surface it.
+                let lower = msg.lowercased()
+                if lower.contains("failed to load model vocabulary")
+                    || lower.contains("vocabulary required for format") {
+                    hint = "\n\nThe model \"\(ollamaModel)\" doesn't support server-side structured output on this Ollama build. Hype already retried without the `format` field and with the schema embedded as a prompt instruction, but that also failed. Try a model that supports structured output: `llama3.1`, `llama3.2`, `qwen2.5`, or `mistral`. Gemma models and some older fine-tunes often lack the required tokenizer metadata."
+                } else {
+                    hint = "\n\nCheck that Ollama is running at \(ollamaHost):\(ollamaPort) and the model \"\(ollamaModel)\" is installed (`ollama pull \(ollamaModel)`)."
+                }
             } else {
                 hint = ""
             }

@@ -472,3 +472,127 @@ struct OllamaTimeoutPolicyTests {
         #expect(base == "http://localhost:11434")
     }
 }
+
+/// Regression tests for the format-unsupported-model fallback.
+///
+/// Background: some Ollama models (Gemma family, older fine-tunes)
+/// ship without the tokenizer metadata needed for server-side
+/// grammar-constrained decoding. Sending a `format` schema to one
+/// of those models fails with HTTP 500 and a body containing
+/// `failed to load model vocabulary required for format`. Instead
+/// of surfacing that to the user as a dead-end, we now:
+///   1. detect that specific error
+///   2. retry without the `format` field
+///   3. embed the JSON schema in a synthetic system prompt
+///   4. feed the free-form response through the existing tolerant
+///      decoder cascade (markdown fences, prose extraction, etc.)
+///
+/// These tests pin the detection predicate and schema-embedding
+/// logic so the path can't regress silently.
+@Suite("Ollama format-unsupported fallback")
+struct OllamaFormatUnsupportedFallbackTests {
+
+    @Test("isFormatUnsupportedError matches the canonical Ollama message")
+    func detectsCanonicalMessage() {
+        let err = OllamaError.requestFailed(
+            #"{"error":"failed to load model vocabulary required for format"}"#
+        )
+        #expect(OllamaToolClient.isFormatUnsupportedError(err))
+    }
+
+    @Test("isFormatUnsupportedError matches a close variant phrasing")
+    func detectsVariantPhrasing() {
+        // Future Ollama wording tweaks shouldn't silently break the
+        // fallback — we match on a few known substrings.
+        let err = OllamaError.requestFailed("format is not supported by this model")
+        #expect(OllamaToolClient.isFormatUnsupportedError(err))
+    }
+
+    @Test("isFormatUnsupportedError ignores unrelated request failures")
+    func ignoresUnrelatedErrors() {
+        let err = OllamaError.requestFailed("connection refused")
+        #expect(!OllamaToolClient.isFormatUnsupportedError(err))
+    }
+
+    @Test("isFormatUnsupportedError ignores timeout errors")
+    func ignoresTimeoutErrors() {
+        let err = OllamaError.requestTimedOut(
+            endpoint: "/api/chat",
+            model: "gemma4:26b",
+            seconds: 600
+        )
+        #expect(!OllamaToolClient.isFormatUnsupportedError(err))
+    }
+
+    @Test("renderSchemaPrompt describes a schema object as pretty JSON with instructions")
+    func renderSchemaPromptIncludesSchema() {
+        let schema = OllamaJSONSchema(object: [
+            "type": "object",
+            "properties": [
+                "summary": ["type": "string"]
+            ],
+            "required": ["summary"]
+        ])
+        let rendered = OllamaToolClient.renderSchemaPrompt(.schema(schema))
+        #expect(rendered.contains("summary"))
+        #expect(rendered.contains("schema"))
+        // The rendered prompt must tell the model not to wrap the
+        // response in markdown fences — that's a real failure mode
+        // for models without server-side format enforcement.
+        #expect(rendered.lowercased().contains("code fence")
+                || rendered.lowercased().contains("markdown"))
+    }
+
+    @Test("renderSchemaPrompt handles .json shorthand with a generic instruction")
+    func renderSchemaPromptJSONShorthand() {
+        let rendered = OllamaToolClient.renderSchemaPrompt(.json)
+        #expect(rendered.contains("JSON"))
+        #expect(rendered.lowercased().contains("markdown") ||
+                rendered.lowercased().contains("code fence") ||
+                rendered.lowercased().contains("prose"))
+    }
+
+    @Test("messagesWithSchemaPrompt merges schema text into an existing system message")
+    func schemaMergesIntoExistingSystem() {
+        let original = [
+            OllamaMessage(role: "system", content: "You are a scene planner.", tool_calls: nil),
+            OllamaMessage(role: "user", content: "Plan a scene", tool_calls: nil)
+        ]
+        let schema = OllamaJSONSchema(object: [
+            "type": "object",
+            "properties": ["summary": ["type": "string"]]
+        ])
+        let retry = OllamaToolClient.messagesWithSchemaPrompt(
+            original: original,
+            format: .schema(schema)
+        )
+        #expect(retry.count == 2)
+        #expect(retry[0].role == "system")
+        // System prompt starts with the original content...
+        #expect(retry[0].content?.hasPrefix("You are a scene planner.") == true)
+        // ...and now also contains the schema text.
+        #expect(retry[0].content?.contains("summary") == true)
+        // User message is untouched.
+        #expect(retry[1].role == "user")
+        #expect(retry[1].content == "Plan a scene")
+    }
+
+    @Test("messagesWithSchemaPrompt prepends a fresh system message when none exists")
+    func schemaPrependsWhenNoSystem() {
+        let original = [
+            OllamaMessage(role: "user", content: "Plan a scene", tool_calls: nil)
+        ]
+        let schema = OllamaJSONSchema(object: [
+            "type": "object",
+            "properties": ["summary": ["type": "string"]]
+        ])
+        let retry = OllamaToolClient.messagesWithSchemaPrompt(
+            original: original,
+            format: .schema(schema)
+        )
+        #expect(retry.count == 2)
+        #expect(retry[0].role == "system")
+        #expect(retry[0].content?.contains("summary") == true)
+        #expect(retry[1].role == "user")
+    }
+}

@@ -520,14 +520,112 @@ public actor OllamaToolClient {
     /// the raw response so callers can surface something useful to
     /// the user instead of Swift's opaque "data couldn't be read"
     /// localizedDescription.
+    ///
+    /// ## Server-side format fallback
+    ///
+    /// Some Ollama models ship without the tokenizer metadata
+    /// required for grammar-constrained decoding (the "failed to
+    /// load model vocabulary required for format" error). The
+    /// canonical examples are various Gemma variants and older
+    /// fine-tunes. When the initial request fails with that
+    /// specific error we automatically retry *without* the `format`
+    /// field, but inject the expected JSON schema into a synthetic
+    /// system prompt so the model still gets structural guidance.
+    /// The tolerant extraction cascade above then recovers the JSON
+    /// from whatever free-form response the model produces.
     public func structuredChat<Response: Decodable>(
         messages: [OllamaMessage],
         tools: [OllamaTool] = [],
         format: OllamaResponseFormat
     ) async throws -> (response: OllamaChatResponse, decoded: Response) {
-        let response = try await chat(messages: messages, tools: tools, format: format)
-        let (decoded, _) = try Self.decodeStructuredResponse(Response.self, from: response)
-        return (response, decoded)
+        do {
+            let response = try await chat(messages: messages, tools: tools, format: format)
+            let (decoded, _) = try Self.decodeStructuredResponse(Response.self, from: response)
+            return (response, decoded)
+        } catch let error as OllamaError where Self.isFormatUnsupportedError(error) {
+            // Fallback: the server said this model can't do
+            // grammar-constrained output. Retry without `format` but
+            // nudge the model toward the right shape with a
+            // synthetic system message describing the schema.
+            let retryMessages = Self.messagesWithSchemaPrompt(
+                original: messages,
+                format: format
+            )
+            let response = try await chat(
+                messages: retryMessages,
+                tools: tools,
+                format: nil
+            )
+            let (decoded, _) = try Self.decodeStructuredResponse(Response.self, from: response)
+            return (response, decoded)
+        }
+    }
+
+    /// Recognize the Ollama server-side error that fires when the
+    /// selected model doesn't carry the tokenizer metadata needed
+    /// for grammar-constrained decoding.
+    ///
+    /// The exact text was added to Ollama around the time grammar
+    /// support shipped; we match on both the canonical and a few
+    /// close variants so a future wording tweak doesn't silently
+    /// break the fallback.
+    static func isFormatUnsupportedError(_ error: OllamaError) -> Bool {
+        guard case .requestFailed(let msg) = error else { return false }
+        let m = msg.lowercased()
+        return m.contains("failed to load model vocabulary")
+            || m.contains("vocabulary required for format")
+            || m.contains("format is not supported")
+            || m.contains("model does not support structured output")
+    }
+
+    /// Build a new message list that embeds the JSON schema in a
+    /// synthetic system message. Used by the format-unsupported
+    /// retry path so the model still has structural guidance even
+    /// without server-side grammar constraints.
+    static func messagesWithSchemaPrompt(
+        original: [OllamaMessage],
+        format: OllamaResponseFormat
+    ) -> [OllamaMessage] {
+        let schemaText = renderSchemaPrompt(format)
+        guard !schemaText.isEmpty else { return original }
+
+        // If the first message is a system prompt, concatenate the
+        // schema guidance onto it. Otherwise prepend a fresh system
+        // message. This keeps the model's role directive intact.
+        if let first = original.first, first.role == "system" {
+            let merged = (first.content ?? "") + "\n\n" + schemaText
+            var rest = original
+            rest[0] = OllamaMessage(role: "system", content: merged, tool_calls: nil)
+            return rest
+        }
+        var messages = original
+        messages.insert(OllamaMessage(role: "system", content: schemaText, tool_calls: nil), at: 0)
+        return messages
+    }
+
+    /// Render the `OllamaResponseFormat` as a compact, human-readable
+    /// schema description that the model can read and follow even
+    /// without server-side grammar enforcement.
+    static func renderSchemaPrompt(_ format: OllamaResponseFormat) -> String {
+        switch format {
+        case .json:
+            return "Respond with a single valid JSON value and nothing else. Do not wrap it in markdown code fences. Do not include prose before or after the JSON."
+        case .schema(let schema):
+            guard JSONSerialization.isValidJSONObject(schema.object),
+                  let data = try? JSONSerialization.data(
+                      withJSONObject: schema.object,
+                      options: [.prettyPrinted, .sortedKeys]
+                  ),
+                  let rendered = String(data: data, encoding: .utf8)
+            else {
+                return ""
+            }
+            return """
+            IMPORTANT: the server running you does not enforce structured output for this model. Follow this JSON schema strictly. Respond with one JSON object that matches the schema exactly — no prose, no markdown code fences, no leading / trailing comments. Unknown enum values will be rejected; use only the values the schema lists.
+
+            \(rendered)
+            """
+        }
     }
 
     /// Internal, pure, testable decoder. Handles the fallback
