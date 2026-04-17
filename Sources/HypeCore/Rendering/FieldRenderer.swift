@@ -15,9 +15,15 @@ public enum FieldRenderer {
             ctx.setFillColor(NSColor.white.cgColor)
             ctx.fill(rect)
         case .rectangle:
+            // Rectangle fields draw a 1-pixel *black* border around
+            // the entire perimeter — unambiguous at any zoom level
+            // and immediately readable as a framed text field. The
+            // generic-visibility pass below explicitly skips this
+            // style so the gray separator color doesn't overwrite
+            // the black border we just painted.
             ctx.setFillColor(NSColor.white.cgColor)
             ctx.fill(rect)
-            ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+            ctx.setStrokeColor(NSColor.black.cgColor)
             ctx.setLineWidth(1)
             ctx.stroke(rect)
         case .shadow:
@@ -41,21 +47,20 @@ public enum FieldRenderer {
             ctx.stroke(scrollRect)
         }
 
-        // When the field is visible, always draw a 1-pixel border
-        // so the user can see the field's bounds on the canvas.
-        // This applies to ALL field styles including transparent
-        // and opaque (which otherwise have no visible border).
-        // The border is a subtle gray line that doesn't clash with
-        // the field's own style-specific chrome — for styles that
-        // already have a border (rectangle, shadow, scrolling),
-        // this is a no-op visually since the style border paints
-        // on top. For transparent and opaque fields it's the ONLY
-        // visual indicator of where the field is, which is exactly
-        // the user's request.
+        // Give transparent / opaque fields a faint outline so the
+        // user can see where they are on the canvas. Styles that
+        // already paint their own border (rectangle, shadow,
+        // scrolling) are skipped — otherwise the gray separator
+        // color would overwrite the rectangle style's black border.
         if part.visible {
-            ctx.setStrokeColor(NSColor.separatorColor.cgColor)
-            ctx.setLineWidth(1)
-            ctx.stroke(rect)
+            switch part.fieldStyle {
+            case .transparent, .opaque:
+                ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+                ctx.setLineWidth(1)
+                ctx.stroke(rect)
+            case .rectangle, .shadow, .scrolling:
+                break
+            }
         }
 
         // Draw text content

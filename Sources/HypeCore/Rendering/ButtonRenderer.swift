@@ -45,26 +45,62 @@ public enum ButtonRenderer {
             ctx.strokePath()
 
         case .shadow:
-            let shadowRect = rect.offsetBy(dx: 2, dy: -2)
+            // Shadow sits to the top-right in the resting state and
+            // snaps to the bottom-left while the button is pressed
+            // (hilite == true). The flipped (top-left-origin) CGContext
+            // means negative dy is "up" and positive dy is "down".
+            // The fill rect itself also shifts so the pressed button
+            // visually depresses into its own shadow.
+            let shadowOffset: CGFloat = 2
+            let shadowDx: CGFloat = part.hilite ? -shadowOffset : shadowOffset
+            let shadowDy: CGFloat = part.hilite ? shadowOffset : -shadowOffset
+            let faceDx: CGFloat = part.hilite ? shadowOffset : 0
+            let faceDy: CGFloat = part.hilite ? -shadowOffset : 0
+            let shadowRect = rect.offsetBy(dx: shadowDx, dy: shadowDy)
+            let faceRect = rect.offsetBy(dx: faceDx, dy: faceDy)
             ctx.setFillColor(NSColor.shadowColor.withAlphaComponent(0.3).cgColor)
             ctx.fill(shadowRect)
             ctx.setFillColor(fillColor)
-            ctx.fill(rect)
+            ctx.fill(faceRect)
             ctx.setStrokeColor(NSColor.separatorColor.cgColor)
-            ctx.stroke(rect)
+            ctx.stroke(faceRect)
+            // Label follows the face so the button visually "presses
+            // into" its shadow. Shared fall-through label would use
+            // the original rect and appear to float off the face.
+            let label = part.showName ? part.name : part.textContent
+            if !label.isEmpty {
+                let align: LabelAlignment = part.textAlign == .left ? .left :
+                    part.textAlign == .right ? .right : .center
+                drawLabel(
+                    ctx: ctx,
+                    text: label,
+                    at: CGPoint(x: faceRect.midX, y: faceRect.midY),
+                    font: part.textFont,
+                    size: part.textSize,
+                    color: textColor,
+                    align: align
+                )
+            }
+            ctx.restoreGState()
+            return
 
         case .checkBox:
+            // Always draw a clearly visible rectangle where the check
+            // belongs — even in the unchecked state — so users can
+            // see exactly where the click target is and what the
+            // checkbox style looks like at rest. The box is a 16x16
+            // square with a 1px black stroke and a white fill.
             let boxSize: CGFloat = 16
             let boxY = rect.midY - boxSize / 2
             let boxRect = CGRect(x: rect.minX + 4, y: boxY, width: boxSize, height: boxSize)
-            let boxPath = CGPath(roundedRect: boxRect, cornerWidth: 3, cornerHeight: 3, transform: nil)
-            ctx.addPath(boxPath)
             ctx.setFillColor(NSColor.white.cgColor)
-            ctx.fillPath()
-            ctx.addPath(boxPath)
-            ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+            ctx.fill(boxRect)
+            ctx.setStrokeColor(NSColor.black.cgColor)
             ctx.setLineWidth(1)
-            ctx.strokePath()
+            ctx.stroke(boxRect)
+            // When checked (hilite), draw a checkmark V-shape inside
+            // the box. The outer rectangle remains visible; the check
+            // sits on top of it.
             if part.hilite {
                 ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
                 ctx.setLineWidth(2)

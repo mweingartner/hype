@@ -124,7 +124,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.textSize = 14
         self.textStyle = "plain"
         self.textAlign = (partType == .field) ? .left : .center
-        self.buttonStyle = .roundRect
+        self.buttonStyle = .default
         self.showName = true
         self.iconId = nil
         self.family = 0
