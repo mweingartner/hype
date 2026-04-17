@@ -399,6 +399,8 @@ public actor SceneAuthoringAssistant {
                 Include a clear checklist so the editor can walk the user through the remaining setup work.
                 Do not use sceneScript or node scripts to fake movement, bouncing, gravity, or collisions when SpriteKit physics can express the behavior.
                 For a bouncing object inside a sprite area, create a dynamic body with high restitution, a starting velocity, and static bounds or wall nodes.
+
+                \(Self.hypeTalkScriptLanguageRules)
                 """
             ),
             OllamaMessage(role: "user", content: prompt)
@@ -423,6 +425,57 @@ public actor SceneAuthoringAssistant {
         )
         return Self.normalizeCreateProposal(proposal, for: userRequest)
     }
+
+    /// Shared language block injected into every scene-authoring
+    /// system prompt. Models trained on SpriteKit with JavaScript
+    /// bindings, Swift SpriteKit, or Cocos2D routinely emit
+    /// JavaScript / Swift code into `script` fields because their
+    /// training data associates "SpriteKit scene" with those
+    /// languages. This block asserts unambiguously that scripts are
+    /// HypeTalk, shows what valid HypeTalk looks like, and calls
+    /// out the specific non-HypeTalk tokens we refuse to accept.
+    /// It's deliberately short — a full guide would eat context
+    /// budget — but long enough to steer the model.
+    static let hypeTalkScriptLanguageRules: String = """
+    SCRIPT LANGUAGE — READ THIS BEFORE WRITING ANY script / sceneScript FIELD:
+
+    Every `script` or `sceneScript` field in this schema MUST be valid HypeTalk. \
+    HypeTalk is an English-like, HyperCard-descended scripting language. \
+    It is NOT JavaScript, NOT Swift, NOT Objective-C, NOT TypeScript, NOT Lua, \
+    NOT Python. If you aren't sure, leave the field empty ("") — a blank \
+    script is always better than a wrong-language script.
+
+    Every HypeTalk script is a sequence of handler blocks:
+        on <handlerName> [paramNames]
+            <statements>
+        end <handlerName>
+    Common handlers: mouseUp, mouseDown, openCard, closeCard, idle, \
+    keyDown, keyUp, beginContact, endContact.
+
+    Statement forms are English-like:
+        put "Hello" into field "greeting"
+        set the loc of sprite "ball" to "300,200"
+        go next
+        add 1 to counter
+        if the name of me is "player" then answer "Hi"
+        repeat with i from 1 to 10 ... end repeat
+
+    Variables do NOT require declaration — just use them. Use `global name` \
+    inside a handler to share across handlers.
+
+    FORBIDDEN TOKENS (if any of these appear in a script field, Hype will reject the whole script):
+        var x = 1            — no `var` / `let` / `const` keyword
+        function() { ... }   — no JavaScript `function(` syntax, no `{` `}` blocks
+        self.childNode(...)  — no `self.`
+        SKAction / SKNode / SKPhysicsBody / SKSpriteNode — (Swift SpriteKit API, not HypeTalk)
+        (x) => { ... }       — no arrow functions
+        ;                    — no semicolons at end of statements
+        addEventListener / onKeyDown = function(...)  — not HypeTalk event wiring
+
+    If the user asked for keyboard input, use an `on keyDown` handler and read \
+    `the key` (HypeTalk's keyDown event variable). For collisions, use an \
+    `on beginContact` handler. Keep every handler short — 3–10 statements max.
+    """
 
     /// Override `areaName` / `sceneName` when the user prompt explicitly
     /// names an existing sprite area or scene. Prevents the model-level
@@ -498,6 +551,8 @@ public actor SceneAuthoringAssistant {
                 Treat sprite-area requests as scene and node authoring, not generic part scripting.
                 Do not use sceneUpdates.script or node script changes to fake movement, bouncing, gravity, collisions, or staying inside bounds when SpriteKit physics can express it.
                 If keyboard input is requested, use event handlers only to adjust velocity, forces, or actions on SpriteKit nodes.
+
+                \(Self.hypeTalkScriptLanguageRules)
                 """
             ),
             OllamaMessage(role: "user", content: prompt)
@@ -554,6 +609,29 @@ public actor SceneAuthoringAssistant {
 
     static func normalizeCreateProposal(_ proposal: SceneCreateProposal, for userRequest: String) -> SceneCreateProposal {
         var normalized = proposal
+
+        // First pass: sanitize every script field so no non-HypeTalk
+        // code ever lands in the document. Runs regardless of the
+        // physics-bounce path because the bug (JS emitted into
+        // node.script / sceneScript) can happen on any request, not
+        // just bouncing ones.
+        var wrongLanguageCount = 0
+        if let clean = sanitizedHypeTalkScript(normalized.scene.sceneScript) {
+            if clean != normalized.scene.sceneScript { wrongLanguageCount += 1 }
+            normalized.scene.sceneScript = clean
+        }
+        for index in normalized.scene.nodes.indices {
+            if let original = normalized.scene.nodes[index].script,
+               let clean = sanitizedHypeTalkScript(original),
+               clean != original {
+                normalized.scene.nodes[index].script = clean
+                wrongLanguageCount += 1
+            }
+        }
+        if wrongLanguageCount > 0 {
+            addWrongLanguageWarning(to: &normalized, count: wrongLanguageCount)
+        }
+
         let wantsPhysicsBounce = wantsPhysicsBounce(for: userRequest)
 
         guard wantsPhysicsBounce else { return normalized }
@@ -596,6 +674,46 @@ public actor SceneAuthoringAssistant {
         currentScene: SceneSpec
     ) -> SceneRepairProposal {
         var normalized = proposal
+
+        // First pass: sanitize every script field in the diff so no
+        // non-HypeTalk code sneaks into the document via repair.
+        var wrongLanguageCount = 0
+        if var sceneUpdates = normalized.diff.sceneUpdates,
+           let existingScript = sceneUpdates.script,
+           let clean = sanitizedHypeTalkScript(existingScript),
+           clean != existingScript {
+            sceneUpdates.script = clean
+            normalized.diff.sceneUpdates = sceneUpdates
+            wrongLanguageCount += 1
+        }
+        if var addNodes = normalized.diff.addNodes {
+            for index in addNodes.indices {
+                if let clean = sanitizedHypeTalkScript(addNodes[index].script),
+                   clean != addNodes[index].script {
+                    addNodes[index].script = clean
+                    wrongLanguageCount += 1
+                }
+            }
+            normalized.diff.addNodes = addNodes
+        }
+        if var updateNodes = normalized.diff.updateNodes {
+            for index in updateNodes.indices {
+                if let scriptValue = updateNodes[index].properties["script"],
+                   let clean = sanitizedHypeTalkScript(scriptValue),
+                   clean != scriptValue {
+                    updateNodes[index].properties["script"] = clean
+                    wrongLanguageCount += 1
+                }
+            }
+            normalized.diff.updateNodes = updateNodes
+        }
+        if wrongLanguageCount > 0 {
+            let note = "Hype stripped \(wrongLanguageCount) non-HypeTalk script field\(wrongLanguageCount == 1 ? "" : "s") from the plan (JavaScript/Swift code isn't valid in HypeTalk)."
+            if !normalized.summary.contains("non-HypeTalk") {
+                normalized.summary = normalized.summary.isEmpty ? note : (normalized.summary + " " + note)
+            }
+        }
+
         guard wantsPhysicsBounce(for: userRequest) else { return normalized }
 
         var sceneUpdates = normalized.diff.sceneUpdates ?? SceneUpdate()
@@ -632,6 +750,134 @@ public actor SceneAuthoringAssistant {
         let lower = script.lowercased()
         return (lower.contains("on idle") || lower.contains("on frameupdate")) &&
             (lower.contains("set the loc of sprite") || lower.contains("add dx to") || lower.contains("add dy to"))
+    }
+
+    /// Best-effort detector for "this script looks like JavaScript /
+    /// Swift / Objective-C, not HypeTalk." Local models sometimes
+    /// emit wrong-language content even with a corrective system
+    /// prompt — this gives us a server-side safety net.
+    ///
+    /// Returns `true` when any token strongly suggests a different
+    /// language AND the script doesn't also look like HypeTalk
+    /// (e.g. it doesn't have an `on … end …` handler block). The
+    /// combination avoids false positives on HypeTalk that happens
+    /// to contain the word "var" in a string literal.
+    static func looksLikeNonHypeTalkScript(_ script: String) -> Bool {
+        let trimmed = script.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let lower = trimmed.lowercased()
+
+        // Hard signals — these tokens don't exist in HypeTalk at all
+        // and are extremely common in JS / Swift / Obj-C scene code.
+        let hardSignals: [String] = [
+            "function(", "function (",
+            "=>",
+            "self.",
+            "this.",
+            "skphysicsbody", "sknode", "skaction", "skspritenode", "sklabelnode",
+            "skshapenode", "skscene", "skfield",
+            "addeventlistener",
+            "document.", "window.",
+            "node.physicsbody", "node.childnode",
+            "edgeloopfrom:", "edgeloopfrom(",
+            "childnodewithname(",
+            "enumeratechildrenwithnodepattern(",
+            "categorybitmask",
+            "@objc", "nonisolated",
+            "console.log(", "print(",
+            ".tolowercase()", ".touppercase()",
+            "];",  // array close + statement-end, very non-HypeTalk
+        ]
+        // Soft signals — one of these alone isn't enough because it
+        // can occur in HypeTalk identifier names or string literals,
+        // but combined with another signal they confirm non-HypeTalk.
+        let softSignals: [String] = [
+            "var ", "let ", "const ",
+            ".foreach(", ".map(", ".filter(",
+            "return ",
+            ";",   // statement terminator
+            "{ ",  // open block with space
+            " }",  // close block with space
+        ]
+
+        let hardHits = hardSignals.filter { lower.contains($0) }.count
+        let softHits = softSignals.filter { lower.contains($0) }.count
+
+        // Any hard signal is enough. A mere soft-signal accumulation
+        // needs at least 3 distinct hits to fire, so HypeTalk with a
+        // stray `return` or a comment containing `{` doesn't false-
+        // positive.
+        let probablyNonHypeTalk = hardHits >= 1 || softHits >= 3
+
+        guard probablyNonHypeTalk else { return false }
+
+        // Rescue clause: if the script contains a real HypeTalk
+        // handler block (e.g. `on mouseUp ... end mouseUp`), trust
+        // it. Otherwise the detector fires.
+        if containsHypeTalkHandler(lower) { return false }
+        return true
+    }
+
+    /// True when the string contains at least one HypeTalk handler
+    /// block opening (`on <name>` or `function <name>` — the second
+    /// form is HypeTalk's user-defined-function keyword, distinct
+    /// from JavaScript's `function(` which has a parenthesis right
+    /// after).
+    private static func containsHypeTalkHandler(_ lower: String) -> Bool {
+        // "on <ident>" at the start of a line, followed somewhere
+        // by "end <ident>". A bit fuzzy — intentionally so, because
+        // partial decoding leaves half-valid blocks sometimes.
+        if let onRange = lower.range(of: #"(^|\n)\s*on\s+[a-z]"#, options: .regularExpression),
+           lower.range(of: #"(^|\n)\s*end\s+[a-z]"#, options: .regularExpression, range: onRange.upperBound..<lower.endIndex) != nil {
+            return true
+        }
+        // "function <ident>" with at least one space before the
+        // parenthesis, or no parenthesis at all — HypeTalk's user
+        // function keyword. JavaScript's `function foo()` also
+        // matches but is rare in AI-generated scene code; when it
+        // does appear, other hard signals (self. / => / ;) almost
+        // always accompany it and trigger the hard path.
+        if lower.range(of: #"(^|\n)\s*function\s+[a-z]"#, options: .regularExpression) != nil {
+            return true
+        }
+        return false
+    }
+
+    /// If `script` looks like non-HypeTalk code, return a
+    /// placeholder comment explaining why. Otherwise return the
+    /// original string untouched. The callback lets the normalizer
+    /// count sanitizations so the proposal summary can flag them.
+    static func sanitizedHypeTalkScript(_ script: String) -> String? {
+        guard !script.isEmpty else { return script }
+        if looksLikeNonHypeTalkScript(script) {
+            return "-- TODO: rewrite this handler in HypeTalk\n-- (the AI emitted non-HypeTalk code here, which Hype removed for safety)\n"
+        }
+        return script
+    }
+
+    /// Append a checklist entry that tells the user their plan had
+    /// non-HypeTalk script fields that were stripped, so they know
+    /// to refill those fields themselves.
+    private static func addWrongLanguageWarning(
+        to proposal: inout SceneCreateProposal,
+        count: Int
+    ) {
+        let detail = "Hype stripped \(count) non-HypeTalk script field\(count == 1 ? "" : "s") from the plan (the model emitted JavaScript / Swift / etc. by mistake). Open each affected node's script and rewrite in HypeTalk — use `on mouseUp / end mouseUp` style handlers."
+        if !proposal.checklist.contains(where: { $0.key == "hypetalk-scripts" }) {
+            proposal.checklist.append(
+                SceneChecklistItem(
+                    key: "hypetalk-scripts",
+                    title: "Rewrite scripts in HypeTalk",
+                    status: .missing,
+                    detail: detail
+                )
+            )
+        }
+        if !proposal.summary.contains("non-HypeTalk") {
+            proposal.summary = proposal.summary.isEmpty
+                ? detail
+                : proposal.summary + " " + detail
+        }
     }
 
     private static func containsFrameDrivenSceneScript(_ script: String?) -> Bool {
