@@ -1,5 +1,87 @@
 import Foundation
 
+// MARK: - Asset Provenance Types
+
+/// The origin of a sprite asset — how it arrived in the repository.
+public enum AssetOrigin: String, Codable, Sendable {
+    case userImport      // From local disk, drag-drop, Finder.
+    case webSearch       // Downloaded via the AI web-asset pipeline.
+    case aiGenerated     // Reserved; unused in v1.
+}
+
+/// License information for an asset, sourced from the provider's metadata.
+public struct AssetLicense: Codable, Sendable, Equatable {
+    public var name: String        // "CC0", "CC-BY-4.0", "Pexels License", "Unknown".
+    public var identifier: String  // "cc-by-4.0", "cc0-1.0", "pexels", "public-domain".
+    public var url: String         // Canonical URL; may be empty.
+    public var isShareable: Bool   // Informational only.
+
+    public init(
+        name: String = "",
+        identifier: String = "",
+        url: String = "",
+        isShareable: Bool = false
+    ) {
+        self.name = name
+        self.identifier = identifier
+        self.url = url
+        self.isShareable = isShareable
+    }
+}
+
+/// Attribution metadata for an asset — who made it and where it came from.
+public struct AssetAttribution: Codable, Sendable, Equatable {
+    public var creator: String
+    public var title: String
+    public var sourceURL: String
+    public var downloadURL: String
+    public var providerName: String
+    public var providerIdentifier: String
+
+    public init(
+        creator: String = "",
+        title: String = "",
+        sourceURL: String = "",
+        downloadURL: String = "",
+        providerName: String = "",
+        providerIdentifier: String = ""
+    ) {
+        self.creator = creator
+        self.title = title
+        self.sourceURL = sourceURL
+        self.downloadURL = downloadURL
+        self.providerName = providerName
+        self.providerIdentifier = providerIdentifier
+    }
+}
+
+/// Full provenance record for a web-search asset, stored inside `SpriteAsset`.
+public struct AssetProvenance: Codable, Sendable, Equatable {
+    public var origin: AssetOrigin
+    /// The user's or AI's original search query. Preserved for internal
+    /// provenance/debugging ONLY. It is NEVER written into Stack.script.
+    public var searchQuery: String
+    public var license: AssetLicense
+    public var attribution: AssetAttribution
+    public var importedAt: Date
+
+    public init(
+        origin: AssetOrigin,
+        searchQuery: String = "",
+        license: AssetLicense = AssetLicense(),
+        attribution: AssetAttribution = AssetAttribution(),
+        importedAt: Date = Date()
+    ) {
+        self.origin = origin
+        self.searchQuery = searchQuery
+        self.license = license
+        self.attribution = attribution
+        self.importedAt = importedAt
+    }
+}
+
+// MARK: - Asset Kind
+
 /// The kind of asset stored in the sprite repository.
 ///
 /// `tileSet` was added 2026-04-09 for first-class SpriteKit tile map
@@ -103,6 +185,13 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
     /// addressable range when setting per-cell tiles.
     public var tileRows: Int
 
+    // MARK: - Provenance (web-asset search)
+
+    /// Provenance record, present only for assets sourced from the web-asset
+    /// search pipeline. Nil for all assets imported from local disk before
+    /// the web-asset feature was introduced (backward-compatible decode).
+    public var provenance: AssetProvenance?
+
     public init(
         id: UUID = UUID(),
         name: String = "",
@@ -117,7 +206,8 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
         tileWidth: Int = 0,
         tileHeight: Int = 0,
         tileColumns: Int = 0,
-        tileRows: Int = 0
+        tileRows: Int = 0,
+        provenance: AssetProvenance? = nil
     ) {
         self.id = id
         self.name = name
@@ -133,6 +223,7 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
         self.tileHeight = tileHeight
         self.tileColumns = tileColumns
         self.tileRows = tileRows
+        self.provenance = provenance
     }
 
     // MARK: - Backward-compatible decoding
@@ -140,6 +231,7 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, name, kind, mimeType, data, width, height, tags, slices, animationClips
         case tileWidth, tileHeight, tileColumns, tileRows
+        case provenance
     }
 
     public init(from decoder: Decoder) throws {
@@ -161,6 +253,8 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
         tileHeight = try container.decodeIfPresent(Int.self, forKey: .tileHeight) ?? 0
         tileColumns = try container.decodeIfPresent(Int.self, forKey: .tileColumns) ?? 0
         tileRows = try container.decodeIfPresent(Int.self, forKey: .tileRows) ?? 0
+        // Provenance: nil for all pre-web-asset documents (backward-compatible).
+        provenance = try container.decodeIfPresent(AssetProvenance.self, forKey: .provenance)
     }
 
     /// True when this asset is a tileset with enough metadata to

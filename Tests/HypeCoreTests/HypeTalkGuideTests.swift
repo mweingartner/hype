@@ -201,11 +201,14 @@ struct HypeTalkGuideTests {
         let text = HypeTalkGuide.llmContext
         // The button-navigates pattern — the smallest working handler.
         #expect(text.contains("go next"))
-        // An idle handler that moves a sprite — teaches the pattern of
-        // reading loc, splitting into items, mutating, and writing back.
+        // The guide should demonstrate an idle handler as the pattern
+        // for custom state / counters (the prior `item 1/2 of pos`
+        // example was replaced in commit be88b19 with a `pulse` counter
+        // that avoids steering the AI toward script-driven motion when
+        // native physics should be used instead — see the explicit
+        // "prefer native physics, do not simulate with on idle" rule
+        // later in the guide).
         #expect(text.contains("on idle"))
-        #expect(text.contains("item 1 of pos"))
-        #expect(text.contains("item 2 of pos"))
         // Collision scoring pattern.
         #expect(text.contains("on beginContact"))
     }

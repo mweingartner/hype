@@ -341,6 +341,69 @@ public struct HypeToolDefinitions {
         return allowed.contains($0.function.name)
     }
 
+    // MARK: - Web Asset Search Tools
+
+    /// The three web-asset search / import tools. Kept separate so they can
+    /// be conditionally added to any tool list via `withWebAssetTools(_:enabled:)`.
+    public static let webAssetTools: [OllamaTool] = [
+        makeTool(
+            name: "search_web_for_sprite",
+            description: """
+                Search a licensed image provider (Openverse, Wikimedia Commons, or Pexels) \
+                for a sprite asset matching a keyword query. Returns a list of candidate_id \
+                strings with metadata (title, dimensions, license). Candidates are only valid \
+                for the current chat session. Call import_web_asset to download and install one.
+                """,
+            params: [
+                "query":       ("string", "Keyword query describing the desired image", true),
+                "max_results": ("string", "Maximum results to return (1-20, default 8)", false),
+            ]
+        ),
+        makeTool(
+            name: "import_web_asset",
+            description: """
+                Download and install a web-asset candidate (from a prior search_web_for_sprite \
+                call) into the stack's Sprite Repository. The asset_name is used as the asset's \
+                display name — use short ASCII names like "dragon" or "background_sky". \
+                Attribution is automatically added to the stack script.
+                """,
+            params: [
+                "candidate_id": ("string", "candidate_id from a prior search_web_for_sprite result", true),
+                "asset_name":   ("string", "Display name for the imported asset (ASCII, 1-128 chars)", true),
+            ]
+        ),
+        makeTool(
+            name: "find_and_import_sprite",
+            description: """
+                Convenience: search for an image, pick the first result, and import it — \
+                all in one step. Use this when you know what you want and don't need to \
+                inspect candidates first. The asset_name is used as the display name in the \
+                repository. Attribution is added automatically.
+                """,
+            params: [
+                "query":      ("string", "Keyword query describing the desired image", true),
+                "asset_name": ("string", "Display name for the imported asset (ASCII, 1-128 chars)", true),
+            ]
+        ),
+    ]
+
+    /// Return a copy of `base` with the web-asset tools appended when `enabled` is true.
+    ///
+    /// This is the canonical gate between the stack's `webAssetsAllowed` flag and
+    /// the model's available tool schema. When the stack has web assets disabled,
+    /// the tools are simply absent from the list — the model cannot even see them.
+    ///
+    /// - Parameters:
+    ///   - base: The existing tool list (e.g. `authoringTools` or `spriteSceneAuthoringTools`).
+    ///   - enabled: Whether `Stack.webAssetsAllowed` is true for the current document.
+    /// - Returns: `base` unchanged when `enabled` is false; `base + webAssetTools` otherwise.
+    public static func withWebAssetTools(_ base: [OllamaTool], enabled: Bool) -> [OllamaTool] {
+        guard enabled else { return base }
+        return base + webAssetTools
+    }
+
+    // MARK: - Tool builder
+
     /// Build an OllamaTool from a name, description, and parameter map.
     /// Each parameter entry is: name -> (type, description, required).
     private static func makeTool(

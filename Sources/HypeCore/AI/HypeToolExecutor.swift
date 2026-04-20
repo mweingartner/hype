@@ -6,7 +6,40 @@ import AppKit
 /// Executes AI tool calls against a HypeDocument.
 public struct HypeToolExecutor: Sendable {
 
-    public init() {}
+    // MARK: - Web-asset dependencies (all optional; nil = feature not wired)
+
+    /// The per-chat-panel web-asset session. Holds candidate cache and per-turn soft cap.
+    public let webAssetSession: WebAssetSession?
+    /// The active web-asset search client for the selected provider.
+    public let webAssetClient: (any WebAssetSearchClient)?
+    /// The download + validation pipeline.
+    public let webAssetPipeline: WebAssetImportPipeline?
+
+    // MARK: - Initializers
+
+    /// Zero-arg initializer that keeps ALL existing call sites source-compatible.
+    /// Web-asset features are disabled when called this way.
+    public init() {
+        self.webAssetSession = nil
+        self.webAssetClient = nil
+        self.webAssetPipeline = nil
+    }
+
+    /// Full initializer with web-asset dependencies wired in.
+    ///
+    /// - Parameters:
+    ///   - webAssetSession: A `WebAssetSession` actor for candidate caching and soft-cap tracking.
+    ///   - webAssetClient:  A `WebAssetSearchClient` for the active provider.
+    ///   - webAssetPipeline: A `WebAssetImportPipeline` for download + validation.
+    public init(
+        webAssetSession: WebAssetSession?,
+        webAssetClient: (any WebAssetSearchClient)?,
+        webAssetPipeline: WebAssetImportPipeline?
+    ) {
+        self.webAssetSession = webAssetSession
+        self.webAssetClient = webAssetClient
+        self.webAssetPipeline = webAssetPipeline
+    }
 
     /// Heuristic: does the given asset name contain a substring
     /// commonly used in tile-set art assets? Used by the import
@@ -1087,8 +1120,251 @@ public struct HypeToolExecutor: Sendable {
             }
             return "Diagnostics for '\(areaName)':\n" + lines.joined(separator: "\n")
 
+        // MARK: - Web Asset Search Tools
+
+        case "search_web_for_sprite":
+            // Gate 0: per-turn soft cap
+            guard let session = webAssetSession else {
+                return "Web asset search is off for this stack. Ask the user to enable it in Preferences → Web Asset Search → Current Stack."
+            }
+            let capAllowed = await session.shouldAllowDispatch()
+            guard capAllowed else {
+                return "Safety limit reached: too many web asset operations in one turn. Start a new message to continue."
+            }
+            // Gate 1: webAssetsAllowed
+            guard document.stack.webAssetsAllowed else {
+                return "Web asset search is off for this stack. Ask the user to enable it in Preferences → Web Asset Search → Current Stack."
+            }
+            // Gate 2: wired dependencies
+            guard let client = webAssetClient else {
+                return "search_web_for_sprite not configured: no search client available."
+            }
+
+            let query = arguments["query"] ?? ""
+            guard !query.trimmingCharacters(in: .whitespaces).isEmpty else {
+                return "search_web_for_sprite requires 'query'."
+            }
+            let maxResults = min(max(Int(arguments["max_results"] ?? "8") ?? 8, 1), 20)
+
+            do {
+                let results = try await client.search(WebAssetSearchQuery(query: query, maxResults: maxResults))
+                _ = await session.recordSearch(query: query, results: results)
+                if results.isEmpty {
+                    return "No \(client.provider.displayName) results for \"\(query)\"."
+                }
+                let lines = results.map { r in
+                    let w = r.width ?? 0; let h = r.height ?? 0
+                    let lic = r.license.name.isEmpty ? "unknown" : r.license.name
+                    return "candidate_id=\(r.id) provider=\(r.providerRaw.rawValue) title=\"\(r.title)\" size=\(w)x\(h) license=\(lic) url=\(r.downloadURL.absoluteString)"
+                }
+                return "Found \(results.count) candidate(s) from \(client.provider.displayName):\n" + lines.joined(separator: "\n")
+            } catch let error as WebAssetSearchError {
+                return formatWebAssetError(error, context: "search_web_for_sprite", phase: .search)
+            } catch {
+                return "search_web_for_sprite network error (transport failure)"
+            }
+
+        case "import_web_asset":
+            // Gate 0: per-turn soft cap
+            guard let session = webAssetSession else {
+                return "Web asset search is off for this stack. Ask the user to enable it in Preferences → Web Asset Search → Current Stack."
+            }
+            let capAllowed2 = await session.shouldAllowDispatch()
+            guard capAllowed2 else {
+                return "Safety limit reached: too many web asset operations in one turn. Start a new message to continue."
+            }
+            // Gate 1: webAssetsAllowed
+            guard document.stack.webAssetsAllowed else {
+                return "Web asset search is off for this stack. Ask the user to enable it in Preferences → Web Asset Search → Current Stack."
+            }
+            // Gate 2: wired dependencies
+            guard let client = webAssetClient, let pipeline = webAssetPipeline else {
+                return "import_web_asset not configured: no search client or pipeline available."
+            }
+
+            let candidateId = arguments["candidate_id"] ?? ""
+            let rawName = arguments["asset_name"] ?? ""
+            guard !candidateId.isEmpty, !rawName.isEmpty else {
+                return "import_web_asset requires 'candidate_id' and 'asset_name'."
+            }
+            // Gate 3: asset_name sanitization (Finding 8)
+            guard let cleanedName = sanitizeAssetName(rawName) else {
+                return "asset_name '\(rawName)' is invalid — use 1-128 characters, letters / digits / _ / - / . / space only"
+            }
+            guard let candidate = await session.candidate(id: candidateId) else {
+                return "Unknown candidate_id '\(candidateId)'. Call search_web_for_sprite first; candidate ids only live for the current chat session."
+            }
+            let searchQuery = await session.queryForCandidate(id: candidateId) ?? ""
+
+            do {
+                let download = try await pipeline.fetch(candidate)
+                let asset = WebAssetImportPipeline.makeSpriteAsset(
+                    name: cleanedName,
+                    searchQuery: searchQuery,
+                    download: download
+                )
+                document.spriteRepository.addAsset(asset)
+                let webAssets = document.spriteRepository.assets.filter { $0.provenance?.origin == .webSearch }
+                document.stack.script = StackScriptAttributionSync.sync(
+                    stackScript: document.stack.script,
+                    webAssets: webAssets
+                )
+                return "Imported '\(cleanedName)' (\(download.width)x\(download.height), \(download.bytes.count) bytes) from \(candidate.providerRaw.displayName)."
+            } catch let error as WebAssetSearchError {
+                return formatWebAssetError(error, context: "import_web_asset", phase: .download)
+            } catch {
+                return "import_web_asset network error (transport failure)"
+            }
+
+        case "find_and_import_sprite":
+            // Gate 0: per-turn soft cap
+            guard let session = webAssetSession else {
+                return "Web asset search is off for this stack. Ask the user to enable it in Preferences → Web Asset Search → Current Stack."
+            }
+            let capAllowed3 = await session.shouldAllowDispatch()
+            guard capAllowed3 else {
+                return "Safety limit reached: too many web asset operations in one turn. Start a new message to continue."
+            }
+            // Gate 1: webAssetsAllowed
+            guard document.stack.webAssetsAllowed else {
+                return "Web asset search is off for this stack. Ask the user to enable it in Preferences → Web Asset Search → Current Stack."
+            }
+            // Gate 2: wired dependencies
+            guard let client = webAssetClient, let pipeline = webAssetPipeline else {
+                return "find_and_import_sprite not configured: no search client or pipeline available."
+            }
+
+            let fQuery = arguments["query"] ?? ""
+            let rawName3 = arguments["asset_name"] ?? ""
+            guard !fQuery.isEmpty, !rawName3.isEmpty else {
+                return "find_and_import_sprite requires 'query' and 'asset_name'."
+            }
+            // Gate 3: asset_name sanitization (Finding 8)
+            guard let cleanedName3 = sanitizeAssetName(rawName3) else {
+                return "asset_name '\(rawName3)' is invalid — use 1-128 characters, letters / digits / _ / - / . / space only"
+            }
+
+            do {
+                let results = try await client.search(WebAssetSearchQuery(query: fQuery, maxResults: 8))
+                _ = await session.recordSearch(query: fQuery, results: results)
+                guard let first = results.first else {
+                    return "No \(client.provider.displayName) results for \"\(fQuery)\". find_and_import_sprite did not install anything."
+                }
+                let download = try await pipeline.fetch(first)
+                let asset = WebAssetImportPipeline.makeSpriteAsset(
+                    name: cleanedName3,
+                    searchQuery: fQuery,
+                    download: download
+                )
+                document.spriteRepository.addAsset(asset)
+                let webAssets3 = document.spriteRepository.assets.filter { $0.provenance?.origin == .webSearch }
+                document.stack.script = StackScriptAttributionSync.sync(
+                    stackScript: document.stack.script,
+                    webAssets: webAssets3
+                )
+                return "Installed '\(cleanedName3)' from \(first.providerRaw.displayName) (query: \"\(fQuery)\")."
+            } catch let error as WebAssetSearchError {
+                return formatWebAssetError(error, context: "find_and_import_sprite", phase: .download)
+            } catch {
+                return "find_and_import_sprite network error (transport failure)"
+            }
+
         default:
             return "Unknown tool: \(toolName)"
+        }
+    }
+
+    // MARK: - Web Asset Helpers
+
+    /// Sanitize an AI-supplied asset name before any embedding.
+    ///
+    /// Allow-list: ASCII letters, digits, underscore, hyphen, period, space.
+    /// Uses an explicit ASCII-only `CharacterSet` — NOT `CharacterSet.alphanumerics`
+    /// which includes non-ASCII Unicode "Letter" / "Digit" scalars and would
+    /// permit homoglyph attacks (Security Finding B).
+    ///
+    /// - Parameter raw: The AI-supplied name string.
+    /// - Returns: The sanitized name, or nil if it is empty, `.`, `..`, or >128 chars.
+    private func sanitizeAssetName(_ raw: String) -> String? {
+        var cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // ASCII-only allow-list per Security Finding B.
+        let allowed = CharacterSet(
+            charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-. "
+        )
+        cleaned = String(cleaned.unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(scalar) : Character("_")
+        })
+        if cleaned.isEmpty || cleaned == "." || cleaned == ".." || cleaned.count > 128 {
+            return nil
+        }
+        return cleaned
+    }
+
+    /// Phase context for error formatting (controls whether body summary is included).
+    private enum WebAssetErrorPhase { case search, download }
+
+    /// Map a `WebAssetSearchError` to a safe, concise AI-visible string.
+    ///
+    /// Transport-level `localizedDescription` is NEVER forwarded to the AI
+    /// (Security Finding 5). `providerRejected` body summaries are trimmed to
+    /// 100 printable characters and omitted entirely for download-phase errors
+    /// (Security Finding 9).
+    private func formatWebAssetError(
+        _ error: WebAssetSearchError,
+        context: String,
+        phase: WebAssetErrorPhase
+    ) -> String {
+        switch error {
+        case .notConfigured(let msg):
+            return "\(context) not configured: \(msg)"
+
+        case .providerRejected(let body):
+            switch phase {
+            case .search:
+                // Trim to 100 printable chars; strip control characters.
+                let printable = body.unicodeScalars.filter { scalar in
+                    scalar.value >= 0x20 && scalar.value != 0x7F
+                }.map { String($0) }.joined()
+                let summary = String(printable.prefix(100))
+                // Provider name from the error context (best-effort)
+                return "\(context.replacingOccurrences(of: "_", with: " ").capitalized) rejected search: \(summary)"
+            case .download:
+                return "\(context.replacingOccurrences(of: "_", with: " ").capitalized) rejected download (HTTP error)."
+            }
+
+        case .httpOnly(let url):
+            return "Rejected \(url): only HTTPS downloads are allowed."
+
+        case .redirectBlocked(let from, let to):
+            return "Rejected \(from): redirect to \(to) blocked."
+
+        case .ssrfBlocked(let url):
+            return "Rejected \(url): network target not allowed."
+
+        case .payloadTooLarge(let url, _):
+            return "Rejected \(url): download exceeded 50 MB OOM ceiling."
+
+        case .imageTooLarge(let url, _):
+            return "Rejected \(url): decoded image exceeds 100 MP memory safety rail."
+
+        case .unsupportedMimeType(let t):
+            return "Rejected image: MIME \"\(t)\" is not a supported image format (png, jpg, webp, gif, svg)."
+
+        case .svgRejected(let why):
+            return "Rejected SVG: failed sanitization (\(why))."
+
+        case .decodeFailed(let url):
+            return "Rejected \(url): image data did not decode."
+
+        case .unknownCandidate(let id):
+            return "Unknown candidate_id '\(id)'. Call search_web_for_sprite first; candidate ids only live for the current chat session."
+
+        case .webAssetsDisabled:
+            return "Web asset search is off for this stack."
+
+        case .networkFailure:
+            // Do NOT forward localizedDescription — fixed safe string only (Finding 5).
+            return "\(context) network error (transport failure)"
         }
     }
 }

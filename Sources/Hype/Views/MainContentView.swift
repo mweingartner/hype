@@ -96,6 +96,15 @@ struct MainContentView: View {
                 document: $document,
                 selectedPartIds: $selectedPartIds
             ))
+            // Publish the focused document binding so the global
+            // Preferences window (Settings scene) can reach the
+            // current stack to read/write `webAssetsAllowed`. Without
+            // this bridge, SwiftUI's `Settings { ... }` scene has no
+            // handle on the focused `FileDocument` — the toggle
+            // would always render disabled. See `HypeApp.swift` for
+            // the FocusedValueKey declaration and the wrapper that
+            // reads this value in the Settings scene.
+            .focusedSceneValue(\.hypeCurrentDocument, $document)
     }
 
     private var mainContent: some View {

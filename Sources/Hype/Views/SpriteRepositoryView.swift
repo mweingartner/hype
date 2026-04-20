@@ -404,6 +404,46 @@ struct SpriteRepositoryView: View {
                     }
                 }
 
+                // SOURCE section — shown only for web-asset-search imports
+                if let prov = asset.provenance, prov.origin == .webSearch {
+                    Divider()
+                    Text("SOURCE").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+
+                    if !prov.attribution.creator.isEmpty {
+                        Text("By: \(prov.attribution.creator)")
+                            .font(.system(size: 11))
+                    }
+
+                    if !prov.attribution.providerName.isEmpty {
+                        Text("Via: \(prov.attribution.providerName)")
+                            .font(.system(size: 11))
+                    }
+
+                    if !prov.license.name.isEmpty {
+                        Text("License: \(prov.license.identifier.uppercased())")
+                            .font(.system(size: 11))
+                    }
+
+                    if !prov.attribution.sourceURL.isEmpty, let sourceURL = URL(string: prov.attribution.sourceURL) {
+                        Link(destination: sourceURL) {
+                            Text("Open Source Page")
+                                .font(.system(size: 11))
+                                .foregroundColor(.accentColor)
+                        }
+                    }
+
+                    Button("Copy Attribution") {
+                        let creator = prov.attribution.creator.isEmpty ? "Unknown" : prov.attribution.creator
+                        let provider = prov.attribution.providerName.isEmpty ? "Unknown Provider" : prov.attribution.providerName
+                        let licenseId = prov.license.identifier.isEmpty ? "Unknown License" : prov.license.identifier.uppercased()
+                        let sourceURL = prov.attribution.sourceURL.isEmpty ? "n/a" : prov.attribution.sourceURL
+                        let text = "\"\(asset.name)\" \u{2014} by \(creator) on \(provider) \u{2014} \(licenseId) \u{2014} \(sourceURL)"
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
+                    }
+                    .font(.system(size: 10))
+                }
+
                 // Asset usage tracking
                 let usages = findAssetUsages(assetId: asset.id)
                 if !usages.isEmpty {
@@ -465,6 +505,14 @@ struct SpriteRepositoryView: View {
                     Button(role: .destructive, action: {
                         document.document.spriteRepository.removeAsset(id: asset.id)
                         selectedAssetIds.remove(asset.id)
+                        // Regenerate attribution block whenever a web-sourced asset is removed.
+                        let webAssets = document.document.spriteRepository.assets.filter {
+                            $0.provenance?.origin == .webSearch
+                        }
+                        document.document.stack.script = StackScriptAttributionSync.sync(
+                            stackScript: document.document.stack.script,
+                            webAssets: webAssets
+                        )
                     }) {
                         HStack { Image(systemName: "trash"); Text("Delete") }
                             .foregroundColor(.red)

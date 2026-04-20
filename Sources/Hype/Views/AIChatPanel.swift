@@ -16,8 +16,14 @@ struct AIChatPanel: View {
     @AppStorage("ollamaHost") private var ollamaHost = "localhost"
     @AppStorage("ollamaPort") private var ollamaPort = "11434"
     @AppStorage("ollamaModel") private var ollamaModel = "llama3.2"
+    @AppStorage("hype.webAssets.provider") private var webAssetProviderRaw = "openverse"
 
-    private let executor = HypeToolExecutor()
+    // MARK: - Web Asset Search state
+
+    /// One session per chat panel — lives for the panel's lifetime, cleared by clearChat().
+    @State private var webAssetSession = WebAssetSession()
+    /// Set to true while a web-asset search or download is in progress.
+    @State private var isSearchingWeb = false
 
     private enum PendingSceneProposal {
         case create(SceneCreateProposal)
@@ -79,7 +85,15 @@ struct AIChatPanel: View {
                             }
                             .id(idx)
                         }
-                        if isProcessing {
+                        if isSearchingWeb {
+                            HStack {
+                                ProgressView().scaleEffect(0.7)
+                                Text("Searching the web…")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                            }
+                        } else if isProcessing {
                             HStack {
                                 ProgressView().scaleEffect(0.7)
                                 Text("Thinking...")
@@ -193,6 +207,7 @@ struct AIChatPanel: View {
         messages.removeAll()
         conversationMessages.removeAll()
         pendingSceneProposal = nil
+        Task { await webAssetSession.reset() }
     }
 
     // MARK: - Bubble Color
@@ -365,6 +380,43 @@ struct AIChatPanel: View {
                 scene.nodes = buildBlueprintNodes(proposal.scene.nodes)
                 areaSpec.scenes[index].scene = scene
                 areaSpec.activeSceneID = targetSceneId
+            }
+        }
+
+        // Auto-resolve missing assets from the web when the stack has web assets enabled.
+        if document.document.stack.webAssetsAllowed {
+            let snap = proposal
+            Task {
+                isSearchingWeb = true
+                defer { isSearchingWeb = false }
+                // Reset the per-turn soft cap before dispatching asset-
+                // resolution imports. Without this, the counter from the
+                // prior `processWithTools` turn carries over and can
+                // silently skip some or all resolutions — if a user's
+                // last chat turn already used 18 web-asset calls, only
+                // 2 resolutions would succeed and the remainder would
+                // be dropped without a clear signal. `resolveMissingAssets`
+                // is a fresh user-initiated operation, so treating it as
+                // a new turn is correct. (Security Finding N-3.)
+                await webAssetSession.beginTurn()
+                let client = WebAssetSearchClientFactory.make(
+                    provider: WebAssetSearchProvider(rawValue: webAssetProviderRaw) ?? .openverse
+                )
+                let pipeline = WebAssetImportPipeline()
+                let ollamaClient = OllamaToolClient(host: ollamaHost, port: ollamaPort, model: ollamaModel)
+                let assistant = SceneAuthoringAssistant(client: ollamaClient)
+                var doc = document.document
+                let report = await assistant.resolveMissingAssets(
+                    proposal: snap,
+                    document: &doc,
+                    session: webAssetSession,
+                    client: client,
+                    pipeline: pipeline
+                )
+                document.document = doc
+                if !report.resolvedAssets.isEmpty {
+                    messages.append((role: "assistant", content: "Auto-imported \(report.resolvedAssets.count) asset(s): \(report.resolvedAssets.joined(separator: ", "))."))
+                }
             }
         }
     }
@@ -676,7 +728,25 @@ struct AIChatPanel: View {
             return
         }
 
+        // Reset the per-turn web-asset soft cap at the start of each processWithTools call.
+        await webAssetSession.beginTurn()
+
         let client = OllamaToolClient(host: ollamaHost, port: ollamaPort, model: ollamaModel)
+
+        // Build executor with web-asset dependencies when the stack has them enabled.
+        let webAssetClient: (any WebAssetSearchClient)? = document.document.stack.webAssetsAllowed
+            ? WebAssetSearchClientFactory.make(
+                provider: WebAssetSearchProvider(rawValue: webAssetProviderRaw) ?? .openverse
+              )
+            : nil
+        let webAssetPipeline: WebAssetImportPipeline? = document.document.stack.webAssetsAllowed
+            ? WebAssetImportPipeline()
+            : nil
+        let executor = HypeToolExecutor(
+            webAssetSession: document.document.stack.webAssetsAllowed ? webAssetSession : nil,
+            webAssetClient: webAssetClient,
+            webAssetPipeline: webAssetPipeline
+        )
 
         // Get current stack context
         let cardId = currentCardId ?? document.document.sortedCards.first?.id ?? UUID()
@@ -797,11 +867,16 @@ struct AIChatPanel: View {
             conversationMessages = AIPromptBudget.trimToFit(conversationMessages)
 
             do {
+                let baseTools = spriteKitRoute.prefersSceneTooling
+                    ? HypeToolDefinitions.spriteSceneAuthoringTools
+                    : HypeToolDefinitions.authoringTools
+                let tools = HypeToolDefinitions.withWebAssetTools(
+                    baseTools,
+                    enabled: document.document.stack.webAssetsAllowed
+                )
                 let response = try await client.chat(
                     messages: conversationMessages,
-                    tools: spriteKitRoute.prefersSceneTooling
-                        ? HypeToolDefinitions.spriteSceneAuthoringTools
-                        : HypeToolDefinitions.authoringTools
+                    tools: tools
                 )
 
                 if let toolCalls = response.message.tool_calls, !toolCalls.isEmpty {
@@ -814,6 +889,11 @@ struct AIChatPanel: View {
                         let toolMsg = "Tool: \(call.function.name)(\(argsDesc))"
                         messages.append((role: "tool", content: toolMsg))
 
+                        // Show searching indicator for web-asset tools.
+                        let isWebAssetTool = ["search_web_for_sprite", "import_web_asset", "find_and_import_sprite"]
+                            .contains(call.function.name)
+                        if isWebAssetTool { isSearchingWeb = true }
+
                         var doc = document.document
                         let result = await executor.execute(
                             toolName: call.function.name,
@@ -822,6 +902,8 @@ struct AIChatPanel: View {
                             currentCardId: activeCardId
                         )
                         document.document = doc
+
+                        if isWebAssetTool { isSearchingWeb = false }
 
                         if result.hasPrefix("CREATED_CARD:") {
                             let newIdStr = String(result.dropFirst(13))

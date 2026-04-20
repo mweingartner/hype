@@ -155,8 +155,64 @@ struct HypeApp: App {
         }
 
         Settings {
-            PreferencesView()
+            // Bridge the focused-document binding into PreferencesView
+            // so the "Enable for Current Stack" toggle can actually
+            // reach the front document. SwiftUI `Settings { }` is a
+            // separate scene that doesn't implicitly track the focused
+            // FileDocument — we publish the binding via
+            // `.focusedSceneValue(\.hypeCurrentDocument, $document)` in
+            // `MainContentView` and consume it here via `@FocusedValue`.
+            PreferencesSceneWrapper()
         }
+    }
+}
+
+// MARK: - FocusedValue bridge for the Settings scene
+
+/// `FocusedValueKey` that publishes the binding to the front Hype
+/// document wrapper. Used by the Settings scene to edit per-stack
+/// preferences — specifically `stack.webAssetsAllowed` — from the
+/// global Preferences window without introducing an `NSDocument`
+/// round-trip (Hype is SwiftUI-native and uses `FileDocument`).
+struct HypeCurrentDocumentKey: FocusedValueKey {
+    typealias Value = Binding<HypeDocumentWrapper>
+}
+
+extension FocusedValues {
+    /// Binding to the focused document wrapper, published from
+    /// `MainContentView` via `.focusedSceneValue(...)`. `nil` when no
+    /// document window is focused (e.g. Preferences is open with no
+    /// other window in front).
+    var hypeCurrentDocument: Binding<HypeDocumentWrapper>? {
+        get { self[HypeCurrentDocumentKey.self] }
+        set { self[HypeCurrentDocumentKey.self] = newValue }
+    }
+}
+
+/// Small wrapper that reads the focused document binding from
+/// `@FocusedValue` and hands it to `PreferencesView`. Kept separate
+/// so `PreferencesView` itself stays decoupled from the
+/// `FocusedValue` machinery and remains unit-testable with a plain
+/// `Binding<HypeDocumentWrapper?>`.
+struct PreferencesSceneWrapper: View {
+    @FocusedValue(\.hypeCurrentDocument) private var focusedDocument: Binding<HypeDocumentWrapper>?
+
+    var body: some View {
+        // Bridge `Binding<HypeDocumentWrapper>?` (focused value) into
+        // the `Binding<HypeDocumentWrapper?>` that `PreferencesView`
+        // expects. The set closure writes back through the focused
+        // binding when one is present — Finding 13's re-resolve-at-
+        // write-time guarantee falls out naturally because
+        // `@FocusedValue` re-evaluates with the current focus on
+        // every render.
+        let bridged = Binding<HypeDocumentWrapper?>(
+            get: { focusedDocument?.wrappedValue },
+            set: { newValue in
+                guard let newValue, let focusedDocument else { return }
+                focusedDocument.wrappedValue = newValue
+            }
+        )
+        PreferencesView(document: bridged)
     }
 }
 

@@ -19,6 +19,17 @@ public struct Stack: Identifiable, Codable, Sendable {
     /// only new parts pick up the default.
     public var defaultFont: String
     public var networkManifest: StackNetworkManifest
+    /// Whether the AI web-asset search feature is allowed for this stack.
+    /// Defaults to `false` for all stacks, including those created before
+    /// the web-asset feature was introduced (backward-compatible decode).
+    /// Toggle in Preferences → Web Asset Search → Current Stack.
+    public var webAssetsAllowed: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, width, height, createdAt, modifiedAt, script
+        case defaultFont, networkManifest
+        case webAssetsAllowed
+    }
 
     public init(
         id: UUID = UUID(),
@@ -29,7 +40,8 @@ public struct Stack: Identifiable, Codable, Sendable {
         modifiedAt: Date = Date(),
         script: String = "",
         defaultFont: String = "Apple Braille",
-        networkManifest: StackNetworkManifest = StackNetworkManifest()
+        networkManifest: StackNetworkManifest = StackNetworkManifest(),
+        webAssetsAllowed: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -40,6 +52,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         self.script = script
         self.defaultFont = defaultFont
         self.networkManifest = networkManifest
+        self.webAssetsAllowed = webAssetsAllowed
     }
 
     public init(from decoder: Decoder) throws {
@@ -53,5 +66,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         script = try c.decodeIfPresent(String.self, forKey: .script) ?? ""
         defaultFont = try c.decodeIfPresent(String.self, forKey: .defaultFont) ?? "Apple Braille"
         networkManifest = try c.decodeIfPresent(StackNetworkManifest.self, forKey: .networkManifest) ?? StackNetworkManifest()
+        // Backward-compatible: pre-v2 stacks have no webAssetsAllowed field.
+        webAssetsAllowed = try c.decodeIfPresent(Bool.self, forKey: .webAssetsAllowed) ?? false
     }
 }

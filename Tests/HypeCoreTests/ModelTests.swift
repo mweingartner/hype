@@ -140,7 +140,10 @@ struct ModelTests {
         #expect(part.hilite == false)
         #expect(part.textFont == "Apple Braille")
         #expect(part.textSize == 14)
-        #expect(part.buttonStyle == .roundRect)
+        // Button style default changed from .roundRect to .default in commit
+        // 0a428d9 (control cleanup pass — newly created buttons should land
+        // as the canonical AppKit push-button style by default).
+        #expect(part.buttonStyle == .default)
         #expect(part.fillColor == "#FFFFFF")
         #expect(part.strokeColor == "#000000")
     }

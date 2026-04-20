@@ -477,6 +477,21 @@ public actor SceneAuthoringAssistant {
     `on beginContact` handler. Keep every handler short — 3–10 statements max.
     """
 
+    /// Additional system-prompt text appended when the web-asset search feature
+    /// is available for the current stack. Instructs the model to use the
+    /// web-asset tools to source missing sprites from the internet.
+    static let webAssetToolsAddendum: String = """
+
+    WEB ASSET SEARCH — available for this stack:
+    You have access to three additional tools for sourcing sprites from the web:
+      • search_web_for_sprite(query, max_results) — search for a licensed image.
+      • import_web_asset(candidate_id, asset_name) — download and install a result.
+      • find_and_import_sprite(query, asset_name) — one-step search + import.
+    Use these tools when a scene plan references an asset name that is not in \
+    the Sprite Repository. Prefer short, descriptive asset_name values like \
+    "dragon" or "background_sky". Attribution is added automatically.
+    """
+
     /// Override `areaName` / `sceneName` when the user prompt explicitly
     /// names an existing sprite area or scene. Prevents the model-level
     /// confusion of scene vs. area names from targeting the wrong part.
@@ -1536,4 +1551,114 @@ public actor SceneAuthoringAssistant {
             ]
         ]
     }
+
+    // MARK: - Web Asset Resolution
+
+    /// Attempt to resolve missing sprite assets referenced in a scene proposal by
+    /// downloading them from the configured web-asset provider.
+    ///
+    /// - Parameters:
+    ///   - proposal: The scene create proposal whose nodes may reference missing assets.
+    ///   - document: The document to install assets into (mutated on success).
+    ///   - session: The web-asset session for candidate caching and soft-cap tracking.
+    ///   - client: The search client for the active provider.
+    ///   - pipeline: The import pipeline for download and validation.
+    /// - Returns: A `SceneAssetResolutionReport` describing what was resolved.
+    public func resolveMissingAssets(
+        proposal: SceneCreateProposal,
+        document: inout HypeDocument,
+        session: WebAssetSession,
+        client: any WebAssetSearchClient,
+        pipeline: WebAssetImportPipeline
+    ) async -> SceneAssetResolutionReport {
+        var report = SceneAssetResolutionReport()
+
+        // Collect all unique non-empty asset names referenced in the proposal.
+        var neededNames: [String] = []
+        for node in proposal.scene.nodes {
+            if let assetName = node.assetName,
+               !assetName.isEmpty,
+               document.spriteRepository.asset(byName: assetName) == nil,
+               !neededNames.contains(assetName) {
+                neededNames.append(assetName)
+            }
+        }
+
+        for rawName in neededNames {
+            // Sanitize the asset name before any embedding (Section 12.2).
+            guard let cleanedName = sanitizeAssetName(rawName) else {
+                report.failedAssets.append(rawName)
+                continue
+            }
+
+            // Check soft cap before each dispatch (Section 10).
+            let allowed = await session.shouldAllowDispatch()
+            guard allowed else {
+                report.softCapReached = true
+                report.skippedAssets.append(rawName)
+                continue
+            }
+
+            do {
+                let results = try await client.search(
+                    WebAssetSearchQuery(query: cleanedName, maxResults: 8)
+                )
+                _ = await session.recordSearch(query: cleanedName, results: results)
+                guard let first = results.first else {
+                    report.failedAssets.append(rawName)
+                    continue
+                }
+                let download = try await pipeline.fetch(first)
+                let asset = WebAssetImportPipeline.makeSpriteAsset(
+                    name: cleanedName,
+                    searchQuery: cleanedName,
+                    download: download
+                )
+                document.spriteRepository.addAsset(asset)
+                let webAssets = document.spriteRepository.assets.filter {
+                    $0.provenance?.origin == .webSearch
+                }
+                document.stack.script = StackScriptAttributionSync.sync(
+                    stackScript: document.stack.script,
+                    webAssets: webAssets
+                )
+                report.resolvedAssets.append(cleanedName)
+            } catch {
+                report.failedAssets.append(rawName)
+            }
+        }
+
+        return report
+    }
+
+    /// Sanitize an AI-supplied asset name. Mirrors `HypeToolExecutor.sanitizeAssetName`.
+    private func sanitizeAssetName(_ raw: String) -> String? {
+        var cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let allowed = CharacterSet(
+            charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-. "
+        )
+        cleaned = String(cleaned.unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(scalar) : Character("_")
+        })
+        if cleaned.isEmpty || cleaned == "." || cleaned == ".." || cleaned.count > 128 {
+            return nil
+        }
+        return cleaned
+    }
+}
+
+// MARK: - SceneAssetResolutionReport
+
+/// Summary of asset resolution performed by `SceneAuthoringAssistant.resolveMissingAssets`.
+public struct SceneAssetResolutionReport: Sendable {
+    /// Asset names that were successfully found and imported.
+    public var resolvedAssets: [String] = []
+    /// Asset names for which no results were found or the download failed.
+    public var failedAssets: [String] = []
+    /// Asset names skipped because the per-turn soft cap was reached.
+    public var skippedAssets: [String] = []
+    /// Whether the per-turn soft cap (`WebAssetSession.maxDispatchesPerTurn`) was hit.
+    public var softCapReached: Bool = false
+
+    public init() {}
 }
