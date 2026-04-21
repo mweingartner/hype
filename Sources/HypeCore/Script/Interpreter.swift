@@ -253,6 +253,42 @@ public struct Interpreter: Sendable {
             env.locals[paramName.lowercased()] = value
         }
 
+        // Expose first-param implicit synonyms for a handful of
+        // handler-local HypeTalk properties that the HypeTalk guide
+        // documents but that previously returned empty because the
+        // interpreter had no way to back them.
+        //
+        // Reported as "keyDown event doesn't work": the guide shows
+        //   `on keyDown / if the key is "w" then … / end keyDown`
+        // but `the key` fell through to `env.getVariable("key")`
+        // which returned empty unless the user declared a parameter
+        // called `key`. The event WAS being dispatched to the scene
+        // script with the character in `params[0]` — the script just
+        // had no way to read it without redeclaring the handler.
+        //
+        // `the key` now resolves to params[0] in `on keyDown` and
+        // `on keyUp` handlers regardless of the declared parameter
+        // list. Likewise `the otherNode` for contact handlers so
+        // scripts can write `if the otherNode is "player" then …`.
+        let handlerLower = handler.name.lowercased()
+        if (handlerLower == "keydown" || handlerLower == "keyup"),
+           !params.isEmpty {
+            // Do NOT overwrite a user's explicit `on keyDown key`
+            // param binding (which is already params[0]).
+            if env.locals["key"] == nil {
+                env.locals["key"] = params[0]
+            }
+        }
+        if (handlerLower == "begincontact" || handlerLower == "endcontact"),
+           !params.isEmpty {
+            if env.locals["othernode"] == nil {
+                env.locals["othernode"] = params[0]
+            }
+            if env.locals["contactnode"] == nil {
+                env.locals["contactnode"] = params[0]
+            }
+        }
+
         do {
             for stmt in handler.body {
                 try await executeStatement(stmt, env: &env, document: &document,
@@ -1626,6 +1662,17 @@ public struct Interpreter: Sendable {
                 }
             }
 
+        // GIF animation commands
+        case .startAnimation(let targetExpr):
+            #if canImport(AppKit)
+            try await executeStartAnimation(targetExpr: targetExpr, env: &env, document: document, context: context)
+            #endif
+
+        case .stopAnimation(let targetExpr):
+            #if canImport(AppKit)
+            try await executeStopAnimation(targetExpr: targetExpr, env: &env, document: document, context: context)
+            #endif
+
         // Phase 2: Stub commands (recognized but no-op)
         case .push, .pop, .clickAt, .doMenuCmd, .disableCmd, .enableCmd,
              .helpCmd, .debugCmd, .dialCmd, .resetCmd, .printCmd, .readCmd, .writeCmd,
@@ -1633,6 +1680,79 @@ public struct Interpreter: Sendable {
              .copyTemplate, .exportPaint, .importPaint:
             break
         }
+    }
+
+    // MARK: - GIF animation helpers
+
+    /// Resolve the image part referenced by `targetExpr` and start
+    /// its GIF animation.  Silently ignores non-image parts and
+    /// missing image data (early-return, no error per spec §15).
+    ///
+    /// Dispatches the animator call to main — see the SET case in
+    /// `applyPartPropertySet` for the full race-condition rationale
+    /// (interpreter runs on background Task; GIFAnimator's Dictionary
+    /// is also mutated by main-thread Timer.tick).
+    private func executeStartAnimation(
+        targetExpr: Expression,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async throws {
+        guard let partIndex = try await resolveImagePartIndex(targetExpr: targetExpr, env: &env, document: document, context: context) else {
+            return
+        }
+        let part = document.parts[partIndex]
+        guard let data = part.imageData else { return }
+        #if canImport(AppKit)
+        let partId = part.id
+        DispatchQueue.main.async {
+            GIFAnimator.shared.start(partId: partId, imageData: data)
+        }
+        #endif
+    }
+
+    /// Resolve the image part referenced by `targetExpr` and stop
+    /// its GIF animation.  Silently ignores non-image parts (early-return).
+    private func executeStopAnimation(
+        targetExpr: Expression,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async throws {
+        guard let partIndex = try await resolveImagePartIndex(targetExpr: targetExpr, env: &env, document: document, context: context) else {
+            return
+        }
+        let part = document.parts[partIndex]
+        #if canImport(AppKit)
+        let partId = part.id
+        DispatchQueue.main.async {
+            GIFAnimator.shared.stop(partId: partId)
+        }
+        #endif
+    }
+
+    /// Resolve a `targetExpr` to the index of an image part in
+    /// `document.parts`.  Returns `nil` for non-image parts or
+    /// unresolvable expressions (bare string, objectRef, or anything
+    /// else — all treated gracefully with no error).
+    private func resolveImagePartIndex(
+        targetExpr: Expression,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async throws -> Int? {
+        let partIndex: Int?
+        switch targetExpr {
+        case .objectRef(let ref):
+            let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+            partIndex = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId)
+        default:
+            let ident = try await evaluate(targetExpr, env: &env, document: document, context: context)
+            partIndex = findPartIndexGeneral(ident, document: document)
+        }
+        guard let idx = partIndex else { return nil }
+        guard document.parts[idx].partType == .image else { return nil }
+        return idx
     }
 
     // MARK: - Expression evaluation
@@ -1672,6 +1792,26 @@ public struct Interpreter: Sendable {
             case "ten": return "10"
             case "up": return "up"
             case "down": return "down"
+            // Well-known HyperTalk system properties accepted as
+            // bare identifiers (no `the` prefix required). Users
+            // and AI models routinely write `put mouseLoc into m`
+            // or `put ticks into t` rather than the more formal
+            // `put the mouseLoc into m`. Fall through to the
+            // property evaluator when the variable name matches one
+            // of these so the bare form produces the same value as
+            // the articled form. A user-declared local or global of
+            // the same name takes precedence (checked below via
+            // `env.globalNames` / `env.locals` lookups).
+            case "mouseloc", "mouseh", "mousev",
+                 "date", "time", "ticks", "seconds",
+                 "hoveredsprite", "spriteundermouse", "hoveredspritename":
+                if !env.locals.keys.contains(name.lowercased())
+                    && !env.globalNames.contains(name.lowercased()) {
+                    return try await evaluateProperty(
+                        name, target: nil,
+                        env: &env, document: document, context: context
+                    )
+                }
             default: break
             }
             return env.getVariable(name)
@@ -2138,6 +2278,18 @@ public struct Interpreter: Sendable {
                 return String(Int(Date().timeIntervalSince1970))
             case "mouseloc", "the mouseloc":
                 return "\(formatNumber(context.mouseX)),\(formatNumber(context.mouseY))"
+            case "hoveredsprite", "spriteundermouse", "hoveredspritename":
+                // Name of the sprite currently under the cursor in
+                // the active sprite-area scene — the correct HypeTalk
+                // idiom for "is the cursor over a specific sprite?"
+                // Replaces the pattern AI models invent
+                // (`the name of node at mouse location`), which is
+                // unparseable. Empty string when no sprite is under
+                // the cursor. Updated by the view layer's
+                // mouseWithin dispatch.
+                return await MainActor.run {
+                    SpriteSceneMouseState.shared.hoveredSprite
+                }
             case "mouseh":
                 return formatNumber(context.mouseX)
             case "mousev":
@@ -2484,9 +2636,18 @@ public struct Interpreter: Sendable {
             }
             return ""
         case "family":       return String(part.family)
+        case "animated", "animation", "animate":
+            // `animation` / `animate` are synonyms for `animated` so scripts
+            // like `set the animation of image "chick" to false` work
+            // (reported regression — users reach for `animation` because
+            // the command form is `start the animation of`). All three
+            // names read the same underlying `Part.animated` flag.
+            return part.animated ? "true" : "false"
         case "animating":
             #if canImport(AppKit)
-            return PartAnimator.shared.isAnimating(partId: part.id) ? "true" : "false"
+            let tweening = PartAnimator.shared.isAnimating(partId: part.id)
+            let gifPlaying = GIFAnimator.shared.isAnimating(partId: part.id)
+            return (tweening || gifPlaying) ? "true" : "false"
             #else
             return "false"
             #endif
@@ -3120,6 +3281,37 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].enterKeyEnabled = isTruthy(value)
         case "invertonclick":
             document.parts[partIndex].invertOnClick = isTruthy(value)
+        case "animated", "animation", "animate":
+            // `animation` / `animate` are accepted synonyms for `animated`
+            // (see matching GET case). Users reasonably reach for
+            // `animation` because the command form is
+            // `start the animation of X`.
+            let newValue = isTruthy(value)
+            document.parts[partIndex].animated = newValue
+            #if canImport(AppKit)
+            // Thread-safety: `applyPartPropertySet` runs on the
+            // interpreter's background Task, but `GIFAnimator.shared`
+            // mutates a plain Swift Dictionary that is also read and
+            // written by the main-thread Timer.tick callback. A BG
+            // write here can race with a main-thread read, producing
+            // the "toggles once then stops" symptom where `isRunning`
+            // silently flips back to its prior value as the tick
+            // overwrites our write. Dispatching to main serialises
+            // all mutation against the tick. Capture partId and data
+            // locally so the async block doesn't read from an
+            // already-mutated `document`.
+            let partId = document.parts[partIndex].id
+            let capturedData = document.parts[partIndex].imageData
+            DispatchQueue.main.async {
+                if newValue {
+                    if let data = capturedData {
+                        GIFAnimator.shared.start(partId: partId, imageData: data)
+                    }
+                } else {
+                    GIFAnimator.shared.stop(partId: partId)
+                }
+            }
+            #endif
         case "videourl", "video_url":
             document.parts[partIndex].videoURL = value
         case "popupitems", "popup_items":
@@ -3538,6 +3730,16 @@ public struct Interpreter: Sendable {
                 node.physicsBody?.velocityX = comps[0]
                 node.physicsBody?.velocityY = comps[1]
             }
+        case "velocityx", "velocity_x":
+            // Scalar X-component setter. Preserves Y. AI models and
+            // humans writing physics scripts naturally reach for
+            // `velocityX` separately from `velocityY` rather than
+            // composing a "x,y" string — support both forms.
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.velocityX = toNumber(value)
+        case "velocityy", "velocity_y":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.velocityY = toNumber(value)
         case "angularvelocity":
             if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
             node.physicsBody?.angularVelocity = toNumber(value)
@@ -3637,6 +3839,10 @@ public struct Interpreter: Sendable {
             let vx = node.physicsBody?.velocityX ?? 0
             let vy = node.physicsBody?.velocityY ?? 0
             return "\(formatNumber(vx)),\(formatNumber(vy))"
+        case "velocityx", "velocity_x":
+            return formatNumber(node.physicsBody?.velocityX ?? 0)
+        case "velocityy", "velocity_y":
+            return formatNumber(node.physicsBody?.velocityY ?? 0)
         case "angularvelocity": return formatNumber(node.physicsBody?.angularVelocity ?? 0)
         case "density": return formatNumber(node.physicsBody?.density ?? 1)
         case "lineardamping", "damping": return formatNumber(node.physicsBody?.linearDamping ?? 0.1)

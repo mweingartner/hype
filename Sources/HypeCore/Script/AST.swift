@@ -220,6 +220,8 @@ public indirect enum Statement: Sendable {
     case runCmd(Expression)                                      // run
     case startUsing(Expression)                                  // start using stack
     case stopUsing(Expression)                                   // stop using stack
+    case startAnimation(Expression)                              // start the animation of image "foo"
+    case stopAnimation(Expression)                               // stop the animation of image "foo"
     case copyTemplate                                            // copy template
     case exportPaint(Expression)                                 // export paint
     case importPaint(Expression)                                 // import paint

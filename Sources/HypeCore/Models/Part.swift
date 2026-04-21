@@ -85,6 +85,11 @@ public struct Part: Identifiable, Codable, Sendable {
     // Image-specific
     public var imageData: Data?
     public var invertOnClick: Bool
+    /// When the part's image is an animated GIF, controls whether
+    /// playback starts automatically. Ignored for static JPEG/PNG.
+    /// Defaults to `true` so newly added GIFs animate without
+    /// explicit opt-in.
+    public var animated: Bool
 
     // SpriteKit scene-specific
     public var sceneSpec: String  // JSON-encoded SceneSpec or SpriteAreaSpec
@@ -148,6 +153,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.chartData = ""
         self.imageData = nil
         self.invertOnClick = false
+        self.animated = true
         self.sceneSpec = ""
         self.script = ""
     }
@@ -202,6 +208,10 @@ public struct Part: Identifiable, Codable, Sendable {
         chartData = try container.decodeIfPresent(String.self, forKey: .chartData) ?? ""
         imageData = try container.decodeIfPresent(Data.self, forKey: .imageData)
         invertOnClick = try container.decodeIfPresent(Bool.self, forKey: .invertOnClick) ?? false
+        // `animated` was added after the initial Part schema —
+        // accept missing values and default to true so older .hype
+        // files still load and GIFs animate automatically.
+        animated = try container.decodeIfPresent(Bool.self, forKey: .animated) ?? true
         sceneSpec = try container.decodeIfPresent(String.self, forKey: .sceneSpec) ?? ""
         script = try container.decode(String.self, forKey: .script)
     }

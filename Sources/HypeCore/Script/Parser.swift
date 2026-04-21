@@ -324,6 +324,7 @@ public struct Parser: Sendable {
         var target: Expression? = nil
         if current.type == .of {
             _ = advance()
+            skipTransparentOfChain()
             target = try parseExpression()
         }
 
@@ -331,6 +332,36 @@ public struct Parser: Sendable {
         let value = try parseExpression()
         skipNewlines()
         return .set(property: property, of: target, to: value)
+    }
+
+    /// Swallow `physicsBody of` (and similar natural-language
+    /// pass-through wrappers) immediately after an `of` keyword so
+    /// that `set the velocityX of physicsBody of sprite "player"`
+    /// parses equivalently to `set the velocityX of sprite "player"`.
+    ///
+    /// Background: physics properties (velocity, friction, mass,
+    /// bounce, etc.) are conceptually on the SpriteKit `physicsBody`
+    /// of a sprite node, but HypeTalk flattens them onto the sprite
+    /// node itself — there's no separate `physicsBody` object to
+    /// reference. Local LLMs (gemma, llama) generating HypeTalk
+    /// naturally write `the velocityX of physicsBody of sprite "X"`
+    /// because that mirrors the Swift API shape. Rather than
+    /// systematically re-training every model, we accept the
+    /// transparent wrapper and drop it in the parser. The
+    /// interpreter sees the canonical `velocityX of sprite "X"`
+    /// form either way.
+    ///
+    /// Handles repeated wrappers too (`of physicsBody of physicsBody
+    /// of sprite "X"`) so robust-to-the-point-of-weird inputs also
+    /// work.
+    private mutating func skipTransparentOfChain() {
+        while current.type == .identifier,
+              current.value.lowercased() == "physicsbody",
+              pos + 1 < tokens.count,
+              tokens[pos + 1].type == .of {
+            _ = advance()   // physicsBody
+            _ = advance()   // of
+        }
     }
 
     private mutating func parseGoStatement() throws -> Statement {
@@ -1358,6 +1389,21 @@ public struct Parser: Sendable {
 
     private mutating func parseStartStatement() throws -> Statement {
         _ = try expect(.start)
+        // "start the animation of <expr>" — GIF playback command.
+        // Security Finding 10: use expect(.of) after advancing past
+        // .the and .animation so malformed input like
+        // "start the animation from X" produces a clear ParseError
+        // instead of silently consuming "from" as the expression.
+        if current.type == .the,
+           peek(1)?.type == .animation,
+           peek(2)?.type == .of {
+            _ = advance()               // .the
+            _ = advance()               // .animation
+            _ = try expect(.of)         // throws on typo like "from X"
+            let expr = try parseExpression()
+            skipNewlines()
+            return .startAnimation(expr)
+        }
         _ = match(.using)
         let expr = try parseExpression()
         skipNewlines()
@@ -1371,6 +1417,18 @@ public struct Parser: Sendable {
             let expr = try parseExpression()
             skipNewlines()
             return .stopListener(expr)
+        }
+        // "stop the animation of <expr>" — GIF playback command.
+        // Security Finding 10: use expect(.of) for strict grammar.
+        if current.type == .the,
+           peek(1)?.type == .animation,
+           peek(2)?.type == .of {
+            _ = advance()               // .the
+            _ = advance()               // .animation
+            _ = try expect(.of)         // throws on typo like "from X"
+            let expr = try parseExpression()
+            skipNewlines()
+            return .stopAnimation(expr)
         }
         _ = match(.using)
         let expr = try parseExpression()
@@ -2146,6 +2204,12 @@ public struct Parser: Sendable {
         // `the <property> of <expr>`
         if current.type == .of {
             _ = advance()
+            // Pass through `of physicsBody of <ref>` as a synonym for
+            // `of <ref>` — AI-generated HypeTalk often reaches for
+            // this chain because it mirrors SpriteKit's Swift API
+            // shape. See `skipTransparentOfChain` in
+            // `parseSetStatement` for the full rationale.
+            skipTransparentOfChain()
             // Use parsePrimary so we don't consume comparison operators (is, =, etc.)
             // e.g. `the hilite of me is "true"` → target is `me`, not `me is "true"`
             let target = try parsePrimary()

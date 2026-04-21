@@ -57,7 +57,7 @@ public enum TokenType: String, Sendable {
     case sprite, scene, spritearea, emitter, action, tilemap, camera, transition, tile, joint, constrain
 
     // Audio & animation commands
-    case play, beep, wait, animate
+    case play, beep, wait, animate, animation
 
     // AI (Phase 5 placeholder)
     case ai

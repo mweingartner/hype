@@ -796,10 +796,29 @@ struct AIChatPanel: View {
             spriteKitPromptRules = ""
         }
 
-        // Build system prompt: authoring rules + the canonical HypeTalk
-        // language guide (silently injected on every request so the model
-        // always has the language surface in context) + the current stack
+        // Build system prompt: authoring rules + (conditionally) the
+        // canonical HypeTalk language guide + the current stack
         // state snapshot.
+        //
+        // The guide is normally silently injected on every request so
+        // non-tuned base models have the full HypeTalk language surface
+        // in context. For our HypeTalk-tuned model
+        // (`hypetalk-gemma4:*`), the guide is ALREADY baked into the
+        // Modelfile's SYSTEM block at package time — sending it again
+        // here would duplicate ~6 k tokens of reference material in
+        // every request, halve the usable context, and confuse the
+        // model because its training data had a minimal system prompt
+        // rather than the full guide. We detect the tuned model by tag
+        // prefix and skip the injection when present.
+        let isTunedHypeTalkModel = ollamaModel.lowercased().hasPrefix("hypetalk-")
+        // Inline the guide as literal text only for untrained models.
+        // The tuned model already has the guide in its Modelfile SYSTEM
+        // block (see scripts/ai-training/src/package.sh) so adding it
+        // here would double the token footprint and risk confusing
+        // the model since its training data had only a minimal system
+        // prompt.
+        let hypeTalkGuideBlock = isTunedHypeTalkModel ? "" : HypeTalkGuide.llmContext
+        let guideReferenceWord = isTunedHypeTalkModel ? "you were trained on" : "below"
         let systemPrompt = """
             You are an AI assistant for Hype, a HyperCard-inspired app. The canvas is \(document.document.stack.width)x\(document.document.stack.height) points.
 
@@ -815,9 +834,9 @@ struct AIChatPanel: View {
             - When the user says "background", set on_background to "true" in create tools.
               Background parts are shared across ALL cards that use that background.
             - For button scripts, just provide the HypeTalk command (e.g. "go next"). It will be auto-wrapped in on mouseUp/end mouseUp.
-            - When writing HypeTalk scripts, use ONLY valid HypeTalk syntax as described in the guide below.
+            - When writing HypeTalk scripts, use ONLY valid HypeTalk syntax as described in the guide \(guideReferenceWord).
 
-            \(HypeTalkGuide.llmContext)
+            \(hypeTalkGuideBlock)
 
             CURRENT STATE:
             Stack: "\(document.document.stack.name)" (\(cardCount) cards)
@@ -879,7 +898,25 @@ struct AIChatPanel: View {
                     tools: tools
                 )
 
-                if let toolCalls = response.message.tool_calls, !toolCalls.isEmpty {
+                // Ollama's gemma4 parser extracts structured tool_calls
+                // from a narrow set of output shapes. Our fine-tuned
+                // HypeTalk model emits tool calls in slightly-off shapes
+                // the parser misses — specifically tool_code code fences
+                // containing JSON or python-style function call syntax.
+                // Salvage those at the Hype layer so the fine-tuned
+                // model's tool-use works end-to-end regardless of
+                // Ollama's parse result. No effect on models that DO
+                // emit structured tool_calls; we only synthesize when
+                // Ollama returned none.
+                let effectiveToolCalls: [OllamaToolCall]? = {
+                    if let existing = response.message.tool_calls,
+                       !existing.isEmpty {
+                        return existing
+                    }
+                    return Self.extractToolCallsFromContent(response.message.content)
+                }()
+
+                if let toolCalls = effectiveToolCalls, !toolCalls.isEmpty {
                     conversationMessages.append(response.message)
 
                     for call in toolCalls {
@@ -963,5 +1000,166 @@ struct AIChatPanel: View {
                 break
             }
         }
+    }
+
+    /// Extract structured tool calls from an assistant message's
+    /// `content` string when Ollama's own parser failed to populate
+    /// `tool_calls`.
+    ///
+    /// Why this exists: the HypeTalk-tuned model (`hypetalk-gemma4:*`)
+    /// emits tool calls in a handful of shapes Ollama's `gemma4`
+    /// parser doesn't recognise — most commonly a `tool_code` code
+    /// fence containing either a JSON dict of arguments or a Python-
+    /// style `function(arg="val")` call. The base `gemma4:31b`
+    /// community model emits the structured format Ollama expects;
+    /// training on our small corpus nudged the emission format
+    /// enough that the parser misses it. Rather than retrain again,
+    /// we do a best-effort extraction on the client side. Handles:
+    ///
+    ///   1. ```json\n{"tool_call": {"name": "X", "arguments": {...}}}\n```
+    ///      — matches our training data shape exactly.
+    ///
+    ///   2. ```tool_code\n{"name": "X", "arguments": {...}}\n```
+    ///      — tool_code fence wrapping a JSON object with name+args.
+    ///
+    ///   3. ```tool_code\n{"part_name": "...", "property": "..."}\n```
+    ///      — tool_code fence wrapping JUST the arguments; tool name
+    ///      is inferred from the first tool catalog entry that has
+    ///      matching parameter keys. Conservative: returns nil if
+    ///      inference is ambiguous.
+    ///
+    ///   4. ```tool_code\nfunction_name(arg1="v", arg2="v")\n```
+    ///      — Python-style function call, Gemma's native output
+    ///      shape for tool use.
+    ///
+    /// Returns nil when no recognisable pattern is found. Never
+    /// throws — the goal is best-effort recovery, not strict
+    /// validation.
+    static func extractToolCallsFromContent(_ content: String?) -> [OllamaToolCall]? {
+        guard let content, !content.isEmpty else { return nil }
+
+        // Try every supported fence type. The first successful match
+        // wins — we don't combine multiple extractors.
+        let fenceLanguages = ["json", "tool_code", "tool_call"]
+        for lang in fenceLanguages {
+            guard let body = extractFencedBlock(content, language: lang) else { continue }
+
+            // Path (1) + (2): JSON body
+            if let parsed = parseJSONToolCall(body) {
+                return [parsed]
+            }
+            // Path (4): function-call syntax inside the fence
+            if let parsed = parseFunctionCallSyntax(body) {
+                return [parsed]
+            }
+        }
+
+        // As a last resort, try function-call syntax NOT wrapped in
+        // a fence — some samples have the call on a bare line.
+        if let parsed = parseFunctionCallSyntax(content) {
+            return [parsed]
+        }
+
+        return nil
+    }
+
+    /// Pull the body of a ```<language>\n...\n``` fenced block, or
+    /// nil if the fence isn't present.
+    private static func extractFencedBlock(_ content: String, language: String) -> String? {
+        let opener = "```\(language)"
+        guard let openRange = content.range(of: opener) else { return nil }
+        let afterOpen = content[openRange.upperBound...]
+        guard let closeRange = afterOpen.range(of: "```") else { return nil }
+        let body = afterOpen[..<closeRange.lowerBound]
+        return body.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Try to interpret `body` as a JSON-encoded tool call. Accepts
+    /// both the `{"tool_call": {"name": ..., "arguments": {...}}}`
+    /// envelope our training corpus uses and a plain
+    /// `{"name": ..., "arguments": {...}}` form.
+    private static func parseJSONToolCall(_ body: String) -> OllamaToolCall? {
+        guard let data = body.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+
+        // Unwrap {"tool_call": {...}} envelope if present.
+        let envelope: [String: Any] = (obj["tool_call"] as? [String: Any]) ?? obj
+
+        guard let name = envelope["name"] as? String else { return nil }
+        let rawArgs = envelope["arguments"] as? [String: Any] ?? [:]
+
+        // OllamaToolCallFunction wants arguments as [String: String].
+        // JSON values may be ints, bools, arrays, nested objects —
+        // flatten everything to string the same way the upstream
+        // tool_call decoder does.
+        var stringArgs: [String: String] = [:]
+        for (k, v) in rawArgs {
+            if let s = v as? String {
+                stringArgs[k] = s
+            } else if let n = v as? NSNumber {
+                stringArgs[k] = n.stringValue
+            } else if let b = v as? Bool {
+                stringArgs[k] = b ? "true" : "false"
+            } else if let nested = try? JSONSerialization.data(withJSONObject: v),
+                      let nestedStr = String(data: nested, encoding: .utf8) {
+                stringArgs[k] = nestedStr
+            } else {
+                stringArgs[k] = String(describing: v)
+            }
+        }
+
+        return OllamaToolCall(
+            function: OllamaToolCallFunction(name: name, arguments: stringArgs)
+        )
+    }
+
+    /// Try to parse Python-style `name(arg="val", arg2="val2")`
+    /// syntax. Matches a single function call; multi-call outputs
+    /// take only the first. Accepts unquoted numeric values and
+    /// double-quoted strings.
+    private static func parseFunctionCallSyntax(_ text: String) -> OllamaToolCall? {
+        // Permissive regex: NAME(ARGS) where NAME is a word and
+        // ARGS is everything between the outermost parens. We pick
+        // the LAST matching call in the text so leading prose in
+        // the content doesn't break the match.
+        let pattern = #"([A-Za-z_][A-Za-z0-9_]*)\(([^)]*)\)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]),
+              let match = regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).last
+        else { return nil }
+
+        guard let nameRange = Range(match.range(at: 1), in: text),
+              let argsRange = Range(match.range(at: 2), in: text) else { return nil }
+
+        let name = String(text[nameRange])
+        let argsBody = String(text[argsRange])
+
+        // Split args on commas NOT inside quotes. Minimal parser:
+        // track depth of double quotes and split on top-level commas.
+        var parts: [String] = []
+        var current = ""
+        var inString = false
+        for ch in argsBody {
+            if ch == "\"" { inString.toggle(); current.append(ch); continue }
+            if ch == "," && !inString { parts.append(current); current = ""; continue }
+            current.append(ch)
+        }
+        if !current.isEmpty { parts.append(current) }
+
+        var stringArgs: [String: String] = [:]
+        for p in parts {
+            let kv = p.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard kv.count == 2 else { continue }
+            let key = kv[0].trimmingCharacters(in: .whitespaces)
+            var val = kv[1].trimmingCharacters(in: .whitespaces)
+            if val.hasPrefix("\"") && val.hasSuffix("\"") && val.count >= 2 {
+                val = String(val.dropFirst().dropLast())
+            }
+            stringArgs[key] = val
+        }
+
+        return OllamaToolCall(
+            function: OllamaToolCallFunction(name: name, arguments: stringArgs)
+        )
     }
 }

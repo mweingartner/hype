@@ -110,15 +110,35 @@ public struct HypeToolDefinitions {
         makeTool(name: "get_scene_spec", description: "Get the full SceneSpec JSON for a sprite area.", params: [
             "sprite_area_name": ("string", "Name of the sprite area part", true),
         ]),
+        makeTool(name: "set_scene_script", description: """
+            Set the HypeTalk script on a sprite-area scene. This is \
+            the script shown in the Script Editor with title \
+            "<sprite_area_name> / <scene_name>", and the one that \
+            handles scene events like sceneDidLoad, frameUpdate, \
+            keyDown, beginContact, etc. \
+            PREFER THIS OVER `set_part_property` with \
+            `part_name: <sprite area>` + `property: script` — that \
+            older path writes to the sprite-area PART's script slot, \
+            which is separate from the scene script users actually \
+            see and edit. If `scene_name` is omitted, the active \
+            scene is used.
+            """, params: [
+            "sprite_area_name": ("string", "Name of the sprite area part (e.g. 'bounder')", true),
+            "script": ("string", "Full HypeTalk script for the scene, wrapped in on <event> ... end <event> handler blocks", true),
+            "scene_name": ("string", "Optional scene name within the sprite area; defaults to the active scene", false),
+        ]),
         makeTool(name: "apply_scene_diff", description: """
             Apply a JSON diff to modify a sprite scene incrementally. Pass diff_json as a \
             JSON STRING whose top-level keys are optional: addNodes (array of HypeNodeSpec), \
             removeNodeIds (array of UUIDs), updateNodes (array of NodeUpdate), and sceneUpdates \
-            (object with gravity, backgroundColor, isPaused). A HypeNodeSpec needs at least \
+            (object with gravity, backgroundColor, isPaused, SCRIPT (the scene-level HypeTalk \
+            script), size, name, scaleMode). A HypeNodeSpec needs at least \
             {id, name, nodeType, position:{x,y}}; nodeType is one of sprite, label, shape, \
             emitter, audio, tileMap, camera, video, crop, effect, light, group. For labels \
             include {text, fontSize, fontColor}. For shapes include shapeSpec:{shapeType, \
             fillColor, strokeColor, lineWidth}. Every id must be a valid lowercase UUID. \
+            To update only the scene's script, use `set_scene_script` — simpler and avoids \
+            JSON-encoding a multi-line script. \
             Example: {"sceneUpdates":{"backgroundColor":"#000000"},"addNodes":[{"id":"...","name":"player","nodeType":"shape","position":{"x":200,"y":150},"shapeSpec":{"shapeType":"circle","fillColor":"#00FF00"},"actions":[],"children":[],"script":""}]}
             """, params: [
             "sprite_area_name": ("string", "Name of the sprite area part", true),
@@ -325,6 +345,7 @@ public struct HypeToolDefinitions {
         let allowed = Set([
             "create_sprite_area",
             "get_scene_spec",
+            "set_scene_script",
             "apply_scene_diff",
             "add_sprite_to_scene",
             "create_tilemap",
@@ -337,6 +358,7 @@ public struct HypeToolDefinitions {
             "get_scene_diagnostics",
             "list_repository_assets",
             "import_repository_asset",
+            "check_script",
         ])
         return allowed.contains($0.function.name)
     }

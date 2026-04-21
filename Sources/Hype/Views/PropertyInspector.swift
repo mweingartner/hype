@@ -613,6 +613,14 @@ struct PropertyInspector: View {
             }
 
             Toggle("Invert on Click", isOn: bindPartBool(part.id, \.invertOnClick))
+            // Custom binding: flipping the `animated` flag must also tell
+            // the animator to start or stop. A plain `bindPartBool` would
+            // mutate the Part model without touching the animator's
+            // internal `isRunning` state, leaving a GIF playing forever
+            // even after the user toggled it off (reported regression:
+            // "It also would not stop animating when I toggled the
+            // animated property").
+            Toggle("Animated", isOn: bindAnimatedToggle(part.id))
 
             if let data = part.imageData {
                 Text("Image loaded (\(data.count / 1024) KB)")
@@ -651,7 +659,7 @@ struct PropertyInspector: View {
 
     private func chooseImageForPart(partId: UUID) {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.png, .jpeg]
+        panel.allowedContentTypes = [.png, .jpeg, .gif]
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
@@ -2331,6 +2339,35 @@ struct PropertyInspector: View {
         Binding(
             get: { document.document.parts.first(where: { $0.id == id })?[keyPath: keyPath] ?? false },
             set: { newValue in document.document.updatePart(id: id) { $0[keyPath: keyPath] = newValue } }
+        )
+    }
+
+    /// Binding for the image "Animated" toggle that flips `Part.animated`
+    /// AND drives the GIFAnimator. A naive `bindPartBool(... \.animated)`
+    /// would only mutate the Part model — the animator's timer keeps
+    /// ticking and the GIF keeps playing until some other path (a
+    /// redraw path guarded on `part.animated`) notices. Wrapping the
+    /// setter here so the UI toggle mirrors the HypeTalk
+    /// `set the animated of X to false` path, which already invokes
+    /// `GIFAnimator.shared.stop(partId:)`.
+    private func bindAnimatedToggle(_ id: UUID) -> Binding<Bool> {
+        Binding(
+            get: { document.document.parts.first(where: { $0.id == id })?.animated ?? false },
+            set: { newValue in
+                document.document.updatePart(id: id) { $0.animated = newValue }
+                #if canImport(AppKit)
+                // Look up fresh after the mutation — we need the part's
+                // current imageData for the start path.
+                guard let part = document.document.parts.first(where: { $0.id == id }) else { return }
+                if newValue {
+                    if let data = part.imageData {
+                        GIFAnimator.shared.start(partId: id, imageData: data)
+                    }
+                } else {
+                    GIFAnimator.shared.stop(partId: id)
+                }
+                #endif
+            }
         )
     }
 

@@ -94,7 +94,28 @@ struct CardCanvasView: NSViewRepresentable {
             nsView.needsDisplay = true
         }
 
+        // Wire the GIF animator callbacks.
+        // onFrameChanged: trigger a redraw whenever any GIF advances.
+        GIFAnimator.shared.onFrameChanged = { [weak view] _ in
+            view?.needsDisplay = true
+        }
+        // onAnimationStart / onAnimationEnd: dispatch HypeTalk events.
+        GIFAnimator.shared.onAnimationStart = { [weak view] partId in
+            view?.coordinator?.dispatchMessage("animationStart", to: partId)
+        }
+        GIFAnimator.shared.onAnimationEnd = { [weak view] partId in
+            view?.coordinator?.dispatchMessage("animationEnd", to: partId)
+        }
+
         return view
+    }
+
+    static func dismantleNSView(_ nsView: CardCanvasNSView, coordinator: Coordinator) {
+        // Stop the GIF timer and release all CGImage frame buffers.
+        // Security Finding 6: required to prevent a process-lifetime
+        // accumulation of CGImage arrays and a dangling timer across
+        // document open/close cycles.
+        GIFAnimator.shared.removeAll()
     }
 
     func updateNSView(_ nsView: CardCanvasNSView, context: Context) {
@@ -253,6 +274,11 @@ struct CardCanvasView: NSViewRepresentable {
                 default:      message = "deleteButton"
                 }
                 dispatchMessage(message, to: id)
+                // Release GIF state for image parts before the part
+                // is removed from the document.
+                if part.partType == .image {
+                    GIFAnimator.shared.remove(partId: id)
+                }
             }
             // Remove constraints referencing this part
             parent.document.document.removeConstraintsForPart(id)
@@ -629,6 +655,18 @@ class CardCanvasNSView: NSView {
     private var loadedSceneSpecs: [UUID: String] = [:]
     private var loadedActiveSceneIDs: [UUID: UUID] = [:]
     private var pendingSceneLoadIds: Set<UUID> = []
+
+    /// Last-known cursor position within each sprite scene, in Hype
+    /// scene-local top-left-origin coordinates (the same system
+    /// `the loc of sprite` returns). Updated on every mouseWithin /
+    /// mouseDown / mouseUp / mouseDragged forwarded from the scene.
+    /// Used to populate the `mouseLoc` / `mouseH` / `mouseV`
+    /// properties for `frameUpdate` (and any other handler) so
+    /// scripts that cross-reference mouse vs. sprite positions
+    /// every frame — like "accelerate the ball when the cursor
+    /// touches it" — see the real cursor instead of (0,0).
+    /// Cleared when the scene tears down.
+    private var lastSceneMousePosition: [UUID: PointSpec] = [:]
 
     // Card-level SpriteKit view for transitions (Phase A)
     private var cardSKView: PassthroughSKView?
@@ -2210,6 +2248,7 @@ class CardCanvasNSView: NSView {
             spriteScenes.removeValue(forKey: id)
             spriteBridges.removeValue(forKey: id)
             loadedSceneSpecs.removeValue(forKey: id)
+            lastSceneMousePosition.removeValue(forKey: id)
             loadedActiveSceneIDs.removeValue(forKey: id)
         }
     }
@@ -2681,6 +2720,20 @@ extension CardCanvasNSView: SpriteEventDelegate {
         // Find the spriteArea part ID that owns this scene
         guard let partId = spriteScenes.first(where: { $0.value === scene })?.key else { return }
 
+        // Record scene-local mouse position for any pointer-carrying
+        // event. The stored position backs `the mouseLoc` during the
+        // frameUpdate dispatch below (and any other handler that needs
+        // to read the cursor without a fresh mouse event).
+        switch event {
+        case .mouseDown(_, let pos),
+             .mouseUp(_, let pos),
+             .mouseDragged(_, let pos),
+             .mouseWithin(_, let pos):
+            lastSceneMousePosition[partId] = pos
+        default:
+            break
+        }
+
         switch event {
         case .mouseDown(let nodeId, let pos):
             if let payload = spriteDispatchContext(for: partId, nodeId: nodeId) {
@@ -2701,6 +2754,19 @@ extension CardCanvasNSView: SpriteEventDelegate {
                 coordinator?.dispatchMessage("mouseDragged", to: partId, mouseX: pos.x, mouseY: pos.y)
             }
         case .mouseWithin(let nodeId, let pos):
+            // Publish the hovered-sprite name so scripts can check
+            // `the hoveredSprite is "blue_ball"` without having to
+            // write a hit-test loop themselves. When the cursor is
+            // over the scene background (nodeId == nil) or over a
+            // node with no name, the published name is "".
+            if let nodeId,
+               let part = document.parts.first(where: { $0.id == partId }),
+               let scene = part.activeSceneSpec,
+               let node = scene.node(id: nodeId) {
+                SpriteSceneMouseState.shared.hoveredSprite = node.name
+            } else {
+                SpriteSceneMouseState.shared.hoveredSprite = ""
+            }
             if let payload = spriteDispatchContext(for: partId, nodeId: nodeId) {
                 coordinator?.dispatchMessage("mouseWithin", to: payload.targetId, params: [], mouseX: pos.x, mouseY: pos.y, scriptContext: payload.context)
             } else {
@@ -2752,10 +2818,23 @@ extension CardCanvasNSView: SpriteEventDelegate {
                 coordinator?.dispatchMessage("endContact", to: payload.targetId, params: [nodeNames[nodeA] ?? ""], scriptContext: payload.context)
             }
         case .frameUpdate(let deltaTime):
+            // Plumb the last-known mouse position so `the mouseLoc` /
+            // `the mouseH` / `the mouseV` return real cursor coords
+            // inside `on frameUpdate` handlers. Without this the
+            // dispatch defaults to (0, 0) and scripts that compute
+            // cursor-vs-sprite distance every frame silently compare
+            // against the scene origin — e.g. the AI-generated
+            // "accelerate the ball when the cursor touches it"
+            // pattern appeared completely dead because the condition
+            // `sqrt(dx*dx + dy*dy) < 20` measured the distance from
+            // the ball to (0,0), not to the cursor.
+            let mousePos = lastSceneMousePosition[partId]
+            let mouseX = mousePos?.x ?? 0
+            let mouseY = mousePos?.y ?? 0
             if let payload = spriteDispatchContext(for: partId) {
-                coordinator?.dispatchMessage("frameUpdate", to: payload.targetId, params: [String(deltaTime)], scriptContext: payload.context)
+                coordinator?.dispatchMessage("frameUpdate", to: payload.targetId, params: [String(deltaTime)], mouseX: mouseX, mouseY: mouseY, scriptContext: payload.context)
             } else {
-                coordinator?.dispatchMessage("frameUpdate", to: partId, params: [String(deltaTime)])
+                coordinator?.dispatchMessage("frameUpdate", to: partId, params: [String(deltaTime)], mouseX: mouseX, mouseY: mouseY)
             }
         case .sceneDidLoad:
             // Lifecycle events are now dispatched directly from rebuildSpriteScene()

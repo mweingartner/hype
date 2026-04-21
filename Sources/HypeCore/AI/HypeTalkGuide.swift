@@ -258,11 +258,38 @@ public enum HypeTalkGuide {
             end keyUp
 
         **Collision scoring:**
-            on beginContact
+            on beginContact otherName
               global score
-              add 10 to score
-              set the text of label "score" to "Score: " & score
+              if otherName is "goal" then
+                add 10 to score
+                set the text of label "score" to "Score: " & score
+              end if
             end beginContact
+            -- Inside `on beginContact`, the parameter (or `the
+            -- otherNode`) is the name of the colliding sprite on
+            -- the OTHER side of the contact. The sprite whose
+            -- script is running is already known. Don't try to
+            -- read `contact.nodeA` / `contact.nodeB` — those are
+            -- not HypeTalk expressions.
+
+        **Cursor-over-sprite reaction (e.g. accelerate a ball when
+        the cursor touches it):**
+            on frameUpdate
+              if the hoveredSprite is "blue_ball" then
+                set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 1.5
+                set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 1.5
+              end if
+            end frameUpdate
+            -- `the hoveredSprite` (or `the spriteUnderMouse`)
+            -- returns the name of the sprite currently under the
+            -- cursor in the scene, or empty string when no sprite
+            -- is under it. This is the ONLY correct way to answer
+            -- "is the cursor over sprite X?" — do NOT invent
+            -- grammar like `the name of node at mouse location`
+            -- or `if sprite X intersects the mouse`; those will
+            -- not parse. Wrap the body in a one-shot latch if
+            -- you want the action to fire once per hover (not
+            -- every frame while the cursor stays over the sprite).
 
         ## Functions
         Built-in functions accept either paren syntax or prefix syntax:
@@ -281,6 +308,11 @@ public enum HypeTalkGuide {
         - **`function random(N)`** is not a user-definable function. Use the built-in directly.
         - **`var` / `let`** don't exist. Variables are created on first use with `put 5 into x`.
         - **`return` at top level of a handler** is fine, but a handler body is not a function body — use `exit <name>` to stop early.
+        - **`node at <location>`** is NOT a HypeTalk expression. To find the sprite under the cursor, use `the hoveredSprite` / `the spriteUnderMouse`. There is no `at` keyword for spatial queries.
+        - **`contact.nodeA` / `contact.nodeB`** do not exist — HypeTalk has no dot-property syntax. Inside `on beginContact` or `on endContact`, use the handler parameter or `the otherNode`, which carries the name of the colliding sprite on the other side of the contact.
+        - **Bare sprite names as references**: always write `sprite "blue_ball"`, never bare `blue_ball`. A bare identifier is treated as a variable lookup and silently returns empty.
+        - **`end` without the block name**: always write `end if`, `end mouseUp`, `end frameUpdate`. Bare `end` will not parse.
+        - **`the velocityX of physicsBody of sprite "X"`** is tolerated (the parser drops the `physicsBody` wrapper) but the canonical form is `the velocityX of sprite "X"` — physics properties live directly on sprite nodes in HypeTalk.
 
         ## Generation rules
         - Wrap handler bodies in `on <name> ... end <name>` blocks. The only exception is a bare command passed as a button's `script` tool argument (e.g. `go next`), which Hype auto-wraps in `on mouseUp ... end mouseUp`.

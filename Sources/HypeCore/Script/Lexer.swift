@@ -42,7 +42,7 @@ public struct Lexer: Sendable {
         "emitter": .emitter, "action": .action,
         "tilemap": .tilemap, "camera": .camera, "transition": .transition, "tile": .tile,
         "joint": .joint, "constrain": .constrain,
-        "play": .play, "beep": .beep, "wait": .wait, "animate": .animate,
+        "play": .play, "beep": .beep, "wait": .wait, "animate": .animate, "animation": .animation,
         "ai": .ai,
         "choose": .choose, "close": .close, "save": .save, "quit": .quit,
         "mark": .mark, "unmark": .unmark, "push": .push, "pop": .pop,
@@ -216,6 +216,7 @@ public struct Lexer: Sendable {
         switch pair {
         case "&&": return .doubleAmpersand
         case "<>": return .neq
+        case "!=": return .neq   // C/JS/Swift-style synonym for "<>"
         case "<=": return .lte
         case ">=": return .gte
         default: return nil
@@ -237,6 +238,13 @@ public struct Lexer: Sendable {
         case ")": return .rparen
         case ",": return .comma
         case "\u{2260}": return .neq // ≠
+        // `!` as a prefix unary logical-NOT, C/JS/Swift-style alias for
+        // HypeTalk's `not` keyword. A script writing `!state` lexes as
+        // [.not, .identifier("state")], which matches the existing
+        // `parseUnary` path that already handles `.not`. The two-char
+        // lookup above claims `!=` first, so `!x` only reaches here
+        // when the next char is not `=`.
+        case "!": return .not
         default: return nil
         }
     }

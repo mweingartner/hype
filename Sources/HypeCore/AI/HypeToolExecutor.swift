@@ -500,8 +500,39 @@ public struct HypeToolExecutor: Sendable {
                     // script so the AI sees parse errors in the
                     // returned result.
                     let wrapped = wrapScript(value)
-                    document.parts[index].script = wrapped
                     let suffix = scriptParseErrorSuffix(wrapped)
+
+                    // Sprite-area parts: the user-visible script
+                    // lives on the ACTIVE SCENE, not on the part
+                    // itself. The Script Editor title "bounder / main"
+                    // is [spriteAreaName] / [sceneName], and edits
+                    // there flow into SceneSpec.script. The part-
+                    // level script is a rarely-used fallback in the
+                    // dispatch chain. When the AI calls this with a
+                    // sprite-area target, write to the scene so the
+                    // result shows up where the user will see it
+                    // and where frameUpdate / mouseDown / etc.
+                    // actually run. Otherwise scripts land on a
+                    // storage slot that's effectively invisible and
+                    // the user reasonably thinks "nothing happened."
+                    if document.parts[index].partType == .spriteArea {
+                        var wroteToScene = false
+                        var sceneName = "main"
+                        modifySpriteAreaSpec(partIndex: index, document: &document) { areaSpec in
+                            guard let entry = areaSpec.activeSceneEntry,
+                                  let sceneIdx = areaSpec.scenes.firstIndex(where: { $0.id == entry.id })
+                            else { return }
+                            areaSpec.scenes[sceneIdx].scene.script = wrapped
+                            areaSpec.setActiveScene(areaSpec.scenes[sceneIdx].scene)
+                            sceneName = areaSpec.scenes[sceneIdx].scene.name
+                            wroteToScene = true
+                        }
+                        if wroteToScene {
+                            return "Set script of scene '\(sceneName)' in sprite area '\(partName)'\(suffix) (routed to the scene — this is the script shown in the \(partName)/\(sceneName) Script Editor)"
+                        }
+                        // No active scene — fall through to part-level script below.
+                    }
+                    document.parts[index].script = wrapped
                     if !suffix.isEmpty {
                         return "Set script of '\(partName)'\(suffix)"
                     }
@@ -747,6 +778,49 @@ public struct HypeToolExecutor: Sendable {
                 return "Sprite area '\(areaName)' not found"
             }
             return part.activeSceneSpec?.toJSON() ?? "No scene spec"
+
+        case "set_scene_script":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            let rawScript = arguments["script"] ?? ""
+            let wrapped = wrapScript(rawScript)
+            let suffix = scriptParseErrorSuffix(wrapped)
+
+            guard let partIdx = spriteAreaIndex(named: areaName, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+
+            var resolvedSceneName = requestedSceneName.isEmpty ? "" : requestedSceneName
+            var wroteScript = false
+            modifySpriteAreaSpec(partIndex: partIdx, document: &document) { areaSpec in
+                let sceneIdx: Int?
+                if !requestedSceneName.isEmpty {
+                    sceneIdx = areaSpec.scenes.firstIndex { $0.scene.name.lowercased() == requestedSceneName.lowercased() }
+                } else if let entry = areaSpec.activeSceneEntry {
+                    sceneIdx = areaSpec.scenes.firstIndex { $0.id == entry.id }
+                } else {
+                    sceneIdx = nil
+                }
+                guard let idx = sceneIdx else { return }
+                areaSpec.scenes[idx].scene.script = wrapped
+                // If this is the active scene, also update the
+                // cached activeScene mirror so live rebuilds pick
+                // up the change immediately.
+                if areaSpec.scenes[idx].id == areaSpec.activeSceneID {
+                    areaSpec.setActiveScene(areaSpec.scenes[idx].scene)
+                }
+                resolvedSceneName = areaSpec.scenes[idx].scene.name
+                wroteScript = true
+            }
+
+            if !wroteScript {
+                if !requestedSceneName.isEmpty {
+                    return "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
+                }
+                return "Sprite area '\(areaName)' has no active scene"
+            }
+
+            return "Set script of scene '\(resolvedSceneName)' in sprite area '\(areaName)'\(suffix)"
 
         case "apply_scene_diff":
             let areaName = arguments["sprite_area_name"] ?? ""
