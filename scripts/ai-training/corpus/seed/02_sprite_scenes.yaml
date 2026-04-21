@@ -1,0 +1,90 @@
+# Sprite-area scene authoring. Covers physics, velocity, position, and the
+# right way to address sprite nodes (always `sprite "name"`, never bare
+# identifiers). Every script here should be placed on the scene via
+# `set_scene_script`, not on the sprite-area part via `set_part_property`.
+
+examples:
+  - intent: "On scene load, set the player's physics body to non-dynamic and give it bounciness of 1."
+    script: |
+      on sceneDidLoad
+        set the affectedByGravity of sprite "player" to false
+        set the restitution of sprite "player" to 1
+      end sceneDidLoad
+
+  - intent: "Make the ball bounce off walls forever with no energy loss."
+    script: |
+      on sceneDidLoad
+        set the restitution of sprite "ball" to 1
+        set the friction of sprite "ball" to 0
+        set the linearDamping of sprite "ball" to 0
+      end sceneDidLoad
+
+  - intent: "Send the player moving right at 200 pixels/sec when space is pressed."
+    script: |
+      on keyDown
+        if the key is " " then
+          set the velocityX of sprite "player" to 200
+        end if
+      end keyDown
+
+  - intent: "Stop the player when any key is released."
+    script: |
+      on keyUp
+        set the velocity of sprite "player" to "0,0"
+      end keyUp
+
+  - intent: "Reset the player to the starting position 400,50 with zero velocity."
+    script: |
+      on mouseUp
+        set the loc of sprite "player" to "400,50"
+        set the velocity of sprite "player" to "0,0"
+      end mouseUp
+
+  - intent: "When the player collides with a goal, add 10 to score."
+    script: |
+      on beginContact otherNode
+        global score
+        if otherNode is "goal" then
+          add 10 to score
+          set the text of label "score_label" to "Score: " & score
+        end if
+      end beginContact
+
+  - intent: "When the ball hits either red_dot or blue_dot, bounce and play a sound."
+    script: |
+      on beginContact otherNode
+        if otherNode is "red_dot" or otherNode is "blue_dot" then
+          play "bounce"
+        end if
+      end beginContact
+
+  - intent: "Give the enemy a random velocity every half second using idle."
+    script: |
+      on idle
+        global lastEnemyShuffle
+        if lastEnemyShuffle is empty then put 0 into lastEnemyShuffle
+        if the ticks - lastEnemyShuffle > 30 then
+          put the ticks into lastEnemyShuffle
+          set the velocityX of sprite "enemy" to random(400) - 200
+          set the velocityY of sprite "enemy" to random(400) - 200
+        end if
+      end idle
+
+  - intent: "Keyboard-controlled sprite with WASD at speed 250."
+    script: |
+      on keyDown
+        if the key is "w" then set the velocityY of sprite "player" to 250
+        if the key is "s" then set the velocityY of sprite "player" to -250
+        if the key is "a" then set the velocityX of sprite "player" to -250
+        if the key is "d" then set the velocityX of sprite "player" to 250
+      end keyDown
+
+      on keyUp
+        set the velocity of sprite "player" to "0,0"
+      end keyUp
+
+  - intent: "Rotate the spinner sprite by 5 degrees every frame."
+    script: |
+      on frameUpdate
+        set the rotation of sprite "spinner" to (the rotation of sprite "spinner") + 5
+      end frameUpdate

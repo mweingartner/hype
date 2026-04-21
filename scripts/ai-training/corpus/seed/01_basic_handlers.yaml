@@ -1,0 +1,74 @@
+# Basic HypeTalk handler patterns — the stuff every script starts with.
+# Each example is a (user-intent, valid-HypeTalk-script) pair that becomes
+# one training row. Keep the intents in plain English, the way a user
+# actually asks.
+
+examples:
+  - intent: "Make the OK button navigate to the next card when clicked."
+    script: |
+      on mouseUp
+        go next
+      end mouseUp
+
+  - intent: "Add a back button that goes to the previous card."
+    script: |
+      on mouseUp
+        go previous
+      end mouseUp
+
+  - intent: "Button: jump to the first card."
+    script: |
+      on mouseUp
+        go first
+      end mouseUp
+
+  - intent: "When the button is clicked, put 'Hello' into the greeting field."
+    script: |
+      on mouseUp
+        put "Hello" into field "greeting"
+      end mouseUp
+
+  - intent: "Increment a counter each time the user clicks the button."
+    script: |
+      on mouseUp
+        global clicks
+        if clicks is empty then put 0 into clicks
+        add 1 to clicks
+        put clicks into field "counter"
+      end mouseUp
+
+  - intent: "Reset the counter to zero."
+    script: |
+      on mouseUp
+        global clicks
+        put 0 into clicks
+        put 0 into field "counter"
+      end mouseUp
+
+  - intent: "On the enter key in this field, navigate to the next card."
+    script: |
+      on enterKey
+        go next
+      end enterKey
+
+  - intent: "When the card opens, set the focus to the username field."
+    script: |
+      on openCard
+        select field "username"
+      end openCard
+
+  - intent: "Show a dialog that asks for the user's name and store it in a field."
+    script: |
+      on mouseUp
+        ask "What is your name?"
+        put it into field "name"
+      end mouseUp
+
+  - intent: "Confirm before deleting — only proceed if the user says yes."
+    script: |
+      on mouseUp
+        answer "Are you sure?" with "Yes" or "No"
+        if it is "Yes" then
+          delete card
+        end if
+      end mouseUp

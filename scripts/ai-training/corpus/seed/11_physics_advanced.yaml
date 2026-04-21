@@ -1,0 +1,113 @@
+# Advanced physics — impulses, forces, joints, collision categories,
+# restitution, gravity per-node override.
+
+examples:
+  - intent: "Set up a bouncy ball with perfect restitution and no friction."
+    script: |
+      on sceneDidLoad
+        set the restitution of sprite "ball" to 1
+        set the friction of sprite "ball" to 0
+        set the linearDamping of sprite "ball" to 0
+        set the angularDamping of sprite "ball" to 0
+      end sceneDidLoad
+
+  - intent: "Make an object not affected by gravity."
+    script: |
+      on sceneDidLoad
+        set the affectedByGravity of sprite "platform" to false
+      end sceneDidLoad
+
+  - intent: "Pin a sprite in place so physics doesn't move it."
+    script: |
+      on sceneDidLoad
+        set the isDynamic of sprite "wall" to false
+      end sceneDidLoad
+
+  - intent: "Give a sprite a heavy mass so it pushes others aside."
+    script: |
+      on sceneDidLoad
+        set the mass of sprite "boulder" to 10
+      end sceneDidLoad
+
+  - intent: "Apply an upward force to a ball on click."
+    script: |
+      on mouseUp
+        set the velocityY of sprite "ball" to 400
+      end mouseUp
+
+  - intent: "Slow a ball gradually by bumping up linear damping."
+    script: |
+      on sceneDidLoad
+        set the linearDamping of sprite "ball" to 0.5
+      end sceneDidLoad
+
+  - intent: "Stop angular motion so a spinning sprite settles."
+    script: |
+      on mouseUp
+        set the angularVelocity of sprite "disc" to 0
+      end mouseUp
+
+  - intent: "Reverse a sprite's horizontal velocity when it leaves the bounds — simple manual bounce on idle."
+    script: |
+      on idle
+        global width
+        if the left of sprite "ball" < 0 or the left of sprite "ball" > width then
+          set the velocityX of sprite "ball" to -(the velocityX of sprite "ball")
+        end if
+      end idle
+
+  - intent: "Set gravity for the whole scene to a sideways pull."
+    script: |
+      on sceneDidLoad
+        set the gravity of scene "main" to "120,0"
+      end sceneDidLoad
+
+  - intent: "Increase gravity progressively — stronger each second."
+    script: |
+      on idle
+        global lastBoost
+        if lastBoost is empty then put the ticks into lastBoost
+        if (the ticks - lastBoost) > 60 then
+          put the ticks into lastBoost
+          put the gravity of scene "main" into g
+          put item 1 of g into gx
+          put item 2 of g into gy
+          set the gravity of scene "main" to gx & "," & (gy - 20)
+        end if
+      end idle
+
+  - intent: "Make two sprites collide and trigger a handler."
+    script: |
+      on beginContact otherNode
+        if otherNode is "enemy" then
+          set the hilite of sprite "player" to true
+        end if
+      end beginContact
+
+  - intent: "Trigger an explosion particle emitter when ball hits a target."
+    script: |
+      on beginContact otherNode
+        if otherNode is "target" then
+          set the visible of sprite "explosion" to true
+        end if
+      end beginContact
+
+  - intent: "Set friction to give a puck sliding-on-ice feel."
+    script: |
+      on sceneDidLoad
+        set the friction of sprite "puck" to 0.02
+        set the linearDamping of sprite "puck" to 0.05
+      end sceneDidLoad
+
+  - intent: "Disable contact with walls for the player only."
+    script: |
+      on sceneDidLoad
+        set the collisionBitMask of sprite "player" to 0
+      end sceneDidLoad
+
+  - intent: "Make the enemy walk left at constant speed."
+    script: |
+      on sceneDidLoad
+        set the affectedByGravity of sprite "enemy" to false
+        set the velocityX of sprite "enemy" to -150
+      end sceneDidLoad

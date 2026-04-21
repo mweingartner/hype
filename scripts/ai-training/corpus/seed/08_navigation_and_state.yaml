@@ -1,0 +1,109 @@
+# Navigation, card-level state, and stack traversal.
+
+examples:
+  - intent: "Go to a specific card by name."
+    script: |
+      on mouseUp
+        go card "scoreboard"
+      end mouseUp
+
+  - intent: "Go to card number 3."
+    script: |
+      on mouseUp
+        go card 3
+      end mouseUp
+
+  - intent: "Navigate to the last card in the stack."
+    script: |
+      on mouseUp
+        go last
+      end mouseUp
+
+  - intent: "Jump back to the first card."
+    script: |
+      on mouseUp
+        go first
+      end mouseUp
+
+  - intent: "Use a visual effect when navigating to the next card."
+    script: |
+      on mouseUp
+        visual effect dissolve
+        go next
+      end mouseUp
+
+  - intent: "Use a wipe-left transition to go to the previous card."
+    script: |
+      on mouseUp
+        visual effect wipe left
+        go previous
+      end mouseUp
+
+  - intent: "Iris-close transition then navigate to a specific card."
+    script: |
+      on mouseUp
+        visual effect iris close
+        go card "game_over"
+      end mouseUp
+
+  - intent: "Loop back to the first card when going past the last."
+    script: |
+      on mouseUp
+        if the number of this card = the number of cards then
+          go first
+        else
+          go next
+        end if
+      end mouseUp
+
+  - intent: "When opening the results card, populate a summary field from a global."
+    script: |
+      on openCard
+        global playerScore
+        set the text of field "summary" to "You scored " & playerScore
+      end openCard
+
+  - intent: "Dispatch the quit message when the app closes."
+    script: |
+      on quit
+        put "Goodbye" into field "farewell"
+      end quit
+
+  - intent: "Handle tab key on this card to move to the next field."
+    script: |
+      on tabKey
+        select next field
+      end tabKey
+
+  - intent: "On closeCard save the current score into a global."
+    script: |
+      on closeCard
+        global lastScore
+        put field "score" into lastScore
+      end closeCard
+
+  - intent: "On card open, reset all counters to zero."
+    script: |
+      on openCard
+        global score
+        global lives
+        put 0 into score
+        put 3 into lives
+        put "Score: 0  Lives: 3" into field "hud"
+      end openCard
+
+  - intent: "Return to the previous card on escape key."
+    script: |
+      on keyDown
+        if the key is numToChar(27) then
+          go previous
+        end if
+      end keyDown
+
+  - intent: "Pause the stack (set a global flag) when the user clicks pause."
+    script: |
+      on mouseUp
+        global paused
+        put true into paused
+        set the visible of field "pausedOverlay" to true
+      end mouseUp

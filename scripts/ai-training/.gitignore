@@ -1,0 +1,6 @@
+# Generated artifacts — regenerate via the pipeline, don't commit.
+# out/adapters/, out/fused/, and out/logs/ are each hundreds of MB or GB.
+out/
+# Augmented YAML files are derived from seeds + the augmenter —
+# regenerate deterministically from the checked-in seeds.
+corpus/seed/*_aug.yaml

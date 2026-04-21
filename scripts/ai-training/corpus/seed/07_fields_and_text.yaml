@@ -1,0 +1,106 @@
+# Text fields, field content, selection, and text styling.
+
+examples:
+  - intent: "Clear a field when the user clicks the reset button."
+    script: |
+      on mouseUp
+        put "" into field "search"
+      end mouseUp
+
+  - intent: "Append a new line of text to the log field."
+    script: |
+      on mouseUp
+        put field "log" & return & "Clicked at " & the time into field "log"
+      end mouseUp
+
+  - intent: "When the user presses enter in a search field, navigate to the next card."
+    script: |
+      on enterKey
+        go next
+      end enterKey
+
+  - intent: "Focus the email field when the card opens."
+    script: |
+      on openCard
+        select field "email"
+      end openCard
+
+  - intent: "Convert the text in field 'input' to uppercase."
+    script: |
+      on mouseUp
+        put toUpper(field "input") into field "input"
+      end mouseUp
+
+  - intent: "Count characters in a field and show the result."
+    script: |
+      on mouseUp
+        put length(field "input") into field "charCount"
+      end mouseUp
+
+  - intent: "Count words in a field."
+    script: |
+      on mouseUp
+        put the number of words in field "input" into field "wordCount"
+      end mouseUp
+
+  - intent: "Pull the first word of the name field into a variable."
+    script: |
+      on mouseUp
+        put word 1 of field "name" into firstName
+      end mouseUp
+
+  - intent: "Get the third item in a comma-separated CSV field."
+    script: |
+      on mouseUp
+        put item 3 of field "csv" into thirdValue
+      end mouseUp
+
+  - intent: "Get the last line of a multi-line field."
+    script: |
+      on mouseUp
+        put the last line of field "log" into latest
+      end mouseUp
+
+  - intent: "Set the text alignment of a field to center."
+    script: |
+      on mouseUp
+        set the textAlign of field "title" to "center"
+      end mouseUp
+
+  - intent: "Change the text size of a field to 24 points."
+    script: |
+      on mouseUp
+        set the textSize of field "heading" to 24
+      end mouseUp
+
+  - intent: "Set a field's font to Helvetica."
+    script: |
+      on mouseUp
+        set the textFont of field "body" to "Helvetica"
+      end mouseUp
+
+  - intent: "Lock a field so the user can't edit it."
+    script: |
+      on openCard
+        set the lockText of field "readonly" to true
+      end openCard
+
+  - intent: "Hide a field initially, show it on click."
+    script: |
+      on openCard
+        set the visible of field "secret" to false
+      end openCard
+
+      on mouseUp
+        set the visible of field "secret" to true
+      end mouseUp
+
+  - intent: "Reveal the password field as plain text when a toggle button is clicked."
+    script: |
+      on mouseUp
+        if the hilite of me is true then
+          set the visible of field "password" to true
+        else
+          set the visible of field "password" to false
+        end if
+      end mouseUp

@@ -1,0 +1,54 @@
+# Animated-GIF control. These examples lock in the `the animated of
+# image "name"` property and the `start/stop the animation of
+# image "name"` command grammar.
+
+examples:
+  - intent: "Toggle the dancing chicken's animation on click."
+    script: |
+      on mouseUp
+        set the animation of image "chick" to not (the animation of image "chick")
+      end mouseUp
+
+  - intent: "Stop the gif animation."
+    script: |
+      on mouseUp
+        stop the animation of image "chick"
+      end mouseUp
+
+  - intent: "Start the gif animation."
+    script: |
+      on mouseUp
+        start the animation of image "chick"
+      end mouseUp
+
+  - intent: "Pause the gif when the user hovers over it, resume when they leave."
+    script: |
+      on mouseEnter
+        stop the animation of image "logo"
+      end mouseEnter
+
+      on mouseLeave
+        start the animation of image "logo"
+      end mouseLeave
+
+  - intent: "Go to the next card when the gif finishes one loop."
+    script: |
+      on animationEnd
+        go next
+      end animationEnd
+
+  - intent: "Disable autoplay on this gif by default."
+    script: |
+      on openCard
+        set the animated of image "banner" to false
+      end openCard
+
+  - intent: "Check whether the gif is currently playing and log it."
+    script: |
+      on mouseUp
+        if the animating of image "chick" is "true" then
+          put "Playing" into field "status"
+        else
+          put "Paused" into field "status"
+        end if
+      end mouseUp

@@ -1,0 +1,72 @@
+# Tool-choice training. The AI needs to pick the right tool for
+# sprite-area edits — specifically, `set_scene_script` for scene-
+# level scripts, NOT `set_part_property` with property=script (that
+# writes to the invisible part-level slot).
+#
+# These examples show the correct tool call in response to natural
+# language. The assistant output is a tool_calls JSON payload in
+# the same format MLX-LM emits during inference.
+
+examples:
+  - intent: "Set the scene script of the bounder sprite area so clicking any sprite scales its velocity by 1.5×."
+    tool_call:
+      name: "set_scene_script"
+      arguments:
+        sprite_area_name: "bounder"
+        script: |
+          on mouseDown
+            set the velocityX of me to (the velocityX of me) * 1.5
+            set the velocityY of me to (the velocityY of me) * 1.5
+          end mouseDown
+
+  - intent: "Add a script to the game_area scene that handles WASD movement on the player sprite."
+    tool_call:
+      name: "set_scene_script"
+      arguments:
+        sprite_area_name: "game_area"
+        script: |
+          on keyDown
+            if the key is "w" then set the velocityY of sprite "player" to 250
+            if the key is "s" then set the velocityY of sprite "player" to -250
+            if the key is "a" then set the velocityX of sprite "player" to -250
+            if the key is "d" then set the velocityX of sprite "player" to 250
+          end keyDown
+
+  - intent: "Make the bounder scene background black."
+    tool_call:
+      name: "apply_scene_diff"
+      arguments:
+        sprite_area_name: "bounder"
+        diff_json: '{"sceneUpdates":{"backgroundColor":"#000000"}}'
+
+  - intent: "Turn on gravity in the playfield scene at 0,-200."
+    tool_call:
+      name: "apply_scene_diff"
+      arguments:
+        sprite_area_name: "playfield"
+        diff_json: '{"sceneUpdates":{"gravity":{"dx":0,"dy":-200}}}'
+
+  - intent: "Add a blue circle named 'target' at 400,300 to the main scene in sprite area 'level'."
+    tool_call:
+      name: "add_sprite_to_scene"
+      arguments:
+        sprite_area_name: "level"
+        sprite_name: "target"
+        x: "400"
+        y: "300"
+
+  - intent: "Set the script on the 'play' button so it navigates to the next card."
+    tool_call:
+      name: "set_part_property"
+      arguments:
+        part_name: "play"
+        property: "script"
+        value: "go next"
+
+  - intent: "Set the play button's text to 'Start Over'."
+    tool_call:
+      name: "set_part_property"
+      arguments:
+        part_name: "play"
+        property: "text"
+        value: "Start Over"

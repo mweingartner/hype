@@ -1,0 +1,183 @@
+# Paired examples: bad-script → corrected-script. Every pattern here
+# is an actual failure mode observed in real AI outputs during dev
+# (see the conversation log in /Users/mweingar/.claude/projects/...).
+# Training on these steers the model AWAY from the invented grammar
+# that tripped Hype's parser.
+#
+# These become "correction" examples in the JSONL — the prompt
+# presents the bad script and asks for a fix; the completion is the
+# correct version.
+
+examples:
+  - intent: |
+      Fix this HypeTalk script:
+
+      on mouseDown
+        if the name of node at mouse location is "blue_ball" then
+          set the velocityX of blue_ball to (the velocityX of blue_ball * 1.5)
+        end
+      end
+    script: |
+      on frameUpdate
+        global wasHovering
+        if wasHovering is empty then put "false" into wasHovering
+        if the hoveredSprite is "blue_ball" then
+          if wasHovering is "false" then
+            set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 1.5
+            set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 1.5
+            put "true" into wasHovering
+          end if
+        else
+          put "false" into wasHovering
+        end if
+      end frameUpdate
+
+  - intent: |
+      Fix this:
+
+      on beginContact
+        set nodeA_name to the name of contact.nodeA
+        set nodeB_name to the name of contact.nodeB
+        if nodeA_name is "player" and nodeB_name is "coin" then
+          add 1 to score
+        end if
+      end beginContact
+    script: |
+      on beginContact otherNode
+        global score
+        if otherNode is "coin" then
+          add 1 to score
+        end if
+      end beginContact
+
+  - intent: |
+      Why doesn't this keyDown handler see the key?
+
+      on keyDown
+        if the key is "w" then set the velocity of sprite "player" to "0,250"
+      end keyDown
+    script: |
+      -- The handler is correct as written. `the key` resolves to the
+      -- character passed as the first handler parameter. This script
+      -- works on a sprite-area scene when the W key is pressed
+      -- while the scene has keyboard focus.
+      --
+      -- If the handler isn't firing at all, make sure the script is
+      -- on the SCENE (set_scene_script), not on the sprite-area PART
+      -- (set_part_property). The scene is where sprite-area events
+      -- dispatch first.
+      on keyDown
+        if the key is "w" then set the velocity of sprite "player" to "0,250"
+      end keyDown
+
+  - intent: |
+      The AI generated this, but it won't parse:
+
+      on frameUpdate
+        put mouseLoc into m
+        put item 1 of m into mx
+      end frameUpdate
+    script: |
+      -- `mouseLoc` as a bare identifier DOES work in current Hype
+      -- (falls through to the same evaluator as `the mouseLoc`).
+      -- This script is fine as written. If it appears to return
+      -- "0,0", confirm the mouse has actually been inside the scene
+      -- recently — the tracker updates on mouseMoved within the
+      -- SKView.
+      on frameUpdate
+        put the mouseLoc into m
+        put item 1 of m into mx
+        put item 2 of m into my
+      end frameUpdate
+
+  - intent: |
+      Fix the missing end blocks:
+
+      on mouseUp
+        if x > 10 then
+          put "big" into result
+        else
+          put "small" into result
+      end mouseUp
+    script: |
+      on mouseUp
+        if x > 10 then
+          put "big" into result
+        else
+          put "small" into result
+        end if
+      end mouseUp
+
+  - intent: |
+      This uses `end` without a label — fix it:
+
+      on mouseDown
+        if the hoveredSprite is "ball" then
+          set the velocityY of sprite "ball" to 400
+        end
+      end
+    script: |
+      on mouseDown
+        if the hoveredSprite is "ball" then
+          set the velocityY of sprite "ball" to 400
+        end if
+      end mouseDown
+
+  - intent: |
+      Normalize this to canonical HypeTalk physics access:
+
+      set the velocityX of physicsBody of sprite "player" to 300
+    script: |
+      set the velocityX of sprite "player" to 300
+
+  - intent: |
+      The AI reached for JavaScript syntax. Fix it:
+
+      on mouseUp
+        var count = 0;
+        count++;
+        self.physicsBody.velocity.x = 200;
+      end mouseUp
+    script: |
+      -- HypeTalk is not JavaScript. There is no `var`, no `++`, no
+      -- `self.physicsBody.velocity.x`. Rewritten in idiomatic form:
+      on mouseUp
+        global count
+        if count is empty then put 0 into count
+        add 1 to count
+        set the velocityX of me to 200
+      end mouseUp
+
+  - intent: |
+      This uses bare sprite names. Fix it:
+
+      on mouseUp
+        set the velocity of blue_ball to "0,0"
+      end mouseUp
+    script: |
+      on mouseUp
+        set the velocity of sprite "blue_ball" to "0,0"
+      end mouseUp
+
+  - intent: |
+      Rewrite this idiomatically for HypeTalk — no `function`
+      declarations outside of top-level handlers:
+
+      function accelerate(s, factor)
+        return s * factor
+      end accelerate
+
+      on frameUpdate
+        set the velocityX of sprite "ball" to accelerate(the velocityX of sprite "ball", 1.5)
+      end frameUpdate
+    script: |
+      -- `function name(args) ... end name` IS supported in HypeTalk
+      -- as a user-defined function. The original would work if
+      -- placed in the same script. Shown here in final form:
+      function accelerate(s, factor)
+        return s * factor
+      end accelerate
+
+      on frameUpdate
+        set the velocityX of sprite "ball" to accelerate(the velocityX of sprite "ball", 1.5)
+      end frameUpdate

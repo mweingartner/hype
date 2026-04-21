@@ -1,0 +1,169 @@
+# Tool-call training covering the AI Assistant's full tool surface —
+# teaches the model when to reach for which tool.
+
+examples:
+  - intent: "Create a new card in the stack."
+    tool_call:
+      name: "create_card"
+      arguments:
+        background_name: "default"
+
+  - intent: "Create a button named 'Next' that navigates to the next card."
+    tool_call:
+      name: "create_button"
+      arguments:
+        name: "Next"
+        left: "400"
+        top: "500"
+        width: "80"
+        height: "30"
+        script: "go next"
+
+  - intent: "Add a field called 'score' at the top-left."
+    tool_call:
+      name: "create_field"
+      arguments:
+        name: "score"
+        left: "20"
+        top: "20"
+        width: "120"
+        height: "30"
+        text: "0"
+
+  - intent: "Create a red rectangle shape."
+    tool_call:
+      name: "create_shape"
+      arguments:
+        name: "background_rect"
+        shape_type: "rectangle"
+        left: "0"
+        top: "0"
+        width: "800"
+        height: "600"
+        fill_color: "#FF0000"
+
+  - intent: "Add a sprite area called 'game_area' to the current card."
+    tool_call:
+      name: "create_sprite_area"
+      arguments:
+        name: "game_area"
+        left: "50"
+        top: "50"
+        width: "700"
+        height: "500"
+
+  - intent: "Set the bounder scene to restart the ball on mouseDown — put this on the scene, not the part."
+    tool_call:
+      name: "set_scene_script"
+      arguments:
+        sprite_area_name: "bounder"
+        script: |
+          on mouseDown
+            set the loc of sprite "ball" to "400,300"
+            set the velocity of sprite "ball" to "0,0"
+          end mouseDown
+
+  - intent: "Place a new sprite named 'player' at 300,400 in the arena scene."
+    tool_call:
+      name: "add_sprite_to_scene"
+      arguments:
+        sprite_area_name: "arena"
+        sprite_name: "player"
+        x: "300"
+        y: "400"
+
+  - intent: "Change gravity in the playfield scene to strong upward."
+    tool_call:
+      name: "apply_scene_diff"
+      arguments:
+        sprite_area_name: "playfield"
+        diff_json: '{"sceneUpdates":{"gravity":{"dx":0,"dy":400}}}'
+
+  - intent: "Enable physics visualization in the debug scene."
+    tool_call:
+      name: "apply_scene_diff"
+      arguments:
+        sprite_area_name: "debug"
+        diff_json: '{"sceneUpdates":{"showsPhysics":true}}'
+
+  - intent: "Get the current scene JSON so I can inspect it."
+    tool_call:
+      name: "get_scene_spec"
+      arguments:
+        sprite_area_name: "game"
+
+  - intent: "Run scene diagnostics for the bounder area."
+    tool_call:
+      name: "get_scene_diagnostics"
+      arguments:
+        sprite_area_name: "bounder"
+
+  - intent: "List every image in the Sprite Repository."
+    tool_call:
+      name: "list_repository_assets"
+      arguments: {}
+
+  - intent: "Classify the pixel-tiles.png asset as a 16x16 tileset with 10 columns and 8 rows."
+    tool_call:
+      name: "classify_asset_as_tileset"
+      arguments:
+        name: "pixel-tiles"
+        tile_width: "16"
+        tile_height: "16"
+        tile_columns: "10"
+        tile_rows: "8"
+
+  - intent: "Add a tilemap node using the pixel-tiles asset at 0,0 with 40x30 cells."
+    tool_call:
+      name: "create_tilemap"
+      arguments:
+        sprite_area_name: "world"
+        tilemap_name: "ground"
+        tileset_asset: "pixel-tiles"
+        x: "0"
+        y: "0"
+        columns: "40"
+        rows: "30"
+
+  - intent: "Set tile 5 at column 3, row 2 of the ground tilemap."
+    tool_call:
+      name: "set_tile"
+      arguments:
+        sprite_area_name: "world"
+        tilemap_name: "ground"
+        column: "3"
+        row: "2"
+        tile_index: "5"
+
+  - intent: "Check if this HypeTalk script parses."
+    tool_call:
+      name: "check_script"
+      arguments:
+        script: |
+          on mouseUp
+            go next
+          end mouseUp
+
+  - intent: "Update the score field text to 100."
+    tool_call:
+      name: "set_part_property"
+      arguments:
+        part_name: "score"
+        property: "text"
+        value: "100"
+
+  - intent: "Set the button's background color to blue."
+    tool_call:
+      name: "set_part_property"
+      arguments:
+        part_name: "confirm"
+        property: "fillColor"
+        value: "#0000FF"
+
+  - intent: "Hide the debug panel."
+    tool_call:
+      name: "set_part_property"
+      arguments:
+        part_name: "debug_panel"
+        property: "visible"
+        value: "false"

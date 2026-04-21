@@ -1,0 +1,129 @@
+# Audio, beeps, timers, and idle-driven timing.
+
+examples:
+  - intent: "Play a sound on button click."
+    script: |
+      on mouseUp
+        play "chime"
+      end mouseUp
+
+  - intent: "Play a melody using note syntax."
+    script: |
+      on mouseUp
+        play "piano" tempo 120 "c e g c5"
+      end mouseUp
+
+  - intent: "Beep three times."
+    script: |
+      on mouseUp
+        beep 3
+      end mouseUp
+
+  - intent: "Stop all currently-playing sounds."
+    script: |
+      on mouseUp
+        play stop
+      end mouseUp
+
+  - intent: "Wait one second before navigating."
+    script: |
+      on mouseUp
+        wait 1 second
+        go next
+      end mouseUp
+
+  - intent: "Pause for 500 milliseconds."
+    script: |
+      on mouseUp
+        wait 0.5 seconds
+        put "Done" into field "status"
+      end mouseUp
+
+  - intent: "Display the current time every second via idle."
+    script: |
+      on idle
+        put the time into field "clock"
+      end idle
+
+  - intent: "Tick down a countdown each second using idle and ticks."
+    script: |
+      on idle
+        global lastTick
+        global countdown
+        if lastTick is empty then put the ticks into lastTick
+        if countdown is empty then put 10 into countdown
+        if (the ticks - lastTick) >= 60 then
+          put the ticks into lastTick
+          subtract 1 from countdown
+          put countdown into field "timer"
+          if countdown <= 0 then
+            go card "timesUp"
+          end if
+        end if
+      end idle
+
+  - intent: "Play a different sound based on which half of the card the user clicks."
+    script: |
+      on mouseUp
+        global width
+        if the mouseH < width / 2 then
+          play "left"
+        else
+          play "right"
+        end if
+      end mouseUp
+
+  - intent: "Loop a short sound effect for ambient background using beginContact trigger."
+    script: |
+      on beginContact otherNode
+        if otherNode is "music_trigger" then
+          play "background"
+        end if
+      end beginContact
+
+  - intent: "Create a fade-in effect by scaling the text size up over time."
+    script: |
+      on openCard
+        set the textSize of field "title" to 10
+      end openCard
+
+      on idle
+        if the textSize of field "title" < 48 then
+          set the textSize of field "title" to (the textSize of field "title") + 1
+        end if
+      end idle
+
+  - intent: "Reveal cards one at a time like a deal animation."
+    script: |
+      on openCard
+        global dealIndex
+        if dealIndex is empty then put 1 into dealIndex
+      end openCard
+
+      on idle
+        global dealIndex
+        global lastDeal
+        if lastDeal is empty then put the ticks into lastDeal
+        if (the ticks - lastDeal) > 30 then
+          put the ticks into lastDeal
+          set the visible of button ("card_" & dealIndex) to true
+          add 1 to dealIndex
+          if dealIndex > 5 then exit idle
+        end if
+      end idle
+
+  - intent: "Repeat a beep pattern via a scheduled timer using wait."
+    script: |
+      on mouseUp
+        repeat with i = 1 to 4
+          beep
+          wait 0.3 seconds
+        end repeat
+      end mouseUp
+
+  - intent: "Pulse a sprite's scale using animate over 0.5 seconds."
+    script: |
+      on mouseUp
+        animate the width of sprite "pulse" to 150 over 0.5
+        animate the height of sprite "pulse" to 150 over 0.5
+      end mouseUp

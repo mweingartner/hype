@@ -1,0 +1,113 @@
+# Shape and button manipulation — fill color, stroke, visibility,
+# position, size.
+
+examples:
+  - intent: "Change a shape's fill color to red when clicked."
+    script: |
+      on mouseUp
+        set the fillColor of me to "#FF0000"
+      end mouseUp
+
+  - intent: "Toggle a shape's fill between green and gray on click."
+    script: |
+      on mouseUp
+        if the fillColor of me is "#00AA00" then
+          set the fillColor of me to "#888888"
+        else
+          set the fillColor of me to "#00AA00"
+        end if
+      end mouseUp
+
+  - intent: "Move a rectangle 20 pixels to the right on each click."
+    script: |
+      on mouseUp
+        set the left of me to (the left of me) + 20
+      end mouseUp
+
+  - intent: "Grow a button by 10% each click."
+    script: |
+      on mouseUp
+        set the width of me to (the width of me) * 1.1
+        set the height of me to (the height of me) * 1.1
+      end mouseUp
+
+  - intent: "Rotate a shape by 15 degrees clockwise."
+    script: |
+      on mouseUp
+        set the rotation of me to (the rotation of me) + 15
+      end mouseUp
+
+  - intent: "Reset a shape's rotation to zero."
+    script: |
+      on mouseUp
+        set the rotation of me to 0
+      end mouseUp
+
+  - intent: "Change a button's label text."
+    script: |
+      on mouseUp
+        set the name of button "action" to "Clicked"
+      end mouseUp
+
+  - intent: "Disable a button once it's been clicked."
+    script: |
+      on mouseUp
+        set the enabled of me to false
+      end mouseUp
+
+  - intent: "Re-enable the 'submit' button when the 'email' field is non-empty."
+    script: |
+      on idle
+        if field "email" is not "" then
+          set the enabled of button "submit" to true
+        else
+          set the enabled of button "submit" to false
+        end if
+      end idle
+
+  - intent: "Fade out a shape by setting its fill color with alpha."
+    script: |
+      on mouseUp
+        set the fillColor of me to "#FFAA0040"
+      end mouseUp
+
+  - intent: "Hide a shape when it's clicked."
+    script: |
+      on mouseUp
+        set the visible of me to false
+      end mouseUp
+
+  - intent: "Toggle a checkbox button's hilite."
+    script: |
+      on mouseUp
+        set the hilite of me to not the hilite of me
+      end mouseUp
+
+  - intent: "When the user hovers over a button, change its label to 'Ready'."
+    script: |
+      on mouseEnter
+        set the name of me to "Ready"
+      end mouseEnter
+
+      on mouseLeave
+        set the name of me to "Hover me"
+      end mouseLeave
+
+  - intent: "Randomize a shape's position within the card bounds."
+    script: |
+      on mouseUp
+        set the left of me to random(800)
+        set the top of me to random(600)
+      end mouseUp
+
+  - intent: "Change a button's style to shadow."
+    script: |
+      on mouseUp
+        set the style of me to "shadow"
+      end mouseUp
+
+  - intent: "Reset a shape's fill color back to the default on click."
+    script: |
+      on mouseUp
+        set the fillColor of me to "#FFFFFF"
+      end mouseUp

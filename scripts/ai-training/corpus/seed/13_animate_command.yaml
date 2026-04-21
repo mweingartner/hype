@@ -1,0 +1,87 @@
+# The `animate` command — smooth part-property tweens.
+
+examples:
+  - intent: "Slide a button smoothly to x=400 over one second."
+    script: |
+      on mouseUp
+        animate the left of button "slider" to 400 over 1
+      end mouseUp
+
+  - intent: "Animate a shape to a new position in half a second."
+    script: |
+      on mouseUp
+        animate the loc of shape "ball" to "400,300" over 0.5
+      end mouseUp
+
+  - intent: "Rotate a shape to 360 degrees over 2 seconds."
+    script: |
+      on mouseUp
+        animate the rotation of shape "spinner" to 360 over 2
+      end mouseUp
+
+  - intent: "Grow a field's width to full screen."
+    script: |
+      on mouseUp
+        animate the width of field "panel" to 800 over 0.75
+      end mouseUp
+
+  - intent: "Shrink a button back to original size."
+    script: |
+      on mouseUp
+        animate the width of me to 100 over 0.3
+        animate the height of me to 40 over 0.3
+      end mouseUp
+
+  - intent: "Move a shape upward — set up the animation and then wait for it."
+    script: |
+      on mouseUp
+        animate the top of me to 0 over 1
+        wait until the animating of me is "false"
+        put "Done" into field "status"
+      end mouseUp
+
+  - intent: "Wait for an animation on another part to complete."
+    script: |
+      on mouseUp
+        animate the loc of button "ball" to "500,300" over 1
+        wait until the animating of button "ball" is "false"
+        beep
+      end mouseUp
+
+  - intent: "Animate to a random location on each click."
+    script: |
+      on mouseUp
+        put random(800) into x
+        put random(600) into y
+        animate the loc of me to (x & "," & y) over 0.5
+      end mouseUp
+
+  - intent: "Chain three animations: left, then right, then center."
+    script: |
+      on mouseUp
+        animate the left of me to 0 over 0.3
+        wait until the animating of me is "false"
+        animate the left of me to 700 over 0.3
+        wait until the animating of me is "false"
+        animate the left of me to 350 over 0.3
+      end mouseUp
+
+  - intent: "Animate a shape's rotation continuously via idle."
+    script: |
+      on idle
+        if the animating of shape "spinner" is "false" then
+          animate the rotation of shape "spinner" to (the rotation of shape "spinner") + 90 over 0.5
+        end if
+      end idle
+
+  - intent: "Pulse a button's width between 100 and 150 in a loop."
+    script: |
+      on idle
+        if the animating of me is "false" then
+          if the width of me > 125 then
+            animate the width of me to 100 over 0.4
+          else
+            animate the width of me to 150 over 0.4
+          end if
+        end if
+      end idle

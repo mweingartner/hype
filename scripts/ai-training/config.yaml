@@ -1,0 +1,81 @@
+# Fine-tuning pipeline configuration.
+#
+# Every knob the pipeline needs lives here. Individual stages
+# (gen_corpus, train, fuse, package, eval) read this file directly
+# so there is ONE source of truth for model names, paths, and
+# hyperparameters — not 6 shell-script constants drifting out of sync.
+#
+# After editing, re-run `make all` from the scripts/ai-training
+# directory. All stages are incremental (Makefile targets) so only
+# the affected stages re-run.
+
+# ----- Base model -----
+# Hugging Face repo to fine-tune from. MLX-LM pulls this on first
+# use. The model must be a gemma-3 architecture for `ollama create`
+# to accept the fused safetensors directly.
+#
+# The user's local `gemma4:31b` Ollama tag is a community repack of
+# Gemma 3; we pull Google's canonical weights from HF to avoid
+# reverse-engineering whatever that repack did, and produce a clean
+# new model at the end. If you specifically want to preserve
+# `gemma4` behaviors, swap to that repo if it exists on HF.
+base_model: "mlx-community/gemma-3-27b-it-bf16"
+# Non-gated MLX-format mirror of Google's canonical gemma-3-27b-it
+# weights. Bit-identical to google/gemma-3-27b-it but doesn't
+# require accepting Google's license click-through, so the
+# pipeline runs unattended. Switch back to `google/gemma-3-27b-it`
+# if you've accepted the license on huggingface.co and want the
+# canonical repo path.
+
+# ----- Output model name -----
+# Ollama tag the pipeline creates at the end. Bump the version
+# suffix on every training run so you can A/B compare against the
+# previous version.
+output_model: "hypetalk-gemma4:27b-v1"
+
+# ----- LoRA hyperparameters -----
+# Sensible defaults for instruction fine-tuning on a small domain-
+# specific corpus. Larger rank = more capacity but also more risk
+# of overfit on a ~500-2000 example corpus.
+lora:
+  rank: 16
+  alpha: 32
+  dropout: 0.05
+  num_layers: 16           # Apply LoRA to the top N transformer blocks
+  learning_rate: 1.0e-5
+  batch_size: 1            # 27B LoRA at 128 GB: batch=1, grad-accum via steps
+  iters: 600               # First run used 4000 + full-guide system prompt →
+                           # catastrophic overfit, mode collapse. With the
+                           # guide moved out of training data (see
+                           # src/gen_corpus.py), loss lands fast on the real
+                           # user→script mapping. Keep total iters small so
+                           # we don't revisit the same 500 examples too many
+                           # times. save_every=50 means we have lots of
+                           # candidate checkpoints to pick from at eval.
+  grad_accumulation_steps: 8
+  save_every: 50           # Fine-grained so we can pick the best checkpoint
+                           # before overfit — the first run showed catastrophic
+                           # damage between iter 200 (first save) and iter 2400.
+                           # With save_every=50 we have ~12 checkpoints from
+                           # 600 total iters to sweep.
+  seed: 42
+
+# ----- Ollama model metadata -----
+# Applied to the Modelfile's SYSTEM prompt and PARAMETER defaults.
+ollama:
+  temperature: 0.2         # Low temp for deterministic HypeTalk output
+  top_p: 0.9
+  num_ctx: 8192
+  # The SYSTEM prompt is pulled from HypeTalkGuide.llmContext at
+  # build time so the Modelfile always matches the running app's
+  # expectations. See src/package.sh.
+
+# ----- Eval -----
+eval:
+  prompts_file: "eval/prompts.jsonl"
+  # How many times to sample each prompt; majority-grade to smooth
+  # out sampling variance. 1 = deterministic, single-shot.
+  samples_per_prompt: 1
+  # Run eval against the NEW tuned model AND the base model side by
+  # side so you can see lift from training rather than absolute score.
+  baseline_model: "gemma4:31b"

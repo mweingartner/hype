@@ -1,0 +1,114 @@
+# Scene node properties — position, scale, alpha, z-position, sprite
+# children, labels, emitters.
+
+examples:
+  - intent: "Set a label's text in the scene."
+    script: |
+      on mouseUp
+        set the text of label "score_label" to "Score: 100"
+      end mouseUp
+
+  - intent: "Change a label's font size."
+    script: |
+      on mouseUp
+        set the fontSize of label "title" to 48
+      end mouseUp
+
+  - intent: "Change a label's color."
+    script: |
+      on mouseUp
+        set the fontColor of label "alert" to "#FF0000"
+      end mouseUp
+
+  - intent: "Move a sprite by a relative offset."
+    script: |
+      on mouseUp
+        put the loc of sprite "player" into p
+        put item 1 of p into x
+        put item 2 of p into y
+        set the loc of sprite "player" to (x + 50) & "," & y
+      end mouseUp
+
+  - intent: "Scale a sprite up by 2x."
+    script: |
+      on mouseUp
+        set the xScale of sprite "icon" to 2
+        set the yScale of sprite "icon" to 2
+      end mouseUp
+
+  - intent: "Fade a sprite to half-transparent."
+    script: |
+      on mouseUp
+        set the alpha of sprite "ghost" to 0.5
+      end mouseUp
+
+  - intent: "Bring a sprite above others by z-position."
+    script: |
+      on mouseUp
+        set the zPosition of sprite "player" to 100
+      end mouseUp
+
+  - intent: "Hide a sprite node entirely."
+    script: |
+      on mouseUp
+        set the isHidden of sprite "enemy" to true
+      end mouseUp
+
+  - intent: "Rotate a sprite node."
+    script: |
+      on mouseUp
+        set the rotation of sprite "arrow" to 45
+      end mouseUp
+
+  - intent: "Trigger an emitter node on demand."
+    script: |
+      on mouseUp
+        set the isHidden of emitter "sparks" to false
+      end mouseUp
+
+  - intent: "Look up how many nodes are in a scene."
+    script: |
+      on mouseUp
+        put the number of nodes of scene "main" into field "count"
+      end mouseUp
+
+  - intent: "Access the scene's background color."
+    script: |
+      on mouseUp
+        put the backgroundColor of scene "main" into field "bg"
+      end mouseUp
+
+  - intent: "Change the scene's background color."
+    script: |
+      on mouseUp
+        set the backgroundColor of scene "main" to "#222244"
+      end mouseUp
+
+  - intent: "Pause a scene for a dialog."
+    script: |
+      on mouseUp
+        set the paused of scene "main" to true
+      end mouseUp
+
+  - intent: "Resume a paused scene."
+    script: |
+      on mouseUp
+        set the paused of scene "main" to false
+      end mouseUp
+
+  - intent: "Read a sprite's size into variables."
+    script: |
+      on mouseUp
+        put the width of sprite "player" into w
+        put the height of sprite "player" into h
+      end mouseUp
+
+  - intent: "Find out if a scene is currently paused."
+    script: |
+      on mouseUp
+        if the paused of scene "main" is "true" then
+          put "Paused" into field "status"
+        else
+          put "Running" into field "status"
+        end if
+      end mouseUp

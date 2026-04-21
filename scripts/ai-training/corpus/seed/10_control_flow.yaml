@@ -1,0 +1,157 @@
+# Conditionals, loops, and user-defined functions.
+
+examples:
+  - intent: "Use if/else to choose a message based on a score."
+    script: |
+      on mouseUp
+        global score
+        if score > 100 then
+          put "High score!" into field "msg"
+        else
+          put "Keep trying" into field "msg"
+        end if
+      end mouseUp
+
+  - intent: "Chain multiple conditions with else if."
+    script: |
+      on mouseUp
+        global score
+        if score > 100 then
+          put "A" into field "grade"
+        else if score > 75 then
+          put "B" into field "grade"
+        else if score > 50 then
+          put "C" into field "grade"
+        else
+          put "F" into field "grade"
+        end if
+      end mouseUp
+
+  - intent: "Loop ten times, appending each iteration to a field."
+    script: |
+      on mouseUp
+        put "" into field "output"
+        repeat with i = 1 to 10
+          put field "output" & i & " " into field "output"
+        end repeat
+      end mouseUp
+
+  - intent: "Loop while a global is less than 10."
+    script: |
+      on mouseUp
+        global n
+        put 0 into n
+        repeat while n < 10
+          add 1 to n
+        end repeat
+      end mouseUp
+
+  - intent: "Loop until a condition is met."
+    script: |
+      on mouseUp
+        global n
+        put 0 into n
+        repeat until n >= 5
+          add 1 to n
+        end repeat
+      end mouseUp
+
+  - intent: "Iterate the items in a CSV field."
+    script: |
+      on mouseUp
+        put 0 into total
+        repeat with i = 1 to the number of items in field "csv"
+          add item i of field "csv" to total
+        end repeat
+        put total into field "sum"
+      end mouseUp
+
+  - intent: "Exit a loop early when a condition is met."
+    script: |
+      on mouseUp
+        repeat with i = 1 to 100
+          if i > 50 then
+            exit repeat
+          end if
+        end repeat
+      end mouseUp
+
+  - intent: "Skip iteration with next repeat."
+    script: |
+      on mouseUp
+        repeat with i = 1 to 10
+          if i mod 2 = 0 then
+            next repeat
+          end if
+          put i & " " after field "odds"
+        end repeat
+      end mouseUp
+
+  - intent: "Define a helper function to double a number."
+    script: |
+      function double(n)
+        return n * 2
+      end double
+
+      on mouseUp
+        put double(7) into field "result"
+      end mouseUp
+
+  - intent: "Define a function that clamps a value between min and max."
+    script: |
+      function clamp(v, minV, maxV)
+        if v < minV then return minV
+        if v > maxV then return maxV
+        return v
+      end clamp
+
+      on mouseUp
+        put clamp(field "x", 0, 100) into field "x"
+      end mouseUp
+
+  - intent: "Define a function and use it inside an idle handler."
+    script: |
+      function interp(a, b, t)
+        return a + (b - a) * t
+      end interp
+
+      on idle
+        global t
+        if t is empty then put 0 into t
+        add 0.02 to t
+        if t > 1 then put 0 into t
+        set the left of button "ball" to interp(100, 500, t)
+      end idle
+
+  - intent: "Early return from a handler when a precondition fails."
+    script: |
+      on mouseUp
+        if field "email" is "" then
+          answer "Please enter your email first."
+          exit mouseUp
+        end if
+        go card "thankYou"
+      end mouseUp
+
+  - intent: "Use pass to forward the mouseUp to the background after running custom logic."
+    script: |
+      on mouseUp
+        put the time into field "log"
+        pass mouseUp
+      end mouseUp
+
+  - intent: "Compute the maximum of two values inline."
+    script: |
+      on mouseUp
+        if field "a" > field "b" then
+          put field "a" into field "max"
+        else
+          put field "b" into field "max"
+        end if
+      end mouseUp
+
+  - intent: "Arithmetic chain: calculate BMI from height and weight fields."
+    script: |
+      on mouseUp
+        put field "weight" / (field "height" * field "height") into field "bmi"
+      end mouseUp

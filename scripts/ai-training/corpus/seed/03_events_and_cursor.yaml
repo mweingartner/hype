@@ -1,0 +1,85 @@
+# Event handlers and cursor/mouse tracking. The cursor-over-sprite
+# pattern is the one that's hardest for untrained models to get right —
+# they invent `node at mouse location` or `sprite.contains(mouse)`
+# syntax. These examples lock in the correct idiom: `the hoveredSprite`.
+
+examples:
+  - intent: "If the cursor hovers over the blue_ball, accelerate it by 50%."
+    script: |
+      on frameUpdate
+        global wasHovering
+        if wasHovering is empty then put "false" into wasHovering
+        if the hoveredSprite is "blue_ball" then
+          if wasHovering is "false" then
+            set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 1.5
+            set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 1.5
+            put "true" into wasHovering
+          end if
+        else
+          put "false" into wasHovering
+        end if
+      end frameUpdate
+
+  - intent: "Change the ball's color when the cursor enters it."
+    script: |
+      on frameUpdate
+        global lastHover
+        if the hoveredSprite is not lastHover then
+          if the hoveredSprite is "ball" then
+            set the fillColor of sprite "ball" to "#FF0000"
+          else if lastHover is "ball" then
+            set the fillColor of sprite "ball" to "#FFFFFF"
+          end if
+          put the hoveredSprite into lastHover
+        end if
+      end frameUpdate
+
+  - intent: "Read the current mouse position into variables."
+    script: |
+      on frameUpdate
+        put item 1 of the mouseLoc into mx
+        put item 2 of the mouseLoc into my
+      end frameUpdate
+
+  - intent: "Check distance from cursor to a sprite."
+    script: |
+      on frameUpdate
+        put the mouseLoc into m
+        put the loc of sprite "target" into t
+        put (item 1 of t) - (item 1 of m) into dx
+        put (item 2 of t) - (item 2 of m) into dy
+        put sqrt(dx * dx + dy * dy) into dist
+        if dist < 50 then
+          set the fillColor of sprite "target" to "#FFFF00"
+        end if
+      end frameUpdate
+
+  - intent: "Respond to mouseDown on a sprite node."
+    script: |
+      on mouseDown
+        set the velocityY of me to 500
+      end mouseDown
+
+  - intent: "Track total time elapsed and show it in a label."
+    script: |
+      on frameUpdate
+        global startTicks
+        if startTicks is empty then put the ticks into startTicks
+        put (the ticks - startTicks) / 60 into seconds
+        set the text of label "timer" to "Time: " & seconds
+      end frameUpdate
+
+  - intent: "Dispatch an action when the user presses escape."
+    script: |
+      on keyDown
+        -- key code 27 is escape; compare char-insensitively
+        if the key is numToChar(27) then
+          go back
+        end if
+      end keyDown
+
+  - intent: "When animation ends on the gif image, play a sound."
+    script: |
+      on animationEnd
+        play "ding"
+      end animationEnd
