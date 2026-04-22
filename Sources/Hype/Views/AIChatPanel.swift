@@ -171,7 +171,13 @@ struct AIChatPanel: View {
                 .padding(.bottom, 6)
             }
             .padding(8)
-            .onAppear { isInputFocused = true }
+            .onAppear {
+                isInputFocused = true
+                preloadModelIfNeeded()
+            }
+            .onChange(of: ollamaModel) { _ in
+                preloadModelIfNeeded()
+            }
         }
         .frame(width: 350)
     }
@@ -179,6 +185,34 @@ struct AIChatPanel: View {
     // MARK: - History
 
     private enum HistoryDirection { case up, down }
+
+    /// Warm up the currently selected Ollama model in the background
+    /// so the first user message doesn't pay a cold-load penalty.
+    ///
+    /// A 56 GB tuned model (hypetalk-gemma4:27b-v1) takes ~10-40 s
+    /// to load into unified memory on first use. Ollama's default
+    /// keep-alive is 5 minutes of idle before it unloads the
+    /// weights — meaning every chat session that opens after a
+    /// 5-minute gap from the previous one hits that cold-load
+    /// penalty on top of generation time, occasionally pushing
+    /// past Hype's 600 s per-request budget on long prompts.
+    ///
+    /// This fires a zero-token `/api/generate` with
+    /// `keep_alive: 30m` against the current model as soon as the
+    /// AI panel becomes visible (and again when the user swaps
+    /// models in Preferences). Fire-and-forget — a failure here
+    /// shouldn't block the UI; the actual chat request will
+    /// surface its own error if the model is genuinely
+    /// unreachable.
+    private func preloadModelIfNeeded() {
+        let host = ollamaHost
+        let port = ollamaPort
+        let model = ollamaModel
+        Task.detached {
+            let client = OllamaToolClient(host: host, port: port, model: model)
+            try? await client.preloadModel()
+        }
+    }
 
     private func recallHistory(direction: HistoryDirection) {
         let history = document.document.aiPromptHistory

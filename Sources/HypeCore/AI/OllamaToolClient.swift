@@ -839,6 +839,19 @@ public actor OllamaToolClient {
         var body: [String: Any] = [
             "model": model,
             "stream": false,
+            // Keep the model resident in GPU memory between chat
+            // turns. Ollama's default is 5 minutes of idle before
+            // it unloads the weights — for a 56 GB tuned model
+            // that translates into 10-40 s of cold-load penalty
+            // on the next user message, on top of generation time.
+            // A 30-minute keep-alive covers typical interactive
+            // sessions without permanently pinning the model.
+            //
+            // Note: if multiple models need to share VRAM, raise
+            // this lower-bound or pass an explicit shorter value
+            // at call time. For a single tuned model on an M5 Max
+            // with 128 GB unified memory, 30 m is cheap.
+            "keep_alive": "30m",
         ]
 
         let encodedMessages = try JSONEncoder().encode(messages)
@@ -859,6 +872,35 @@ public actor OllamaToolClient {
         }
 
         return body
+    }
+
+    /// Preload the current `model` into the Ollama server's memory
+    /// with a zero-token generation so the FIRST real chat request
+    /// doesn't also pay the 40 s cold-load penalty. Fire-and-forget
+    /// at app startup (or when the user swaps models in Preferences).
+    /// Returns once the model reports loaded, or throws on error.
+    public func preloadModel() async throws {
+        guard let url = URL(string: "\(baseURL)/api/generate") else {
+            throw OllamaError.requestFailed("Invalid URL")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Give the preload its own (long) budget — the same
+        // `timeouts.request` might be shorter than a real cold-load
+        // on a very large model.
+        request.timeoutInterval = max(timeouts.request, 300)
+
+        let body: [String: Any] = [
+            "model": model,
+            // Empty prompt + `keep_alive` triggers a pure load.
+            "prompt": "",
+            "keep_alive": "30m",
+            "stream": false,
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        _ = try await sessionData(for: request, endpoint: "/api/generate")
     }
 }
 
