@@ -157,6 +157,96 @@ HypeTalkGuide.swift. If you add new tool descriptions to the
 guide after training, re-run `make package eval` — you don't need
 to retrain, just repackage.
 
+## Known issues with the v1 (570-row) tuned model
+
+`hypetalk-gemma4:27b-v1` produced from the current corpus has three
+reliability problems observed during real-world use in Hype. They
+are all **training-data breadth** issues — the LoRA weights
+themselves are fine, the corpus is just too thin to override
+Gemma-3's pre-training priors on complex requests.
+
+### 1. Tool-call tags sometimes missing from output
+The model correctly emits the middle of the functiongemma format
+(`name{key:<escape>value<escape>,…}`) but occasionally drops the
+surrounding `<start_function_call>call:` and `<end_function_call>`
+tags, especially on long-arg tool calls like `set_scene_script`
+with a multi-line HypeTalk body. Ollama's parser then returns an
+empty tool_call shell.
+
+**Why**: 78 tool-call rows in the corpus is enough to teach the
+middle format but not strong enough to anchor the special
+opening/closing tokens against the pre-training bias toward
+markdown fences. And training system prompts did NOT include the
+`<start_function_declaration>…<end_function_declaration>` tool
+schema that Ollama's renderer injects at inference time — so the
+model never saw the declaration→call pairing during training.
+
+**Fix (retrain)**: every tool-call training row's system prompt
+should include a minimal rendered tool-declaration for the
+specific tool being called. Target 200+ tool-call rows total
+(currently 78 after augmentation — 26 seed examples × 3×).
+
+### 2. Context blindness on CURRENT STATE
+Hype's system prompt includes a "CURRENT STATE" section listing
+card parts, sprites, and assets. The tuned model ignores it —
+repeatedly hallucinating sprite names (e.g. `ball_1…ball_26`)
+instead of using the three sprites Hype explicitly listed.
+
+**Why**: zero training rows have a `CURRENT STATE:` section in
+their system prompt. The model never saw the pattern of "system
+lists existing objects → assistant references them by name."
+
+**Fix (retrain)**: augment ~30% of training rows with a simulated
+`CURRENT STATE:` system-prompt block that enumerates objects
+matching the assistant's output. The model will learn to look
+there for concrete names.
+
+### 3. Reversion to Lua/JS game-code vocabulary
+On requests the corpus doesn't cover (complex physics + mouse +
+velocity scaling), the model falls back to generic game-code
+patterns (`function setUp()`, `sprite.name == "blue_ball"`,
+`set_gravity()`) instead of using HypeTalk syntax it was trained
+on.
+
+**Why**: 492 script-generation rows is broad but has coverage
+holes. When a request doesn't resemble any seed, the model
+extrapolates from its Gemma-3 pre-training rather than
+interpolating the HypeTalk vocabulary.
+
+**Fix (retrain)**: expand corpus to 1500-3000 rows. Priority
+areas for new seeds:
+- `16_physics_combined.yaml` — physics + event + mouse
+  interactions
+- `17_game_patterns.yaml` — scoring, lives, spawning, waves
+- `18_negative_examples.yaml` — prompts where the correct
+  response is plain HypeTalk, not a tool call (and vice versa)
+
+### Status of the current hypetalk-gemma4:27b-v1 default
+
+Reverted. `defaults read com.hype.app ollamaModel` now returns
+`gemma4:31b`. The tuned model is still available in Ollama and
+selectable from Hype's Preferences > Model picker when you want
+to test it. Setting the tuned model as the default can be redone
+with `make set-default` once a corpus-v2 retrain lands.
+
+### Roadmap for v2 retrain
+
+1. Add seed files 16, 17, 18 as described above (targeting
+   ~400 new examples across them).
+2. Update `make_tool_call_row` in `src/gen_corpus.py` to wrap the
+   tool-call's target tool in a rendered
+   `<start_function_declaration>…<end_function_declaration>` block
+   in the system prompt.
+3. Update `augment_corpus.py` to also augment the system prompts
+   of ~30% of rows with a `CURRENT STATE:` block listing
+   plausible card parts and sprite nodes.
+4. Bump `lora.iters` to 1200 in `config.yaml`.
+5. `make all`.
+6. Target: score 6/6 on the eval harness + measurably lower
+   hallucination rate on real Hype chat prompts.
+
+---
+
 ## Alternatives to full fine-tuning
 
 Before committing to a multi-hour training run, consider whether
