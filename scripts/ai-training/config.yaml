@@ -44,14 +44,21 @@ lora:
   num_layers: 16           # Apply LoRA to the top N transformer blocks
   learning_rate: 1.0e-5
   batch_size: 1            # 27B LoRA at 128 GB: batch=1, grad-accum via steps
-  iters: 600               # First run used 4000 + full-guide system prompt →
-                           # catastrophic overfit, mode collapse. With the
-                           # guide moved out of training data (see
-                           # src/gen_corpus.py), loss lands fast on the real
-                           # user→script mapping. Keep total iters small so
-                           # we don't revisit the same 500 examples too many
-                           # times. save_every=50 means we have lots of
-                           # candidate checkpoints to pick from at eval.
+  iters: 1200              # v2 corpus ballooned from ~570 to ~2000 rows
+                           # (three new seed files + CURRENT STATE-injected
+                           # rows + tool-declaration-injected tool rows).
+                           # At ~0.27 it/sec on M5 Max that's ~75 min of
+                           # training. Going past 1200 risks overfit given
+                           # the train/val gap starts widening around 600
+                           # on this base; bump further only if eval shows
+                           # val loss still falling.
+                           #
+                           # Earlier iteration notes: v1 ran 600 iters on
+                           # a 570-row corpus and landed at val 0.204 (no
+                           # overfit) but produced a model that was too
+                           # thin on tool-use + context. The 2× corpus +
+                           # 2× iter budget gives the model more signal
+                           # per-pattern to lock in correct output shapes.
   grad_accumulation_steps: 8
   save_every: 50           # Fine-grained so we can pick the best checkpoint
                            # before overfit — the first run showed catastrophic

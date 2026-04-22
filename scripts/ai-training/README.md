@@ -157,7 +157,34 @@ HypeTalkGuide.swift. If you add new tool descriptions to the
 guide after training, re-run `make package eval` — you don't need
 to retrain, just repackage.
 
-## Known issues with the v1 (570-row) tuned model
+## v2 tuned model (current default)
+
+`hypetalk-gemma4:27b-v1` (tag preserved; this is the v2 snapshot) —
+2160-row corpus (1792 script + 368 tool-call rows), 1200 iters,
+landed at **val loss 0.103** (vs. v1's 0.204). Trained with three
+new seed files (`16_physics_combined.yaml`,
+`17_game_patterns.yaml`, `18_negative_examples.yaml`), in-line tool
+declarations in tool-call training rows, and `CURRENT STATE:`
+context injected into ~30% of rows.
+
+### v2 smoke-test results
+
+Against the exact prompts that broke v1:
+
+| Check | v1 | v2 |
+|---|---|---|
+| Hallucinated sprite names | 26 fake balls | **0** |
+| Chat-template token leaks (`<start_of_turn>`) | Present throughout | **0** |
+| Uses real sprites from CURRENT STATE | No | **Yes** |
+| Negative-example distinction (script-as-text vs tool call) | Mixed | **Correct** |
+| Valid HypeTalk syntax | Lua-ish fallback | **All valid HypeTalk** |
+
+Set as Hype's default via `make set-default`. To revert:
+```
+defaults write com.hype.app ollamaModel "gemma4:31b"
+```
+
+## (Historical) known issues with the v1 (570-row) tuned model
 
 `hypetalk-gemma4:27b-v1` produced from the current corpus has three
 reliability problems observed during real-world use in Hype. They

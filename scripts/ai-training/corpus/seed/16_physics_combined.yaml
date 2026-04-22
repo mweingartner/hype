@@ -1,0 +1,289 @@
+# Combined physics + event + mouse-interaction patterns — the category
+# the v1 tuned model failed on hardest. These examples lock in the
+# exact grammar for "user reads mouseLoc / hoveredSprite in frameUpdate
+# and modifies physics properties".
+
+examples:
+  - intent: "When the user clicks the ball, push it upward with velocityY 400."
+    script: |
+      on mouseDown
+        set the velocityY of sprite "ball" to 400
+      end mouseDown
+
+  - intent: "On mouseDown anywhere in the scene, apply a horizontal impulse to the player."
+    script: |
+      on mouseDown
+        set the velocityX of sprite "player" to 250
+      end mouseDown
+
+  - intent: "Set up bouncy physics for all sprites on sceneDidLoad: restitution 1, no damping."
+    script: |
+      on sceneDidLoad
+        set the restitution of sprite "blue_ball" to 1
+        set the restitution of sprite "yellow_ball" to 1
+        set the restitution of sprite "green_ball" to 1
+        set the linearDamping of sprite "blue_ball" to 0
+        set the linearDamping of sprite "yellow_ball" to 0
+        set the linearDamping of sprite "green_ball" to 0
+      end sceneDidLoad
+
+  - intent: "Kick the ball toward the cursor when the user clicks."
+    script: |
+      on mouseDown
+        put item 1 of the mouseLoc into mx
+        put item 2 of the mouseLoc into my
+        put the loc of sprite "ball" into b
+        put item 1 of b into bx
+        put item 2 of b into by
+        set the velocityX of sprite "ball" to (mx - bx)
+        set the velocityY of sprite "ball" to (my - by)
+      end mouseDown
+
+  - intent: "Every frame, accelerate the ball by 20% if the cursor is within 60 pixels of it."
+    script: |
+      on frameUpdate
+        global lastHover
+        put the mouseLoc into m
+        put the loc of sprite "ball" into b
+        put (item 1 of b) - (item 1 of m) into dx
+        put (item 2 of b) - (item 2 of m) into dy
+        put sqrt(dx * dx + dy * dy) into dist
+        if dist < 60 then
+          if lastHover is not "true" then
+            set the velocityX of sprite "ball" to (the velocityX of sprite "ball") * 1.2
+            set the velocityY of sprite "ball" to (the velocityY of sprite "ball") * 1.2
+            put "true" into lastHover
+          end if
+        else
+          put "false" into lastHover
+        end if
+      end frameUpdate
+
+  - intent: "Stop the ball when the user double-clicks it."
+    script: |
+      on mouseUp
+        if the hoveredSprite is "ball" then
+          set the velocity of sprite "ball" to "0,0"
+        end if
+      end mouseUp
+
+  - intent: "Drag behavior: while mouse is down, move the sprite to the mouse position."
+    script: |
+      on mouseDragged
+        set the loc of sprite "player" to the mouseLoc
+      end mouseDragged
+
+  - intent: "Release the sprite with a throw velocity based on drag distance."
+    script: |
+      on mouseDown
+        global dragStart
+        put the mouseLoc into dragStart
+      end mouseDown
+
+      on mouseUp
+        global dragStart
+        put the mouseLoc into m
+        put item 1 of m into mx
+        put item 2 of m into my
+        put item 1 of dragStart into sx
+        put item 2 of dragStart into sy
+        set the velocityX of sprite "projectile" to (mx - sx) * 3
+        set the velocityY of sprite "projectile" to (my - sy) * 3
+      end mouseUp
+
+  - intent: "Rotate the turret sprite to always face the cursor."
+    script: |
+      on frameUpdate
+        put the mouseLoc into m
+        put the loc of sprite "turret" into t
+        put (item 1 of m) - (item 1 of t) into dx
+        put (item 2 of m) - (item 2 of t) into dy
+        put atan(dy / max(dx, 1)) * 57.29578 into angle
+        set the rotation of sprite "turret" to angle
+      end frameUpdate
+
+  - intent: "Spawn a small impulse away from the mouse when it enters any sprite."
+    script: |
+      on frameUpdate
+        global lastSprite
+        if the hoveredSprite is not lastSprite then
+          if the hoveredSprite is not "" then
+            put the mouseLoc into m
+            put the loc of sprite (the hoveredSprite) into s
+            put (item 1 of s) - (item 1 of m) into dx
+            put (item 2 of s) - (item 2 of m) into dy
+            set the velocityX of sprite (the hoveredSprite) to dx * 2
+            set the velocityY of sprite (the hoveredSprite) to dy * 2
+          end if
+          put the hoveredSprite into lastSprite
+        end if
+      end frameUpdate
+
+  - intent: "Apply gravity toggle when the user presses G."
+    script: |
+      on keyDown
+        if the key is "g" then
+          if the gravity of scene "main" is "0,0" then
+            set the gravity of scene "main" to "0,-400"
+          else
+            set the gravity of scene "main" to "0,0"
+          end if
+        end if
+      end keyDown
+
+  - intent: "Bounce all sprites harder when they collide with the wall."
+    script: |
+      on beginContact otherNode
+        if otherNode is "wall" then
+          set the velocityX of me to (the velocityX of me) * 1.1
+          set the velocityY of me to (the velocityY of me) * 1.1
+        end if
+      end beginContact
+
+  - intent: "Reset the ball to center when it falls off the bottom."
+    script: |
+      on frameUpdate
+        put item 2 of the loc of sprite "ball" into y
+        if y > 600 then
+          set the loc of sprite "ball" to "400,300"
+          set the velocity of sprite "ball" to "0,0"
+        end if
+      end frameUpdate
+
+  - intent: "Launch the ball in a random direction on spacebar."
+    script: |
+      on keyDown
+        if the key is " " then
+          put random(400) - 200 into vx
+          put random(400) - 200 into vy
+          set the velocityX of sprite "ball" to vx
+          set the velocityY of sprite "ball" to vy
+        end if
+      end keyDown
+
+  - intent: "Accelerate each sprite under the cursor by 50% on mouseUp (one click = one boost)."
+    script: |
+      on mouseUp
+        if the hoveredSprite is not "" then
+          set the velocityX of sprite (the hoveredSprite) to (the velocityX of sprite (the hoveredSprite)) * 1.5
+          set the velocityY of sprite (the hoveredSprite) to (the velocityY of sprite (the hoveredSprite)) * 1.5
+        end if
+      end mouseUp
+
+  - intent: "Apply a brake to every sprite when the user holds the B key (idle loop approach)."
+    script: |
+      on idle
+        global braking
+        if braking is "true" then
+          set the velocityX of sprite "ball" to (the velocityX of sprite "ball") * 0.95
+          set the velocityY of sprite "ball" to (the velocityY of sprite "ball") * 0.95
+        end if
+      end idle
+
+      on keyDown
+        if the key is "b" then put "true" into braking
+      end keyDown
+
+      on keyUp
+        if the key is "b" then put "false" into braking
+      end keyUp
+
+  - intent: "On click of the ball, toggle its affectedByGravity flag."
+    script: |
+      on mouseUp
+        if the hoveredSprite is "ball" then
+          if the affectedByGravity of sprite "ball" is "true" then
+            set the affectedByGravity of sprite "ball" to false
+          else
+            set the affectedByGravity of sprite "ball" to true
+          end if
+        end if
+      end mouseUp
+
+  - intent: "Decelerate the ball over time using frameUpdate."
+    script: |
+      on frameUpdate
+        set the velocityX of sprite "ball" to (the velocityX of sprite "ball") * 0.99
+        set the velocityY of sprite "ball" to (the velocityY of sprite "ball") * 0.99
+      end frameUpdate
+
+  - intent: "Make the cursor attract every sprite in the scene with a subtle pull."
+    script: |
+      on frameUpdate
+        put the mouseLoc into m
+        put item 1 of m into mx
+        put item 2 of m into my
+        put the loc of sprite "orb_1" into p1
+        set the velocityX of sprite "orb_1" to (the velocityX of sprite "orb_1") + (mx - item 1 of p1) * 0.01
+        set the velocityY of sprite "orb_1" to (the velocityY of sprite "orb_1") + (my - item 2 of p1) * 0.01
+      end frameUpdate
+
+  - intent: "On scene load, set up collision bounds by configuring each wall sprite as non-dynamic with full restitution."
+    script: |
+      on sceneDidLoad
+        set the isDynamic of sprite "wall_top" to false
+        set the isDynamic of sprite "wall_bottom" to false
+        set the isDynamic of sprite "wall_left" to false
+        set the isDynamic of sprite "wall_right" to false
+        set the restitution of sprite "wall_top" to 1
+        set the restitution of sprite "wall_bottom" to 1
+        set the restitution of sprite "wall_left" to 1
+        set the restitution of sprite "wall_right" to 1
+      end sceneDidLoad
+
+  - intent: "Log every collision to a debug field."
+    script: |
+      on beginContact otherNode
+        global hits
+        if hits is empty then put 0 into hits
+        add 1 to hits
+        set the text of label "debug" to "Hits: " & hits & " last: " & otherNode
+      end beginContact
+
+  - intent: "Teleport the ball to the mouse on right-click equivalent (cmd+click)."
+    script: |
+      on mouseDown
+        set the loc of sprite "ball" to the mouseLoc
+        set the velocity of sprite "ball" to "0,0"
+      end mouseDown
+
+  - intent: "Every frame, move the goalpost sprite toward the cursor slowly."
+    script: |
+      on frameUpdate
+        put the mouseLoc into m
+        put the loc of sprite "goalpost" into g
+        put (item 1 of m) - (item 1 of g) into dx
+        put (item 2 of m) - (item 2 of g) into dy
+        set the loc of sprite "goalpost" to (item 1 of g + dx * 0.05) & "," & (item 2 of g + dy * 0.05)
+      end frameUpdate
+
+  - intent: "Make any sprite grow 10% when the cursor is over it, shrink back when it leaves."
+    script: |
+      on frameUpdate
+        global grown
+        if the hoveredSprite is not grown then
+          if grown is not "" and grown is not empty then
+            set the xScale of sprite (grown) to 1
+            set the yScale of sprite (grown) to 1
+          end if
+          if the hoveredSprite is not "" then
+            set the xScale of sprite (the hoveredSprite) to 1.1
+            set the yScale of sprite (the hoveredSprite) to 1.1
+          end if
+          put the hoveredSprite into grown
+        end if
+      end frameUpdate
+
+  - intent: "Fire a projectile from the player toward the cursor on spacebar."
+    script: |
+      on keyDown
+        if the key is " " then
+          put the loc of sprite "player" into p
+          put the mouseLoc into m
+          put (item 1 of m) - (item 1 of p) into dx
+          put (item 2 of m) - (item 2 of p) into dy
+          set the loc of sprite "bullet" to p
+          set the velocityX of sprite "bullet" to dx * 2
+          set the velocityY of sprite "bullet" to dy * 2
+        end if
+      end keyDown

@@ -1,0 +1,334 @@
+# Classic small-game state patterns: scoring, lives, spawning, waves,
+# pickups, timers. These teach the model the idiomatic HypeTalk way to
+# track game state via globals and update UI labels as state changes.
+
+examples:
+  - intent: "Set up a score+lives scoreboard on card open with score 0, lives 3."
+    script: |
+      on openCard
+        global score
+        global lives
+        put 0 into score
+        put 3 into lives
+        set the text of label "score_label" to "Score: 0  Lives: 3"
+      end openCard
+
+  - intent: "Award 10 points when the player collects a coin."
+    script: |
+      on beginContact otherNode
+        global score
+        if otherNode is "coin" then
+          add 10 to score
+          set the text of label "score_label" to "Score: " & score
+        end if
+      end beginContact
+
+  - intent: "Lose a life on enemy contact; go to game_over card when lives hit zero."
+    script: |
+      on beginContact otherNode
+        global lives
+        if otherNode is "enemy" then
+          subtract 1 from lives
+          if lives <= 0 then
+            go card "game_over"
+          else
+            set the loc of sprite "player" to "400,300"
+            set the velocity of sprite "player" to "0,0"
+            set the text of label "lives_label" to "Lives: " & lives
+          end if
+        end if
+      end beginContact
+
+  - intent: "Track high score across sessions via a stack global."
+    script: |
+      on closeCard
+        global score
+        global highScore
+        if score > highScore then
+          put score into highScore
+        end if
+      end closeCard
+
+      on openCard
+        global highScore
+        if highScore is empty then put 0 into highScore
+        set the text of field "highScore" to "Best: " & highScore
+      end openCard
+
+  - intent: "Countdown timer: 30 seconds, updates every frame, goes to timeup when done."
+    script: |
+      on openCard
+        global startTicks
+        put the ticks into startTicks
+      end openCard
+
+      on frameUpdate
+        global startTicks
+        put 30 - ((the ticks - startTicks) / 60) into remaining
+        if remaining <= 0 then
+          go card "timeup"
+        else
+          set the text of label "timer" to "Time: " & remaining
+        end if
+      end frameUpdate
+
+  - intent: "Spawn an enemy every 2 seconds at a random X position."
+    script: |
+      on frameUpdate
+        global lastSpawn
+        global spawnCount
+        if lastSpawn is empty then put the ticks into lastSpawn
+        if spawnCount is empty then put 0 into spawnCount
+        if (the ticks - lastSpawn) > 120 then
+          put the ticks into lastSpawn
+          add 1 to spawnCount
+        end if
+      end frameUpdate
+
+  - intent: "Pickup coin: remove it from the scene and add to score."
+    script: |
+      on beginContact otherNode
+        global score
+        if otherNode is "coin" then
+          add 10 to score
+          set the isHidden of sprite "coin" to true
+          set the text of label "score_label" to "Score: " & score
+        end if
+      end beginContact
+
+  - intent: "Brief invincibility timer after taking damage."
+    script: |
+      on beginContact otherNode
+        global invincibleUntil
+        if invincibleUntil is empty then put 0 into invincibleUntil
+        if otherNode is "enemy" and the ticks > invincibleUntil then
+          global lives
+          subtract 1 from lives
+          put the ticks + 120 into invincibleUntil
+          set the alpha of sprite "player" to 0.5
+        end if
+      end beginContact
+
+  - intent: "Restore player alpha when invincibility ends."
+    script: |
+      on frameUpdate
+        global invincibleUntil
+        if the ticks > invincibleUntil then
+          set the alpha of sprite "player" to 1
+        end if
+      end frameUpdate
+
+  - intent: "Wave spawning: spawn 5 enemies at the start, then 5 more every 10 seconds."
+    script: |
+      on openCard
+        global wave
+        global lastWaveTime
+        put 1 into wave
+        put the ticks into lastWaveTime
+      end openCard
+
+      on frameUpdate
+        global wave
+        global lastWaveTime
+        if (the ticks - lastWaveTime) > 600 then
+          add 1 to wave
+          put the ticks into lastWaveTime
+          set the text of label "wave" to "Wave " & wave
+        end if
+      end frameUpdate
+
+  - intent: "Pause the game with P and unpause with P again."
+    script: |
+      on keyDown
+        if the key is "p" then
+          if the paused of scene "main" is "true" then
+            set the paused of scene "main" to false
+            set the visible of field "pausedOverlay" to false
+          else
+            set the paused of scene "main" to true
+            set the visible of field "pausedOverlay" to true
+          end if
+        end if
+      end keyDown
+
+  - intent: "Powerup: increase player speed for 5 seconds on contact with powerup sprite."
+    script: |
+      on beginContact otherNode
+        global powerupUntil
+        if otherNode is "powerup" then
+          put the ticks + 300 into powerupUntil
+          set the isHidden of sprite "powerup" to true
+        end if
+      end beginContact
+
+  - intent: "Increment combo counter on rapid successive pickups."
+    script: |
+      on beginContact otherNode
+        global combo
+        global lastPickup
+        if combo is empty then put 0 into combo
+        if otherNode is "coin" then
+          if (the ticks - lastPickup) < 90 then
+            add 1 to combo
+          else
+            put 1 into combo
+          end if
+          put the ticks into lastPickup
+          set the text of label "combo" to "x" & combo
+        end if
+      end beginContact
+
+  - intent: "Restart the game on R key."
+    script: |
+      on keyDown
+        if the key is "r" then
+          global score
+          global lives
+          put 0 into score
+          put 3 into lives
+          set the loc of sprite "player" to "400,300"
+          set the text of label "score_label" to "Score: 0  Lives: 3"
+        end if
+      end keyDown
+
+  - intent: "Flash the score label red when a life is lost."
+    script: |
+      on beginContact otherNode
+        global lives
+        if otherNode is "enemy" then
+          subtract 1 from lives
+          set the fontColor of label "score_label" to "#FF0000"
+        end if
+      end beginContact
+
+      on frameUpdate
+        global flashUntil
+        if the ticks > flashUntil then
+          set the fontColor of label "score_label" to "#FFFFFF"
+        end if
+      end frameUpdate
+
+  - intent: "Multi-level progression: advance to next card when all coins collected."
+    script: |
+      on beginContact otherNode
+        global coinsLeft
+        if coinsLeft is empty then put 5 into coinsLeft
+        if otherNode is "coin" then
+          subtract 1 from coinsLeft
+          if coinsLeft <= 0 then
+            go next
+          end if
+        end if
+      end beginContact
+
+  - intent: "Smooth scrolling background via camera follow."
+    script: |
+      on frameUpdate
+        put the loc of sprite "player" into p
+        set the loc of camera "main_cam" to p
+      end frameUpdate
+
+  - intent: "Stop enemies when player dies."
+    script: |
+      on beginContact otherNode
+        global lives
+        if otherNode is "enemy" then
+          subtract 1 from lives
+          if lives <= 0 then
+            set the velocity of sprite "enemy" to "0,0"
+            set the paused of scene "main" to true
+          end if
+        end if
+      end beginContact
+
+  - intent: "Show a pickup message for 1 second after collecting an item."
+    script: |
+      on beginContact otherNode
+        global messageUntil
+        if otherNode is "pickup" then
+          set the text of field "msg" to "Got it!"
+          set the visible of field "msg" to true
+          put the ticks + 60 into messageUntil
+        end if
+      end beginContact
+
+      on frameUpdate
+        global messageUntil
+        if the ticks > messageUntil then
+          set the visible of field "msg" to false
+        end if
+      end frameUpdate
+
+  - intent: "Award bonus points for taking down enemies quickly."
+    script: |
+      on beginContact otherNode
+        global score
+        global killTime
+        if otherNode is "enemy_bullet" then
+          subtract 1 from the isHidden of sprite "enemy"
+          if (the ticks - killTime) < 60 then
+            add 100 to score
+          else
+            add 50 to score
+          end if
+          put the ticks into killTime
+        end if
+      end beginContact
+
+  - intent: "Random spawn location within bounds."
+    script: |
+      on mouseUp
+        set the loc of sprite "enemy" to random(800) & "," & random(600)
+      end mouseUp
+
+  - intent: "Increment score when the ball hits the red_zone."
+    script: |
+      on beginContact otherNode
+        global score
+        if otherNode is "red_zone" then
+          add 5 to score
+          set the text of label "score_label" to score
+        end if
+      end beginContact
+
+  - intent: "Flash the screen red on death with a quick overlay."
+    script: |
+      on beginContact otherNode
+        global flashUntil
+        if otherNode is "hazard" then
+          set the fillColor of shape "deathFlash" to "#FF000080"
+          set the visible of shape "deathFlash" to true
+          put the ticks + 20 into flashUntil
+        end if
+      end beginContact
+
+      on frameUpdate
+        global flashUntil
+        if the ticks > flashUntil then
+          set the visible of shape "deathFlash" to false
+        end if
+      end frameUpdate
+
+  - intent: "Gradually speed up the enemy over time."
+    script: |
+      on frameUpdate
+        global enemySpeed
+        if enemySpeed is empty then put 50 into enemySpeed
+        add 0.05 to enemySpeed
+        set the velocityX of sprite "enemy" to enemySpeed
+      end frameUpdate
+
+  - intent: "Display a 'Ready!' message for 2 seconds at start, then begin the action."
+    script: |
+      on openCard
+        global readyUntil
+        put the ticks + 120 into readyUntil
+        set the text of label "ready" to "Ready!"
+      end openCard
+
+      on frameUpdate
+        global readyUntil
+        if the ticks > readyUntil then
+          set the text of label "ready" to ""
+        end if
+      end frameUpdate

@@ -1,0 +1,312 @@
+# Tool-call vs plain-HypeTalk distinction. Each row here teaches the
+# model WHEN to call a Hype tool vs WHEN to emit a HypeTalk script as
+# chat content. The distinction is:
+#
+#   • "Write a handler that X…" / "How do I do Y?" / "Show me HypeTalk
+#     for Z"  →  assistant outputs HypeTalk text directly. No tool
+#     call — the user is asking for code, not asking Hype to change
+#     the document.
+#
+#   • "Create/Set/Add/Change/Update X in the document"  →  assistant
+#     emits a tool call. The user is asking Hype to modify the stack.
+#
+# These are intentionally paired — same functional outcome expressed
+# as a "write the code" request vs. a "change the document" request.
+
+examples:
+  # ───── Pure-HypeTalk requests (produce script as text) ─────
+
+  - intent: "Write a HypeTalk handler that goes to the next card on mouseUp."
+    script: |
+      on mouseUp
+        go next
+      end mouseUp
+
+  - intent: "Show me the HypeTalk for bouncing a ball off the scene edges."
+    script: |
+      on beginContact otherNode
+        if otherNode contains "wall" then
+          set the velocityX of me to -(the velocityX of me)
+          set the velocityY of me to -(the velocityY of me)
+        end if
+      end beginContact
+
+  - intent: "How do I accelerate a sprite when the cursor hovers over it in HypeTalk?"
+    script: |
+      on frameUpdate
+        global wasHovering
+        if the hoveredSprite is "ball" then
+          if wasHovering is not "true" then
+            set the velocityX of sprite "ball" to (the velocityX of sprite "ball") * 1.5
+            set the velocityY of sprite "ball" to (the velocityY of sprite "ball") * 1.5
+            put "true" into wasHovering
+          end if
+        else
+          put "false" into wasHovering
+        end if
+      end frameUpdate
+
+  - intent: "Give me a HypeTalk script that toggles the animation of image \"chick\" on click."
+    script: |
+      on mouseUp
+        set the animation of image "chick" to not (the animation of image "chick")
+      end mouseUp
+
+  - intent: "Sample HypeTalk for a WASD-controlled player sprite."
+    script: |
+      on keyDown
+        if the key is "w" then set the velocityY of sprite "player" to 250
+        if the key is "s" then set the velocityY of sprite "player" to -250
+        if the key is "a" then set the velocityX of sprite "player" to -250
+        if the key is "d" then set the velocityX of sprite "player" to 250
+      end keyDown
+
+      on keyUp
+        set the velocity of sprite "player" to "0,0"
+      end keyUp
+
+  - intent: "Demo handler that increments a score global by 10 on collision."
+    script: |
+      on beginContact otherNode
+        global score
+        if otherNode is "coin" then
+          add 10 to score
+          set the text of label "score_label" to score
+        end if
+      end beginContact
+
+  - intent: "Write a frameUpdate handler that makes the turret follow the mouse."
+    script: |
+      on frameUpdate
+        put the mouseLoc into m
+        put the loc of sprite "turret" into t
+        put (item 1 of m) - (item 1 of t) into dx
+        put (item 2 of m) - (item 2 of t) into dy
+        set the rotation of sprite "turret" to atan(dy / max(dx, 1)) * 57.29578
+      end frameUpdate
+
+  - intent: "Example of a HypeTalk timer countdown via the ticks."
+    script: |
+      on frameUpdate
+        global startTicks
+        if startTicks is empty then put the ticks into startTicks
+        put 60 - ((the ticks - startTicks) / 60) into remaining
+        set the text of label "timer" to remaining
+      end frameUpdate
+
+  - intent: "How do I pause and resume a scene in HypeTalk?"
+    script: |
+      on keyDown
+        if the key is "p" then
+          if the paused of scene "main" is "true" then
+            set the paused of scene "main" to false
+          else
+            set the paused of scene "main" to true
+          end if
+        end if
+      end keyDown
+
+  - intent: "Script for restarting a game state on the R key."
+    script: |
+      on keyDown
+        if the key is "r" then
+          global score
+          global lives
+          put 0 into score
+          put 3 into lives
+        end if
+      end keyDown
+
+  # ───── Tool-call requests (modify the document) ─────
+
+  - intent: "Set the scene script of bounder to a bouncing-ball handler."
+    tool_call:
+      name: "set_scene_script"
+      arguments:
+        sprite_area_name: "bounder"
+        script: |
+          on sceneDidLoad
+            set the restitution of sprite "ball" to 1
+            set the linearDamping of sprite "ball" to 0
+          end sceneDidLoad
+
+          on beginContact otherNode
+            play "bounce"
+          end beginContact
+
+  - intent: "Install a keyDown handler on the game_area scene that moves the player with WASD."
+    tool_call:
+      name: "set_scene_script"
+      arguments:
+        sprite_area_name: "game_area"
+        script: |
+          on keyDown
+            if the key is "w" then set the velocityY of sprite "player" to 250
+            if the key is "s" then set the velocityY of sprite "player" to -250
+            if the key is "a" then set the velocityX of sprite "player" to -250
+            if the key is "d" then set the velocityX of sprite "player" to 250
+          end keyDown
+
+  - intent: "Update the scene script on the playfield sprite area to accelerate blue_ball by 50% when the cursor hovers over it."
+    tool_call:
+      name: "set_scene_script"
+      arguments:
+        sprite_area_name: "playfield"
+        script: |
+          on frameUpdate
+            global wasHovering
+            if the hoveredSprite is "blue_ball" then
+              if wasHovering is not "true" then
+                set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 1.5
+                set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 1.5
+                put "true" into wasHovering
+              end if
+            else
+              put "false" into wasHovering
+            end if
+          end frameUpdate
+
+  - intent: "Set the bounder scene script so clicking any sprite doubles its velocityX."
+    tool_call:
+      name: "set_scene_script"
+      arguments:
+        sprite_area_name: "bounder"
+        script: |
+          on mouseDown
+            if the hoveredSprite is not "" then
+              set the velocityX of sprite (the hoveredSprite) to (the velocityX of sprite (the hoveredSprite)) * 2
+            end if
+          end mouseDown
+
+  - intent: "Set the arena scene script so a score+lives HUD updates on beginContact with enemies."
+    tool_call:
+      name: "set_scene_script"
+      arguments:
+        sprite_area_name: "arena"
+        script: |
+          on beginContact otherNode
+            global lives
+            if otherNode is "enemy" then
+              subtract 1 from lives
+              set the text of label "hud" to "Lives: " & lives
+            end if
+          end beginContact
+
+  - intent: "Create a new 'Play' button at 100,500 sized 120x40 that navigates to card 2."
+    tool_call:
+      name: "create_button"
+      arguments:
+        name: "Play"
+        left: "100"
+        top: "500"
+        width: "120"
+        height: "40"
+        script: "go card 2"
+
+  - intent: "Add a field named 'message' at 50,50 sized 300x40 with default text 'Welcome'."
+    tool_call:
+      name: "create_field"
+      arguments:
+        name: "message"
+        left: "50"
+        top: "50"
+        width: "300"
+        height: "40"
+        text: "Welcome"
+
+  - intent: "Change the background color of the bounder scene to navy."
+    tool_call:
+      name: "apply_scene_diff"
+      arguments:
+        sprite_area_name: "bounder"
+        diff_json: '{"sceneUpdates":{"backgroundColor":"#000080"}}'
+
+  - intent: "Turn on physics debug visualization for the playfield scene."
+    tool_call:
+      name: "apply_scene_diff"
+      arguments:
+        sprite_area_name: "playfield"
+        diff_json: '{"sceneUpdates":{"showsPhysics":true}}'
+
+  - intent: "Set gravity in the arena scene to (0, -400)."
+    tool_call:
+      name: "apply_scene_diff"
+      arguments:
+        sprite_area_name: "arena"
+        diff_json: '{"sceneUpdates":{"gravity":{"dx":0,"dy":-400}}}'
+
+  - intent: "Change the text of the score field to 250."
+    tool_call:
+      name: "set_part_property"
+      arguments:
+        part_name: "score"
+        property: "text"
+        value: "250"
+
+  - intent: "Hide the debug panel."
+    tool_call:
+      name: "set_part_property"
+      arguments:
+        part_name: "debug_panel"
+        property: "visible"
+        value: "false"
+
+  - intent: "Add a sprite named 'pickup' to the level1 scene at 400,200."
+    tool_call:
+      name: "add_sprite_to_scene"
+      arguments:
+        sprite_area_name: "level1"
+        sprite_name: "pickup"
+        x: "400"
+        y: "200"
+
+  - intent: "Show me the scene spec for the bounder area."
+    tool_call:
+      name: "get_scene_spec"
+      arguments:
+        sprite_area_name: "bounder"
+
+  - intent: "Run diagnostics on the game scene."
+    tool_call:
+      name: "get_scene_diagnostics"
+      arguments:
+        sprite_area_name: "game"
+
+  - intent: "List every repository asset."
+    tool_call:
+      name: "list_repository_assets"
+      arguments: {}
+
+  - intent: "Navigate to the scoreboard card."
+    tool_call:
+      name: "go_to_card"
+      arguments:
+        destination: "scoreboard"
+
+  - intent: "Create a new card that uses the background called 'forest'."
+    tool_call:
+      name: "create_card"
+      arguments:
+        background_name: "forest"
+
+  - intent: "Replace the text of the title field with 'Round 2'."
+    tool_call:
+      name: "set_part_property"
+      arguments:
+        part_name: "title"
+        property: "text"
+        value: "Round 2"
+
+  - intent: "Set the script on the 'restart' button to reset the score and lives globals."
+    tool_call:
+      name: "set_part_property"
+      arguments:
+        part_name: "restart"
+        property: "script"
+        value: |
+          on mouseUp
+            global score
+            global lives
+            put 0 into score
+            put 3 into lives
+          end mouseUp

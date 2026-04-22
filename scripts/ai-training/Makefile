@@ -64,7 +64,7 @@ AUG_MARKER := $(OUT)/.augmented
 
 $(AUG_MARKER): $(SRC)/augment_corpus.py $(filter-out %_aug.yaml,$(wildcard corpus/seed/*.yaml))
 	@find corpus/seed -name '*_aug.yaml' -delete
-	@python3 $(SRC)/augment_corpus.py --target 500
+	@python3 $(SRC)/augment_corpus.py --target 2000
 	@mkdir -p $(OUT)
 	@touch $(AUG_MARKER)
 
