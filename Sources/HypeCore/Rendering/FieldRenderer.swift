@@ -8,59 +8,51 @@ public enum FieldRenderer {
     public static func draw(ctx: CGContext, part: Part, rect: CGRect) {
         ctx.saveGState()
 
+        let fillColor = (NSColor(hexString: part.fillColor) ?? .white).cgColor
+        let strokeColor = (NSColor(hexString: part.strokeColor) ?? .black).cgColor
+        let strokeWidth = max(0, CGFloat(part.strokeWidth))
+
+        func strokeFieldRect(_ targetRect: CGRect) {
+            guard strokeWidth > 0 else { return }
+            ctx.setStrokeColor(strokeColor)
+            ctx.setLineWidth(strokeWidth)
+            let inset = strokeWidth / 2
+            ctx.stroke(targetRect.insetBy(dx: inset, dy: inset))
+        }
+
         switch part.fieldStyle {
         case .transparent:
             break
         case .opaque:
-            ctx.setFillColor(NSColor.white.cgColor)
+            ctx.setFillColor(fillColor)
             ctx.fill(rect)
+            strokeFieldRect(rect)
         case .rectangle:
-            // Rectangle fields draw a 1-pixel *black* border around
-            // the entire perimeter — unambiguous at any zoom level
-            // and immediately readable as a framed text field. The
-            // generic-visibility pass below explicitly skips this
-            // style so the gray separator color doesn't overwrite
-            // the black border we just painted.
-            ctx.setFillColor(NSColor.white.cgColor)
+            // Rectangle fields render the field's stored fill and
+            // stroke values so AI/user property edits are visible.
+            ctx.setFillColor(fillColor)
             ctx.fill(rect)
-            ctx.setStrokeColor(NSColor.black.cgColor)
-            ctx.setLineWidth(1)
-            ctx.stroke(rect)
+            strokeFieldRect(rect)
         case .shadow:
             let shadowRect = rect.offsetBy(dx: 2, dy: -2)
             ctx.setFillColor(NSColor.shadowColor.withAlphaComponent(0.2).cgColor)
             ctx.fill(shadowRect)
-            ctx.setFillColor(NSColor.white.cgColor)
+            ctx.setFillColor(fillColor)
             ctx.fill(rect)
-            ctx.setStrokeColor(NSColor.separatorColor.cgColor)
-            ctx.stroke(rect)
+            strokeFieldRect(rect)
         case .scrolling:
-            ctx.setFillColor(NSColor.white.cgColor)
+            ctx.setFillColor(fillColor)
             ctx.fill(rect)
-            ctx.setStrokeColor(NSColor.separatorColor.cgColor)
-            ctx.setLineWidth(1)
-            ctx.stroke(rect)
+            strokeFieldRect(rect)
             // Scrollbar track
             let scrollRect = CGRect(x: rect.maxX - 16, y: rect.minY, width: 16, height: rect.height)
             ctx.setFillColor(NSColor.controlColor.cgColor)
             ctx.fill(scrollRect)
-            ctx.stroke(scrollRect)
+            strokeFieldRect(scrollRect)
         }
 
-        // Give transparent / opaque fields a faint outline so the
-        // user can see where they are on the canvas. Styles that
-        // already paint their own border (rectangle, shadow,
-        // scrolling) are skipped — otherwise the gray separator
-        // color would overwrite the rectangle style's black border.
-        if part.visible {
-            switch part.fieldStyle {
-            case .transparent, .opaque:
-                ctx.setStrokeColor(NSColor.separatorColor.cgColor)
-                ctx.setLineWidth(1)
-                ctx.stroke(rect)
-            case .rectangle, .shadow, .scrolling:
-                break
-            }
+        if part.visible && part.fieldStyle == .transparent {
+            strokeFieldRect(rect)
         }
 
         // Draw text content

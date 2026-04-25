@@ -1,0 +1,253 @@
+# Card / background / stack script tools — these didn't exist in
+# v2 and set_part_property silently no-ops when targeting card or
+# background names. v3 introduces set_card_script /
+# set_background_script / set_stack_script, and these rows teach
+# the model to reach for them.
+
+examples:
+  # ── set_stack_script ───────────────────────────────────────────
+  - intent: "Set the stack script to initialize a score global on openStack."
+    tool_call:
+      name: "set_stack_script"
+      arguments:
+        script: |
+          on openStack
+            global score
+            put 0 into score
+          end openStack
+
+  - intent: "Add a stack script that logs when any card opens."
+    tool_call:
+      name: "set_stack_script"
+      arguments:
+        script: |
+          on openCard
+            put "Opened " & the name of this card into message
+          end openCard
+
+  - intent: "Stack-level: define a handler to reset the score to 0."
+    tool_call:
+      name: "set_stack_script"
+      arguments:
+        script: |
+          on resetScore
+            global score
+            put 0 into score
+          end resetScore
+
+  - intent: "Set the stack script so on openStack we go to card 'title'."
+    tool_call:
+      name: "set_stack_script"
+      arguments:
+        script: |
+          on openStack
+            go to card "title"
+          end openStack
+
+  - intent: "Replace the stack script with a global level variable initialised to 1."
+    tool_call:
+      name: "set_stack_script"
+      arguments:
+        script: |
+          on openStack
+            global level
+            put 1 into level
+          end openStack
+
+  - intent: "Make the stack idle handler increment a timer global each tick."
+    tool_call:
+      name: "set_stack_script"
+      arguments:
+        script: |
+          on idle
+            global timer
+            add 1 to timer
+          end idle
+
+  - intent: "Put a closeStack handler in the stack script that saves the score."
+    tool_call:
+      name: "set_stack_script"
+      arguments:
+        script: |
+          on closeStack
+            global score
+            put "Final: " & score into message
+          end closeStack
+
+  - intent: "Set a stack-level showHighScore handler that navigates to the high_scores card."
+    tool_call:
+      name: "set_stack_script"
+      arguments:
+        script: |
+          on showHighScore
+            go to card "high_scores"
+          end showHighScore
+
+  # ── set_card_script ────────────────────────────────────────────
+  - intent: "Set the current card's script to play a sound on openCard."
+    tool_call:
+      name: "set_card_script"
+      arguments:
+        script: |
+          on openCard
+            play "tada"
+          end openCard
+
+  - intent: "Give card 'intro' a script that navigates to the next card when clicked."
+    tool_call:
+      name: "set_card_script"
+      arguments:
+        card_name: "intro"
+        script: |
+          on mouseUp
+            go next
+          end mouseUp
+
+  - intent: "Card 'game': on openCard, put 0 into the score field."
+    tool_call:
+      name: "set_card_script"
+      arguments:
+        card_name: "game"
+        script: |
+          on openCard
+            put 0 into field "score"
+          end openCard
+
+  - intent: "Put a closeCard handler on the current card that stops the background music."
+    tool_call:
+      name: "set_card_script"
+      arguments:
+        script: |
+          on closeCard
+            stop sound
+          end closeCard
+
+  - intent: "Assign a script to card 'level1' that shows an alert when the user presses space."
+    tool_call:
+      name: "set_card_script"
+      arguments:
+        card_name: "level1"
+        script: |
+          on keyDown
+            if the key is " " then answer "Pause"
+          end keyDown
+
+  - intent: "Card 'game_over': reset the score to 0 and go back to title on mouseUp."
+    tool_call:
+      name: "set_card_script"
+      arguments:
+        card_name: "game_over"
+        script: |
+          on mouseUp
+            global score
+            put 0 into score
+            go to card "title"
+          end mouseUp
+
+  - intent: "Make the current card auto-advance to the next card after 5 seconds."
+    tool_call:
+      name: "set_card_script"
+      arguments:
+        script: |
+          on openCard
+            wait 5 seconds
+            go next
+          end openCard
+
+  - intent: "Card 'menu': play a click sound whenever the user clicks anywhere."
+    tool_call:
+      name: "set_card_script"
+      arguments:
+        card_name: "menu"
+        script: |
+          on mouseDown
+            play "click"
+          end mouseDown
+
+  # ── set_background_script ──────────────────────────────────────
+  - intent: "Give the 'title' background an openBackground handler that plays a sound."
+    tool_call:
+      name: "set_background_script"
+      arguments:
+        background_name: "title"
+        script: |
+          on openBackground
+            play "intro_music"
+          end openBackground
+
+  - intent: "Set the 'menu_bg' background script to hide the back button on openBackground."
+    tool_call:
+      name: "set_background_script"
+      arguments:
+        background_name: "menu_bg"
+        script: |
+          on openBackground
+            hide button "back"
+          end openBackground
+
+  - intent: "Background 'game_bg': on mouseUp navigate to the menu card."
+    tool_call:
+      name: "set_background_script"
+      arguments:
+        background_name: "game_bg"
+        script: |
+          on mouseUp
+            go to card "menu"
+          end mouseUp
+
+  - intent: "Attach a script to the 'shared' background that increments a global visit counter."
+    tool_call:
+      name: "set_background_script"
+      arguments:
+        background_name: "shared"
+        script: |
+          on openBackground
+            global visits
+            add 1 to visits
+          end openBackground
+
+  - intent: "Background 'level_bg': stop all sounds on closeBackground."
+    tool_call:
+      name: "set_background_script"
+      arguments:
+        background_name: "level_bg"
+        script: |
+          on closeBackground
+            stop sound
+          end closeBackground
+
+  - intent: "Set 'title_bg' to show an onboarding alert only on the first visit."
+    tool_call:
+      name: "set_background_script"
+      arguments:
+        background_name: "title_bg"
+        script: |
+          on openBackground
+            global firstVisit
+            if firstVisit is empty then
+              answer "Welcome!"
+              put "false" into firstVisit
+            end if
+          end openBackground
+
+  # ── Negative / disambiguation examples ────────────────────────
+  # These teach the model that a request targeting card/background
+  # scripts should NOT go through set_part_property.
+  - intent: "Put an openCard handler on card 'main' that announces hello — not a button script."
+    tool_call:
+      name: "set_card_script"
+      arguments:
+        card_name: "main"
+        script: |
+          on openCard
+            answer "hello"
+          end openCard
+
+  - intent: "The stack should print a message on idle — not a button or field, the stack itself."
+    tool_call:
+      name: "set_stack_script"
+      arguments:
+        script: |
+          on idle
+            put "tick" into message
+          end idle

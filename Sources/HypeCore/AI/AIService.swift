@@ -101,6 +101,17 @@ public actor AIService {
             body["system"] = sys
         }
 
+        var logLines = [
+            "POST /v1/messages",
+            "provider=anthropic",
+            "model=claude-sonnet-4-20250514",
+        ]
+        if let system, !system.isEmpty {
+            logLines.append("SYSTEM:\n\(system)")
+        }
+        logLines.append("MESSAGES:\n\(messages.map { "\($0["role"] ?? "unknown"):\n\($0["content"] ?? "")" }.joined(separator: "\n"))")
+        HypeLogger.shared.aiInput(logLines.joined(separator: "\n"), source: "AI Service")
+
         let jsonData = try JSONSerialization.data(withJSONObject: body)
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         request.httpMethod = "POST"
@@ -109,21 +120,41 @@ public actor AIService {
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.httpBody = jsonData
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw AIError.apiError(String(errorText.prefix(200)))
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
+                throw AIError.apiError(String(errorText.prefix(200)))
+            }
+
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let content = (json?["content"] as? [[String: Any]])?.compactMap { $0["text"] as? String }.joined() ?? ""
+            let usage = json?["usage"] as? [String: Any]
+            let inputTokens = (usage?["input_tokens"] as? Int) ?? 0
+            let outputTokens = (usage?["output_tokens"] as? Int) ?? 0
+
+            dailyTokensUsed += inputTokens + outputTokens
+            HypeLogger.shared.aiOutput(
+                """
+                POST /v1/messages
+                provider=anthropic
+                model=claude-sonnet-4-20250514
+                inputTokens=\(inputTokens)
+                outputTokens=\(outputTokens)
+                RESPONSE:
+                \(content)
+                """,
+                source: "AI Service"
+            )
+
+            return AIResponse(text: content, provider: "claude", tokensUsed: inputTokens + outputTokens)
+        } catch {
+            HypeLogger.shared.error(
+                "Anthropic request failed: \(error.localizedDescription)",
+                source: "AI Service"
+            )
+            throw error
         }
-
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        let content = (json?["content"] as? [[String: Any]])?.compactMap { $0["text"] as? String }.joined() ?? ""
-        let usage = json?["usage"] as? [String: Any]
-        let inputTokens = (usage?["input_tokens"] as? Int) ?? 0
-        let outputTokens = (usage?["output_tokens"] as? Int) ?? 0
-
-        dailyTokensUsed += inputTokens + outputTokens
-
-        return AIResponse(text: content, provider: "claude", tokensUsed: inputTokens + outputTokens)
     }
 
     /// Add to conversation history.

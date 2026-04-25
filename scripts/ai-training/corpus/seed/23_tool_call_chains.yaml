@@ -1,0 +1,356 @@
+# Multi-turn tool-use chains — read-then-write and
+# list-then-reason patterns. v2 was trained only on single-turn
+# rows, so the model had no trained notion of consuming a tool
+# result before emitting the next call. These rows use the
+# `turns:` schema supported by gen_corpus.py:make_tool_chain_row,
+# interleaving assistant tool calls, tool results, and final
+# assistant text.
+
+examples:
+  # ── get-then-set: field bump by delta ─────────────────────────
+  - intent: "Bump the score field by 10."
+    turns:
+      - assistant_tool_call:
+          name: "get_part_property"
+          arguments:
+            part_name: "score"
+            property: "text"
+      - tool_result: "42"
+      - assistant_tool_call:
+          name: "set_part_property"
+          arguments:
+            part_name: "score"
+            property: "text"
+            value: "52"
+
+  - intent: "Add 1 to the 'lives' field."
+    turns:
+      - assistant_tool_call:
+          name: "get_part_property"
+          arguments:
+            part_name: "lives"
+            property: "text"
+      - tool_result: "3"
+      - assistant_tool_call:
+          name: "set_part_property"
+          arguments:
+            part_name: "lives"
+            property: "text"
+            value: "4"
+
+  - intent: "Subtract 5 from the timer field."
+    turns:
+      - assistant_tool_call:
+          name: "get_part_property"
+          arguments:
+            part_name: "timer"
+            property: "text"
+      - tool_result: "60"
+      - assistant_tool_call:
+          name: "set_part_property"
+          arguments:
+            part_name: "timer"
+            property: "text"
+            value: "55"
+
+  # ── get-then-set: node velocity scaling ───────────────────────
+  - intent: "Double the velocityX of sprite 'ball' in 'playfield'."
+    turns:
+      - assistant_tool_call:
+          name: "get_node_property"
+          arguments:
+            sprite_area_name: "playfield"
+            node_name: "ball"
+            property: "physics.velocityX"
+      - tool_result: "150"
+      - assistant_tool_call:
+          name: "set_node_property"
+          arguments:
+            sprite_area_name: "playfield"
+            node_name: "ball"
+            property: "physics.velocityX"
+            value: "300"
+
+  - intent: "Cut the alpha of sprite 'ghost' in 'arena' in half."
+    turns:
+      - assistant_tool_call:
+          name: "get_node_property"
+          arguments:
+            sprite_area_name: "arena"
+            node_name: "ghost"
+            property: "alpha"
+      - tool_result: "0.8"
+      - assistant_tool_call:
+          name: "set_node_property"
+          arguments:
+            sprite_area_name: "arena"
+            node_name: "ghost"
+            property: "alpha"
+            value: "0.4"
+
+  - intent: "Increase the restitution of sprite 'puck' in 'rink' by 0.2."
+    turns:
+      - assistant_tool_call:
+          name: "get_node_property"
+          arguments:
+            sprite_area_name: "rink"
+            node_name: "puck"
+            property: "physics.restitution"
+      - tool_result: "0.5"
+      - assistant_tool_call:
+          name: "set_node_property"
+          arguments:
+            sprite_area_name: "rink"
+            node_name: "puck"
+            property: "physics.restitution"
+            value: "0.7"
+
+  # ── get-then-set: rotation delta ──────────────────────────────
+  - intent: "Rotate label 'title' in 'stage' by another 30 degrees."
+    turns:
+      - assistant_tool_call:
+          name: "get_node_property"
+          arguments:
+            sprite_area_name: "stage"
+            node_name: "title"
+            property: "rotation"
+      - tool_result: "15"
+      - assistant_tool_call:
+          name: "set_node_property"
+          arguments:
+            sprite_area_name: "stage"
+            node_name: "title"
+            property: "rotation"
+            value: "45"
+
+  # ── list-then-reason ──────────────────────────────────────────
+  - intent: "How many sprites are in the arena scene?"
+    turns:
+      - assistant_tool_call:
+          name: "list_scene_nodes"
+          arguments:
+            sprite_area_name: "arena"
+      - tool_result: "player: sprite at (400,300). enemy: sprite at (200,500). coin: sprite at (600,300)."
+      - assistant_text: "There are 3 sprite nodes in the arena scene: player, enemy, and coin."
+
+  - intent: "What cards does this stack have?"
+    turns:
+      - assistant_tool_call:
+          name: "list_all_cards"
+          arguments: {}
+      - tool_result: "Card 1: \"title\" (background: \"title_bg\"). Card 2: \"game\" (background: \"game_bg\"). Card 3: \"game_over\" (background: \"game_bg\")."
+      - assistant_text: "The stack has 3 cards: title, game, and game_over."
+
+  - intent: "List everything in the playfield sprite area."
+    turns:
+      - assistant_tool_call:
+          name: "list_scene_nodes"
+          arguments:
+            sprite_area_name: "playfield"
+      - tool_result: "blue_ball: sprite at (200,300). red_ball: sprite at (400,300). green_ball: sprite at (600,300)."
+      - assistant_text: "Playfield contains three sprites: blue_ball, red_ball, and green_ball."
+
+  - intent: "Are there any joints in sprite area 'ragdoll'?"
+    turns:
+      - assistant_tool_call:
+          name: "list_scene_joints"
+          arguments:
+            sprite_area_name: "ragdoll"
+      - tool_result: "pin: arm <-> shoulder. pin: elbow <-> forearm."
+      - assistant_text: "Yes — two pin joints in ragdoll: arm↔shoulder and elbow↔forearm."
+
+  # ── list-then-write: use names found in list ──────────────────
+  - intent: "Fade out every sprite in 'arena'."
+    turns:
+      - assistant_tool_call:
+          name: "list_scene_nodes"
+          arguments:
+            sprite_area_name: "arena"
+      - tool_result: "player: sprite at (400,300). enemy: sprite at (200,500)."
+      - assistant_tool_call:
+          name: "set_scene_script"
+          arguments:
+            sprite_area_name: "arena"
+            script: |
+              on sceneDidLoad
+                set the alpha of sprite "player" to 0
+                set the alpha of sprite "enemy" to 0
+              end sceneDidLoad
+
+  - intent: "Make every sprite in 'playfield' bounce with restitution 1."
+    turns:
+      - assistant_tool_call:
+          name: "list_scene_nodes"
+          arguments:
+            sprite_area_name: "playfield"
+      - tool_result: "blue_ball: sprite at (200,300). red_ball: sprite at (400,300). green_ball: sprite at (600,300)."
+      - assistant_tool_call:
+          name: "set_scene_script"
+          arguments:
+            sprite_area_name: "playfield"
+            script: |
+              on sceneDidLoad
+                set the restitution of sprite "blue_ball" to 1
+                set the restitution of sprite "red_ball" to 1
+                set the restitution of sprite "green_ball" to 1
+              end sceneDidLoad
+
+  # ── get-script-then-modify ────────────────────────────────────
+  - intent: "Add a closeCard handler to the current card's existing script."
+    turns:
+      - assistant_tool_call:
+          name: "get_card_script"
+          arguments: {}
+      - tool_result: |-
+          on openCard
+            put 0 into field "score"
+          end openCard
+      - assistant_tool_call:
+          name: "set_card_script"
+          arguments:
+            script: |
+              on openCard
+                put 0 into field "score"
+              end openCard
+
+              on closeCard
+                stop sound
+              end closeCard
+
+  - intent: "Append a velocity reset handler to the current scene script in sprite area 'arena'."
+    turns:
+      - assistant_tool_call:
+          name: "get_scene_script"
+          arguments:
+            sprite_area_name: "arena"
+      - tool_result: |-
+          on sceneDidLoad
+            set the restitution of sprite "ball" to 1
+          end sceneDidLoad
+      - assistant_tool_call:
+          name: "set_scene_script"
+          arguments:
+            sprite_area_name: "arena"
+            script: |
+              on sceneDidLoad
+                set the restitution of sprite "ball" to 1
+              end sceneDidLoad
+
+              on resetVelocity
+                set the velocityX of sprite "ball" to 0
+                set the velocityY of sprite "ball" to 0
+              end resetVelocity
+
+  # ── stack script get-then-set ────────────────────────────────
+  - intent: "Initialise a global 'level' to 1 in the stack script, preserving whatever else is there."
+    turns:
+      - assistant_tool_call:
+          name: "get_stack_script"
+          arguments: {}
+      - tool_result: |-
+          on openStack
+            global score
+            put 0 into score
+          end openStack
+      - assistant_tool_call:
+          name: "set_stack_script"
+          arguments:
+            script: |
+              on openStack
+                global score
+                global level
+                put 0 into score
+                put 1 into level
+              end openStack
+
+  # ── get_part_property then readback (no write) ───────────────
+  - intent: "Is the 'play' button currently enabled?"
+    turns:
+      - assistant_tool_call:
+          name: "get_part_property"
+          arguments:
+            part_name: "play"
+            property: "enabled"
+      - tool_result: "true"
+      - assistant_text: "Yes, the 'play' button is currently enabled."
+
+  - intent: "Check the current width of field 'message'."
+    turns:
+      - assistant_tool_call:
+          name: "get_part_property"
+          arguments:
+            part_name: "message"
+            property: "width"
+      - tool_result: "200"
+      - assistant_text: "Field 'message' is currently 200 points wide."
+
+  # ── Chart read-then-modify ───────────────────────────────────
+  - intent: "Change the color of Jan in chart 'sales' to red."
+    turns:
+      - assistant_tool_call:
+          name: "get_chart_data_points"
+          arguments:
+            chart_name: "sales"
+      - tool_result: "Chart 'sales' (bar): Series 1 'Sales' color=#4A90D9: Point 1 'Jan'=120 color=#4A90D9 (inherited). Point 2 'Feb'=180 color=#4A90D9 (inherited)."
+      - assistant_tool_call:
+          name: "set_chart_data_point_color"
+          arguments:
+            chart_name: "sales"
+            series: "1"
+            point: "Jan"
+            color: "#FF0000"
+
+  # ── get-then-set: visibility toggle ──────────────────────────
+  - intent: "Toggle the visibility of button 'next'."
+    turns:
+      - assistant_tool_call:
+          name: "get_part_property"
+          arguments:
+            part_name: "next"
+            property: "visible"
+      - tool_result: "true"
+      - assistant_tool_call:
+          name: "set_part_property"
+          arguments:
+            part_name: "next"
+            property: "visible"
+            value: "false"
+
+  - intent: "Toggle hide on sprite 'enemy' in sprite area 'arena'."
+    turns:
+      - assistant_tool_call:
+          name: "get_node_property"
+          arguments:
+            sprite_area_name: "arena"
+            node_name: "enemy"
+            property: "isHidden"
+      - tool_result: "false"
+      - assistant_tool_call:
+          name: "set_node_property"
+          arguments:
+            sprite_area_name: "arena"
+            node_name: "enemy"
+            property: "isHidden"
+            value: "true"
+
+  # ── get-then-reason-then-nothing ─────────────────────────────
+  # Teach the model that sometimes the answer is "no action needed"
+  # after reading.
+  - intent: "Is the score above 100?"
+    turns:
+      - assistant_tool_call:
+          name: "get_part_property"
+          arguments:
+            part_name: "score"
+            property: "text"
+      - tool_result: "75"
+      - assistant_text: "No — the score field currently shows 75, which is below 100."
+
+  - intent: "Does the arena scene have a player sprite?"
+    turns:
+      - assistant_tool_call:
+          name: "list_scene_nodes"
+          arguments:
+            sprite_area_name: "arena"
+      - tool_result: "enemy: sprite at (200,500). coin: sprite at (600,300)."
+      - assistant_text: "No — the arena scene contains an enemy and a coin, but no player sprite. Would you like me to add one?"

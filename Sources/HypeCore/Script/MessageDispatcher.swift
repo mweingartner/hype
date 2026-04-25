@@ -109,7 +109,12 @@ public struct MessageDispatcher: Sendable {
             }
         }
         semaphore.wait()
-        return box.result ?? ExecutionResult(status: .error, error: ScriptError(message: "Dispatch timed out", line: 0, handler: message))
+        if let result = box.result {
+            return result
+        }
+        let error = ScriptError(message: "Dispatch timed out", line: 0, handler: message)
+        HypeLogger.shared.scriptError(error, source: "Runtime", context: "Message dispatch")
+        return ExecutionResult(status: .error, error: error)
     }
 
     public func dispatchAsync(
@@ -189,6 +194,7 @@ public struct MessageDispatcher: Sendable {
                 let fullMessage = "[HypeTalk parse error] \(error.localizedDescription)"
                 var stderr = StderrOutputStream()
                 print(fullMessage, to: &stderr)
+                HypeLogger.shared.error(fullMessage, source: "Parser")
                 if firstParseError == nil {
                     firstParseError = ScriptError(
                         message: fullMessage,

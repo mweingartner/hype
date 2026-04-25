@@ -1,0 +1,264 @@
+# Read-side tools v3 — teach the model to reach for granular
+# getters instead of dumping entire scenes or guessing.
+#
+# The v2 model never saw rows that used get_part_property,
+# get_node_property, list_scene_nodes, list_all_cards,
+# list_backgrounds, get_scene_script, get_stack_script,
+# get_card_script, get_background_script, list_scene_joints,
+# list_scene_constraints, or get_node_script. Today those tools
+# exist in HypeTools.swift but the model doesn't know to use them.
+#
+# These rows are SINGLE-TURN — the user asks a question that maps
+# directly to one read tool. Multi-turn "read-then-write" chains
+# live in 23_tool_call_chains.yaml.
+
+examples:
+  # ── get_part_property ──────────────────────────────────────────
+  - intent: "What's the current text of field 'score'?"
+    tool_call:
+      name: "get_part_property"
+      arguments:
+        part_name: "score"
+        property: "text"
+
+  - intent: "Read the current width of button 'play'."
+    tool_call:
+      name: "get_part_property"
+      arguments:
+        part_name: "play"
+        property: "width"
+
+  - intent: "Is button 'start' visible right now?"
+    tool_call:
+      name: "get_part_property"
+      arguments:
+        part_name: "start"
+        property: "visible"
+
+  - intent: "Show me the script on field 'input'."
+    tool_call:
+      name: "get_part_property"
+      arguments:
+        part_name: "input"
+        property: "script"
+
+  - intent: "What's the fillColor of shape 'background'?"
+    tool_call:
+      name: "get_part_property"
+      arguments:
+        part_name: "background"
+        property: "fillColor"
+
+  - intent: "Tell me the left position of the 'title' field."
+    tool_call:
+      name: "get_part_property"
+      arguments:
+        part_name: "title"
+        property: "left"
+
+  - intent: "Read the URL of the webpage part 'browser'."
+    tool_call:
+      name: "get_part_property"
+      arguments:
+        part_name: "browser"
+        property: "url"
+
+  # ── get_node_property ──────────────────────────────────────────
+  - intent: "Read the current velocity X of sprite 'ball' in sprite area 'playfield'."
+    tool_call:
+      name: "get_node_property"
+      arguments:
+        sprite_area_name: "playfield"
+        node_name: "ball"
+        property: "physics.velocityX"
+
+  - intent: "What's the restitution of sprite 'orb' in the 'arena' sprite area?"
+    tool_call:
+      name: "get_node_property"
+      arguments:
+        sprite_area_name: "arena"
+        node_name: "orb"
+        property: "physics.restitution"
+
+  - intent: "Get the alpha of the 'player' sprite in sprite area 'game'."
+    tool_call:
+      name: "get_node_property"
+      arguments:
+        sprite_area_name: "game"
+        node_name: "player"
+        property: "alpha"
+
+  - intent: "What's the rotation of label 'title' in the 'stage' sprite area?"
+    tool_call:
+      name: "get_node_property"
+      arguments:
+        sprite_area_name: "stage"
+        node_name: "title"
+        property: "rotation"
+
+  - intent: "Check the font size of label 'score_label' in sprite area 'playfield'."
+    tool_call:
+      name: "get_node_property"
+      arguments:
+        sprite_area_name: "playfield"
+        node_name: "score_label"
+        property: "fontSize"
+
+  - intent: "What's the current zPosition of sprite 'enemy' in 'arena'?"
+    tool_call:
+      name: "get_node_property"
+      arguments:
+        sprite_area_name: "arena"
+        node_name: "enemy"
+        property: "zPosition"
+
+  - intent: "Read the friction of sprite 'box' in sprite area 'level1'."
+    tool_call:
+      name: "get_node_property"
+      arguments:
+        sprite_area_name: "level1"
+        node_name: "box"
+        property: "physics.friction"
+
+  # ── list_all_cards ─────────────────────────────────────────────
+  - intent: "List every card in this stack."
+    tool_call:
+      name: "list_all_cards"
+      arguments: {}
+
+  - intent: "How many cards are in the current stack?"
+    tool_call:
+      name: "list_all_cards"
+      arguments: {}
+
+  - intent: "Show me the names of all cards."
+    tool_call:
+      name: "list_all_cards"
+      arguments: {}
+
+  # ── list_backgrounds ───────────────────────────────────────────
+  - intent: "What backgrounds does this stack have?"
+    tool_call:
+      name: "list_backgrounds"
+      arguments: {}
+
+  - intent: "List every background with the card counts that use it."
+    tool_call:
+      name: "list_backgrounds"
+      arguments: {}
+
+  # ── list_scene_nodes ───────────────────────────────────────────
+  - intent: "List every node in the 'arena' sprite area's active scene."
+    tool_call:
+      name: "list_scene_nodes"
+      arguments:
+        sprite_area_name: "arena"
+
+  - intent: "What sprites are in the 'playfield' sprite area?"
+    tool_call:
+      name: "list_scene_nodes"
+      arguments:
+        sprite_area_name: "playfield"
+
+  - intent: "Show me the nodes in scene 'level2' of sprite area 'game'."
+    tool_call:
+      name: "list_scene_nodes"
+      arguments:
+        sprite_area_name: "game"
+        scene_name: "level2"
+
+  - intent: "What's in the 'stage' scene right now?"
+    tool_call:
+      name: "list_scene_nodes"
+      arguments:
+        sprite_area_name: "stage"
+
+  # ── list_scene_joints / constraints ────────────────────────────
+  - intent: "List every physics joint in sprite area 'ragdoll'."
+    tool_call:
+      name: "list_scene_joints"
+      arguments:
+        sprite_area_name: "ragdoll"
+
+  - intent: "Show the scene constraints on sprite area 'arena'."
+    tool_call:
+      name: "list_scene_constraints"
+      arguments:
+        sprite_area_name: "arena"
+
+  # ── get_scene_script ───────────────────────────────────────────
+  - intent: "What's the script on the main scene of sprite area 'bounder'?"
+    tool_call:
+      name: "get_scene_script"
+      arguments:
+        sprite_area_name: "bounder"
+
+  - intent: "Show me the HypeTalk attached to the 'playfield' scene."
+    tool_call:
+      name: "get_scene_script"
+      arguments:
+        sprite_area_name: "playfield"
+
+  - intent: "Read the script of scene 'level1' in the 'game' sprite area."
+    tool_call:
+      name: "get_scene_script"
+      arguments:
+        sprite_area_name: "game"
+        scene_name: "level1"
+
+  # ── get_node_script ────────────────────────────────────────────
+  - intent: "What script is on sprite 'player' in sprite area 'arena'?"
+    tool_call:
+      name: "get_node_script"
+      arguments:
+        sprite_area_name: "arena"
+        node_name: "player"
+
+  - intent: "Show me the script attached to sprite 'ball' in 'playfield'."
+    tool_call:
+      name: "get_node_script"
+      arguments:
+        sprite_area_name: "playfield"
+        node_name: "ball"
+
+  # ── get_stack_script ───────────────────────────────────────────
+  - intent: "What's the stack script right now?"
+    tool_call:
+      name: "get_stack_script"
+      arguments: {}
+
+  - intent: "Show me the HypeTalk on the stack."
+    tool_call:
+      name: "get_stack_script"
+      arguments: {}
+
+  # ── get_card_script ────────────────────────────────────────────
+  - intent: "What's the script on the current card?"
+    tool_call:
+      name: "get_card_script"
+      arguments: {}
+
+  - intent: "Show me the script on card 'intro'."
+    tool_call:
+      name: "get_card_script"
+      arguments:
+        card_name: "intro"
+
+  - intent: "Read the HypeTalk on the 'game_over' card."
+    tool_call:
+      name: "get_card_script"
+      arguments:
+        card_name: "game_over"
+
+  # ── get_background_script ──────────────────────────────────────
+  - intent: "What's the script on the 'menu_bg' background?"
+    tool_call:
+      name: "get_background_script"
+      arguments:
+        background_name: "menu_bg"
+
+  - intent: "Show me the background script for 'title_bg'."
+    tool_call:
+      name: "get_background_script"
+      arguments:
+        background_name: "title_bg"

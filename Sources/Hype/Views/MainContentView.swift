@@ -289,9 +289,6 @@ struct MainContentView: View {
         if let modified = result.modifiedDocument {
             document.document = modified
         }
-        if case .error = result.status, let err = result.error {
-            HypeLogger.shared.error("\(err.handler) line \(err.line): \(err.message)", source: "Script")
-        }
     }
 
     /// Navigate to a new card, dispatching HypeTalk lifecycle messages.
@@ -671,9 +668,6 @@ private struct NavigationHandlers: ViewModifier {
         )
         if let modified = result.modifiedDocument {
             document.document = modified
-        }
-        if case .error = result.status, let err = result.error {
-            HypeLogger.shared.error("\(err.handler) line \(err.line): \(err.message)", source: "Script")
         }
     }
 

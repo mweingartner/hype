@@ -1,0 +1,31 @@
+# MLX-LM LoRA hyperparameter config passed via `-c` to mlx_lm.lora.
+#
+# train.sh reads config.yaml for high-level pipeline knobs and
+# injects the subset that has CLI flags. LoRA-specific parameters
+# (rank, scale, dropout, target layer keys) are only settable via
+# this config file — the mlx_lm CLI has no --rank flag.
+#
+# Kept separate from config.yaml so the high-level training recipe
+# stays readable.
+
+# LoRA parameter configuration per mlx_lm.tuner.utils.build_schedule
+# and build_lora_model signatures.
+lora_parameters:
+  # Rank of the low-rank adapter matrices. Higher = more capacity
+  # at the cost of bigger adapters and slightly slower training.
+  # Qwen3 8B first-pass lane: rank 16 is enough capacity for
+  # HypeTalk/tool specialization while keeping the adapter small
+  # enough for fast iteration.
+  rank: 16
+
+  # Effective LoRA scale. mlx_lm's default is 20.0 (equivalent to
+  # alpha=160 at rank=8), and that's what v2 was trained with
+  # implicitly — this script did not previously pass a `-c`
+  # config so every hyperparameter defaulted. Keeping scale 20.0
+  # matches v2's training trajectory; halving it would silently
+  # regress by making the adapter updates 10× weaker.
+  scale: 20.0
+
+  # Dropout inside the LoRA projection. Low for a base model that
+  # already has strong code/tool priors.
+  dropout: 0.05

@@ -299,9 +299,22 @@ struct ScriptEditor: View {
     @State private var errorHighlightLine: Int? = nil
 
     private var resolvedTarget: ScriptTarget? {
-        if let t = target { return t }
-        if let id = partId { return .part(id) }
-        return nil
+        let initialTarget: ScriptTarget?
+        if let t = target {
+            initialTarget = t
+        } else if let id = partId {
+            initialTarget = .part(id)
+        } else {
+            initialTarget = nil
+        }
+
+        guard case .part(let id) = initialTarget,
+              let part = document.document.parts.first(where: { $0.id == id }),
+              part.partType == .spriteArea,
+              let sceneId = part.spriteAreaSpecModel?.activeSceneEntry?.id else {
+            return initialTarget
+        }
+        return .scene(partId: id, sceneId: sceneId)
     }
 
     private var partNames: [String] {
@@ -484,6 +497,9 @@ struct ScriptEditor: View {
             part.updateSpriteAreaSpec { areaSpec in
                 guard let index = areaSpec.scenes.firstIndex(where: { $0.id == sceneId }) else { return }
                 areaSpec.scenes[index].scene.script = script
+                if areaSpec.scenes[index].id == areaSpec.activeSceneID {
+                    areaSpec.setActiveScene(areaSpec.scenes[index].scene)
+                }
             }
         }
     }

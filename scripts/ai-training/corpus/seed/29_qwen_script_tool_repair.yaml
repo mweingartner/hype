@@ -1,0 +1,291 @@
+# Focused Qwen repair rows for script-attachment routing.
+#
+# The Qwen3 8B v1 model learned HypeTalk syntax and most tool calls,
+# but live dispatch showed one recurring failure: when a user asks to
+# create/set/attach a script, the model may answer with the HypeTalk
+# body instead of calling the Hype setter tool. These rows reinforce
+# the product contract: script installation is a tool action.
+
+examples:
+  - intent: "Create the script on the bounder object on this card with one that sets all sprites in motion with physics, bouncing off the perimeter of the scene and each other. Have the script look for if the mouse intersects the location of the blue_ball sprite and, if it ever does, increase the velocity of the blue_ball by 50% each time."
+    tool_call:
+      name: "set_scene_script"
+      arguments:
+        sprite_area_name: "bounder"
+        script: |
+          on sceneDidLoad
+            set the restitution of sprite "blue_ball" to 1
+            set the restitution of sprite "red_ball" to 1
+            set the contactTestBitmask of sprite "blue_ball" to 1
+            set the contactTestBitmask of sprite "red_ball" to 1
+            set the velocityX of sprite "blue_ball" to 200
+            set the velocityY of sprite "blue_ball" to 150
+            set the velocityX of sprite "red_ball" to -180
+            set the velocityY of sprite "red_ball" to 220
+            global wasHovering
+            put "false" into wasHovering
+          end sceneDidLoad
+
+          on frameUpdate
+            global wasHovering
+            if the hoveredSprite is "blue_ball" then
+              if wasHovering is "false" then
+                set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 1.5
+                set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 1.5
+                put "true" into wasHovering
+              end if
+            else
+              put "false" into wasHovering
+            end if
+          end frameUpdate
+
+  - intent: "Create the script on the bounder object on this card with one that sets all sprites in motion with physics, bouncing off the perimeter of the scene and each other. Have the script look for if the mouse intersects the location of the blue_ball sprite and, if it ever does, increase the velocity of the blue_ball by 50% each time."
+    turns:
+      - assistant_tool_call:
+          name: "check_script"
+          arguments:
+            script: |
+              on sceneDidLoad
+                set the restitution of sprite "blue_ball" to 1
+                set the restitution of sprite "red_ball" to 1
+                set the contactTestBitmask of sprite "blue_ball" to 1
+                set the contactTestBitmask of sprite "red_ball" to 1
+                set the velocityX of sprite "blue_ball" to 200
+                set the velocityY of sprite "blue_ball" to 150
+                set the velocityX of sprite "red_ball" to -180
+                set the velocityY of sprite "red_ball" to 220
+                global wasHovering
+                put "false" into wasHovering
+              end sceneDidLoad
+
+              on frameUpdate
+                global wasHovering
+                if the hoveredSprite is "blue_ball" then
+                  if wasHovering is "false" then
+                    set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 1.5
+                    set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 1.5
+                    put "true" into wasHovering
+                  end if
+                else
+                  put "false" into wasHovering
+                end if
+              end frameUpdate
+      - tool_result: "OK: 2 handlers parsed ('sceneDidLoad', 'frameUpdate'). Script is ready to store."
+      - assistant_tool_call:
+          name: "set_scene_script"
+          arguments:
+            sprite_area_name: "bounder"
+            script: |
+              on sceneDidLoad
+                set the restitution of sprite "blue_ball" to 1
+                set the restitution of sprite "red_ball" to 1
+                set the contactTestBitmask of sprite "blue_ball" to 1
+                set the contactTestBitmask of sprite "red_ball" to 1
+                set the velocityX of sprite "blue_ball" to 200
+                set the velocityY of sprite "blue_ball" to 150
+                set the velocityX of sprite "red_ball" to -180
+                set the velocityY of sprite "red_ball" to 220
+                global wasHovering
+                put "false" into wasHovering
+              end sceneDidLoad
+
+              on frameUpdate
+                global wasHovering
+                if the hoveredSprite is "blue_ball" then
+                  if wasHovering is "false" then
+                    set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 1.5
+                    set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 1.5
+                    put "true" into wasHovering
+                  end if
+                else
+                  put "false" into wasHovering
+                end if
+              end frameUpdate
+
+  - intent: "Create the script on the bounder object on this card that uses the hoveredSprite to detect blue_ball and increases its velocity by 50 percent when hovered."
+    turns:
+      - assistant_tool_call:
+          name: "check_script"
+          arguments:
+            script: |
+              on frameUpdate
+                global wasHovering
+                if the hoveredSprite is "blue_ball" then
+                  if wasHovering is "false" then
+                    set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 1.5
+                    set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 1.5
+                    put "true" into wasHovering
+                  end if
+                else
+                  put "false" into wasHovering
+                end if
+              end frameUpdate
+      - tool_result: "OK: 1 handler parsed ('frameUpdate'). Script is ready to store."
+      - assistant_tool_call:
+          name: "set_scene_script"
+          arguments:
+            sprite_area_name: "bounder"
+            script: |
+              on frameUpdate
+                global wasHovering
+                if the hoveredSprite is "blue_ball" then
+                  if wasHovering is "false" then
+                    set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 1.5
+                    set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 1.5
+                    put "true" into wasHovering
+                  end if
+                else
+                  put "false" into wasHovering
+                end if
+              end frameUpdate
+
+  - intent: "Install this behavior as the script for the bounder scene: when the cursor is over blue_ball, boost its velocity once per hover."
+    tool_call:
+      name: "set_scene_script"
+      arguments:
+        sprite_area_name: "bounder"
+        script: |
+          on frameUpdate
+            global wasHovering
+            if the hoveredSprite is "blue_ball" then
+              if wasHovering is "false" then
+                set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 1.5
+                set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 1.5
+                put "true" into wasHovering
+              end if
+            else
+              put "false" into wasHovering
+            end if
+          end frameUpdate
+
+  - intent: "Set the script of the sprite area named 'arena' so the player moves with WASD."
+    tool_call:
+      name: "set_scene_script"
+      arguments:
+        sprite_area_name: "arena"
+        script: |
+          on keyDown
+            if the key is "w" then set the velocityY of sprite "player" to 250
+            if the key is "s" then set the velocityY of sprite "player" to -250
+            if the key is "a" then set the velocityX of sprite "player" to -250
+            if the key is "d" then set the velocityX of sprite "player" to 250
+          end keyDown
+
+  - intent: "Attach a script to node 'blue_ball' inside bounder so clicking it doubles its velocity."
+    turns:
+      - assistant_tool_call:
+          name: "check_script"
+          arguments:
+            script: |
+              on mouseDown
+                set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 2
+                set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 2
+              end mouseDown
+      - tool_result: "OK: 1 handler parsed ('mouseDown'). Script is ready to store."
+      - assistant_tool_call:
+          name: "set_node_script"
+          arguments:
+            sprite_area_name: "bounder"
+            node_name: "blue_ball"
+            script: |
+              on mouseDown
+                set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 2
+                set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 2
+              end mouseDown
+
+  - intent: "Give the current card an openCard script that resets the score field."
+    turns:
+      - assistant_tool_call:
+          name: "check_script"
+          arguments:
+            script: |
+              on openCard
+                put "0" into field "score"
+              end openCard
+      - tool_result: "OK: 1 handler parsed ('openCard'). Script is ready to store."
+      - assistant_tool_call:
+          name: "set_card_script"
+          arguments:
+            script: |
+              on openCard
+                put "0" into field "score"
+              end openCard
+
+  - intent: "Attach a shared background script that writes ready into the status field on openCard."
+    turns:
+      - assistant_tool_call:
+          name: "check_script"
+          arguments:
+            script: |
+              on openCard
+                put "ready" into field "status"
+                pass openCard
+              end openCard
+      - tool_result: "OK: 1 handler parsed ('openCard'). Script is ready to store."
+      - assistant_tool_call:
+          name: "set_background_script"
+          arguments:
+            script: |
+              on openCard
+                put "ready" into field "status"
+                pass openCard
+              end openCard
+
+  - intent: "Set the stack script to initialize global score to zero when the stack opens."
+    turns:
+      - assistant_tool_call:
+          name: "check_script"
+          arguments:
+            script: |
+              on openStack
+                global score
+                put 0 into score
+              end openStack
+      - tool_result: "OK: 1 handler parsed ('openStack'). Script is ready to store."
+      - assistant_tool_call:
+          name: "set_stack_script"
+          arguments:
+            script: |
+              on openStack
+                global score
+                put 0 into score
+              end openStack
+
+  - intent: "Set the play button's script to go next."
+    turns:
+      - assistant_tool_call:
+          name: "check_script"
+          arguments:
+            script: |
+              on mouseUp
+                go next
+              end mouseUp
+      - tool_result: "OK: 1 handler parsed ('mouseUp'). Script is ready to store."
+      - assistant_tool_call:
+          name: "set_part_property"
+          arguments:
+            part_name: "play"
+            property: "script"
+            value: |
+              on mouseUp
+                go next
+              end mouseUp
+
+  - intent: "Replace the script on card 'intro' with one that starts the intro sound on openCard."
+    turns:
+      - assistant_tool_call:
+          name: "check_script"
+          arguments:
+            script: |
+              on openCard
+                play "intro"
+              end openCard
+      - tool_result: "OK: 1 handler parsed ('openCard'). Script is ready to store."
+      - assistant_tool_call:
+          name: "set_card_script"
+          arguments:
+            card_name: "intro"
+            script: |
+              on openCard
+                play "intro"
+              end openCard

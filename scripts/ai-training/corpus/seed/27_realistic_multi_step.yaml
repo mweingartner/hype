@@ -1,0 +1,322 @@
+# Realistic multi-step authoring prompts — the class of request
+# that broke v2 most visibly. The physics-bounce / mouse-hover /
+# velocity-scale prompt from the user's failure screenshot lives
+# here, along with sibling prompts of the same shape.
+#
+# Every row uses CURRENT STATE–style references so the assistant
+# must read sprite names from context rather than hallucinating.
+# Scripts use ONLY valid HypeTalk and the exact event / property
+# names from HypeTalkGuide.swift.
+
+examples:
+  # ── Bouncing balls + mouse hover velocity boost ───────────────
+  - intent: "Create the script on the bounder object on this card with one that sets all sprites in motion with physics, bouncing off the perimeter of the scene and each other. Have the script look for if the mouse intersects the location of the blue_ball sprite and, if it ever does, increase the velocity of the blue_ball by 50% each time."
+    turns:
+      - assistant_tool_call:
+          name: "list_scene_nodes"
+          arguments:
+            sprite_area_name: "bounder"
+      - tool_result: "blue_ball: sprite at (200,300). yellow_ball: sprite at (400,300). green_ball: sprite at (600,300)."
+      - assistant_tool_call:
+          name: "set_scene_script"
+          arguments:
+            sprite_area_name: "bounder"
+            script: |
+              on sceneDidLoad
+                set the restitution of sprite "blue_ball" to 1
+                set the restitution of sprite "yellow_ball" to 1
+                set the restitution of sprite "green_ball" to 1
+                set the contactTestBitmask of sprite "blue_ball" to 1
+                set the contactTestBitmask of sprite "yellow_ball" to 1
+                set the contactTestBitmask of sprite "green_ball" to 1
+                set the velocityX of sprite "blue_ball" to 200
+                set the velocityY of sprite "blue_ball" to 150
+                set the velocityX of sprite "yellow_ball" to -180
+                set the velocityY of sprite "yellow_ball" to 220
+                set the velocityX of sprite "green_ball" to 160
+                set the velocityY of sprite "green_ball" to -210
+                global wasHovering
+                put "false" into wasHovering
+              end sceneDidLoad
+
+              on frameUpdate
+                global wasHovering
+                if the hoveredSprite is "blue_ball" then
+                  if wasHovering is "false" then
+                    set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 1.5
+                    set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 1.5
+                    put "true" into wasHovering
+                  end if
+                else
+                  put "false" into wasHovering
+                end if
+              end frameUpdate
+
+  - intent: "In sprite area 'playfield', make every sprite bounce off walls and each other with full restitution."
+    turns:
+      - assistant_tool_call:
+          name: "list_scene_nodes"
+          arguments:
+            sprite_area_name: "playfield"
+      - tool_result: "red_ball: sprite at (200,300). green_ball: sprite at (400,300). blue_ball: sprite at (600,300)."
+      - assistant_tool_call:
+          name: "set_scene_script"
+          arguments:
+            sprite_area_name: "playfield"
+            script: |
+              on sceneDidLoad
+                set the restitution of sprite "red_ball" to 1
+                set the restitution of sprite "green_ball" to 1
+                set the restitution of sprite "blue_ball" to 1
+                set the contactTestBitmask of sprite "red_ball" to 1
+                set the contactTestBitmask of sprite "green_ball" to 1
+                set the contactTestBitmask of sprite "blue_ball" to 1
+                set the velocityX of sprite "red_ball" to 150
+                set the velocityY of sprite "red_ball" to 100
+                set the velocityX of sprite "green_ball" to -120
+                set the velocityY of sprite "green_ball" to 180
+                set the velocityX of sprite "blue_ball" to 200
+                set the velocityY of sprite "blue_ball" to -140
+              end sceneDidLoad
+
+  - intent: "Sprite area 'arena': on each click on the player sprite, speed it up by 25 percent."
+    turns:
+      - assistant_tool_call:
+          name: "list_scene_nodes"
+          arguments:
+            sprite_area_name: "arena"
+      - tool_result: "player: sprite at (400,300). enemy: sprite at (200,500)."
+      - assistant_tool_call:
+          name: "set_scene_script"
+          arguments:
+            sprite_area_name: "arena"
+            script: |
+              on mouseDown
+                if the clickedSprite is "player" then
+                  set the velocityX of sprite "player" to (the velocityX of sprite "player") * 1.25
+                  set the velocityY of sprite "player" to (the velocityY of sprite "player") * 1.25
+                end if
+              end mouseDown
+
+  # ── Shooter / spawn patterns ──────────────────────────────────
+  - intent: "Arrow keys move the player sprite; space bar makes it jump. Wire this on sprite area 'game'."
+    turns:
+      - assistant_tool_call:
+          name: "list_scene_nodes"
+          arguments:
+            sprite_area_name: "game"
+      - tool_result: "player: sprite at (100,100)."
+      - assistant_tool_call:
+          name: "set_scene_script"
+          arguments:
+            sprite_area_name: "game"
+            script: |
+              on keyDown
+                if the key is "leftArrow" then set the velocityX of sprite "player" to -200
+                if the key is "rightArrow" then set the velocityX of sprite "player" to 200
+                if the key is " " then set the velocityY of sprite "player" to 400
+              end keyDown
+
+              on keyUp
+                if the key is "leftArrow" or the key is "rightArrow" then
+                  set the velocityX of sprite "player" to 0
+                end if
+              end keyUp
+
+  - intent: "Whenever the ball leaves the bottom of the arena scene, reset it to the top."
+    turns:
+      - assistant_tool_call:
+          name: "list_scene_nodes"
+          arguments:
+            sprite_area_name: "arena"
+      - tool_result: "ball: sprite at (400,300)."
+      - assistant_tool_call:
+          name: "set_scene_script"
+          arguments:
+            sprite_area_name: "arena"
+            script: |
+              on frameUpdate
+                if the y of sprite "ball" < 0 then
+                  set the y of sprite "ball" to 600
+                  set the x of sprite "ball" to 400
+                end if
+              end frameUpdate
+
+  # ── Collision-driven scoring ──────────────────────────────────
+  - intent: "In sprite area 'level1', when the player touches a coin, disappear the coin and add 10 to the score field."
+    turns:
+      - assistant_tool_call:
+          name: "list_scene_nodes"
+          arguments:
+            sprite_area_name: "level1"
+      - tool_result: "player: sprite at (100,100). coin: sprite at (400,300)."
+      - assistant_tool_call:
+          name: "set_scene_script"
+          arguments:
+            sprite_area_name: "level1"
+            script: |
+              on beginContact
+                if the contactSprite is "coin" then
+                  set the isHidden of sprite "coin" to true
+                  global score
+                  add 10 to score
+                  put score into field "score"
+                end if
+              end beginContact
+
+  # ── Mouse interaction drag ────────────────────────────────────
+  - intent: "Make sprite 'cursor' in sprite area 'hud' follow the mouse every frame."
+    turns:
+      - assistant_tool_call:
+          name: "list_scene_nodes"
+          arguments:
+            sprite_area_name: "hud"
+      - tool_result: "cursor: sprite at (0,0)."
+      - assistant_tool_call:
+          name: "set_scene_script"
+          arguments:
+            sprite_area_name: "hud"
+            script: |
+              on frameUpdate
+                set the x of sprite "cursor" to the mouseX
+                set the y of sprite "cursor" to the mouseY
+              end frameUpdate
+
+  # ── Paddle + ball Pong-style ──────────────────────────────────
+  - intent: "Sprite area 'pong': the 'paddle' sprite follows the mouse horizontally; the 'ball' sprite bounces with full restitution."
+    turns:
+      - assistant_tool_call:
+          name: "list_scene_nodes"
+          arguments:
+            sprite_area_name: "pong"
+      - tool_result: "paddle: sprite at (400,50). ball: sprite at (400,300)."
+      - assistant_tool_call:
+          name: "set_scene_script"
+          arguments:
+            sprite_area_name: "pong"
+            script: |
+              on sceneDidLoad
+                set the restitution of sprite "ball" to 1
+                set the velocityX of sprite "ball" to 200
+                set the velocityY of sprite "ball" to 200
+                set the affectedByGravity of sprite "paddle" to false
+                set the isDynamic of sprite "paddle" to false
+              end sceneDidLoad
+
+              on frameUpdate
+                set the x of sprite "paddle" to the mouseX
+              end frameUpdate
+
+  # ── Spawn-on-click ────────────────────────────────────────────
+  # Shows the model choosing to read list_repository_assets before
+  # spawning so it uses a real asset name.
+  - intent: "Spawn a new ball at the mouse every time the user clicks in sprite area 'spawner'."
+    turns:
+      - assistant_tool_call:
+          name: "set_scene_script"
+          arguments:
+            sprite_area_name: "spawner"
+            script: |
+              on mouseDown
+                global ballCount
+                if ballCount is empty then put 0 into ballCount
+                add 1 to ballCount
+                -- Note: spawning actual sprites from HypeTalk is
+                -- delegated to the SpriteKit tool surface. For a
+                -- script-only solution we make a pre-seeded pool
+                -- visible as the user clicks:
+                set the isHidden of sprite ("ball_" & ballCount) to false
+                set the x of sprite ("ball_" & ballCount) to the mouseX
+                set the y of sprite ("ball_" & ballCount) to the mouseY
+              end mouseDown
+
+  # ── Timer countdown ───────────────────────────────────────────
+  - intent: "Sprite area 'game': start a countdown at 30 seconds and update label 'timer' every second."
+    turns:
+      - assistant_tool_call:
+          name: "list_scene_nodes"
+          arguments:
+            sprite_area_name: "game"
+      - tool_result: "player: sprite at (100,100). timer: label at (400,550)."
+      - assistant_tool_call:
+          name: "set_scene_script"
+          arguments:
+            sprite_area_name: "game"
+            script: |
+              on sceneDidLoad
+                global remaining
+                put 30 into remaining
+                set the text of label "timer" to ("Time: " & remaining)
+              end sceneDidLoad
+
+              on idle
+                global remaining
+                if remaining > 0 then
+                  subtract 1 from remaining
+                  set the text of label "timer" to ("Time: " & remaining)
+                end if
+              end idle
+
+  # ── Keyboard-triggered physics ────────────────────────────────
+  - intent: "Pressing 'g' toggles gravity on the arena scene."
+    turns:
+      - assistant_tool_call:
+          name: "get_scene_spec"
+          arguments:
+            sprite_area_name: "arena"
+      - tool_result: "{\"name\":\"main\",\"size\":{\"width\":800,\"height\":600},\"gravity\":{\"dx\":0,\"dy\":-200}, ... }"
+      - assistant_tool_call:
+          name: "set_scene_script"
+          arguments:
+            sprite_area_name: "arena"
+            script: |
+              on keyDown
+                if the key is "g" then
+                  global gravityOn
+                  if gravityOn is "false" or gravityOn is empty then
+                    set the gravity of this scene to "0,-200"
+                    put "true" into gravityOn
+                  else
+                    set the gravity of this scene to "0,0"
+                    put "false" into gravityOn
+                  end if
+                end if
+              end keyDown
+
+  # ── Score-on-contact with scene + card script split ───────────
+  - intent: "Each time the ball touches the wall in 'court', add 1 to the score field on the card."
+    turns:
+      - assistant_tool_call:
+          name: "list_scene_nodes"
+          arguments:
+            sprite_area_name: "court"
+      - tool_result: "ball: sprite at (400,300). wall: sprite at (0,300)."
+      - assistant_tool_call:
+          name: "set_scene_script"
+          arguments:
+            sprite_area_name: "court"
+            script: |
+              on beginContact
+                if the contactSprite is "wall" then
+                  global score
+                  add 1 to score
+                  put score into field "score"
+                end if
+              end beginContact
+
+  # ── Negative example: user asked for HypeTalk, not a tool call
+  # These force the model to NOT emit a tool_call when the user
+  # explicitly wants plain script text.
+  - intent: "Write me the HypeTalk handler that pauses gravity when 'p' is pressed — don't actually install it, just show me."
+    script: |
+      on keyDown
+        if the key is "p" then
+          set the gravity of this scene to "0,0"
+        end if
+      end keyDown
+
+  - intent: "Give me a raw HypeTalk snippet that logs every mouseUp event — paste only, do not wire it."
+    script: |
+      on mouseUp
+        put "Mouse released at " & the mouseX & "," & the mouseY into message
+      end mouseUp

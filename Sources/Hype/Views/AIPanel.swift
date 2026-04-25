@@ -78,7 +78,7 @@ struct AIPanel: View {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
-        messages.append((role: "user", content: text))
+        appendMessage(role: "user", content: text)
         inputText = ""
         isLoading = true
 
@@ -88,11 +88,16 @@ struct AIPanel: View {
                     prompt: text,
                     system: "You are a helpful assistant for Hype, a HyperCard-inspired app. Help users create and modify stacks."
                 )
-                messages.append((role: "assistant", content: response.text))
+                appendMessage(role: "assistant", content: response.text)
             } catch {
-                messages.append((role: "assistant", content: "Error: \(error.localizedDescription)"))
+                appendMessage(role: "assistant", content: "Error: \(error.localizedDescription)")
             }
             isLoading = false
         }
+    }
+
+    private func appendMessage(role: String, content: String) {
+        messages.append((role: role, content: content))
+        HypeLogger.shared.aiDialog(role: role, content: content, source: "AI Panel")
     }
 }

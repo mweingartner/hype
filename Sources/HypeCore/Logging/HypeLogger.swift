@@ -51,6 +51,16 @@ public struct LogEntry: Identifiable, Sendable {
 public final class HypeLogger: @unchecked Sendable {
 
     nonisolated(unsafe) public static let shared = HypeLogger()
+    private static let maxLogMessageCharacters = 24_000
+
+    private static let secretPatterns: [NSRegularExpression] = [
+        try! NSRegularExpression(
+            pattern: #"(?i)\b(api[_-]?key|x[-_]?api[-_]?key|access[_-]?token|refresh[_-]?token|secret|password)\b\s*[:=]\s*("[^"]*"|'[^']*'|[^\s,;}]+)"#
+        ),
+        try! NSRegularExpression(
+            pattern: #"(?i)\b(authorization)\b\s*[:=]\s*("[^"]*"|'[^']*'|bearer\s+[^\s,;}]+|[^\s,;}]+)"#
+        ),
+    ]
 
     private let lock = NSLock()
     private var _entries: [LogEntry] = []
@@ -76,7 +86,11 @@ public final class HypeLogger: @unchecked Sendable {
 
     /// Log a message at the given level.
     public func log(_ level: LogLevel, _ message: String, source: String = "") {
-        let entry = LogEntry(level: level, message: message, source: source)
+        let entry = LogEntry(
+            level: level,
+            message: Self.sanitizeForLog(message),
+            source: source
+        )
         lock.lock()
         _entries.append(entry)
         lock.unlock()
@@ -96,6 +110,34 @@ public final class HypeLogger: @unchecked Sendable {
     public func warn(_ message: String, source: String = "") { log(.warning, message, source: source) }
     public func error(_ message: String, source: String = "") { log(.error, message, source: source) }
 
+    /// Log a user/model/tool dialog item from an AI surface.
+    public func aiDialog(role: String, content: String, source: String = "AI") {
+        info("\(role.uppercased()):\n\(content)", source: source)
+    }
+
+    /// Log the raw request text sent to an AI provider.
+    public func aiInput(_ message: String, source: String = "AI") {
+        info("INPUT:\n\(message)", source: source)
+    }
+
+    /// Log the raw response text returned by an AI provider.
+    public func aiOutput(_ message: String, source: String = "AI") {
+        info("OUTPUT:\n\(message)", source: source)
+    }
+
+    /// Log a ScriptError in a stable console-friendly format.
+    public func scriptError(_ error: ScriptError, source: String = "Script", context: String? = nil) {
+        var parts: [String] = []
+        if let context, !context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append(context)
+        }
+        parts.append("\(error.handler) line \(error.line): \(error.message)")
+        if let objectId = error.objectId {
+            parts.append("object=\(objectId.uuidString)")
+        }
+        self.error(parts.joined(separator: " | "), source: source)
+    }
+
     /// Clear all in-memory entries (does not delete the log file).
     public func clear() {
         lock.lock()
@@ -106,6 +148,24 @@ public final class HypeLogger: @unchecked Sendable {
     /// The path to the log file on disk.
     public var logFileURL: URL? {
         logFilePath.map { URL(fileURLWithPath: $0) }
+    }
+
+    // MARK: - Sanitization
+
+    private static func sanitizeForLog(_ message: String) -> String {
+        var result = message
+        for pattern in secretPatterns {
+            let range = NSRange(result.startIndex..<result.endIndex, in: result)
+            result = pattern.stringByReplacingMatches(
+                in: result,
+                options: [],
+                range: range,
+                withTemplate: "$1: [redacted]"
+            )
+        }
+        guard result.count > maxLogMessageCharacters else { return result }
+        let omitted = result.count - maxLogMessageCharacters
+        return "\(result.prefix(maxLogMessageCharacters))\n[truncated \(omitted) characters]"
     }
 
     // MARK: - File I/O

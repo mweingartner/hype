@@ -1,0 +1,256 @@
+# v6 repair examples for the concrete failure mode where a user asks
+# for "the script on the bounder object" but the product semantics are
+# SpriteKit scene-first. These rows also reinforce read/write tools for
+# stack/card/background/part/scene/node properties and scripts.
+
+examples:
+  - intent: "Create the script on the bounder object on this card with one that sets all sprites in motion with physics, bouncing off the perimeter of the scene and each other. Have the script look for if the mouse intersects the location of the blue_ball sprite and, if it ever does, increase the velocity of the blue_ball by 50% each time."
+    turns:
+      - assistant_tool_call:
+          name: "list_scene_nodes"
+          arguments:
+            sprite_area_name: "bounder"
+      - tool_result: "blue_ball: sprite at (200,300). yellow_ball: sprite at (400,300). green_ball: sprite at (600,300)."
+      - assistant_tool_call:
+          name: "check_script"
+          arguments:
+            script: |
+              on sceneDidLoad
+                set the restitution of sprite "blue_ball" to 1
+                set the restitution of sprite "yellow_ball" to 1
+                set the restitution of sprite "green_ball" to 1
+                set the contactTestBitmask of sprite "blue_ball" to 1
+                set the contactTestBitmask of sprite "yellow_ball" to 1
+                set the contactTestBitmask of sprite "green_ball" to 1
+                set the velocityX of sprite "blue_ball" to 200
+                set the velocityY of sprite "blue_ball" to 150
+                set the velocityX of sprite "yellow_ball" to -180
+                set the velocityY of sprite "yellow_ball" to 220
+                set the velocityX of sprite "green_ball" to 160
+                set the velocityY of sprite "green_ball" to -210
+                global wasHovering
+                put "false" into wasHovering
+              end sceneDidLoad
+
+              on frameUpdate
+                global wasHovering
+                if the hoveredSprite is "blue_ball" then
+                  if wasHovering is "false" then
+                    set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 1.5
+                    set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 1.5
+                    put "true" into wasHovering
+                  end if
+                else
+                  put "false" into wasHovering
+                end if
+              end frameUpdate
+      - tool_result: "OK: 2 handlers parsed ('sceneDidLoad', 'frameUpdate'). Script is ready to store."
+      - assistant_tool_call:
+          name: "set_scene_script"
+          arguments:
+            sprite_area_name: "bounder"
+            script: |
+              on sceneDidLoad
+                set the restitution of sprite "blue_ball" to 1
+                set the restitution of sprite "yellow_ball" to 1
+                set the restitution of sprite "green_ball" to 1
+                set the contactTestBitmask of sprite "blue_ball" to 1
+                set the contactTestBitmask of sprite "yellow_ball" to 1
+                set the contactTestBitmask of sprite "green_ball" to 1
+                set the velocityX of sprite "blue_ball" to 200
+                set the velocityY of sprite "blue_ball" to 150
+                set the velocityX of sprite "yellow_ball" to -180
+                set the velocityY of sprite "yellow_ball" to 220
+                set the velocityX of sprite "green_ball" to 160
+                set the velocityY of sprite "green_ball" to -210
+                global wasHovering
+                put "false" into wasHovering
+              end sceneDidLoad
+
+              on frameUpdate
+                global wasHovering
+                if the hoveredSprite is "blue_ball" then
+                  if wasHovering is "false" then
+                    set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 1.5
+                    set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 1.5
+                    put "true" into wasHovering
+                  end if
+                else
+                  put "false" into wasHovering
+                end if
+              end frameUpdate
+
+  - intent: "Show me the script attached to the bounder object on the current card."
+    turns:
+      - assistant_tool_call:
+          name: "get_part_property"
+          arguments:
+            part_name: "bounder"
+            property: "script"
+      - tool_result: |
+          on frameUpdate
+            if the hoveredSprite is "blue_ball" then
+              set the velocityX of sprite "blue_ball" to 300
+            end if
+          end frameUpdate
+
+  - intent: "Read the script for the main scene inside sprite area 'bounder'."
+    turns:
+      - assistant_tool_call:
+          name: "get_scene_script"
+          arguments:
+            sprite_area_name: "bounder"
+            scene_name: "main"
+      - tool_result: |
+          on sceneDidLoad
+            set the restitution of sprite "blue_ball" to 1
+          end sceneDidLoad
+
+  - intent: "On the current card, list the objects I can edit, including background objects."
+    turns:
+      - assistant_tool_call:
+          name: "get_card_parts"
+          arguments: {}
+      - tool_result: |
+          Parts on current card:
+          button 'next_card' at 700,560 size 80x28 on background
+          spriteArea 'bounder' at 80,80 size 640x420
+          field 'score' at 20,20 size 160x32
+
+  - intent: "What sprites and nodes are currently in the bounder scene?"
+    turns:
+      - assistant_tool_call:
+          name: "list_scene_nodes"
+          arguments:
+            sprite_area_name: "bounder"
+      - tool_result: |
+          blue_ball: sprite at (200,300)
+          yellow_ball: sprite at (400,300)
+          green_ball: sprite at (600,300)
+
+  - intent: "Set the current card script so it clears the score field on openCard."
+    turns:
+      - assistant_tool_call:
+          name: "check_script"
+          arguments:
+            script: |
+              on openCard
+                put "0" into field "score"
+              end openCard
+      - tool_result: "OK: 1 handler parsed ('openCard'). Script is ready to store."
+      - assistant_tool_call:
+          name: "set_card_script"
+          arguments:
+            script: |
+              on openCard
+                put "0" into field "score"
+              end openCard
+
+  - intent: "Attach a background script that sends every card on this background through shared setup on openCard."
+    turns:
+      - assistant_tool_call:
+          name: "check_script"
+          arguments:
+            script: |
+              on openCard
+                put "ready" into field "status"
+                pass openCard
+              end openCard
+      - tool_result: "OK: 1 handler parsed ('openCard'). Script is ready to store."
+      - assistant_tool_call:
+          name: "set_background_script"
+          arguments:
+            script: |
+              on openCard
+                put "ready" into field "status"
+                pass openCard
+              end openCard
+
+  - intent: "Set the script of button 'launch' to go to the next card when clicked."
+    turns:
+      - assistant_tool_call:
+          name: "check_script"
+          arguments:
+            script: |
+              on mouseUp
+                go next
+              end mouseUp
+      - tool_result: "OK: 1 handler parsed ('mouseUp'). Script is ready to store."
+      - assistant_tool_call:
+          name: "set_part_property"
+          arguments:
+            part_name: "launch"
+            property: "script"
+            value: |
+              on mouseUp
+                go next
+              end mouseUp
+
+  - intent: "Set the script on node 'blue_ball' inside bounder so clicking it doubles its velocity."
+    turns:
+      - assistant_tool_call:
+          name: "check_script"
+          arguments:
+            script: |
+              on mouseDown
+                set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 2
+                set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 2
+              end mouseDown
+      - tool_result: "OK: 1 handler parsed ('mouseDown'). Script is ready to store."
+      - assistant_tool_call:
+          name: "set_node_script"
+          arguments:
+            sprite_area_name: "bounder"
+            node_name: "blue_ball"
+            script: |
+              on mouseDown
+                set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 2
+                set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 2
+              end mouseDown
+
+  - intent: "Change the bounder scene gravity to zero and make the background black."
+    turns:
+      - assistant_tool_call:
+          name: "set_scene_property"
+          arguments:
+            sprite_area_name: "bounder"
+            property: "gravity"
+            value: "0,0"
+      - tool_result: "Set gravity of scene 'main' in sprite area 'bounder' to 0,0"
+      - assistant_tool_call:
+          name: "set_scene_property"
+          arguments:
+            sprite_area_name: "bounder"
+            property: "backgroundColor"
+            value: "#000000"
+
+  - intent: "Make blue_ball in the bounder scene heavier and give it a higher bounce without writing a generic HypeTalk script."
+    turns:
+      - assistant_tool_call:
+          name: "set_node_property"
+          arguments:
+            sprite_area_name: "bounder"
+            node_name: "blue_ball"
+            property: "physics.mass"
+            value: "2.5"
+      - tool_result: "Set physics.mass of 'blue_ball' in scene 'main' of 'bounder' to '2.5'"
+      - assistant_tool_call:
+          name: "set_node_property"
+          arguments:
+            sprite_area_name: "bounder"
+            node_name: "blue_ball"
+            property: "physics.restitution"
+            value: "0.95"
+
+  - intent: "What are the stack width and current card background name?"
+    turns:
+      - assistant_tool_call:
+          name: "get_stack_property"
+          arguments:
+            property: "width"
+      - tool_result: "800"
+      - assistant_tool_call:
+          name: "get_card_property"
+          arguments:
+            property: "backgroundName"
+      - tool_result: "Background 1"

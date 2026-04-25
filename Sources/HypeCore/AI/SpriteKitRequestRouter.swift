@@ -57,6 +57,10 @@ public enum SpriteKitRequestRouter {
             "camera",
             "sprite "
         ]
+        // v3.1 (Apr 2026): removed "inside" and "bounds" — they
+        // misfire on ordinary English. Their useful sense is
+        // "stay inside the scene bounds", now matched below as
+        // phrases in `behaviorPhrases`.
         let behaviorTerms = [
             "bounce",
             "bouncing",
@@ -66,9 +70,15 @@ public enum SpriteKitRequestRouter {
             "accelerate",
             "decelerate",
             "physics",
-            "boundary",
-            "bounds",
-            "inside"
+            "boundary"
+        ]
+        // Phrase-level matches for idioms that want SpriteKit
+        // routing but share stem words with ordinary prompts.
+        let behaviorPhrases = [
+            "stay inside the scene",
+            "inside the scene",
+            "scene bounds",
+            "scene boundary",
         ]
         let explicitCreateTerms = [
             "create sprite area",
@@ -80,6 +90,34 @@ public enum SpriteKitRequestRouter {
             "setup spritekit scene",
             "starter scene",
             "new sprite area"
+        ]
+        let formControlTerms = [
+            "entry form",
+            "data entry",
+            "text entry",
+            "input form",
+            "customer entry",
+            "contact form",
+            "login form",
+            "registration form",
+            "basic controls",
+            "form with fields",
+            "fields and labels",
+            "labels and fields",
+            "input fields",
+            "text fields",
+            "field labels",
+            "header and fields",
+        ]
+        let explicitRepairTerms = [
+            "repair the scene",
+            "fix this scene",
+            "fix the scene",
+            "debug the scene",
+            "diagnose the scene",
+            "redesign the scene",
+            "redo the scene",
+            "rebuild the scene"
         ]
         let explicitScriptTerms = [
             "write a script",
@@ -93,11 +131,84 @@ public enum SpriteKitRequestRouter {
             "on begincontact",
             "on endcontact"
         ]
+        // Prompts containing any of these explicitly target a
+        // card/background-level part operation. Force the full
+        // authoring toolset so the model can reach `set_part_property`
+        // / `create_button` / etc. — even if the current card
+        // happens to also contain a sprite area whose name token
+        // coincidentally appears in the prompt.
+        let partAuthoringOverrideTerms = [
+            "set the text ",
+            "set the script ",
+            "set the property ",
+            "set the style ",
+            "set the fill ",
+            "set the stroke ",
+            "set the font",
+            "set the value",
+            "set the width",
+            "set the height",
+            "set the left",
+            "set the top",
+            "set the url",
+            "change the text ",
+            "change the script ",
+            "change the style ",
+            "rename ",
+            "move button ",
+            "move field ",
+            "move shape ",
+            "resize button ",
+            "resize field ",
+            "resize shape ",
+            "delete button ",
+            "delete field ",
+            "delete shape ",
+            "hide button ",
+            "hide field ",
+            "show button ",
+            "show field ",
+            "on the card",
+            "on the background",
+            "create a button",
+            "create a field",
+            "create a shape",
+            "create an image",
+            "create a webpage",
+            "create a video",
+            "create a chart",
+            "add a button",
+            "add a field",
+            "add a shape",
+            "add an image",
+            "add a webpage",
+            "add a video",
+            "add a chart",
+        ]
 
         let mentionsSpriteKit = spriteKitTerms.contains(where: { lower.contains($0) })
         let mentionsSpriteBehavior = behaviorTerms.contains(where: { lower.contains($0) })
+            || behaviorPhrases.contains(where: { lower.contains($0) })
         let explicitCreate = explicitCreateTerms.contains(where: { lower.contains($0) })
+        let explicitRepair = explicitRepairTerms.contains(where: { lower.contains($0) })
         let explicitScriptRequest = explicitScriptTerms.contains(where: { lower.contains($0) }) || lower.contains(" script ")
+        let partAuthoringOverride = partAuthoringOverrideTerms.contains(where: { lower.contains($0) })
+        let formControlOverride = formControlTerms.contains(where: { lower.contains($0) })
+            && !mentionsSpriteKit
+            && !explicitCreate
+            && !explicitRepair
+
+        // Early escape: the user is explicitly talking about a
+        // card/background-level part. Skip all SpriteKit inference
+        // and go straight to the full authoring toolset.
+        if formControlOverride || partAuthoringOverride {
+            return SpriteKitAIRoute(
+                isSpriteKitRequest: false,
+                structuredIntent: nil,
+                prefersSceneTooling: false,
+                explicitScriptRequest: explicitScriptRequest
+            )
+        }
 
         let isSpriteKitRequest =
             mentionsSpriteKit || mentionsSpriteBehavior || mentionsKnownArea || mentionsKnownNode
@@ -115,7 +226,12 @@ public enum SpriteKitRequestRouter {
             )
         }
 
-        if hasExistingSpriteArea && (mentionsKnownArea || mentionsKnownNode || mentionsSpriteBehavior || mentionsSpriteKit) {
+        // v3.1: only route to the structured scene-proposal flow
+        // when the user explicitly asks for repair/create. Every
+        // other SpriteKit-adjacent request goes through the
+        // regular tool-call loop with the sprite-scene toolset
+        // (which now also includes part-level tools).
+        if explicitRepair && hasExistingSpriteArea {
             return SpriteKitAIRoute(
                 isSpriteKitRequest: true,
                 structuredIntent: .repair,
@@ -124,7 +240,7 @@ public enum SpriteKitRequestRouter {
             )
         }
 
-        if explicitCreate || !hasExistingSpriteArea {
+        if explicitCreate {
             return SpriteKitAIRoute(
                 isSpriteKitRequest: true,
                 structuredIntent: .create,
@@ -133,9 +249,11 @@ public enum SpriteKitRequestRouter {
             )
         }
 
+        // SpriteKit-adjacent but not explicitly repair/create: use
+        // the regular tool-call loop with scene-preferred tools.
         return SpriteKitAIRoute(
             isSpriteKitRequest: true,
-            structuredIntent: .repair,
+            structuredIntent: nil,
             prefersSceneTooling: true,
             explicitScriptRequest: false
         )

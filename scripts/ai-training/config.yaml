@@ -11,60 +11,65 @@
 
 # ----- Base model -----
 # Hugging Face repo to fine-tune from. MLX-LM pulls this on first
-# use. The model must be a gemma-3 architecture for `ollama create`
-# to accept the fused safetensors directly.
-#
-# The user's local `gemma4:31b` Ollama tag is a community repack of
-# Gemma 3; we pull Google's canonical weights from HF to avoid
-# reverse-engineering whatever that repack did, and produce a clean
-# new model at the end. If you specifically want to preserve
-# `gemma4` behaviors, swap to that repo if it exists on HF.
-base_model: "mlx-community/gemma-3-27b-it-bf16"
-# Non-gated MLX-format mirror of Google's canonical gemma-3-27b-it
-# weights. Bit-identical to google/gemma-3-27b-it but doesn't
-# require accepting Google's license click-through, so the
-# pipeline runs unattended. Switch back to `google/gemma-3-27b-it`
-# if you've accepted the license on huggingface.co and want the
-# canonical repo path.
+# use. The Qwen3 8B MLX mirror keeps this run small enough to iterate
+# quickly while preserving native Ollama tool-call behavior.
+base_model: "mlx-community/Qwen3-8B-bf16"
+model_family: "qwen3"
+tool_format: "qwen3"
 
 # ----- Output model name -----
 # Ollama tag the pipeline creates at the end. Bump the version
 # suffix on every training run so you can A/B compare against the
 # previous version.
-output_model: "hypetalk-gemma4:27b-v1"
+#
+# v6 (Apr 2026): micro-corpus route-correction pass from archived
+# v4. v5's broader full-corpus continuation regressed structured
+# Ollama tool calling, so v6 trains only explicit tool-call routing
+# labels for the failing intents plus basic property/introspection
+# guardrails.
+output_model: "hypetalk-qwen3:8b-v6"
 
 # ----- LoRA hyperparameters -----
 # Sensible defaults for instruction fine-tuning on a small domain-
 # specific corpus. Larger rank = more capacity but also more risk
 # of overfit on a ~500-2000 example corpus.
 lora:
-  rank: 16
-  alpha: 32
+  rank: 16                 # Qwen3 8B has enough base code/tool ability
+                           # that rank 16 is the first-pass sweet spot:
+                           # enough capacity for HypeTalk/tool names
+                           # without overfitting the small corpus.
+  alpha: 32                # Kept at 2× rank (documentation value; MLX
+                           # uses mlx_lora_config.yaml's scale field).
   dropout: 0.05
   num_layers: 16           # Apply LoRA to the top N transformer blocks
-  learning_rate: 1.0e-5
-  batch_size: 1            # 27B LoRA at 128 GB: batch=1, grad-accum via steps
-  iters: 1200              # v2 corpus ballooned from ~570 to ~2000 rows
-                           # (three new seed files + CURRENT STATE-injected
-                           # rows + tool-declaration-injected tool rows).
-                           # At ~0.27 it/sec on M5 Max that's ~75 min of
-                           # training. Going past 1200 risks overfit given
-                           # the train/val gap starts widening around 600
-                           # on this base; bump further only if eval shows
-                           # val loss still falling.
-                           #
-                           # Earlier iteration notes: v1 ran 600 iters on
-                           # a 570-row corpus and landed at val 0.204 (no
-                           # overfit) but produced a model that was too
-                           # thin on tool-use + context. The 2× corpus +
-                           # 2× iter budget gives the model more signal
-                           # per-pattern to lock in correct output shapes.
-  grad_accumulation_steps: 8
-  save_every: 50           # Fine-grained so we can pick the best checkpoint
-                           # before overfit — the first run showed catastrophic
-                           # damage between iter 200 (first save) and iter 2400.
-                           # With save_every=50 we have ~12 checkpoints from
-                           # 600 total iters to sweep.
+  learning_rate: 1.0e-6       # v5 is a corrective continuation from v4;
+                              # keep LR low to avoid damaging working
+                              # property/introspection behavior.
+  batch_size: 1            # Keep batch=1 for stable MLX memory use.
+  iters: 80                 # v6 micro-corpus pass. Keep this short:
+                           # the adapter already knows HypeTalk and
+                           # most tools; this only corrects routing.
+  grad_accumulation_steps: 1
+                           # v3: dropped from 8 → 1. The original v2
+                           # run never actually passed
+                           # --grad-accumulation-steps to mlx_lm.lora
+                           # (the CLI argument wasn't wired in
+                           # train.sh), so v2's "effective" value was
+                           # 1 by default. At grad-accum=8 each iter
+                           # runs 8× forward+backward passes which on
+                           # M5 Max at rank 24 + seq 4k turns a 3-hour
+                           # run into a 24-hour run with no quality
+                           # lift for a small corpus. Keeping parity
+                           # with v2's implicit behaviour here.
+  grad_checkpoint: false   # 8B should fit comfortably after unloading
+                           # Ollama runners; flip on only if MLX reports
+                           # memory pressure.
+  save_every: 40           # Two checkpoints for the short v6 pass.
+  max_seq_length: 4096     # Keep parity with the repaired v4 corpus. The
+                           # tool-call rows were explicitly trimmed to fit
+                           # under this cap, so lowering it would silently
+                           # cut assistant labels instead of just slowing
+                           # training a bit.
   seed: 42
 
 # ----- Ollama model metadata -----
@@ -72,7 +77,11 @@ lora:
 ollama:
   temperature: 0.2         # Low temp for deterministic HypeTalk output
   top_p: 0.9
-  num_ctx: 8192
+  num_ctx: 32768           # Qwen3's local template supports long
+                           # contexts; 32k leaves room for Hype's tool
+                           # catalog plus CURRENT STATE and tool results.
+  think: false             # Tool/eval traffic should return direct tool
+                           # calls or HypeTalk, not thinking traces.
   # The SYSTEM prompt is pulled from HypeTalkGuide.llmContext at
   # build time so the Modelfile always matches the running app's
   # expectations. See src/package.sh.
@@ -85,4 +94,4 @@ eval:
   samples_per_prompt: 1
   # Run eval against the NEW tuned model AND the base model side by
   # side so you can see lift from training rather than absolute score.
-  baseline_model: "gemma4:31b"
+  baseline_model: "qwen3:latest"

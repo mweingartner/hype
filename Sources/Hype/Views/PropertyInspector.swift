@@ -2495,6 +2495,27 @@ private func scriptWindowKey(for target: ScriptTarget?, partId: UUID?) -> String
     return "unkeyed:\(UUID().uuidString)"
 }
 
+/// Sprite areas execute user-authored scripts on their active
+/// `SceneSpec`, not on the legacy part-level script slot. Redirect
+/// generic "open this part's script" requests to the active scene so
+/// Cmd-click, runtime errors, and older callers show the same script
+/// that SpriteKit actually runs.
+@MainActor
+private func effectiveScriptTarget(
+    in document: HypeDocument,
+    target: ScriptTarget?,
+    partId: UUID?
+) -> ScriptTarget? {
+    let initialTarget = target ?? partId.map { ScriptTarget.part($0) }
+    guard case .part(let id) = initialTarget,
+          let part = document.parts.first(where: { $0.id == id }),
+          part.partType == .spriteArea,
+          let sceneId = part.spriteAreaSpecModel?.activeSceneEntry?.id else {
+        return initialTarget
+    }
+    return .scene(partId: id, sceneId: sceneId)
+}
+
 /// Opens the ScriptEditor in a movable, resizable NSWindow with light appearance.
 ///
 /// `initialErrorLine` and `initialErrorMessage` let the caller surface
@@ -2517,7 +2538,9 @@ func openScriptEditorWindow(
     initialErrorLine: Int? = nil,
     initialErrorMessage: String? = nil
 ) {
-    let key = scriptWindowKey(for: target, partId: partId)
+    let doc = document.wrappedValue.document
+    let resolvedTarget = effectiveScriptTarget(in: doc, target: target, partId: partId)
+    let key = scriptWindowKey(for: resolvedTarget, partId: nil)
 
     // If a window for this target is already open, reuse it.
     // Bring it forward, refresh the error highlight, and return
@@ -2551,9 +2574,8 @@ func openScriptEditorWindow(
         defer: false
     )
     // Build a descriptive window title from the target
-    let doc = document.wrappedValue.document
     let windowTitle: String
-    if let t = target {
+    if let t = resolvedTarget {
         switch t {
         case .part(let id):
             if let part = doc.parts.first(where: { $0.id == id }) {
@@ -2609,7 +2631,7 @@ func openScriptEditorWindow(
         ScriptEditor(
             document: document,
             partId: partId,
-            target: target,
+            target: resolvedTarget,
             initialErrorLine: initialErrorLine,
             initialErrorMessage: initialErrorMessage,
             identityKey: key,

@@ -71,6 +71,175 @@ public struct HypeToolExecutor: Sendable {
         return (cardId: currentCardId, backgroundId: nil)
     }
 
+    private func boolArgument(_ value: String?) -> Bool? {
+        guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !raw.isEmpty else { return nil }
+        switch raw {
+        case "true", "yes", "1", "on": return true
+        case "false", "no", "0", "off": return false
+        default: return nil
+        }
+    }
+
+    private func applyFieldStylingArguments(_ arguments: [String: String], to part: inout Part) {
+        if let style = arguments["style"], let fs = FieldStyle(rawValue: style) {
+            part.fieldStyle = fs
+        }
+        if let fillColor = arguments["fill_color"] {
+            part.fillColor = fillColor
+        }
+        if let strokeColor = arguments["stroke_color"] {
+            part.strokeColor = strokeColor
+        }
+        if let strokeWidth = arguments["stroke_width"], let value = Double(strokeWidth) {
+            part.strokeWidth = value
+        }
+        if let textFont = arguments["text_font"] ?? arguments["font"], !textFont.isEmpty {
+            part.textFont = textFont
+        }
+        if let textSize = arguments["text_size"] ?? arguments["size"], let value = Double(textSize) {
+            part.textSize = value
+        }
+        if let align = arguments["text_align"] ?? arguments["align"],
+           let textAlign = TextAlignment(rawValue: align.lowercased()) {
+            part.textAlign = textAlign
+        }
+        if let locked = boolArgument(arguments["lock_text"]) {
+            part.lockText = locked
+        }
+        if let showName = boolArgument(arguments["show_name"]) {
+            part.showName = showName
+        }
+
+        // If the model asks for a border but omits style, choose the
+        // field style that actually renders as an input box.
+        if arguments["style"] == nil,
+           (arguments["stroke_color"] != nil || arguments["stroke_width"] != nil) {
+            part.fieldStyle = .rectangle
+        }
+    }
+
+    private func sanitizedPartName(prefix: String, source: String, fallback: String) -> String {
+        let source = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = source.isEmpty ? fallback : source
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_- "))
+        let cleaned = String(base.unicodeScalars.map { allowed.contains($0) ? Character($0) : Character("_") })
+            .replacingOccurrences(of: " ", with: "_")
+            .lowercased()
+        return "\(prefix)_\(cleaned)"
+    }
+
+    private func uniquePartName(_ seed: String, in document: HypeDocument) -> String {
+        let trimmed = seed.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = trimmed.isEmpty ? "part" : trimmed
+        if !document.parts.contains(where: { $0.name.lowercased() == base.lowercased() }) {
+            return base
+        }
+        var suffix = 2
+        while document.parts.contains(where: { $0.name.lowercased() == "\(base)_\(suffix)".lowercased() }) {
+            suffix += 1
+        }
+        return "\(base)_\(suffix)"
+    }
+
+    private func repairFormControls(
+        arguments: [String: String],
+        document: inout HypeDocument,
+        currentCardId: UUID
+    ) -> String {
+        let requestedName = arguments["sprite_area_name"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+        let visibleAreas = document.effectivePartsForCard(currentCardId)
+            .filter { $0.partType == .spriteArea }
+        let candidate = visibleAreas.first { area in
+            guard requestedName.isEmpty || area.name.lowercased() == requestedName else { return false }
+            return area.activeSceneSpec?.allNodes.contains(where: { $0.nodeType == .label }) == true
+        }
+
+        guard let area = candidate,
+              let areaIndex = document.parts.firstIndex(where: { $0.id == area.id }),
+              let scene = area.activeSceneSpec else {
+            return requestedName.isEmpty
+                ? "No form-like Sprite Area with label nodes found on the current card"
+                : "Sprite Area '\(requestedName)' with label nodes not found on the current card"
+        }
+
+        let labelNodes = scene.allNodes.filter { node in
+            guard node.nodeType == .label, !node.isHidden else { return false }
+            let text = (node.text ?? node.name).trimmingCharacters(in: .whitespacesAndNewlines)
+            return !text.isEmpty
+        }
+        guard !labelNodes.isEmpty else {
+            return "Sprite Area '\(area.name)' has no visible label nodes to convert"
+        }
+
+        var createdLabels = 0
+        for node in labelNodes {
+            let text = (node.text ?? node.name).trimmingCharacters(in: .whitespacesAndNewlines)
+            let fontSize = node.fontSize ?? 14
+            let width = node.size?.width ?? max(60, min(area.width, Double(text.count) * fontSize * 0.62 + 16))
+            let height = node.size?.height ?? max(22, fontSize * 1.55)
+            let left = area.left + node.position.x - width / 2
+            let top = area.top + node.position.y - height / 2
+
+            let duplicateExists = document.effectivePartsForCard(currentCardId).contains { part in
+                guard part.partType == .field else { return false }
+                return part.textContent == text
+                    && abs(part.left - left) < 2
+                    && abs(part.top - top) < 2
+            }
+            if duplicateExists { continue }
+
+            var label = Part(
+                partType: .field,
+                cardId: area.cardId,
+                backgroundId: area.backgroundId,
+                name: uniquePartName(
+                    sanitizedPartName(prefix: "label", source: node.name, fallback: text),
+                    in: document
+                ),
+                left: max(0, left),
+                top: max(0, top),
+                width: width,
+                height: height
+            )
+            label.textContent = text
+            label.fieldStyle = .transparent
+            label.lockText = true
+            label.showName = false
+            label.strokeWidth = 0
+            if let fontName = node.fontName, !fontName.isEmpty {
+                label.textFont = fontName
+            } else if !document.stack.defaultFont.isEmpty {
+                label.textFont = document.stack.defaultFont
+            }
+            label.textSize = fontSize
+            label.textAlign = .center
+            document.addPart(label)
+            createdLabels += 1
+        }
+
+        let nonLabelNodes = scene.allNodes.filter { $0.nodeType != .label && $0.nodeType != .group }
+        let hasSceneOrPartScript = !area.script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !scene.script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if nonLabelNodes.isEmpty && !hasSceneOrPartScript {
+            document.removePart(id: area.id)
+            return "Converted \(createdLabels) SpriteKit label node(s) from '\(area.name)' into locked field labels and removed the unused Sprite Area"
+        }
+
+        let labelIds = Set(labelNodes.map(\.id))
+        document.parts[areaIndex].updateActiveSceneSpec { spec in
+            for id in labelIds {
+                _ = spec.removeNode(id: id)
+            }
+        }
+        let keepReason = hasSceneOrPartScript
+            ? "it has a script"
+            : "it still contains non-label nodes"
+        return "Converted \(createdLabels) SpriteKit label node(s) from '\(area.name)' into locked field labels and left the Sprite Area because \(keepReason)"
+    }
+
     /// Auto-wrap a script in `on mouseUp`/`end mouseUp` if it's not already wrapped in a handler.
     private func wrapScript(_ script: String) -> String {
         let trimmed = script.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -84,31 +253,86 @@ public struct HypeToolExecutor: Sendable {
         return "on mouseUp\n  \(trimmed)\nend mouseUp"
     }
 
-    /// Parse-validate a HypeTalk script and return a user-readable
-    /// error suffix (starting with "; parse error: ...") if the
-    /// script doesn't compile. Returns an empty string when the
-    /// script is valid or empty.
-    ///
-    /// Tool-call results append this string when the AI sets a
-    /// script field, so the AI sees its own parse errors and can
-    /// correct the next tool call. Without this, invalid scripts
-    /// are silently stored — the part is created successfully but
-    /// no handler ever fires at runtime, and the AI has no
-    /// feedback to learn from.
-    private func scriptParseErrorSuffix(_ script: String) -> String {
+    /// Parse-validate a HypeTalk script and return the parser's
+    /// user-readable error text when it doesn't compile. Returns
+    /// nil when the script is valid or empty.
+    private func scriptParseErrorMessage(_ script: String) -> String? {
         let trimmed = script.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "" }
+        guard !trimmed.isEmpty else { return nil }
         var lexer = Lexer(source: script)
         let tokens = lexer.tokenize()
         var parser = Parser(tokens: tokens)
         do {
             _ = try parser.parse()
-            return ""
+            return nil
         } catch let error as ParseError {
-            return "; parse error in script: \(error.errorDescription ?? String(describing: error))"
+            return error.errorDescription ?? String(describing: error)
         } catch {
-            return "; parse error in script: \(error.localizedDescription)"
+            return error.localizedDescription
         }
+    }
+
+    /// Parse-validate a HypeTalk script and return a user-readable
+    /// error suffix (starting with "; parse error: ...") if the
+    /// script doesn't compile. Returns an empty string when the
+    /// script is valid or empty.
+    private func scriptParseErrorSuffix(_ script: String) -> String {
+        guard let message = scriptParseErrorMessage(script) else { return "" }
+        return "; parse error in script: \(message)"
+    }
+
+    /// Best-effort wrong-language detector for AI-written scripts.
+    ///
+    /// The parser is intentionally permissive and can accept some
+    /// JavaScript-like text once it has been auto-wrapped in a
+    /// handler. We therefore reject a small set of unambiguously
+    /// foreign tokens before relying on parse validation alone.
+    private func nonHypeTalkScriptMessage(
+        rawScript: String,
+        wrappedScript: String
+    ) -> String? {
+        let hardSignals: [String] = [
+            "hype.",
+            "self.", "this.",
+            "function(", "function (",
+            "=>",
+            "skphysicsbody", "sknode", "skaction", "skspritenode", "sklabelnode",
+            "skshapenode", "skscene", "skfield",
+            "childnodewithname(",
+            "enumeratechildrenwithnodepattern(",
+            "document.", "window.",
+            "addeventlistener",
+            "console.log(",
+            "@objc", "nonisolated",
+        ]
+
+        func firstHardSignal(in script: String) -> String? {
+            let lower = script.lowercased()
+            return hardSignals.first(where: { lower.contains($0) })
+        }
+
+        if let signal = firstHardSignal(in: rawScript) ?? firstHardSignal(in: wrappedScript) {
+            return "script contains non-HypeTalk token '\(signal)'"
+        }
+        if SceneAuthoringAssistant.looksLikeNonHypeTalkScript(rawScript) {
+            return "script looks like JavaScript / Swift rather than HypeTalk"
+        }
+        return nil
+    }
+
+    /// Reject invalid AI-authored scripts before they mutate the
+    /// document. This keeps malformed JavaScript-like output from
+    /// being stored as if it were valid HypeTalk.
+    private func invalidScriptStorageMessage(
+        targetDescription: String,
+        rawScript: String,
+        wrappedScript: String
+    ) -> String? {
+        if let message = nonHypeTalkScriptMessage(rawScript: rawScript, wrappedScript: wrappedScript) {
+            return "Refused to store invalid script for \(targetDescription): \(message). Call check_script first."
+        }
+        guard let message = scriptParseErrorMessage(wrappedScript) else { return nil }
+        return "Refused to store invalid script for \(targetDescription): \(message). Call check_script first."
     }
 
     /// Response body for the `check_script` tool call. Returns a
@@ -130,6 +354,9 @@ public struct HypeToolExecutor: Sendable {
         // so the AI can validate either a full handler block or a
         // one-liner like "go next" and get the same answer either way.
         let wrapped = wrapScript(script)
+        if let message = nonHypeTalkScriptMessage(rawScript: script, wrappedScript: wrapped) {
+            return "FAIL: \(message). Rewrite it in HypeTalk and call check_script again."
+        }
         var lexer = Lexer(source: wrapped)
         let tokens = lexer.tokenize()
         var parser = Parser(tokens: tokens)
@@ -227,10 +454,83 @@ public struct HypeToolExecutor: Sendable {
         return props.joined(separator: ", ")
     }
 
-    private func spriteAreaIndex(named areaName: String, in document: HypeDocument) -> Int? {
-        document.parts.firstIndex(where: {
-            $0.partType == .spriteArea && $0.name.lowercased() == areaName.lowercased()
-        })
+    private func cardIndex(
+        named cardName: String,
+        currentCardId: UUID,
+        in document: HypeDocument
+    ) -> Int? {
+        let trimmed = cardName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return document.cards.firstIndex(where: { $0.id == currentCardId })
+        }
+        return document.cards.firstIndex(where: { $0.name.lowercased() == trimmed.lowercased() })
+    }
+
+    private func backgroundIndex(
+        named backgroundName: String,
+        currentCardId: UUID,
+        in document: HypeDocument
+    ) -> Int? {
+        let trimmed = backgroundName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            guard let card = document.cards.first(where: { $0.id == currentCardId }) else { return nil }
+            return document.backgrounds.firstIndex(where: { $0.id == card.backgroundId })
+        }
+        return document.backgrounds.firstIndex(where: { $0.name.lowercased() == trimmed.lowercased() })
+    }
+
+    private func scopedPartIndex(
+        named partName: String,
+        currentCardId: UUID,
+        in document: HypeDocument,
+        partType: PartType? = nil
+    ) -> Int? {
+        let trimmed = partName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let lower = trimmed.lowercased()
+
+        func matches(_ part: Part) -> Bool {
+            guard part.name.lowercased() == lower else { return false }
+            if let partType {
+                return part.partType == partType
+            }
+            return true
+        }
+
+        let cardParts = document.partsForCard(currentCardId)
+        for part in cardParts where matches(part) {
+            if let idx = document.parts.firstIndex(where: { $0.id == part.id }) {
+                return idx
+            }
+        }
+
+        if let card = document.cards.first(where: { $0.id == currentCardId }) {
+            let backgroundParts = document.partsForBackground(card.backgroundId)
+            for part in backgroundParts where matches(part) {
+                if let idx = document.parts.firstIndex(where: { $0.id == part.id }) {
+                    return idx
+                }
+            }
+        }
+
+        let globalMatches = document.parts.indices.filter { matches(document.parts[$0]) }
+        if globalMatches.count == 1 {
+            return globalMatches[0]
+        }
+        return nil
+    }
+
+    private func spriteAreaIndex(
+        named areaName: String,
+        currentCardId: UUID,
+        in document: HypeDocument
+    ) -> Int? {
+        scopedPartIndex(
+            named: areaName,
+            currentCardId: currentCardId,
+            in: document,
+            partType: .spriteArea
+        )
     }
 
     @discardableResult
@@ -311,14 +611,25 @@ public struct HypeToolExecutor: Sendable {
             if let style = arguments["style"], let bs = ButtonStyle(rawValue: style) {
                 part.buttonStyle = bs
             }
-            var parseSuffix = ""
+            var invalidScriptMessage: String?
             if let script = arguments["script"] {
-                part.script = wrapScript(script)
-                parseSuffix = scriptParseErrorSuffix(part.script)
+                let wrapped = wrapScript(script)
+                if let refusal = invalidScriptStorageMessage(
+                    targetDescription: "button '\(part.name)'",
+                    rawScript: script,
+                    wrappedScript: wrapped
+                ) {
+                    invalidScriptMessage = refusal
+                } else {
+                    part.script = wrapped
+                }
             }
             document.addPart(part)
             let layer = place.backgroundId != nil ? " on background" : ""
-            return "Created button '\(part.name)'\(layer)\(parseSuffix)"
+            if let invalidScriptMessage {
+                return "Created button '\(part.name)'\(layer) without script. \(invalidScriptMessage)"
+            }
+            return "Created button '\(part.name)'\(layer)"
 
         case "create_field":
             let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
@@ -336,17 +647,59 @@ public struct HypeToolExecutor: Sendable {
             let stackFont = document.stack.defaultFont
             if !stackFont.isEmpty { part.textFont = stackFont }
             if let text = arguments["text"] { part.textContent = text }
-            if let style = arguments["style"], let fs = FieldStyle(rawValue: style) {
-                part.fieldStyle = fs
-            }
-            var parseSuffixField = ""
+            applyFieldStylingArguments(arguments, to: &part)
+            var invalidScriptMessage: String?
             if let script = arguments["script"] {
-                part.script = wrapScript(script)
-                parseSuffixField = scriptParseErrorSuffix(part.script)
+                let wrapped = wrapScript(script)
+                if let refusal = invalidScriptStorageMessage(
+                    targetDescription: "field '\(part.name)'",
+                    rawScript: script,
+                    wrappedScript: wrapped
+                ) {
+                    invalidScriptMessage = refusal
+                } else {
+                    part.script = wrapped
+                }
             }
             document.addPart(part)
             let layer = place.backgroundId != nil ? " on background" : ""
-            return "Created field '\(part.name)'\(layer)\(parseSuffixField)"
+            if let invalidScriptMessage {
+                return "Created field '\(part.name)'\(layer) without script. \(invalidScriptMessage)"
+            }
+            return "Created field '\(part.name)'\(layer)"
+
+        case "create_label":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            var part = Part(
+                partType: .field,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
+                name: arguments["name"] ?? "Label",
+                left: Double(arguments["left"] ?? "100") ?? 100,
+                top: Double(arguments["top"] ?? "100") ?? 100,
+                width: Double(arguments["width"] ?? "160") ?? 160,
+                height: Double(arguments["height"] ?? "24") ?? 24
+            )
+            let stackFont = document.stack.defaultFont
+            if !stackFont.isEmpty { part.textFont = stackFont }
+            part.textContent = arguments["text"] ?? part.name
+            part.fieldStyle = .transparent
+            part.lockText = true
+            part.showName = false
+            part.strokeWidth = 0
+            if let textFont = arguments["text_font"], !textFont.isEmpty {
+                part.textFont = textFont
+            }
+            if let textSize = arguments["text_size"], let value = Double(textSize) {
+                part.textSize = value
+            }
+            if let align = arguments["text_align"],
+               let textAlign = TextAlignment(rawValue: align.lowercased()) {
+                part.textAlign = textAlign
+            }
+            document.addPart(part)
+            let layer = place.backgroundId != nil ? " on background" : ""
+            return "Created label '\(part.name)'\(layer)"
 
         case "create_shape":
             let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
@@ -477,11 +830,18 @@ public struct HypeToolExecutor: Sendable {
             let chartLayer = place.backgroundId != nil ? " on background" : ""
             return "Created chart '\(part.name)' (\(chartType.rawValue))\(chartLayer)"
 
+        case "repair_form_controls":
+            return repairFormControls(
+                arguments: arguments,
+                document: &document,
+                currentCardId: currentCardId
+            )
+
         case "set_part_property":
             let partName = arguments["part_name"] ?? ""
             let property = arguments["property"] ?? ""
             let value = arguments["value"] ?? ""
-            if let index = document.parts.firstIndex(where: { $0.name.lowercased() == partName.lowercased() }) {
+            if let index = scopedPartIndex(named: partName, currentCardId: currentCardId, in: document) {
                 switch property.lowercased() {
                 case "name": document.parts[index].name = value
                 case "left": document.parts[index].left = Double(value) ?? 0
@@ -500,7 +860,13 @@ public struct HypeToolExecutor: Sendable {
                     // script so the AI sees parse errors in the
                     // returned result.
                     let wrapped = wrapScript(value)
-                    let suffix = scriptParseErrorSuffix(wrapped)
+                    if let refusal = invalidScriptStorageMessage(
+                        targetDescription: "part '\(partName)'",
+                        rawScript: value,
+                        wrappedScript: wrapped
+                    ) {
+                        return refusal
+                    }
 
                     // Sprite-area parts: the user-visible script
                     // lives on the ACTIVE SCENE, not on the part
@@ -528,14 +894,11 @@ public struct HypeToolExecutor: Sendable {
                             wroteToScene = true
                         }
                         if wroteToScene {
-                            return "Set script of scene '\(sceneName)' in sprite area '\(partName)'\(suffix) (routed to the scene — this is the script shown in the \(partName)/\(sceneName) Script Editor)"
+                            return "Set script of scene '\(sceneName)' in sprite area '\(partName)' (routed to the scene — this is the script shown in the \(partName)/\(sceneName) Script Editor)"
                         }
                         // No active scene — fall through to part-level script below.
                     }
                     document.parts[index].script = wrapped
-                    if !suffix.isEmpty {
-                        return "Set script of '\(partName)'\(suffix)"
-                    }
                 case "style":
                     let part = document.parts[index]
                     switch part.partType {
@@ -607,8 +970,8 @@ public struct HypeToolExecutor: Sendable {
 
         case "delete_part":
             let partName = arguments["part_name"] ?? ""
-            if let part = document.parts.first(where: { $0.name.lowercased() == partName.lowercased() }) {
-                document.removePart(id: part.id)
+            if let index = scopedPartIndex(named: partName, currentCardId: currentCardId, in: document) {
+                document.removePart(id: document.parts[index].id)
                 return "Deleted part '\(partName)'"
             }
             return "Part '\(partName)' not found"
@@ -638,9 +1001,12 @@ public struct HypeToolExecutor: Sendable {
             guard !chartName.isEmpty, !pointRef.isEmpty, !color.isEmpty else {
                 return "set_chart_data_point_color requires chart_name, point, and color"
             }
-            guard let partIndex = document.parts.firstIndex(where: {
-                $0.partType == .chart && $0.name.lowercased() == chartName.lowercased()
-            }) else {
+            guard let partIndex = scopedPartIndex(
+                named: chartName,
+                currentCardId: currentCardId,
+                in: document,
+                partType: .chart
+            ) else {
                 return "Chart '\(chartName)' not found"
             }
             guard var config = ChartConfig.fromJSON(document.parts[partIndex].chartData) else {
@@ -678,11 +1044,15 @@ public struct HypeToolExecutor: Sendable {
             // values, and effective colors for a chart. Useful after
             // set_chart_data_point_color for the AI to verify its edit.
             let chartName = arguments["chart_name"] ?? ""
-            guard let part = document.parts.first(where: {
-                $0.partType == .chart && $0.name.lowercased() == chartName.lowercased()
-            }) else {
+            guard let partIndex = scopedPartIndex(
+                named: chartName,
+                currentCardId: currentCardId,
+                in: document,
+                partType: .chart
+            ) else {
                 return "Chart '\(chartName)' not found"
             }
+            let part = document.parts[partIndex]
             guard let config = ChartConfig.fromJSON(part.chartData) else {
                 return "Chart '\(chartName)' has no data"
             }
@@ -703,6 +1073,76 @@ public struct HypeToolExecutor: Sendable {
             let currentCard = document.cards.first(where: { $0.id == currentCardId })
             return "Stack '\(document.stack.name)': \(cardCount) cards, size: \(document.stack.width)x\(document.stack.height), backgrounds: [\(bgNames)], current card: \(currentCard?.name ?? "unnamed")"
 
+        case "get_stack_property":
+            let property = arguments["property"] ?? ""
+            switch property.lowercased() {
+            case "id":
+                return document.stack.id.uuidString
+            case "name":
+                return document.stack.name
+            case "width":
+                return String(document.stack.width)
+            case "height":
+                return String(document.stack.height)
+            case "defaultfont", "default_font":
+                return document.stack.defaultFont
+            case "webassetsallowed", "web_assets_allowed":
+                return String(document.stack.webAssetsAllowed)
+            case "cardcount", "card_count":
+                return String(document.cards.count)
+            case "backgroundcount", "background_count":
+                return String(document.backgrounds.count)
+            default:
+                return "Unknown stack property '\(property)'. Valid: id, name, width, height, defaultFont, webAssetsAllowed, cardCount, backgroundCount"
+            }
+
+        case "get_card_property":
+            let cardName = arguments["card_name"] ?? ""
+            let property = arguments["property"] ?? ""
+            guard let idx = cardIndex(named: cardName, currentCardId: currentCardId, in: document) else {
+                return cardName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No current card" : "Card '\(cardName)' not found"
+            }
+            let card = document.cards[idx]
+            switch property.lowercased() {
+            case "id":
+                return card.id.uuidString
+            case "name":
+                return card.name
+            case "marked":
+                return String(card.marked)
+            case "sortkey", "sort_key":
+                return card.sortKey
+            case "background", "backgroundname", "background_name":
+                return document.backgrounds.first(where: { $0.id == card.backgroundId })?.name ?? ""
+            case "number", "cardnumber", "card_number":
+                if let visibleIndex = document.sortedCards.firstIndex(where: { $0.id == card.id }) {
+                    return String(visibleIndex + 1)
+                }
+                return ""
+            default:
+                return "Unknown card property '\(property)'. Valid: id, name, marked, sortKey, backgroundName, cardNumber"
+            }
+
+        case "get_background_property":
+            let bgName = arguments["background_name"] ?? ""
+            let property = arguments["property"] ?? ""
+            guard let idx = backgroundIndex(named: bgName, currentCardId: currentCardId, in: document) else {
+                return bgName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No current background" : "Background '\(bgName)' not found"
+            }
+            let background = document.backgrounds[idx]
+            switch property.lowercased() {
+            case "id":
+                return background.id.uuidString
+            case "name":
+                return background.name
+            case "sortkey", "sort_key":
+                return background.sortKey
+            case "cardcount", "card_count":
+                return String(document.cardsForBackground(background.id).count)
+            default:
+                return "Unknown background property '\(property)'. Valid: id, name, sortKey, cardCount"
+            }
+
         case "get_card_parts":
             let cardParts = document.partsForCard(currentCardId)
             if let card = document.cards.first(where: { $0.id == currentCardId }) {
@@ -715,6 +1155,19 @@ public struct HypeToolExecutor: Sendable {
                 return "Parts on current card:\n\(descriptions.joined(separator: "\n"))"
             }
             return "No parts"
+
+        case "get_background_parts":
+            let bgName = arguments["background_name"] ?? ""
+            guard let idx = backgroundIndex(named: bgName, currentCardId: currentCardId, in: document) else {
+                return bgName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No current background" : "Background '\(bgName)' not found"
+            }
+            let background = document.backgrounds[idx]
+            let bgParts = document.partsForBackground(background.id)
+            guard !bgParts.isEmpty else {
+                return "No parts on background '\(background.name)'"
+            }
+            let descriptions = bgParts.map { p in describePartFull(p) }
+            return "Parts on background '\(background.name)':\n\(descriptions.joined(separator: "\n"))"
 
         case "fetch_url":
             let urlStr = arguments["url"] ?? ""
@@ -774,9 +1227,10 @@ public struct HypeToolExecutor: Sendable {
 
         case "get_scene_spec":
             let areaName = arguments["sprite_area_name"] ?? ""
-            guard let part = document.parts.first(where: { $0.partType == .spriteArea && $0.name.lowercased() == areaName.lowercased() }) else {
+            guard let partIndex = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
                 return "Sprite area '\(areaName)' not found"
             }
+            let part = document.parts[partIndex]
             return part.activeSceneSpec?.toJSON() ?? "No scene spec"
 
         case "set_scene_script":
@@ -784,9 +1238,15 @@ public struct HypeToolExecutor: Sendable {
             let requestedSceneName = arguments["scene_name"] ?? ""
             let rawScript = arguments["script"] ?? ""
             let wrapped = wrapScript(rawScript)
-            let suffix = scriptParseErrorSuffix(wrapped)
+            if let refusal = invalidScriptStorageMessage(
+                targetDescription: "scene script in sprite area '\(areaName)'",
+                rawScript: rawScript,
+                wrappedScript: wrapped
+            ) {
+                return refusal
+            }
 
-            guard let partIdx = spriteAreaIndex(named: areaName, in: document) else {
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
                 return "Sprite area '\(areaName)' not found"
             }
 
@@ -820,12 +1280,12 @@ public struct HypeToolExecutor: Sendable {
                 return "Sprite area '\(areaName)' has no active scene"
             }
 
-            return "Set script of scene '\(resolvedSceneName)' in sprite area '\(areaName)'\(suffix)"
+            return "Set script of scene '\(resolvedSceneName)' in sprite area '\(areaName)'"
 
         case "apply_scene_diff":
             let areaName = arguments["sprite_area_name"] ?? ""
             let diffJson = arguments["diff_json"] ?? ""
-            guard let partIdx = spriteAreaIndex(named: areaName, in: document) else {
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
                 return "Sprite area '\(areaName)' not found"
             }
             guard var spec = document.parts[partIdx].activeSceneSpec else {
@@ -847,7 +1307,7 @@ public struct HypeToolExecutor: Sendable {
             let y = Double(arguments["y"] ?? "100") ?? 100
             let w: Double? = arguments["width"].flatMap { Double($0) }
             let h: Double? = arguments["height"].flatMap { Double($0) }
-            guard let partIdx = spriteAreaIndex(named: areaName, in: document) else {
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
                 return "Sprite area '\(areaName)' not found"
             }
             guard document.parts[partIdx].activeSceneSpec != nil else {
@@ -873,7 +1333,7 @@ public struct HypeToolExecutor: Sendable {
             // without overriding a user-chosen size.
             let explicitTileSize: Double? = arguments["tile_size"].flatMap { Double($0) }
             let tilesetAsset = arguments["tileset_asset"]
-            guard let partIdx = spriteAreaIndex(named: areaName, in: document) else {
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
                 return "Sprite area '\(areaName)' not found"
             }
             guard document.parts[partIdx].activeSceneSpec != nil else {
@@ -961,7 +1421,7 @@ public struct HypeToolExecutor: Sendable {
             guard let tileIndex = Int(arguments["tile_index"] ?? "") else {
                 return "set_tile: tile_index is required (-1 for empty)"
             }
-            guard let partIdx = spriteAreaIndex(named: areaName, in: document) else {
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
                 return "Sprite area '\(areaName)' not found"
             }
             guard let spec = document.parts[partIdx].activeSceneSpec else {
@@ -1002,7 +1462,7 @@ public struct HypeToolExecutor: Sendable {
             guard let tileIndex = Int(arguments["tile_index"] ?? "") else {
                 return "fill_tilemap: tile_index is required (-1 to clear)"
             }
-            guard let partIdx = spriteAreaIndex(named: areaName, in: document) else {
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
                 return "Sprite area '\(areaName)' not found"
             }
             guard let spec = document.parts[partIdx].activeSceneSpec else {
@@ -1084,7 +1544,7 @@ public struct HypeToolExecutor: Sendable {
         case "create_camera":
             let areaName = arguments["sprite_area_name"] ?? ""
             let cameraName = arguments["camera_name"] ?? "camera"
-            guard let partIdx = spriteAreaIndex(named: areaName, in: document) else {
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
                 return "Sprite area '\(areaName)' not found"
             }
             guard let spec = document.parts[partIdx].activeSceneSpec else {
@@ -1343,8 +1803,1806 @@ public struct HypeToolExecutor: Sendable {
                 return "find_and_import_sprite network error (transport failure)"
             }
 
+        // MARK: - Read-side granular queries
+
+        case "get_part_property":
+            let partName = arguments["part_name"] ?? ""
+            let property = arguments["property"] ?? ""
+            guard let partIndex = scopedPartIndex(named: partName, currentCardId: currentCardId, in: document) else {
+                return "Part '\(partName)' not found"
+            }
+            let part = document.parts[partIndex]
+            switch property.lowercased() {
+            case "name": return part.name
+            case "left": return String(part.left)
+            case "top": return String(part.top)
+            case "width": return String(part.width)
+            case "height": return String(part.height)
+            case "rotation": return String(part.rotation)
+            case "text", "textcontent": return part.textContent
+            case "url": return part.url
+            case "videourl", "video_url": return part.videoURL
+            case "fillcolor", "fill_color": return part.fillColor
+            case "strokecolor", "stroke_color": return part.strokeColor
+            case "strokewidth": return String(part.strokeWidth)
+            case "cornerradius": return String(part.cornerRadius)
+            case "visible": return String(part.visible)
+            case "enabled": return String(part.enabled)
+            case "hilite": return String(part.hilite)
+            case "autohilite": return String(part.autoHilite)
+            case "showname": return String(part.showName)
+            case "locktext": return String(part.lockText)
+            case "textfont", "font": return part.textFont
+            case "textsize", "size": return String(part.textSize)
+            case "textalign": return part.textAlign.rawValue
+            case "textstyle": return part.textStyle
+            case "script":
+                if part.partType == .spriteArea {
+                    let preview = part.activeSceneSpec?.script ?? ""
+                    if preview.count > 5000 {
+                        return String(preview.prefix(5000)) + "\u{2026}[truncated]"
+                    }
+                    return preview
+                }
+                let preview = part.script
+                if preview.count > 5000 {
+                    return String(preview.prefix(5000)) + "\u{2026}[truncated]"
+                }
+                return preview
+            case "style":
+                switch part.partType {
+                case .button: return part.buttonStyle.rawValue
+                case .field: return part.fieldStyle.rawValue
+                case .shape: return part.shapeType.rawValue
+                default: return "Part type '\(part.partType.rawValue)' does not support style property"
+                }
+            case "charttype", "chart_type":
+                if let cfg = ChartConfig.fromJSON(part.chartData) { return cfg.chartType.rawValue }
+                return ""
+            case "charttitle", "chart_title":
+                if let cfg = ChartConfig.fromJSON(part.chartData) { return cfg.title }
+                return ""
+            case "xaxislabel", "x_axis_label", "xlabel", "x_label":
+                if let cfg = ChartConfig.fromJSON(part.chartData) { return cfg.xAxisLabel }
+                return ""
+            case "yaxislabel", "y_axis_label", "ylabel", "y_label":
+                if let cfg = ChartConfig.fromJSON(part.chartData) { return cfg.yAxisLabel }
+                return ""
+            case "showlegend", "show_legend":
+                if let cfg = ChartConfig.fromJSON(part.chartData) { return String(cfg.showLegend) }
+                return "true"
+            case "showgrid", "show_grid":
+                if let cfg = ChartConfig.fromJSON(part.chartData) { return String(cfg.showGrid) }
+                return "true"
+            case "chartdata", "chart_data":
+                return part.chartData
+            default:
+                return "Unknown property '\(property)'"
+            }
+
+        case "get_node_property":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let nodeName = arguments["node_name"] ?? ""
+            let property = arguments["property"] ?? ""
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let partIndex = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            let part = document.parts[partIndex]
+            guard let areaSpec = part.spriteAreaSpecModel else {
+                return "Invalid scene spec in '\(areaName)'"
+            }
+            let scene: SceneSpec
+            if requestedSceneName.isEmpty {
+                guard let active = areaSpec.activeScene else {
+                    return "Sprite area '\(areaName)' has no active scene"
+                }
+                scene = active
+            } else {
+                guard let entry = areaSpec.scenes.first(where: {
+                    $0.scene.name.lowercased() == requestedSceneName.lowercased()
+                }) else {
+                    return "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
+                }
+                scene = entry.scene
+            }
+            guard let node = scene.node(named: nodeName) else {
+                return "Node '\(nodeName)' not found in '\(areaName)'"
+            }
+            return nodePropertyValue(node: node, property: property)
+
+        case "list_all_cards":
+            if document.sortedCards.isEmpty {
+                return "Stack has no cards"
+            }
+            var lines: [String] = []
+            for (idx, card) in document.sortedCards.enumerated() {
+                let displayName = card.name.isEmpty ? "Card \(idx + 1)" : card.name
+                let bgName = document.backgrounds.first(where: { $0.id == card.backgroundId })?.name ?? "(unknown)"
+                let suffix = card.id == currentCardId ? " \u{2014} current card" : ""
+                lines.append("Card \(idx + 1): \"\(displayName)\" (background: \"\(bgName)\")\(suffix)")
+            }
+            return lines.joined(separator: "\n")
+
+        case "list_backgrounds":
+            if document.backgrounds.isEmpty {
+                return "Stack has no backgrounds"
+            }
+            var lines: [String] = []
+            for bg in document.backgrounds {
+                let count = document.cardsForBackground(bg.id).count
+                let plural = count == 1 ? "card" : "cards"
+                lines.append("\"\(bg.name)\" (used by \(count) \(plural))")
+            }
+            return lines.joined(separator: "\n")
+
+        case "list_scene_nodes":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let partIndex = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            let part = document.parts[partIndex]
+            guard let areaSpec = part.spriteAreaSpecModel else {
+                return "Invalid scene spec in '\(areaName)'"
+            }
+            let scene: SceneSpec
+            if requestedSceneName.isEmpty {
+                guard let active = areaSpec.activeScene else {
+                    return "Sprite area '\(areaName)' has no active scene"
+                }
+                scene = active
+            } else {
+                guard let entry = areaSpec.scenes.first(where: {
+                    $0.scene.name.lowercased() == requestedSceneName.lowercased()
+                }) else {
+                    return "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
+                }
+                scene = entry.scene
+            }
+            let all = scene.allNodes
+            if all.isEmpty {
+                return "Scene '\(scene.name)' in '\(areaName)' has no nodes"
+            }
+            let limit = 100
+            var lines: [String] = []
+            for node in all.prefix(limit) {
+                var line = "\(node.name): \(node.nodeType.rawValue) at (\(Int(node.position.x)),\(Int(node.position.y))) [zPos=\(node.zPosition), alpha=\(node.alpha)]"
+                if let pb = node.physicsBody {
+                    line += " physics:\(pb.bodyType.rawValue)"
+                }
+                lines.append(line)
+            }
+            if all.count > limit {
+                lines.append("\u{2026}(\(all.count - limit) more)")
+            }
+            return lines.joined(separator: "\n")
+
+        case "list_scene_joints":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let partIndex = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            let part = document.parts[partIndex]
+            guard let areaSpec = part.spriteAreaSpecModel else {
+                return "Invalid scene spec in '\(areaName)'"
+            }
+            let scene: SceneSpec
+            if requestedSceneName.isEmpty {
+                guard let active = areaSpec.activeScene else {
+                    return "Sprite area '\(areaName)' has no active scene"
+                }
+                scene = active
+            } else {
+                guard let entry = areaSpec.scenes.first(where: {
+                    $0.scene.name.lowercased() == requestedSceneName.lowercased()
+                }) else {
+                    return "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
+                }
+                scene = entry.scene
+            }
+            if scene.joints.isEmpty {
+                return "Scene '\(scene.name)' in '\(areaName)' has no joints"
+            }
+            let grouped = Dictionary(grouping: scene.joints, by: { $0.jointType })
+            var lines: [String] = []
+            for type in [JointType.pin, .spring, .sliding, .fixed, .limit] {
+                guard let items = grouped[type], !items.isEmpty else { continue }
+                lines.append("\(type.rawValue) (\(items.count)):")
+                for j in items {
+                    lines.append("  '\(j.nodeA)' <-> '\(j.nodeB)'")
+                }
+            }
+            return lines.joined(separator: "\n")
+
+        case "list_scene_constraints":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let partIndex = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            let part = document.parts[partIndex]
+            guard let areaSpec = part.spriteAreaSpecModel else {
+                return "Invalid scene spec in '\(areaName)'"
+            }
+            let scene: SceneSpec
+            if requestedSceneName.isEmpty {
+                guard let active = areaSpec.activeScene else {
+                    return "Sprite area '\(areaName)' has no active scene"
+                }
+                scene = active
+            } else {
+                guard let entry = areaSpec.scenes.first(where: {
+                    $0.scene.name.lowercased() == requestedSceneName.lowercased()
+                }) else {
+                    return "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
+                }
+                scene = entry.scene
+            }
+            if scene.sceneConstraints.isEmpty {
+                return "Scene '\(scene.name)' in '\(areaName)' has no constraints"
+            }
+            var lines: [String] = []
+            for c in scene.sceneConstraints {
+                var line = "\(c.constraintType.rawValue): '\(c.sourceNode)' -> '\(c.targetNode)'"
+                if let minD = c.minDistance { line += " min=\(minD)" }
+                if let maxD = c.maxDistance { line += " max=\(maxD)" }
+                lines.append(line)
+            }
+            return lines.joined(separator: "\n")
+
+        case "get_scene_script":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let partIndex = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            let part = document.parts[partIndex]
+            guard let areaSpec = part.spriteAreaSpecModel else {
+                return "Invalid scene spec in '\(areaName)'"
+            }
+            let scene: SceneSpec
+            if requestedSceneName.isEmpty {
+                guard let active = areaSpec.activeScene else {
+                    return "Sprite area '\(areaName)' has no active scene"
+                }
+                scene = active
+            } else {
+                guard let entry = areaSpec.scenes.first(where: {
+                    $0.scene.name.lowercased() == requestedSceneName.lowercased()
+                }) else {
+                    return "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
+                }
+                scene = entry.scene
+            }
+            if scene.script.count > 5000 {
+                return String(scene.script.prefix(5000)) + "\u{2026}[truncated]"
+            }
+            return scene.script
+
+        case "get_node_script":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let nodeName = arguments["node_name"] ?? ""
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let partIndex = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            let part = document.parts[partIndex]
+            guard let areaSpec = part.spriteAreaSpecModel else {
+                return "Invalid scene spec in '\(areaName)'"
+            }
+            let scene: SceneSpec
+            if requestedSceneName.isEmpty {
+                guard let active = areaSpec.activeScene else {
+                    return "Sprite area '\(areaName)' has no active scene"
+                }
+                scene = active
+            } else {
+                guard let entry = areaSpec.scenes.first(where: {
+                    $0.scene.name.lowercased() == requestedSceneName.lowercased()
+                }) else {
+                    return "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
+                }
+                scene = entry.scene
+            }
+            guard let node = scene.node(named: nodeName) else {
+                return "Node '\(nodeName)' not found in '\(areaName)'"
+            }
+            if node.script.count > 5000 {
+                return String(node.script.prefix(5000)) + "\u{2026}[truncated]"
+            }
+            return node.script
+
+        case "get_stack_script":
+            let script = document.stack.script
+            if script.count > 5000 {
+                return String(script.prefix(5000)) + "\u{2026}[truncated]"
+            }
+            return script
+
+        case "get_card_script":
+            let cardName = arguments["card_name"] ?? ""
+            guard let idx = cardIndex(named: cardName, currentCardId: currentCardId, in: document) else {
+                return cardName.isEmpty ? "No current card" : "Card '\(cardName)' not found"
+            }
+            let resolved = document.cards[idx]
+            if resolved.script.count > 5000 {
+                return String(resolved.script.prefix(5000)) + "\u{2026}[truncated]"
+            }
+            return resolved.script
+
+        case "get_background_script":
+            let bgName = arguments["background_name"] ?? ""
+            guard let idx = backgroundIndex(named: bgName, currentCardId: currentCardId, in: document) else {
+                return bgName.isEmpty ? "No current background" : "Background '\(bgName)' not found"
+            }
+            let bg = document.backgrounds[idx]
+            if bg.script.count > 5000 {
+                return String(bg.script.prefix(5000)) + "\u{2026}[truncated]"
+            }
+            return bg.script
+
+        // MARK: - Script-setter tools (stack / card / background)
+
+        case "set_stack_script":
+            let rawScript = arguments["script"] ?? ""
+            let wrapped = wrapScript(rawScript)
+            if let refusal = invalidScriptStorageMessage(
+                targetDescription: "the stack",
+                rawScript: rawScript,
+                wrappedScript: wrapped
+            ) {
+                return refusal
+            }
+            document.stack.script = wrapped
+            return "Set stack script"
+
+        case "set_card_script":
+            let rawScript = arguments["script"] ?? ""
+            let cardName = arguments["card_name"] ?? ""
+            let wrapped = wrapScript(rawScript)
+            if let refusal = invalidScriptStorageMessage(
+                targetDescription: cardName.isEmpty ? "the current card" : "card '\(cardName)'",
+                rawScript: rawScript,
+                wrappedScript: wrapped
+            ) {
+                return refusal
+            }
+            let targetIndex = cardIndex(named: cardName, currentCardId: currentCardId, in: document)
+            guard let idx = targetIndex else {
+                return cardName.isEmpty ? "No current card" : "Card '\(cardName)' not found"
+            }
+            document.cards[idx].script = wrapped
+            let displayName = document.cards[idx].name.isEmpty ? "current card" : "card '\(document.cards[idx].name)'"
+            return "Set script of \(displayName)"
+
+        case "set_background_script":
+            let bgName = arguments["background_name"] ?? ""
+            let rawScript = arguments["script"] ?? ""
+            let wrapped = wrapScript(rawScript)
+            if let refusal = invalidScriptStorageMessage(
+                targetDescription: bgName.isEmpty ? "the current background" : "background '\(bgName)'",
+                rawScript: rawScript,
+                wrappedScript: wrapped
+            ) {
+                return refusal
+            }
+            guard let idx = backgroundIndex(named: bgName, currentCardId: currentCardId, in: document) else {
+                return bgName.isEmpty ? "No current background" : "Background '\(bgName)' not found"
+            }
+            document.backgrounds[idx].script = wrapped
+            return "Set script of background '\(document.backgrounds[idx].name)'"
+
+        // MARK: - Scene-node creators
+
+        case "add_label_to_scene":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let labelName = arguments["label_name"] ?? "label"
+            let text = arguments["text"] ?? ""
+            let x = Double(arguments["x"] ?? "0") ?? 0
+            let y = Double(arguments["y"] ?? "0") ?? 0
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            var node = HypeNodeSpec(name: labelName, nodeType: .label, position: PointSpec(x: x, y: y))
+            node.text = text
+            if let fontName = arguments["font_name"] { node.fontName = fontName }
+            if let fontSize = arguments["font_size"], let v = Double(fontSize) { node.fontSize = v }
+            if let fontColor = arguments["font_color"] { node.fontColor = fontColor }
+            if let zPos = arguments["z_position"], let v = Double(zPos) { node.zPosition = v }
+            let appended = appendNodeToScene(
+                node: node,
+                partIndex: partIdx,
+                requestedSceneName: requestedSceneName,
+                areaName: areaName,
+                document: &document
+            )
+            switch appended {
+            case .success(let sceneName):
+                return "Added label '\(labelName)' to scene '\(sceneName)' in '\(areaName)' at (\(Int(x)),\(Int(y)))"
+            case .failure(let msg):
+                return msg
+            }
+
+        case "add_shape_to_scene":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let shapeName = arguments["shape_name"] ?? "shape"
+            let shapeTypeStr = arguments["shape_type"] ?? "rect"
+            let x = Double(arguments["x"] ?? "0") ?? 0
+            let y = Double(arguments["y"] ?? "0") ?? 0
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let shapeType = SpriteShapeType(rawValue: shapeTypeStr) else {
+                let valid = SpriteShapeType.allCases.map(\.rawValue).joined(separator: ", ")
+                return "Invalid shape_type '\(shapeTypeStr)'. Valid: \(valid)"
+            }
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            var node = HypeNodeSpec(name: shapeName, nodeType: .shape, position: PointSpec(x: x, y: y))
+            if let w = Double(arguments["width"] ?? ""), let h = Double(arguments["height"] ?? "") {
+                node.size = SizeSpec(width: w, height: h)
+            }
+            var shape = ShapeNodeSpec(shapeType: shapeType)
+            if let fill = arguments["fill_color"] { shape.fillColor = fill }
+            if let stroke = arguments["stroke_color"] { shape.strokeColor = stroke }
+            if let lw = arguments["line_width"], let v = Double(lw) { shape.lineWidth = v }
+            if let cr = arguments["corner_radius"], let v = Double(cr) { shape.cornerRadius = v }
+            node.shapeSpec = shape
+            if let zPos = arguments["z_position"], let v = Double(zPos) { node.zPosition = v }
+            let appended = appendNodeToScene(
+                node: node,
+                partIndex: partIdx,
+                requestedSceneName: requestedSceneName,
+                areaName: areaName,
+                document: &document
+            )
+            switch appended {
+            case .success(let sceneName):
+                return "Added shape '\(shapeName)' (\(shapeType.rawValue)) to scene '\(sceneName)' in '\(areaName)' at (\(Int(x)),\(Int(y)))"
+            case .failure(let msg):
+                return msg
+            }
+
+        case "add_emitter_to_scene":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let emitterName = arguments["emitter_name"] ?? "emitter"
+            let x = Double(arguments["x"] ?? "0") ?? 0
+            let y = Double(arguments["y"] ?? "0") ?? 0
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            var emitter = EmitterSpec()
+            if let br = arguments["birth_rate"], let v = Double(br) { emitter.particleBirthRate = v }
+            if let lt = arguments["lifetime"], let v = Double(lt) { emitter.particleLifetime = v }
+            if let sp = arguments["speed"], let v = Double(sp) { emitter.particleSpeed = v }
+            if let ang = arguments["emission_angle"], let v = Double(ang) { emitter.emissionAngle = v }
+            if let color = arguments["particle_color"] { emitter.particleColor = color }
+            if let scale = arguments["particle_scale"], let v = Double(scale) { emitter.particleScale = v }
+            var node = HypeNodeSpec(name: emitterName, nodeType: .emitter, position: PointSpec(x: x, y: y))
+            node.emitterSpec = emitter
+            let appended = appendNodeToScene(
+                node: node,
+                partIndex: partIdx,
+                requestedSceneName: requestedSceneName,
+                areaName: areaName,
+                document: &document
+            )
+            switch appended {
+            case .success(let sceneName):
+                return "Added emitter '\(emitterName)' to scene '\(sceneName)' in '\(areaName)' at (\(Int(x)),\(Int(y)))"
+            case .failure(let msg):
+                return msg
+            }
+
+        case "add_audio_to_scene":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let audioName = arguments["audio_name"] ?? "audio"
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            var node = HypeNodeSpec(name: audioName, nodeType: .audio)
+            if let assetName = arguments["asset_name"],
+               let asset = document.spriteRepository.asset(byName: assetName) {
+                node.assetRef = document.spriteRepository.assetRef(for: asset)
+            }
+            if let loop = arguments["loop"] { node.audioLoop = (loop.lowercased() == "true") }
+            if let vol = arguments["volume"], let v = Double(vol) { node.audioVolume = v }
+            if let ap = arguments["autoplay"] { node.audioAutoplay = (ap.lowercased() == "true") }
+            if let pos = arguments["positional"] { node.audioPositional = (pos.lowercased() == "true") }
+            let appended = appendNodeToScene(
+                node: node,
+                partIndex: partIdx,
+                requestedSceneName: requestedSceneName,
+                areaName: areaName,
+                document: &document
+            )
+            switch appended {
+            case .success(let sceneName):
+                return "Added audio '\(audioName)' to scene '\(sceneName)' in '\(areaName)'"
+            case .failure(let msg):
+                return msg
+            }
+
+        case "add_video_to_scene":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let videoName = arguments["video_name"] ?? "video"
+            let assetName = arguments["asset_name"] ?? ""
+            let x = Double(arguments["x"] ?? "0") ?? 0
+            let y = Double(arguments["y"] ?? "0") ?? 0
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            var node = HypeNodeSpec(name: videoName, nodeType: .video, position: PointSpec(x: x, y: y))
+            if !assetName.isEmpty, let asset = document.spriteRepository.asset(byName: assetName) {
+                node.assetRef = document.spriteRepository.assetRef(for: asset)
+            }
+            if let w = Double(arguments["width"] ?? ""), let h = Double(arguments["height"] ?? "") {
+                node.size = SizeSpec(width: w, height: h)
+            }
+            if let loop = arguments["loop"] { node.videoLoop = (loop.lowercased() == "true") }
+            if let ap = arguments["autoplay"] { node.videoAutoplay = (ap.lowercased() == "true") }
+            let appended = appendNodeToScene(
+                node: node,
+                partIndex: partIdx,
+                requestedSceneName: requestedSceneName,
+                areaName: areaName,
+                document: &document
+            )
+            switch appended {
+            case .success(let sceneName):
+                return "Added video '\(videoName)' to scene '\(sceneName)' in '\(areaName)' at (\(Int(x)),\(Int(y)))"
+            case .failure(let msg):
+                return msg
+            }
+
+        case "add_group_to_scene":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let groupName = arguments["group_name"] ?? "group"
+            let x = Double(arguments["x"] ?? "0") ?? 0
+            let y = Double(arguments["y"] ?? "0") ?? 0
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            let node = HypeNodeSpec(name: groupName, nodeType: .group, position: PointSpec(x: x, y: y))
+            let appended = appendNodeToScene(
+                node: node,
+                partIndex: partIdx,
+                requestedSceneName: requestedSceneName,
+                areaName: areaName,
+                document: &document
+            )
+            switch appended {
+            case .success(let sceneName):
+                return "Added group '\(groupName)' to scene '\(sceneName)' in '\(areaName)' at (\(Int(x)),\(Int(y)))"
+            case .failure(let msg):
+                return msg
+            }
+
+        case "add_joint_to_scene":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let jointTypeStr = arguments["joint_type"] ?? ""
+            let nodeA = arguments["node_a"] ?? ""
+            let nodeB = arguments["node_b"] ?? ""
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let jointType = JointType(rawValue: jointTypeStr) else {
+                return "Invalid joint_type '\(jointTypeStr)'. Valid: pin, spring, sliding, fixed, limit"
+            }
+            guard !nodeA.isEmpty, !nodeB.isEmpty else {
+                return "add_joint_to_scene: node_a and node_b are required"
+            }
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            var anchorA: PointSpec?
+            if let ax = arguments["anchor_a_x"], let ay = arguments["anchor_a_y"],
+               let axv = Double(ax), let ayv = Double(ay) {
+                anchorA = PointSpec(x: axv, y: ayv)
+            }
+            var anchorB: PointSpec?
+            if let bx = arguments["anchor_b_x"], let by = arguments["anchor_b_y"],
+               let bxv = Double(bx), let byv = Double(by) {
+                anchorB = PointSpec(x: bxv, y: byv)
+            }
+            let springFreq: Double? = arguments["spring_frequency"].flatMap { Double($0) }
+            let springDamp: Double? = arguments["spring_damping"].flatMap { Double($0) }
+            let joint = JointSpec(
+                jointType: jointType,
+                nodeA: nodeA,
+                nodeB: nodeB,
+                anchorA: anchorA,
+                anchorB: anchorB,
+                springFrequency: springFreq,
+                springDamping: springDamp
+            )
+            let result = appendSceneChild(
+                partIndex: partIdx,
+                requestedSceneName: requestedSceneName,
+                areaName: areaName,
+                document: &document
+            ) { scene in
+                scene.joints.append(joint)
+            }
+            switch result {
+            case .success(let sceneName):
+                return "Added \(jointType.rawValue) joint '\(nodeA)' <-> '\(nodeB)' to scene '\(sceneName)' in '\(areaName)'"
+            case .failure(let msg):
+                return msg
+            }
+
+        case "add_constraint_to_scene":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let typeStr = arguments["constraint_type"] ?? ""
+            let sourceNode = arguments["source_node"] ?? ""
+            let targetNode = arguments["target_node"] ?? ""
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let constraintType = SceneConstraintType(rawValue: typeStr) else {
+                return "Invalid constraint_type '\(typeStr)'. Valid: distance, orient, position"
+            }
+            guard !sourceNode.isEmpty, !targetNode.isEmpty else {
+                return "add_constraint_to_scene: source_node and target_node are required"
+            }
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            let minDistance: Double? = arguments["min_distance"].flatMap { Double($0) }
+            let maxDistance: Double? = arguments["max_distance"].flatMap { Double($0) }
+            let constraint = SceneConstraintSpec(
+                constraintType: constraintType,
+                sourceNode: sourceNode,
+                targetNode: targetNode,
+                minDistance: minDistance,
+                maxDistance: maxDistance
+            )
+            let result = appendSceneChild(
+                partIndex: partIdx,
+                requestedSceneName: requestedSceneName,
+                areaName: areaName,
+                document: &document
+            ) { scene in
+                scene.sceneConstraints.append(constraint)
+            }
+            switch result {
+            case .success(let sceneName):
+                return "Added \(constraintType.rawValue) constraint '\(sourceNode)' -> '\(targetNode)' to scene '\(sceneName)' in '\(areaName)'"
+            case .failure(let msg):
+                return msg
+            }
+
+        case "add_physics_field_to_scene":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let typeStr = arguments["field_type"] ?? ""
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let fieldType = FieldType(rawValue: typeStr) else {
+                return "Invalid field_type '\(typeStr)'. Valid: linearGravity, radialGravity, vortex, noise, turbulence, spring, drag, electric, magnetic"
+            }
+            guard let strengthStr = arguments["strength"], let strength = Double(strengthStr) else {
+                return "add_physics_field_to_scene: strength is required"
+            }
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            var region: SizeSpec?
+            if let rw = arguments["region_width"], let rh = arguments["region_height"],
+               let rwv = Double(rw), let rhv = Double(rh) {
+                region = SizeSpec(width: rwv, height: rhv)
+            }
+            var direction: PointSpec?
+            if let dx = arguments["direction_x"], let dy = arguments["direction_y"],
+               let dxv = Double(dx), let dyv = Double(dy) {
+                direction = PointSpec(x: dxv, y: dyv)
+            }
+            let field = FieldSpec(
+                fieldType: fieldType,
+                strength: strength,
+                region: region,
+                direction: direction
+            )
+            let result = appendSceneChild(
+                partIndex: partIdx,
+                requestedSceneName: requestedSceneName,
+                areaName: areaName,
+                document: &document
+            ) { scene in
+                scene.fields.append(field)
+            }
+            switch result {
+            case .success(let sceneName):
+                return "Added \(fieldType.rawValue) field (strength=\(strength)) to scene '\(sceneName)' in '\(areaName)'"
+            case .failure(let msg):
+                return msg
+            }
+
+        case "create_image":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            var part = Part(
+                partType: .image,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
+                name: arguments["name"] ?? "Image",
+                left: Double(arguments["left"] ?? "100") ?? 100,
+                top: Double(arguments["top"] ?? "100") ?? 100,
+                width: Double(arguments["width"] ?? "200") ?? 200,
+                height: Double(arguments["height"] ?? "200") ?? 200
+            )
+            var source = ""
+            if let path = arguments["file_path"], !path.isEmpty {
+                if let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {
+                    part.imageData = data
+                    source = " from file '\(path)'"
+                } else {
+                    return "Could not read image file at '\(path)'"
+                }
+            } else if let assetName = arguments["asset_name"], !assetName.isEmpty {
+                guard let asset = document.spriteRepository.asset(byName: assetName) else {
+                    return "Asset '\(assetName)' not found in repository"
+                }
+                part.imageData = asset.data
+                source = " from asset '\(assetName)'"
+            }
+            document.addPart(part)
+            let layer = place.backgroundId != nil ? " on background" : ""
+            return "Created image '\(part.name)'\(layer)\(source)"
+
+        // MARK: - Scene-node setters
+
+        case "set_node_property":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let nodeName = arguments["node_name"] ?? ""
+            let property = arguments["property"] ?? ""
+            let value = arguments["value"] ?? ""
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            guard !property.isEmpty else {
+                return "set_node_property: property is required"
+            }
+            var resolvedSceneName = ""
+            var nodeFoundFlag = false
+            var sceneFoundFlag = false
+            modifySpriteAreaSpec(partIndex: partIdx, document: &document) { areaSpec in
+                let sceneIdx: Int?
+                if !requestedSceneName.isEmpty {
+                    sceneIdx = areaSpec.scenes.firstIndex { $0.scene.name.lowercased() == requestedSceneName.lowercased() }
+                } else if let entry = areaSpec.activeSceneEntry {
+                    sceneIdx = areaSpec.scenes.firstIndex { $0.id == entry.id }
+                } else {
+                    sceneIdx = nil
+                }
+                guard let idx = sceneIdx else { return }
+                sceneFoundFlag = true
+                guard let nodeFound = areaSpec.scenes[idx].scene.node(named: nodeName) else {
+                    return
+                }
+                nodeFoundFlag = true
+                _ = areaSpec.scenes[idx].scene.updateNode(id: nodeFound.id) { node in
+                    applyNodeProperty(&node, property: property, value: value)
+                }
+                if areaSpec.scenes[idx].id == areaSpec.activeSceneID {
+                    areaSpec.setActiveScene(areaSpec.scenes[idx].scene)
+                }
+                resolvedSceneName = areaSpec.scenes[idx].scene.name
+            }
+            if !sceneFoundFlag {
+                return !requestedSceneName.isEmpty
+                    ? "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
+                    : "Sprite area '\(areaName)' has no active scene"
+            }
+            if !nodeFoundFlag {
+                return "Node '\(nodeName)' not found in '\(areaName)'"
+            }
+            return "Set \(property) of '\(nodeName)' in scene '\(resolvedSceneName)' of '\(areaName)' to '\(value)'"
+
+        case "set_node_script":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let nodeName = arguments["node_name"] ?? ""
+            let rawScript = arguments["script"] ?? ""
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            let wrapped = wrapScript(rawScript)
+            if let refusal = invalidScriptStorageMessage(
+                targetDescription: "node '\(nodeName)' in sprite area '\(areaName)'",
+                rawScript: rawScript,
+                wrappedScript: wrapped
+            ) {
+                return refusal
+            }
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            var resolvedSceneName = ""
+            var nodeFoundFlag = false
+            var sceneFoundFlag = false
+            modifySpriteAreaSpec(partIndex: partIdx, document: &document) { areaSpec in
+                let sceneIdx: Int?
+                if !requestedSceneName.isEmpty {
+                    sceneIdx = areaSpec.scenes.firstIndex { $0.scene.name.lowercased() == requestedSceneName.lowercased() }
+                } else if let entry = areaSpec.activeSceneEntry {
+                    sceneIdx = areaSpec.scenes.firstIndex { $0.id == entry.id }
+                } else {
+                    sceneIdx = nil
+                }
+                guard let idx = sceneIdx else { return }
+                sceneFoundFlag = true
+                guard let nodeFound = areaSpec.scenes[idx].scene.node(named: nodeName) else {
+                    return
+                }
+                nodeFoundFlag = true
+                _ = areaSpec.scenes[idx].scene.updateNode(id: nodeFound.id) { n in
+                    n.script = wrapped
+                }
+                if areaSpec.scenes[idx].id == areaSpec.activeSceneID {
+                    areaSpec.setActiveScene(areaSpec.scenes[idx].scene)
+                }
+                resolvedSceneName = areaSpec.scenes[idx].scene.name
+            }
+            if !sceneFoundFlag {
+                return !requestedSceneName.isEmpty
+                    ? "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
+                    : "Sprite area '\(areaName)' has no active scene"
+            }
+            if !nodeFoundFlag {
+                return "Node '\(nodeName)' not found in '\(areaName)'"
+            }
+            return "Set script of '\(nodeName)' in scene '\(resolvedSceneName)' of '\(areaName)'"
+
+        case "set_physics_body":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let nodeName = arguments["node_name"] ?? ""
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            var resolvedSceneName = ""
+            var nodeFoundFlag = false
+            var sceneFoundFlag = false
+            modifySpriteAreaSpec(partIndex: partIdx, document: &document) { areaSpec in
+                let sceneIdx: Int?
+                if !requestedSceneName.isEmpty {
+                    sceneIdx = areaSpec.scenes.firstIndex { $0.scene.name.lowercased() == requestedSceneName.lowercased() }
+                } else if let entry = areaSpec.activeSceneEntry {
+                    sceneIdx = areaSpec.scenes.firstIndex { $0.id == entry.id }
+                } else {
+                    sceneIdx = nil
+                }
+                guard let idx = sceneIdx else { return }
+                sceneFoundFlag = true
+                guard let nodeFound = areaSpec.scenes[idx].scene.node(named: nodeName) else {
+                    return
+                }
+                nodeFoundFlag = true
+                _ = areaSpec.scenes[idx].scene.updateNode(id: nodeFound.id) { n in
+                    var body = n.physicsBody ?? PhysicsBodySpec()
+                    if let bt = arguments["body_type"], let bodyType = PhysicsBodyType(rawValue: bt) {
+                        body.bodyType = bodyType
+                    }
+                    if let dyn = arguments["is_dynamic"] {
+                        body.isDynamic = (dyn.lowercased() == "true")
+                    }
+                    if let r = arguments["restitution"], let v = Double(r) {
+                        body.restitution = v
+                    }
+                    if let f = arguments["friction"], let v = Double(f) {
+                        body.friction = v
+                    }
+                    if let m = arguments["mass"], let v = Double(m) {
+                        body.mass = v
+                    }
+                    if let g = arguments["affected_by_gravity"] {
+                        body.affectedByGravity = (g.lowercased() == "true")
+                    }
+                    if let ar = arguments["allows_rotation"] {
+                        body.allowsRotation = (ar.lowercased() == "true")
+                    }
+                    if let vx = arguments["velocity_x"], let v = Double(vx) {
+                        body.velocityX = v
+                    }
+                    if let vy = arguments["velocity_y"], let v = Double(vy) {
+                        body.velocityY = v
+                    }
+                    n.physicsBody = body
+                }
+                if areaSpec.scenes[idx].id == areaSpec.activeSceneID {
+                    areaSpec.setActiveScene(areaSpec.scenes[idx].scene)
+                }
+                resolvedSceneName = areaSpec.scenes[idx].scene.name
+            }
+            if !sceneFoundFlag {
+                return !requestedSceneName.isEmpty
+                    ? "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
+                    : "Sprite area '\(areaName)' has no active scene"
+            }
+            if !nodeFoundFlag {
+                return "Node '\(nodeName)' not found in '\(areaName)'"
+            }
+            return "Configured physics body on '\(nodeName)' in scene '\(resolvedSceneName)' of '\(areaName)'"
+
+        case "delete_scene_node":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let nodeName = arguments["node_name"] ?? ""
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            var resolvedSceneName = ""
+            var nodeFoundFlag = false
+            var sceneFoundFlag = false
+            modifySpriteAreaSpec(partIndex: partIdx, document: &document) { areaSpec in
+                let sceneIdx: Int?
+                if !requestedSceneName.isEmpty {
+                    sceneIdx = areaSpec.scenes.firstIndex { $0.scene.name.lowercased() == requestedSceneName.lowercased() }
+                } else if let entry = areaSpec.activeSceneEntry {
+                    sceneIdx = areaSpec.scenes.firstIndex { $0.id == entry.id }
+                } else {
+                    sceneIdx = nil
+                }
+                guard let idx = sceneIdx else { return }
+                sceneFoundFlag = true
+                guard let nodeFound = areaSpec.scenes[idx].scene.node(named: nodeName) else {
+                    return
+                }
+                nodeFoundFlag = true
+                _ = areaSpec.scenes[idx].scene.removeNode(id: nodeFound.id)
+                if areaSpec.scenes[idx].id == areaSpec.activeSceneID {
+                    areaSpec.setActiveScene(areaSpec.scenes[idx].scene)
+                }
+                resolvedSceneName = areaSpec.scenes[idx].scene.name
+            }
+            if !sceneFoundFlag {
+                return !requestedSceneName.isEmpty
+                    ? "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
+                    : "Sprite area '\(areaName)' has no active scene"
+            }
+            if !nodeFoundFlag {
+                return "Node '\(nodeName)' not found in '\(areaName)'"
+            }
+            return "Deleted node '\(nodeName)' from scene '\(resolvedSceneName)' of '\(areaName)'"
+
+        // MARK: - Actions
+
+        case "add_action":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let nodeName = arguments["node_name"] ?? ""
+            let actionTypeStr = arguments["action_type"] ?? ""
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let actionType = ActionType(rawValue: actionTypeStr) else {
+                let valid = "moveTo, moveBy, rotateTo, rotateBy, scaleTo, scaleBy, fadeTo, fadeIn, fadeOut, sequence, group, repeatForever, repeatCount, wait, removeFromParent, followPath, setTexture, animate, playAudio, stopAudio, changeVolume, resize, hide, unhide, colorize, speedTo, speedBy"
+                return "Invalid action_type '\(actionTypeStr)'. Valid: \(valid)"
+            }
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            let duration = Double(arguments["duration"] ?? "0.25") ?? 0.25
+            let actionName = arguments["name"] ?? ""
+            var parameters: [String: String] = [:]
+            if let json = arguments["parameters_json"], !json.isEmpty,
+               let data = json.data(using: .utf8),
+               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                for (k, v) in dict {
+                    if let str = v as? String {
+                        parameters[k] = str
+                    } else if let num = v as? NSNumber {
+                        parameters[k] = num.stringValue
+                    } else if let bool = v as? Bool {
+                        parameters[k] = bool ? "true" : "false"
+                    } else {
+                        parameters[k] = String(describing: v)
+                    }
+                }
+            }
+            let action = ActionSpec(
+                actionType: actionType,
+                name: actionName,
+                duration: duration,
+                parameters: parameters,
+                children: nil
+            )
+            var resolvedSceneName = ""
+            var nodeFoundFlag = false
+            var sceneFoundFlag = false
+            modifySpriteAreaSpec(partIndex: partIdx, document: &document) { areaSpec in
+                let sceneIdx: Int?
+                if !requestedSceneName.isEmpty {
+                    sceneIdx = areaSpec.scenes.firstIndex { $0.scene.name.lowercased() == requestedSceneName.lowercased() }
+                } else if let entry = areaSpec.activeSceneEntry {
+                    sceneIdx = areaSpec.scenes.firstIndex { $0.id == entry.id }
+                } else {
+                    sceneIdx = nil
+                }
+                guard let idx = sceneIdx else { return }
+                sceneFoundFlag = true
+                guard let nodeFound = areaSpec.scenes[idx].scene.node(named: nodeName) else {
+                    return
+                }
+                nodeFoundFlag = true
+                _ = areaSpec.scenes[idx].scene.updateNode(id: nodeFound.id) { n in
+                    n.actions.append(action)
+                }
+                if areaSpec.scenes[idx].id == areaSpec.activeSceneID {
+                    areaSpec.setActiveScene(areaSpec.scenes[idx].scene)
+                }
+                resolvedSceneName = areaSpec.scenes[idx].scene.name
+            }
+            if !sceneFoundFlag {
+                return !requestedSceneName.isEmpty
+                    ? "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
+                    : "Sprite area '\(areaName)' has no active scene"
+            }
+            if !nodeFoundFlag {
+                return "Node '\(nodeName)' not found in '\(areaName)'"
+            }
+            return "Added \(actionType.rawValue) action (duration=\(duration)) to '\(nodeName)' in scene '\(resolvedSceneName)' of '\(areaName)'"
+
+        case "remove_all_actions":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let nodeName = arguments["node_name"] ?? ""
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            var resolvedSceneName = ""
+            var nodeFoundFlag = false
+            var sceneFoundFlag = false
+            var removedCount = 0
+            modifySpriteAreaSpec(partIndex: partIdx, document: &document) { areaSpec in
+                let sceneIdx: Int?
+                if !requestedSceneName.isEmpty {
+                    sceneIdx = areaSpec.scenes.firstIndex { $0.scene.name.lowercased() == requestedSceneName.lowercased() }
+                } else if let entry = areaSpec.activeSceneEntry {
+                    sceneIdx = areaSpec.scenes.firstIndex { $0.id == entry.id }
+                } else {
+                    sceneIdx = nil
+                }
+                guard let idx = sceneIdx else { return }
+                sceneFoundFlag = true
+                guard let nodeFound = areaSpec.scenes[idx].scene.node(named: nodeName) else {
+                    return
+                }
+                nodeFoundFlag = true
+                removedCount = nodeFound.actions.count
+                _ = areaSpec.scenes[idx].scene.updateNode(id: nodeFound.id) { n in
+                    n.actions = []
+                }
+                if areaSpec.scenes[idx].id == areaSpec.activeSceneID {
+                    areaSpec.setActiveScene(areaSpec.scenes[idx].scene)
+                }
+                resolvedSceneName = areaSpec.scenes[idx].scene.name
+            }
+            if !sceneFoundFlag {
+                return !requestedSceneName.isEmpty
+                    ? "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
+                    : "Sprite area '\(areaName)' has no active scene"
+            }
+            if !nodeFoundFlag {
+                return "Node '\(nodeName)' not found in '\(areaName)'"
+            }
+            return "Removed \(removedCount) action(s) from '\(nodeName)' in scene '\(resolvedSceneName)' of '\(areaName)'"
+
+        // MARK: - Stack / card / background admin
+
+        case "set_stack_property":
+            let property = arguments["property"] ?? ""
+            let value = arguments["value"] ?? ""
+            switch property.lowercased() {
+            case "width":
+                guard let w = Double(value) else {
+                    return "Invalid value for width: '\(value)' (expected a number)"
+                }
+                document.stack.width = Int(w)
+            case "height":
+                guard let h = Double(value) else {
+                    return "Invalid value for height: '\(value)' (expected a number)"
+                }
+                document.stack.height = Int(h)
+            case "name":
+                document.stack.name = value
+            case "defaultfont", "default_font":
+                document.stack.defaultFont = value
+            case "webassetsallowed", "web_assets_allowed":
+                document.stack.webAssetsAllowed = (value.lowercased() == "true")
+            default:
+                return "Unknown stack property '\(property)'. Valid: width, height, name, defaultFont, webAssetsAllowed"
+            }
+            return "Set \(property) of stack to \(value)"
+
+        case "set_card_property":
+            let cardName = arguments["card_name"] ?? ""
+            let property = arguments["property"] ?? ""
+            let value = arguments["value"] ?? ""
+            guard let idx = cardIndex(named: cardName, currentCardId: currentCardId, in: document) else {
+                return cardName.isEmpty ? "No current card" : "Card '\(cardName)' not found"
+            }
+            switch property.lowercased() {
+            case "name":
+                document.cards[idx].name = value
+            case "marked":
+                document.cards[idx].marked = (value.lowercased() == "true")
+            case "sortkey", "sort_key":
+                document.cards[idx].sortKey = value
+            case "background", "backgroundname", "background_name":
+                guard let background = document.backgroundByName(value) else {
+                    return "Background '\(value)' not found"
+                }
+                document.cards[idx].backgroundId = background.id
+            default:
+                return "Unknown card property '\(property)'. Valid: name, marked, sortKey, backgroundName"
+            }
+            let displayName = document.cards[idx].name.isEmpty ? "current card" : "card '\(document.cards[idx].name)'"
+            return "Set \(property) of \(displayName) to \(value)"
+
+        case "set_background_property":
+            let bgName = arguments["background_name"] ?? ""
+            let property = arguments["property"] ?? ""
+            let value = arguments["value"] ?? ""
+            guard let idx = backgroundIndex(named: bgName, currentCardId: currentCardId, in: document) else {
+                return bgName.isEmpty ? "No current background" : "Background '\(bgName)' not found"
+            }
+            switch property.lowercased() {
+            case "name":
+                document.backgrounds[idx].name = value
+            case "sortkey", "sort_key":
+                document.backgrounds[idx].sortKey = value
+            default:
+                return "Unknown background property '\(property)'. Valid: name, sortKey"
+            }
+            return "Set \(property) of background '\(document.backgrounds[idx].name)' to \(value)"
+
+        case "set_card_name":
+            let newName = arguments["new_name"] ?? ""
+            guard !newName.isEmpty else {
+                return "set_card_name: new_name is required"
+            }
+            let cardName = arguments["card_name"] ?? ""
+            guard let idx = cardIndex(named: cardName, currentCardId: currentCardId, in: document) else {
+                return "Card '\(cardName)' not found"
+            }
+            let oldName = document.cards[idx].name
+            document.cards[idx].name = newName
+            let oldDisplay = oldName.isEmpty ? "(unnamed)" : oldName
+            return "Renamed card '\(oldDisplay)' to '\(newName)'"
+
+        case "set_background_name":
+            let bgName = arguments["background_name"] ?? ""
+            let newName = arguments["new_name"] ?? ""
+            guard !newName.isEmpty else {
+                return "set_background_name: new_name is required"
+            }
+            guard let idx = backgroundIndex(named: bgName, currentCardId: currentCardId, in: document) else {
+                return "Background '\(bgName)' not found"
+            }
+            let oldName = document.backgrounds[idx].name
+            document.backgrounds[idx].name = newName
+            return "Renamed background '\(oldName)' to '\(newName)'"
+
+        case "set_card_background":
+            let bgName = arguments["background_name"] ?? ""
+            guard !bgName.isEmpty else {
+                return "set_card_background: background_name is required"
+            }
+            guard let bg = document.backgroundByName(bgName) else {
+                return "Background '\(bgName)' not found"
+            }
+            let cardName = arguments["card_name"] ?? ""
+            guard let idx = cardIndex(named: cardName, currentCardId: currentCardId, in: document) else {
+                return "Card '\(cardName)' not found"
+            }
+            document.cards[idx].backgroundId = bg.id
+            let cardDisplay = document.cards[idx].name.isEmpty ? "Card \(idx + 1)" : document.cards[idx].name
+            return "Card '\(cardDisplay)' now uses background '\(bg.name)'"
+
+        case "reorder_card":
+            let cardName = arguments["card_name"] ?? ""
+            let posStr = arguments["new_position"] ?? ""
+            guard !cardName.isEmpty else {
+                return "reorder_card: card_name is required"
+            }
+            guard let requestedPos = Int(posStr), requestedPos >= 1 else {
+                return "Invalid new_position '\(posStr)' (expected 1-based integer)"
+            }
+            // Work against the sortKey-ordered view so the user's
+            // 1-based index lines up with the visible card order.
+            let ordered = document.sortedCards
+            guard let currentSortedIdx = ordered.firstIndex(where: { $0.name.lowercased() == cardName.lowercased() }) else {
+                return "Card '\(cardName)' not found"
+            }
+            let movedCard = ordered[currentSortedIdx]
+            var reordered = ordered
+            reordered.remove(at: currentSortedIdx)
+            let clamped = max(0, min(requestedPos - 1, reordered.count))
+            reordered.insert(movedCard, at: clamped)
+            // Rebuild sortKeys using the same formatting pattern as
+            // addCard so the new ordering is stable and round-trips
+            // through encode/decode unchanged.
+            for (i, card) in reordered.enumerated() {
+                if let srcIdx = document.cards.firstIndex(where: { $0.id == card.id }) {
+                    document.cards[srcIdx].sortKey = String(format: "a%06d", i)
+                }
+            }
+            return "Moved card '\(cardName)' to position \(clamped + 1)"
+
+        case "duplicate_part":
+            let partName = arguments["part_name"] ?? ""
+            guard !partName.isEmpty else {
+                return "duplicate_part: part_name is required"
+            }
+            guard let originalIdx = scopedPartIndex(named: partName, currentCardId: currentCardId, in: document) else {
+                return "Part '\(partName)' not found"
+            }
+            let dx = Double(arguments["dx"] ?? "20") ?? 20
+            let dy = Double(arguments["dy"] ?? "20") ?? 20
+            let requestedName = arguments["new_name"] ?? ""
+            let original = document.parts[originalIdx]
+            var copy = original
+            copy.id = UUID()
+            copy.name = requestedName.isEmpty ? "\(original.name) 2" : requestedName
+            copy.left = original.left + dx
+            copy.top = original.top + dy
+            document.addPart(copy)
+            return "Duplicated '\(original.name)' as '\(copy.name)'"
+
+        // MARK: - Scene-level admin
+
+        case "set_scene_property":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let property = arguments["property"] ?? ""
+            let value = arguments["value"] ?? ""
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            // Apply the property change to either the named scene (via
+            // modifySpriteAreaSpec) or the active scene (via modifyActiveScene).
+            // Return a specific error string if the value fails to parse,
+            // but let the mutation succeed silently when it applies cleanly.
+            var applyError: String?
+            let applyProperty: (inout SceneSpec) -> Void = { scene in
+                switch property.lowercased() {
+                case "gravity":
+                    let parts = value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                    guard parts.count == 2, let dx = Double(parts[0]), let dy = Double(parts[1]) else {
+                        applyError = "Invalid gravity '\(value)' (expected 'dx,dy')"
+                        return
+                    }
+                    scene.gravity = VectorSpec(dx: dx, dy: dy)
+                case "backgroundcolor", "background_color":
+                    scene.backgroundColor = value
+                case "ispaused", "is_paused":
+                    scene.isPaused = (value.lowercased() == "true")
+                case "showsphysics", "shows_physics":
+                    scene.showsPhysics = (value.lowercased() == "true")
+                case "showsfps", "shows_fps":
+                    scene.showsFPS = (value.lowercased() == "true")
+                case "showsnodecount", "shows_node_count":
+                    scene.showsNodeCount = (value.lowercased() == "true")
+                case "scalemode", "scale_mode":
+                    guard let mode = SceneScaleMode(rawValue: value) else {
+                        applyError = "Invalid scaleMode '\(value)'. Valid: fill, aspectFill, aspectFit, resizeFill"
+                        return
+                    }
+                    scene.scaleMode = mode
+                case "size":
+                    let parts = value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                    guard parts.count == 2, let w = Double(parts[0]), let h = Double(parts[1]) else {
+                        applyError = "Invalid size '\(value)' (expected 'w,h')"
+                        return
+                    }
+                    scene.size = SizeSpec(width: w, height: h)
+                case "name":
+                    scene.name = value
+                default:
+                    applyError = "Unknown scene property '\(property)'. Valid: gravity, backgroundColor, isPaused, showsPhysics, showsFPS, showsNodeCount, scaleMode, size, name"
+                }
+            }
+
+            var resolvedSceneName = ""
+            var sceneFound = false
+            if requestedSceneName.isEmpty {
+                modifySpriteAreaSpec(partIndex: partIdx, document: &document) { areaSpec in
+                    guard let entry = areaSpec.activeSceneEntry,
+                          let sceneIdx = areaSpec.scenes.firstIndex(where: { $0.id == entry.id })
+                    else { return }
+                    sceneFound = true
+                    applyProperty(&areaSpec.scenes[sceneIdx].scene)
+                    if applyError == nil, areaSpec.scenes[sceneIdx].id == areaSpec.activeSceneID {
+                        areaSpec.setActiveScene(areaSpec.scenes[sceneIdx].scene)
+                    }
+                    resolvedSceneName = areaSpec.scenes[sceneIdx].scene.name
+                }
+                if !sceneFound {
+                    return "Sprite area '\(areaName)' has no active scene"
+                }
+            } else {
+                modifySpriteAreaSpec(partIndex: partIdx, document: &document) { areaSpec in
+                    guard let sceneIdx = areaSpec.scenes.firstIndex(where: {
+                        $0.scene.name.lowercased() == requestedSceneName.lowercased()
+                    }) else { return }
+                    sceneFound = true
+                    applyProperty(&areaSpec.scenes[sceneIdx].scene)
+                    if applyError == nil, areaSpec.scenes[sceneIdx].id == areaSpec.activeSceneID {
+                        areaSpec.setActiveScene(areaSpec.scenes[sceneIdx].scene)
+                    }
+                    resolvedSceneName = areaSpec.scenes[sceneIdx].scene.name
+                }
+                if !sceneFound {
+                    return "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
+                }
+            }
+            if let err = applyError {
+                return err
+            }
+            return "Set \(property) of scene '\(resolvedSceneName)' in sprite area '\(areaName)' to \(value)"
+
+        case "add_scene":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let sceneName = arguments["scene_name"] ?? ""
+            guard !sceneName.isEmpty else {
+                return "add_scene: scene_name is required"
+            }
+            let activate = (arguments["activate"] ?? "").lowercased() == "true"
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            var duplicate = false
+            var addedName = sceneName
+            modifySpriteAreaSpec(partIndex: partIdx, document: &document) { areaSpec in
+                if areaSpec.scenes.contains(where: { $0.scene.name.lowercased() == sceneName.lowercased() }) {
+                    duplicate = true
+                    return
+                }
+                // Preserve the area's current design size so the new
+                // scene opens at the same dimensions as its siblings.
+                let newScene = SceneSpec(
+                    name: sceneName,
+                    size: areaSpec.designSize,
+                    scaleMode: areaSpec.scaleMode
+                )
+                let entry = SpriteAreaScene(scene: newScene)
+                areaSpec.scenes.append(entry)
+                addedName = newScene.name
+                if activate {
+                    areaSpec.setActiveScene(newScene)
+                    areaSpec.activeSceneID = entry.id
+                }
+            }
+            if duplicate {
+                return "Scene '\(sceneName)' already exists in sprite area '\(areaName)'"
+            }
+            return "Added scene '\(addedName)' to '\(areaName)'\(activate ? " (activated)" : "")"
+
+        case "delete_scene":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let sceneName = arguments["scene_name"] ?? ""
+            guard !sceneName.isEmpty else {
+                return "delete_scene: scene_name is required"
+            }
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            var sceneFound = false
+            var isOnlyScene = false
+            var removedName = sceneName
+            modifySpriteAreaSpec(partIndex: partIdx, document: &document) { areaSpec in
+                guard let sceneIdx = areaSpec.scenes.firstIndex(where: {
+                    $0.scene.name.lowercased() == sceneName.lowercased()
+                }) else { return }
+                sceneFound = true
+                if areaSpec.scenes.count <= 1 {
+                    isOnlyScene = true
+                    return
+                }
+                let removedId = areaSpec.scenes[sceneIdx].id
+                removedName = areaSpec.scenes[sceneIdx].scene.name
+                areaSpec.scenes.remove(at: sceneIdx)
+                // If we just removed the active scene, activate the
+                // first remaining one so the area never has a stale
+                // activeSceneID pointing at nothing.
+                if areaSpec.activeSceneID == removedId, let firstRemaining = areaSpec.scenes.first {
+                    areaSpec.activeSceneID = firstRemaining.id
+                    areaSpec.setActiveScene(firstRemaining.scene)
+                }
+            }
+            if !sceneFound {
+                return "Scene '\(sceneName)' not found in sprite area '\(areaName)'"
+            }
+            if isOnlyScene {
+                return "Cannot delete scene '\(sceneName)' — it is the only scene in sprite area '\(areaName)'"
+            }
+            return "Deleted scene '\(removedName)' from sprite area '\(areaName)'"
+
+        case "rename_scene":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let sceneName = arguments["scene_name"] ?? ""
+            let newName = arguments["new_name"] ?? ""
+            guard !sceneName.isEmpty, !newName.isEmpty else {
+                return "rename_scene: scene_name and new_name are required"
+            }
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            var sceneFound = false
+            var duplicate = false
+            var oldName = sceneName
+            modifySpriteAreaSpec(partIndex: partIdx, document: &document) { areaSpec in
+                guard let sceneIdx = areaSpec.scenes.firstIndex(where: {
+                    $0.scene.name.lowercased() == sceneName.lowercased()
+                }) else { return }
+                sceneFound = true
+                // Reject a rename that would collide with another
+                // existing scene (case-insensitive) so sceneNames
+                // stays unique and activateScene(named:) stays sane.
+                if areaSpec.scenes.enumerated().contains(where: { pair in
+                    pair.offset != sceneIdx && pair.element.scene.name.lowercased() == newName.lowercased()
+                }) {
+                    duplicate = true
+                    return
+                }
+                oldName = areaSpec.scenes[sceneIdx].scene.name
+                areaSpec.scenes[sceneIdx].scene.name = newName
+                if areaSpec.scenes[sceneIdx].id == areaSpec.activeSceneID {
+                    areaSpec.setActiveScene(areaSpec.scenes[sceneIdx].scene)
+                }
+            }
+            if !sceneFound {
+                return "Scene '\(sceneName)' not found in sprite area '\(areaName)'"
+            }
+            if duplicate {
+                return "A scene named '\(newName)' already exists in sprite area '\(areaName)'"
+            }
+            return "Renamed scene '\(oldName)' to '\(newName)' in sprite area '\(areaName)'"
+
+        case "set_active_scene":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let sceneName = arguments["scene_name"] ?? ""
+            guard !sceneName.isEmpty else {
+                return "set_active_scene: scene_name is required"
+            }
+            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            var activated = false
+            modifySpriteAreaSpec(partIndex: partIdx, document: &document) { areaSpec in
+                activated = areaSpec.activateScene(named: sceneName)
+            }
+            if !activated {
+                return "Scene '\(sceneName)' not found in sprite area '\(areaName)'"
+            }
+            return "Active scene of '\(areaName)' is now '\(sceneName)'"
+
+        case "list_scenes":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            guard let partIndex = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            let part = document.parts[partIndex]
+            guard let areaSpec = part.spriteAreaSpecModel else {
+                return "Invalid scene spec in '\(areaName)'"
+            }
+            if areaSpec.scenes.isEmpty {
+                return "Sprite area '\(areaName)' has no scenes"
+            }
+            var lines: [String] = []
+            for entry in areaSpec.scenes {
+                let s = entry.scene
+                let w = Int(s.size.width)
+                let h = Int(s.size.height)
+                let marker = entry.id == areaSpec.activeSceneID ? " [active]" : ""
+                lines.append("\(s.name): \(w)x\(h)\(marker)")
+            }
+            return lines.joined(separator: "\n")
+
+        case "list_scene_physics_fields":
+            let areaName = arguments["sprite_area_name"] ?? ""
+            let requestedSceneName = arguments["scene_name"] ?? ""
+            guard let partIndex = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
+                return "Sprite area '\(areaName)' not found"
+            }
+            let part = document.parts[partIndex]
+            guard let areaSpec = part.spriteAreaSpecModel else {
+                return "Invalid scene spec in '\(areaName)'"
+            }
+            let scene: SceneSpec
+            if requestedSceneName.isEmpty {
+                guard let active = areaSpec.activeScene else {
+                    return "Sprite area '\(areaName)' has no active scene"
+                }
+                scene = active
+            } else {
+                guard let entry = areaSpec.scenes.first(where: {
+                    $0.scene.name.lowercased() == requestedSceneName.lowercased()
+                }) else {
+                    return "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
+                }
+                scene = entry.scene
+            }
+            if scene.fields.isEmpty {
+                return "Scene '\(scene.name)' in '\(areaName)' has no physics fields"
+            }
+            let lines = scene.fields.map { "\($0.fieldType.rawValue) strength=\($0.strength)" }
+            return lines.joined(separator: "\n")
+
         default:
             return "Unknown tool: \(toolName)"
+        }
+    }
+
+    // MARK: - Scene-node helpers
+
+    /// Result returned when mutating a scene within a SpriteAreaSpec.
+    /// `success` carries the resolved scene name for the response string;
+    /// `failure` carries a pre-formatted error message.
+    private enum SceneMutationResult {
+        case success(String)
+        case failure(String)
+    }
+
+    /// Append a node to the target scene (active or named). Returns the
+    /// resolved scene name on success, or a pre-formatted error string.
+    private func appendNodeToScene(
+        node: HypeNodeSpec,
+        partIndex: Int,
+        requestedSceneName: String,
+        areaName: String,
+        document: inout HypeDocument
+    ) -> SceneMutationResult {
+        return appendSceneChild(
+            partIndex: partIndex,
+            requestedSceneName: requestedSceneName,
+            areaName: areaName,
+            document: &document
+        ) { scene in
+            scene.nodes.append(node)
+        }
+    }
+
+    /// Run `transform` on the active-or-named scene within a sprite area.
+    /// Returns the resolved scene name on success, or a pre-formatted
+    /// error string when the scene cannot be located.
+    private func appendSceneChild(
+        partIndex: Int,
+        requestedSceneName: String,
+        areaName: String,
+        document: inout HypeDocument,
+        transform: (inout SceneSpec) -> Void
+    ) -> SceneMutationResult {
+        var resolvedSceneName = ""
+        var sceneFoundFlag = false
+        modifySpriteAreaSpec(partIndex: partIndex, document: &document) { areaSpec in
+            let sceneIdx: Int?
+            if !requestedSceneName.isEmpty {
+                sceneIdx = areaSpec.scenes.firstIndex {
+                    $0.scene.name.lowercased() == requestedSceneName.lowercased()
+                }
+            } else if let entry = areaSpec.activeSceneEntry {
+                sceneIdx = areaSpec.scenes.firstIndex { $0.id == entry.id }
+            } else {
+                sceneIdx = nil
+            }
+            guard let idx = sceneIdx else { return }
+            sceneFoundFlag = true
+            transform(&areaSpec.scenes[idx].scene)
+            if areaSpec.scenes[idx].id == areaSpec.activeSceneID {
+                areaSpec.setActiveScene(areaSpec.scenes[idx].scene)
+            }
+            resolvedSceneName = areaSpec.scenes[idx].scene.name
+        }
+        if !sceneFoundFlag {
+            if !requestedSceneName.isEmpty {
+                return .failure("Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'")
+            }
+            return .failure("Sprite area '\(areaName)' has no active scene")
+        }
+        return .success(resolvedSceneName)
+    }
+
+    /// Read a dotted-key property value from a HypeNodeSpec. Mirrors the
+    /// write path in `applyNodeProperty` so get/set are symmetric. Returns
+    /// the bare value as a string, or an empty string when the property
+    /// resolves to nil (e.g. a label's `text` when none is set).
+    private func nodePropertyValue(node: HypeNodeSpec, property: String) -> String {
+        switch property {
+        case "position.x": return String(node.position.x)
+        case "position.y": return String(node.position.y)
+        case "size.width": return String(node.size?.width ?? 0)
+        case "size.height": return String(node.size?.height ?? 0)
+        case "rotation": return String(node.rotation)
+        case "xScale": return String(node.xScale)
+        case "yScale": return String(node.yScale)
+        case "alpha": return String(node.alpha)
+        case "isHidden": return String(node.isHidden)
+        case "zPosition": return String(node.zPosition)
+        case "name": return node.name
+        case "text": return node.text ?? ""
+        case "fontName": return node.fontName ?? ""
+        case "fontSize": return node.fontSize.map { String($0) } ?? ""
+        case "fontColor": return node.fontColor ?? ""
+        case "script":
+            let s = node.script
+            if s.count > 5000 { return String(s.prefix(5000)) + "\u{2026}[truncated]" }
+            return s
+        case "shape.shapeType": return node.shapeSpec?.shapeType.rawValue ?? ""
+        case "shape.fillColor": return node.shapeSpec?.fillColor ?? ""
+        case "shape.strokeColor": return node.shapeSpec?.strokeColor ?? ""
+        case "shape.lineWidth": return node.shapeSpec.map { String($0.lineWidth) } ?? ""
+        case "shape.cornerRadius": return node.shapeSpec.map { String($0.cornerRadius) } ?? ""
+        case "physics.enabled": return String(node.physicsBody != nil)
+        case "physics.bodyType": return node.physicsBody?.bodyType.rawValue ?? ""
+        case "physics.isDynamic": return node.physicsBody.map { String($0.isDynamic) } ?? ""
+        case "physics.restitution": return node.physicsBody.map { String($0.restitution) } ?? ""
+        case "physics.friction": return node.physicsBody.map { String($0.friction) } ?? ""
+        case "physics.mass": return node.physicsBody?.mass.map { String($0) } ?? ""
+        case "physics.affectedByGravity": return node.physicsBody.map { String($0.affectedByGravity) } ?? ""
+        case "physics.allowsRotation": return node.physicsBody.map { String($0.allowsRotation) } ?? ""
+        case "physics.linearDamping": return node.physicsBody?.linearDamping.map { String($0) } ?? ""
+        case "physics.angularDamping": return node.physicsBody?.angularDamping.map { String($0) } ?? ""
+        case "physics.velocityX": return node.physicsBody?.velocityX.map { String($0) } ?? ""
+        case "physics.velocityY": return node.physicsBody?.velocityY.map { String($0) } ?? ""
+        case "physics.angularVelocity": return node.physicsBody?.angularVelocity.map { String($0) } ?? ""
+        case "emitter.birthRate": return node.emitterSpec.map { String($0.particleBirthRate) } ?? ""
+        case "emitter.lifetime": return node.emitterSpec.map { String($0.particleLifetime) } ?? ""
+        case "emitter.particleLifetime": return node.emitterSpec.map { String($0.particleLifetime) } ?? ""
+        case "emitter.speed": return node.emitterSpec.map { String($0.particleSpeed) } ?? ""
+        case "emitter.emissionAngle": return node.emitterSpec.map { String($0.emissionAngle) } ?? ""
+        case "emitter.particleColor": return node.emitterSpec?.particleColor ?? ""
+        case "emitter.particleScale": return node.emitterSpec.map { String($0.particleScale) } ?? ""
+        case "emitter.particleAlpha": return node.emitterSpec.map { String($0.particleAlpha) } ?? ""
+        case "audio.loop": return node.audioLoop.map { String($0) } ?? ""
+        case "audio.volume": return node.audioVolume.map { String($0) } ?? ""
+        case "audio.autoplay": return node.audioAutoplay.map { String($0) } ?? ""
+        case "audio.positional": return node.audioPositional.map { String($0) } ?? ""
+        case "video.loop": return node.videoLoop.map { String($0) } ?? ""
+        case "video.autoplay": return node.videoAutoplay.map { String($0) } ?? ""
+        case "camera.target": return node.cameraTarget ?? ""
+        default: return "Unknown property '\(property)'"
+        }
+    }
+
+    /// Apply a single dotted-key property write to a HypeNodeSpec.
+    /// Mirrors SceneDiff.applyProperties (lines 144-242) for shared paths
+    /// and extends it with emitter/audio/video/camera fields that
+    /// SceneDiff doesn't cover. Unknown keys silently no-op.
+    private func applyNodeProperty(_ node: inout HypeNodeSpec, property: String, value: String) {
+        switch property {
+        case "position.x":
+            if let v = Double(value) { node.position.x = v }
+        case "position.y":
+            if let v = Double(value) { node.position.y = v }
+        case "size.width":
+            if let v = Double(value) {
+                if node.size == nil { node.size = SizeSpec() }
+                node.size?.width = v
+            }
+        case "size.height":
+            if let v = Double(value) {
+                if node.size == nil { node.size = SizeSpec() }
+                node.size?.height = v
+            }
+        case "rotation":
+            if let v = Double(value) { node.rotation = v }
+        case "xScale":
+            if let v = Double(value) { node.xScale = v }
+        case "yScale":
+            if let v = Double(value) { node.yScale = v }
+        case "alpha":
+            if let v = Double(value) { node.alpha = v }
+        case "isHidden":
+            node.isHidden = (value.lowercased() == "true")
+        case "zPosition":
+            if let v = Double(value) { node.zPosition = v }
+        case "name":
+            node.name = value
+        case "text":
+            node.text = value
+        case "fontName":
+            node.fontName = value
+        case "fontSize":
+            if let v = Double(value) { node.fontSize = v }
+        case "fontColor":
+            node.fontColor = value
+        case "script":
+            node.script = value
+        case "shape.shapeType":
+            if node.shapeSpec == nil { node.shapeSpec = ShapeNodeSpec() }
+            if let shapeType = SpriteShapeType(rawValue: value) {
+                node.shapeSpec?.shapeType = shapeType
+            }
+        case "shape.fillColor":
+            if node.shapeSpec == nil { node.shapeSpec = ShapeNodeSpec() }
+            node.shapeSpec?.fillColor = value
+        case "shape.strokeColor":
+            if node.shapeSpec == nil { node.shapeSpec = ShapeNodeSpec() }
+            node.shapeSpec?.strokeColor = value
+        case "shape.lineWidth":
+            if node.shapeSpec == nil { node.shapeSpec = ShapeNodeSpec() }
+            if let v = Double(value) { node.shapeSpec?.lineWidth = v }
+        case "shape.cornerRadius":
+            if node.shapeSpec == nil { node.shapeSpec = ShapeNodeSpec() }
+            if let v = Double(value) { node.shapeSpec?.cornerRadius = v }
+        case "physics.enabled":
+            if value.lowercased() == "true" {
+                if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            } else {
+                node.physicsBody = nil
+            }
+        case "physics.bodyType":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            if let bodyType = PhysicsBodyType(rawValue: value) {
+                node.physicsBody?.bodyType = bodyType
+            }
+        case "physics.isDynamic":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.isDynamic = (value.lowercased() == "true")
+        case "physics.restitution":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            if let v = Double(value) { node.physicsBody?.restitution = v }
+        case "physics.friction":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            if let v = Double(value) { node.physicsBody?.friction = v }
+        case "physics.mass":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            if let v = Double(value) { node.physicsBody?.mass = v }
+        case "physics.affectedByGravity":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.affectedByGravity = (value.lowercased() == "true")
+        case "physics.allowsRotation":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.allowsRotation = (value.lowercased() == "true")
+        case "physics.linearDamping":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.linearDamping = Double(value)
+        case "physics.angularDamping":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.angularDamping = Double(value)
+        case "physics.velocityX":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.velocityX = Double(value)
+        case "physics.velocityY":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.velocityY = Double(value)
+        case "physics.angularVelocity":
+            if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
+            node.physicsBody?.angularVelocity = Double(value)
+        case "emitter.birthRate":
+            if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
+            if let v = Double(value) { node.emitterSpec?.particleBirthRate = v }
+        case "emitter.lifetime", "emitter.particleLifetime":
+            if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
+            if let v = Double(value) { node.emitterSpec?.particleLifetime = v }
+        case "emitter.speed":
+            if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
+            if let v = Double(value) { node.emitterSpec?.particleSpeed = v }
+        case "emitter.emissionAngle":
+            if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
+            if let v = Double(value) { node.emitterSpec?.emissionAngle = v }
+        case "emitter.particleColor":
+            if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
+            node.emitterSpec?.particleColor = value
+        case "emitter.particleScale":
+            if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
+            if let v = Double(value) { node.emitterSpec?.particleScale = v }
+        case "emitter.particleAlpha":
+            if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
+            if let v = Double(value) { node.emitterSpec?.particleAlpha = v }
+        case "audio.loop":
+            node.audioLoop = (value.lowercased() == "true")
+        case "audio.volume":
+            if let v = Double(value) { node.audioVolume = v }
+        case "audio.autoplay":
+            node.audioAutoplay = (value.lowercased() == "true")
+        case "audio.positional":
+            node.audioPositional = (value.lowercased() == "true")
+        case "video.loop":
+            node.videoLoop = (value.lowercased() == "true")
+        case "video.autoplay":
+            node.videoAutoplay = (value.lowercased() == "true")
+        case "camera.target":
+            node.cameraTarget = value
+        default:
+            break
         }
     }
 

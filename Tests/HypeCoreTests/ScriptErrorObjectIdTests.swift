@@ -150,6 +150,29 @@ struct ScriptErrorObjectIdTests {
                 "ParseError's Line N prefix should be extracted into ScriptError.line")
     }
 
+    @Test("parse errors are logged to the Hype console")
+    func parseErrorIsLoggedToConsole() {
+        HypeLogger.shared.clear()
+        var (doc, cardId) = makeDoc()
+        let idx = doc.cards.firstIndex { $0.id == cardId }!
+        doc.cards[idx].script = "on openCard\n  put -int 1 into x\nend openCard"
+
+        let result = MessageDispatcher().dispatch(
+            message: "openCard",
+            params: [],
+            targetId: cardId,
+            document: doc,
+            currentCardId: cardId
+        )
+
+        #expect(result.status == .error)
+        #expect(HypeLogger.shared.entries.contains {
+            $0.source == "Parser" &&
+            $0.message.contains("[HypeTalk parse error]") &&
+            $0.message.contains("card")
+        })
+    }
+
     // MARK: - Runtime errors carry objectId
 
     @Test("runtime error on a card script is stamped with card.id by the dispatcher")
@@ -185,6 +208,35 @@ struct ScriptErrorObjectIdTests {
                 "runtime error on card script should have its objectId stamped to card.id by the dispatcher")
         // The message from the interpreter should still be preserved.
         #expect(result.error?.message.lowercased().contains("instruction limit") == true)
+    }
+
+    @Test("runtime errors are logged to the Hype console")
+    func runtimeErrorIsLoggedToConsole() {
+        HypeLogger.shared.clear()
+        var (doc, cardId) = makeDoc()
+        let idx = doc.cards.firstIndex { $0.id == cardId }!
+        doc.cards[idx].script = """
+            on openCard
+              repeat while true
+                put "x" into y
+              end repeat
+            end openCard
+            """
+
+        let result = MessageDispatcher().dispatch(
+            message: "openCard",
+            params: [],
+            targetId: cardId,
+            document: doc,
+            currentCardId: cardId
+        )
+
+        #expect(result.status == .error)
+        #expect(HypeLogger.shared.entries.contains {
+            $0.source == "Runtime" &&
+            $0.message.contains("[HypeTalk runtime error]") &&
+            $0.message.contains("Instruction limit")
+        })
     }
 
     // MARK: - Valid scripts produce nil errors

@@ -35,9 +35,29 @@ public struct HypeToolDefinitions {
             "width": ("string", "Width in points", true),
             "height": ("string", "Height in points", true),
             "text": ("string", "Default text content", false),
-            "style": ("string", "Field style: rectangle, scrolling, shadow, transparent", false),
+            "style": ("string", "Field style: rectangle, scrolling, shadow, transparent, opaque", false),
+            "fill_color": ("string", "Fill color hex, e.g. #FFFFFF", false),
+            "stroke_color": ("string", "Border/stroke color hex, e.g. #000000", false),
+            "stroke_width": ("string", "Border/stroke width in points. Use 0 for no border.", false),
+            "text_font": ("string", "Font name", false),
+            "text_size": ("string", "Text size in points", false),
+            "text_align": ("string", "Text alignment: left, center, right", false),
+            "lock_text": ("string", "Set to 'true' for read-only label/display fields", false),
+            "show_name": ("string", "Set to 'false' to hide the field name in renderers that show names", false),
             "script": ("string", "HypeTalk script to attach", false),
             "on_background": ("string", "Set to 'true' to place on the card's background (shared across cards)", false),
+        ]),
+        makeTool(name: "create_label", description: "Create a basic card/background label using a locked transparent field. Use this for form labels and headers; do not create a SpriteKit label unless the user explicitly asked for a sprite scene.", params: [
+            "name": ("string", "Label part name", true),
+            "text": ("string", "Label text to display", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width in points", true),
+            "height": ("string", "Height in points", true),
+            "text_size": ("string", "Text size in points", false),
+            "text_align": ("string", "Text alignment: left, center, right", false),
+            "text_font": ("string", "Font name", false),
+            "on_background": ("string", "Set to 'true' to place on the card's background", false),
         ]),
         makeTool(name: "create_shape", description: "Create a shape on the current card or its background. Set on_background to true for background placement.", params: [
             "name": ("string", "Shape name", true),
@@ -97,6 +117,15 @@ public struct HypeToolDefinitions {
             "on_background": ("string", "true to place on background", false),
         ]),
 
+        makeTool(name: "repair_form_controls", description: """
+            Convert a form-like Sprite Area on the current card into ordinary Hype controls. \
+            Label nodes become locked transparent field labels. If the Sprite Area contains \
+            only labels/groups, it is removed after conversion. Use only when repairing a form \
+            that was accidentally built as a SpriteKit scene.
+            """, params: [
+            "sprite_area_name": ("string", "Optional Sprite Area name to repair. Defaults to the best form-like Sprite Area on the current card.", false),
+        ]),
+
         // Sprite area creation and management
         makeTool(name: "create_sprite_area", description: "Create a Sprite Area (SpriteKit scene container) on the current card.", params: [
             "name": ("string", "Sprite area name", true),
@@ -116,12 +145,13 @@ public struct HypeToolDefinitions {
             "<sprite_area_name> / <scene_name>", and the one that \
             handles scene events like sceneDidLoad, frameUpdate, \
             keyDown, beginContact, etc. \
-            PREFER THIS OVER `set_part_property` with \
-            `part_name: <sprite area>` + `property: script` — that \
-            older path writes to the sprite-area PART's script slot, \
-            which is separate from the scene script users actually \
-            see and edit. If `scene_name` is omitted, the active \
-            scene is used.
+            Prefer this explicit scene tool for requests like "set \
+            the script on the bounder object/sprite area". The \
+            compatibility path `set_part_property` with \
+            `part_name: <sprite area>` + `property: script` routes \
+            to this same active-scene script, but this tool is clearer \
+            and exposes the optional scene name. If `scene_name` is \
+            omitted, the active scene is used.
             """, params: [
             "sprite_area_name": ("string", "Name of the sprite area part (e.g. 'bounder')", true),
             "script": ("string", "Full HypeTalk script for the scene, wrapped in on <event> ... end <event> handler blocks", true),
@@ -241,6 +271,9 @@ public struct HypeToolDefinitions {
             autoHilite, showName, lockText, textFont, textSize, textAlign, textStyle, script, style. \
             Chart-specific properties: chartdata, charttype, charttitle, x_axis_label, y_axis_label, \
             show_legend, show_grid. \
+            If the named part is a Sprite Area and property is script, this routes to the active \
+            scene script shown in "<sprite area> / <scene>" Script Editor. Prefer set_scene_script \
+            when the user asks for SpriteKit scene behavior. \
             For 'style': button styles are transparent/opaque/rectangle/roundRect/shadow/checkBox/standard/default/popup/oval/toggle. \
             Field styles are transparent/opaque/rectangle/shadow/scrolling. \
             Shape types are rectangle/roundRect/oval/line/freeform.
@@ -299,9 +332,479 @@ public struct HypeToolDefinitions {
             "chart_name": ("string", "Name of the chart part to inspect", true),
         ]),
 
-        // Information
+        // Information / read-side
         makeTool(name: "get_stack_info", description: "Get information about the current stack: card count, background names, current card.", params: [:]),
+        makeTool(name: "get_stack_property", description: """
+            Read one stack-level property. Use this for granular introspection instead of the \
+            broader get_stack_info summary when you only need a single value. \
+            Supported properties: id, name, width, height, defaultFont, webAssetsAllowed, \
+            cardCount, backgroundCount.
+            """, params: [
+            "property": ("string", "Property name to read", true),
+        ]),
+        makeTool(name: "get_card_property", description: """
+            Read one property from a card. Use the current card when card_name is omitted. \
+            Supported properties: id, name, marked, sortKey, backgroundName, cardNumber.
+            """, params: [
+            "card_name": ("string", "Card name (defaults to current card)", false),
+            "property": ("string", "Property name to read", true),
+        ]),
+        makeTool(name: "get_background_property", description: """
+            Read one property from a background. Use the current card's background when \
+            background_name is omitted. Supported properties: id, name, sortKey, cardCount.
+            """, params: [
+            "background_name": ("string", "Background name (defaults to current background)", false),
+            "property": ("string", "Property name to read", true),
+        ]),
         makeTool(name: "get_card_parts", description: "List all parts on the current card with their properties.", params: [:]),
+
+        // ------------------------------------------------------------------
+        // Read-side tools (granular queries — prefer these over the dumps)
+        // ------------------------------------------------------------------
+
+        makeTool(name: "get_part_property", description: """
+            Read the current value of a single property on a named card part. Complements \
+            set_part_property — always call this first when you need to read-then-write (e.g. \
+            bumping a score by 10, toggling visibility). Returns "Part 'X' not found" when the \
+            part doesn't exist. Property names match set_part_property: name, left, top, width, \
+            height, text, url, videoURL, fillColor, strokeColor, strokeWidth, cornerRadius, \
+            visible, enabled, hilite, autoHilite, showName, lockText, textFont, textSize, \
+            textAlign, textStyle, script, style. For Sprite Area parts, property=script returns \
+            the active scene script, matching set_part_property's compatibility routing.
+            """, params: [
+            "part_name": ("string", "Name of the part to query", true),
+            "property": ("string", "Property name to read", true),
+        ]),
+
+        makeTool(name: "get_node_property", description: """
+            Read the current value of a single property on a scene node. Use this instead of \
+            dumping the whole scene via get_scene_spec when you only need one field. Supports \
+            dotted paths for nested properties: position.x, position.y, rotation, xScale, \
+            yScale, alpha, isHidden, zPosition, text, fontSize, fontColor, script, \
+            shape.fillColor, shape.strokeColor, shape.lineWidth, shape.cornerRadius, \
+            physics.restitution, physics.friction, physics.mass, physics.velocityX, \
+            physics.velocityY, physics.isDynamic, physics.affectedByGravity, \
+            physics.allowsRotation, physics.linearDamping, physics.angularDamping.
+            """, params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "node_name": ("string", "Name of the node within the scene", true),
+            "property": ("string", "Property path to read", true),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        makeTool(name: "list_all_cards", description: "List every card in the stack with name, number, and background. Compact line-oriented output. Use this instead of get_stack_info when you need card names for navigation.", params: [:]),
+
+        makeTool(name: "list_backgrounds", description: "List every background with its name and the count of cards using it.", params: [:]),
+
+        makeTool(name: "get_background_parts", description: """
+            List only the parts that live on the current card's background, or on a named \
+            background when background_name is supplied. Use this when the user asks for \
+            background objects/parts/buttons/fields; use get_card_parts for the combined \
+            effective card view.
+            """, params: [
+            "background_name": ("string", "Background name (defaults to current card's background)", false),
+        ]),
+
+        makeTool(name: "list_scene_nodes", description: """
+            List every node in a sprite area scene. Compact output — one line per node with \
+            id, name, type, and position. Prefer this over get_scene_spec for scene overviews; \
+            get_scene_spec returns the full (often very large) JSON. Use list_scene_nodes first \
+            to see what exists, then get_node_property for specific fields.
+            """, params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        makeTool(name: "list_scene_joints", description: "List every physics joint in a sprite area scene, grouped by type.", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        makeTool(name: "list_scene_constraints", description: "List every scene constraint (distance / orient / position) in a sprite area scene.", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        makeTool(name: "get_scene_script", description: "Return ONLY the HypeTalk script attached to a sprite area scene — much cheaper than get_scene_spec when you just need the script.", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        makeTool(name: "get_node_script", description: "Return ONLY the HypeTalk script attached to a scene node.", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "node_name": ("string", "Name of the node within the scene", true),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        makeTool(name: "get_stack_script", description: "Return the HypeTalk script attached to the stack — i.e. the script shown in the Stack Script Editor, executing on openStack / closeStack / idle.", params: [:]),
+
+        makeTool(name: "get_card_script", description: "Return the HypeTalk script attached to a card (openCard / closeCard / mouseDown etc.). Use the current card when card_name is omitted.", params: [
+            "card_name": ("string", "Card name (defaults to current card)", false),
+        ]),
+
+        makeTool(name: "get_background_script", description: "Return the HypeTalk script attached to a background (openBackground / closeBackground handlers). Uses the current background when background_name is omitted.", params: [
+            "background_name": ("string", "Background name (defaults to current background)", false),
+        ]),
+
+        // ------------------------------------------------------------------
+        // Script-setter tools for card / background / stack (set_scene_script
+        // already exists). set_part_property does NOT reach these.
+        // ------------------------------------------------------------------
+
+        makeTool(name: "set_stack_script", description: """
+            Set the HypeTalk script attached to the stack (shown in the Stack Script Editor). \
+            Triggered by openStack, closeStack, idle, and stack-level messages. Use this for \
+            globals, shared handlers, and stack-wide setup. Prefer set_card_script / \
+            set_background_script for narrower scope.
+            """, params: [
+            "script": ("string", "Full HypeTalk script for the stack", true),
+        ]),
+
+        makeTool(name: "set_card_script", description: """
+            Set the HypeTalk script attached to a card (openCard, closeCard, mouseDown on the \
+            card background, etc.). Use the current card when card_name is omitted. \
+            set_part_property with property='script' does NOT reach card scripts — use this \
+            tool instead.
+            """, params: [
+            "card_name": ("string", "Card name (defaults to current card)", false),
+            "script": ("string", "Full HypeTalk script for the card", true),
+        ]),
+
+        makeTool(name: "set_background_script", description: """
+            Set the HypeTalk script attached to a background (openBackground, closeBackground, \
+            etc.). Shared by every card that uses the background. set_part_property does NOT \
+            reach background scripts — use this tool instead. Uses the current background when \
+            background_name is omitted.
+            """, params: [
+            "background_name": ("string", "Background name (defaults to current background)", false),
+            "script": ("string", "Full HypeTalk script for the background", true),
+        ]),
+
+        // ------------------------------------------------------------------
+        // Scene-node creators for non-sprite node types. Existing
+        // add_sprite_to_scene covers sprites; add_*_to_scene below cover
+        // the rest without forcing the AI to hand-roll an apply_scene_diff.
+        // ------------------------------------------------------------------
+
+        makeTool(name: "add_label_to_scene", description: "Add a text label node to a sprite area scene.", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "label_name": ("string", "Name for the label node", true),
+            "text": ("string", "Label text to display", true),
+            "x": ("string", "X position", false),
+            "y": ("string", "Y position", false),
+            "font_name": ("string", "Font name (e.g. 'HelveticaNeue-Bold')", false),
+            "font_size": ("string", "Font size in points", false),
+            "font_color": ("string", "Font color hex (e.g. #FFFFFF)", false),
+            "z_position": ("string", "Z-order (higher draws on top)", false),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        makeTool(name: "add_shape_to_scene", description: """
+            Add a shape node (rect / circle / ellipse / path) to a sprite area scene. Prefer \
+            this over apply_scene_diff when you need a single shape — it avoids hand-rolling \
+            a HypeNodeSpec with shapeSpec set.
+            """, params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "shape_name": ("string", "Name for the shape node", true),
+            "shape_type": ("string", "Shape type: rect, circle, ellipse, path", true),
+            "x": ("string", "X position", false),
+            "y": ("string", "Y position", false),
+            "width": ("string", "Width in points", false),
+            "height": ("string", "Height in points", false),
+            "fill_color": ("string", "Fill color hex", false),
+            "stroke_color": ("string", "Stroke color hex", false),
+            "line_width": ("string", "Stroke width in points", false),
+            "corner_radius": ("string", "Corner radius (rect only)", false),
+            "z_position": ("string", "Z-order", false),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        makeTool(name: "add_emitter_to_scene", description: "Add a particle emitter node to a sprite area scene.", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "emitter_name": ("string", "Name for the emitter node", true),
+            "x": ("string", "X position", false),
+            "y": ("string", "Y position", false),
+            "birth_rate": ("string", "Particles per second (default 50)", false),
+            "lifetime": ("string", "Particle lifetime in seconds (default 2)", false),
+            "speed": ("string", "Particle speed (default 100)", false),
+            "emission_angle": ("string", "Emission angle in degrees (default 90 = up)", false),
+            "particle_color": ("string", "Particle color hex", false),
+            "particle_scale": ("string", "Particle scale (default 0.3)", false),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        makeTool(name: "add_audio_to_scene", description: "Add an audio node to a sprite area scene.", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "audio_name": ("string", "Name for the audio node", true),
+            "asset_name": ("string", "Repository asset for the sound", false),
+            "loop": ("string", "'true' to loop playback", false),
+            "volume": ("string", "Volume 0.0–1.0", false),
+            "autoplay": ("string", "'true' to start on scene load", false),
+            "positional": ("string", "'true' for 3D positional audio", false),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        makeTool(name: "add_video_to_scene", description: "Add a video node to a sprite area scene.", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "video_name": ("string", "Name for the video node", true),
+            "asset_name": ("string", "Repository asset with the video file", true),
+            "x": ("string", "X position", false),
+            "y": ("string", "Y position", false),
+            "width": ("string", "Width in points", false),
+            "height": ("string", "Height in points", false),
+            "loop": ("string", "'true' to loop playback", false),
+            "autoplay": ("string", "'true' to start on scene load", false),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        makeTool(name: "add_group_to_scene", description: "Add an empty group node (organisational container) to a sprite area scene.", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "group_name": ("string", "Name for the group node", true),
+            "x": ("string", "X position", false),
+            "y": ("string", "Y position", false),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        makeTool(name: "add_joint_to_scene", description: "Add a physics joint connecting two scene nodes.", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "joint_type": ("string", "Joint type: pin, spring, sliding, fixed, limit", true),
+            "node_a": ("string", "First node name", true),
+            "node_b": ("string", "Second node name", true),
+            "anchor_a_x": ("string", "Anchor point on node A, x (relative)", false),
+            "anchor_a_y": ("string", "Anchor point on node A, y (relative)", false),
+            "anchor_b_x": ("string", "Anchor point on node B, x (relative)", false),
+            "anchor_b_y": ("string", "Anchor point on node B, y (relative)", false),
+            "spring_frequency": ("string", "Spring frequency (spring joints only)", false),
+            "spring_damping": ("string", "Spring damping (spring joints only)", false),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        makeTool(name: "add_constraint_to_scene", description: "Add a scene constraint (distance / orient / position) between two nodes.", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "constraint_type": ("string", "Constraint type: distance, orient, position", true),
+            "source_node": ("string", "Source node name", true),
+            "target_node": ("string", "Target node name", true),
+            "min_distance": ("string", "Minimum distance", false),
+            "max_distance": ("string", "Maximum distance", false),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        makeTool(name: "add_physics_field_to_scene", description: "Add a physics field to a sprite area scene.", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "field_type": ("string", "Field type: linearGravity, radialGravity, vortex, noise, turbulence, spring, drag, electric, magnetic", true),
+            "strength": ("string", "Field strength", true),
+            "region_width": ("string", "Field region width (omit for infinite)", false),
+            "region_height": ("string", "Field region height (omit for infinite)", false),
+            "direction_x": ("string", "Direction x (linear fields)", false),
+            "direction_y": ("string", "Direction y (linear fields)", false),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        makeTool(name: "create_image", description: "Create an image part on the current card or its background. Either file_path (load from disk) or asset_name (reference sprite repository) should be provided.", params: [
+            "name": ("string", "Image part name", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width in points", true),
+            "height": ("string", "Height in points", true),
+            "file_path": ("string", "Absolute path to an image file on disk", false),
+            "asset_name": ("string", "Name of an asset already in the Sprite Repository", false),
+            "on_background": ("string", "'true' to place on the background (shared across cards)", false),
+        ]),
+
+        // ------------------------------------------------------------------
+        // Scene-node setters. set_node_property handles any writable
+        // HypeNodeSpec field via dotted key. set_physics_body is a
+        // convenience for bulk physics body configuration.
+        // ------------------------------------------------------------------
+
+        makeTool(name: "set_node_property", description: """
+            Set a single property on a scene node by dotted key. Covers every writable \
+            HypeNodeSpec field: position.x, position.y, zPosition, rotation, xScale, yScale, \
+            alpha, isHidden, name, text, fontSize, fontColor, fontName, shape.fillColor, \
+            shape.strokeColor, shape.lineWidth, shape.cornerRadius, shape.shapeType, \
+            physics.enabled, physics.bodyType, physics.isDynamic, physics.restitution, \
+            physics.friction, physics.mass, physics.affectedByGravity, physics.allowsRotation, \
+            physics.linearDamping, physics.angularDamping, physics.velocityX, \
+            physics.velocityY, physics.angularVelocity, emitter.birthRate, \
+            emitter.lifetime, emitter.speed, emitter.emissionAngle, emitter.particleColor, \
+            emitter.particleScale, emitter.particleAlpha, emitter.particleLifetime, audio.loop, \
+            audio.volume, audio.autoplay, audio.positional, video.loop, video.autoplay, \
+            camera.target. Prefer this over apply_scene_diff for single-field edits.
+            """, params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "node_name": ("string", "Name of the node to modify", true),
+            "property": ("string", "Property path to set", true),
+            "value": ("string", "New value (as a string)", true),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        makeTool(name: "set_node_script", description: "Set the HypeTalk script attached to a scene node. Parallels set_scene_script but for individual nodes (the script shown in the node-level Script Editor).", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "node_name": ("string", "Name of the node", true),
+            "script": ("string", "Full HypeTalk script for the node", true),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        makeTool(name: "set_physics_body", description: """
+            Configure a physics body on a scene node in one call. Use this when the user \
+            says something like 'make the ball bounce with restitution 1 and no friction' — \
+            it's shorter than multiple set_node_property calls. Any parameter omitted keeps \
+            its current value (or the body's default on first configuration).
+            """, params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "node_name": ("string", "Name of the node", true),
+            "body_type": ("string", "Body geometry: circle, rect, texture, edge, none", false),
+            "is_dynamic": ("string", "'true' for dynamic, 'false' for static", false),
+            "restitution": ("string", "Bounciness (0.0–1.0+)", false),
+            "friction": ("string", "Friction (0.0–1.0)", false),
+            "mass": ("string", "Mass", false),
+            "affected_by_gravity": ("string", "'true' / 'false'", false),
+            "allows_rotation": ("string", "'true' / 'false'", false),
+            "velocity_x": ("string", "Initial linear velocity x", false),
+            "velocity_y": ("string", "Initial linear velocity y", false),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        makeTool(name: "delete_scene_node", description: "Remove a node from a sprite area scene by name.", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "node_name": ("string", "Name of the node to remove", true),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        // ------------------------------------------------------------------
+        // Action authoring on scene nodes.
+        // ------------------------------------------------------------------
+
+        makeTool(name: "add_action", description: """
+            Queue a SpriteKit action on a scene node. action_type is one of: \
+            moveTo, moveBy, rotateTo, rotateBy, scaleTo, scaleBy, fadeTo, fadeIn, fadeOut, \
+            sequence, group, repeatForever, repeatCount, wait, removeFromParent, followPath, \
+            setTexture, animate, playAudio, stopAudio, changeVolume, resize, hide, unhide, \
+            colorize, speedTo, speedBy. Pass per-action inputs in parameters_json as a \
+            JSON-encoded map — e.g. {\"x\":\"400\",\"y\":\"300\"} for moveTo/moveBy, \
+            {\"angle\":\"90\"} for rotateBy, {\"child_action\":\"rotateBy\",\"child_duration\":\"2\",\"angle\":\"360\"} \
+            for repeatForever wrapping a rotation.
+            """, params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "node_name": ("string", "Name of the node to run the action on", true),
+            "action_type": ("string", "Action type (see description)", true),
+            "duration": ("string", "Action duration in seconds", false),
+            "name": ("string", "Optional action name for later removal", false),
+            "parameters_json": ("string", "JSON-encoded {key: value} map for action parameters", false),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        makeTool(name: "remove_all_actions", description: "Remove every running action from a scene node.", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "node_name": ("string", "Name of the node", true),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        // ------------------------------------------------------------------
+        // v3.1: Stack/card/background/scene administration that was
+        // reachable only via the UI before. These close the gaps the
+        // audit flagged under "Missing Tool Coverage".
+        // ------------------------------------------------------------------
+
+        makeTool(name: "set_stack_property", description: """
+            Set a stack-level property: width, height, name, defaultFont. `width` and `height` \
+            control the canvas size in points. `defaultFont` applies to new parts. \
+            `webAssetsAllowed` toggles the stack's AI web-asset search permission. \
+            Use this instead of set_part_property — the stack is not a part.
+            """, params: [
+            "property": ("string", "Property name: width, height, name, defaultFont, webAssetsAllowed", true),
+            "value": ("string", "New value (numeric for width/height, string for name/defaultFont)", true),
+        ]),
+
+        makeTool(name: "set_card_property", description: """
+            Set one property on a card. Use the current card when card_name is omitted. \
+            Supported properties: name, marked, sortKey, backgroundName. \
+            Prefer set_card_script when changing the card's script.
+            """, params: [
+            "card_name": ("string", "Card name (defaults to current card)", false),
+            "property": ("string", "Property name: name, marked, sortKey, backgroundName", true),
+            "value": ("string", "New value", true),
+        ]),
+
+        makeTool(name: "set_background_property", description: """
+            Set one property on a background. Uses the current card's background when \
+            background_name is omitted. Supported properties: name, sortKey. \
+            Prefer set_background_script when changing the background's script.
+            """, params: [
+            "background_name": ("string", "Background name (defaults to current background)", false),
+            "property": ("string", "Property name: name, sortKey", true),
+            "value": ("string", "New value", true),
+        ]),
+
+        makeTool(name: "set_card_name", description: "Rename a card. Use the current card when card_name is omitted.", params: [
+            "card_name": ("string", "Current name of the card (defaults to current card)", false),
+            "new_name": ("string", "New name for the card", true),
+        ]),
+
+        makeTool(name: "set_background_name", description: "Rename a background.", params: [
+            "background_name": ("string", "Current name of the background", true),
+            "new_name": ("string", "New name for the background", true),
+        ]),
+
+        makeTool(name: "set_card_background", description: "Change which background a card uses by name.", params: [
+            "card_name": ("string", "Name of the card (defaults to current card)", false),
+            "background_name": ("string", "Name of the background to assign", true),
+        ]),
+
+        makeTool(name: "reorder_card", description: "Move a card to a new position in the stack. Positions are 1-based.", params: [
+            "card_name": ("string", "Name of the card to move", true),
+            "new_position": ("string", "1-based target position", true),
+        ]),
+
+        makeTool(name: "duplicate_part", description: "Clone a named part on the current card and offset the copy. The new part's name is the original name with a number suffix unless new_name is given.", params: [
+            "part_name": ("string", "Name of the part to duplicate", true),
+            "new_name": ("string", "Name for the copy (defaults to '<name> 2')", false),
+            "dx": ("string", "Horizontal offset in points (default 20)", false),
+            "dy": ("string", "Vertical offset in points (default 20)", false),
+        ]),
+
+        makeTool(name: "set_scene_property", description: """
+            Set a scene-level property on a sprite area's active scene (or the named scene): \
+            gravity (as 'dx,dy'), backgroundColor (hex), isPaused, showsPhysics, showsFPS, \
+            showsNodeCount, scaleMode (fill | aspectFill | aspectFit | resizeFill), size (as 'w,h'). \
+            Prefer this over apply_scene_diff.sceneUpdates for single-field changes.
+            """, params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "property": ("string", "Scene property name", true),
+            "value": ("string", "New value (format depends on property)", true),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
+
+        makeTool(name: "add_scene", description: "Add a new named scene to a sprite area. The new scene starts empty and does not become active unless activate is 'true'.", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "scene_name": ("string", "Name for the new scene", true),
+            "activate": ("string", "'true' to make this the active scene", false),
+        ]),
+
+        makeTool(name: "delete_scene", description: "Remove a scene from a sprite area. Cannot remove the last remaining scene.", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "scene_name": ("string", "Name of the scene to delete", true),
+        ]),
+
+        makeTool(name: "rename_scene", description: "Rename a scene within a sprite area.", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "scene_name": ("string", "Current scene name", true),
+            "new_name": ("string", "New scene name", true),
+        ]),
+
+        makeTool(name: "set_active_scene", description: "Make a named scene the active scene of a sprite area.", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "scene_name": ("string", "Scene to activate", true),
+        ]),
+
+        makeTool(name: "list_scenes", description: "List every scene in a sprite area with its name, size, and whether it's active.", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+        ]),
+
+        makeTool(name: "list_scene_physics_fields", description: "List every physics field in a sprite area scene.", params: [
+            "sprite_area_name": ("string", "Name of the sprite area part", true),
+            "scene_name": ("string", "Optional scene name; defaults to active scene", false),
+        ]),
 
         // Web access
         makeTool(name: "fetch_url", description: "Fetch content from a URL. Returns the response text.", params: [
@@ -336,26 +839,171 @@ public struct HypeToolDefinitions {
         return !blocked.contains($0.function.name)
     }
 
+    /// Default card/background authoring surface for ordinary Hype layouts.
+    ///
+    /// The in-app assistant uses this unless a request is explicitly routed to
+    /// SpriteKit. Keeping scene/node tools out of the default catalog prevents
+    /// form prompts such as "make a customer entry form" from satisfying labels
+    /// via `add_label_to_scene` and accidentally creating a sprite scene.
+    public static let cardControlAuthoringTools: [OllamaTool] = allTools.filter {
+        let allowed = Set([
+            // Stack/card/background management
+            "create_card",
+            "create_background",
+            "go_to_card",
+            "delete_card",
+            "set_card_name",
+            "set_background_name",
+            "set_card_background",
+            "reorder_card",
+            "list_all_cards",
+            "list_backgrounds",
+            "get_stack_info",
+            // Basic part creation and mutation
+            "create_button",
+            "create_field",
+            "create_label",
+            "create_shape",
+            "create_image",
+            "create_webpage",
+            "create_video",
+            "create_chart",
+            "duplicate_part",
+            "delete_part",
+            "get_card_parts",
+            "get_background_parts",
+            "get_part_property",
+            "set_part_property",
+            // Stack/card/background properties and scripts
+            "get_stack_property",
+            "set_stack_property",
+            "get_card_property",
+            "set_card_property",
+            "get_background_property",
+            "set_background_property",
+            "get_card_script",
+            "set_card_script",
+            "get_background_script",
+            "set_background_script",
+            "get_stack_script",
+            "set_stack_script",
+            // Chart helpers and script validation
+            "get_chart_data_points",
+            "set_chart_data_point_color",
+            "check_script",
+            // Narrow current-card remediation for prior bad form output
+            "repair_form_controls",
+        ])
+        return allowed.contains($0.function.name)
+    }
+
     /// Narrowed AI surface for SpriteKit scene editing.
     ///
     /// This intentionally excludes generic part-script/property tools so
     /// SpriteKit-area requests stay scene-first unless the user explicitly
     /// asks for HypeTalk scripting.
     public static let spriteSceneAuthoringTools: [OllamaTool] = allTools.filter {
+        // v3.1 (Apr 2026): this allowlist used to exclude part-level
+        // authoring tools to "steer the model toward scene tools".
+        // That steering is now handled by the system prompt's
+        // `TOOL-USE PRIORITIES` block (in AIChatPanel.swift) and
+        // the corpus. Removing part tools from the catalog forced
+        // the model into a corner when the user asked for a part
+        // operation on a card that happened to contain a sprite
+        // area — the model physically could not call
+        // `set_part_property` even when the user explicitly asked
+        // for it. v3.1 widens the allowlist to cover both surfaces.
         let allowed = Set([
+            // Scene-level creation / diagnostics
             "create_sprite_area",
             "get_scene_spec",
+            "get_scene_script",
             "set_scene_script",
             "apply_scene_diff",
+            "capture_scene_snapshot",
+            "get_scene_diagnostics",
+            // Node creators (one per node type)
             "add_sprite_to_scene",
+            "add_label_to_scene",
+            "add_shape_to_scene",
+            "add_emitter_to_scene",
+            "add_audio_to_scene",
+            "add_video_to_scene",
+            "add_group_to_scene",
+            "create_camera",
             "create_tilemap",
+            // Tile-map authoring
             "classify_asset_as_tileset",
             "set_tile",
             "fill_tilemap",
             "get_tilemap_info",
-            "create_camera",
-            "capture_scene_snapshot",
-            "get_scene_diagnostics",
+            // Node read/write
+            "list_scene_nodes",
+            "list_scene_joints",
+            "list_scene_constraints",
+            "get_node_property",
+            "get_node_script",
+            "set_node_property",
+            "set_node_script",
+            "set_physics_body",
+            "delete_scene_node",
+            // Physics relationships + fields
+            "add_joint_to_scene",
+            "add_constraint_to_scene",
+            "add_physics_field_to_scene",
+            // Actions
+            "add_action",
+            "remove_all_actions",
+            // Script/scene helpers the AI still needs alongside scene tools
+            "set_card_script",
+            "set_background_script",
+            "set_stack_script",
+            "get_card_script",
+            "get_background_script",
+            "get_stack_script",
+            "get_stack_property",
+            "get_card_property",
+            "get_background_property",
+            "set_stack_property",
+            "set_card_property",
+            "set_background_property",
+            // Part-level authoring — kept in so the user can still
+            // say "set the text of button play" on a card that
+            // happens to contain a sprite area.
+            "set_part_property",
+            "get_part_property",
+            "create_button",
+            "create_field",
+            "create_label",
+            "create_shape",
+            "create_image",
+            "create_webpage",
+            "create_video",
+            "create_chart",
+            "repair_form_controls",
+            "delete_part",
+            "set_card_name",
+            "set_background_name",
+            "set_card_background",
+            "reorder_card",
+            "duplicate_part",
+            "set_scene_property",
+            "add_scene",
+            "delete_scene",
+            "rename_scene",
+            "set_active_scene",
+            "list_scenes",
+            "list_scene_physics_fields",
+            // Stack introspection
+            "get_card_parts",
+            "get_background_parts",
+            "get_stack_info",
+            "list_all_cards",
+            "list_backgrounds",
+            // Chart helpers
+            "get_chart_data_points",
+            "set_chart_data_point_color",
+            // Repository + validation (already in the prior allowlist)
             "list_repository_assets",
             "import_repository_asset",
             "check_script",

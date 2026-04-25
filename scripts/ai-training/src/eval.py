@@ -29,8 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import subprocess
+import socket
 import sys
 import time
 from pathlib import Path
@@ -41,31 +40,95 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = ROOT / "out"
-EVAL_DIR = ROOT / "eval"
-REPO_ROOT = ROOT.parent.parent
+TOOL_CATALOG_PATH = OUT_DIR / "tool_catalog.json"
 
 
-def ollama_generate(model: str, prompt: str, temperature: float = 0.2) -> str:
-    """Call Ollama's `/api/generate` HTTP endpoint with a single-turn
-    prompt and return the response text.
+AUTHORING_SYSTEM_PROMPT = """You are an AI assistant for Hype, a HyperCard-inspired app. The canvas is 1024x768 points.
 
-    We originally used `subprocess.run(["ollama", "run", model, prompt])`
-    but that invokes Ollama's interactive CLI which — even when stdin
-    is closed — can sit spinning forever on some models without
-    emitting to stdout or ever exiting. The HTTP API is deterministic,
-    honours `temperature` + `num_predict` options (the env-var form
-    we tried first is silently ignored), and times out cleanly.
+TOOL-USE PRIORITIES:
+- To READ a property: prefer get_part_property / get_node_property / get_stack_property / get_card_property / get_background_property / get_scene_script / list_scene_nodes / list_all_cards / get_card_parts over get_scene_spec (which is 10k+ tokens).
+- To MODIFY one property: prefer set_part_property / set_node_property / set_scene_property / set_stack_property / set_card_property / set_background_property / set_physics_body / set_card_script / set_background_script / set_stack_script over apply_scene_diff.
+- To CREATE a single node: prefer add_sprite_to_scene / add_label_to_scene / add_shape_to_scene / add_emitter_to_scene / add_joint_to_scene over apply_scene_diff.
+- Use apply_scene_diff ONLY for multi-node batch edits.
+- When the user says "background", set on_background to "true" in create tools.
+- If the user asks to create, set, attach, install, replace, or update a script on the stack, card, background, button, field, sprite area, scene, or node, use the appropriate setter tool. Do not answer with bare HypeTalk unless the user explicitly asks only to write or explain code.
+- Before storing any HypeTalk script with create_button, create_field, set_part_property(property=script), set_node_script, set_scene_script, set_card_script, set_background_script, or set_stack_script, call check_script first and only store the script after it returns OK.
+- For button scripts, just provide the HypeTalk command (e.g. "go next"). It will be auto-wrapped in on mouseUp/end mouseUp.
 
-    Uses `urllib` to avoid adding `requests` as a dependency.
-    """
+CURRENT STATE:
+Stack: "Eval Stack" (3 cards)
+Current card: "intro" | Background: "title_bg"
+Card parts: [button] "play" at (100,100) 120x40, [field] "score" at (20,20) 100x30, [image] "logo" at (30,80) 160x120, [spriteArea] "playfield" at (50,80) 500x320, [spriteArea] "arena" at (50,80) 500x320, [spriteArea] "game_area" at (50,80) 500x320, [spriteArea] "stage" at (50,80) 500x320, [spriteArea] "ragdoll" at (50,80) 500x320, [spriteArea] "bounder" at (50,80) 500x320
+Background parts: [field] "shared_status"
+Sprites: SpriteArea "playfield" active scene "main" (1 scenes): [sprite "ball", sprite "blue_ball", label "score_label"]. SpriteArea "arena" active scene "main" (1 scenes): [sprite "player", sprite "enemy", sprite "orb"]. SpriteArea "game_area" active scene "main" (1 scenes): [sprite "player", label "score_label"]. SpriteArea "stage" active scene "main" (1 scenes): [label "title", emitter "fire"]. SpriteArea "ragdoll" active scene "main" (1 scenes): [sprite "arm", sprite "shoulder"]. SpriteArea "bounder" active scene "main" (1 scenes): [sprite "blue_ball", sprite "red_ball"]"""
+
+SCRIPT_SYSTEM_PROMPT = """You are writing scripts in HypeTalk, a HyperCard-inspired scripting language for the Hype app.
+Respond with valid HypeTalk only. Do not include markdown fences or explanatory prose.
+When the prompt asks for a handler, output the full handler block."""
+
+
+def load_tools() -> list[dict]:
+    if not TOOL_CATALOG_PATH.exists():
+        raise SystemExit(
+            f"Tool catalog not found at {TOOL_CATALOG_PATH}. "
+            "Run `make tool-catalog` first."
+        )
+
+    catalog = json.loads(TOOL_CATALOG_PATH.read_text())
+    tools: list[dict] = []
+    for tool in catalog:
+        properties = {
+            key: {
+                "type": (value.get("type") or "STRING").lower(),
+                "description": value.get("description", ""),
+            }
+            for key, value in tool["parameters"]["properties"].items()
+        }
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": tool["name"],
+                "description": tool.get("description", ""),
+                "parameters": {
+                    "type": "object",
+                    "properties": properties,
+                    "required": tool["parameters"].get("required", []),
+                },
+            },
+        })
+    return tools
+
+
+def prompt_expects_tool_use(prompt_row: dict, known_tool_names: set[str]) -> bool:
+    must_contain = set(prompt_row.get("must_contain", []))
+    if must_contain & known_tool_names:
+        return True
+    prompt = prompt_row.get("prompt", "").lower()
+    return "which tool" in prompt or "what tool" in prompt
+
+
+def ollama_chat(
+    model: str,
+    prompt: str,
+    *,
+    system: str,
+    tools: list[dict] | None = None,
+    temperature: float = 0.2,
+    think: bool | None = None,
+) -> dict:
+    """Call Ollama's `/api/chat` endpoint with the Hype-like runtime
+    prompt so eval measures the same chat/tool surface the app uses."""
     import json as _json
     import urllib.request
     import urllib.error
 
-    body = _json.dumps({
+    payload = {
         "model": model,
-        "prompt": prompt,
         "stream": False,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ],
         "options": {
             "temperature": temperature,
             # Bound generation so a runaway loop can't hold up eval
@@ -73,10 +136,16 @@ def ollama_generate(model: str, prompt: str, temperature: float = 0.2) -> str:
             # HypeTalk handler.
             "num_predict": 512,
         },
-    }).encode()
+        "keep_alive": "30m",
+    }
+    if think is not None:
+        payload["think"] = think
+    if tools:
+        payload["tools"] = tools
+    body = _json.dumps(payload).encode()
 
     req = urllib.request.Request(
-        "http://localhost:11434/api/generate",
+        "http://localhost:11434/api/chat",
         data=body,
         headers={"Content-Type": "application/json"},
     )
@@ -84,11 +153,40 @@ def ollama_generate(model: str, prompt: str, temperature: float = 0.2) -> str:
         with urllib.request.urlopen(req, timeout=120) as resp:
             payload = _json.loads(resp.read().decode())
     except urllib.error.URLError as e:
-        return f"<ollama HTTP error: {e}>"
-    except TimeoutError:
-        return "<ollama timeout after 120s>"
+        return {"content": f"<ollama HTTP error: {e}>", "tool_calls": []}
+    except (TimeoutError, socket.timeout):
+        return {"content": "<ollama timeout after 120s>", "tool_calls": []}
 
-    return payload.get("response", "")
+    return payload.get("message", {})
+
+
+def normalize_chat_output(message: dict) -> str:
+    parts: list[str] = []
+    content = message.get("content") or ""
+    if content:
+        parts.append(content)
+
+    for call in message.get("tool_calls") or []:
+        function = call.get("function", {})
+        name = function.get("name", "")
+        arguments = function.get("arguments", {})
+        if isinstance(arguments, str):
+            arg_text = arguments
+        elif isinstance(arguments, dict):
+            serialized = []
+            for key, value in sorted(arguments.items()):
+                if isinstance(value, (dict, list)):
+                    rendered = json.dumps(value, ensure_ascii=False, sort_keys=True)
+                else:
+                    rendered = str(value)
+                serialized.append(f"{key}={rendered}")
+            arg_text = ", ".join(serialized)
+        else:
+            arg_text = str(arguments)
+        parts.append(f"{name}({arg_text})")
+        parts.append(json.dumps(call, ensure_ascii=False, sort_keys=True))
+
+    return "\n".join(part for part in parts if part)
 
 
 def score_prompt(prompt_row: dict, model_output: str) -> dict:
@@ -118,22 +216,39 @@ def score_prompt(prompt_row: dict, model_output: str) -> dict:
     }
 
 
-def evaluate_model(model: str, prompts: list[dict]) -> list[dict]:
+def evaluate_model(
+    model: str,
+    prompts: list[dict],
+    tools: list[dict],
+    known_tool_names: set[str],
+    think: bool | None = None,
+) -> list[dict]:
     """Send every prompt to `model` and collect scores. Prints a
     progress line per prompt so long runs are visible."""
     results: list[dict] = []
     for i, row in enumerate(prompts, 1):
         start = time.monotonic()
-        output = ollama_generate(model, row["prompt"])
+        use_tools = prompt_expects_tool_use(row, known_tool_names)
+        message = ollama_chat(
+            model,
+            row["prompt"],
+            system=AUTHORING_SYSTEM_PROMPT if use_tools else SCRIPT_SYSTEM_PROMPT,
+            tools=tools if use_tools else [],
+            think=think,
+        )
+        output = normalize_chat_output(message)
         elapsed = time.monotonic() - start
         score = score_prompt(row, output)
         score["elapsed_s"] = round(elapsed, 2)
         score["output"] = output
+        score["mode"] = "tool" if use_tools else "script"
+        score["raw_message"] = message
         results.append(score)
         mark = "PASS" if score["passed"] else "FAIL"
         print(
             f"  [{i}/{len(prompts)}] {mark}  {row['id']}  "
-            f"({elapsed:.1f}s)"
+            f"[{score['mode']}] ({elapsed:.1f}s)",
+            flush=True,
         )
     return results
 
@@ -171,6 +286,8 @@ def main() -> None:
     cfg = yaml.safe_load((ROOT / "config.yaml").read_text())
     candidate_model = args.model or cfg["output_model"]
     baseline_model = args.baseline or cfg["eval"]["baseline_model"]
+    think_cfg = cfg.get("ollama", {}).get("think")
+    think = None if think_cfg is None else bool(think_cfg)
 
     prompts_path = ROOT / cfg["eval"]["prompts_file"]
     prompts = [
@@ -178,11 +295,19 @@ def main() -> None:
     ]
     if not prompts:
         raise SystemExit(f"No prompts found in {prompts_path}")
+    tools = load_tools()
+    known_tool_names = {tool["function"]["name"] for tool in tools}
 
-    print(f"=== Eval: candidate = {candidate_model} ===")
-    candidate_results = evaluate_model(candidate_model, prompts)
+    print(f"=== Eval: candidate = {candidate_model} ===", flush=True)
+    candidate_results = evaluate_model(
+        candidate_model,
+        prompts,
+        tools,
+        known_tool_names,
+        think=think,
+    )
     candidate_summary = summarize(candidate_results)
-    print(f"  summary: {candidate_summary}")
+    print(f"  summary: {candidate_summary}", flush=True)
 
     report: dict[str, Any] = {
         "candidate_model": candidate_model,
@@ -191,10 +316,16 @@ def main() -> None:
     }
 
     if not args.no_baseline and baseline_model:
-        print(f"\n=== Eval: baseline = {baseline_model} ===")
-        baseline_results = evaluate_model(baseline_model, prompts)
+        print(f"\n=== Eval: baseline = {baseline_model} ===", flush=True)
+        baseline_results = evaluate_model(
+            baseline_model,
+            prompts,
+            tools,
+            known_tool_names,
+            think=think,
+        )
         baseline_summary = summarize(baseline_results)
-        print(f"  summary: {baseline_summary}")
+        print(f"  summary: {baseline_summary}", flush=True)
         report["baseline_model"] = baseline_model
         report["baseline_summary"] = baseline_summary
         report["baseline_results"] = baseline_results
@@ -204,11 +335,11 @@ def main() -> None:
             - baseline_summary["pass_rate"]
         )
         report["lift"] = round(lift, 3)
-        print(f"\n=== Lift: {lift:+.1%} ===")
+        print(f"\n=== Lift: {lift:+.1%} ===", flush=True)
 
     report_path = OUT_DIR / "eval_report.json"
     report_path.write_text(json.dumps(report, indent=2))
-    print(f"\nReport written to {report_path}")
+    print(f"\nReport written to {report_path}", flush=True)
 
     # Exit non-zero if candidate is weakly worse than baseline (for
     # CI). Absence of baseline = don't fail on the result.

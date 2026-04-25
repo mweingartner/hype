@@ -116,12 +116,27 @@ extension OllamaToolCallFunction: Codable {
 
         // Normalize to a [String: JSONFlexibleValue] object we can walk.
         var object: [String: JSONFlexibleValue] = [:]
+        func unwrapSchemaPropertiesWrapper(
+            _ dict: [String: JSONFlexibleValue]
+        ) -> [String: JSONFlexibleValue] {
+            // Some fine-tuned models leak the tool-schema shape into
+            // the call itself and emit:
+            //   "arguments": { "properties": { "property": "width" } }
+            // instead of the real payload:
+            //   "arguments": { "property": "width" }
+            // Unwrap that single-key wrapper so the executor still
+            // sees the intended flat argument map.
+            if dict.count == 1, case .object(let inner)? = dict["properties"] {
+                return inner
+            }
+            return dict
+        }
         switch raw {
         case .object(let dict):
             // Standard Ollama shape: arguments is a JSON object. Each value
             // may itself be a scalar, nested object, or array — all handled
             // by JSONFlexibleValue.canonicalString below.
-            object = dict
+            object = unwrapSchemaPropertiesWrapper(dict)
 
         case .string(let s):
             // Some OpenAI-compatible servers wrap the entire arguments map
@@ -131,7 +146,7 @@ extension OllamaToolCallFunction: Codable {
             if let data = s.data(using: .utf8),
                let parsed = try? JSONDecoder().decode(JSONFlexibleValue.self, from: data),
                case .object(let inner) = parsed {
-                object = inner
+                object = unwrapSchemaPropertiesWrapper(inner)
             }
             // If the string isn't valid JSON or isn't an object, arguments
             // stays empty — the executor will fall through to its defaults.
@@ -244,7 +259,28 @@ extension JSONFlexibleValue: Decodable {
             return String(d)
         case .string(let s):
             return s
-        case .array, .object:
+        case .array:
+            let any = self.toFoundationJSON
+            if JSONSerialization.isValidJSONObject(any),
+               let data = try? JSONSerialization.data(
+                   withJSONObject: any,
+                   options: [.sortedKeys]
+               ),
+               let s = String(data: data, encoding: .utf8) {
+                return s
+            }
+            return ""
+        case .object(let object):
+            // Some tuned models emit each individual argument as an
+            // object-wrapped scalar, e.g.
+            //   "part_name": { "value": "play" }
+            // instead of:
+            //   "part_name": "play"
+            // Unwrap that single-key shape so downstream executor
+            // lookups still see the intended flat string.
+            if object.count == 1, let inner = object["value"] {
+                return inner.canonicalString
+            }
             let any = self.toFoundationJSON
             if JSONSerialization.isValidJSONObject(any),
                let data = try? JSONSerialization.data(
@@ -388,6 +424,20 @@ public actor OllamaToolClient {
         self.session = URLSession(configuration: config)
     }
 
+    init(
+        host: String = "localhost",
+        port: String = "11434",
+        model: String = "llama3.2",
+        timeouts: Timeouts = .structured,
+        session: URLSession
+    ) {
+        self.host = host
+        self.port = port
+        self.model = model
+        self.timeouts = timeouts
+        self.session = session
+    }
+
     /// The base URL for the Ollama server.
     public var baseURL: String { "http://\(host):\(port)" }
 
@@ -441,6 +491,7 @@ public actor OllamaToolClient {
         model overrideModel: String? = nil,
         system: String? = nil
     ) async throws -> String {
+        let requestModel = overrideModel ?? model
         guard let url = URL(string: "\(baseURL)/api/generate") else {
             throw OllamaError.requestFailed("Invalid URL")
         }
@@ -450,7 +501,7 @@ public actor OllamaToolClient {
         request.timeoutInterval = timeouts.request
 
         var body: [String: Any] = [
-            "model": overrideModel ?? model,
+            "model": requestModel,
             "prompt": prompt,
             "stream": false,
         ]
@@ -459,14 +510,31 @@ public actor OllamaToolClient {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await sessionData(for: request, endpoint: "/api/generate")
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw OllamaError.requestFailed(errorText)
-        }
+        HypeLogger.shared.aiInput(
+            Self.describeGenerateRequest(model: requestModel, prompt: prompt, system: system),
+            source: "Ollama"
+        )
 
-        let decoded = try JSONDecoder().decode(OllamaGenerateResponse.self, from: data)
-        return decoded.response
+        do {
+            let (data, response) = try await sessionData(for: request, endpoint: "/api/generate")
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
+                throw OllamaError.requestFailed(errorText)
+            }
+
+            let decoded = try JSONDecoder().decode(OllamaGenerateResponse.self, from: data)
+            HypeLogger.shared.aiOutput(
+                Self.describeGenerateResponse(model: requestModel, response: decoded),
+                source: "Ollama"
+            )
+            return decoded.response
+        } catch {
+            HypeLogger.shared.error(
+                "/api/generate model=\(requestModel) failed: \(error.localizedDescription)",
+                source: "Ollama"
+            )
+            throw error
+        }
     }
 
     /// Send a chat request with tools.
@@ -491,13 +559,36 @@ public actor OllamaToolClient {
         )
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await sessionData(for: request, endpoint: "/api/chat")
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw OllamaError.requestFailed(errorText)
-        }
+        HypeLogger.shared.aiInput(
+            Self.describeChatRequest(
+                model: model,
+                messages: messages,
+                tools: tools,
+                format: format
+            ),
+            source: "Ollama"
+        )
 
-        return try JSONDecoder().decode(OllamaChatResponse.self, from: data)
+        do {
+            let (data, response) = try await sessionData(for: request, endpoint: "/api/chat")
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
+                throw OllamaError.requestFailed(errorText)
+            }
+
+            let decoded = try JSONDecoder().decode(OllamaChatResponse.self, from: data)
+            HypeLogger.shared.aiOutput(
+                Self.describeChatResponse(model: model, response: decoded),
+                source: "Ollama"
+            )
+            return decoded
+        } catch {
+            HypeLogger.shared.error(
+                "/api/chat model=\(model) failed: \(error.localizedDescription)",
+                source: "Ollama"
+            )
+            throw error
+        }
     }
 
     /// Send a chat request and decode the model's reply into a typed
@@ -547,6 +638,10 @@ public actor OllamaToolClient {
             // grammar-constrained output. Retry without `format` but
             // nudge the model toward the right shape with a
             // synthetic system message describing the schema.
+            HypeLogger.shared.warn(
+                "/api/chat model=\(model) does not support server-side structured output; retrying with schema prompt",
+                source: "Ollama"
+            )
             let retryMessages = Self.messagesWithSchemaPrompt(
                 original: messages,
                 format: format
@@ -828,6 +923,105 @@ public actor OllamaToolClient {
         if trimmed.count <= maxLen { return "\"\(trimmed)\"" }
         let prefix = trimmed.prefix(maxLen)
         return "\"\(prefix)…\" (+\(trimmed.count - maxLen) more chars)"
+    }
+
+    private static func describeGenerateRequest(
+        model: String,
+        prompt: String,
+        system: String?
+    ) -> String {
+        var lines = [
+            "POST /api/generate",
+            "model=\(model)",
+        ]
+        if let system, !system.isEmpty {
+            lines.append("SYSTEM:\n\(system)")
+        }
+        lines.append("PROMPT:\n\(prompt)")
+        return lines.joined(separator: "\n")
+    }
+
+    private static func describeGenerateResponse(
+        model: String,
+        response: OllamaGenerateResponse
+    ) -> String {
+        """
+        POST /api/generate
+        model=\(model)
+        done=\(response.done)
+        RESPONSE:
+        \(response.response)
+        """
+    }
+
+    private static func describeChatRequest(
+        model: String,
+        messages: [OllamaMessage],
+        tools: [OllamaTool],
+        format: OllamaResponseFormat?
+    ) -> String {
+        var lines = [
+            "POST /api/chat",
+            "model=\(model)",
+            "messages=\(messages.count)",
+            "tools=\(tools.map { $0.function.name }.joined(separator: ", "))",
+            "format=\(formatDescription(format))",
+        ]
+        for (index, message) in messages.enumerated() {
+            lines.append(renderMessage(message, index: index))
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func describeChatResponse(
+        model: String,
+        response: OllamaChatResponse
+    ) -> String {
+        """
+        POST /api/chat
+        model=\(model)
+        done=\(response.done)
+        \(renderMessage(response.message, index: nil))
+        """
+    }
+
+    private static func formatDescription(_ format: OllamaResponseFormat?) -> String {
+        guard let format else { return "none" }
+        switch format {
+        case .json:
+            return "json"
+        case .schema:
+            return "schema"
+        }
+    }
+
+    private static func renderMessage(_ message: OllamaMessage, index: Int?) -> String {
+        let prefix: String
+        if let index {
+            prefix = "MESSAGE \(index) \(message.role.uppercased()):"
+        } else {
+            prefix = "MESSAGE \(message.role.uppercased()):"
+        }
+
+        var parts = [prefix]
+        if let content = message.content, !content.isEmpty {
+            parts.append(content)
+        } else {
+            parts.append("(empty content)")
+        }
+        if let toolCalls = message.tool_calls, !toolCalls.isEmpty {
+            let calls = toolCalls
+                .map { call -> String in
+                    let args = call.function.arguments
+                        .sorted { $0.key < $1.key }
+                        .map { "\($0.key)=\($0.value)" }
+                        .joined(separator: ", ")
+                    return "\(call.function.name)(\(args))"
+                }
+                .joined(separator: "\n")
+            parts.append("TOOL CALLS:\n\(calls)")
+        }
+        return parts.joined(separator: "\n")
     }
 
     static func requestBodyObject(

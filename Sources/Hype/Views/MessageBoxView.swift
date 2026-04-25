@@ -81,6 +81,7 @@ struct MessageBoxView: View {
                         document.document = modified
                     }
                     if let err = result.error {
+                        HypeLogger.shared.scriptError(err, source: "Message Box", context: "Evaluation")
                         outputText = "Error: \(err.message)"
                     } else {
                         outputText = result.returnValue ?? ""
@@ -88,6 +89,12 @@ struct MessageBoxView: View {
                 }
             }
         } catch {
+            let scriptError = ScriptError(
+                message: error.localizedDescription,
+                line: 0,
+                handler: "__eval"
+            )
+            HypeLogger.shared.scriptError(scriptError, source: "Message Box", context: "Parse")
             outputText = "Error: \(error.localizedDescription)"
         }
 

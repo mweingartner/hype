@@ -244,6 +244,11 @@ struct AIChatPanel: View {
         Task { await webAssetSession.reset() }
     }
 
+    private func appendMessage(role: String, content: String) {
+        messages.append((role: role, content: content))
+        HypeLogger.shared.aiDialog(role: role, content: content, source: "AI Chat")
+    }
+
     // MARK: - Bubble Color
 
     private func bubbleColor(for role: String) -> Color {
@@ -346,7 +351,7 @@ struct AIChatPanel: View {
         }
         historyIndex = -1
 
-        messages.append((role: "user", content: text))
+        appendMessage(role: "user", content: text)
         inputText = ""
         isProcessing = true
 
@@ -364,10 +369,10 @@ struct AIChatPanel: View {
         switch pendingSceneProposal {
         case .create(let proposal):
             applyCreateProposal(proposal)
-            messages.append((role: "assistant", content: "Applied scene plan to \(proposal.areaName) / \(proposal.sceneName)."))
+            appendMessage(role: "assistant", content: "Applied scene plan to \(proposal.areaName) / \(proposal.sceneName).")
         case .repair(let proposal):
             applyRepairProposal(proposal)
-            messages.append((role: "assistant", content: "Applied scene repair to \(proposal.areaName)."))
+            appendMessage(role: "assistant", content: "Applied scene repair to \(proposal.areaName).")
         }
 
         self.pendingSceneProposal = nil
@@ -377,7 +382,7 @@ struct AIChatPanel: View {
         guard let snapshot = lastStructuredUndoDocument else { return }
         document.document = snapshot
         lastStructuredUndoDocument = nil
-        messages.append((role: "assistant", content: "Undid the last structured scene change."))
+        appendMessage(role: "assistant", content: "Undid the last structured scene change.")
     }
 
     private func applyCreateProposal(_ proposal: SceneCreateProposal) {
@@ -449,7 +454,7 @@ struct AIChatPanel: View {
                 )
                 document.document = doc
                 if !report.resolvedAssets.isEmpty {
-                    messages.append((role: "assistant", content: "Auto-imported \(report.resolvedAssets.count) asset(s): \(report.resolvedAssets.joined(separator: ", "))."))
+                    appendMessage(role: "assistant", content: "Auto-imported \(report.resolvedAssets.count) asset(s): \(report.resolvedAssets.joined(separator: ", ")).")
                 }
             }
         }
@@ -466,7 +471,7 @@ struct AIChatPanel: View {
         // a scene name with an area name.
         let resolvedIndex = resolveSpriteAreaIndex(named: proposal.areaName)
         guard let index = resolvedIndex else {
-            messages.append((role: "assistant", content: "Could not find sprite area '\(proposal.areaName)' to repair."))
+            appendMessage(role: "assistant", content: "Could not find sprite area '\(proposal.areaName)' to repair.")
             return
         }
         document.document.updatePart(id: document.document.parts[index].id) { part in
@@ -662,7 +667,7 @@ struct AIChatPanel: View {
                     currentCardId: currentCardId ?? document.document.sortedCards.first?.id ?? UUID()
                 )
                 pendingSceneProposal = .create(proposal)
-                messages.append((role: "assistant", content: "Prepared a structured SpriteKit scene plan. Review it below before applying."))
+                appendMessage(role: "assistant", content: "Prepared a structured SpriteKit scene plan. Review it below before applying.")
                 return true
             case .repair:
                 guard let area = preferredRepairSpriteArea(from: userMessage) else { return false }
@@ -673,7 +678,7 @@ struct AIChatPanel: View {
                     repository: document.document.spriteRepository
                 )
                 pendingSceneProposal = .repair(proposal)
-                messages.append((role: "assistant", content: "Prepared a structured scene repair plan. Review the issues and apply it if it looks right."))
+                appendMessage(role: "assistant", content: "Prepared a structured scene repair plan. Review the issues and apply it if it looks right.")
                 return true
             }
         } catch {
@@ -712,7 +717,7 @@ struct AIChatPanel: View {
             } else {
                 hint = ""
             }
-            messages.append((role: "assistant", content: "Structured scene planning failed: \(localized)\(hint)"))
+            appendMessage(role: "assistant", content: "Structured scene planning failed: \(localized)\(hint)")
             return true
         }
     }
@@ -756,6 +761,25 @@ struct AIChatPanel: View {
             document: document.document,
             currentCardId: currentCardId
         )
+
+        if spriteKitRoute.isSpriteKitRequest && !spriteKitRoute.explicitScriptRequest {
+            var updatedDocument = document.document
+            if let directEdit = SpriteKitDirectSceneEdit.addBoundaryWallsIfRequested(
+                prompt: userMessage,
+                document: &updatedDocument,
+                currentCardId: currentCardId ?? document.document.sortedCards.first?.id
+            ) {
+                lastStructuredUndoDocument = document.document
+                document.document = updatedDocument
+                appendMessage(
+                    role: "assistant",
+                    content: """
+                    Added four static SpriteKit boundary wall nodes to \(directEdit.areaName) / \(directEdit.sceneName): \(directEdit.nodeNames.joined(separator: ", ")).
+                    """
+                )
+                return
+            }
+        }
 
         if let intent = spriteKitRoute.structuredIntent,
            await processStructuredScenePrompt(userMessage, intent: intent) {
@@ -821,7 +845,7 @@ struct AIChatPanel: View {
             } else {
                 spriteKitPromptRules = """
                 - This request touches a SpriteKit area. Treat it as scene and node authoring first, not generic part scripting.
-                - Use SpriteKit scene tools such as `get_scene_spec` and `apply_scene_diff`, and prefer nodes, physics bodies, actions, cameras, tile maps, and scene diagnostics over `set_part_property`.
+                - Use SpriteKit scene tools such as `get_scene_script`, `list_scene_nodes`, `set_scene_property`, `add_scene`, `set_active_scene`, and `apply_scene_diff`, and prefer nodes, physics bodies, actions, cameras, tile maps, and scene diagnostics over `set_part_property`.
                 - Do NOT solve SpriteKit motion, bouncing, gravity, collisions, or staying inside bounds with `on idle` or `on frameUpdate` scripts.
                 - If keyboard input is requested, use event handlers only to adjust velocity, forces, or actions on SpriteKit nodes.
                 """
@@ -853,33 +877,76 @@ struct AIChatPanel: View {
         // prompt.
         let hypeTalkGuideBlock = isTunedHypeTalkModel ? "" : HypeTalkGuide.llmContext
         let guideReferenceWord = isTunedHypeTalkModel ? "you were trained on" : "below"
-        let systemPrompt = """
-            You are an AI assistant for Hype, a HyperCard-inspired app. The canvas is \(document.document.stack.width)x\(document.document.stack.height) points.
+        // The runtime system prompt is intentionally slim for the
+        // tuned hypetalk-* model: the rules the model has already
+        // learned from training (HypeTalk syntax, tool calling
+        // conventions, SpriteKit routing) are omitted, leaving only
+        // inference-time variables and the tool-use priorities that
+        // can't be baked into weights because they depend on the
+        // catalog at runtime. Non-tuned models still see the full
+        // HypeTalkGuide.llmContext via \(hypeTalkGuideBlock).
+        let systemPrompt: String
+        if isTunedHypeTalkModel {
+            systemPrompt = """
+                You are an AI assistant for Hype, a HyperCard-inspired app. The canvas is \(document.document.stack.width)x\(document.document.stack.height) points.
 
-            RULES:
-            - Call the needed tools to fulfill the user's request, then STOP and respond with a brief summary.
-            - Do NOT repeat tool calls you have already made.
-            - Do NOT delete parts unless the user specifically asks you to.
-            - Stay inside Hype stack-authoring tools. Do not assume filesystem or arbitrary web access is available.
-            - Create well-spaced, visually appealing layouts.
-            - Use descriptive names for all parts.
-            - For SpriteKit requests involving bouncing, gravity, collisions, or objects staying inside a sprite area, prefer native scene nodes, physics bodies, restitution, and velocity. Do NOT solve those with `on idle` or `on frameUpdate` scripts unless the user explicitly asks for custom scripting.
-            \(spriteKitPromptRules)
-            - When the user says "background", set on_background to "true" in create tools.
-              Background parts are shared across ALL cards that use that background.
-            - For button scripts, just provide the HypeTalk command (e.g. "go next"). It will be auto-wrapped in on mouseUp/end mouseUp.
-            - When writing HypeTalk scripts, use ONLY valid HypeTalk syntax as described in the guide \(guideReferenceWord).
+                TOOL-USE PRIORITIES:
+                - To READ a property: prefer get_part_property / get_node_property / get_stack_property / get_card_property / get_background_property / get_scene_script / list_scene_nodes / list_all_cards / get_card_parts over get_scene_spec (which is 10k+ tokens).
+                - To MODIFY one property: prefer set_part_property / set_node_property / set_scene_property / set_stack_property / set_card_property / set_background_property / set_physics_body / set_card_script / set_background_script / set_stack_script over apply_scene_diff.
+                - To CREATE a single node: prefer add_sprite_to_scene / add_label_to_scene / add_shape_to_scene / add_emitter_to_scene / add_joint_to_scene over apply_scene_diff.
+                - Use apply_scene_diff ONLY for multi-node batch edits.
+                - For data-entry forms, input forms, customer/contact/login forms, headers, labels, and text fields: use ordinary card/background controls. Use create_label for labels/headers and create_field(style=rectangle, stroke_color=#000000, stroke_width=1) for user input fields. Do NOT create a Sprite Area or scene labels unless the user explicitly asks for SpriteKit, sprites, physics, a game, or a scene.
+                - When the user says "background", set on_background to "true" in create tools.
+                - If the user asks to create, set, attach, install, replace, or update a script on the stack, card, background, button, field, sprite area, scene, or node, use the appropriate setter tool. Do not answer with bare HypeTalk unless the user explicitly asks only to write or explain code.
+                - Before storing any HypeTalk script with create_button, create_field, set_part_property(property=script), set_node_script, set_scene_script, set_card_script, set_background_script, or set_stack_script, call check_script first and only store the script after it returns OK.
+                - For button scripts, just provide the HypeTalk command (e.g. "go next"). It will be auto-wrapped in on mouseUp/end mouseUp.\(spriteKitPromptRules.isEmpty ? "" : "\n" + spriteKitPromptRules)
 
-            \(hypeTalkGuideBlock)
+                CURRENT STATE:
+                Stack: "\(document.document.stack.name)" (\(cardCount) cards)
+                Current card: "\(cardName)" | Background: "\(bgName)"
+                Card parts: \(currentParts.isEmpty ? "none" : currentParts)
+                Background parts: \(bgPartsDesc.isEmpty ? "none" : bgPartsDesc)
+                \(spriteInfo.isEmpty ? "" : "Sprites: \(spriteInfo)")
+                \(repoAssets.isEmpty ? "" : "Repository assets: \(repoAssets)")
+                """
+        } else {
+            // Untuned models still get the full rules + guide block so
+            // they behave as before. These models have not internalised
+            // HypeTalk syntax or tool conventions, so the guide is load-
+            // bearing.
+            systemPrompt = """
+                You are an AI assistant for Hype, a HyperCard-inspired app. The canvas is \(document.document.stack.width)x\(document.document.stack.height) points.
 
-            CURRENT STATE:
-            Stack: "\(document.document.stack.name)" (\(cardCount) cards)
-            Current card: "\(cardName)" | Background: "\(bgName)"
-            Card parts: \(currentParts.isEmpty ? "none" : currentParts)
-            Background parts: \(bgPartsDesc.isEmpty ? "none" : bgPartsDesc)
-            \(spriteInfo.isEmpty ? "" : "Sprites: \(spriteInfo)")
-            \(repoAssets.isEmpty ? "" : "Repository assets: \(repoAssets)")
-            """
+                RULES:
+                - Call the needed tools to fulfill the user's request, then STOP and respond with a brief summary.
+                - Do NOT repeat tool calls you have already made.
+                - Do NOT delete parts unless the user specifically asks you to.
+                - Stay inside Hype stack-authoring tools. Do not assume filesystem or arbitrary web access is available.
+                - Create well-spaced, visually appealing layouts.
+                - Use descriptive names for all parts.
+                - For data-entry forms, input forms, customer/contact/login forms, headers, labels, and text fields: use ordinary card/background controls. Use create_label for labels/headers and create_field(style=rectangle, stroke_color=#000000, stroke_width=1) for user input fields. Do NOT create a Sprite Area or scene labels unless the user explicitly asks for SpriteKit, sprites, physics, a game, or a scene.
+                - For SpriteKit requests involving bouncing, gravity, collisions, or objects staying inside a sprite area, prefer native scene nodes, physics bodies, restitution, and velocity. Do NOT solve those with `on idle` or `on frameUpdate` scripts unless the user explicitly asks for custom scripting.
+                \(spriteKitPromptRules)
+                - When the user says "background", set on_background to "true" in create tools.
+                  Background parts are shared across ALL cards that use that background.
+                - To READ one property on the stack, card, or background, prefer get_stack_property / get_card_property / get_background_property over broad summaries.
+                - To MODIFY one property on the stack, card, or background, prefer set_stack_property / set_card_property / set_background_property over unrelated part tools.
+                - If the user asks to create, set, attach, install, replace, or update a script on the stack, card, background, button, field, sprite area, scene, or node, use the appropriate setter tool. Do not answer with bare HypeTalk unless the user explicitly asks only to write or explain code.
+                - Before storing any HypeTalk script with create_button, create_field, set_part_property(property=script), set_node_script, set_scene_script, set_card_script, set_background_script, or set_stack_script, call check_script first and only store the script after it returns OK.
+                - For button scripts, just provide the HypeTalk command (e.g. "go next"). It will be auto-wrapped in on mouseUp/end mouseUp.
+                - When writing HypeTalk scripts, use ONLY valid HypeTalk syntax as described in the guide \(guideReferenceWord).
+
+                \(hypeTalkGuideBlock)
+
+                CURRENT STATE:
+                Stack: "\(document.document.stack.name)" (\(cardCount) cards)
+                Current card: "\(cardName)" | Background: "\(bgName)"
+                Card parts: \(currentParts.isEmpty ? "none" : currentParts)
+                Background parts: \(bgPartsDesc.isEmpty ? "none" : bgPartsDesc)
+                \(spriteInfo.isEmpty ? "" : "Sprites: \(spriteInfo)")
+                \(repoAssets.isEmpty ? "" : "Repository assets: \(repoAssets)")
+                """
+        }
 
         // Build message list: system + conversation history + new user message
         // If this is the first message, start fresh. Otherwise, carry forward.
@@ -920,9 +987,9 @@ struct AIChatPanel: View {
             conversationMessages = AIPromptBudget.trimToFit(conversationMessages)
 
             do {
-                let baseTools = spriteKitRoute.prefersSceneTooling
+                let baseTools = spriteKitRoute.isSpriteKitRequest
                     ? HypeToolDefinitions.spriteSceneAuthoringTools
-                    : HypeToolDefinitions.authoringTools
+                    : HypeToolDefinitions.cardControlAuthoringTools
                 let tools = HypeToolDefinitions.withWebAssetTools(
                     baseTools,
                     enabled: document.document.stack.webAssetsAllowed
@@ -939,15 +1006,21 @@ struct AIChatPanel: View {
                 // containing JSON or python-style function call syntax.
                 // Salvage those at the Hype layer so the fine-tuned
                 // model's tool-use works end-to-end regardless of
-                // Ollama's parse result. No effect on models that DO
-                // emit structured tool_calls; we only synthesize when
-                // Ollama returned none.
+                // Ollama's parse result. Structured tool calls still
+                // get a narrow document-aware repair pass for known
+                // local-model misroutes (e.g. Sprite Area scene script
+                // stored as a generic part script).
                 let effectiveToolCalls: [OllamaToolCall]? = {
-                    if let existing = response.message.tool_calls,
+                    if let existing = HypeAIResponseRepair.repairedToolCalls(
+                        response.message.tool_calls,
+                        userMessage: userMessage,
+                        document: document.document,
+                        currentCardId: activeCardId
+                    ),
                        !existing.isEmpty {
                         return existing
                     }
-                    return Self.extractToolCallsFromContent(response.message.content)
+                    return HypeAIResponseRepair.extractToolCalls(from: response.message.content)
                 }()
 
                 if let toolCalls = effectiveToolCalls, !toolCalls.isEmpty {
@@ -958,7 +1031,7 @@ struct AIChatPanel: View {
                             .map { "\($0.key): \($0.value)" }
                             .joined(separator: ", ")
                         let toolMsg = "Tool: \(call.function.name)(\(argsDesc))"
-                        messages.append((role: "tool", content: toolMsg))
+                        appendMessage(role: "tool", content: toolMsg)
 
                         // Show searching indicator for web-asset tools.
                         let isWebAssetTool = ["search_web_for_sprite", "import_web_asset", "find_and_import_sprite"]
@@ -973,6 +1046,7 @@ struct AIChatPanel: View {
                             currentCardId: activeCardId
                         )
                         document.document = doc
+                        HypeLogger.shared.aiDialog(role: "tool_result", content: result, source: "AI Tool")
 
                         if isWebAssetTool { isSearchingWeb = false }
 
@@ -1023,177 +1097,54 @@ struct AIChatPanel: View {
                     continue
                 }
 
-                // No tool calls — model is done
+                // No tool calls. Some tuned local models return a
+                // HypeTalk script as plain text even though the user
+                // explicitly asked to attach it. If the target can be
+                // resolved from the current stack, synthesize the
+                // corresponding setter tool call and let the normal
+                // executor validate/store it.
+                if let repairedCall = HypeAIResponseRepair.scriptAttachmentToolCall(
+                    userMessage: userMessage,
+                    modelContent: response.message.content,
+                    document: document.document,
+                    currentCardId: activeCardId
+                ) {
+                    conversationMessages.append(response.message)
+
+                    let argsDesc = repairedCall.function.arguments
+                        .map { "\($0.key): \($0.value)" }
+                        .joined(separator: ", ")
+                    appendMessage(role: "tool", content: "Tool: \(repairedCall.function.name)(\(argsDesc))")
+
+                    var doc = document.document
+                    let result = await executor.execute(
+                        toolName: repairedCall.function.name,
+                        arguments: repairedCall.function.arguments,
+                        document: &doc,
+                        currentCardId: activeCardId
+                    )
+                    document.document = doc
+                    HypeLogger.shared.warn(
+                        "Repaired unstructured model output into tool call \(repairedCall.function.name)",
+                        source: "AI Tool"
+                    )
+                    HypeLogger.shared.aiDialog(role: "tool_result", content: result, source: "AI Tool")
+                    conversationMessages.append(OllamaMessage(role: "tool", content: result))
+                    appendMessage(role: "assistant", content: result)
+                    break
+                }
+
+                // No tool calls and no safe repair — model is done.
                 let text = response.message.content ?? "(no response)"
-                messages.append((role: "assistant", content: text))
+                appendMessage(role: "assistant", content: text)
                 conversationMessages.append(OllamaMessage(role: "assistant", content: text))
                 break
 
             } catch {
-                messages.append((role: "assistant", content: "Error: \(error.localizedDescription)"))
+                appendMessage(role: "assistant", content: "Error: \(error.localizedDescription)")
                 break
             }
         }
     }
 
-    /// Extract structured tool calls from an assistant message's
-    /// `content` string when Ollama's own parser failed to populate
-    /// `tool_calls`.
-    ///
-    /// Why this exists: the HypeTalk-tuned model (`hypetalk-gemma4:*`)
-    /// emits tool calls in a handful of shapes Ollama's `gemma4`
-    /// parser doesn't recognise — most commonly a `tool_code` code
-    /// fence containing either a JSON dict of arguments or a Python-
-    /// style `function(arg="val")` call. The base `gemma4:31b`
-    /// community model emits the structured format Ollama expects;
-    /// training on our small corpus nudged the emission format
-    /// enough that the parser misses it. Rather than retrain again,
-    /// we do a best-effort extraction on the client side. Handles:
-    ///
-    ///   1. ```json\n{"tool_call": {"name": "X", "arguments": {...}}}\n```
-    ///      — matches our training data shape exactly.
-    ///
-    ///   2. ```tool_code\n{"name": "X", "arguments": {...}}\n```
-    ///      — tool_code fence wrapping a JSON object with name+args.
-    ///
-    ///   3. ```tool_code\n{"part_name": "...", "property": "..."}\n```
-    ///      — tool_code fence wrapping JUST the arguments; tool name
-    ///      is inferred from the first tool catalog entry that has
-    ///      matching parameter keys. Conservative: returns nil if
-    ///      inference is ambiguous.
-    ///
-    ///   4. ```tool_code\nfunction_name(arg1="v", arg2="v")\n```
-    ///      — Python-style function call, Gemma's native output
-    ///      shape for tool use.
-    ///
-    /// Returns nil when no recognisable pattern is found. Never
-    /// throws — the goal is best-effort recovery, not strict
-    /// validation.
-    static func extractToolCallsFromContent(_ content: String?) -> [OllamaToolCall]? {
-        guard let content, !content.isEmpty else { return nil }
-
-        // Try every supported fence type. The first successful match
-        // wins — we don't combine multiple extractors.
-        let fenceLanguages = ["json", "tool_code", "tool_call"]
-        for lang in fenceLanguages {
-            guard let body = extractFencedBlock(content, language: lang) else { continue }
-
-            // Path (1) + (2): JSON body
-            if let parsed = parseJSONToolCall(body) {
-                return [parsed]
-            }
-            // Path (4): function-call syntax inside the fence
-            if let parsed = parseFunctionCallSyntax(body) {
-                return [parsed]
-            }
-        }
-
-        // As a last resort, try function-call syntax NOT wrapped in
-        // a fence — some samples have the call on a bare line.
-        if let parsed = parseFunctionCallSyntax(content) {
-            return [parsed]
-        }
-
-        return nil
-    }
-
-    /// Pull the body of a ```<language>\n...\n``` fenced block, or
-    /// nil if the fence isn't present.
-    private static func extractFencedBlock(_ content: String, language: String) -> String? {
-        let opener = "```\(language)"
-        guard let openRange = content.range(of: opener) else { return nil }
-        let afterOpen = content[openRange.upperBound...]
-        guard let closeRange = afterOpen.range(of: "```") else { return nil }
-        let body = afterOpen[..<closeRange.lowerBound]
-        return body.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Try to interpret `body` as a JSON-encoded tool call. Accepts
-    /// both the `{"tool_call": {"name": ..., "arguments": {...}}}`
-    /// envelope our training corpus uses and a plain
-    /// `{"name": ..., "arguments": {...}}` form.
-    private static func parseJSONToolCall(_ body: String) -> OllamaToolCall? {
-        guard let data = body.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }
-
-        // Unwrap {"tool_call": {...}} envelope if present.
-        let envelope: [String: Any] = (obj["tool_call"] as? [String: Any]) ?? obj
-
-        guard let name = envelope["name"] as? String else { return nil }
-        let rawArgs = envelope["arguments"] as? [String: Any] ?? [:]
-
-        // OllamaToolCallFunction wants arguments as [String: String].
-        // JSON values may be ints, bools, arrays, nested objects —
-        // flatten everything to string the same way the upstream
-        // tool_call decoder does.
-        var stringArgs: [String: String] = [:]
-        for (k, v) in rawArgs {
-            if let s = v as? String {
-                stringArgs[k] = s
-            } else if let n = v as? NSNumber {
-                stringArgs[k] = n.stringValue
-            } else if let b = v as? Bool {
-                stringArgs[k] = b ? "true" : "false"
-            } else if let nested = try? JSONSerialization.data(withJSONObject: v),
-                      let nestedStr = String(data: nested, encoding: .utf8) {
-                stringArgs[k] = nestedStr
-            } else {
-                stringArgs[k] = String(describing: v)
-            }
-        }
-
-        return OllamaToolCall(
-            function: OllamaToolCallFunction(name: name, arguments: stringArgs)
-        )
-    }
-
-    /// Try to parse Python-style `name(arg="val", arg2="val2")`
-    /// syntax. Matches a single function call; multi-call outputs
-    /// take only the first. Accepts unquoted numeric values and
-    /// double-quoted strings.
-    private static func parseFunctionCallSyntax(_ text: String) -> OllamaToolCall? {
-        // Permissive regex: NAME(ARGS) where NAME is a word and
-        // ARGS is everything between the outermost parens. We pick
-        // the LAST matching call in the text so leading prose in
-        // the content doesn't break the match.
-        let pattern = #"([A-Za-z_][A-Za-z0-9_]*)\(([^)]*)\)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]),
-              let match = regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).last
-        else { return nil }
-
-        guard let nameRange = Range(match.range(at: 1), in: text),
-              let argsRange = Range(match.range(at: 2), in: text) else { return nil }
-
-        let name = String(text[nameRange])
-        let argsBody = String(text[argsRange])
-
-        // Split args on commas NOT inside quotes. Minimal parser:
-        // track depth of double quotes and split on top-level commas.
-        var parts: [String] = []
-        var current = ""
-        var inString = false
-        for ch in argsBody {
-            if ch == "\"" { inString.toggle(); current.append(ch); continue }
-            if ch == "," && !inString { parts.append(current); current = ""; continue }
-            current.append(ch)
-        }
-        if !current.isEmpty { parts.append(current) }
-
-        var stringArgs: [String: String] = [:]
-        for p in parts {
-            let kv = p.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-            guard kv.count == 2 else { continue }
-            let key = kv[0].trimmingCharacters(in: .whitespaces)
-            var val = kv[1].trimmingCharacters(in: .whitespaces)
-            if val.hasPrefix("\"") && val.hasSuffix("\"") && val.count >= 2 {
-                val = String(val.dropFirst().dropLast())
-            }
-            stringArgs[key] = val
-        }
-
-        return OllamaToolCall(
-            function: OllamaToolCallFunction(name: name, arguments: stringArgs)
-        )
-    }
 }

@@ -143,6 +143,7 @@ struct ControlCleanupTests {
 
         var opaquePart = Part(partType: .field)
         opaquePart.fieldStyle = .opaque
+        opaquePart.strokeWidth = 0
         let opaqueImg = renderField(opaquePart, size: NSSize(width: 100, height: 40))
 
         let rectAvg = rectImg.averageBrightness(xRange: 0...99, yRange: 0...39)
@@ -158,6 +159,39 @@ struct ControlCleanupTests {
         let interior = img.averageBrightness(xRange: 20...40, yRange: 15...25)
         #expect(interior > 0.95,
                 "expected white interior (got brightness \(interior))")
+    }
+
+    @MainActor
+    @Test("field renderer honors configured border width")
+    func fieldRendererHonorsConfiguredBorderWidth() {
+        var part = Part(partType: .field)
+        part.fieldStyle = .rectangle
+        part.strokeColor = "#FF0000"
+        part.strokeWidth = 3
+
+        var noBorder = part
+        noBorder.strokeWidth = 0
+
+        let bordered = renderField(part, size: NSSize(width: 100, height: 40))
+        let plain = renderField(noBorder, size: NSSize(width: 100, height: 40))
+        let borderedAvg = bordered.averageBrightness(xRange: 0...99, yRange: 0...39)
+        let plainAvg = plain.averageBrightness(xRange: 0...99, yRange: 0...39)
+        #expect(borderedAvg < plainAvg - 0.01,
+                "expected configured border to add visible ink: bordered=\(borderedAvg) plain=\(plainAvg)")
+    }
+
+    @MainActor
+    @Test("transparent locked label fields can render without an outline")
+    func transparentLabelCanRenderWithoutOutline() {
+        var part = Part(partType: .field)
+        part.fieldStyle = .transparent
+        part.lockText = true
+        part.strokeWidth = 0
+
+        let img = renderField(part, size: NSSize(width: 100, height: 40))
+        let edge = img.averageBrightness(xRange: 5...7, yRange: 15...25)
+        #expect(abs(edge - 0.5) < 0.03,
+                "expected no outline over gray backdrop, got brightness \(edge)")
     }
     #endif
 }

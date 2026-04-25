@@ -1,0 +1,284 @@
+# set_node_property / set_physics_body / set_node_script coverage.
+# v2 made the model hallucinate fake tools like `set_gravity`,
+# `set_scene_property`, or emit a hand-rolled apply_scene_diff with
+# invalid keys. v3 gives it direct single-field setters per node.
+
+examples:
+  # ── set_node_property: geometry ───────────────────────────────
+  - intent: "Set the player sprite's alpha to 0.6 in sprite area 'arena'."
+    tool_call:
+      name: "set_node_property"
+      arguments:
+        sprite_area_name: "arena"
+        node_name: "player"
+        property: "alpha"
+        value: "0.6"
+
+  - intent: "Rotate label 'title' in 'stage' to 15 degrees."
+    tool_call:
+      name: "set_node_property"
+      arguments:
+        sprite_area_name: "stage"
+        node_name: "title"
+        property: "rotation"
+        value: "15"
+
+  - intent: "Move sprite 'ball' in 'playfield' to x=200."
+    tool_call:
+      name: "set_node_property"
+      arguments:
+        sprite_area_name: "playfield"
+        node_name: "ball"
+        property: "position.x"
+        value: "200"
+
+  - intent: "Set zPosition of sprite 'enemy' in 'arena' to 10 so it draws above others."
+    tool_call:
+      name: "set_node_property"
+      arguments:
+        sprite_area_name: "arena"
+        node_name: "enemy"
+        property: "zPosition"
+        value: "10"
+
+  - intent: "Hide sprite 'coin' in 'level1'."
+    tool_call:
+      name: "set_node_property"
+      arguments:
+        sprite_area_name: "level1"
+        node_name: "coin"
+        property: "isHidden"
+        value: "true"
+
+  - intent: "Scale sprite 'boss' in 'arena' to 2x on both axes."
+    tool_call:
+      name: "set_node_property"
+      arguments:
+        sprite_area_name: "arena"
+        node_name: "boss"
+        property: "xScale"
+        value: "2"
+
+  # ── set_node_property: label ──────────────────────────────────
+  - intent: "Update the score_label text in 'game_area' to 'Score: 100'."
+    tool_call:
+      name: "set_node_property"
+      arguments:
+        sprite_area_name: "game_area"
+        node_name: "score_label"
+        property: "text"
+        value: "Score: 100"
+
+  - intent: "Change the fontSize of label 'title' in 'stage' to 36."
+    tool_call:
+      name: "set_node_property"
+      arguments:
+        sprite_area_name: "stage"
+        node_name: "title"
+        property: "fontSize"
+        value: "36"
+
+  - intent: "Set label 'warning' font color to red in sprite area 'arena'."
+    tool_call:
+      name: "set_node_property"
+      arguments:
+        sprite_area_name: "arena"
+        node_name: "warning"
+        property: "fontColor"
+        value: "#FF0000"
+
+  # ── set_node_property: shape ──────────────────────────────────
+  - intent: "Change the fill color of shape 'panel' in 'hud' to dark gray."
+    tool_call:
+      name: "set_node_property"
+      arguments:
+        sprite_area_name: "hud"
+        node_name: "panel"
+        property: "shape.fillColor"
+        value: "#333333"
+
+  - intent: "Set the stroke color of shape 'orb' in 'arena' to white."
+    tool_call:
+      name: "set_node_property"
+      arguments:
+        sprite_area_name: "arena"
+        node_name: "orb"
+        property: "shape.strokeColor"
+        value: "#FFFFFF"
+
+  - intent: "Increase the lineWidth of shape 'border' in 'stage' to 4."
+    tool_call:
+      name: "set_node_property"
+      arguments:
+        sprite_area_name: "stage"
+        node_name: "border"
+        property: "shape.lineWidth"
+        value: "4"
+
+  # ── set_physics_body ──────────────────────────────────────────
+  - intent: "Give sprite 'ball' in 'playfield' a restitution of 1 and zero friction."
+    tool_call:
+      name: "set_physics_body"
+      arguments:
+        sprite_area_name: "playfield"
+        node_name: "ball"
+        restitution: "1"
+        friction: "0"
+
+  - intent: "Make sprite 'box' in 'arena' static — set is_dynamic to false."
+    tool_call:
+      name: "set_physics_body"
+      arguments:
+        sprite_area_name: "arena"
+        node_name: "box"
+        is_dynamic: "false"
+
+  - intent: "Give sprite 'projectile' in 'range' an initial velocity of 300,200."
+    tool_call:
+      name: "set_physics_body"
+      arguments:
+        sprite_area_name: "range"
+        node_name: "projectile"
+        velocity_x: "300"
+        velocity_y: "200"
+
+  - intent: "Configure sprite 'balloon' in 'sky' to not be affected by gravity."
+    tool_call:
+      name: "set_physics_body"
+      arguments:
+        sprite_area_name: "sky"
+        node_name: "balloon"
+        affected_by_gravity: "false"
+
+  - intent: "Set sprite 'wheel' in 'cart' to allow rotation and high friction."
+    tool_call:
+      name: "set_physics_body"
+      arguments:
+        sprite_area_name: "cart"
+        node_name: "wheel"
+        allows_rotation: "true"
+        friction: "0.9"
+
+  - intent: "Give sprite 'asteroid' a circle body type, mass 2, and angular velocity 30 in 'space'."
+    tool_call:
+      name: "set_physics_body"
+      arguments:
+        sprite_area_name: "space"
+        node_name: "asteroid"
+        body_type: "circle"
+        mass: "2"
+
+  # ── set_node_property: physics fine-grained ───────────────────
+  - intent: "Set the linearDamping of sprite 'puck' in 'rink' to 0.1."
+    tool_call:
+      name: "set_node_property"
+      arguments:
+        sprite_area_name: "rink"
+        node_name: "puck"
+        property: "physics.linearDamping"
+        value: "0.1"
+
+  - intent: "Set angularDamping of sprite 'spinner' in 'board' to 0.3."
+    tool_call:
+      name: "set_node_property"
+      arguments:
+        sprite_area_name: "board"
+        node_name: "spinner"
+        property: "physics.angularDamping"
+        value: "0.3"
+
+  - intent: "Bump the velocityY of sprite 'rocket' in 'sky' to 500."
+    tool_call:
+      name: "set_node_property"
+      arguments:
+        sprite_area_name: "sky"
+        node_name: "rocket"
+        property: "physics.velocityY"
+        value: "500"
+
+  # ── set_node_property: emitter ────────────────────────────────
+  - intent: "Slow the fire emitter in 'stage' to a birth rate of 20."
+    tool_call:
+      name: "set_node_property"
+      arguments:
+        sprite_area_name: "stage"
+        node_name: "fire"
+        property: "emitter.birthRate"
+        value: "20"
+
+  - intent: "Change the particle color of emitter 'smoke' in 'arena' to dark gray."
+    tool_call:
+      name: "set_node_property"
+      arguments:
+        sprite_area_name: "arena"
+        node_name: "smoke"
+        property: "emitter.particleColor"
+        value: "#444444"
+
+  # ── set_node_property: audio ──────────────────────────────────
+  - intent: "Lower the volume of audio 'theme' in 'title' to 0.4."
+    tool_call:
+      name: "set_node_property"
+      arguments:
+        sprite_area_name: "title"
+        node_name: "theme"
+        property: "audio.volume"
+        value: "0.4"
+
+  - intent: "Disable looping for audio 'sfx' in 'arena'."
+    tool_call:
+      name: "set_node_property"
+      arguments:
+        sprite_area_name: "arena"
+        node_name: "sfx"
+        property: "audio.loop"
+        value: "false"
+
+  # ── set_node_script ───────────────────────────────────────────
+  - intent: "Attach a script to sprite 'player' in 'arena' that accelerates on 'd' key."
+    tool_call:
+      name: "set_node_script"
+      arguments:
+        sprite_area_name: "arena"
+        node_name: "player"
+        script: |
+          on keyDown
+            if the key is "d" then set the velocityX of me to 250
+          end keyDown
+
+  - intent: "Give sprite 'coin' in 'level1' a script that disappears when touched."
+    tool_call:
+      name: "set_node_script"
+      arguments:
+        sprite_area_name: "level1"
+        node_name: "coin"
+        script: |
+          on beginContact
+            set the isHidden of me to true
+          end beginContact
+
+  - intent: "Set a script on sprite 'enemy' in 'arena' so it rotates 2 degrees every frame."
+    tool_call:
+      name: "set_node_script"
+      arguments:
+        sprite_area_name: "arena"
+        node_name: "enemy"
+        script: |
+          on frameUpdate
+            set the rotation of me to (the rotation of me) + 2
+          end frameUpdate
+
+  # ── delete_scene_node ────────────────────────────────────────
+  - intent: "Remove sprite 'pickup' from sprite area 'arena'."
+    tool_call:
+      name: "delete_scene_node"
+      arguments:
+        sprite_area_name: "arena"
+        node_name: "pickup"
+
+  - intent: "Delete the 'hint' label from sprite area 'tutorial'."
+    tool_call:
+      name: "delete_scene_node"
+      arguments:
+        sprite_area_name: "tutorial"
+        node_name: "hint"

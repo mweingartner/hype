@@ -1,0 +1,79 @@
+# Teach the model the mandatory `check_script` protocol as an
+# actual tool chain before storing scripts.
+
+examples:
+  - intent: "Give card 'intro' a script that plays a sound on openCard."
+    turns:
+      - assistant_tool_call:
+          name: "check_script"
+          arguments:
+            script: |
+              on openCard
+                play "intro_music"
+              end openCard
+      - tool_result: "OK: 1 handler parsed ('openCard'). Script is ready to store."
+      - assistant_tool_call:
+          name: "set_card_script"
+          arguments:
+            card_name: "intro"
+            script: |
+              on openCard
+                play "intro_music"
+              end openCard
+
+  - intent: "Attach a script to the current background that hides button 'back' on openBackground."
+    turns:
+      - assistant_tool_call:
+          name: "check_script"
+          arguments:
+            script: |
+              on openBackground
+                hide button "back"
+              end openBackground
+      - tool_result: "OK: 1 handler parsed ('openBackground'). Script is ready to store."
+      - assistant_tool_call:
+          name: "set_background_script"
+          arguments:
+            script: |
+              on openBackground
+                hide button "back"
+              end openBackground
+
+  - intent: "Set the stack script to initialize global score on openStack."
+    turns:
+      - assistant_tool_call:
+          name: "check_script"
+          arguments:
+            script: |
+              on openStack
+                global score
+                put 0 into score
+              end openStack
+      - tool_result: "OK: 1 handler parsed ('openStack'). Script is ready to store."
+      - assistant_tool_call:
+          name: "set_stack_script"
+          arguments:
+            script: |
+              on openStack
+                global score
+                put 0 into score
+              end openStack
+
+  - intent: "Set the script on sprite area 'bounder' so blue_ball gets restitution 1 on sceneDidLoad."
+    turns:
+      - assistant_tool_call:
+          name: "check_script"
+          arguments:
+            script: |
+              on sceneDidLoad
+                set the restitution of sprite "blue_ball" to 1
+              end sceneDidLoad
+      - tool_result: "OK: 1 handler parsed ('sceneDidLoad'). Script is ready to store."
+      - assistant_tool_call:
+          name: "set_scene_script"
+          arguments:
+            sprite_area_name: "bounder"
+            script: |
+              on sceneDidLoad
+                set the restitution of sprite "blue_ball" to 1
+              end sceneDidLoad

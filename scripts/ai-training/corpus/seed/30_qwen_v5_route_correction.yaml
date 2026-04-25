@@ -1,0 +1,142 @@
+# Qwen v5 route-correction rows.
+#
+# These examples target observed v4 live-dispatch failures. Keep the
+# language close to the real prompts because the failure is not HypeTalk
+# syntax; it is choosing the wrong tool boundary.
+
+examples:
+  - intent: "Create the script on the bounder object on this card that uses the hoveredSprite to detect blue_ball and increases its velocity by 50 percent when hovered."
+    tool_call:
+      name: "set_scene_script"
+      arguments:
+        sprite_area_name: "bounder"
+        script: |
+          on frameUpdate
+            global wasHovering
+            if the hoveredSprite is "blue_ball" then
+              if wasHovering is "false" then
+                set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 1.5
+                set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 1.5
+                put "true" into wasHovering
+              end if
+            else
+              put "false" into wasHovering
+            end if
+          end frameUpdate
+
+  - intent: "Create the script on the bounder sprite area that uses hoveredSprite to detect blue_ball and boost its velocity by 50 percent once per hover."
+    turns:
+      - assistant_tool_call:
+          name: "check_script"
+          arguments:
+            script: |
+              on frameUpdate
+                global wasHovering
+                if the hoveredSprite is "blue_ball" then
+                  if wasHovering is "false" then
+                    set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 1.5
+                    set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 1.5
+                    put "true" into wasHovering
+                  end if
+                else
+                  put "false" into wasHovering
+                end if
+              end frameUpdate
+      - tool_result: "OK: 1 handler parsed ('frameUpdate'). Script is ready to store."
+      - assistant_tool_call:
+          name: "set_scene_script"
+          arguments:
+            sprite_area_name: "bounder"
+            script: |
+              on frameUpdate
+                global wasHovering
+                if the hoveredSprite is "blue_ball" then
+                  if wasHovering is "false" then
+                    set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 1.5
+                    set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 1.5
+                    put "true" into wasHovering
+                  end if
+                else
+                  put "false" into wasHovering
+                end if
+              end frameUpdate
+
+  - intent: "Set the script of the bounder object on this card to make blue_ball accelerate when the mouse is over it."
+    tool_call:
+      name: "set_scene_script"
+      arguments:
+        sprite_area_name: "bounder"
+        script: |
+          on frameUpdate
+            if the hoveredSprite is "blue_ball" then
+              set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 1.5
+              set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 1.5
+            end if
+          end frameUpdate
+
+  - intent: "Attach this script to the bounder scene, not to the Sprite Area part: when hoveredSprite is blue_ball, increase blue_ball velocity by 50 percent."
+    tool_call:
+      name: "set_scene_script"
+      arguments:
+        sprite_area_name: "bounder"
+        script: |
+          on frameUpdate
+            if the hoveredSprite is "blue_ball" then
+              set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 1.5
+              set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 1.5
+            end if
+          end frameUpdate
+
+  - intent: "Put a mouse-over blue_ball velocity boost script in the bounder sprite scene."
+    tool_call:
+      name: "set_scene_script"
+      arguments:
+        sprite_area_name: "bounder"
+        script: |
+          on frameUpdate
+            if the hoveredSprite is "blue_ball" then
+              set the velocityX of sprite "blue_ball" to (the velocityX of sprite "blue_ball") * 1.5
+              set the velocityY of sprite "blue_ball" to (the velocityY of sprite "blue_ball") * 1.5
+            end if
+          end frameUpdate
+
+  - intent: "List the background objects on this card."
+    tool_call:
+      name: "get_background_parts"
+      arguments: {}
+
+  - intent: "List every object on the current background."
+    tool_call:
+      name: "get_background_parts"
+      arguments: {}
+
+  - intent: "What parts are on this card's background?"
+    tool_call:
+      name: "get_background_parts"
+      arguments: {}
+
+  - intent: "Show me the shared background fields and buttons for the current card."
+    tool_call:
+      name: "get_background_parts"
+      arguments: {}
+
+  - intent: "Set blue_ball alpha to 0.5 in the bounder sprite area."
+    tool_call:
+      name: "set_node_property"
+      arguments:
+        sprite_area_name: "bounder"
+        node_name: "blue_ball"
+        property: "alpha"
+        value: "0.5"
+
+  - intent: "List every node in the bounder sprite area."
+    tool_call:
+      name: "list_scene_nodes"
+      arguments:
+        sprite_area_name: "bounder"
+
+  - intent: "What is the width of the current stack?"
+    tool_call:
+      name: "get_stack_property"
+      arguments:
+        property: "width"

@@ -1,0 +1,330 @@
+# Node-type creators (labels / shapes / emitters / audio / video /
+# groups / joints / constraints / physics-fields) + create_image.
+# v2 had none of these — the model had to hand-roll apply_scene_diff
+# with HypeNodeSpec JSON which is exactly where it hallucinated
+# invalid keys. v3 introduces add_*_to_scene tools for every node
+# type so the AI can create nodes declaratively.
+
+examples:
+  # ── add_label_to_scene ─────────────────────────────────────────
+  - intent: "Add a score label to the 'game_area' sprite area at 20,560, 24pt white."
+    tool_call:
+      name: "add_label_to_scene"
+      arguments:
+        sprite_area_name: "game_area"
+        label_name: "score_label"
+        text: "Score: 0"
+        x: "20"
+        y: "560"
+        font_size: "24"
+        font_color: "#FFFFFF"
+
+  - intent: "Put a 'Game Over' label in the center of sprite area 'arena'."
+    tool_call:
+      name: "add_label_to_scene"
+      arguments:
+        sprite_area_name: "arena"
+        label_name: "game_over"
+        text: "Game Over"
+        x: "400"
+        y: "300"
+        font_size: "48"
+        font_color: "#FF0000"
+
+  - intent: "Add a tiny instruction label 'Press space' in sprite area 'title'."
+    tool_call:
+      name: "add_label_to_scene"
+      arguments:
+        sprite_area_name: "title"
+        label_name: "instruction"
+        text: "Press space"
+        x: "400"
+        y: "80"
+        font_size: "14"
+        font_color: "#CCCCCC"
+
+  - intent: "Add a lives counter label to sprite area 'playfield'."
+    tool_call:
+      name: "add_label_to_scene"
+      arguments:
+        sprite_area_name: "playfield"
+        label_name: "lives"
+        text: "Lives: 3"
+        x: "700"
+        y: "560"
+        font_size: "20"
+        font_color: "#FFFFFF"
+
+  - intent: "Add a yellow 32pt level label to scene 'level2' in sprite area 'stage'."
+    tool_call:
+      name: "add_label_to_scene"
+      arguments:
+        sprite_area_name: "stage"
+        label_name: "level_label"
+        text: "Level 2"
+        x: "400"
+        y: "500"
+        font_size: "32"
+        font_color: "#FFFF00"
+        scene_name: "level2"
+
+  # ── add_shape_to_scene ─────────────────────────────────────────
+  - intent: "Add a red circle 'orb' to 'arena' at 400,300 size 80x80."
+    tool_call:
+      name: "add_shape_to_scene"
+      arguments:
+        sprite_area_name: "arena"
+        shape_name: "orb"
+        shape_type: "circle"
+        x: "400"
+        y: "300"
+        width: "80"
+        height: "80"
+        fill_color: "#FF0000"
+
+  - intent: "Create a blue rectangle 'panel' 200x100 at 100,100 in 'stage'."
+    tool_call:
+      name: "add_shape_to_scene"
+      arguments:
+        sprite_area_name: "stage"
+        shape_name: "panel"
+        shape_type: "rect"
+        x: "100"
+        y: "100"
+        width: "200"
+        height: "100"
+        fill_color: "#0000FF"
+
+  - intent: "Put a green ellipse 'badge' at 200,200 with 60x40 size in sprite area 'hud'."
+    tool_call:
+      name: "add_shape_to_scene"
+      arguments:
+        sprite_area_name: "hud"
+        shape_name: "badge"
+        shape_type: "ellipse"
+        x: "200"
+        y: "200"
+        width: "60"
+        height: "40"
+        fill_color: "#00FF00"
+
+  - intent: "Add a rounded white rectangle with 16pt corners to scene 'main' in 'arena'."
+    tool_call:
+      name: "add_shape_to_scene"
+      arguments:
+        sprite_area_name: "arena"
+        shape_name: "card_bg"
+        shape_type: "rect"
+        x: "400"
+        y: "300"
+        width: "300"
+        height: "200"
+        fill_color: "#FFFFFF"
+        corner_radius: "16"
+
+  # ── add_emitter_to_scene ───────────────────────────────────────
+  - intent: "Add a red fire emitter called 'fire' to 'stage' at 200,100 that emits upward."
+    tool_call:
+      name: "add_emitter_to_scene"
+      arguments:
+        sprite_area_name: "stage"
+        emitter_name: "fire"
+        x: "200"
+        y: "100"
+        emission_angle: "90"
+        particle_color: "#FF4400"
+        birth_rate: "80"
+
+  - intent: "Create a smoke emitter 'smoke' with a slow birth rate in sprite area 'arena'."
+    tool_call:
+      name: "add_emitter_to_scene"
+      arguments:
+        sprite_area_name: "arena"
+        emitter_name: "smoke"
+        x: "400"
+        y: "50"
+        birth_rate: "20"
+        lifetime: "4"
+        particle_color: "#888888"
+        emission_angle: "90"
+
+  - intent: "Add a star-burst emitter at 500,400 of sprite area 'playfield'."
+    tool_call:
+      name: "add_emitter_to_scene"
+      arguments:
+        sprite_area_name: "playfield"
+        emitter_name: "starburst"
+        x: "500"
+        y: "400"
+        birth_rate: "200"
+        lifetime: "1"
+        speed: "200"
+        particle_color: "#FFFF00"
+        particle_scale: "0.5"
+
+  # ── add_audio_to_scene ─────────────────────────────────────────
+  - intent: "Add a looping 'theme' audio node to sprite area 'title' using asset 'music'."
+    tool_call:
+      name: "add_audio_to_scene"
+      arguments:
+        sprite_area_name: "title"
+        audio_name: "theme"
+        asset_name: "music"
+        loop: "true"
+        autoplay: "true"
+        volume: "0.8"
+
+  - intent: "Create a 'beep' audio node in sprite area 'game' with asset 'beep_sound'."
+    tool_call:
+      name: "add_audio_to_scene"
+      arguments:
+        sprite_area_name: "game"
+        audio_name: "beep"
+        asset_name: "beep_sound"
+        loop: "false"
+
+  # ── add_group_to_scene ─────────────────────────────────────────
+  - intent: "Create an empty group 'hud' in sprite area 'arena' at 0,0 to organise HUD elements."
+    tool_call:
+      name: "add_group_to_scene"
+      arguments:
+        sprite_area_name: "arena"
+        group_name: "hud"
+        x: "0"
+        y: "0"
+
+  - intent: "Add a 'pieces' group node to scene 'main' in sprite area 'board'."
+    tool_call:
+      name: "add_group_to_scene"
+      arguments:
+        sprite_area_name: "board"
+        group_name: "pieces"
+
+  # ── add_joint_to_scene ─────────────────────────────────────────
+  - intent: "Create a pin joint between sprite 'arm' and sprite 'shoulder' in sprite area 'ragdoll'."
+    tool_call:
+      name: "add_joint_to_scene"
+      arguments:
+        sprite_area_name: "ragdoll"
+        joint_type: "pin"
+        node_a: "arm"
+        node_b: "shoulder"
+
+  - intent: "Connect sprite 'ball' to sprite 'anchor' with a spring joint in 'playfield'."
+    tool_call:
+      name: "add_joint_to_scene"
+      arguments:
+        sprite_area_name: "playfield"
+        joint_type: "spring"
+        node_a: "ball"
+        node_b: "anchor"
+        spring_frequency: "2.0"
+        spring_damping: "0.5"
+
+  - intent: "Add a fixed joint between sprite 'wheel' and sprite 'axle' in 'cart'."
+    tool_call:
+      name: "add_joint_to_scene"
+      arguments:
+        sprite_area_name: "cart"
+        joint_type: "fixed"
+        node_a: "wheel"
+        node_b: "axle"
+
+  - intent: "Join sprite 'slider' and sprite 'track' with a sliding joint in sprite area 'rails'."
+    tool_call:
+      name: "add_joint_to_scene"
+      arguments:
+        sprite_area_name: "rails"
+        joint_type: "sliding"
+        node_a: "slider"
+        node_b: "track"
+
+  # ── add_constraint_to_scene ────────────────────────────────────
+  - intent: "Keep sprite 'follower' within 100 units of sprite 'leader' in 'arena' with a distance constraint."
+    tool_call:
+      name: "add_constraint_to_scene"
+      arguments:
+        sprite_area_name: "arena"
+        constraint_type: "distance"
+        source_node: "follower"
+        target_node: "leader"
+        max_distance: "100"
+
+  - intent: "Lock sprite 'tail' to match the orientation of sprite 'head' in 'snake'."
+    tool_call:
+      name: "add_constraint_to_scene"
+      arguments:
+        sprite_area_name: "snake"
+        constraint_type: "orient"
+        source_node: "tail"
+        target_node: "head"
+
+  # ── add_physics_field_to_scene ─────────────────────────────────
+  - intent: "Put a downward linear gravity field in sprite area 'playfield' strength 100."
+    tool_call:
+      name: "add_physics_field_to_scene"
+      arguments:
+        sprite_area_name: "playfield"
+        field_type: "linearGravity"
+        strength: "100"
+        direction_x: "0"
+        direction_y: "-1"
+
+  - intent: "Add a vortex field with strength 50 to sprite area 'whirlpool'."
+    tool_call:
+      name: "add_physics_field_to_scene"
+      arguments:
+        sprite_area_name: "whirlpool"
+        field_type: "vortex"
+        strength: "50"
+
+  - intent: "Drop a radial gravity field at the center of sprite area 'planet'."
+    tool_call:
+      name: "add_physics_field_to_scene"
+      arguments:
+        sprite_area_name: "planet"
+        field_type: "radialGravity"
+        strength: "200"
+
+  - intent: "Add a turbulence field with strength 30 in sprite area 'wind'."
+    tool_call:
+      name: "add_physics_field_to_scene"
+      arguments:
+        sprite_area_name: "wind"
+        field_type: "turbulence"
+        strength: "30"
+
+  # ── create_image (card-level image part) ───────────────────────
+  - intent: "Create an image part 'logo' using the 'logo_sprite' asset at 100,50 sized 200x200."
+    tool_call:
+      name: "create_image"
+      arguments:
+        name: "logo"
+        left: "100"
+        top: "50"
+        width: "200"
+        height: "200"
+        asset_name: "logo_sprite"
+
+  - intent: "Add an image part 'icon' at 400,400 size 64x64 from repo asset 'starIcon'."
+    tool_call:
+      name: "create_image"
+      arguments:
+        name: "icon"
+        left: "400"
+        top: "400"
+        width: "64"
+        height: "64"
+        asset_name: "starIcon"
+
+  - intent: "Place an image named 'banner' on the background using asset 'banner_art' at 0,0 800x100."
+    tool_call:
+      name: "create_image"
+      arguments:
+        name: "banner"
+        left: "0"
+        top: "0"
+        width: "800"
+        height: "100"
+        asset_name: "banner_art"
+        on_background: "true"

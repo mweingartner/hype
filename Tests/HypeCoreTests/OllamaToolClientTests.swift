@@ -205,6 +205,42 @@ struct OllamaToolCallFunctionDecodingTests {
         #expect(reparsed?[0]["name"] as? String == "Jan")
     }
 
+    @Test("decodes arguments when a model incorrectly wraps them under properties")
+    func argumentsWrappedUnderPropertiesKey() throws {
+        let json = """
+        {
+            "name": "get_stack_property",
+            "arguments": {
+                "properties": {
+                    "property": "width"
+                }
+            }
+        }
+        """
+        let fn = try decode(json)
+        #expect(fn.name == "get_stack_property")
+        #expect(fn.arguments["property"] == "width")
+        #expect(fn.arguments["properties"] == nil)
+    }
+
+    @Test("decodes arguments when each field is incorrectly wrapped under value")
+    func argumentsWrappedUnderValuePerField() throws {
+        let json = """
+        {
+            "name": "set_part_property",
+            "arguments": {
+                "part_name": { "value": "play" },
+                "property": { "value": "text" },
+                "value": { "value": "Start Game" }
+            }
+        }
+        """
+        let fn = try decode(json)
+        #expect(fn.arguments["part_name"] == "play")
+        #expect(fn.arguments["property"] == "text")
+        #expect(fn.arguments["value"] == "Start Game")
+    }
+
     @Test("decodes integer values with a literal decimal (100.0 → '100')")
     func wholeNumberDoubleBecomesInteger() throws {
         let json = """
@@ -594,5 +630,88 @@ struct OllamaFormatUnsupportedFallbackTests {
         #expect(retry[0].role == "system")
         #expect(retry[0].content?.contains("summary") == true)
         #expect(retry[1].role == "user")
+    }
+}
+
+@Suite("OllamaToolClient console logging", .serialized)
+struct OllamaToolClientConsoleLoggingTests {
+
+    @Test("chat logs request messages and response tool calls")
+    func chatLogsRequestAndResponse() async throws {
+        HypeLogger.shared.clear()
+        defer {
+            MockURLProtocol.requestHandler = nil
+            HypeLogger.shared.clear()
+        }
+
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: config)
+
+        MockURLProtocol.requestHandler = { request in
+            #expect(request.url?.path == "/api/chat")
+
+            let payload = """
+            {
+              "message": {
+                "role": "assistant",
+                "content": "I'll update the card.",
+                "tool_calls": [
+                  {
+                    "function": {
+                      "name": "set_card_property",
+                      "arguments": {
+                        "property": "name",
+                        "value": "Home"
+                      }
+                    }
+                  }
+                ]
+              },
+              "done": true
+            }
+            """
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(payload.utf8))
+        }
+
+        let client = OllamaToolClient(
+            host: "localhost",
+            port: "11434",
+            model: "test-model",
+            session: session
+        )
+        let tool = OllamaTool(
+            type: "function",
+            function: OllamaFunction(
+                name: "set_card_property",
+                description: "Set a card property",
+                parameters: OllamaParameters(
+                    type: "object",
+                    properties: [
+                        "property": OllamaProperty(type: "string", description: "Property name"),
+                        "value": OllamaProperty(type: "string", description: "Property value"),
+                    ],
+                    required: ["property", "value"]
+                )
+            )
+        )
+
+        _ = try await client.chat(
+            messages: [
+                OllamaMessage(role: "system", content: "You are Hype."),
+                OllamaMessage(role: "user", content: "Create a button"),
+            ],
+            tools: [tool]
+        )
+
+        let entries = HypeLogger.shared.entries
+        #expect(entries.contains { $0.source == "Ollama" && $0.message.contains("POST /api/chat") && $0.message.contains("Create a button") })
+        #expect(entries.contains { $0.source == "Ollama" && $0.message.contains("I'll update the card.") && $0.message.contains("set_card_property") })
     }
 }

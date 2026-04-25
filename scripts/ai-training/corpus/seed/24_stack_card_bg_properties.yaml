@@ -1,0 +1,145 @@
+# Stack / card / background property tools.
+#
+# These close the gap between part/node property coverage and the
+# stack-level / card-level / background-level introspection users
+# actually ask for in Hype's chat panel.
+
+examples:
+  # ── get_stack_property ────────────────────────────────────────
+  - intent: "What is the width of the current stack?"
+    tool_call:
+      name: "get_stack_property"
+      arguments:
+        property: "width"
+
+  - intent: "Read the current height of the stack."
+    tool_call:
+      name: "get_stack_property"
+      arguments:
+        property: "height"
+
+  - intent: "What's the default font for new controls in this stack?"
+    tool_call:
+      name: "get_stack_property"
+      arguments:
+        property: "defaultFont"
+
+  - intent: "Is AI web asset search enabled for this stack?"
+    tool_call:
+      name: "get_stack_property"
+      arguments:
+        property: "webAssetsAllowed"
+
+  # ── set_stack_property ────────────────────────────────────────
+  - intent: "Set the width of the current stack to 1024."
+    tool_call:
+      name: "set_stack_property"
+      arguments:
+        property: "width"
+        value: "1024"
+
+  - intent: "Change the stack height to 720."
+    tool_call:
+      name: "set_stack_property"
+      arguments:
+        property: "height"
+        value: "720"
+
+  - intent: "Rename this stack to 'Arcade Demo'."
+    tool_call:
+      name: "set_stack_property"
+      arguments:
+        property: "name"
+        value: "Arcade Demo"
+
+  - intent: "Turn on AI web asset search for this stack."
+    tool_call:
+      name: "set_stack_property"
+      arguments:
+        property: "webAssetsAllowed"
+        value: "true"
+
+  # ── get_card_property ─────────────────────────────────────────
+  - intent: "What background is the current card using?"
+    tool_call:
+      name: "get_card_property"
+      arguments:
+        property: "backgroundName"
+
+  - intent: "Is the current card marked?"
+    tool_call:
+      name: "get_card_property"
+      arguments:
+        property: "marked"
+
+  - intent: "What's the card number of the current card?"
+    tool_call:
+      name: "get_card_property"
+      arguments:
+        property: "cardNumber"
+
+  - intent: "Read the background name of card 'intro'."
+    tool_call:
+      name: "get_card_property"
+      arguments:
+        card_name: "intro"
+        property: "backgroundName"
+
+  # ── set_card_property ─────────────────────────────────────────
+  - intent: "Set the current card marked property to true."
+    tool_call:
+      name: "set_card_property"
+      arguments:
+        property: "marked"
+        value: "true"
+
+  - intent: "Rename the current card to 'Game Over'."
+    tool_call:
+      name: "set_card_property"
+      arguments:
+        property: "name"
+        value: "Game Over"
+
+  - intent: "Move card 'intro' onto background 'menu_bg'."
+    tool_call:
+      name: "set_card_property"
+      arguments:
+        card_name: "intro"
+        property: "backgroundName"
+        value: "menu_bg"
+
+  # ── get_background_property ───────────────────────────────────
+  - intent: "How many cards use the current background?"
+    tool_call:
+      name: "get_background_property"
+      arguments:
+        property: "cardCount"
+
+  - intent: "What's the name of the current background?"
+    tool_call:
+      name: "get_background_property"
+      arguments:
+        property: "name"
+
+  - intent: "Read the sortKey of background 'title_bg'."
+    tool_call:
+      name: "get_background_property"
+      arguments:
+        background_name: "title_bg"
+        property: "sortKey"
+
+  # ── set_background_property ───────────────────────────────────
+  - intent: "Rename the current background to 'shared_ui'."
+    tool_call:
+      name: "set_background_property"
+      arguments:
+        property: "name"
+        value: "shared_ui"
+
+  - intent: "Rename background 'title_bg' to 'title_shared'."
+    tool_call:
+      name: "set_background_property"
+      arguments:
+        background_name: "title_bg"
+        property: "name"
+        value: "title_shared"

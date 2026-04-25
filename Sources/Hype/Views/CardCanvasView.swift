@@ -492,7 +492,6 @@ struct CardCanvasView: NSViewRepresentable {
                 }
             case .error:
                 if let err = result.error {
-                    HypeLogger.shared.error("\(err.handler) line \(err.line): \(err.message)", source: "Script")
                     postScriptErrorNotification(err)
                 }
             }
@@ -1030,10 +1029,9 @@ class CardCanvasNSView: NSView {
         textField.stringValue = part.textContent
         textField.font = NSFont(name: part.textFont, size: CGFloat(part.textSize)) ?? NSFont.systemFont(ofSize: CGFloat(part.textSize))
         textField.textColor = .black
-        textField.isBordered = true
-        textField.bezelStyle = .roundedBezel
-        textField.drawsBackground = true
-        textField.backgroundColor = .white
+        textField.isBordered = false
+        textField.drawsBackground = part.fieldStyle != .transparent
+        textField.backgroundColor = nsColorFromHex(part.fillColor)
         textField.focusRingType = .exterior
         textField.isEditable = true
         textField.isSelectable = true
@@ -1042,6 +1040,9 @@ class CardCanvasNSView: NSView {
         textField.cell?.wraps = !part.dontWrap
         textField.cell?.isScrollable = true
         textField.wantsLayer = true
+        textField.layer?.borderColor = nsColorFromHex(part.strokeColor).cgColor
+        textField.layer?.borderWidth = max(0, CGFloat(part.strokeWidth))
+        textField.layer?.backgroundColor = (part.fieldStyle == .transparent ? NSColor.clear : nsColorFromHex(part.fillColor)).cgColor
         textField.layer?.zPosition = 1000  // Ensure it's above all canvas drawing
 
         addSubview(textField, positioned: .above, relativeTo: nil)
@@ -1766,6 +1767,7 @@ class CardCanvasNSView: NSView {
                         height: 30
                     )
                     newField.fieldStyle = .transparent
+                    newField.strokeWidth = 0
                     newField.lockText = false
                     coordinator?.addPart(newField)
                     coordinator?.selectPart(newField.id)

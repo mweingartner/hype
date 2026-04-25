@@ -194,6 +194,19 @@ struct CheckScriptToolTests {
         #expect(result.hasPrefix("FAIL:"))
     }
 
+    @Test("javascript-style hype.showNextCard call reports a parse error")
+    func javaScriptStyleNavigationFails() async {
+        var (doc, cardId) = makeDoc()
+        let executor = HypeToolExecutor()
+        let result = await executor.execute(
+            toolName: "check_script",
+            arguments: ["script": "hype.showNextCard();"],
+            document: &doc,
+            currentCardId: cardId
+        )
+        #expect(result.hasPrefix("FAIL:"))
+    }
+
     @Test("unclosed handler block reports a parse error")
     func unclosedHandlerFails() async {
         var (doc, cardId) = makeDoc()
