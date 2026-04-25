@@ -753,6 +753,9 @@ class CardCanvasNSView: NSView {
             case 76: // Enter
                 coordinator?.dispatchMessageToCard("enterKey")
             case 48: // Tab
+                if focusFirstEditableField(reverse: event.modifierFlags.contains(.shift)) {
+                    return
+                }
                 coordinator?.dispatchMessageToCard("tabKey")
             case 123, 124, 125, 126: // Arrow keys
                 coordinator?.dispatchMessageToCard("arrowKey")
@@ -1010,7 +1013,59 @@ class CardCanvasNSView: NSView {
         needsDisplay = true
     }
 
-    private func startFieldEditing(part: Part) {
+    static func editableFieldTabOrder(in document: HypeDocument, currentCardId: UUID) -> [Part] {
+        document.effectivePartsForCard(currentCardId)
+            .filter {
+                $0.partType == .field
+                    && $0.visible
+                    && $0.enabled
+                    && !$0.lockText
+            }
+            .sorted { lhs, rhs in
+                if abs(lhs.top - rhs.top) > 6 {
+                    return lhs.top < rhs.top
+                }
+                if abs(lhs.left - rhs.left) > 2 {
+                    return lhs.left < rhs.left
+                }
+                if lhs.sortKey != rhs.sortKey {
+                    return lhs.sortKey < rhs.sortKey
+                }
+                return lhs.id.uuidString < rhs.id.uuidString
+            }
+    }
+
+    @discardableResult
+    private func focusFirstEditableField(reverse: Bool = false) -> Bool {
+        let fields = Self.editableFieldTabOrder(in: document, currentCardId: currentCardId)
+        guard let part = reverse ? fields.last : fields.first else { return false }
+        startFieldEditing(part: part, selectText: true)
+        return true
+    }
+
+    @discardableResult
+    private func moveFieldEditingFocus(reverse: Bool) -> Bool {
+        guard let activeFieldPartId else { return false }
+        let fields = Self.editableFieldTabOrder(in: document, currentCardId: currentCardId)
+        guard !fields.isEmpty else { return false }
+
+        let nextPart: Part
+        if let currentIndex = fields.firstIndex(where: { $0.id == activeFieldPartId }) {
+            guard fields.count > 1 else { return true }
+            let nextIndex = reverse
+                ? (currentIndex - 1 + fields.count) % fields.count
+                : (currentIndex + 1) % fields.count
+            nextPart = fields[nextIndex]
+        } else {
+            nextPart = reverse ? fields[fields.count - 1] : fields[0]
+        }
+
+        endFieldEditing()
+        startFieldEditing(part: nextPart, selectText: true)
+        return true
+    }
+
+    private func startFieldEditing(part: Part, selectText: Bool = false) {
         // Don't edit if locked
         guard part.partType == .field && !part.lockText else { return }
 
@@ -1051,6 +1106,9 @@ class CardCanvasNSView: NSView {
         // Delay makeFirstResponder to ensure the text field is fully in the view hierarchy
         DispatchQueue.main.async { [weak self] in
             self?.window?.makeFirstResponder(textField)
+            if selectText {
+                textField.selectText(nil)
+            }
         }
 
         activeFieldEditor = textField
@@ -2652,11 +2710,21 @@ class CardCanvasNSView: NSView {
 
 extension CardCanvasNSView: NSTextFieldDelegate {
     func controlTextDidEndEditing(_ obj: Notification) {
+        guard let field = obj.object as? NSTextField,
+              field === activeFieldEditor else { return }
         endFieldEditing()
         needsDisplay = true
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(insertTab(_:)) {
+            needsDisplay = true
+            return moveFieldEditingFocus(reverse: false)
+        }
+        if commandSelector == #selector(insertBacktab(_:)) {
+            needsDisplay = true
+            return moveFieldEditingFocus(reverse: true)
+        }
         if commandSelector == #selector(insertNewline(_:)) {
             // Enter key pressed
             if let partId = activeFieldPartId,
@@ -2670,6 +2738,7 @@ extension CardCanvasNSView: NSTextFieldDelegate {
                 activeFieldEditor?.removeFromSuperview()
                 activeFieldEditor = nil
                 activeFieldPartId = nil
+                originalFieldText = nil
                 needsDisplay = true
                 // Dispatch enterKey message
                 coordinator?.dispatchMessage("enterKey", to: savedPartId)
@@ -2685,6 +2754,7 @@ extension CardCanvasNSView: NSTextFieldDelegate {
             activeFieldEditor?.removeFromSuperview()
             activeFieldEditor = nil
             activeFieldPartId = nil
+            originalFieldText = nil
             needsDisplay = true
             return true
         }
