@@ -88,6 +88,25 @@ struct ToolsMenuCommands: Commands {
     }
 }
 
+/// Adds Theme-related items to the existing Edit menu.
+///
+/// Edit is a system-managed menu (DocumentGroup creates it via the
+/// standard pasteboard commands), so we splice in via
+/// `CommandGroup(after: .pasteboard)` rather than declaring a fresh
+/// `CommandMenu("Edit")` — the latter would produce a duplicate Edit
+/// menu next to the system one.
+struct EditMenuCommands: Commands {
+    var body: some Commands {
+        CommandGroup(after: .pasteboard) {
+            Divider()
+            Button("Themes...") {
+                NotificationCenter.default.post(name: .openThemeDesigner, object: nil)
+            }
+            .keyboardShortcut("t", modifiers: [.command, .shift])
+        }
+    }
+}
+
 extension Notification.Name {
     static let navigateCard = Notification.Name("navigateCard")
     static let navigateToCard = Notification.Name("navigateToCard")
@@ -158,6 +177,11 @@ extension Notification.Name {
     /// Select an asset inside the detached Sprite Repository window.
     /// `userInfo["assetId"]` contains the repository asset UUID.
     static let selectSpriteRepositoryAsset = Notification.Name("selectSpriteRepositoryAsset")
+    /// Posted by the Edit > Themes... menu item AND by the Theme
+    /// section's "Edit Themes..." button in the Property Inspector.
+    /// `MainContentView` listens and opens (or focuses) the detached
+    /// Theme Designer window via `openThemeDesignerWindow`.
+    static let openThemeDesigner = Notification.Name("hype.openThemeDesigner")
 }
 
 struct AIMenuCommands: Commands {

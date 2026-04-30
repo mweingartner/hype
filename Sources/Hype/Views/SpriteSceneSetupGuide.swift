@@ -70,6 +70,7 @@ struct SpriteSceneSetupGuide: View {
     var onDone: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.hypeTheme) private var hypeTheme
     @State private var stepIndex: Int = 0
     @State private var draft: SpriteSceneSetupDraft
 
@@ -311,6 +312,13 @@ struct SpriteSceneSetupGuide: View {
             .padding()
         }
         .frame(minWidth: 760, minHeight: 520)
+        // Sheet surface — themed so the wizard chrome (header,
+        // checklist, step navigation footer) follows the active
+        // stack theme.
+        .background(hypeTheme.inspectorBackground.swiftUIColor)
+        // Force chrome colorScheme so labels in the form steps and
+        // checklist remain readable on the themed bg.
+        .environment(\.colorScheme, hypeTheme.chromeColorScheme)
     }
 
     private var canContinue: Bool {

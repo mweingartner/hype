@@ -11,6 +11,16 @@ public struct HypeDocument: Codable, Sendable {
     public var aiPromptHistory: [String]
     public var defaultBackgroundId: UUID?
 
+    /// User-defined themes that travel with this `.hype` document.
+    /// Built-in themes (in `BuiltInThemes.all`) are NOT stored here —
+    /// they're application-wide, baked into the binary, and always
+    /// available regardless of which stack you open.
+    ///
+    /// Look up a theme by name via `theme(named:)` (defined in
+    /// `Sources/HypeCore/Theme/ThemeResolver.swift`); resolve a
+    /// card's effective theme via `effectiveTheme(forCard:)`.
+    public var themes: [HypeTheme]
+
     /// HypeTalk `global` variables that outlive any single handler
     /// invocation. HyperCard's semantics: globals are initialised
     /// to empty on first reference and persist for the lifetime of
@@ -39,7 +49,8 @@ public struct HypeDocument: Codable, Sendable {
         spriteRepository: SpriteRepository = SpriteRepository(),
         aiPromptHistory: [String] = [],
         scriptGlobals: [String: String] = [:],
-        defaultBackgroundId: UUID? = nil
+        defaultBackgroundId: UUID? = nil,
+        themes: [HypeTheme] = []
     ) {
         self.stack = stack
         self.backgrounds = backgrounds
@@ -50,11 +61,13 @@ public struct HypeDocument: Codable, Sendable {
         self.aiPromptHistory = aiPromptHistory
         self.scriptGlobals = scriptGlobals
         self.defaultBackgroundId = defaultBackgroundId
+        self.themes = themes
     }
 
     // Custom decoder for backward compatibility.
     enum CodingKeys: String, CodingKey {
         case stack, backgrounds, cards, parts, constraints, spriteRepository, aiPromptHistory, defaultBackgroundId
+        case themes
         // `scriptGlobals` is NOT in the coding keys — session-only.
     }
 
@@ -68,6 +81,8 @@ public struct HypeDocument: Codable, Sendable {
         spriteRepository = try container.decodeIfPresent(SpriteRepository.self, forKey: .spriteRepository) ?? SpriteRepository()
         aiPromptHistory = try container.decodeIfPresent([String].self, forKey: .aiPromptHistory) ?? []
         defaultBackgroundId = try container.decodeIfPresent(UUID.self, forKey: .defaultBackgroundId)
+        // Backward-compatible: pre-theme documents have no themes array.
+        themes = try container.decodeIfPresent([HypeTheme].self, forKey: .themes) ?? []
         scriptGlobals = [:]  // session-only, always starts empty on load
     }
 

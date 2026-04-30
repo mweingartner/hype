@@ -4,12 +4,15 @@ import HypeCore
 struct MessageBoxView: View {
     @Binding var document: HypeDocumentWrapper
     @Binding var currentCardId: UUID?
+    @Environment(\.hypeTheme) private var hypeTheme
     @State private var inputText: String = ""
     @State private var outputText: String = ""
     @State private var history: [String] = []
 
     var body: some View {
         VStack(spacing: 0) {
+            // Header — themed as a toolbar surface so the title bar
+            // reads as part of the chrome.
             HStack {
                 Text("Message Box")
                     .font(.system(size: 11, weight: .bold))
@@ -17,7 +20,8 @@ struct MessageBoxView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .background(Color(NSColor.controlBackgroundColor))
+            .background(hypeTheme.toolbarBackground.swiftUIColor)
+            .environment(\.colorScheme, hypeTheme.toolbarColorScheme)
 
             TextField("Type a HypeTalk expression...", text: $inputText)
                 .textFieldStyle(.plain)
@@ -33,7 +37,12 @@ struct MessageBoxView: View {
                     .padding(4)
             }
         }
-        .background(Color(NSColor.textBackgroundColor))
+        // Body surface tinted with the inspector-background token so
+        // the message box stays readable on themed backgrounds.
+        .background(hypeTheme.inspectorBackground.swiftUIColor)
+        // Force chrome colorScheme so the input field and result
+        // text resolve to a contrasting color against the themed bg.
+        .environment(\.colorScheme, hypeTheme.chromeColorScheme)
         .frame(height: 80)
     }
 

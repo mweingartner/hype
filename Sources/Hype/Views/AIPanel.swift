@@ -3,6 +3,7 @@ import HypeCore
 
 struct AIPanel: View {
     @Binding var document: HypeDocumentWrapper
+    @Environment(\.hypeTheme) private var hypeTheme
     @State private var inputText: String = ""
     @State private var messages: [(role: String, content: String)] = []
     @State private var isLoading: Bool = false
@@ -13,7 +14,9 @@ struct AIPanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
+            // Header — themed to match the toolbar so swapping
+            // themes (Sunset / Modern Dark / Neon) actually retints
+            // the AI panel chrome.
             HStack {
                 Text("AI Assistant").font(.headline)
                 Spacer()
@@ -22,7 +25,8 @@ struct AIPanel: View {
                     .font(.system(size: 11))
             }
             .padding(8)
-            .background(Color(NSColor.controlBackgroundColor))
+            .background(hypeTheme.toolbarBackground.swiftUIColor)
+            .environment(\.colorScheme, hypeTheme.toolbarColorScheme)
 
             if showKeyField {
                 SecureField("Anthropic API Key", text: $apiKey)
@@ -42,7 +46,11 @@ struct AIPanel: View {
                             if msg.role == "user" { Spacer() }
                             Text(msg.content)
                                 .padding(8)
-                                .background(msg.role == "user" ? Color.blue.opacity(0.2) : Color(NSColor.controlBackgroundColor))
+                                .background(
+                                    msg.role == "user"
+                                        ? hypeTheme.accent.swiftUIColor.opacity(0.15)
+                                        : hypeTheme.inspectorBackground.swiftUIColor
+                                )
                                 .cornerRadius(8)
                                 .font(.system(size: 13))
                             if msg.role == "assistant" { Spacer() }
@@ -72,6 +80,14 @@ struct AIPanel: View {
             .padding(8)
         }
         .frame(width: 320)
+        // Panel surface — pulls inspector background from the
+        // active theme so the side panel is dark in Modern Dark /
+        // Neon and cream in Sunset, instead of staying system-light.
+        .background(hypeTheme.inspectorBackground.swiftUIColor)
+        // Force the colorScheme to match the panel background's
+        // luminance so SwiftUI's labels resolve a contrasting color
+        // regardless of macOS appearance.
+        .environment(\.colorScheme, hypeTheme.chromeColorScheme)
     }
 
     private func sendMessage() {

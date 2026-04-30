@@ -6,6 +6,7 @@ import AppKit
 /// Shows all HypeLogger entries with search, clear, copy, and
 /// scroll-to-bottom behavior.
 struct ConsoleLogView: View {
+    @Environment(\.hypeTheme) private var hypeTheme
     @State private var entries: [LogEntry] = HypeLogger.shared.entries
     @State private var searchText: String = ""
     @State private var autoScroll: Bool = true
@@ -25,7 +26,8 @@ struct ConsoleLogView: View {
         VStack(spacing: 0) {
             // Toolbar
             HStack(spacing: 8) {
-                // Search field
+                // Search field — themed inset so the field reads as
+                // an embedded control on the toolbar surface.
                 HStack {
                     Image(systemName: "magnifyingglass")
                         .foregroundColor(.secondary)
@@ -34,7 +36,7 @@ struct ConsoleLogView: View {
                         .font(.system(size: 12))
                 }
                 .padding(4)
-                .background(Color(NSColor.controlBackgroundColor))
+                .background(hypeTheme.inspectorBackground.swiftUIColor)
                 .cornerRadius(6)
                 .frame(maxWidth: 300)
 
@@ -71,7 +73,10 @@ struct ConsoleLogView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(Color(NSColor.windowBackgroundColor))
+            // Header strip — toolbar token so swapping themes also
+            // retints the console's top bar.
+            .background(hypeTheme.toolbarBackground.swiftUIColor)
+            .environment(\.colorScheme, hypeTheme.toolbarColorScheme)
 
             Divider()
 
@@ -95,6 +100,10 @@ struct ConsoleLogView: View {
             entries = HypeLogger.shared.entries
         }
         .frame(minWidth: 600, minHeight: 200)
+        // Console window surface — pull from the active theme so
+        // the standalone console window is themed too.
+        .background(hypeTheme.inspectorBackground.swiftUIColor)
+        .environment(\.colorScheme, hypeTheme.chromeColorScheme)
     }
 
     @ViewBuilder

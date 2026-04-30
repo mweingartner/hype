@@ -509,8 +509,12 @@ public struct Interpreter: Sendable {
                                 }
                             }
                         }
-                    } else if !handledAsNode && ref.objectType == "card" && property.lowercased() == "background" {
-                    // `set the background of card "X" to "bgName"`
+                    } else if !handledAsNode && ref.objectType == "card" {
+                    // Card-level property set:
+                    //   `set the background of card "X" to "bgName"`
+                    //   `set the theme of card "X" to "Sunset"`
+                    //   `set the marked of card "X" to true`
+                    //   `set the name of card "X" to "intro"`
                     let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
                     let cardIndex: Int?
                     if let ci = document.cards.firstIndex(where: { $0.name.lowercased() == ident.lowercased() }) {
@@ -521,9 +525,49 @@ public struct Interpreter: Sendable {
                     } else {
                         cardIndex = nil
                     }
-                    if let ci = cardIndex,
-                       let bg = document.backgroundByName(value) {
-                        document.cards[ci].backgroundId = bg.id
+                    if let ci = cardIndex {
+                        switch property.lowercased() {
+                        case "background":
+                            if let bg = document.backgroundByName(value) {
+                                document.cards[ci].backgroundId = bg.id
+                            }
+                        case "theme", "themename", "theme_name":
+                            // Empty/`the empty` clears the override
+                            // and lets the cascade fall through to
+                            // background → stack.
+                            let trimmed = value.trimmingCharacters(in: .whitespaces)
+                            document.cards[ci].themeName = trimmed.isEmpty ? nil : trimmed
+                        case "name":
+                            document.cards[ci].name = value
+                        case "marked":
+                            document.cards[ci].marked = isTruthy(value)
+                        case "script":
+                            document.cards[ci].script = value
+                        default:
+                            break
+                        }
+                    }
+                    } else if !handledAsNode && ref.objectType == "background" {
+                    // Background-level property set:
+                    //   `set the theme of background "menu" to "Modern Dark"`
+                    //   `set the name of background "menu" to "main_menu"`
+                    //   `set the script of background "menu" to "..."`
+                    let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+                    let bgIndex = document.backgrounds.firstIndex {
+                        $0.name.lowercased() == ident.lowercased()
+                    }
+                    if let bi = bgIndex {
+                        switch property.lowercased() {
+                        case "theme", "themename", "theme_name":
+                            let trimmed = value.trimmingCharacters(in: .whitespaces)
+                            document.backgrounds[bi].themeName = trimmed.isEmpty ? nil : trimmed
+                        case "name":
+                            document.backgrounds[bi].name = value
+                        case "script":
+                            document.backgrounds[bi].script = value
+                        default:
+                            break
+                        }
                     }
                     } else if !handledAsNode && ref.objectType == "stack" {
                     // Stack-level property set: `set the defaultFont of stack to "Helvetica"`
@@ -532,6 +576,13 @@ public struct Interpreter: Sendable {
                         document.stack.name = value
                     case "defaultfont", "default_font", "textfont", "font":
                         document.stack.defaultFont = value
+                    case "theme", "themename", "theme_name":
+                        // Empty / `the empty` resets to the built-in
+                        // fallback so the cascade always terminates.
+                        let trimmed = value.trimmingCharacters(in: .whitespaces)
+                        document.stack.themeName = trimmed.isEmpty
+                            ? BuiltInThemes.fallbackName
+                            : trimmed
                     default:
                         break
                     }
@@ -2436,8 +2487,19 @@ public struct Interpreter: Sendable {
             case "width":       return String(document.stack.width)
             case "height":      return String(document.stack.height)
             case "script":      return document.stack.script
+            // Theme is non-optional on the stack — always returns a name.
+            case "theme", "themename", "theme_name":
+                return document.stack.themeName
             default: break
             }
+        }
+
+        // `the themes` — comma-separated list of every available theme
+        // name (built-ins + this stack's user themes). No "of <X>"
+        // qualifier needed; it's a stack-global accessor like `the
+        // backgrounds`.
+        if lower == "themes" {
+            return document.allThemeNames.joined(separator: ", ")
         }
 
         // "the number of cards/buttons/fields/backgrounds/bg fields/bg buttons"
@@ -2500,22 +2562,60 @@ public struct Interpreter: Sendable {
 
         // Card-level property access via object reference.
         // `the background of card "X"` returns the background's name.
+        // `the theme of card "X"` returns this card's themeName (may
+        // be empty when inheriting from background/stack).
+        // `the effectiveTheme of card "X"` walks the cascade and
+        // returns the resolved theme's name.
         if case .objectRef(let ref) = targetExpr, ref.objectType == "card" {
             let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
-            if lower == "background" {
-                let card: Card?
-                if let c = document.cards.first(where: { $0.name.lowercased() == ident.lowercased() }) {
-                    card = c
-                } else if let num = Int(ident), num >= 1, num <= document.sortedCards.count {
-                    card = document.sortedCards[num - 1]
-                } else {
-                    card = nil
-                }
+            let card: Card?
+            if let c = document.cards.first(where: { $0.name.lowercased() == ident.lowercased() }) {
+                card = c
+            } else if let num = Int(ident), num >= 1, num <= document.sortedCards.count {
+                card = document.sortedCards[num - 1]
+            } else {
+                card = nil
+            }
+            switch lower {
+            case "background":
                 if let card = card,
                    let bg = document.backgrounds.first(where: { $0.id == card.backgroundId }) {
                     return bg.name
                 }
                 return ""
+            case "theme", "themename", "theme_name":
+                return card?.themeName ?? ""
+            case "effectivetheme", "effective_theme":
+                if let card = card {
+                    return document.effectiveTheme(forCard: card.id).name
+                }
+                return ""
+            case "name":
+                return card?.name ?? ""
+            case "marked":
+                return (card?.marked ?? false) ? "true" : "false"
+            case "script":
+                return card?.script ?? ""
+            default: break
+            }
+        }
+
+        // Background-level property access via object reference.
+        // `the theme of background "menu"`, `the script of background X`, etc.
+        if case .objectRef(let ref) = targetExpr, ref.objectType == "background" {
+            let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+            let bg = document.backgrounds.first { $0.name.lowercased() == ident.lowercased() }
+            switch lower {
+            case "theme", "themename", "theme_name":
+                return bg?.themeName ?? ""
+            case "name":
+                return bg?.name ?? ""
+            case "script":
+                return bg?.script ?? ""
+            case "cardcount", "card_count":
+                guard let bg = bg else { return "0" }
+                return String(document.cards.filter { $0.backgroundId == bg.id }.count)
+            default: break
             }
         }
 
@@ -2643,6 +2743,15 @@ public struct Interpreter: Sendable {
             // the command form is `start the animation of`). All three
             // names read the same underlying `Part.animated` flag.
             return part.animated ? "true" : "false"
+        case "transparentbackground", "transparent_background", "transparent",
+             "transparentbg", "alpha":
+            // Image-only flag that asks the renderer to chroma-key out
+            // the corner-pixel color so the card shows through.
+            // Synonyms cover natural authoring forms:
+            //   `the transparent of image "X"`
+            //   `the alpha of image "X"`
+            //   `the transparent_background of image "X"`
+            return part.transparentBackground ? "true" : "false"
         case "animating":
             #if canImport(AppKit)
             let tweening = PartAnimator.shared.isAnimating(partId: part.id)
@@ -3281,6 +3390,13 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].enterKeyEnabled = isTruthy(value)
         case "invertonclick":
             document.parts[partIndex].invertOnClick = isTruthy(value)
+        case "transparentbackground", "transparent_background", "transparent",
+             "transparentbg", "alpha":
+            // Toggle the chroma-key path in `ImageRenderer`. Only
+            // meaningful for image parts (other partTypes ignore
+            // the flag at render time). All five synonyms map to
+            // the same `Part.transparentBackground` bool.
+            document.parts[partIndex].transparentBackground = isTruthy(value)
         case "animated", "animation", "animate":
             // `animation` / `animate` are accepted synonyms for `animated`
             // (see matching GET case). Users reasonably reach for

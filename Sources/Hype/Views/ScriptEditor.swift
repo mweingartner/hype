@@ -269,6 +269,7 @@ private let categoryOrder = ["Events", "SpriteKit", "Navigation", "Variables", "
 
 struct ScriptEditor: View {
     @Binding var document: HypeDocumentWrapper
+    @Environment(\.hypeTheme) private var hypeTheme
     let partId: UUID?  // backward compat — maps to .part(id)
     var target: ScriptTarget? = nil  // preferred; overrides partId
     /// Optional 1-based line number to highlight as a runtime error
@@ -329,7 +330,9 @@ struct ScriptEditor: View {
 
             // Right: Code editor
             VStack(spacing: 0) {
-                // Toolbar
+                // Toolbar — themed so swapping themes also retints
+                // the script editor's top bar to match the rest of
+                // the chrome.
                 HStack {
                     Text("Script Editor")
                         .font(.headline)
@@ -339,25 +342,32 @@ struct ScriptEditor: View {
                     Button("Format") { reformatScript() }
                 }
                 .padding(8)
-                .background(Color(NSColor.controlBackgroundColor))
+                .background(hypeTheme.toolbarBackground.swiftUIColor)
+                .environment(\.colorScheme, hypeTheme.toolbarColorScheme)
 
-                // Editor
+                // Editor — picks up the active theme's script
+                // sub-palette via the cascade-resolved hypeTheme
+                // environment value injected by MainContentView.
                 HypeTalkTextView(
                     text: $scriptText,
                     selectedRange: $selectedRange,
                     partNames: partNames,
-                    errorHighlightLine: $errorHighlightLine
+                    errorHighlightLine: $errorHighlightLine,
+                    scriptTheme: hypeTheme.scriptTheme
                 )
                     .frame(minHeight: 200)
 
-                // Error display
+                // Error display — kept semantically red but pulls
+                // the tint from the active script theme so the
+                // banner blends with whatever script-editor palette
+                // the user has chosen.
                 if let error = errorMessage {
                     Text(error)
                         .foregroundColor(.red)
                         .font(.system(size: 11))
                         .padding(4)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.red.opacity(0.1))
+                        .background(hypeTheme.scriptTheme.error.swiftUIColor.opacity(0.15))
                 }
             }
         }
@@ -404,6 +414,13 @@ struct ScriptEditor: View {
             }
         }
         .onDisappear { applyScript() }
+        // Outer surface — paint the chrome with the inspector
+        // background token so the whole editor window picks up
+        // theme swaps (split-view background, list background).
+        .background(hypeTheme.inspectorBackground.swiftUIColor)
+        // Force chrome colorScheme so command-palette labels and
+        // toolbar text remain readable against the themed bg.
+        .environment(\.colorScheme, hypeTheme.chromeColorScheme)
     }
 
     // MARK: - Command Palette
@@ -414,7 +431,8 @@ struct ScriptEditor: View {
                 .font(.system(size: 11, weight: .bold))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 6)
-                .background(Color(NSColor.controlBackgroundColor))
+                .background(hypeTheme.toolbarBackground.swiftUIColor)
+                .environment(\.colorScheme, hypeTheme.toolbarColorScheme)
 
             List {
                 ForEach(categoryOrder, id: \.self) { category in

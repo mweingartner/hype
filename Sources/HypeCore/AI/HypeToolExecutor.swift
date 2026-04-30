@@ -281,6 +281,66 @@ public struct HypeToolExecutor: Sendable {
         return "; parse error in script: \(message)"
     }
 
+    /// Apply a single property override to a theme. Property names are
+    /// case-insensitive HypeTheme field names (`accent`, `cardBackground`,
+    /// `defaultFontFamily`, etc.). Returns true on a recognized property,
+    /// false otherwise. Keep the switch explicit — no reflection magic —
+    /// so the AI's possible inputs are documented at this site.
+    private func applyThemeFieldOverride(
+        _ theme: inout HypeTheme,
+        key: String,
+        value: String
+    ) -> Bool {
+        let k = key.lowercased().replacingOccurrences(of: "_", with: "")
+        let parsedColor = ColorRef.parse(value)
+        switch k {
+        // Surface colors
+        case "cardbackground":      theme.cardBackground = parsedColor
+        case "cardforeground":      theme.cardForeground = parsedColor
+        case "backgroundfill":      theme.backgroundFill = parsedColor
+        case "canvasmargin":        theme.canvasMargin = parsedColor
+        // Part defaults
+        case "buttonbackground":    theme.buttonBackground = parsedColor
+        case "buttonforeground":    theme.buttonForeground = parsedColor
+        case "buttonborder":        theme.buttonBorder = parsedColor
+        case "buttonhilite":        theme.buttonHilite = parsedColor
+        case "fieldbackground":     theme.fieldBackground = parsedColor
+        case "fieldforeground":     theme.fieldForeground = parsedColor
+        case "fieldborder":         theme.fieldBorder = parsedColor
+        case "shapefilldefault":    theme.shapeFillDefault = parsedColor
+        case "shapestrokedefault":  theme.shapeStrokeDefault = parsedColor
+        // Accent + selection
+        case "accent":              theme.accent = parsedColor
+        case "selectionfill":       theme.selectionFill = parsedColor
+        case "selectionstroke":     theme.selectionStroke = parsedColor
+        // Chrome
+        case "toolbarbackground":   theme.toolbarBackground = parsedColor
+        case "inspectorbackground": theme.inspectorBackground = parsedColor
+        case "paneldivider":        theme.panelDivider = parsedColor
+        // Typography (strings)
+        case "defaultfontfamily":   theme.defaultFontFamily = value
+        case "headingfontfamily":   theme.headingFontFamily = value
+        case "monospacefontfamily": theme.monospaceFontFamily = value
+        case "defaultfontsize":     if let n = Double(value) { theme.defaultFontSize = n }
+        case "headingfontsize":     if let n = Double(value) { theme.headingFontSize = n }
+        case "labelfontsize":       if let n = Double(value) { theme.labelFontSize = n }
+        // Structure
+        case "cornerradiussmall":   if let n = Double(value) { theme.cornerRadiusSmall = n }
+        case "cornerradiusmedium":  if let n = Double(value) { theme.cornerRadiusMedium = n }
+        case "cornerradiuslarge":   if let n = Double(value) { theme.cornerRadiusLarge = n }
+        case "spacingunit":         if let n = Double(value) { theme.spacingUnit = n }
+        case "strokewidththin":     if let n = Double(value) { theme.strokeWidthThin = n }
+        case "strokewidthmedium":   if let n = Double(value) { theme.strokeWidthMedium = n }
+        case "shadowopacity":       if let n = Double(value) { theme.shadowOpacity = n }
+        case "shadowradius":        if let n = Double(value) { theme.shadowRadius = n }
+        // Theme metadata (rename via this path is allowed for user themes)
+        case "name":                theme.name = value
+        default:
+            return false
+        }
+        return true
+    }
+
     /// Best-effort wrong-language detector for AI-written scripts.
     ///
     /// The parser is intentionally permissive and can accept some
@@ -416,6 +476,7 @@ public struct HypeToolExecutor: Sendable {
         case .image:
             props.append("hasImage=\(p.imageData != nil)")
             if p.invertOnClick { props.append("invertOnClick=true") }
+            if p.transparentBackground { props.append("transparentBackground=true") }
         case .chart:
             if let config = ChartConfig.fromJSON(p.chartData) {
                 props.append("chartType=\(config.chartType.rawValue)")
@@ -930,6 +991,11 @@ public struct HypeToolExecutor: Sendable {
                 case "autohilite": document.parts[index].autoHilite = (value.lowercased() == "true")
                 case "showname": document.parts[index].showName = (value.lowercased() == "true")
                 case "locktext": document.parts[index].lockText = (value.lowercased() == "true")
+                case "transparentbackground", "transparent_background", "transparent",
+                     "transparentbg", "alpha":
+                    // Image / GIF chroma-key flag — see ImageRenderer
+                    // and ImageChromaKey for the masking algorithm.
+                    document.parts[index].transparentBackground = (value.lowercased() == "true")
                 case "textfont", "font": document.parts[index].textFont = value
                 case "textsize", "size": document.parts[index].textSize = Double(value) ?? 14
                 case "textalign": document.parts[index].textAlign = TextAlignment(rawValue: value.lowercased()) ?? .left
@@ -1092,8 +1158,12 @@ public struct HypeToolExecutor: Sendable {
                 return String(document.cards.count)
             case "backgroundcount", "background_count":
                 return String(document.backgrounds.count)
+            case "script":
+                return document.stack.script
+            case "theme":
+                return document.stack.themeName
             default:
-                return "Unknown stack property '\(property)'. Valid: id, name, width, height, defaultFont, webAssetsAllowed, cardCount, backgroundCount"
+                return "Unknown stack property '\(property)'. Valid: id, name, width, height, defaultFont, webAssetsAllowed, cardCount, backgroundCount, script, theme"
             }
 
         case "get_card_property":
@@ -1119,8 +1189,14 @@ public struct HypeToolExecutor: Sendable {
                     return String(visibleIndex + 1)
                 }
                 return ""
+            case "script":
+                return card.script
+            case "theme":
+                return card.themeName ?? ""
+            case "effectivetheme", "effective_theme":
+                return document.effectiveTheme(forCard: card.id).name
             default:
-                return "Unknown card property '\(property)'. Valid: id, name, marked, sortKey, backgroundName, cardNumber"
+                return "Unknown card property '\(property)'. Valid: id, name, marked, sortKey, backgroundName, cardNumber, script, theme, effectiveTheme"
             }
 
         case "get_background_property":
@@ -1139,8 +1215,12 @@ public struct HypeToolExecutor: Sendable {
                 return background.sortKey
             case "cardcount", "card_count":
                 return String(document.cardsForBackground(background.id).count)
+            case "script":
+                return background.script
+            case "theme":
+                return background.themeName ?? ""
             default:
-                return "Unknown background property '\(property)'. Valid: id, name, sortKey, cardCount"
+                return "Unknown background property '\(property)'. Valid: id, name, sortKey, cardCount, script, theme"
             }
 
         case "get_card_parts":
@@ -1832,6 +1912,9 @@ public struct HypeToolExecutor: Sendable {
             case "autohilite": return String(part.autoHilite)
             case "showname": return String(part.showName)
             case "locktext": return String(part.lockText)
+            case "transparentbackground", "transparent_background", "transparent",
+                 "transparentbg", "alpha":
+                return String(part.transparentBackground)
             case "textfont", "font": return part.textFont
             case "textsize", "size": return String(part.textSize)
             case "textalign": return part.textAlign.rawValue
@@ -2929,8 +3012,17 @@ public struct HypeToolExecutor: Sendable {
                     return "Background '\(value)' not found"
                 }
                 document.cards[idx].backgroundId = background.id
+            case "script":
+                let wrapped = wrapScript(value)
+                document.cards[idx].script = wrapped
+                let suffix = scriptParseErrorSuffix(wrapped)
+                let displayName = document.cards[idx].name.isEmpty ? "current card" : "card '\(document.cards[idx].name)'"
+                return "Set script of \(displayName)\(suffix)"
+            case "theme":
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                document.cards[idx].themeName = trimmed.isEmpty ? nil : trimmed
             default:
-                return "Unknown card property '\(property)'. Valid: name, marked, sortKey, backgroundName"
+                return "Unknown card property '\(property)'. Valid: name, marked, sortKey, backgroundName, script, theme"
             }
             let displayName = document.cards[idx].name.isEmpty ? "current card" : "card '\(document.cards[idx].name)'"
             return "Set \(property) of \(displayName) to \(value)"
@@ -2947,8 +3039,16 @@ public struct HypeToolExecutor: Sendable {
                 document.backgrounds[idx].name = value
             case "sortkey", "sort_key":
                 document.backgrounds[idx].sortKey = value
+            case "script":
+                let wrapped = wrapScript(value)
+                document.backgrounds[idx].script = wrapped
+                let suffix = scriptParseErrorSuffix(wrapped)
+                return "Set script of background '\(document.backgrounds[idx].name)'\(suffix)"
+            case "theme":
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                document.backgrounds[idx].themeName = trimmed.isEmpty ? nil : trimmed
             default:
-                return "Unknown background property '\(property)'. Valid: name, sortKey"
+                return "Unknown background property '\(property)'. Valid: name, sortKey, script, theme"
             }
             return "Set \(property) of background '\(document.backgrounds[idx].name)' to \(value)"
 
@@ -3324,6 +3424,167 @@ public struct HypeToolExecutor: Sendable {
             }
             let lines = scene.fields.map { "\($0.fieldType.rawValue) strength=\($0.strength)" }
             return lines.joined(separator: "\n")
+
+        // MARK: - Theme + property accessors
+
+        case "list_themes":
+            let themes = document.allAvailableThemes
+            if themes.isEmpty {
+                return "No themes available"
+            }
+            let lines = themes.map { theme -> String in
+                let kind = theme.isBuiltIn ? "built-in" : "user"
+                if let basedOn = theme.basedOn, !basedOn.isEmpty {
+                    return "\(theme.name) [\(kind), based on \(basedOn)]"
+                }
+                return "\(theme.name) [\(kind)]"
+            }
+            return lines.joined(separator: "\n")
+
+        case "create_theme":
+            let baseName = arguments["base_theme_name"] ?? ""
+            let newName = arguments["new_name"] ?? ""
+            let overridesJSON = arguments["overrides_json"] ?? ""
+            let trimmedNew = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedNew.isEmpty else {
+                return "create_theme: new_name is required"
+            }
+            guard let source = document.theme(named: baseName) else {
+                return "Theme '\(baseName)' not found. Use list_themes to see available themes."
+            }
+            // Collision check against both built-ins and user themes.
+            if let existing = document.theme(named: trimmedNew) {
+                let kind = existing.isBuiltIn ? "built-in" : "user"
+                return "Theme '\(trimmedNew)' already exists (\(kind))"
+            }
+            var newTheme = source.duplicate(named: trimmedNew)
+            var appliedOverrides = 0
+            let trimmedOverrides = overridesJSON.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedOverrides.isEmpty {
+                guard let data = trimmedOverrides.data(using: .utf8) else {
+                    return "create_theme: overrides_json is not valid UTF-8"
+                }
+                let parsed: Any
+                do {
+                    parsed = try JSONSerialization.jsonObject(with: data, options: [])
+                } catch {
+                    return "create_theme: failed to parse overrides_json: \(error.localizedDescription)"
+                }
+                guard let dict = parsed as? [String: Any] else {
+                    return "create_theme: overrides_json must be a JSON object"
+                }
+                for (key, rawValue) in dict {
+                    let stringValue: String
+                    switch rawValue {
+                    case let s as String:
+                        stringValue = s
+                    case let n as NSNumber:
+                        stringValue = n.stringValue
+                    case let b as Bool:
+                        stringValue = b ? "true" : "false"
+                    default:
+                        stringValue = String(describing: rawValue)
+                    }
+                    if applyThemeFieldOverride(&newTheme, key: key, value: stringValue) {
+                        appliedOverrides += 1
+                    }
+                }
+            }
+            newTheme.isBuiltIn = false
+            newTheme.modifiedAt = Date()
+            document.themes.append(newTheme)
+            if appliedOverrides > 0 {
+                return "Created theme '\(trimmedNew)' based on '\(source.name)', with \(appliedOverrides) override(s)"
+            }
+            return "Created theme '\(trimmedNew)' based on '\(source.name)'"
+
+        case "duplicate_theme":
+            let sourceName = arguments["source_theme_name"] ?? ""
+            let newName = arguments["new_name"] ?? ""
+            let trimmedNew = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard document.theme(named: sourceName) != nil else {
+                return "Theme '\(sourceName)' not found"
+            }
+            let copy: HypeTheme?
+            if trimmedNew.isEmpty {
+                copy = document.duplicateTheme(named: sourceName)
+            } else {
+                if let existing = document.theme(named: trimmedNew) {
+                    let kind = existing.isBuiltIn ? "built-in" : "user"
+                    return "Theme '\(trimmedNew)' already exists (\(kind))"
+                }
+                copy = document.duplicateTheme(named: sourceName, candidateName: trimmedNew)
+            }
+            guard let madeCopy = copy else {
+                return "Theme '\(sourceName)' not found"
+            }
+            return "Duplicated '\(sourceName)' as '\(madeCopy.name)'"
+
+        case "delete_theme":
+            let themeName = arguments["theme_name"] ?? ""
+            let trimmed = themeName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                return "delete_theme: theme_name is required"
+            }
+            let lower = trimmed.lowercased()
+            // Refuse to delete built-ins explicitly so the message
+            // matches what the user sees from the Theme Designer.
+            if let userTheme = document.themes.first(where: { $0.name.lowercased() == lower }) {
+                let usage = document.usageCount(themeName: userTheme.name)
+                let removedName = userTheme.name
+                guard document.deleteTheme(id: userTheme.id) else {
+                    return "Failed to delete theme '\(removedName)'"
+                }
+                var parts: [String] = []
+                if usage.cards > 0 {
+                    parts.append("\(usage.cards) card(s)")
+                }
+                if usage.backgrounds > 0 {
+                    parts.append("\(usage.backgrounds) background(s)")
+                }
+                let cascade: String
+                if parts.isEmpty && !usage.isStackDefault {
+                    cascade = "no references to clear"
+                } else {
+                    var fragment = "Cleared references on " + (parts.isEmpty ? "0 card(s), 0 background(s)" : parts.joined(separator: ", "))
+                    if usage.isStackDefault {
+                        fragment += ", reset stack to System"
+                    }
+                    cascade = fragment
+                }
+                return "Deleted '\(removedName)'. \(cascade)."
+            }
+            if BuiltInThemes.find(named: trimmed) != nil {
+                return "Cannot delete built-in theme '\(trimmed)'."
+            }
+            return "Theme '\(trimmed)' not found"
+
+        case "set_theme_property":
+            let themeName = arguments["theme_name"] ?? ""
+            let property = arguments["property"] ?? ""
+            let value = arguments["value"] ?? ""
+            let trimmedName = themeName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedName.isEmpty else {
+                return "set_theme_property: theme_name is required"
+            }
+            let lower = trimmedName.lowercased()
+            if let userTheme = document.themes.first(where: { $0.name.lowercased() == lower }) {
+                var recognized = false
+                let updated = document.updateTheme(id: userTheme.id) { theme in
+                    recognized = applyThemeFieldOverride(&theme, key: property, value: value)
+                }
+                guard updated else {
+                    return "Failed to update theme '\(userTheme.name)' (rename collision or theme missing)"
+                }
+                if !recognized {
+                    return "Unknown theme property '\(property)'"
+                }
+                return "Set \(property) of theme '\(userTheme.name)' to \(value)"
+            }
+            if BuiltInThemes.find(named: trimmedName) != nil {
+                return "Cannot edit built-in theme '\(trimmedName)'. Use create_theme to clone it first."
+            }
+            return "Theme '\(trimmedName)' not found"
 
         default:
             return "Unknown tool: \(toolName)"

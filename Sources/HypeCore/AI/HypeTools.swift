@@ -269,6 +269,13 @@ public struct HypeToolDefinitions {
             Set a property on a part by name. Available properties: name, left, top, width, height, \
             text, url, videoURL, fillColor, strokeColor, strokeWidth, cornerRadius, visible, enabled, hilite, \
             autoHilite, showName, lockText, textFont, textSize, textAlign, textStyle, script, style. \
+            Image / GIF parts also accept: transparentBackground (boolean — when true, the renderer \
+            chroma-keys the dominant corner-pixel color out so whatever is behind the image shows \
+            through; useful for JPGs and indexed GIFs whose 'background' is a solid color rather \
+            than a real alpha channel). \
+            Sprite Area parts also accept transparentBackground: when true, the SpriteKit scene \
+            composites against the card so an image part placed BENEATH the sprite area shows \
+            through (the scene's nodes still render normally on top). \
             Chart-specific properties: chartdata, charttype, charttitle, x_axis_label, y_axis_label, \
             show_legend, show_grid. \
             If the named part is a Sprite Area and property is script, this routes to the active \
@@ -806,6 +813,110 @@ public struct HypeToolDefinitions {
             "scene_name": ("string", "Optional scene name; defaults to active scene", false),
         ]),
 
+        // ------------------------------------------------------------------
+        // v3.2: Symmetric uniform property getter/setters for stack,
+        // card, background. Closes the gap noted in the eval set —
+        // get_stack_property / set_card_property / etc. were missing.
+        // Properties accepted include `theme` so the AI can apply
+        // themes without needing a dedicated tool per scope.
+        // ------------------------------------------------------------------
+
+        makeTool(name: "get_stack_property", description: """
+            Read a stack-level property: name, width, height, defaultFont, script, theme. \
+            Use this instead of get_stack_info when you only need one field.
+            """, params: [
+            "property": ("string", "Property name to read", true),
+        ]),
+
+        makeTool(name: "get_card_property", description: """
+            Read a card-level property: name, marked, script, theme, background, effectiveTheme. \
+            `effectiveTheme` walks the cascade card→background→stack and returns the resolved name. \
+            Use the current card when card_name is omitted.
+            """, params: [
+            "card_name": ("string", "Card name (defaults to current card)", false),
+            "property": ("string", "Property name to read", true),
+        ]),
+
+        makeTool(name: "set_card_property", description: """
+            Set a card-level property: name, marked, script, theme, background. \
+            `theme` accepts any theme name from `list_themes` (built-in or stack-local). \
+            Setting `theme` to empty string clears the override and lets the cascade fall through. \
+            Use the current card when card_name is omitted.
+            """, params: [
+            "card_name": ("string", "Card name (defaults to current card)", false),
+            "property": ("string", "Property name to set", true),
+            "value": ("string", "New value", true),
+        ]),
+
+        makeTool(name: "get_background_property", description: """
+            Read a background-level property: name, script, theme, cardCount.
+            """, params: [
+            "background_name": ("string", "Background name", true),
+            "property": ("string", "Property name to read", true),
+        ]),
+
+        makeTool(name: "set_background_property", description: """
+            Set a background-level property: name, script, theme. \
+            `theme` accepts any theme name from `list_themes`; empty value clears the override.
+            """, params: [
+            "background_name": ("string", "Background name", true),
+            "property": ("string", "Property name to set", true),
+            "value": ("string", "New value", true),
+        ]),
+
+        // ------------------------------------------------------------------
+        // v3.2: Theme catalog tools. Themes are document-scoped (live
+        // on the .hype file) but built-ins ship with the app and are
+        // never deletable. See Sources/HypeCore/Theme/.
+        // ------------------------------------------------------------------
+
+        makeTool(name: "list_themes", description: """
+            List every theme available to this stack. Output: one line per theme in the form \
+            `<name> [built-in|user] [based on <X>]`. Built-ins always appear first.
+            """, params: [:]),
+
+        makeTool(name: "create_theme", description: """
+            Clone an existing theme into a new user theme on this stack. `base_theme_name` \
+            must match a built-in or user theme. `new_name` must be unique within the stack \
+            (case-insensitive) and cannot collide with a built-in. `overrides_json` is an \
+            optional JSON object whose keys are HypeTheme field names — any key supplied \
+            replaces the corresponding field. Examples of overridable keys: `accent`, \
+            `cardBackground`, `defaultFontFamily`, `cornerRadiusMedium`, `shadowOpacity`. \
+            Color values may be hex (`#FF8800`) or system keys (`system:accentColor`).
+            """, params: [
+            "base_theme_name": ("string", "Existing theme to clone", true),
+            "new_name": ("string", "Name for the new user theme", true),
+            "overrides_json": ("string", "JSON object of field overrides", false),
+        ]),
+
+        makeTool(name: "duplicate_theme", description: """
+            Convenience: duplicate a theme by name. Equivalent to create_theme with no \
+            overrides. The new theme's name auto-increments (\"<src> Copy\", \"<src> Copy 2\", …) \
+            unless `new_name` is given.
+            """, params: [
+            "source_theme_name": ("string", "Theme to copy", true),
+            "new_name": ("string", "Name for the copy (defaults to '<source> Copy')", false),
+        ]),
+
+        makeTool(name: "delete_theme", description: """
+            Delete a user theme by name. Refuses to delete a built-in. References from \
+            cards/backgrounds clear (cascade falls through). If the stack was using this \
+            theme, it resets to the built-in `System` theme.
+            """, params: [
+            "theme_name": ("string", "User theme to delete", true),
+        ]),
+
+        makeTool(name: "set_theme_property", description: """
+            Edit a single field on an existing user theme. Refuses to edit a built-in. \
+            `property` is any HypeTheme field name (e.g. `accent`, `cardBackground`, \
+            `defaultFontFamily`, `cornerRadiusMedium`, `shadowOpacity`). Color values may \
+            be hex (`#FF8800`) or system keys (`system:accentColor`).
+            """, params: [
+            "theme_name": ("string", "User theme to modify", true),
+            "property": ("string", "Field name to update", true),
+            "value": ("string", "New value", true),
+        ]),
+
         // Web access
         makeTool(name: "fetch_url", description: "Fetch content from a URL. Returns the response text.", params: [
             "url": ("string", "URL to fetch", true),
@@ -1000,6 +1111,18 @@ public struct HypeToolDefinitions {
             "get_stack_info",
             "list_all_cards",
             "list_backgrounds",
+            // Property accessors (uniform getters/setters for stack/card/bg)
+            "get_stack_property",
+            "get_card_property",
+            "set_card_property",
+            "get_background_property",
+            "set_background_property",
+            // Theme catalog
+            "list_themes",
+            "create_theme",
+            "duplicate_theme",
+            "delete_theme",
+            "set_theme_property",
             // Chart helpers
             "get_chart_data_points",
             "set_chart_data_point_color",

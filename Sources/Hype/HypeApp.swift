@@ -146,6 +146,7 @@ struct HypeApp: App {
             CommandGroup(after: .newItem) {
                 Divider()
             }
+            EditMenuCommands()
             GoMenuCommands()
             ObjectsMenuCommands()
             ArrangeMenuCommands()

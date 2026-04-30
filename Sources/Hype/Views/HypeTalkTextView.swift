@@ -2,8 +2,21 @@ import SwiftUI
 import AppKit
 import HypeCore
 
-/// NSTextView-based code editor that exposes selection range for comment toggling.
-/// Uses forced light appearance to ensure black-on-white text visibility.
+/// NSTextView-based code editor with HypeTalk syntax highlighting.
+///
+/// **Theming**: reads `\.hypeTheme` from the SwiftUI environment and
+/// applies its `scriptTheme` palette to background, foreground, and
+/// every `TokenCategory` produced by `HypeTalkHighlighter`. When the
+/// active theme changes (e.g. user picks a different theme in the
+/// inspector), the editor re-tokenizes and re-applies attributes
+/// the next time `updateNSView` runs. The `themeRevision` parameter
+/// is incremented by the parent view to force a re-render even when
+/// the underlying text hasn't changed.
+///
+/// The legacy "force light appearance, hard-coded black on white"
+/// branch is gone — every visible color now comes from
+/// `theme.scriptTheme`. `BuiltInThemes.system` reproduces the old
+/// look so this is backward-compatible by default.
 struct HypeTalkTextView: NSViewRepresentable {
     @Binding var text: String
     @Binding var selectedRange: NSRange
@@ -15,6 +28,10 @@ struct HypeTalkTextView: NSViewRepresentable {
     /// the user edits the script.
     var errorHighlightLine: Binding<Int?>? = nil
     var onTextChange: (() -> Void)? = nil
+    /// The active theme's script-editor sub-palette. Drives every
+    /// color and font decision. Defaults to the System theme so this
+    /// view still works in previews/tests outside the document tree.
+    var scriptTheme: HypeScriptTheme = BuiltInThemes.system.scriptTheme
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -37,14 +54,16 @@ struct HypeTalkTextView: NSViewRepresentable {
         textView.isContinuousSpellCheckingEnabled = false
         textView.textContainerInset = NSSize(width: 4, height: 8)
 
-        // Force light appearance and explicit colors
-        textView.appearance = NSAppearance(named: .aqua)
-        textView.backgroundColor = .white
-        textView.insertionPointColor = .black
-        let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        // Apply the script theme's palette + font.
+        let bg = scriptTheme.background.nsColor
+        let fg = scriptTheme.foreground.nsColor
+        textView.backgroundColor = bg
+        textView.insertionPointColor = fg
+        let font = NSFont(name: "Menlo", size: CGFloat(scriptTheme.fontSize))
+            ?? NSFont.monospacedSystemFont(ofSize: CGFloat(scriptTheme.fontSize), weight: .regular)
         textView.font = font
-        textView.textColor = .black
-        textView.typingAttributes = [.font: font, .foregroundColor: NSColor.black]
+        textView.textColor = fg
+        textView.typingAttributes = [.font: font, .foregroundColor: fg]
         textView.delegate = context.coordinator
 
         // Configure text container
@@ -83,6 +102,28 @@ struct HypeTalkTextView: NSViewRepresentable {
             context.coordinator.isUpdating = false
         }
         context.coordinator.parent = self
+
+        // Re-apply theme palette in case the active theme changed
+        // since this view was created. Cheap because NSTextView's
+        // background/textColor setters compare-and-skip when the
+        // value is unchanged.
+        let bg = scriptTheme.background.nsColor
+        let fg = scriptTheme.foreground.nsColor
+        if textView.backgroundColor != bg { textView.backgroundColor = bg }
+        if textView.textColor != fg { textView.textColor = fg }
+        textView.insertionPointColor = fg
+        if let font = NSFont(name: "Menlo", size: CGFloat(scriptTheme.fontSize))
+                  ?? .none {
+            if textView.font != font { textView.font = font }
+            textView.typingAttributes = [.font: font, .foregroundColor: fg]
+        }
+
+        // Re-tokenize and re-color. NSTextStorage edits are batched
+        // inside beginEditing/endEditing so the layout manager only
+        // re-lays out once per pass.
+        context.coordinator.applySyntaxHighlight(
+            in: textView, scriptTheme: scriptTheme
+        )
 
         // Apply (or clear) the runtime-error line highlight. We do
         // this every update tick rather than only when the line
@@ -200,8 +241,103 @@ struct HypeTalkTextView: NSViewRepresentable {
             guard !isUpdating, let tv = textView else { return }
             isUpdating = true
             parent.text = tv.string
+            // Re-tokenize on every keystroke so colors track the
+            // user's edits live. The pass is fast (the highlighter
+            // is a single linear scan) and NSTextStorage batching
+            // collapses the layout-manager work into one pass.
+            applySyntaxHighlight(in: tv, scriptTheme: parent.scriptTheme)
             parent.onTextChange?()
             isUpdating = false
+        }
+
+        /// Highlighter cached on the coordinator (it's a value type
+        /// with no per-call setup, but holding the instance lets us
+        /// extend it with stack-derived part names later without
+        /// re-allocating per keystroke).
+        private let highlighter = HypeTalkHighlighter()
+
+        /// Tokenize the text view's current contents and apply per-
+        /// token foreground colors derived from `scriptTheme`. Wraps
+        /// every NSTextStorage edit in begin/endEditing so the
+        /// layout manager re-lays out exactly once.
+        ///
+        /// This MUST run on the main actor (NSTextStorage is not
+        /// thread-safe). It's called from `updateNSView` and
+        /// `textDidChange`, both of which are already on the main
+        /// thread by SwiftUI / AppKit contract.
+        func applySyntaxHighlight(in textView: NSTextView, scriptTheme: HypeScriptTheme) {
+            guard let storage = textView.textStorage else { return }
+            let source = textView.string
+            let nsSource = source as NSString
+            let fullRange = NSRange(location: 0, length: nsSource.length)
+            guard fullRange.length > 0 else { return }
+
+            let tokens = highlighter.highlight(source)
+
+            storage.beginEditing()
+            // Reset to the theme's foreground first so any previously
+            // colored run that's now plain text reverts. Run through
+            // ensuringContrast so user themes with low-contrast
+            // foregrounds get auto-darkened/lightened against the
+            // editor background.
+            let baseFGRef: ColorRef
+            if case .hex(let bgHex) = scriptTheme.background {
+                baseFGRef = scriptTheme.foreground.ensuringContrast(
+                    against: bgHex, minRatio: 4.5
+                )
+            } else {
+                baseFGRef = scriptTheme.foreground
+            }
+            let baseFG = baseFGRef.nsColor
+            storage.removeAttribute(.foregroundColor, range: fullRange)
+            storage.addAttribute(.foregroundColor, value: baseFG, range: fullRange)
+
+            for token in tokens {
+                let nsRange = NSRange(token.range, in: source)
+                guard nsRange.location + nsRange.length <= nsSource.length else { continue }
+                let color = Self.color(for: token.category, theme: scriptTheme).nsColor
+                storage.addAttribute(.foregroundColor, value: color, range: nsRange)
+            }
+            storage.endEditing()
+        }
+
+        /// Map a `HypeTalkHighlighter.TokenCategory` to a `ColorRef`
+        /// from the script theme. Categories that don't have an
+        /// exact 1:1 fall back to nearest-neighbor — e.g. `objectType`
+        /// uses the property color (because object names in HypeTalk
+        /// often appear in property-access positions like
+        /// `the field of card`), and `constant` reuses the number
+        /// literal color.
+        ///
+        /// Every returned color is run through `ensuringContrast`
+        /// against the script theme's background, so user-authored
+        /// themes (and AI-authored ones) can't drop a token color
+        /// that becomes invisible on its own background — the
+        /// renderer auto-darkens or auto-lightens until the WCAG
+        /// AA bar (4.5:1) is met. This is belt-and-suspenders on
+        /// top of the static built-in themes which are already
+        /// audited via `ThemeContrastAuditTests`.
+        private static func color(
+            for category: TokenCategory,
+            theme: HypeScriptTheme
+        ) -> ColorRef {
+            let raw: ColorRef
+            switch category {
+            case .keyword:        raw = theme.keyword
+            case .command:        raw = theme.command
+            case .objectType:     raw = theme.property
+            case .constant:       raw = theme.numberLiteral
+            case .stringLiteral:  raw = theme.stringLiteral
+            case .numberLiteral:  raw = theme.numberLiteral
+            case .comment:        raw = theme.comment
+            case .operator_:      raw = theme.operatorSymbol
+            case .plain:          raw = theme.foreground
+            }
+            // Resolve background to its hex form for the contrast
+            // check. systemKey backgrounds skip auto-correction
+            // (system handles its own contrast).
+            guard case .hex(let bgHex) = theme.background else { return raw }
+            return raw.ensuringContrast(against: bgHex, minRatio: 4.5)
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {

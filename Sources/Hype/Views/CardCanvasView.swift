@@ -264,6 +264,14 @@ struct CardCanvasView: NSViewRepresentable {
             parent.document.document.updatePart(id: id) { $0.hilite.toggle() }
         }
 
+        /// Force the hilite state of a part to a specific value.
+        /// Used by the transient mouseDown→mouseUp "pressed" state
+        /// for autoHilite buttons (e.g. shadow-style buttons whose
+        /// drop-shadow snaps to the opposite corner while held).
+        func setPartHilite(id: UUID, to value: Bool) {
+            parent.document.document.updatePart(id: id) { $0.hilite = value }
+        }
+
         func deletePart(id: UUID) {
             // Dispatch delete message before removing
             if let part = parent.document.document.parts.first(where: { $0.id == id }) {
@@ -717,6 +725,14 @@ class CardCanvasNSView: NSView {
     private var mouseStillDownTimer: Timer?
     private var mouseStillDownPartId: UUID?
 
+    /// The part ID currently auto-hilited by a held mouseDown.
+    /// Cleared on mouseUp (or if the mouse drags off the part).
+    /// Distinct from `hoveredPartId` — this only fires when the
+    /// user is actively pressing, and only on parts whose
+    /// `autoHilite` flag is true. Used by the renderer to switch
+    /// shadow-style buttons into their "pressed" appearance.
+    private var pressedButtonId: UUID?
+
     // Throttle mouseWithin dispatches
     private var lastMouseWithinTime: Date = .distantPast
 
@@ -855,8 +871,56 @@ class CardCanvasNSView: NSView {
         // Ensure idle timer is running (may not start from updateTrackingAreas alone)
         if idleTimer == nil { startIdleTimer() }
 
-        // Skip drawing the part being edited inline — the NSTextField overlay replaces it
-        renderer.render(ctx: ctx, document: document, cardId: currentCardId, size: bounds.size, skipPartId: activeFieldPartId)
+        // Skip drawing the part being edited inline — the NSTextField overlay replaces it.
+        //
+        // Pass `nativePartIds` so CardRenderer skips CG-rendering for parts that
+        // already have a live AppKit/SpriteKit overlay (sprite areas, charts, web
+        // pages, videos). Without this the SpriteAreaRenderer placeholder (teal
+        // dashed border + scene-name label) would draw INTO the parent NSView's
+        // CALayer and then show through any sprite-area SKView whose
+        // `allowsTransparency` is on — making a transparent sprite scene look
+        // "as if it's in edit mode" in browse. Same logic applies to chart /
+        // video / web overlay parts: their native subview already paints the
+        // pixels, so the CG placeholder is wasted work at best and visible
+        // chrome at worst.
+        //
+        // We derive the set from the DOCUMENT (not the live `spriteViews` /
+        // `chartViews` etc. dictionaries) and only in browse mode, because
+        // (a) on a card-return, the dictionaries lag by one frame —
+        // `updateSpriteViews()` runs LATER in this same draw, so the SKView
+        // for a returning sprite area isn't in `spriteViews` yet — which
+        // would let the placeholder flash through for one frame; and
+        // (b) in edit mode we WANT the placeholder visible, since the SKView
+        // is intentionally torn down in edit mode and the placeholder is
+        // the authoring affordance.
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let isBrowseModeForRender = toolState.category == .browse
+        let nativePartIds: Set<UUID>
+        if isBrowseModeForRender {
+            let renderCardParts = document.partsForCard(currentCardId)
+            let renderBgParts: [Part]
+            if let renderCard = document.cards.first(where: { $0.id == currentCardId }) {
+                renderBgParts = document.partsForBackground(renderCard.backgroundId)
+            } else {
+                renderBgParts = []
+            }
+            let nativeKinds: Set<PartType> = [.spriteArea, .chart, .webpage, .video]
+            nativePartIds = Set(
+                (renderCardParts + renderBgParts)
+                    .filter { $0.visible && nativeKinds.contains($0.partType) }
+                    .map(\.id)
+            )
+        } else {
+            nativePartIds = []
+        }
+        renderer.render(
+            ctx: ctx,
+            document: document,
+            cardId: currentCardId,
+            size: bounds.size,
+            skipPartId: activeFieldPartId,
+            nativePartIds: nativePartIds
+        )
 
         // Render the paint layer on top of card content
         let paintLayer = paintLayerForCurrentCard()
@@ -936,9 +1000,19 @@ class CardCanvasNSView: NSView {
         }
     }
 
+    /// The cascade-resolved theme for the currently-displayed card,
+    /// used to color selection chrome (resize handles, dashed
+    /// outline, rubber-band marquee). Changes live as the user
+    /// switches themes.
+    private var resolvedTheme: HypeTheme {
+        document.effectiveTheme(forCard: currentCardId)
+    }
+
     private func drawSelectionOverlay(ctx: CGContext, part: Part) {
+        let theme = resolvedTheme
+        let strokeNS = theme.selectionStroke.nsColor
         let rect = CGRect(x: part.left - 1, y: part.top - 1, width: part.width + 2, height: part.height + 2)
-        ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+        ctx.setStrokeColor(strokeNS.cgColor)
         ctx.setLineWidth(1)
         ctx.setLineDash(phase: 0, lengths: [4, 4])
         ctx.stroke(rect)
@@ -956,7 +1030,7 @@ class CardCanvasNSView: NSView {
             CGPoint(x: rect.minX, y: rect.maxY),
             CGPoint(x: rect.minX, y: rect.midY),
         ]
-        ctx.setFillColor(NSColor.controlAccentColor.cgColor)
+        ctx.setFillColor(strokeNS.cgColor)
         for h in handles {
             ctx.fill(CGRect(x: h.x - handleSize / 2, y: h.y - handleSize / 2, width: handleSize, height: handleSize))
         }
@@ -964,20 +1038,21 @@ class CardCanvasNSView: NSView {
 
     private func drawRubberBand(start: CGPoint, current: CGPoint) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let theme = resolvedTheme
         let rect = CGRect(
             x: min(start.x, current.x),
             y: min(start.y, current.y),
             width: abs(current.x - start.x),
             height: abs(current.y - start.y)
         )
-        ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+        ctx.setStrokeColor(theme.selectionStroke.nsColor.cgColor)
         ctx.setLineWidth(1)
         ctx.setLineDash(phase: 0, lengths: [3, 3])
         ctx.stroke(rect)
         ctx.setLineDash(phase: 0, lengths: [])
 
-        // Semi-transparent fill
-        ctx.setFillColor(NSColor.controlAccentColor.withAlphaComponent(0.1).cgColor)
+        // Semi-transparent fill from the theme's selectionFill.
+        ctx.setFillColor(theme.selectionFill.nsColor.cgColor)
         ctx.fill(rect)
     }
 
@@ -1078,9 +1153,35 @@ class CardCanvasNSView: NSView {
         // Dispatch openField lifecycle message
         coordinator?.dispatchMessage("openField", to: part.id)
 
-        // Create the text field overlay, matching the part's position and style exactly
+        // Create the text field overlay, matching the part's position and style exactly.
+        //
+        // The frame is the FULL part rect; the custom cell
+        // (`HypeFieldEditorCell`) handles the inner padding so the
+        // editor's text rect matches `FieldRenderer`'s
+        // `rect.insetBy(dx: padding, dy: padding)` exactly. Without
+        // the custom cell, characters jumped 2-6pt when entering
+        // edit mode (NSTextField's default ~2pt cell inset + 5pt
+        // lineFragmentPadding + vertical centering).
         let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
         let textField = NSTextField(frame: frame)
+
+        // Swap in our custom cell BEFORE setting any cell-derived
+        // properties (font, alignment, etc.) — those flow onto the
+        // current cell, and replacing the cell after would lose them.
+        let cell = HypeFieldEditorCell(textCell: "")
+        cell.hypePadding = part.wideMargins ? 8 : 4
+        cell.rightScrollbarReserve = part.fieldStyle == .scrolling ? 16 : 0
+        // Top-align (no vertical centering). NSTextField centers
+        // single-line text vertically when `wraps == false`; we set
+        // wraps=true so the layout matches FieldRenderer regardless
+        // of `dontWrap` (we control wrap behavior via lineBreakMode
+        // separately).
+        cell.wraps = true
+        cell.isScrollable = true
+        cell.lineBreakMode = part.dontWrap ? .byClipping : .byWordWrapping
+        cell.usesSingleLineMode = false
+        textField.cell = cell
+
         textField.stringValue = part.textContent
         textField.font = NSFont(name: part.textFont, size: CGFloat(part.textSize)) ?? NSFont.systemFont(ofSize: CGFloat(part.textSize))
         textField.textColor = .black
@@ -1092,8 +1193,6 @@ class CardCanvasNSView: NSView {
         textField.isSelectable = true
         textField.delegate = self
         textField.alignment = part.textAlign == .center ? .center : part.textAlign == .right ? .right : .left
-        textField.cell?.wraps = !part.dontWrap
-        textField.cell?.isScrollable = true
         textField.wantsLayer = true
         textField.layer?.borderColor = nsColorFromHex(part.strokeColor).cgColor
         textField.layer?.borderWidth = max(0, CGFloat(part.strokeWidth))
@@ -1624,6 +1723,22 @@ class CardCanvasNSView: NSView {
                 showPopupMenu(for: part, at: point)
                 return
             }
+            // Auto-hilite for buttons whose `autoHilite` flag is on:
+            // toggle hilite=true while the mouse is held so the
+            // renderer can paint the "pressed" state (e.g. shadow-
+            // style buttons snap their drop-shadow to the opposite
+            // corner). Stable-toggle styles (checkBox, toggle) are
+            // handled in mouseUp instead — they want a sticky
+            // hilite, not a transient one.
+            if let part = document.parts.first(where: { $0.id == partId }),
+               part.partType == .button,
+               part.autoHilite,
+               part.buttonStyle != .checkBox,
+               part.buttonStyle != .toggle {
+                coordinator?.setPartHilite(id: partId, to: true)
+                pressedButtonId = partId
+                needsDisplay = true
+            }
             coordinator?.dispatchMessage(message, to: partId)
             // Start mouseStillDown timer for held clicks in browse mode
             mouseStillDownPartId = partId
@@ -1784,9 +1899,16 @@ class CardCanvasNSView: NSView {
                             left: rx, top: ry, width: rw, height: rh
                         )
                         newPart.shapeType = .rectangle
-                        newPart.strokeColor = "#000000"
-                        newPart.fillColor = "#FFFFFF"
-                        newPart.strokeWidth = 1
+                        // Theme-aware defaults: pull stroke + fill
+                        // from the active theme so newly drawn shapes
+                        // visibly match the cardstack's chosen look.
+                        // The cascade-resolver always returns a theme.
+                        let rectTheme = document.effectiveTheme(forCard: currentCardId)
+                        newPart.strokeColor = rectTheme.shapeStrokeDefault.rawDescription.hasPrefix("#")
+                            ? rectTheme.shapeStrokeDefault.rawDescription : "#000000"
+                        newPart.fillColor = rectTheme.shapeFillDefault.rawDescription.hasPrefix("#")
+                            ? rectTheme.shapeFillDefault.rawDescription : "#FFFFFF"
+                        newPart.strokeWidth = max(1.0, rectTheme.strokeWidthThin)
                         coordinator?.addPart(newPart)
                     }
 
@@ -1802,9 +1924,12 @@ class CardCanvasNSView: NSView {
                             left: rx, top: ry, width: rw, height: rh
                         )
                         newPart.shapeType = .oval
-                        newPart.strokeColor = "#000000"
-                        newPart.fillColor = "#FFFFFF"
-                        newPart.strokeWidth = 1
+                        let ovalTheme = document.effectiveTheme(forCard: currentCardId)
+                        newPart.strokeColor = ovalTheme.shapeStrokeDefault.rawDescription.hasPrefix("#")
+                            ? ovalTheme.shapeStrokeDefault.rawDescription : "#000000"
+                        newPart.fillColor = ovalTheme.shapeFillDefault.rawDescription.hasPrefix("#")
+                            ? ovalTheme.shapeFillDefault.rawDescription : "#FFFFFF"
+                        newPart.strokeWidth = max(1.0, ovalTheme.strokeWidthThin)
                         coordinator?.addPart(newPart)
                     }
 
@@ -1882,7 +2007,17 @@ class CardCanvasNSView: NSView {
             // responds immediately. Skip all mouseUp processing
             // when Cmd is held to avoid double-opening the editor
             // or dispatching mouseUp to the part.
-            if event.modifierFlags.contains(.command) { return }
+            if event.modifierFlags.contains(.command) {
+                // Even on a Cmd+click skip, release any transient
+                // press state so a stuck pressed-button doesn't
+                // outlive the mouseDown.
+                if let pressedId = pressedButtonId {
+                    coordinator?.setPartHilite(id: pressedId, to: false)
+                    pressedButtonId = nil
+                    needsDisplay = true
+                }
+                return
+            }
 
             if let part = hitPart {
                 // Handle image invert-on-click
@@ -1899,6 +2034,15 @@ class CardCanvasNSView: NSView {
                     }
                 }
                 coordinator?.dispatchMessage("mouseUp", to: part.id)
+            }
+            // Release the transient mouseDown hilite for any
+            // autoHilite button that got pressed (whether the user
+            // released INSIDE the button or dragged off — either
+            // way the visual press state ends here).
+            if let pressedId = pressedButtonId {
+                coordinator?.setPartHilite(id: pressedId, to: false)
+                pressedButtonId = nil
+                needsDisplay = true
             }
             return
         }
@@ -2232,6 +2376,22 @@ class CardCanvasNSView: NSView {
             if let existingSKView = spriteViews[part.id] {
                 // Update position/size
                 existingSKView.frame = frame
+                // Defensive un-hide: hideAllEmbeddedSubviews() (called
+                // during card-level SpriteKit transitions) sets
+                // `isHidden = true` on every embedded SKView so it
+                // doesn't float over the transition. After the
+                // transition completes we just call needsDisplay,
+                // which routes back through here — but for a sprite
+                // area shared via a background, the same SKView
+                // instance survives the transition and would stay
+                // hidden without this. New-SKView creation defaults
+                // to visible so it doesn't need this.
+                existingSKView.isHidden = false
+                // Sync transparency flags every pass so toggling
+                // `Part.transparentBackground` at runtime (via the
+                // inspector toggle, HypeTalk, or AI) takes effect
+                // on the existing SKView without a scene rebuild.
+                applyTransparency(part: part, to: existingSKView)
 
                 // Only update scene if the sceneSpec JSON changed
                 if loadedSceneSpecs[part.id] != part.sceneSpec {
@@ -2256,6 +2416,13 @@ class CardCanvasNSView: NSView {
                         if needsRebuild {
                             rebuildSpriteScene(for: part, in: existingSKView)
                         } else {
+                            // applyLiveUpdates writes scene.backgroundColor
+                            // from spec on every call — re-apply
+                            // transparency so a sceneSpec edit (or any
+                            // path that triggers live update) on a
+                            // transparent sprite area doesn't flip the
+                            // scene back to opaque on the next frame.
+                            applyTransparency(part: part, to: existingSKView)
                             loadedActiveSceneIDs[part.id] = currentSceneId
                         }
                         loadedSceneSpecs[part.id] = part.sceneSpec
@@ -2271,8 +2438,15 @@ class CardCanvasNSView: NSView {
             } else {
                 // Create new SKView
                 let skView = SKView(frame: frame)
-                skView.allowsTransparency = false
                 skView.ignoresSiblingOrder = false
+                // Honor Part.transparentBackground: when true, the
+                // SKView composites against the underlying card so a
+                // bg-image part beneath shows through. When false,
+                // the scene's solid backgroundColor paints over
+                // anything beneath. Helper sets matching flags on
+                // both the SKView (allowsTransparency, isOpaque)
+                // and the live SKScene (backgroundColor).
+                applyTransparency(part: part, to: skView)
 
                 // Add tracking area for mouse moved events within the SKView
                 let trackingArea = NSTrackingArea(
@@ -2314,13 +2488,45 @@ class CardCanvasNSView: NSView {
     }
 
     /// Parse the sceneSpec and present a new HypeSKScene in the given SKView.
+    /// Apply `Part.transparentBackground` to a sprite-area's
+    /// SKView and its currently-presented SKScene.
+    ///
+    /// When `true`:
+    /// - `SKView.allowsTransparency = true` so the view's drawable
+    ///   composites with a non-opaque clear color
+    /// - `SKScene.backgroundColor = .clear` so the scene's per-
+    ///   frame clear no longer paints over what's beneath
+    ///
+    /// When `false` (default), restore the spec's backgroundColor
+    /// so the user-authored color is honored (e.g. Sunset's beige
+    /// game card stays beige when transparency is off).
+    ///
+    /// Note: NSView's `isOpaque` is a read-only computed property
+    /// in Swift (it reflects whether the view fully covers its
+    /// rect), so we don't set it here — the `allowsTransparency`
+    /// flag plus a clear scene bg is sufficient for SKView to
+    /// composite correctly against the underlying card content.
+    private func applyTransparency(part: Part, to skView: SKView) {
+        let transparent = part.transparentBackground
+        skView.allowsTransparency = transparent
+        if let scene = skView.scene {
+            if transparent {
+                scene.backgroundColor = .clear
+            } else if let spec = part.activeSceneSpec {
+                scene.backgroundColor = NSColor(hexString: spec.backgroundColor)
+                    ?? .darkGray
+            }
+        }
+    }
+
     private func rebuildSpriteScene(for part: Part, in skView: SKView) {
         guard let areaSpec = part.spriteAreaSpecModel,
               let sceneEntry = areaSpec.activeSceneEntry,
               let spec = areaSpec.activeScene else {
             // No valid scene — present an empty scene
             let emptyScene = SKScene(size: CGSize(width: part.width, height: part.height))
-            emptyScene.backgroundColor = .darkGray
+            emptyScene.backgroundColor = part.transparentBackground ? .clear : .darkGray
+            skView.allowsTransparency = part.transparentBackground
             skView.presentScene(emptyScene)
             loadedSceneSpecs[part.id] = part.sceneSpec
             return
@@ -2348,8 +2554,33 @@ class CardCanvasNSView: NSView {
         let repository = document.spriteRepository
         bridge.apply(spec: spec, to: scene, repository: repository)
 
+        // Apply transparency BEFORE presentScene so the very first
+        // frame painted by SpriteKit already has the correct clear
+        // backgroundColor — otherwise on card-return we briefly
+        // (and sometimes persistently, depending on render timing)
+        // see the spec's solid color paint over the underlying
+        // card. `bridge.apply` just set scene.backgroundColor from
+        // the spec; if the part is transparent we override to
+        // `.clear` here. We also set `skView.allowsTransparency`
+        // here directly since `applyTransparency`'s scene-level
+        // override only fires when `skView.scene` is non-nil and
+        // we haven't called presentScene yet.
+        if part.transparentBackground {
+            scene.backgroundColor = .clear
+            skView.allowsTransparency = true
+        } else {
+            skView.allowsTransparency = false
+        }
+
         // Present the scene
         skView.presentScene(scene)
+
+        // Belt-and-suspenders: re-run the helper after presentScene
+        // so any code path that mutates scene.backgroundColor
+        // between the override above and the first frame (e.g. a
+        // didMove that resets the clear color) is corrected on the
+        // very next runloop tick.
+        applyTransparency(part: part, to: skView)
 
         loadedSceneSpecs[part.id] = part.sceneSpec
 

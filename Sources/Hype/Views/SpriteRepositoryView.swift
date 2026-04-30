@@ -18,6 +18,7 @@ struct SpriteRepositoryView: View {
     /// by `openSpriteRepositoryWindow` to close the detached window.
     var onDone: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.hypeTheme) private var hypeTheme
     @State private var selectedAssetIds: Set<UUID> = []
     @State private var searchText: String = ""
     @State private var editingNameId: UUID? = nil
@@ -165,6 +166,16 @@ struct SpriteRepositoryView: View {
             }
         }
         .frame(minWidth: 550, minHeight: 350)
+        // Repository window surface — themed so the whole window
+        // (toolbar + grid + detail panel) follows the active theme.
+        // Asset thumbnails themselves are intentional content and
+        // keep their original tinting; only the surrounding chrome
+        // is retinted.
+        .background(hypeTheme.inspectorBackground.swiftUIColor)
+        // Force chrome colorScheme so labels in the search bar,
+        // status strip, and detail rows stay readable on the
+        // themed bg regardless of macOS appearance.
+        .environment(\.colorScheme, hypeTheme.chromeColorScheme)
         .onChange(of: selectedAssetIds) { _, newValue in
             // Whenever focus moves to a single asset, reseed both
             // the name draft and the tileset editor state from the

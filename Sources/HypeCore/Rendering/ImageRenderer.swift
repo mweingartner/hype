@@ -20,7 +20,10 @@ public enum ImageRenderer {
 
         // Query the animator for the current GIF frame.
         if let cgImage = GIFAnimator.shared.currentFrame(partId: part.id) {
-            drawCGImageFlipped(ctx: ctx, image: cgImage, rect: rect)
+            let toDraw = part.transparentBackground
+                ? ImageChromaKey.apply(to: cgImage)
+                : cgImage
+            drawCGImageFlipped(ctx: ctx, image: toDraw, rect: rect)
             drewFromAnimator = true
         }
 
@@ -29,7 +32,10 @@ public enum ImageRenderer {
             if let data = part.imageData,
                let image = NSImage(data: data),
                let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                drawCGImageFlipped(ctx: ctx, image: cgImage, rect: rect)
+                let toDraw = part.transparentBackground
+                    ? ImageChromaKey.apply(to: cgImage)
+                    : cgImage
+                drawCGImageFlipped(ctx: ctx, image: toDraw, rect: rect)
             } else if part.imageData == nil {
                 // Placeholder — no image loaded yet.
                 ctx.setFillColor(NSColor(white: 0.9, alpha: 1).cgColor)

@@ -8,6 +8,7 @@ private let systemFontFamilies: [String] = NSFontManager.shared.availableFontFam
 struct PropertyInspector: View {
     @Binding var document: HypeDocumentWrapper
     @Binding var selectedPartIds: Set<UUID>
+    @Environment(\.hypeTheme) private var hypeTheme
     var currentTool: ToolName = .browse
     var currentCardId: UUID? = nil
     @Binding var paintColor: Color
@@ -86,6 +87,17 @@ struct PropertyInspector: View {
 
                         Divider()
 
+                        // Single-part theme info: read-only — the
+                        // controls live in the no-part-selected
+                        // inspector and the Theme Designer window.
+                        // Showing the resolved theme here just
+                        // answers the question "what theme is this
+                        // part rendering under?" without scattering
+                        // editing controls across every part type.
+                        themeInfoSection
+
+                        Divider()
+
                         // Delete part
                         Button(role: .destructive, action: {
                             let idToDelete = part.id
@@ -121,13 +133,34 @@ struct PropertyInspector: View {
                             .font(.headline)
                             .padding(.bottom, 4)
                         scriptsSection
+
+                        Divider()
+
+                        // Theme picker rows for the current card,
+                        // its background, and the stack default.
+                        // This is the primary editing surface for
+                        // theme assignment — the Theme Designer
+                        // window only authors theme values; this
+                        // section is what wires those values to
+                        // surfaces. See `themePickerSection`.
+                        themePickerSection
                     }
                     .padding()
                 }
             }
         }
         .frame(width: 260)
-        .background(Color(NSColor.controlBackgroundColor))
+        // Inspector panel chrome — pulls from the active theme so a
+        // dark theme like Modern Dark or Neon makes the side panel
+        // dark too instead of staying system-light. Falls back to
+        // system control color in System theme.
+        .background(hypeTheme.inspectorBackground.swiftUIColor)
+        // Force the colorScheme to match the panel background's
+        // luminance so SwiftUI's labels (Color.primary / Text /
+        // Picker / TextField) pick a contrasting color. Without
+        // this, a light-bg theme like Sunset shows white labels
+        // when macOS is in dark mode (and vice versa).
+        .environment(\.colorScheme, hypeTheme.chromeColorScheme)
         .sheet(item: $sceneGuideContext) { context in
             SpriteSceneSetupGuide(
                 document: $document,
@@ -376,6 +409,227 @@ struct PropertyInspector: View {
         .buttonStyle(.plain)
     }
 
+    // MARK: - Theme Picker (no part selected)
+
+    /// Three Picker rows — Card / Background / Stack — letting the
+    /// user assign or inherit a theme at any level of the cascade.
+    /// Card and Background both have an "Inherit" entry that nils
+    /// out the local `themeName`, so the cascade falls through to
+    /// the next level. Stack has no Inherit entry because
+    /// `Stack.themeName` is non-optional (the cascade has to
+    /// terminate somewhere — see `BuiltInThemes.fallbackName`).
+    ///
+    /// Each row's trailing label shows the live cascade-resolution
+    /// state (e.g. "(inheriting from background)") so the user can
+    /// see why a card looks the way it does without opening the
+    /// designer.
+    ///
+    /// The "Edit Themes..." button posts `.openThemeDesigner`, which
+    /// `MainContentView` observes to open or focus the detached
+    /// designer window. Reusing the notification keeps this button
+    /// and the Edit menu item in lockstep — there's only one path
+    /// to opening the designer.
+    @ViewBuilder
+    private var themePickerSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("THEME")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button(action: {
+                    NotificationCenter.default.post(name: .openThemeDesigner, object: nil)
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "paintpalette")
+                        Text("Edit Themes...")
+                    }
+                    .font(.system(size: 11))
+                }
+                .buttonStyle(.borderless)
+                .help("Open the Theme Designer window")
+            }
+
+            // Card row
+            if let cardId = currentCardId,
+               let cardIdx = document.document.cards.firstIndex(where: { $0.id == cardId }) {
+                themePickerRow(
+                    label: "Card",
+                    selection: cardThemeBinding(cardIndex: cardIdx),
+                    showInherit: true,
+                    cascadeNote: cascadeNote(for: .card(cardId))
+                )
+
+                // Background row — Card.backgroundId is non-optional
+                // but the background it points at may have been
+                // deleted, so we still need a `firstIndex` guard.
+                let bgId = document.document.cards[cardIdx].backgroundId
+                if let bgIdx = document.document.backgrounds.firstIndex(where: { $0.id == bgId }) {
+                    let bg = document.document.backgrounds[bgIdx]
+                    let bgLabel = "Background: \(bg.name.isEmpty ? "Untitled" : bg.name)"
+                    themePickerRow(
+                        label: bgLabel,
+                        selection: backgroundThemeBinding(backgroundIndex: bgIdx),
+                        showInherit: true,
+                        cascadeNote: cascadeNote(for: .background(bgId))
+                    )
+                }
+            }
+
+            // Stack row — no inherit entry; cascade terminates here.
+            themePickerRow(
+                label: "Stack",
+                selection: stackThemeBindingNonOptional(),
+                showInherit: false,
+                cascadeNote: nil
+            )
+        }
+    }
+
+    /// Render a single theme picker row. The `selection` is an
+    /// optional binding so we can use `nil` to mean "inherit from
+    /// the next cascade level" for card/background pickers; the
+    /// stack picker wraps its non-optional `String` in a Binding
+    /// here for a uniform API.
+    @ViewBuilder
+    private func themePickerRow(
+        label: String,
+        selection: Binding<String?>,
+        showInherit: Bool,
+        cascadeNote: String?
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Picker(label, selection: selection) {
+                if showInherit {
+                    Text("Inherit").tag(String?.none)
+                    Divider()
+                }
+                ForEach(document.document.allAvailableThemes) { theme in
+                    Text(theme.name).tag(String?.some(theme.name))
+                }
+            }
+            .pickerStyle(.menu)
+            .font(.system(size: 11))
+
+            if let note = cascadeNote {
+                Text(note)
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                    .italic()
+            }
+        }
+    }
+
+    /// Build a human-readable description of where the cascade
+    /// resolves for the given scope, used as the dimmed trailing
+    /// label under each picker. Returns nil when the scope's local
+    /// theme is set (no inheritance happening to call out).
+    private func cascadeNote(for scope: ThemePickerScope) -> String? {
+        guard let cardId = currentCardId else { return nil }
+        let (theme, origin) = document.document.effectiveThemeOrigin(forCard: cardId)
+        switch scope {
+        case .card(let id):
+            // Only show a note when the card has no local theme,
+            // i.e. the cascade is doing work for this scope.
+            guard let card = document.document.cards.first(where: { $0.id == id }),
+                  card.themeName == nil
+            else { return nil }
+            switch origin {
+            case .card:        return "(using \(theme.name))"
+            case .background:  return "(inheriting from background → \(theme.name))"
+            case .stack:       return "(inheriting from stack → \(theme.name))"
+            case .fallback:    return "(falling back to \(theme.name))"
+            }
+        case .background(let id):
+            guard let bg = document.document.backgrounds.first(where: { $0.id == id }),
+                  bg.themeName == nil
+            else { return nil }
+            switch origin {
+            case .background:  return "(using \(theme.name))"
+            case .stack:       return "(inheriting from stack → \(theme.name))"
+            case .fallback:    return "(falling back to \(theme.name))"
+            case .card:        return nil  // shouldn't happen at bg scope
+            }
+        }
+    }
+
+    /// Read-only theme info row shown at the bottom of the
+    /// per-part inspector. Mirrors the cascade resolution so the
+    /// user can answer "what theme is this part rendering under?"
+    /// without leaving the inspector.
+    @ViewBuilder
+    private var themeInfoSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("THEME")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundColor(.secondary)
+            let (theme, origin) = document.document.effectiveThemeOrigin(forCard: currentCardId)
+            HStack {
+                Text("\(theme.name)")
+                    .font(.system(size: 11))
+                Spacer()
+                Text("(from \(originLabel(origin)))")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .italic()
+            }
+            Button(action: {
+                NotificationCenter.default.post(name: .openThemeDesigner, object: nil)
+            }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "paintpalette")
+                    Text("Edit Themes...")
+                }
+                .font(.system(size: 11))
+            }
+            .buttonStyle(.borderless)
+            .help("Open the Theme Designer window")
+        }
+    }
+
+    private func originLabel(_ origin: ThemeOrigin) -> String {
+        switch origin {
+        case .card:        return "card"
+        case .background:  return "background"
+        case .stack:       return "stack"
+        case .fallback:    return "system fallback"
+        }
+    }
+
+    /// Optional-string binding for `Card.themeName`. Selecting the
+    /// "Inherit" entry sets the underlying value to nil.
+    private func cardThemeBinding(cardIndex: Int) -> Binding<String?> {
+        Binding(
+            get: { document.document.cards[cardIndex].themeName },
+            set: { newValue in
+                document.document.cards[cardIndex].themeName = newValue
+            }
+        )
+    }
+
+    /// Optional-string binding for `Background.themeName`.
+    private func backgroundThemeBinding(backgroundIndex: Int) -> Binding<String?> {
+        Binding(
+            get: { document.document.backgrounds[backgroundIndex].themeName },
+            set: { newValue in
+                document.document.backgrounds[backgroundIndex].themeName = newValue
+            }
+        )
+    }
+
+    /// Wrap the non-optional `Stack.themeName` in an optional-string
+    /// binding so it can share the same picker row signature as the
+    /// card/background pickers. The setter coerces nil to the
+    /// fallback name to satisfy the non-optional invariant.
+    private func stackThemeBindingNonOptional() -> Binding<String?> {
+        Binding(
+            get: { document.document.stack.themeName },
+            set: { newValue in
+                document.document.stack.themeName = newValue ?? BuiltInThemes.fallbackName
+            }
+        )
+    }
+
     /// Listing of every background in the stack with a picker
     /// that re-assigns the current card to a different one,
     /// default-star controls, and delete buttons.
@@ -621,6 +875,12 @@ struct PropertyInspector: View {
             // "It also would not stop animating when I toggled the
             // animated property").
             Toggle("Animated", isOn: bindAnimatedToggle(part.id))
+            // Chroma-key the image's dominant corner-pixel color so
+            // the card shows through. Useful for JPGs / indexed GIFs
+            // whose "background" is a solid color rather than real
+            // alpha. Backed by ImageChromaKey (see ImageRenderer).
+            Toggle("Transparent Background", isOn: bindPartBool(part.id, \.transparentBackground))
+                .help("Treat the image's dominant corner color as transparent so whatever's behind shows through. Already-transparent PNGs are unaffected.")
 
             if let data = part.imageData {
                 Text("Image loaded (\(data.count / 1024) KB)")
@@ -743,6 +1003,16 @@ struct PropertyInspector: View {
                     }
                 }
                 .font(.system(size: 11))
+
+                // Same Part.transparentBackground flag image parts
+                // use. When on, the SKView composites against the
+                // card surface (and any image part beneath shows
+                // through). The scene's stored backgroundColor is
+                // ignored at runtime — restored if the user turns
+                // the flag back off.
+                Toggle("Transparent Background",
+                       isOn: bindPartBool(part.id, \.transparentBackground))
+                    .help("Let whatever's behind this sprite area (e.g. a card image) show through. The scene's nodes still render normally on top.")
 
                 Divider()
                 Text("Physics").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
@@ -2436,6 +2706,15 @@ struct PropertyInspector: View {
                 .frame(width: 60)
         }
     }
+}
+
+/// Local scope tag used by `themePickerSection` and `cascadeNote` to
+/// pick which level of the cascade the trailing label should describe.
+/// Stack-scope is omitted because it never inherits — its picker has
+/// no Inherit entry and shows no cascade note.
+private enum ThemePickerScope {
+    case card(UUID)
+    case background(UUID)
 }
 
 // MARK: - Script Editor Sheet (used as fallback for .sheet() presentation)

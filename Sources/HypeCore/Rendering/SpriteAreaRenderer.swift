@@ -8,9 +8,15 @@ public enum SpriteAreaRenderer {
     public static func draw(ctx: CGContext, part: Part, rect: CGRect) {
         ctx.saveGState()
 
-        // Teal background
-        ctx.setFillColor(NSColor.systemTeal.withAlphaComponent(0.15).cgColor)
-        ctx.fill(rect)
+        // Teal background — skipped when part.transparentBackground
+        // is on, so any image part placed BEHIND this sprite area
+        // shows through in CGContext-rendered snapshots/exports.
+        // The dashed border still draws so the editor still has
+        // a visible authoring outline.
+        if !part.transparentBackground {
+            ctx.setFillColor(NSColor.systemTeal.withAlphaComponent(0.15).cgColor)
+            ctx.fill(rect)
+        }
 
         // Dashed border
         ctx.setStrokeColor(NSColor.systemTeal.cgColor)

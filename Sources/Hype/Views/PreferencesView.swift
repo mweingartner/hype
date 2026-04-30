@@ -5,6 +5,7 @@ struct PreferencesView: View {
     @AppStorage("ollamaHost") private var ollamaHost = "localhost"
     @AppStorage("ollamaPort") private var ollamaPort = "11434"
     @AppStorage("ollamaModel") private var ollamaModel = "llama3.2"
+    @Environment(\.hypeTheme) private var hypeTheme
     @State private var availableModels: [String] = []
     @State private var isLoading = false
     @State private var connectionStatus = ""
@@ -135,6 +136,12 @@ struct PreferencesView: View {
         }
         .formStyle(.grouped)
         .frame(width: 500, height: 520)
+        // Settings surface — tint with the inspector-background
+        // token so the Preferences scene picks up theme swaps.
+        .background(hypeTheme.inspectorBackground.swiftUIColor)
+        // Force chrome colorScheme so picker rows, toggles, and
+        // text fields keep their labels readable on themed bg.
+        .environment(\.colorScheme, hypeTheme.chromeColorScheme)
         .onAppear {
             fetchModels()
             pexelsKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.pexelsAPIKeyAccount)

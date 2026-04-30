@@ -4,6 +4,7 @@ import HypeCore
 struct AIChatPanel: View {
     @Binding var document: HypeDocumentWrapper
     @Binding var currentCardId: UUID?
+    @Environment(\.hypeTheme) private var hypeTheme
     @State private var inputText = ""
     @State private var messages: [(role: String, content: String)] = []
     @State private var conversationMessages: [OllamaMessage] = []  // Full context for model
@@ -64,7 +65,11 @@ struct AIChatPanel: View {
                     .foregroundColor(.secondary)
             }
             .padding(8)
-            .background(Color(NSColor.controlBackgroundColor))
+            // AI Chat header bar — themed to match the toolbar.
+            .background(hypeTheme.toolbarBackground.swiftUIColor)
+            // Force header text to contrast with the themed
+            // background regardless of macOS appearance.
+            .environment(\.colorScheme, hypeTheme.toolbarColorScheme)
 
             // Messages
             ScrollViewReader { proxy in
@@ -180,6 +185,14 @@ struct AIChatPanel: View {
             }
         }
         .frame(width: 350)
+        // AI panel surface — pulls the inspector-background token
+        // so the chat panel matches the rest of the side chrome
+        // regardless of theme.
+        .background(hypeTheme.inspectorBackground.swiftUIColor)
+        // Force chrome colorScheme so message text, input field, and
+        // assistant labels resolve against the panel bg luminance
+        // rather than the macOS appearance.
+        .environment(\.colorScheme, hypeTheme.chromeColorScheme)
     }
 
     // MARK: - History
@@ -251,11 +264,19 @@ struct AIChatPanel: View {
 
     // MARK: - Bubble Color
 
+    /// Bubble background per role — themed so swapping themes also
+    /// retints chat bubbles.
+    /// - user: theme accent at 15% so the accent color reads as a
+    ///   subtle wash, matching the inspector's selected-row tint.
+    /// - tool: kept semantically green at low opacity so tool-call
+    ///   results remain visually distinct from chat content.
+    /// - assistant (default): the theme's inspector-background tone
+    ///   so assistant bubbles sit one elevation above the panel bg.
     private func bubbleColor(for role: String) -> Color {
         switch role {
-        case "user": return Color.accentColor.opacity(0.2)
+        case "user": return hypeTheme.accent.swiftUIColor.opacity(0.15)
         case "tool": return Color.green.opacity(0.1)
-        default: return Color(NSColor.controlBackgroundColor)
+        default: return hypeTheme.inspectorBackground.swiftUIColor
         }
     }
 
@@ -315,7 +336,10 @@ struct AIChatPanel: View {
             }
         }
         .padding(10)
-        .background(Color(NSColor.controlBackgroundColor))
+        // Themed proposal card — uses the inspector-background tone
+        // so it blends with the rest of the AI panel's chrome under
+        // any theme.
+        .background(hypeTheme.inspectorBackground.swiftUIColor)
         .cornerRadius(10)
     }
 

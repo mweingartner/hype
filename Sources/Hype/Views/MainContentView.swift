@@ -56,8 +56,17 @@ struct MainContentView: View {
         true
     }
 
+    /// Resolve the currently-active theme through the cascade so
+    /// every downstream view sees a consistent value via
+    /// `@Environment(\.hypeTheme)`. Card → background → stack →
+    /// `BuiltInThemes.system`. See ThemeResolver.swift for details.
+    private var resolvedTheme: HypeTheme {
+        document.document.effectiveTheme(forCard: currentCardId)
+    }
+
     var body: some View {
         mainContent
+            .environment(\.hypeTheme, resolvedTheme)
             .onAppear {
                 currentCardId = document.document.sortedCards.first?.id
                 refreshRuntimeStatus()
@@ -182,7 +191,12 @@ struct MainContentView: View {
                 minWidth: CGFloat(document.document.stack.width),
                 minHeight: CGFloat(document.document.stack.height)
             )
-            .background(Color.gray.opacity(0.3))
+            // Canvas margin — the area visible when the window
+            // is larger than the card. Pulls from the active
+            // theme's canvasMargin so a Sunset theme tints the
+            // surround warm and a Neon theme drops it to near-
+            // black, matching the card surface.
+            .background(resolvedTheme.canvasMargin.swiftUIColor)
 
             // Status bar
             HStack {
@@ -204,7 +218,13 @@ struct MainContentView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .background(Color(NSColor.controlBackgroundColor))
+            // Status strip below the canvas — tinted with the
+            // active theme's toolbar background so it matches the
+            // top toolbar visually.
+            .background(resolvedTheme.toolbarBackground.swiftUIColor)
+            // Same colorScheme override as the inspector — keep
+            // the labels readable on the themed background.
+            .environment(\.colorScheme, resolvedTheme.toolbarColorScheme)
         }
     }
 
@@ -422,6 +442,29 @@ struct MainContentView: View {
 
 // MARK: - Notification Handler Modifiers
 
+/// Sub-modifier for the `.openThemeDesigner` notification. Lifted
+/// out as its own modifier rather than appended to the main
+/// `NavigationHandlers` chain because that chain has grown long
+/// enough that the Swift type-checker rejects it on time-budget
+/// grounds. Splitting along functional lines (theme vs. arrange vs.
+/// alignment vs. navigation) keeps each chain digestible.
+private struct ThemeDesignerHandler: ViewModifier {
+    @Binding var document: HypeDocumentWrapper
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .openThemeDesigner)) { _ in
+                // The Edit > Themes... menu item AND the "Edit
+                // Themes..." button inside the PropertyInspector
+                // both post this notification. The opener is
+                // idempotent per-document — a second invocation
+                // surfaces the existing window rather than spawning
+                // a duplicate. See `ThemeDesignerWindowController`.
+                openThemeDesignerWindow(document: $document)
+            }
+    }
+}
+
 /// Sub-modifier for navigation, tool, card, and background notifications.
 private struct NavigationHandlers: ViewModifier {
     @Binding var document: HypeDocumentWrapper
@@ -542,6 +585,7 @@ private struct NavigationHandlers: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .showConsole)) { _ in
                 openConsoleWindow()
             }
+            .modifier(ThemeDesignerHandler(document: $document))
     }
 
     /// Parse a `.showScriptError` notification payload and open the

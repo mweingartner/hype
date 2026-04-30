@@ -62,10 +62,15 @@ public final class CardRenderer: Sendable {
         cardId: UUID,
         size: NSSize,
         skipPartId: UUID? = nil,
-        nativePartIds: Set<UUID> = []
+        nativePartIds: Set<UUID> = [],
+        theme: HypeTheme? = nil
     ) {
-        // Layer 1: Background (white)
-        ctx.setFillColor(NSColor.white.cgColor)
+        // Layer 1: Card surface — theme.cardBackground when a
+        // theme is supplied, else NSColor.white to preserve the
+        // pre-theme rendering for any caller that hasn't migrated.
+        let resolved = theme ?? document.effectiveTheme(forCard: cardId)
+        let surfaceColor = resolved.cardBackground.nsColor
+        ctx.setFillColor(surfaceColor.cgColor)
         ctx.fill(CGRect(origin: .zero, size: size))
 
         guard let card = document.cards.first(where: { $0.id == cardId }),

@@ -90,6 +90,20 @@ public struct Part: Identifiable, Codable, Sendable {
     /// Defaults to `true` so newly added GIFs animate without
     /// explicit opt-in.
     public var animated: Bool
+    /// When `true`, the renderer treats the image's dominant
+    /// corner-pixel color as transparent (alpha=0) so whatever is
+    /// behind the image shows through. Useful for JPGs and indexed
+    /// GIFs whose "background" is a solid color rather than
+    /// genuine alpha.
+    ///
+    /// PNGs with a real alpha channel always honor that channel
+    /// regardless of this flag — so a PNG with semi-transparent
+    /// edges still draws correctly when this is `false`.
+    ///
+    /// Default `false` so newly added images render exactly as
+    /// they did before this property existed (and as their pixel
+    /// data dictates).
+    public var transparentBackground: Bool
 
     // SpriteKit scene-specific
     public var sceneSpec: String  // JSON-encoded SceneSpec or SpriteAreaSpec
@@ -154,6 +168,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.imageData = nil
         self.invertOnClick = false
         self.animated = true
+        self.transparentBackground = false
         self.sceneSpec = ""
         self.script = ""
     }
@@ -212,6 +227,10 @@ public struct Part: Identifiable, Codable, Sendable {
         // accept missing values and default to true so older .hype
         // files still load and GIFs animate automatically.
         animated = try container.decodeIfPresent(Bool.self, forKey: .animated) ?? true
+        // Backward-compatible: pre-transparent-background documents
+        // default this flag to false so existing images render the
+        // same way they did before the feature shipped.
+        transparentBackground = try container.decodeIfPresent(Bool.self, forKey: .transparentBackground) ?? false
         sceneSpec = try container.decodeIfPresent(String.self, forKey: .sceneSpec) ?? ""
         script = try container.decode(String.self, forKey: .script)
     }

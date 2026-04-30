@@ -6,6 +6,7 @@ struct NetworkPanelView: View {
     let runtimeStatus: RuntimeStatusSnapshot
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.hypeTheme) private var hypeTheme
 
     var body: some View {
         NavigationStack {
@@ -23,6 +24,13 @@ struct NetworkPanelView: View {
             }
         }
         .frame(minWidth: 760, minHeight: 640)
+        // Sheet surface — tint with the active theme's inspector
+        // background so the dialog matches the rest of the chrome.
+        .background(hypeTheme.inspectorBackground.swiftUIColor)
+        // Force chrome colorScheme so labels, toggles, and form
+        // controls render with contrasting text against the themed
+        // background regardless of macOS appearance.
+        .environment(\.colorScheme, hypeTheme.chromeColorScheme)
     }
 
     private var asyncSection: some View {

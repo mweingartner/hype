@@ -25,10 +25,20 @@ public struct Stack: Identifiable, Codable, Sendable {
     /// Toggle in Preferences → Web Asset Search → Current Stack.
     public var webAssetsAllowed: Bool
 
+    /// The stack-level theme name. NEVER nil — the cascade
+    /// (card → background → stack) needs a guaranteed terminating
+    /// reference, so newly-created stacks default to
+    /// `BuiltInThemes.fallbackName` ("System"). When a user deletes
+    /// a theme that the stack was using, this resets to "System"
+    /// rather than going nil. See ThemeResolver.swift for the full
+    /// cascade contract.
+    public var themeName: String
+
     private enum CodingKeys: String, CodingKey {
         case id, name, width, height, createdAt, modifiedAt, script
         case defaultFont, networkManifest
         case webAssetsAllowed
+        case themeName
     }
 
     public init(
@@ -41,7 +51,8 @@ public struct Stack: Identifiable, Codable, Sendable {
         script: String = "",
         defaultFont: String = "Apple Braille",
         networkManifest: StackNetworkManifest = StackNetworkManifest(),
-        webAssetsAllowed: Bool = false
+        webAssetsAllowed: Bool = false,
+        themeName: String = "System"
     ) {
         self.id = id
         self.name = name
@@ -53,6 +64,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         self.defaultFont = defaultFont
         self.networkManifest = networkManifest
         self.webAssetsAllowed = webAssetsAllowed
+        self.themeName = themeName
     }
 
     public init(from decoder: Decoder) throws {
@@ -68,5 +80,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         networkManifest = try c.decodeIfPresent(StackNetworkManifest.self, forKey: .networkManifest) ?? StackNetworkManifest()
         // Backward-compatible: pre-v2 stacks have no webAssetsAllowed field.
         webAssetsAllowed = try c.decodeIfPresent(Bool.self, forKey: .webAssetsAllowed) ?? false
+        // Backward-compatible: pre-theme stacks default to "System".
+        themeName = try c.decodeIfPresent(String.self, forKey: .themeName) ?? "System"
     }
 }
