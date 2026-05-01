@@ -216,23 +216,67 @@ def score_prompt(prompt_row: dict, model_output: str) -> dict:
     }
 
 
+def hypetalk_guide_text() -> str:
+    """Read HypeTalkGuide.llmContext from the Swift source.
+
+    The full guide is what untuned baseline models receive at chat
+    time (per AIChatPanel.swift's isTunedHypeTalkModel branch), so
+    A/B comparisons against an untuned model should mirror that
+    injection.
+    """
+    guide_path = (
+        ROOT.parent.parent / "Sources" / "HypeCore" / "AI" / "HypeTalkGuide.swift"
+    )
+    if not guide_path.exists():
+        return ""
+    src = guide_path.read_text()
+    import re
+    m = re.search(r'public static let llmContext: String = """(.+?)"""', src, re.DOTALL)
+    return m.group(1) if m else ""
+
+
+def system_prompt_for(model: str, mode: str, guide: str) -> str:
+    """Reproduce Hype's actual system-prompt selection.
+
+    Tuned `hypetalk-*` models received the full HypeTalk guide
+    during training, so the runtime prompt is intentionally slim.
+    Untuned baseline models get the full guide appended so they
+    can match production fairness.
+
+    Tracks AIChatPanel.swift's `isTunedHypeTalkModel` branch.
+    """
+    is_tuned = model.lower().startswith("hypetalk-")
+    base = AUTHORING_SYSTEM_PROMPT if mode == "tool" else SCRIPT_SYSTEM_PROMPT
+    if is_tuned or not guide:
+        return base
+    return base + "\n\n" + guide
+
+
 def evaluate_model(
     model: str,
     prompts: list[dict],
     tools: list[dict],
     known_tool_names: set[str],
     think: bool | None = None,
+    guide: str = "",
 ) -> list[dict]:
     """Send every prompt to `model` and collect scores. Prints a
-    progress line per prompt so long runs are visible."""
+    progress line per prompt so long runs are visible.
+
+    `guide` is the full HypeTalkGuide.llmContext text. It is
+    appended to the system prompt for non-`hypetalk-*` models so
+    the A/B mirrors Hype's actual runtime behavior (see
+    `system_prompt_for`).
+    """
     results: list[dict] = []
     for i, row in enumerate(prompts, 1):
         start = time.monotonic()
         use_tools = prompt_expects_tool_use(row, known_tool_names)
+        mode = "tool" if use_tools else "script"
         message = ollama_chat(
             model,
             row["prompt"],
-            system=AUTHORING_SYSTEM_PROMPT if use_tools else SCRIPT_SYSTEM_PROMPT,
+            system=system_prompt_for(model, mode, guide),
             tools=tools if use_tools else [],
             think=think,
         )
@@ -241,7 +285,7 @@ def evaluate_model(
         score = score_prompt(row, output)
         score["elapsed_s"] = round(elapsed, 2)
         score["output"] = output
-        score["mode"] = "tool" if use_tools else "script"
+        score["mode"] = mode
         score["raw_message"] = message
         results.append(score)
         mark = "PASS" if score["passed"] else "FAIL"
@@ -266,6 +310,102 @@ def summarize(results: list[dict]) -> dict:
     }
 
 
+def format_markdown_report(report: dict) -> str:
+    """Render a side-by-side markdown summary of an A/B eval run.
+
+    Includes per-prompt pass/fail for each model, missing/forbidden
+    substrings, and the actual model outputs (truncated). Designed
+    to drop into a commit message or a docs PR so the user can
+    eyeball where the tuned model wins or loses.
+    """
+    lines: list[str] = []
+    cand = report["candidate_model"]
+    has_base = "baseline_model" in report
+    base = report.get("baseline_model", "")
+
+    lines.append(f"# A/B Eval — Object Script Attachment\n")
+    lines.append(f"- **Candidate (tuned)**: `{cand}`")
+    if has_base:
+        lines.append(f"- **Baseline (untuned + full HypeTalkGuide)**: `{base}`")
+    lines.append(f"- **Prompts**: `{report.get('prompts_file', '')}`\n")
+
+    cs = report["candidate_summary"]
+    lines.append("## Summary\n")
+    if has_base:
+        bs = report["baseline_summary"]
+        lift = report.get("lift", 0.0)
+        lines.append("| Metric | Candidate (tuned) | Baseline (untuned+guide) | Δ |")
+        lines.append("|---|---|---|---|")
+        lines.append(
+            f"| Pass rate | {cs['pass_rate']:.1%} ({cs['passed']}/{cs['total']}) "
+            f"| {bs['pass_rate']:.1%} ({bs['passed']}/{bs['total']}) "
+            f"| {lift:+.1%} |"
+        )
+        lines.append(
+            f"| Total elapsed | {cs['total_elapsed_s']}s "
+            f"| {bs['total_elapsed_s']}s | — |"
+        )
+    else:
+        lines.append(f"- Pass rate: {cs['pass_rate']:.1%} ({cs['passed']}/{cs['total']})")
+        lines.append(f"- Total elapsed: {cs['total_elapsed_s']}s")
+
+    lines.append("\n## Per-Prompt Results\n")
+    if has_base:
+        lines.append("| Prompt ID | Tuned | Untuned+Guide | Notes |")
+        lines.append("|---|---|---|---|")
+        cand_by_id = {r["id"]: r for r in report["candidate_results"]}
+        base_by_id = {r["id"]: r for r in report["baseline_results"]}
+        for pid in cand_by_id:
+            c = cand_by_id[pid]
+            b = base_by_id.get(pid, {})
+            cmark = "✅" if c.get("passed") else "❌"
+            bmark = "✅" if b.get("passed") else "❌"
+            note_bits = []
+            if not c.get("passed") and c.get("missing_required"):
+                note_bits.append(f"tuned missing: {', '.join(repr(x) for x in c['missing_required'][:3])}")
+            if not c.get("passed") and c.get("present_forbidden"):
+                note_bits.append(f"tuned forbidden: {', '.join(repr(x) for x in c['present_forbidden'][:3])}")
+            note = " · ".join(note_bits) if note_bits else ""
+            lines.append(f"| `{pid}` | {cmark} | {bmark} | {note} |")
+    else:
+        lines.append("| Prompt ID | Result | Missing | Forbidden present |")
+        lines.append("|---|---|---|---|")
+        for r in report["candidate_results"]:
+            mark = "✅" if r["passed"] else "❌"
+            miss = ", ".join(repr(x) for x in r.get("missing_required", [])[:3]) or "—"
+            forb = ", ".join(repr(x) for x in r.get("present_forbidden", [])[:3]) or "—"
+            lines.append(f"| `{r['id']}` | {mark} | {miss} | {forb} |")
+
+    lines.append("\n## Failing Outputs (Candidate)\n")
+    for r in report["candidate_results"]:
+        if r.get("passed"):
+            continue
+        out = r.get("output", "")
+        truncated = out[:600] + ("…" if len(out) > 600 else "")
+        lines.append(f"### `{r['id']}`")
+        if r.get("missing_required"):
+            lines.append(f"- **Missing**: {', '.join(repr(x) for x in r['missing_required'])}")
+        if r.get("present_forbidden"):
+            lines.append(f"- **Forbidden present**: {', '.join(repr(x) for x in r['present_forbidden'])}")
+        lines.append(f"\n```\n{truncated}\n```\n")
+
+    if has_base:
+        lines.append("## Failing Outputs (Baseline)\n")
+        for r in report["baseline_results"]:
+            if r.get("passed"):
+                continue
+            out = r.get("output", "")
+            truncated = out[:600] + ("…" if len(out) > 600 else "")
+            lines.append(f"### `{r['id']}`")
+            if r.get("missing_required"):
+                lines.append(f"- **Missing**: {', '.join(repr(x) for x in r['missing_required'])}")
+            if r.get("present_forbidden"):
+                lines.append(f"- **Forbidden present**: {', '.join(repr(x) for x in r['present_forbidden'])}")
+            lines.append(f"\n```\n{truncated}\n```\n")
+
+    return "\n".join(lines) + "\n"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -281,6 +421,18 @@ def main() -> None:
         action="store_true",
         help="Skip baseline comparison (candidate eval only)",
     )
+    parser.add_argument(
+        "--prompts",
+        help="Path to a custom prompts.jsonl file (default: config.eval.prompts_file)",
+    )
+    parser.add_argument(
+        "--report",
+        help="Output path for the JSON report (default: out/eval_report.json)",
+    )
+    parser.add_argument(
+        "--report-md",
+        help="Also write a side-by-side markdown report to this path",
+    )
     args = parser.parse_args()
 
     cfg = yaml.safe_load((ROOT / "config.yaml").read_text())
@@ -289,7 +441,10 @@ def main() -> None:
     think_cfg = cfg.get("ollama", {}).get("think")
     think = None if think_cfg is None else bool(think_cfg)
 
-    prompts_path = ROOT / cfg["eval"]["prompts_file"]
+    if args.prompts:
+        prompts_path = Path(args.prompts).expanduser().resolve()
+    else:
+        prompts_path = ROOT / cfg["eval"]["prompts_file"]
     prompts = [
         json.loads(line) for line in prompts_path.read_text().splitlines() if line.strip()
     ]
@@ -298,18 +453,25 @@ def main() -> None:
     tools = load_tools()
     known_tool_names = {tool["function"]["name"] for tool in tools}
 
-    print(f"=== Eval: candidate = {candidate_model} ===", flush=True)
+    # Read the HypeTalk guide once. evaluate_model() injects it
+    # into untuned baselines' system prompt so the A/B mirrors what
+    # Hype actually sends at chat time.
+    guide = hypetalk_guide_text()
+
+    print(f"=== Eval: candidate = {candidate_model} (prompts: {prompts_path.name}) ===", flush=True)
     candidate_results = evaluate_model(
         candidate_model,
         prompts,
         tools,
         known_tool_names,
         think=think,
+        guide=guide,
     )
     candidate_summary = summarize(candidate_results)
     print(f"  summary: {candidate_summary}", flush=True)
 
     report: dict[str, Any] = {
+        "prompts_file": str(prompts_path),
         "candidate_model": candidate_model,
         "candidate_summary": candidate_summary,
         "candidate_results": candidate_results,
@@ -323,6 +485,7 @@ def main() -> None:
             tools,
             known_tool_names,
             think=think,
+            guide=guide,
         )
         baseline_summary = summarize(baseline_results)
         print(f"  summary: {baseline_summary}", flush=True)
@@ -337,9 +500,16 @@ def main() -> None:
         report["lift"] = round(lift, 3)
         print(f"\n=== Lift: {lift:+.1%} ===", flush=True)
 
-    report_path = OUT_DIR / "eval_report.json"
+    report_path = Path(args.report).expanduser().resolve() if args.report else OUT_DIR / "eval_report.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2))
     print(f"\nReport written to {report_path}", flush=True)
+
+    if args.report_md:
+        md_path = Path(args.report_md).expanduser().resolve()
+        md_path.parent.mkdir(parents=True, exist_ok=True)
+        md_path.write_text(format_markdown_report(report))
+        print(f"Markdown report written to {md_path}", flush=True)
 
     # Exit non-zero if candidate is weakly worse than baseline (for
     # CI). Absence of baseline = don't fail on the result.
