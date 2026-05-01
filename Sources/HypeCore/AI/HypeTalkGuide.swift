@@ -357,5 +357,16 @@ public enum HypeTalkGuide {
         RUNTIME errors (e.g. referring to a nonexistent sprite at execution
         time). `check_script` only guarantees the script is syntactically
         well-formed, not that its actions will succeed against live state.
+
+        ## Host-side draft gate — what `__HYPE_INTERNAL_DRAFT_REFUSED_v1:` means
+        Even when you call `check_script` first and it returns OK, the host
+        validates your draft a SECOND time at storage time. It also performs
+        reference resolution (does the part/asset you mention actually exist?)
+        and checks for forbidden patterns (markdown fences, leaked chat
+        tokens). If the host refuses your draft, the storage tool returns a
+        result string starting with `__HYPE_INTERNAL_DRAFT_REFUSED_v1:`. Read
+        the failure list, fix the script, and call the SAME storage tool
+        again. The host iterates with you — you don't need a user nudge.
+        Iteration stops automatically after a small number of attempts.
         """
 }

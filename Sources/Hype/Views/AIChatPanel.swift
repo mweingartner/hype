@@ -26,6 +26,23 @@ struct AIChatPanel: View {
     /// Set to true while a web-asset search or download is in progress.
     @State private var isSearchingWeb = false
 
+    // MARK: - Script validation iteration state
+
+    /// Coordinator for the host-side script validation iteration loop.
+    @State private var scriptDraftCoordinator = ScriptDraftCoordinator()
+
+    /// Non-nil while the coordinator is retrying a refused script draft.
+    /// Drives the iteration status indicator in the chat area.
+    @State private var iterationStatus: IterationStatus?
+
+    /// Status displayed during a script draft iteration loop.
+    private struct IterationStatus: Equatable {
+        var attemptNumber: Int
+        let maxAttempts: Int
+        let toolName: String
+        let targetDescription: String
+    }
+
     private enum PendingSceneProposal {
         case create(SceneCreateProposal)
         case repair(SceneRepairProposal)
@@ -90,7 +107,15 @@ struct AIChatPanel: View {
                             }
                             .id(idx)
                         }
-                        if isSearchingWeb {
+                        if let iterationStatus {
+                            HStack {
+                                ProgressView().scaleEffect(0.7)
+                                Text("Validating script (attempt \(iterationStatus.attemptNumber) of \(iterationStatus.maxAttempts))…")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                            }
+                        } else if isSearchingWeb {
                             HStack {
                                 ProgressView().scaleEffect(0.7)
                                 Text("Searching the web…")
@@ -254,6 +279,7 @@ struct AIChatPanel: View {
         messages.removeAll()
         conversationMessages.removeAll()
         pendingSceneProposal = nil
+        iterationStatus = nil
         Task { await webAssetSession.reset() }
     }
 
@@ -922,7 +948,7 @@ struct AIChatPanel: View {
                 - For data-entry forms, input forms, customer/contact/login forms, headers, labels, and text fields: use ordinary card/background controls. Use create_label for labels/headers and create_field(style=rectangle, stroke_color=#000000, stroke_width=1) for user input fields. Do NOT create a Sprite Area or scene labels unless the user explicitly asks for SpriteKit, sprites, physics, a game, or a scene.
                 - When the user says "background", set on_background to "true" in create tools.
                 - If the user asks to create, set, attach, install, replace, or update a script on the stack, card, background, button, field, sprite area, scene, or node, use the appropriate setter tool. Do not answer with bare HypeTalk unless the user explicitly asks only to write or explain code.
-                - Before storing any HypeTalk script with create_button, create_field, set_part_property(property=script), set_node_script, set_scene_script, set_card_script, set_background_script, or set_stack_script, call check_script first and only store the script after it returns OK.
+                - Before storing any HypeTalk script with create_button, create_field, set_part_property(property=script), set_node_script, set_scene_script, set_card_script, set_background_script, or set_stack_script, call check_script first and only store the script after it returns OK. If a storage tool returns a result starting with `__HYPE_INTERNAL_DRAFT_REFUSED_v1:`, the host has rejected your script. Read the failure list, fix the script, and call the SAME storage tool again with the corrected script — the host iterates with you automatically.
                 - For button scripts, just provide the HypeTalk command (e.g. "go next"). It will be auto-wrapped in on mouseUp/end mouseUp.\(spriteKitPromptRules.isEmpty ? "" : "\n" + spriteKitPromptRules)
 
                 CURRENT STATE:
@@ -956,7 +982,7 @@ struct AIChatPanel: View {
                 - To READ one property on the stack, card, or background, prefer get_stack_property / get_card_property / get_background_property over broad summaries.
                 - To MODIFY one property on the stack, card, or background, prefer set_stack_property / set_card_property / set_background_property over unrelated part tools.
                 - If the user asks to create, set, attach, install, replace, or update a script on the stack, card, background, button, field, sprite area, scene, or node, use the appropriate setter tool. Do not answer with bare HypeTalk unless the user explicitly asks only to write or explain code.
-                - Before storing any HypeTalk script with create_button, create_field, set_part_property(property=script), set_node_script, set_scene_script, set_card_script, set_background_script, or set_stack_script, call check_script first and only store the script after it returns OK.
+                - Before storing any HypeTalk script with create_button, create_field, set_part_property(property=script), set_node_script, set_scene_script, set_card_script, set_background_script, or set_stack_script, call check_script first and only store the script after it returns OK. If a storage tool returns a result starting with `__HYPE_INTERNAL_DRAFT_REFUSED_v1:`, the host has rejected your script. Read the failure list, fix the script, and call the SAME storage tool again with the corrected script — the host iterates with you automatically.
                 - For button scripts, just provide the HypeTalk command (e.g. "go next"). It will be auto-wrapped in on mouseUp/end mouseUp.
                 - When writing HypeTalk scripts, use ONLY valid HypeTalk syntax as described in the guide \(guideReferenceWord).
 
@@ -1050,7 +1076,7 @@ struct AIChatPanel: View {
                 if let toolCalls = effectiveToolCalls, !toolCalls.isEmpty {
                     conversationMessages.append(response.message)
 
-                    for call in toolCalls {
+                    toolCallLoop: for call in toolCalls {
                         let argsDesc = call.function.arguments
                             .map { "\($0.key): \($0.value)" }
                             .joined(separator: ", ")
@@ -1073,6 +1099,49 @@ struct AIChatPanel: View {
                         HypeLogger.shared.aiDialog(role: "tool_result", content: result, source: "AI Tool")
 
                         if isWebAssetTool { isSearchingWeb = false }
+
+                        // Host-side script gate: check BEFORE CREATED_CARD:/NAVIGATE: prefixes.
+                        let gateOutcome = scriptDraftCoordinator.classify(toolResult: result)
+                        switch gateOutcome {
+                        case .refused(let refusal):
+                            iterationStatus = IterationStatus(
+                                attemptNumber: 1,
+                                maxAttempts: scriptDraftCoordinator.configuration.maxAttempts,
+                                toolName: refusal.toolName,
+                                targetDescription: refusal.targetDescription
+                            )
+                            appendMessage(role: "tool", content: refusal.compactDisplaySummary)
+                            let loopResult = await iterateScriptDraft(
+                                initialRefusal: refusal,
+                                executor: executor,
+                                client: client,
+                                tools: tools,
+                                activeCardId: activeCardId
+                            )
+                            iterationStatus = nil
+                            appendMessage(role: "assistant", content: loopResult.finalToolResultString)
+                            conversationMessages.append(OllamaMessage(role: "tool", content: loopResult.finalToolResultString))
+                            continue
+
+                        case .decodeFailed(let raw):
+                            // A sentinel-prefix-but-bad-JSON result indicates the
+                            // host gate corrupted its handoff. We can't trust
+                            // anything else from this batch — subsequent tool
+                            // results may also be confused — so abort the entire
+                            // tool-call iteration for this round (break, NOT
+                            // continue) and surface a generic error to the user.
+                            HypeLogger.shared.warn(
+                                "Script gate sentinel decode failed: \(raw.prefix(200))",
+                                source: "AI Tool"
+                            )
+                            iterationStatus = nil
+                            appendMessage(role: "assistant", content: "Script rejected — internal error reading host gate response. Please try again.")
+                            break toolCallLoop
+
+                        case .passed, .other:
+                            // Fall through to the normal CREATED_CARD:/NAVIGATE: handling below.
+                            break
+                        }
 
                         if result.hasPrefix("CREATED_CARD:") {
                             let newIdStr = String(result.dropFirst(13))
@@ -1153,8 +1222,45 @@ struct AIChatPanel: View {
                         source: "AI Tool"
                     )
                     HypeLogger.shared.aiDialog(role: "tool_result", content: result, source: "AI Tool")
-                    conversationMessages.append(OllamaMessage(role: "tool", content: result))
-                    appendMessage(role: "assistant", content: result)
+
+                    // Route the repair-path result through the same script gate
+                    // as the structured tool-call path. Otherwise a model that
+                    // emits unstructured output can bypass iteration entirely
+                    // (the raw `__HYPE_INTERNAL_DRAFT_REFUSED_v1:` sentinel
+                    // would land in the chat as a "tool" bubble of JSON, and
+                    // the host wouldn't loop the model for a fix). See
+                    // ScriptDraftCoordinator + iterateScriptDraft above.
+                    let repairOutcome = scriptDraftCoordinator.classify(toolResult: result)
+                    switch repairOutcome {
+                    case .refused(let refusal):
+                        iterationStatus = IterationStatus(
+                            attemptNumber: 1,
+                            maxAttempts: scriptDraftCoordinator.configuration.maxAttempts,
+                            toolName: refusal.toolName,
+                            targetDescription: refusal.targetDescription
+                        )
+                        appendMessage(role: "tool", content: refusal.compactDisplaySummary)
+                        let loopResult = await iterateScriptDraft(
+                            initialRefusal: refusal,
+                            executor: executor,
+                            client: client,
+                            tools: tools,
+                            activeCardId: activeCardId
+                        )
+                        iterationStatus = nil
+                        appendMessage(role: "assistant", content: loopResult.finalToolResultString)
+                        conversationMessages.append(OllamaMessage(role: "tool", content: loopResult.finalToolResultString))
+                    case .decodeFailed(let raw):
+                        HypeLogger.shared.warn(
+                            "Script gate sentinel decode failed (repair path): \(raw.prefix(200))",
+                            source: "AI Tool"
+                        )
+                        iterationStatus = nil
+                        appendMessage(role: "assistant", content: "Script rejected — internal error reading host gate response. Please try again.")
+                    case .passed, .other:
+                        conversationMessages.append(OllamaMessage(role: "tool", content: result))
+                        appendMessage(role: "assistant", content: result)
+                    }
                     break
                 }
 
@@ -1169,6 +1275,189 @@ struct AIChatPanel: View {
                 break
             }
         }
+    }
+
+    // MARK: - Script draft iteration loop
+
+    /// Iterate a refused script draft with the model until it passes or the attempt
+    /// budget is exhausted.
+    ///
+    /// This method is the inner engine of the host-side script validation gate. It:
+    /// 1. Appends a retry envelope (structured DRAFT_REFUSED message) to the conversation.
+    /// 2. Calls the model for each subsequent attempt.
+    /// 3. Dispatches `check_script` cycles without consuming the attempt counter.
+    /// 4. Exits when the script passes, the budget is exhausted, or the model gives up.
+    ///
+    /// - Parameters:
+    ///   - initialRefusal: The refusal produced by attempt #1 (the one that triggered iteration).
+    ///   - executor: The tool executor already configured for this turn.
+    ///   - client: The Ollama client already configured for this turn.
+    ///   - tools: The tool list used in this turn.
+    ///   - activeCardId: The current card UUID (read-only snapshot from the parent loop).
+    /// - Returns: A `LoopResult` describing the final state of the iteration.
+    @MainActor
+    private func iterateScriptDraft(
+        initialRefusal: ScriptDraftRefusal,
+        executor: HypeToolExecutor,
+        client: OllamaToolClient,
+        tools: [OllamaTool],
+        activeCardId: UUID
+    ) async -> ScriptDraftCoordinator.LoopResult {
+        let cfg = scriptDraftCoordinator.configuration
+        var lastRefusal = initialRefusal
+
+        // Append the first retry envelope as a tool result the model will read.
+        let firstEnvelope = scriptDraftCoordinator.makeRetryEnvelope(
+            for: lastRefusal,
+            attemptNumber: 1,
+            maxAttempts: cfg.maxAttempts
+        )
+        conversationMessages.append(firstEnvelope)
+
+        // Attempt loop starts at 2 because attempt 1 is the one that produced `initialRefusal`.
+        for attempt in 2...cfg.maxAttempts {
+            iterationStatus?.attemptNumber = attempt
+            conversationMessages = AIPromptBudget.trimToFit(conversationMessages)
+
+            let response: OllamaChatResponse
+            do {
+                response = try await client.chat(messages: conversationMessages, tools: tools)
+            } catch {
+                let errorMsg = "Error during script iteration: \(error.localizedDescription)"
+                return ScriptDraftCoordinator.LoopResult(
+                    finalAttempts: attempt,
+                    didPass: false,
+                    lastDraftRawScript: lastRefusal.rawScript,
+                    lastFailures: lastRefusal.failures,
+                    finalToolResultString: errorMsg
+                )
+            }
+
+            // Normalise tool calls the same way the parent loop does.
+            let effectiveToolCalls: [OllamaToolCall]? = {
+                if let existing = response.message.tool_calls, !existing.isEmpty { return existing }
+                return HypeAIResponseRepair.extractToolCalls(from: response.message.content)
+            }()
+
+            guard let toolCalls = effectiveToolCalls, !toolCalls.isEmpty else {
+                // Model gave up or produced a plain text response.
+                let text = response.message.content ?? "(no response)"
+                return ScriptDraftCoordinator.LoopResult(
+                    finalAttempts: attempt,
+                    didPass: false,
+                    lastDraftRawScript: lastRefusal.rawScript,
+                    lastFailures: lastRefusal.failures,
+                    finalToolResultString: text
+                )
+            }
+
+            conversationMessages.append(response.message)
+
+            for call in toolCalls {
+                if call.function.name == "check_script" {
+                    // Self-validation cycle — dispatch, append result, but DON'T count as an attempt.
+                    var doc = document.document
+                    let checkResult = await executor.execute(
+                        toolName: call.function.name,
+                        arguments: call.function.arguments,
+                        document: &doc,
+                        currentCardId: activeCardId
+                    )
+                    document.document = doc
+                    HypeLogger.shared.aiDialog(role: "tool_result", content: checkResult, source: "AI Tool")
+                    conversationMessages.append(OllamaMessage(role: "tool", content: checkResult))
+                    continue
+                }
+
+                if call.function.name == lastRefusal.toolName {
+                    // The model is retrying the refused tool — dispatch and classify.
+                    var doc = document.document
+                    let result = await executor.execute(
+                        toolName: call.function.name,
+                        arguments: call.function.arguments,
+                        document: &doc,
+                        currentCardId: activeCardId
+                    )
+                    document.document = doc
+                    HypeLogger.shared.aiDialog(role: "tool_result", content: result, source: "AI Tool")
+
+                    let outcome = scriptDraftCoordinator.classify(toolResult: result)
+                    switch outcome {
+                    case .passed(let committed):
+                        return ScriptDraftCoordinator.LoopResult(
+                            finalAttempts: attempt,
+                            didPass: true,
+                            lastDraftRawScript: nil,
+                            lastFailures: [],
+                            finalToolResultString: committed
+                        )
+
+                    case .refused(let newRefusal):
+                        lastRefusal = newRefusal
+                        let envelope = scriptDraftCoordinator.makeRetryEnvelope(
+                            for: newRefusal,
+                            attemptNumber: attempt,
+                            maxAttempts: cfg.maxAttempts
+                        )
+                        conversationMessages.append(envelope)
+                        // Continue outer attempt loop.
+
+                    case .decodeFailed(let raw):
+                        HypeLogger.shared.warn(
+                            "Script gate sentinel decode failed during iteration: \(raw.prefix(200))",
+                            source: "AI Tool"
+                        )
+                        return ScriptDraftCoordinator.LoopResult(
+                            finalAttempts: attempt,
+                            didPass: false,
+                            lastDraftRawScript: lastRefusal.rawScript,
+                            lastFailures: lastRefusal.failures,
+                            finalToolResultString: "Script rejected — internal error reading host gate response. Please try again."
+                        )
+
+                    case .other(let str):
+                        // A different kind of error from the executor — stop iterating.
+                        return ScriptDraftCoordinator.LoopResult(
+                            finalAttempts: attempt,
+                            didPass: false,
+                            lastDraftRawScript: lastRefusal.rawScript,
+                            lastFailures: lastRefusal.failures,
+                            finalToolResultString: str
+                        )
+                    }
+                } else {
+                    // Model chose a different tool entirely — dispatch and exit iteration.
+                    var doc = document.document
+                    let result = await executor.execute(
+                        toolName: call.function.name,
+                        arguments: call.function.arguments,
+                        document: &doc,
+                        currentCardId: activeCardId
+                    )
+                    document.document = doc
+                    HypeLogger.shared.aiDialog(role: "tool_result", content: result, source: "AI Tool")
+                    return ScriptDraftCoordinator.LoopResult(
+                        finalAttempts: attempt - 1,
+                        didPass: false,
+                        lastDraftRawScript: lastRefusal.rawScript,
+                        lastFailures: lastRefusal.failures,
+                        finalToolResultString: result
+                    )
+                }
+            }
+        }
+
+        // Budget exhausted.
+        return ScriptDraftCoordinator.LoopResult(
+            finalAttempts: cfg.maxAttempts,
+            didPass: false,
+            lastDraftRawScript: lastRefusal.rawScript,
+            lastFailures: lastRefusal.failures,
+            finalToolResultString: scriptDraftCoordinator.makeAbandonedDraftMessage(
+                lastRefusal,
+                maxAttempts: cfg.maxAttempts
+            )
+        )
     }
 
 }

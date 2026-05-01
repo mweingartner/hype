@@ -107,7 +107,11 @@ struct AIToolChainRegressionTests {
             currentCardId: cardId
         )
         let b = doc.parts.first(where: { $0.name == "next_btn" })
-        #expect(result.contains("Refused to store invalid script"))
+        // Refusal now arrives as the host-gate sentinel; AIChatPanel decodes
+        // it and drives the iteration loop. The user-visible "Refused" text
+        // moved out of the executor's return string.
+        #expect(result.hasPrefix(ScriptDraftRefusal.sentinelPrefix))
+        #expect(ScriptDraftRefusal.decode(from: result) != nil)
         #expect(b?.script.isEmpty == true, "invalid script should not be persisted")
     }
 
@@ -164,7 +168,8 @@ struct AIToolChainRegressionTests {
             document: &doc,
             currentCardId: cardId
         )
-        #expect(result.contains("Refused to store invalid script"))
+        #expect(result.hasPrefix(ScriptDraftRefusal.sentinelPrefix))
+        #expect(ScriptDraftRefusal.decode(from: result) != nil)
         #expect(doc.cards.first(where: { $0.id == cardId })?.script.isEmpty == true)
     }
 
@@ -289,7 +294,8 @@ struct AIToolChainRegressionTests {
             currentCardId: cardId
         )
         let area = doc.parts.first(where: { $0.name == "arena" })!
-        #expect(result.contains("Refused to store invalid script"))
+        #expect(result.hasPrefix(ScriptDraftRefusal.sentinelPrefix))
+        #expect(ScriptDraftRefusal.decode(from: result) != nil)
         #expect(area.activeSceneSpec?.script.isEmpty == true)
     }
 

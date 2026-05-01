@@ -383,6 +383,70 @@ public struct HypeToolExecutor: Sendable {
     /// Reject invalid AI-authored scripts before they mutate the
     /// document. This keeps malformed JavaScript-like output from
     /// being stored as if it were valid HypeTalk.
+    ///
+    /// - Returns: A `ScriptDraftRefusal` when the draft is invalid; `nil` when
+    ///   the draft passes all validation stages and may be committed.
+    ///
+    /// The returned refusal can be encoded as a sentinel tool-result string
+    /// (`refusal.encodedSentinel()`) so the `AIChatPanel`'s iteration loop
+    /// can classify, surface, and retry it automatically.
+    private func refusalForInvalidDraft(
+        toolName: String,
+        arguments: [String: String],
+        targetDescription: String,
+        rawScript: String,
+        wrappedScript: String,
+        document: HypeDocument,
+        currentCardId: UUID
+    ) -> ScriptDraftRefusal? {
+        // Size cap check: oversized drafts are always refused, even if they parse.
+        // The ScriptDraftRefusal init adds the truncation failure and logs the event.
+        //
+        // Both `rawScript` and `wrappedScript` are bounded here (NOT just `rawScript`)
+        // so a wrap that pushes a borderline-sized script over the cap can't slip
+        // an oversized payload into the parser. Use `>=` (not `>`) so the boundary
+        // value triggers truncation — matches `ScriptDraftRefusal.init`'s clamp.
+        if rawScript.count >= ScriptDraftRefusal.scriptSizeCap
+            || wrappedScript.count >= ScriptDraftRefusal.scriptSizeCap
+        {
+            return ScriptDraftRefusal(
+                toolName: toolName,
+                originalArguments: arguments,
+                targetDescription: targetDescription,
+                rawScript: rawScript,
+                wrappedScript: wrappedScript,
+                failures: []  // ScriptDraftRefusal init appends the forbiddenPattern failure on truncation.
+            )
+        }
+
+        let context = ScriptDraftContext(
+            targetDescription: targetDescription,
+            document: document,
+            currentCardId: currentCardId
+        )
+        let result = HypeTalkScriptValidator().validate(
+            rawScript: rawScript,
+            wrappedScript: wrappedScript,
+            context: context
+        )
+        switch result {
+        case .passed:
+            return nil
+        case .failed(let reasons):
+            return ScriptDraftRefusal(
+                toolName: toolName,
+                originalArguments: arguments,
+                targetDescription: targetDescription,
+                rawScript: rawScript,
+                wrappedScript: wrappedScript,
+                failures: reasons
+            )
+        }
+    }
+
+    // Legacy helper kept for use by `checkScriptResponse(...)` (the `check_script`
+    // tool surface). Do NOT remove — `checkScriptResponse` calls this to build its
+    // FAIL: message. The host gate uses `refusalForInvalidDraft` instead.
     private func invalidScriptStorageMessage(
         targetDescription: String,
         rawScript: String,
@@ -621,6 +685,13 @@ public struct HypeToolExecutor: Sendable {
     }
 
     /// Execute a tool call and return the result string.
+    ///
+    /// ## Tool result string contract
+    /// - `"__HYPE_INTERNAL_DRAFT_REFUSED_v1:<json>"` — host gate refused a script draft;
+    ///   `AIChatPanel` iterates via `ScriptDraftCoordinator`.
+    /// - `"CREATED_CARD:<uuid>"` — caller updates `currentCardId`.
+    /// - `"NAVIGATE:<dest>"` — caller resolves and updates `currentCardId`.
+    /// - Any other string — success or read-only result; surface as-is.
     public func execute(
         toolName: String,
         arguments: [String: String],
@@ -672,24 +743,24 @@ public struct HypeToolExecutor: Sendable {
             if let style = arguments["style"], let bs = ButtonStyle(rawValue: style) {
                 part.buttonStyle = bs
             }
-            var invalidScriptMessage: String?
             if let script = arguments["script"] {
                 let wrapped = wrapScript(script)
-                if let refusal = invalidScriptStorageMessage(
+                if let refusal = refusalForInvalidDraft(
+                    toolName: toolName,
+                    arguments: arguments,
                     targetDescription: "button '\(part.name)'",
                     rawScript: script,
-                    wrappedScript: wrapped
+                    wrappedScript: wrapped,
+                    document: document,
+                    currentCardId: currentCardId
                 ) {
-                    invalidScriptMessage = refusal
-                } else {
-                    part.script = wrapped
+                    // Refuse outright — do NOT add the part to the document.
+                    return refusal.encodedSentinel()
                 }
+                part.script = wrapped
             }
             document.addPart(part)
             let layer = place.backgroundId != nil ? " on background" : ""
-            if let invalidScriptMessage {
-                return "Created button '\(part.name)'\(layer) without script. \(invalidScriptMessage)"
-            }
             return "Created button '\(part.name)'\(layer)"
 
         case "create_field":
@@ -709,24 +780,24 @@ public struct HypeToolExecutor: Sendable {
             if !stackFont.isEmpty { part.textFont = stackFont }
             if let text = arguments["text"] { part.textContent = text }
             applyFieldStylingArguments(arguments, to: &part)
-            var invalidScriptMessage: String?
             if let script = arguments["script"] {
                 let wrapped = wrapScript(script)
-                if let refusal = invalidScriptStorageMessage(
+                if let refusal = refusalForInvalidDraft(
+                    toolName: toolName,
+                    arguments: arguments,
                     targetDescription: "field '\(part.name)'",
                     rawScript: script,
-                    wrappedScript: wrapped
+                    wrappedScript: wrapped,
+                    document: document,
+                    currentCardId: currentCardId
                 ) {
-                    invalidScriptMessage = refusal
-                } else {
-                    part.script = wrapped
+                    // Refuse outright — do NOT add the part to the document.
+                    return refusal.encodedSentinel()
                 }
+                part.script = wrapped
             }
             document.addPart(part)
             let layer = place.backgroundId != nil ? " on background" : ""
-            if let invalidScriptMessage {
-                return "Created field '\(part.name)'\(layer) without script. \(invalidScriptMessage)"
-            }
             return "Created field '\(part.name)'\(layer)"
 
         case "create_label":
@@ -917,16 +988,19 @@ public struct HypeToolExecutor: Sendable {
                 case "visible": document.parts[index].visible = (value.lowercased() == "true")
                 case "enabled": document.parts[index].enabled = (value.lowercased() == "true")
                 case "script":
-                    // Wrap bare commands and validate the final
-                    // script so the AI sees parse errors in the
-                    // returned result.
+                    // Wrap bare commands and validate via the host gate
+                    // before mutating the document.
                     let wrapped = wrapScript(value)
-                    if let refusal = invalidScriptStorageMessage(
+                    if let refusal = refusalForInvalidDraft(
+                        toolName: toolName,
+                        arguments: arguments,
                         targetDescription: "part '\(partName)'",
                         rawScript: value,
-                        wrappedScript: wrapped
+                        wrappedScript: wrapped,
+                        document: document,
+                        currentCardId: currentCardId
                     ) {
-                        return refusal
+                        return refusal.encodedSentinel()
                     }
 
                     // Sprite-area parts: the user-visible script
@@ -1318,12 +1392,16 @@ public struct HypeToolExecutor: Sendable {
             let requestedSceneName = arguments["scene_name"] ?? ""
             let rawScript = arguments["script"] ?? ""
             let wrapped = wrapScript(rawScript)
-            if let refusal = invalidScriptStorageMessage(
+            if let refusal = refusalForInvalidDraft(
+                toolName: toolName,
+                arguments: arguments,
                 targetDescription: "scene script in sprite area '\(areaName)'",
                 rawScript: rawScript,
-                wrappedScript: wrapped
+                wrappedScript: wrapped,
+                document: document,
+                currentCardId: currentCardId
             ) {
-                return refusal
+                return refusal.encodedSentinel()
             }
 
             guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
@@ -2231,12 +2309,16 @@ public struct HypeToolExecutor: Sendable {
         case "set_stack_script":
             let rawScript = arguments["script"] ?? ""
             let wrapped = wrapScript(rawScript)
-            if let refusal = invalidScriptStorageMessage(
+            if let refusal = refusalForInvalidDraft(
+                toolName: toolName,
+                arguments: arguments,
                 targetDescription: "the stack",
                 rawScript: rawScript,
-                wrappedScript: wrapped
+                wrappedScript: wrapped,
+                document: document,
+                currentCardId: currentCardId
             ) {
-                return refusal
+                return refusal.encodedSentinel()
             }
             document.stack.script = wrapped
             return "Set stack script"
@@ -2245,12 +2327,16 @@ public struct HypeToolExecutor: Sendable {
             let rawScript = arguments["script"] ?? ""
             let cardName = arguments["card_name"] ?? ""
             let wrapped = wrapScript(rawScript)
-            if let refusal = invalidScriptStorageMessage(
+            if let refusal = refusalForInvalidDraft(
+                toolName: toolName,
+                arguments: arguments,
                 targetDescription: cardName.isEmpty ? "the current card" : "card '\(cardName)'",
                 rawScript: rawScript,
-                wrappedScript: wrapped
+                wrappedScript: wrapped,
+                document: document,
+                currentCardId: currentCardId
             ) {
-                return refusal
+                return refusal.encodedSentinel()
             }
             let targetIndex = cardIndex(named: cardName, currentCardId: currentCardId, in: document)
             guard let idx = targetIndex else {
@@ -2264,12 +2350,16 @@ public struct HypeToolExecutor: Sendable {
             let bgName = arguments["background_name"] ?? ""
             let rawScript = arguments["script"] ?? ""
             let wrapped = wrapScript(rawScript)
-            if let refusal = invalidScriptStorageMessage(
+            if let refusal = refusalForInvalidDraft(
+                toolName: toolName,
+                arguments: arguments,
                 targetDescription: bgName.isEmpty ? "the current background" : "background '\(bgName)'",
                 rawScript: rawScript,
-                wrappedScript: wrapped
+                wrappedScript: wrapped,
+                document: document,
+                currentCardId: currentCardId
             ) {
-                return refusal
+                return refusal.encodedSentinel()
             }
             guard let idx = backgroundIndex(named: bgName, currentCardId: currentCardId, in: document) else {
                 return bgName.isEmpty ? "No current background" : "Background '\(bgName)' not found"
@@ -2688,12 +2778,16 @@ public struct HypeToolExecutor: Sendable {
             let rawScript = arguments["script"] ?? ""
             let requestedSceneName = arguments["scene_name"] ?? ""
             let wrapped = wrapScript(rawScript)
-            if let refusal = invalidScriptStorageMessage(
+            if let refusal = refusalForInvalidDraft(
+                toolName: toolName,
+                arguments: arguments,
                 targetDescription: "node '\(nodeName)' in sprite area '\(areaName)'",
                 rawScript: rawScript,
-                wrappedScript: wrapped
+                wrappedScript: wrapped,
+                document: document,
+                currentCardId: currentCardId
             ) {
-                return refusal
+                return refusal.encodedSentinel()
             }
             guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
                 return "Sprite area '\(areaName)' not found"
