@@ -162,6 +162,21 @@ public struct Part: Identifiable, Codable, Sendable {
     /// (default true) — false makes it a static color swatch.
     public var colorWellInteractive: Bool
 
+    // Form-control-shared (stepper, slider, toggle, segmented)
+    /// Numeric value: stepper / slider position, 0|1 for toggle, or
+    /// the 0-based selected segment index for segmented control.
+    public var controlValue: Double
+    /// Minimum bound for stepper / slider. Ignored by toggle and
+    /// segmented.
+    public var controlMin: Double
+    /// Maximum bound for stepper / slider.
+    public var controlMax: Double
+    /// Stepper increment (and slider tick spacing when applicable).
+    public var controlStep: Double
+    /// Pipe-separated labels for segmented control (e.g.
+    /// "Day|Week|Month"). Only meaningful when partType == .segmented.
+    public var segmentItems: String
+
     // Script
     public var script: String
 
@@ -240,6 +255,11 @@ public struct Part: Identifiable, Codable, Sendable {
         self.mapAnnotationsJSON = ""
         self.colorWellHex = "#FF5500"
         self.colorWellInteractive = true
+        self.controlValue = 0
+        self.controlMin = 0
+        self.controlMax = 100
+        self.controlStep = 1
+        self.segmentItems = "First|Second|Third"
         self.script = ""
     }
 
@@ -322,6 +342,12 @@ public struct Part: Identifiable, Codable, Sendable {
         // ColorWell fields — backward-compat optional.
         colorWellHex = try container.decodeIfPresent(String.self, forKey: .colorWellHex) ?? "#FF5500"
         colorWellInteractive = try container.decodeIfPresent(Bool.self, forKey: .colorWellInteractive) ?? true
+        // Form-control fields — backward-compat optional.
+        controlValue = try container.decodeIfPresent(Double.self, forKey: .controlValue) ?? 0
+        controlMin = try container.decodeIfPresent(Double.self, forKey: .controlMin) ?? 0
+        controlMax = try container.decodeIfPresent(Double.self, forKey: .controlMax) ?? 100
+        controlStep = try container.decodeIfPresent(Double.self, forKey: .controlStep) ?? 1
+        segmentItems = try container.decodeIfPresent(String.self, forKey: .segmentItems) ?? "First|Second|Third"
         script = try container.decode(String.self, forKey: .script)
     }
 }

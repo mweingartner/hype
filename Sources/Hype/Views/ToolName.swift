@@ -2,7 +2,8 @@ import Foundation
 
 public enum ToolName: String, CaseIterable, Sendable {
     case browse, button, field, shape, webpage, image, video, chart, spriteArea
-    case calendar, pdf, map, colorWell, select
+    case calendar, pdf, map, colorWell
+    case stepper, slider, toggle, segmented, select
     case pencil, line, rect, oval, spray, bucket, eraser, text
 
     var systemImageName: String {
@@ -20,6 +21,10 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .pdf: return "doc.richtext"
         case .map: return "map"
         case .colorWell: return "paintpalette"
+        case .stepper: return "plus.slash.minus"
+        case .slider: return "slider.horizontal.3"
+        case .toggle: return "switch.2"
+        case .segmented: return "rectangle.split.3x1"
         case .select: return "cursor.rays"
         case .pencil: return "pencil"
         case .line: return "line.diagonal"

@@ -51,6 +51,9 @@ struct PropertyInspector: View {
                         case .pdf: pdfSection(part: part)
                         case .map: mapSection(part: part)
                         case .colorWell: colorWellSection(part: part)
+                        case .stepper, .slider: numericControlSection(part: part)
+                        case .toggle: toggleSection(part: part)
+                        case .segmented: segmentedSection(part: part)
                         }
 
                         // Font controls for buttons and fields
@@ -997,6 +1000,39 @@ struct PropertyInspector: View {
             Text("Color Well").font(.subheadline).foregroundColor(.secondary)
             propertyRow("Color (hex)", binding: bindPartString(part.id, \.colorWellHex))
             Toggle("Interactive", isOn: bindPartBool(part.id, \.colorWellInteractive))
+        }
+    }
+
+    private func numericControlSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(part.partType == .stepper ? "Stepper" : "Slider")
+                .font(.subheadline).foregroundColor(.secondary)
+            propertyRow("Value", binding: bindPartDoubleString(part.id, \.controlValue))
+            propertyRow("Min", binding: bindPartDoubleString(part.id, \.controlMin))
+            propertyRow("Max", binding: bindPartDoubleString(part.id, \.controlMax))
+            if part.partType == .stepper {
+                propertyRow("Step", binding: bindPartDoubleString(part.id, \.controlStep))
+            }
+        }
+    }
+
+    private func toggleSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Toggle").font(.subheadline).foregroundColor(.secondary)
+            Toggle("On", isOn: Binding<Bool>(
+                get: { (self.document.document.parts.first { $0.id == part.id }?.controlValue ?? 0) >= 0.5 },
+                set: { newValue in
+                    self.document.document.updatePart(id: part.id) { $0.controlValue = newValue ? 1 : 0 }
+                }
+            ))
+        }
+    }
+
+    private func segmentedSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Segmented").font(.subheadline).foregroundColor(.secondary)
+            propertyRow("Segments (pipe-separated)", binding: bindPartString(part.id, \.segmentItems))
+            propertyRow("Selected Index", binding: bindPartDoubleString(part.id, \.controlValue))
         }
     }
 

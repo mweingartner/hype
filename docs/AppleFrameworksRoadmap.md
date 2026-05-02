@@ -63,11 +63,11 @@ set the selectedDate of calendar "due" to "2026-12-25"
 **HypeTalk**: `put the color of colorWell "fill" into c`. The `colorChanged` message fires on the part when the user picks a new color.
 **AI tools**: `create_color_well`, `set_part_property` for color/interactive.
 
-### 8. Stepper / Slider / Toggle / SegmentedControl (AppKit)
-**User value**: classic form controls — currently faked as Buttons. Native controls give native interaction (keyboard nav, accessibility).
-**Backing API**: `NSStepper`, `NSSlider`, `NSSwitch`, `NSSegmentedControl`.
-**Hype properties** (each control): `value`, `minValue`, `maxValue`, `increment`, `segments` (for segmented), `selectedSegment`.
-**Effort**: ~500 lines combined for all four (one new PartType per).
+### 8. Stepper / Slider / Toggle / SegmentedControl (AppKit) ✅ shipped
+**Backing APIs**: `NSStepper`, `NSSlider`, `NSSwitch`, `NSSegmentedControl`.
+**Hype properties**: shared `controlValue` / `controlMin` / `controlMax` / `controlStep` (numeric controls), `segmentItems` (pipe-separated labels for segmented). Toggle stores 0/1 in `controlValue`; segmented stores 0-based index.
+**HypeTalk**: `the value of slider "X"`, `the on of toggle "X"`, `the selectedSegment of segmented "X"`. Messages: `valueChanged` (stepper/slider/toggle), `selectionChanged` (segmented).
+**AI tools**: `create_stepper`, `create_slider`, `create_toggle`, `create_segmented`; reads/writes via `set_part_property` / `get_part_property` accept `value`, `on`, `min`, `max`, `step`, `segments`, `selected_segment`.
 
 ---
 

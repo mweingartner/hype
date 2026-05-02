@@ -170,6 +170,66 @@ public struct HypeToolDefinitions {
             "map_name": ("string", "Map part name", true),
         ]),
 
+        makeTool(name: "create_stepper", description: """
+            Create a numeric stepper (NSStepper) with optional min/max/step bounds. \
+            User-driven changes fire the `valueChanged` HypeTalk message; reads use \
+            `the value of stepper "X"`.
+            """, params: [
+            "name": ("string", "Stepper part name", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "value": ("string", "Initial value (default 0)", false),
+            "min": ("string", "Minimum value (default 0)", false),
+            "max": ("string", "Maximum value (default 100)", false),
+            "step": ("string", "Increment per click (default 1)", false),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
+        makeTool(name: "create_slider", description: """
+            Create a slider (NSSlider). Continuous-tracking — `valueChanged` fires \
+            during drag, not just on release. Reads use `the value of slider "X"`.
+            """, params: [
+            "name": ("string", "Slider part name", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "value": ("string", "Initial value (default 0)", false),
+            "min": ("string", "Minimum value (default 0)", false),
+            "max": ("string", "Maximum value (default 100)", false),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
+        makeTool(name: "create_toggle", description: """
+            Create a toggle switch (NSSwitch). Reads use `the on of toggle "X"` \
+            (returns 'true'/'false'). User flips fire the `valueChanged` message.
+            """, params: [
+            "name": ("string", "Toggle part name", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "on": ("string", "'true' for on, 'false' for off (default 'false')", false),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
+        makeTool(name: "create_segmented", description: """
+            Create a segmented control (NSSegmentedControl) with a comma- or pipe-separated \
+            list of segment labels. Reads use `the selectedSegment of segmented "X"` (returns \
+            the 0-based index). User picks fire the `selectionChanged` message.
+            """, params: [
+            "name": ("string", "Segmented part name", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "segments": ("string", "Pipe-separated labels (e.g. 'Day|Week|Month')", true),
+            "selected_segment": ("string", "0-based selected index (default 0)", false),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
         makeTool(name: "create_color_well", description: """
             Create a color-picker (NSColorWell) control. Click opens the macOS color panel; \
             picks fire the `colorChanged` HypeTalk message on the part. Read the bound color \
@@ -1092,6 +1152,10 @@ public struct HypeToolDefinitions {
             "add_map_annotation",
             "clear_map_annotations",
             "create_color_well",
+            "create_stepper",
+            "create_slider",
+            "create_toggle",
+            "create_segmented",
             "duplicate_part",
             "delete_part",
             "get_card_parts",
@@ -1212,6 +1276,10 @@ public struct HypeToolDefinitions {
             "add_map_annotation",
             "clear_map_annotations",
             "create_color_well",
+            "create_stepper",
+            "create_slider",
+            "create_toggle",
+            "create_segmented",
             "repair_form_controls",
             "delete_part",
             "set_card_name",

@@ -77,7 +77,8 @@ public enum HypeTalkGuide {
             camera "cam"       emitter "fire"      tilemap "map"
             audio "music"      video "intro"       chart "sales"
             calendar "due"     pdf "manual"        map "store"
-            colorWell "fill"
+            colorWell "fill"   stepper "qty"       slider "volume"
+            toggle "muted"     segmented "tabs"
         Use double-quoted names; bare words are only valid for short keywords.
 
         ## Properties — get and set
@@ -262,6 +263,29 @@ public enum HypeTalkGuide {
               put the color of colorWell "fill" into hex
               set the fillColor of shape "swatch" to hex
             end colorChanged
+
+        **React to a numeric control change (stepper / slider):**
+            on valueChanged
+              put the value of slider "volume" into v
+              set the textContent of field "level" to v
+            end valueChanged
+            -- Stepper has the same `value` property and the same
+            -- `valueChanged` message.
+
+        **React to a toggle flip:**
+            on valueChanged
+              if the on of toggle "muted" then
+                play stop
+              end if
+            end valueChanged
+
+        **React to a segmented selection:**
+            on selectionChanged
+              put the selectedSegment of segmented "tabs" into idx
+              if idx is 0 then go to card "Home"
+              if idx is 1 then go to card "Inbox"
+              if idx is 2 then go to card "Settings"
+            end selectionChanged
 
         **Re-center a map:**
             set the centerLat of map "store" to 37.7749

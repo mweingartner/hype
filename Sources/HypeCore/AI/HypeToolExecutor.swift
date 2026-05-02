@@ -585,6 +585,16 @@ public struct HypeToolExecutor: Sendable {
         case .colorWell:
             props.append("colorHex=\(p.colorWellHex)")
             if !p.colorWellInteractive { props.append("interactive=false") }
+        case .stepper, .slider:
+            props.append("value=\(p.controlValue)")
+            props.append("min=\(p.controlMin)")
+            props.append("max=\(p.controlMax)")
+            if p.partType == .stepper { props.append("step=\(p.controlStep)") }
+        case .toggle:
+            props.append("on=\(p.controlValue >= 0.5)")
+        case .segmented:
+            props.append("segments=\(p.segmentItems)")
+            props.append("selectedSegment=\(Int(p.controlValue))")
         }
 
         // Common text styling (if non-default)
@@ -1096,6 +1106,81 @@ public struct HypeToolExecutor: Sendable {
             let layer = place.backgroundId != nil ? " on background" : ""
             return "Created colorWell '\(part.name)'\(layer)"
 
+        case "create_stepper":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            var part = Part(
+                partType: .stepper,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
+                name: arguments["name"] ?? "Stepper",
+                left: Double(arguments["left"] ?? "100") ?? 100,
+                top: Double(arguments["top"] ?? "100") ?? 100,
+                width: Double(arguments["width"] ?? "70") ?? 70,
+                height: Double(arguments["height"] ?? "24") ?? 24
+            )
+            part.controlValue = Double(arguments["value"] ?? "0") ?? 0
+            part.controlMin = Double(arguments["min"] ?? "0") ?? 0
+            part.controlMax = Double(arguments["max"] ?? "100") ?? 100
+            part.controlStep = Double(arguments["step"] ?? "1") ?? 1
+            document.addPart(part)
+            let layer = place.backgroundId != nil ? " on background" : ""
+            return "Created stepper '\(part.name)'\(layer)"
+
+        case "create_slider":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            var part = Part(
+                partType: .slider,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
+                name: arguments["name"] ?? "Slider",
+                left: Double(arguments["left"] ?? "100") ?? 100,
+                top: Double(arguments["top"] ?? "100") ?? 100,
+                width: Double(arguments["width"] ?? "200") ?? 200,
+                height: Double(arguments["height"] ?? "24") ?? 24
+            )
+            part.controlValue = Double(arguments["value"] ?? "0") ?? 0
+            part.controlMin = Double(arguments["min"] ?? "0") ?? 0
+            part.controlMax = Double(arguments["max"] ?? "100") ?? 100
+            document.addPart(part)
+            let layer = place.backgroundId != nil ? " on background" : ""
+            return "Created slider '\(part.name)'\(layer)"
+
+        case "create_toggle":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            var part = Part(
+                partType: .toggle,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
+                name: arguments["name"] ?? "Toggle",
+                left: Double(arguments["left"] ?? "100") ?? 100,
+                top: Double(arguments["top"] ?? "100") ?? 100,
+                width: Double(arguments["width"] ?? "44") ?? 44,
+                height: Double(arguments["height"] ?? "26") ?? 26
+            )
+            let on = (arguments["on"] ?? "false").lowercased() == "true"
+            part.controlValue = on ? 1 : 0
+            document.addPart(part)
+            let layer = place.backgroundId != nil ? " on background" : ""
+            return "Created toggle '\(part.name)'\(layer)"
+
+        case "create_segmented":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            var part = Part(
+                partType: .segmented,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
+                name: arguments["name"] ?? "Segmented",
+                left: Double(arguments["left"] ?? "100") ?? 100,
+                top: Double(arguments["top"] ?? "100") ?? 100,
+                width: Double(arguments["width"] ?? "240") ?? 240,
+                height: Double(arguments["height"] ?? "26") ?? 26
+            )
+            part.segmentItems = (arguments["segments"] ?? "First|Second|Third")
+            part.controlValue = Double(arguments["selected_segment"] ?? "0") ?? 0
+            document.addPart(part)
+            let layer = place.backgroundId != nil ? " on background" : ""
+            return "Created segmented '\(part.name)'\(layer)"
+
         case "create_calendar":
             let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
             var part = Part(
@@ -1169,6 +1254,19 @@ public struct HypeToolExecutor: Sendable {
                 // ColorWell-specific
                 case "color", "colorhex", "color_hex": document.parts[index].colorWellHex = value
                 case "interactive": document.parts[index].colorWellInteractive = (value.lowercased() == "true")
+                // Form controls (stepper / slider / toggle / segmented).
+                case "value":
+                    if document.parts[index].partType == .toggle {
+                        document.parts[index].controlValue = (value.lowercased() == "true") ? 1 : 0
+                    } else {
+                        document.parts[index].controlValue = Double(value) ?? 0
+                    }
+                case "on": document.parts[index].controlValue = (value.lowercased() == "true") ? 1 : 0
+                case "min", "minvalue", "min_value": document.parts[index].controlMin = Double(value) ?? 0
+                case "max", "maxvalue", "max_value": document.parts[index].controlMax = Double(value) ?? 100
+                case "step", "increment": document.parts[index].controlStep = Double(value) ?? 1
+                case "segments", "segmentitems", "segment_items": document.parts[index].segmentItems = value
+                case "selectedsegment", "selected_segment": document.parts[index].controlValue = Double(value) ?? 0
                 case "script":
                     // Wrap bare commands and validate via the host gate
                     // before mutating the document.
@@ -2196,6 +2294,17 @@ public struct HypeToolExecutor: Sendable {
             // ColorWell
             case "color", "colorhex", "color_hex": return part.colorWellHex
             case "interactive": return String(part.colorWellInteractive)
+            // Form controls.
+            case "value":
+                if part.partType == .toggle { return String(part.controlValue >= 0.5) }
+                if part.partType == .segmented { return String(Int(part.controlValue)) }
+                return String(part.controlValue)
+            case "on": return String(part.controlValue >= 0.5)
+            case "min", "minvalue", "min_value": return String(part.controlMin)
+            case "max", "maxvalue", "max_value": return String(part.controlMax)
+            case "step", "increment": return String(part.controlStep)
+            case "segments", "segmentitems": return part.segmentItems
+            case "selectedsegment", "selected_segment": return String(Int(part.controlValue))
             case "textfont", "font": return part.textFont
             case "textsize", "size": return String(part.textSize)
             case "textalign": return part.textAlign.rawValue

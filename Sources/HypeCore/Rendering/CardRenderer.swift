@@ -145,6 +145,8 @@ public final class CardRenderer: Sendable {
             MapRenderer.draw(ctx: ctx, part: part, rect: rect)
         case .colorWell:
             ColorWellRenderer.draw(ctx: ctx, part: part, rect: rect)
+        case .stepper, .slider, .toggle, .segmented:
+            FormControlsRenderer.draw(part.partType, ctx: ctx, part: part, rect: rect)
         }
     }
 

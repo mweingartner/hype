@@ -2741,6 +2741,20 @@ public struct Interpreter: Sendable {
         // ColorWell
         case "color", "colorhex", "color_hex":  return part.colorWellHex
         case "interactive":                     return part.colorWellInteractive ? "true" : "false"
+        // Form controls (stepper, slider, toggle, segmented).
+        // Toggle's `on` returns boolean; segmented's `selectedSegment`
+        // returns the integer index. Stepper/slider use `value`.
+        case "value":
+            if part.partType == .toggle { return part.controlValue >= 0.5 ? "true" : "false" }
+            if part.partType == .segmented { return String(Int(part.controlValue)) }
+            return formatNumber(part.controlValue)
+        case "on":
+            return part.controlValue >= 0.5 ? "true" : "false"
+        case "min", "minvalue", "min_value":     return formatNumber(part.controlMin)
+        case "max", "maxvalue", "max_value":     return formatNumber(part.controlMax)
+        case "step", "increment":                return formatNumber(part.controlStep)
+        case "segments", "segmentitems":         return part.segmentItems
+        case "selectedsegment", "selected_segment": return String(Int(part.controlValue))
         case "text", "textcontent": return part.textContent
         case "topleft":
             return "\(formatNumber(part.left)),\(formatNumber(part.top))"
@@ -3060,6 +3074,10 @@ public struct Interpreter: Sendable {
         case "pdf": targetType = .pdf
         case "map": targetType = .map
         case "colorwell", "color_well": targetType = .colorWell
+        case "stepper": targetType = .stepper
+        case "slider": targetType = .slider
+        case "toggle": targetType = .toggle
+        case "segmented": targetType = .segmented
         default: targetType = nil
         }
 
@@ -3496,6 +3514,25 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].colorWellHex = value
         case "interactive":
             document.parts[partIndex].colorWellInteractive = isTruthy(value)
+        // Form-control writes (stepper / slider / toggle / segmented).
+        case "value":
+            if document.parts[partIndex].partType == .toggle {
+                document.parts[partIndex].controlValue = isTruthy(value) ? 1 : 0
+            } else {
+                document.parts[partIndex].controlValue = toNumber(value)
+            }
+        case "on":
+            document.parts[partIndex].controlValue = isTruthy(value) ? 1 : 0
+        case "min", "minvalue", "min_value":
+            document.parts[partIndex].controlMin = toNumber(value)
+        case "max", "maxvalue", "max_value":
+            document.parts[partIndex].controlMax = toNumber(value)
+        case "step", "increment":
+            document.parts[partIndex].controlStep = toNumber(value)
+        case "segments", "segmentitems":
+            document.parts[partIndex].segmentItems = value
+        case "selectedsegment", "selected_segment":
+            document.parts[partIndex].controlValue = toNumber(value)
         case "popupitems", "popup_items":
             document.parts[partIndex].popupItems = value
         case "htmlcontent", "html_content":

@@ -292,6 +292,16 @@ struct CardCanvasView: NSViewRepresentable {
             dispatchMessage("colorChanged", to: id)
         }
 
+        /// Shared writeback for stepper / slider / toggle /
+        /// segmented control changes. The `message` parameter
+        /// chooses which HypeTalk handler the part gets:
+        /// `valueChanged` for stepper/slider/toggle,
+        /// `selectionChanged` for segmented.
+        func setPartControlValue(id: UUID, value: Double, message: String) {
+            parent.document.document.updatePart(id: id) { $0.controlValue = value }
+            dispatchMessage(message, to: id)
+        }
+
         func deletePart(id: UUID) {
             // Dispatch delete message before removing
             if let part = parent.document.document.parts.first(where: { $0.id == id }) {
@@ -684,6 +694,11 @@ class CardCanvasNSView: NSView {
     private var loadedPDFURLs: [UUID: String] = [:]
     private var mapViews: [UUID: MapHostNSView] = [:]
     private var colorWellViews: [UUID: ColorWellHostNSView] = [:]
+    // Live form-control hosts.
+    private var stepperViews: [UUID: StepperHostNSView] = [:]
+    private var sliderViews: [UUID: SliderHostNSView] = [:]
+    private var toggleViews: [UUID: ToggleHostNSView] = [:]
+    private var segmentedViews: [UUID: SegmentedHostNSView] = [:]
 
     // Active SKViews for spriteArea parts (keyed by part ID)
     private var spriteViews: [UUID: SKView] = [:]
@@ -934,7 +949,7 @@ class CardCanvasNSView: NSView {
             } else {
                 renderBgParts = []
             }
-            let nativeKinds: Set<PartType> = [.spriteArea, .chart, .webpage, .video, .calendar, .pdf, .map, .colorWell]
+            let nativeKinds: Set<PartType> = [.spriteArea, .chart, .webpage, .video, .calendar, .pdf, .map, .colorWell, .stepper, .slider, .toggle, .segmented]
             nativePartIds = Set(
                 (renderCardParts + renderBgParts)
                     .filter { $0.visible && nativeKinds.contains($0.partType) }
@@ -1015,6 +1030,7 @@ class CardCanvasNSView: NSView {
         updatePDFViews()
         updateMapViews()
         updateColorWellViews()
+        updateFormControlViews()
 
         // Update sprite views for spriteArea parts
         updateSpriteViews()
@@ -2563,6 +2579,137 @@ class CardCanvasNSView: NSView {
         for id in colorWellViews.keys where !activeIds.contains(id) {
             colorWellViews[id]?.removeFromSuperview()
             colorWellViews.removeValue(forKey: id)
+        }
+    }
+
+    // MARK: - Form Control View Management
+
+    /// Create, update, or remove the four form-control hosts
+    /// (stepper, slider, toggle, segmented) on the current card.
+    /// Each routes user value-changes through the coordinator
+    /// writeback so HypeTalk reads of `the value of slider "X"`
+    /// reflect what's on screen, and the `valueChanged` /
+    /// `selectionChanged` HypeTalk messages dispatch on the part.
+    private func updateFormControlViews() {
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let isBrowseMode = toolState.category == .browse
+
+        let cardParts = document.partsForCard(currentCardId)
+        let bgParts: [Part]
+        if let card = document.cards.first(where: { $0.id == currentCardId }) {
+            bgParts = document.partsForBackground(card.backgroundId)
+        } else {
+            bgParts = []
+        }
+        let allParts = cardParts + bgParts
+
+        // Helper to clear-and-skip when the user is in edit mode.
+        func clearAll() {
+            for (_, v) in stepperViews { v.removeFromSuperview() }
+            for (_, v) in sliderViews { v.removeFromSuperview() }
+            for (_, v) in toggleViews { v.removeFromSuperview() }
+            for (_, v) in segmentedViews { v.removeFromSuperview() }
+            stepperViews.removeAll()
+            sliderViews.removeAll()
+            toggleViews.removeAll()
+            segmentedViews.removeAll()
+        }
+
+        let formParts = allParts.filter {
+            ($0.partType == .stepper || $0.partType == .slider || $0.partType == .toggle || $0.partType == .segmented) && $0.visible
+        }
+        if !isBrowseMode || formParts.isEmpty {
+            clearAll()
+            return
+        }
+
+        var activeStepper = Set<UUID>()
+        var activeSlider = Set<UUID>()
+        var activeToggle = Set<UUID>()
+        var activeSegmented = Set<UUID>()
+
+        for part in formParts {
+            let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+            let partId = part.id
+
+            switch part.partType {
+            case .stepper:
+                activeStepper.insert(partId)
+                if let existing = stepperViews[partId] {
+                    existing.frame = frame
+                    existing.apply(part)
+                } else {
+                    let host = StepperHostNSView(frame: frame)
+                    host.apply(part)
+                    host.onValueChange = { [weak self] v in
+                        self?.coordinator?.setPartControlValue(id: partId, value: v, message: "valueChanged")
+                    }
+                    addSubview(host, positioned: .above, relativeTo: nil)
+                    stepperViews[partId] = host
+                }
+            case .slider:
+                activeSlider.insert(partId)
+                if let existing = sliderViews[partId] {
+                    existing.frame = frame
+                    existing.apply(part)
+                } else {
+                    let host = SliderHostNSView(frame: frame)
+                    host.apply(part)
+                    host.onValueChange = { [weak self] v in
+                        self?.coordinator?.setPartControlValue(id: partId, value: v, message: "valueChanged")
+                    }
+                    addSubview(host, positioned: .above, relativeTo: nil)
+                    sliderViews[partId] = host
+                }
+            case .toggle:
+                activeToggle.insert(partId)
+                if let existing = toggleViews[partId] {
+                    existing.frame = frame
+                    existing.apply(part)
+                } else {
+                    let host = ToggleHostNSView(frame: frame)
+                    host.apply(part)
+                    host.onValueChange = { [weak self] on in
+                        self?.coordinator?.setPartControlValue(id: partId, value: on ? 1.0 : 0.0, message: "valueChanged")
+                    }
+                    addSubview(host, positioned: .above, relativeTo: nil)
+                    toggleViews[partId] = host
+                }
+            case .segmented:
+                activeSegmented.insert(partId)
+                if let existing = segmentedViews[partId] {
+                    existing.frame = frame
+                    existing.apply(part)
+                } else {
+                    let host = SegmentedHostNSView(frame: frame)
+                    host.apply(part)
+                    host.onValueChange = { [weak self] idx in
+                        self?.coordinator?.setPartControlValue(id: partId, value: Double(idx), message: "selectionChanged")
+                    }
+                    addSubview(host, positioned: .above, relativeTo: nil)
+                    segmentedViews[partId] = host
+                }
+            default:
+                break
+            }
+        }
+
+        // Cleanup orphans.
+        for id in stepperViews.keys where !activeStepper.contains(id) {
+            stepperViews[id]?.removeFromSuperview()
+            stepperViews.removeValue(forKey: id)
+        }
+        for id in sliderViews.keys where !activeSlider.contains(id) {
+            sliderViews[id]?.removeFromSuperview()
+            sliderViews.removeValue(forKey: id)
+        }
+        for id in toggleViews.keys where !activeToggle.contains(id) {
+            toggleViews[id]?.removeFromSuperview()
+            toggleViews.removeValue(forKey: id)
+        }
+        for id in segmentedViews.keys where !activeSegmented.contains(id) {
+            segmentedViews[id]?.removeFromSuperview()
+            segmentedViews.removeValue(forKey: id)
         }
     }
 
