@@ -149,6 +149,8 @@ public final class CardRenderer: Sendable {
             FormControlsRenderer.draw(part.partType, ctx: ctx, part: part, rect: rect)
         case .audioRecorder:
             AudioRecorderRenderer.draw(ctx: ctx, part: part, rect: rect)
+        case .scene3D:
+            Scene3DRenderer.draw(ctx: ctx, part: part, rect: rect)
         }
     }
 

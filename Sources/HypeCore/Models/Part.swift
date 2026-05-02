@@ -197,6 +197,22 @@ public struct Part: Identifiable, Codable, Sendable {
     /// directly.
     public var audioDuration: Double
 
+    // Scene3D-specific (SceneKit)
+    /// File path or http(s) URL of the 3D model to load. `.usdz`,
+    /// `.scn`, `.dae`, and `.obj` (with materials) all supported by
+    /// SCNScene's URL initializer.
+    public var scene3DURL: String
+    /// Lets the user orbit / pan / zoom the camera with mouse + scroll.
+    public var scene3DAllowsCameraControl: Bool
+    /// Adds an ambient + omni light if the loaded scene has none.
+    public var scene3DAutoLighting: Bool
+    /// Background color hex behind the 3D scene. Empty = let the
+    /// scene's own background asset show through.
+    public var scene3DBackground: String
+    /// Anti-aliasing mode: "none" / "multisampling2X" /
+    /// "multisampling4X" / "multisampling8X". Default "multisampling4X".
+    public var scene3DAntialiasing: String
+
     // Script
     public var script: String
 
@@ -284,6 +300,11 @@ public struct Part: Identifiable, Codable, Sendable {
         self.audioOutputPath = ""
         self.audioFormat = "m4a"
         self.audioDuration = 0
+        self.scene3DURL = ""
+        self.scene3DAllowsCameraControl = true
+        self.scene3DAutoLighting = true
+        self.scene3DBackground = ""
+        self.scene3DAntialiasing = "multisampling4X"
         self.script = ""
     }
 
@@ -377,6 +398,12 @@ public struct Part: Identifiable, Codable, Sendable {
         audioOutputPath = try container.decodeIfPresent(String.self, forKey: .audioOutputPath) ?? ""
         audioFormat = try container.decodeIfPresent(String.self, forKey: .audioFormat) ?? "m4a"
         audioDuration = try container.decodeIfPresent(Double.self, forKey: .audioDuration) ?? 0
+        // Scene3D fields — backward-compat optional.
+        scene3DURL = try container.decodeIfPresent(String.self, forKey: .scene3DURL) ?? ""
+        scene3DAllowsCameraControl = try container.decodeIfPresent(Bool.self, forKey: .scene3DAllowsCameraControl) ?? true
+        scene3DAutoLighting = try container.decodeIfPresent(Bool.self, forKey: .scene3DAutoLighting) ?? true
+        scene3DBackground = try container.decodeIfPresent(String.self, forKey: .scene3DBackground) ?? ""
+        scene3DAntialiasing = try container.decodeIfPresent(String.self, forKey: .scene3DAntialiasing) ?? "multisampling4X"
         script = try container.decode(String.self, forKey: .script)
     }
 }

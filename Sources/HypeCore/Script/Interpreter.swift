@@ -2760,6 +2760,12 @@ public struct Interpreter: Sendable {
         case "duration":            return formatNumber(part.audioDuration)
         case "outputpath", "output_path", "filepath", "file_path": return part.audioOutputPath
         case "format":              return part.audioFormat
+        // Scene3D
+        case "modelurl", "model_url", "sceneurl", "scene_url": return part.scene3DURL
+        case "allowscameracontrol", "allows_camera_control", "cameracontrol": return part.scene3DAllowsCameraControl ? "true" : "false"
+        case "autolighting", "auto_lighting", "defaultlighting": return part.scene3DAutoLighting ? "true" : "false"
+        case "antialiasing", "anti_aliasing": return part.scene3DAntialiasing
+        case "background3d", "background_3d", "scenebackground": return part.scene3DBackground
         case "text", "textcontent": return part.textContent
         case "topleft":
             return "\(formatNumber(part.left)),\(formatNumber(part.top))"
@@ -3084,6 +3090,7 @@ public struct Interpreter: Sendable {
         case "toggle": targetType = .toggle
         case "segmented": targetType = .segmented
         case "recorder", "audiorecorder": targetType = .audioRecorder
+        case "scene3d", "model3d": targetType = .scene3D
         default: targetType = nil
         }
 
@@ -3546,6 +3553,17 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].audioOutputPath = value
         case "format":
             document.parts[partIndex].audioFormat = value
+        // Scene3D
+        case "modelurl", "model_url", "sceneurl", "scene_url":
+            document.parts[partIndex].scene3DURL = value
+        case "allowscameracontrol", "allows_camera_control", "cameracontrol":
+            document.parts[partIndex].scene3DAllowsCameraControl = isTruthy(value)
+        case "autolighting", "auto_lighting", "defaultlighting":
+            document.parts[partIndex].scene3DAutoLighting = isTruthy(value)
+        case "antialiasing", "anti_aliasing":
+            document.parts[partIndex].scene3DAntialiasing = value
+        case "background3d", "background_3d", "scenebackground":
+            document.parts[partIndex].scene3DBackground = value
         case "popupitems", "popup_items":
             document.parts[partIndex].popupItems = value
         case "htmlcontent", "html_content":

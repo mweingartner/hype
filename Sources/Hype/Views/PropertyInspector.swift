@@ -55,6 +55,7 @@ struct PropertyInspector: View {
                         case .toggle: toggleSection(part: part)
                         case .segmented: segmentedSection(part: part)
                         case .audioRecorder: audioRecorderSection(part: part)
+                        case .scene3D: scene3DSection(part: part)
                         }
 
                         // Font controls for buttons and fields
@@ -1034,6 +1035,45 @@ struct PropertyInspector: View {
             Text("Segmented").font(.subheadline).foregroundColor(.secondary)
             propertyRow("Segments (pipe-separated)", binding: bindPartString(part.id, \.segmentItems))
             propertyRow("Selected Index", binding: bindPartDoubleString(part.id, \.controlValue))
+        }
+    }
+
+    private func scene3DSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("3D Scene").font(.subheadline).foregroundColor(.secondary)
+            propertyRow("Model URL/Path", binding: bindPartString(part.id, \.scene3DURL))
+            Button("Choose 3D Model...") { chooseModelForPart(partId: part.id) }
+            Toggle("Allow Camera Control", isOn: bindPartBool(part.id, \.scene3DAllowsCameraControl))
+            Toggle("Default Lighting", isOn: bindPartBool(part.id, \.scene3DAutoLighting))
+            propertyRow("Background (hex, blank=clear)", binding: bindPartString(part.id, \.scene3DBackground))
+            HStack {
+                Text("Anti-aliasing").font(.system(size: 10))
+                Picker("", selection: bindPartString(part.id, \.scene3DAntialiasing)) {
+                    Text("None").tag("none")
+                    Text("2× MSAA").tag("multisampling2X")
+                    Text("4× MSAA").tag("multisampling4X")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+        }
+    }
+
+    private func chooseModelForPart(partId: UUID) {
+        let panel = NSOpenPanel()
+        // SceneKit-loadable formats. .usdz is the modern Apple-native
+        // format; .scn is SceneKit's archived form; .dae and .obj cover
+        // the most common third-party exports. We use UTType.init(
+        // filenameExtension:) to silence the macOS 12+ deprecation of
+        // allowedFileTypes; falling through nil-extensions is a no-op.
+        panel.allowedContentTypes = ["usdz", "scn", "dae", "obj"].compactMap {
+            UTType(filenameExtension: $0)
+        }
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            document.document.updatePart(id: partId) { $0.scene3DURL = url.path }
         }
     }
 

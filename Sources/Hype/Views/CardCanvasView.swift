@@ -717,6 +717,7 @@ class CardCanvasNSView: NSView {
     private var toggleViews: [UUID: ToggleHostNSView] = [:]
     private var segmentedViews: [UUID: SegmentedHostNSView] = [:]
     private var audioRecorderViews: [UUID: AudioRecorderHostNSView] = [:]
+    private var scene3DViews: [UUID: Scene3DHostNSView] = [:]
 
     // Active SKViews for spriteArea parts (keyed by part ID)
     private var spriteViews: [UUID: SKView] = [:]
@@ -967,7 +968,7 @@ class CardCanvasNSView: NSView {
             } else {
                 renderBgParts = []
             }
-            let nativeKinds: Set<PartType> = [.spriteArea, .chart, .webpage, .video, .calendar, .pdf, .map, .colorWell, .stepper, .slider, .toggle, .segmented, .audioRecorder]
+            let nativeKinds: Set<PartType> = [.spriteArea, .chart, .webpage, .video, .calendar, .pdf, .map, .colorWell, .stepper, .slider, .toggle, .segmented, .audioRecorder, .scene3D]
             nativePartIds = Set(
                 (renderCardParts + renderBgParts)
                     .filter { $0.visible && nativeKinds.contains($0.partType) }
@@ -1050,6 +1051,7 @@ class CardCanvasNSView: NSView {
         updateColorWellViews()
         updateFormControlViews()
         updateAudioRecorderViews()
+        updateScene3DViews()
 
         // Update sprite views for spriteArea parts
         updateSpriteViews()
@@ -2789,6 +2791,50 @@ class CardCanvasNSView: NSView {
             audioRecorderViews[id]?.stop()
             audioRecorderViews[id]?.removeFromSuperview()
             audioRecorderViews.removeValue(forKey: id)
+        }
+    }
+
+    // MARK: - Scene3D View Management
+
+    /// Create, update, or remove `SCNView` hosts for `scene3D` parts.
+    private func updateScene3DViews() {
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let isBrowseMode = toolState.category == .browse
+
+        let cardParts = document.partsForCard(currentCardId)
+        let bgParts: [Part]
+        if let card = document.cards.first(where: { $0.id == currentCardId }) {
+            bgParts = document.partsForBackground(card.backgroundId)
+        } else {
+            bgParts = []
+        }
+        let allParts = cardParts + bgParts
+        let parts3D = allParts.filter { $0.partType == .scene3D && $0.visible }
+
+        if !isBrowseMode || parts3D.isEmpty {
+            for (_, view) in scene3DViews { view.removeFromSuperview() }
+            scene3DViews.removeAll()
+            return
+        }
+
+        var activeIds = Set<UUID>()
+        for part in parts3D {
+            activeIds.insert(part.id)
+            let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+
+            if let existing = scene3DViews[part.id] {
+                existing.frame = frame
+                existing.apply(part)
+                continue
+            }
+            let host = Scene3DHostNSView(frame: frame)
+            host.apply(part)
+            addSubview(host, positioned: .above, relativeTo: nil)
+            scene3DViews[part.id] = host
+        }
+        for id in scene3DViews.keys where !activeIds.contains(id) {
+            scene3DViews[id]?.removeFromSuperview()
+            scene3DViews.removeValue(forKey: id)
         }
     }
 

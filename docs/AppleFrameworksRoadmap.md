@@ -44,11 +44,12 @@ set the selectedDate of calendar "due" to "2026-12-25"
 **HypeTalk**: `pick contact then put it into field "name"`.
 **Effort**: ~400 lines. Requires `NSContactsUsageDescription`.
 
-### 5. SceneKit (3D scene viewer)
-**User value**: 3D model display alongside the existing 2D SpriteKit. Educational stacks (anatomy, geometry, product configurators).
-**Backing API**: `SCNView` + `.usdz` / `.dae` / `.scn` loading.
-**Hype properties**: `sceneURL`, `cameraName`, `allowsCameraControl`, `autoenablesDefaultLighting`, `backgroundColor`, `antialiasingMode`.
-**Effort**: ~800 lines. Significant — 3D camera math + lighting controls have a learning curve.
+### 5. SceneKit (3D scene viewer) ✅ shipped
+**Backing API**: `SCNView` + `SCNScene(url:)` loader supporting `.usdz`, `.scn`, `.dae`, `.obj`.
+**Hype properties**: `modelURL`, `allowsCameraControl`, `autoLighting`, `background` (hex), `antialiasing` (`none` / `multisampling2X` / `multisampling4X`).
+**HypeTalk**: `set the modelURL of scene3d "model" to "/path/to/cube.usdz"`. `model3d` accepted as alias.
+**AI tools**: `create_scene3d`; reads/writes via `set_part_property` / `get_part_property` accept `model_url`, `allows_camera_control`, `auto_lighting`, `background`, `antialiasing`.
+**Note**: scenes load on a background queue so a large model doesn't freeze the main thread.
 
 ### 6. Audio Recorder (AVFoundation) ✅ shipped
 **Backing API**: `AVAudioRecorder` (m4a / AAC by default; LinearPCM CAF available).

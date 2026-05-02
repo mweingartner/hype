@@ -230,6 +230,24 @@ public struct HypeToolDefinitions {
             "on_background": ("string", "true to place on background", false),
         ]),
 
+        makeTool(name: "create_scene3d", description: """
+            Create a 3D scene viewer (SceneKit). Loads `.usdz`, `.scn`, `.dae`, `.obj` \
+            from a local file path or http(s) URL. Camera control (mouse-orbit / scroll-zoom) \
+            on by default. HypeTalk reads use `the modelURL of scene3d "X"`.
+            """, params: [
+            "name": ("string", "Scene3D part name", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "model_url": ("string", "Path or URL of the 3D model file", false),
+            "allows_camera_control": ("string", "'true' (default) to let user orbit/zoom", false),
+            "auto_lighting": ("string", "'true' (default) to add default lights", false),
+            "background": ("string", "Hex color for the scene background (empty = transparent)", false),
+            "antialiasing": ("string", "'none' | 'multisampling2X' | 'multisampling4X' (default)", false),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
         makeTool(name: "create_audio_recorder", description: """
             Create an audio-recorder control. Setting `recording` to true (via the AI \
             tool, HypeTalk `set the recording of recorder "memo" to true`, or the \
@@ -1177,6 +1195,7 @@ public struct HypeToolDefinitions {
             "create_toggle",
             "create_segmented",
             "create_audio_recorder",
+            "create_scene3d",
             "duplicate_part",
             "delete_part",
             "get_card_parts",
@@ -1302,6 +1321,7 @@ public struct HypeToolDefinitions {
             "create_toggle",
             "create_segmented",
             "create_audio_recorder",
+            "create_scene3d",
             "repair_form_controls",
             "delete_part",
             "set_card_name",

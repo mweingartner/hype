@@ -10,7 +10,7 @@ public enum PartType: String, Codable, Sendable {
     case button, field, shape, webpage, image, video, chart, spriteArea
     case calendar, pdf, map, colorWell
     case stepper, slider, toggle, segmented
-    case audioRecorder
+    case audioRecorder, scene3D
 }
 
 /// Button visual styles.

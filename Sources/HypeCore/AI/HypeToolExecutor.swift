@@ -600,6 +600,12 @@ public struct HypeToolExecutor: Sendable {
             props.append(String(format: "duration=%.1f", p.audioDuration))
             if !p.audioOutputPath.isEmpty { props.append("outputPath=\(p.audioOutputPath)") }
             props.append("format=\(p.audioFormat)")
+        case .scene3D:
+            if !p.scene3DURL.isEmpty { props.append("modelURL=\(p.scene3DURL)") }
+            if !p.scene3DAllowsCameraControl { props.append("allowsCameraControl=false") }
+            if !p.scene3DAutoLighting { props.append("autoLighting=false") }
+            if !p.scene3DBackground.isEmpty { props.append("background=\(p.scene3DBackground)") }
+            props.append("antialiasing=\(p.scene3DAntialiasing)")
         }
 
         // Common text styling (if non-default)
@@ -1168,6 +1174,38 @@ public struct HypeToolExecutor: Sendable {
             let layer = place.backgroundId != nil ? " on background" : ""
             return "Created toggle '\(part.name)'\(layer)"
 
+        case "create_scene3d":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            var part = Part(
+                partType: .scene3D,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
+                name: arguments["name"] ?? "Scene3D",
+                left: Double(arguments["left"] ?? "100") ?? 100,
+                top: Double(arguments["top"] ?? "100") ?? 100,
+                width: Double(arguments["width"] ?? "400") ?? 400,
+                height: Double(arguments["height"] ?? "300") ?? 300
+            )
+            part.scene3DURL = arguments["model_url"] ?? ""
+            if let camera = arguments["allows_camera_control"] {
+                part.scene3DAllowsCameraControl = (camera.lowercased() == "true")
+            }
+            if let lighting = arguments["auto_lighting"] {
+                part.scene3DAutoLighting = (lighting.lowercased() == "true")
+            }
+            part.scene3DBackground = arguments["background"] ?? ""
+            let aa = (arguments["antialiasing"] ?? "multisampling4X")
+            switch aa.lowercased() {
+            case "none": part.scene3DAntialiasing = "none"
+            case "multisampling2x": part.scene3DAntialiasing = "multisampling2X"
+            case "multisampling4x": part.scene3DAntialiasing = "multisampling4X"
+            case "multisampling8x": part.scene3DAntialiasing = "multisampling8X"
+            default: part.scene3DAntialiasing = "multisampling4X"
+            }
+            document.addPart(part)
+            let layer = place.backgroundId != nil ? " on background" : ""
+            return "Created scene3D '\(part.name)'\(layer)"
+
         case "create_audio_recorder":
             let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
             var part = Part(
@@ -1295,6 +1333,12 @@ public struct HypeToolExecutor: Sendable {
                 case "recording": document.parts[index].audioRecording = (value.lowercased() == "true")
                 case "outputpath", "output_path", "filepath", "file_path": document.parts[index].audioOutputPath = value
                 case "format": document.parts[index].audioFormat = value
+                // Scene3D
+                case "modelurl", "model_url", "sceneurl", "scene_url": document.parts[index].scene3DURL = value
+                case "allowscameracontrol", "allows_camera_control", "cameracontrol": document.parts[index].scene3DAllowsCameraControl = (value.lowercased() == "true")
+                case "autolighting", "auto_lighting", "defaultlighting": document.parts[index].scene3DAutoLighting = (value.lowercased() == "true")
+                case "antialiasing", "anti_aliasing": document.parts[index].scene3DAntialiasing = value
+                case "background3d", "background_3d", "scenebackground": document.parts[index].scene3DBackground = value
                 case "script":
                     // Wrap bare commands and validate via the host gate
                     // before mutating the document.
@@ -2338,6 +2382,12 @@ public struct HypeToolExecutor: Sendable {
             case "duration": return String(part.audioDuration)
             case "outputpath", "output_path", "filepath", "file_path": return part.audioOutputPath
             case "format": return part.audioFormat
+            // Scene3D
+            case "modelurl", "model_url", "sceneurl", "scene_url": return part.scene3DURL
+            case "allowscameracontrol", "allows_camera_control", "cameracontrol": return String(part.scene3DAllowsCameraControl)
+            case "autolighting", "auto_lighting", "defaultlighting": return String(part.scene3DAutoLighting)
+            case "antialiasing", "anti_aliasing": return part.scene3DAntialiasing
+            case "background3d", "background_3d", "scenebackground": return part.scene3DBackground
             case "textfont", "font": return part.textFont
             case "textsize", "size": return String(part.textSize)
             case "textalign": return part.textAlign.rawValue

@@ -79,6 +79,7 @@ public enum HypeTalkGuide {
             calendar "due"     pdf "manual"        map "store"
             colorWell "fill"   stepper "qty"       slider "volume"
             toggle "muted"     segmented "tabs"    recorder "memo"
+            scene3d "model"
         Use double-quoted names; bare words are only valid for short keywords.
 
         ## Properties — get and set
@@ -278,6 +279,11 @@ public enum HypeTalkGuide {
                 play stop
               end if
             end valueChanged
+
+        **Load a 3D model:**
+            set the modelURL of scene3d "model" to "/path/to/cube.usdz"
+            -- The user can orbit/zoom by default; toggle off with
+            -- `set the allowsCameraControl of scene3d "model" to false`.
 
         **Start / stop voice memo recording:**
             on mouseUp
