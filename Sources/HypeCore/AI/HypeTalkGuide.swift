@@ -75,7 +75,8 @@ public enum HypeTalkGuide {
             background "Main"  stack               spritearea "game"
             sprite "player"    label "score"       shape "wall"
             camera "cam"       emitter "fire"      tilemap "map"
-            audio "music"      video "intro"
+            audio "music"      video "intro"       chart "sales"
+            calendar "due"
         Use double-quoted names; bare words are only valid for short keywords.
 
         ## Properties — get and set
@@ -244,6 +245,17 @@ public enum HypeTalkGuide {
             on mouseUp
               set the visible of image "logo" to not the visible of image "logo"
             end mouseUp
+
+        **React to a calendar selection:**
+            on dateChanged
+              put the selectedDate of calendar "due" into d
+              put "Due: " & d into field "status"
+            end dateChanged
+            -- The `dateChanged` message fires on the calendar part
+            -- whenever the user picks a new date in the live picker.
+            -- Read the date as ISO 8601 (yyyy-MM-dd) and write/format
+            -- as needed. Set the value programmatically with
+            -- `set the selectedDate of calendar "due" to "2026-12-25"`.
 
         **Flash a part — hide, wait, show:**
             on mouseUp

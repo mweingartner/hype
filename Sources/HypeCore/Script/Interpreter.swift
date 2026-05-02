@@ -2716,6 +2716,11 @@ public struct Interpreter: Sendable {
         case "dontwrap":    return part.dontWrap ? "true" : "false"
         case "url":         return part.url
         case "chartdata", "chart_data": return part.chartData
+        case "selecteddate", "selected_date":   return part.selectedDate
+        case "displaymonth", "display_month":   return part.displayMonth
+        case "mindate", "min_date":             return part.minDate
+        case "maxdate", "max_date":             return part.maxDate
+        case "calendarstyle", "calendar_style": return part.calendarStyle
         case "text", "textcontent": return part.textContent
         case "topleft":
             return "\(formatNumber(part.left)),\(formatNumber(part.top))"
@@ -3031,6 +3036,7 @@ public struct Interpreter: Sendable {
         case "video": targetType = .video
         case "chart": targetType = .chart
         case "spritearea": targetType = .spriteArea
+        case "calendar": targetType = .calendar
         default: targetType = nil
         }
 
@@ -3430,6 +3436,18 @@ public struct Interpreter: Sendable {
             #endif
         case "videourl", "video_url":
             document.parts[partIndex].videoURL = value
+        // Calendar-specific writes — settable on .calendar parts.
+        // Empty string clears the bound (NSDatePicker.minDate/maxDate accept nil).
+        case "selecteddate", "selected_date":
+            document.parts[partIndex].selectedDate = value
+        case "displaymonth", "display_month":
+            document.parts[partIndex].displayMonth = value
+        case "mindate", "min_date":
+            document.parts[partIndex].minDate = value
+        case "maxdate", "max_date":
+            document.parts[partIndex].maxDate = value
+        case "calendarstyle", "calendar_style":
+            document.parts[partIndex].calendarStyle = value
         case "popupitems", "popup_items":
             document.parts[partIndex].popupItems = value
         case "htmlcontent", "html_content":

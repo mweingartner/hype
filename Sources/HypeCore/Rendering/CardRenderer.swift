@@ -137,6 +137,8 @@ public final class CardRenderer: Sendable {
             ChartRenderer.draw(ctx: ctx, part: part, rect: rect)
         case .spriteArea:
             SpriteAreaRenderer.draw(ctx: ctx, part: part, rect: rect)
+        case .calendar:
+            CalendarRenderer.draw(ctx: ctx, part: part, rect: rect)
         }
     }
 

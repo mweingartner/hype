@@ -117,6 +117,29 @@ public struct HypeToolDefinitions {
             "on_background": ("string", "true to place on background", false),
         ]),
 
+        makeTool(name: "create_calendar", description: """
+            Create a calendar/date-picker control. The user picks dates via a live \
+            macOS NSDatePicker; the selected date is stored on the part as ISO 8601 \
+            (yyyy-MM-dd) and is readable from HypeTalk as `the selectedDate of \
+            calendar "name"`. The `dateChanged` message fires on the part each time \
+            the user changes the selection. Set `selected_date`, `min_date`, `max_date` \
+            using yyyy-MM-dd format. `style` is one of 'graphical' (default month grid), \
+            'textual' (compact text + stepper), or 'clockAndCalendar' (graphical month \
+            plus an analog clock face).
+            """, params: [
+            "name": ("string", "Calendar part name", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "selected_date": ("string", "Initially-selected date as yyyy-MM-dd. Empty = today.", false),
+            "display_month": ("string", "Visible month as yyyy-MM-01. Empty = follows selected_date.", false),
+            "min_date": ("string", "Earliest allowed date as yyyy-MM-dd. Empty = no minimum.", false),
+            "max_date": ("string", "Latest allowed date as yyyy-MM-dd. Empty = no maximum.", false),
+            "style": ("string", "'graphical' (default), 'textual', or 'clockAndCalendar'", false),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
         makeTool(name: "repair_form_controls", description: """
             Convert a form-like Sprite Area on the current card into ordinary Hype controls. \
             Label nodes become locked transparent field labels. If the Sprite Area contains \
@@ -995,6 +1018,7 @@ public struct HypeToolDefinitions {
             "create_webpage",
             "create_video",
             "create_chart",
+            "create_calendar",
             "duplicate_part",
             "delete_part",
             "get_card_parts",
@@ -1109,6 +1133,7 @@ public struct HypeToolDefinitions {
             "create_webpage",
             "create_video",
             "create_chart",
+            "create_calendar",
             "repair_form_controls",
             "delete_part",
             "set_card_name",

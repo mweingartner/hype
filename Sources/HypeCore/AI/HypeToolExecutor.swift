@@ -562,6 +562,12 @@ public struct HypeToolExecutor: Sendable {
                 props.append("sceneSize=\(Int(sceneConfig.size.width))x\(Int(sceneConfig.size.height))")
                 props.append("nodeCount=\(sceneConfig.nodes.count)")
             }
+        case .calendar:
+            if !p.selectedDate.isEmpty { props.append("selectedDate=\(p.selectedDate)") }
+            if !p.displayMonth.isEmpty { props.append("displayMonth=\(p.displayMonth)") }
+            if !p.minDate.isEmpty { props.append("minDate=\(p.minDate)") }
+            if !p.maxDate.isEmpty { props.append("maxDate=\(p.maxDate)") }
+            props.append("calendarStyle=\(p.calendarStyle)")
         }
 
         // Common text styling (if non-default)
@@ -965,6 +971,34 @@ public struct HypeToolExecutor: Sendable {
             let chartLayer = place.backgroundId != nil ? " on background" : ""
             return "Created chart '\(part.name)' (\(chartType.rawValue))\(chartLayer)"
 
+        case "create_calendar":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            var part = Part(
+                partType: .calendar,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
+                name: arguments["name"] ?? "Calendar",
+                left: Double(arguments["left"] ?? "100") ?? 100,
+                top: Double(arguments["top"] ?? "100") ?? 100,
+                width: Double(arguments["width"] ?? "260") ?? 260,
+                height: Double(arguments["height"] ?? "180") ?? 180
+            )
+            part.selectedDate = arguments["selected_date"] ?? ""
+            part.displayMonth = arguments["display_month"] ?? ""
+            part.minDate = arguments["min_date"] ?? ""
+            part.maxDate = arguments["max_date"] ?? ""
+            let style = (arguments["style"] ?? "graphical").lowercased()
+            // Whitelist styles to keep the live picker happy.
+            switch style {
+            case "graphical", "textual", "clockandcalendar":
+                part.calendarStyle = style == "clockandcalendar" ? "clockAndCalendar" : style
+            default:
+                part.calendarStyle = "graphical"
+            }
+            document.addPart(part)
+            let layer = place.backgroundId != nil ? " on background" : ""
+            return "Created calendar '\(part.name)'\(layer)"
+
         case "repair_form_controls":
             return repairFormControls(
                 arguments: arguments,
@@ -990,6 +1024,12 @@ public struct HypeToolExecutor: Sendable {
                 case "strokecolor", "stroke_color": document.parts[index].strokeColor = value
                 case "visible": document.parts[index].visible = (value.lowercased() == "true")
                 case "enabled": document.parts[index].enabled = (value.lowercased() == "true")
+                // Calendar-specific properties — settable on calendar parts only.
+                case "selecteddate", "selected_date": document.parts[index].selectedDate = value
+                case "displaymonth", "display_month": document.parts[index].displayMonth = value
+                case "mindate", "min_date": document.parts[index].minDate = value
+                case "maxdate", "max_date": document.parts[index].maxDate = value
+                case "calendarstyle", "calendar_style", "style": document.parts[index].calendarStyle = value
                 case "script":
                     // Wrap bare commands and validate via the host gate
                     // before mutating the document.
@@ -1996,6 +2036,13 @@ public struct HypeToolExecutor: Sendable {
             case "transparentbackground", "transparent_background", "transparent",
                  "transparentbg", "alpha":
                 return String(part.transparentBackground)
+            // Calendar-specific properties — readable on any part,
+            // but only meaningful when the part's type is .calendar.
+            case "selecteddate", "selected_date": return part.selectedDate
+            case "displaymonth", "display_month": return part.displayMonth
+            case "mindate", "min_date": return part.minDate
+            case "maxdate", "max_date": return part.maxDate
+            case "calendarstyle", "calendar_style": return part.calendarStyle
             case "textfont", "font": return part.textFont
             case "textsize", "size": return String(part.textSize)
             case "textalign": return part.textAlign.rawValue

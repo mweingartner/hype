@@ -7,7 +7,7 @@ public enum ObjectType: String, Codable, Sendable {
 
 /// Part type discriminator.
 public enum PartType: String, Codable, Sendable {
-    case button, field, shape, webpage, image, video, chart, spriteArea
+    case button, field, shape, webpage, image, video, chart, spriteArea, calendar
 }
 
 /// Button visual styles.

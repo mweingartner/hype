@@ -1889,10 +1889,10 @@ public struct Parser: Sendable {
         case .card, .background, .field, .button, .stack, .webpage, .image, .video, .sprite, .spritearea, .scene, .request, .connection, .listener:
             return try parseObjectReference()
 
-        case .identifier where ["label", "shape", "audio", "chart"].contains(current.value.lowercased()):
-            // Scene node types and chart parts recognized as object
-            // references: label "name", shape "name", audio "name",
-            // chart "name" / chart 1.
+        case .identifier where ["label", "shape", "audio", "chart", "calendar"].contains(current.value.lowercased()):
+            // Scene node types and HypeTalk part types recognized as
+            // object references: label "name", shape "name",
+            // audio "name", chart "name", calendar "name".
             return try parseObjectReference()
 
         case .identifier where current.value.lowercased() == "data":

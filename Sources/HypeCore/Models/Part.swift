@@ -108,6 +108,24 @@ public struct Part: Identifiable, Codable, Sendable {
     // SpriteKit scene-specific
     public var sceneSpec: String  // JSON-encoded SceneSpec or SpriteAreaSpec
 
+    // Calendar-specific
+    /// Currently-selected date as ISO 8601 (yyyy-MM-dd). Empty
+    /// string means no date selected — the underlying NSDatePicker
+    /// will fall back to today's date for display purposes only.
+    public var selectedDate: String
+    /// Visible month as ISO 8601 (yyyy-MM-01). Empty = follow
+    /// `selectedDate`. Lets a user navigate the calendar without
+    /// changing the selection.
+    public var displayMonth: String
+    /// Earliest date the user may pick, ISO 8601. Empty = no min.
+    public var minDate: String
+    /// Latest date the user may pick, ISO 8601. Empty = no max.
+    public var maxDate: String
+    /// Visual style: "graphical" (month grid, default), "textual"
+    /// (compact text + stepper), "clockAndCalendar" (graphical
+    /// month + analog clock).
+    public var calendarStyle: String
+
     // Script
     public var script: String
 
@@ -170,6 +188,11 @@ public struct Part: Identifiable, Codable, Sendable {
         self.animated = true
         self.transparentBackground = false
         self.sceneSpec = ""
+        self.selectedDate = ""
+        self.displayMonth = ""
+        self.minDate = ""
+        self.maxDate = ""
+        self.calendarStyle = "graphical"
         self.script = ""
     }
 
@@ -232,6 +255,12 @@ public struct Part: Identifiable, Codable, Sendable {
         // same way they did before the feature shipped.
         transparentBackground = try container.decodeIfPresent(Bool.self, forKey: .transparentBackground) ?? false
         sceneSpec = try container.decodeIfPresent(String.self, forKey: .sceneSpec) ?? ""
+        // Calendar fields — added later, all backward-compat optional.
+        selectedDate = try container.decodeIfPresent(String.self, forKey: .selectedDate) ?? ""
+        displayMonth = try container.decodeIfPresent(String.self, forKey: .displayMonth) ?? ""
+        minDate = try container.decodeIfPresent(String.self, forKey: .minDate) ?? ""
+        maxDate = try container.decodeIfPresent(String.self, forKey: .maxDate) ?? ""
+        calendarStyle = try container.decodeIfPresent(String.self, forKey: .calendarStyle) ?? "graphical"
         script = try container.decode(String.self, forKey: .script)
     }
 }

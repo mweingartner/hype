@@ -272,6 +272,17 @@ struct CardCanvasView: NSViewRepresentable {
             parent.document.document.updatePart(id: id) { $0.hilite = value }
         }
 
+        /// Write the user's interactive date selection back to the
+        /// document so HypeTalk reads of `the selectedDate of
+        /// calendar "X"` reflect what's on screen. Called from
+        /// `CalendarHostNSView.onDateChange` via the NSView's
+        /// `coordinator?` pointer. Also dispatches the
+        /// `dateChanged` message so script handlers can react.
+        func setPartCalendarDate(id: UUID, isoDate: String) {
+            parent.document.document.updatePart(id: id) { $0.selectedDate = isoDate }
+            dispatchMessage("dateChanged", to: id)
+        }
+
         func deletePart(id: UUID) {
             // Dispatch delete message before removing
             if let part = parent.document.document.parts.first(where: { $0.id == id }) {
@@ -655,6 +666,11 @@ class CardCanvasNSView: NSView {
     // Track which chart data is loaded to avoid redundant recreations
     private var loadedChartData: [UUID: String] = [:]
 
+    // Active NSDatePicker hosts for calendar parts (keyed by part ID).
+    // Mirrors chart/sprite pattern — the live picker shows in browse
+    // mode, the CG placeholder shows in edit mode.
+    private var calendarViews: [UUID: CalendarHostNSView] = [:]
+
     // Active SKViews for spriteArea parts (keyed by part ID)
     private var spriteViews: [UUID: SKView] = [:]
     private var spriteScenes: [UUID: HypeSKScene] = [:]
@@ -904,7 +920,7 @@ class CardCanvasNSView: NSView {
             } else {
                 renderBgParts = []
             }
-            let nativeKinds: Set<PartType> = [.spriteArea, .chart, .webpage, .video]
+            let nativeKinds: Set<PartType> = [.spriteArea, .chart, .webpage, .video, .calendar]
             nativePartIds = Set(
                 (renderCardParts + renderBgParts)
                     .filter { $0.visible && nativeKinds.contains($0.partType) }
@@ -977,6 +993,9 @@ class CardCanvasNSView: NSView {
 
         // Update chart views for chart parts
         updateChartViews()
+
+        // Update calendar views for calendar parts
+        updateCalendarViews()
 
         // Update sprite views for spriteArea parts
         updateSpriteViews()
@@ -2318,6 +2337,68 @@ class CardCanvasNSView: NSView {
             chartViews[id]?.removeFromSuperview()
             chartViews.removeValue(forKey: id)
             loadedChartData.removeValue(forKey: id)
+        }
+    }
+
+    // MARK: - Calendar View Management
+
+    /// Create, update, or remove NSDatePicker hosts for calendar
+    /// parts on the current card. Mirrors the chart-view pattern:
+    /// the live AppKit picker shows in browse mode, the CG
+    /// `CalendarRenderer` placeholder shows in edit mode.
+    private func updateCalendarViews() {
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let isBrowseMode = toolState.category == .browse
+
+        let cardParts = document.partsForCard(currentCardId)
+        let bgParts: [Part]
+        if let card = document.cards.first(where: { $0.id == currentCardId }) {
+            bgParts = document.partsForBackground(card.backgroundId)
+        } else {
+            bgParts = []
+        }
+        let allParts = cardParts + bgParts
+        let calendarParts = allParts.filter { $0.partType == .calendar && $0.visible }
+
+        // In edit mode or no calendar parts, hide all live pickers.
+        if !isBrowseMode || calendarParts.isEmpty {
+            for (_, view) in calendarViews {
+                view.removeFromSuperview()
+            }
+            calendarViews.removeAll()
+            return
+        }
+
+        var activeIds = Set<UUID>()
+
+        for part in calendarParts {
+            activeIds.insert(part.id)
+            let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+
+            if let existing = calendarViews[part.id] {
+                existing.frame = frame
+                existing.apply(part)
+                continue
+            }
+
+            // First-time create.
+            let host = CalendarHostNSView(frame: frame)
+            host.apply(part)
+            // Wire date-change writeback into the live document so
+            // HypeTalk reads of `the selectedDate of calendar "X"`
+            // reflect the user's interactive choice.
+            let partId = part.id
+            host.onDateChange = { [weak self] iso in
+                guard let self = self else { return }
+                self.coordinator?.setPartCalendarDate(id: partId, isoDate: iso)
+            }
+            addSubview(host, positioned: .above, relativeTo: nil)
+            calendarViews[part.id] = host
+        }
+
+        for id in calendarViews.keys where !activeIds.contains(id) {
+            calendarViews[id]?.removeFromSuperview()
+            calendarViews.removeValue(forKey: id)
         }
     }
 

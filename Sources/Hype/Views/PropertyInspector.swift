@@ -47,6 +47,7 @@ struct PropertyInspector: View {
                         case .video: videoSection(part: part)
                         case .chart: chartSection(part: part)
                         case .spriteArea: spriteAreaSection(part: part)
+                        case .calendar: calendarSection(part: part)
                         }
 
                         // Font controls for buttons and fields
@@ -903,6 +904,26 @@ struct PropertyInspector: View {
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                     .lineLimit(2)
+            }
+        }
+    }
+
+    private func calendarSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Calendar").font(.subheadline).foregroundColor(.secondary)
+            propertyRow("Selected (yyyy-MM-dd)", binding: bindPartString(part.id, \.selectedDate))
+            propertyRow("Display Month", binding: bindPartString(part.id, \.displayMonth))
+            propertyRow("Min Date", binding: bindPartString(part.id, \.minDate))
+            propertyRow("Max Date", binding: bindPartString(part.id, \.maxDate))
+            HStack {
+                Text("Style").font(.system(size: 10))
+                Picker("", selection: bindPartString(part.id, \.calendarStyle)) {
+                    Text("Graphical").tag("graphical")
+                    Text("Textual").tag("textual")
+                    Text("Clock + Calendar").tag("clockAndCalendar")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
             }
         }
     }
