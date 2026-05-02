@@ -1429,6 +1429,20 @@ class CardCanvasNSView: NSView {
         for (_, vp) in videoPlayers { vp.isHidden = true }
         for (_, cv) in chartViews { cv.isHidden = true }
         for (_, sv) in spriteViews { sv.isHidden = true }
+        // New control overlays added in 2026 — every native overlay
+        // host needs to hide during a SpriteKit card transition,
+        // otherwise it floats over the transition animation in its
+        // old-card position. Recreated by updateNSView → draw().
+        for (_, v) in calendarViews { v.isHidden = true }
+        for (_, v) in pdfViews { v.isHidden = true }
+        for (_, v) in mapViews { v.isHidden = true }
+        for (_, v) in colorWellViews { v.isHidden = true }
+        for (_, v) in stepperViews { v.isHidden = true }
+        for (_, v) in sliderViews { v.isHidden = true }
+        for (_, v) in toggleViews { v.isHidden = true }
+        for (_, v) in segmentedViews { v.isHidden = true }
+        for (_, v) in audioRecorderViews { v.isHidden = true }
+        for (_, v) in scene3DViews { v.isHidden = true }
     }
 
     /// Perform a card transition using SpriteKit.
@@ -2432,6 +2446,7 @@ class CardCanvasNSView: NSView {
             let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
 
             if let existing = calendarViews[part.id] {
+                existing.isHidden = false
                 existing.frame = frame
                 existing.apply(part)
                 continue
@@ -2490,6 +2505,7 @@ class CardCanvasNSView: NSView {
             let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
 
             if let existing = pdfViews[part.id] {
+                existing.isHidden = false
                 existing.frame = frame
                 existing.apply(part)
                 continue
@@ -2535,6 +2551,7 @@ class CardCanvasNSView: NSView {
             let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
 
             if let existing = mapViews[part.id] {
+                existing.isHidden = false
                 existing.frame = frame
                 existing.apply(part)
                 continue
@@ -2583,6 +2600,7 @@ class CardCanvasNSView: NSView {
             let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
 
             if let existing = colorWellViews[part.id] {
+                existing.isHidden = false
                 existing.frame = frame
                 existing.apply(part)
                 continue
@@ -2657,6 +2675,7 @@ class CardCanvasNSView: NSView {
             case .stepper:
                 activeStepper.insert(partId)
                 if let existing = stepperViews[partId] {
+                    existing.isHidden = false
                     existing.frame = frame
                     existing.apply(part)
                 } else {
@@ -2671,6 +2690,7 @@ class CardCanvasNSView: NSView {
             case .slider:
                 activeSlider.insert(partId)
                 if let existing = sliderViews[partId] {
+                    existing.isHidden = false
                     existing.frame = frame
                     existing.apply(part)
                 } else {
@@ -2685,6 +2705,7 @@ class CardCanvasNSView: NSView {
             case .toggle:
                 activeToggle.insert(partId)
                 if let existing = toggleViews[partId] {
+                    existing.isHidden = false
                     existing.frame = frame
                     existing.apply(part)
                 } else {
@@ -2699,6 +2720,7 @@ class CardCanvasNSView: NSView {
             case .segmented:
                 activeSegmented.insert(partId)
                 if let existing = segmentedViews[partId] {
+                    existing.isHidden = false
                     existing.frame = frame
                     existing.apply(part)
                 } else {
@@ -2769,6 +2791,7 @@ class CardCanvasNSView: NSView {
             let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
 
             if let existing = audioRecorderViews[part.id] {
+                existing.isHidden = false
                 existing.frame = frame
                 existing.apply(part)
                 continue
@@ -2823,6 +2846,7 @@ class CardCanvasNSView: NSView {
             let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
 
             if let existing = scene3DViews[part.id] {
+                existing.isHidden = false
                 existing.frame = frame
                 existing.apply(part)
                 continue

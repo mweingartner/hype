@@ -42,16 +42,35 @@ final class StepperHostNSView: NSView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    private var appliedValue: Double?
+    private var appliedMin: Double?
+    private var appliedMax: Double?
+    private var appliedStep: Double?
+
     func apply(_ part: Part) {
-        stepper.minValue = part.controlMin
-        stepper.maxValue = part.controlMax
-        stepper.increment = part.controlStep == 0 ? 1 : part.controlStep
-        stepper.doubleValue = part.controlValue
-        valueField.stringValue = formatNumber(part.controlValue)
+        if part.controlMin != appliedMin {
+            stepper.minValue = part.controlMin
+            appliedMin = part.controlMin
+        }
+        if part.controlMax != appliedMax {
+            stepper.maxValue = part.controlMax
+            appliedMax = part.controlMax
+        }
+        let step = part.controlStep == 0 ? 1 : part.controlStep
+        if step != appliedStep {
+            stepper.increment = step
+            appliedStep = step
+        }
+        if part.controlValue != appliedValue {
+            stepper.doubleValue = part.controlValue
+            valueField.stringValue = formatNumber(part.controlValue)
+            appliedValue = part.controlValue
+        }
     }
 
     @objc private func stepperDidChange() {
         valueField.stringValue = formatNumber(stepper.doubleValue)
+        appliedValue = stepper.doubleValue
         onValueChange?(stepper.doubleValue)
     }
 }
@@ -78,13 +97,27 @@ final class SliderHostNSView: NSView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    private var appliedValue: Double?
+    private var appliedMin: Double?
+    private var appliedMax: Double?
+
     func apply(_ part: Part) {
-        slider.minValue = part.controlMin
-        slider.maxValue = part.controlMax
-        slider.doubleValue = part.controlValue
+        if part.controlMin != appliedMin {
+            slider.minValue = part.controlMin
+            appliedMin = part.controlMin
+        }
+        if part.controlMax != appliedMax {
+            slider.maxValue = part.controlMax
+            appliedMax = part.controlMax
+        }
+        if part.controlValue != appliedValue {
+            slider.doubleValue = part.controlValue
+            appliedValue = part.controlValue
+        }
     }
 
     @objc private func sliderDidChange() {
+        appliedValue = slider.doubleValue
         onValueChange?(slider.doubleValue)
     }
 }
@@ -108,12 +141,20 @@ final class ToggleHostNSView: NSView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    private var appliedOn: Bool?
+
     func apply(_ part: Part) {
-        toggle.state = part.controlValue >= 0.5 ? .on : .off
+        let on = part.controlValue >= 0.5
+        if on != appliedOn {
+            toggle.state = on ? .on : .off
+            appliedOn = on
+        }
     }
 
     @objc private func toggleDidChange() {
-        onValueChange?(toggle.state == .on)
+        let on = toggle.state == .on
+        appliedOn = on
+        onValueChange?(on)
     }
 }
 
@@ -139,24 +180,35 @@ final class SegmentedHostNSView: NSView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    private var appliedSegmentItems: String?
+    private var appliedSelected: Int?
+
     func apply(_ part: Part) {
-        let labels = part.segmentItems.split(separator: "|").map(String.init)
-        if segmented.segmentCount != labels.count {
-            segmented.segmentCount = labels.count
-        }
-        for (i, label) in labels.enumerated() {
-            segmented.setLabel(label, forSegment: i)
-            segmented.setWidth(0, forSegment: i)
+        if part.segmentItems != appliedSegmentItems {
+            let labels = part.segmentItems.split(separator: "|").map(String.init)
+            if segmented.segmentCount != labels.count {
+                segmented.segmentCount = labels.count
+            }
+            for (i, label) in labels.enumerated() {
+                segmented.setLabel(label, forSegment: i)
+                segmented.setWidth(0, forSegment: i)
+            }
+            appliedSegmentItems = part.segmentItems
         }
         let idx = Int(part.controlValue)
-        if idx >= 0 && idx < labels.count {
-            segmented.selectedSegment = idx
-        } else {
-            segmented.selectedSegment = 0
+        if idx != appliedSelected {
+            let labelCount = part.segmentItems.split(separator: "|").count
+            if idx >= 0 && idx < labelCount {
+                segmented.selectedSegment = idx
+            } else {
+                segmented.selectedSegment = 0
+            }
+            appliedSelected = idx
         }
     }
 
     @objc private func segmentedDidChange() {
+        appliedSelected = segmented.selectedSegment
         onValueChange?(segmented.selectedSegment)
     }
 }
