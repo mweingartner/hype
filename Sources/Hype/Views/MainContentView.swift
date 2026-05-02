@@ -45,6 +45,17 @@ struct MainContentView: View {
     @State private var showNetworkPanel: Bool = false
     @State private var runtimeStatus = RuntimeStatusSnapshot(requests: [], listeners: [], connections: [])
 
+    /// Runtime vs Edit mode. Persisted across launches so a stack
+    /// distributed in runtime mode reopens in runtime mode. Toggled
+    /// via the Tools menu (⇧⌘E) or the Run/Edit buttons in
+    /// `ObjectsToolPanel`.
+    @AppStorage("hypeRuntimeMode") private var isRuntimeMode: Bool = false
+
+    /// Whether the slide-out objects panel is open. Toggled via the
+    /// Tools menu (⇧⌘O) or the toolbar button. Persisted so users
+    /// who prefer the canvas-without-chrome layout keep it.
+    @AppStorage("hypeObjectsPanelVisible") private var objectsPanelVisible: Bool = true
+
     private var toolState: ToolState {
         var state = ToolState(currentTool: currentTool.rawValue)
         state.selectedPartId = selectedPartIds.first
@@ -52,8 +63,10 @@ struct MainContentView: View {
     }
 
     private var showInspector: Bool {
-        // Always show inspector — when no part is selected, shows script editors for card/bg/stack/hype
-        true
+        // Hidden in runtime mode — the entire point of runtime mode
+        // is to show the stack as the end-user experiences it,
+        // without authoring chrome.
+        !isRuntimeMode
     }
 
     /// Resolve the currently-active theme through the cascade so
@@ -118,15 +131,39 @@ struct MainContentView: View {
 
     private var mainContent: some View {
         HSplitView {
+            // Slide-out objects panel — left edge of the window.
+            // Hidden when objectsPanelVisible == false (and the
+            // entire panel collapses, not just emptied) so the
+            // canvas reclaims the width. In runtime mode the panel
+            // stays available because Run/Edit toggle still lives
+            // there, but the tool palette inside it goes blank.
+            if objectsPanelVisible {
+                ObjectsToolPanel(
+                    currentTool: $currentTool,
+                    selectedPartIds: $selectedPartIds
+                )
+            }
+
             canvasArea
             sidePanels
         }
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
-                toolPaletteButtons
+                // Objects-panel toggle is the leftmost item now —
+                // mirrors macOS sidebar conventions (Mail, Notes).
+                Button(action: { objectsPanelVisible.toggle() }) {
+                    Image(systemName: "sidebar.leading")
+                }
+                .help(objectsPanelVisible ? "Hide Objects Panel (⇧⌘O)" : "Show Objects Panel (⇧⌘O)")
 
                 Spacer()
 
+                // Hide the navigate / repository / AI / network
+                // buttons in runtime mode — they're authoring
+                // surfaces. Keep just navigation since end users
+                // need to move between cards. Runtime mode also
+                // hides the entire toolbar's edit-mode tool palette
+                // because that's now in ObjectsToolPanel.
                 Button(action: navigatePrevious) {
                     Image(systemName: "chevron.left")
                 }
@@ -139,34 +176,40 @@ struct MainContentView: View {
                 .help("Next Card")
                 .disabled(!canNavigateNext)
 
-                Divider()
+                if !isRuntimeMode {
+                    Divider()
 
-                Button(action: {
-                    // The sprite repository now lives in its own
-                    // detached NSWindow (see openSpriteRepositoryWindow)
-                    // so it can be freely resized, remembers its
-                    // size across sessions, and stays open while
-                    // the user works on a card. The old .sheet
-                    // presentation was fixed at 600x400 and
-                    // couldn't grow — users with many assets had
-                    // to scroll through a tiny grid.
-                    openSpriteRepositoryWindow(document: $document)
-                }) {
-                    Image(systemName: "tray.2")
-                }
-                .help("Sprite Repository")
+                    Button(action: {
+                        openSpriteRepositoryWindow(document: $document)
+                    }) {
+                        Image(systemName: "tray.2")
+                    }
+                    .help("Sprite Repository")
 
-                Button(action: { showAI.toggle() }) {
-                    Image(systemName: "sparkles")
-                        .foregroundColor(showAI ? .accentColor : .primary)
-                }
-                .help("AI Assistant")
+                    Button(action: { showAI.toggle() }) {
+                        Image(systemName: "sparkles")
+                            .foregroundColor(showAI ? .accentColor : .primary)
+                    }
+                    .help("AI Assistant")
 
-                Button(action: { showNetworkPanel = true }) {
-                    Image(systemName: "antenna.radiowaves.left.and.right")
+                    Button(action: { showNetworkPanel = true }) {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                    }
+                    .help("Stack Network")
                 }
-                .help("Stack Network")
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleRuntimeMode)) { _ in
+            isRuntimeMode.toggle()
+            // Entering runtime mode: clear authoring side-effects.
+            if isRuntimeMode {
+                currentTool = .browse
+                selectedPartIds = []
+                editingBackground = false
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleObjectsPanel)) { _ in
+            objectsPanelVisible.toggle()
         }
         .sheet(isPresented: $showNetworkPanel) {
             NetworkPanelView(document: $document, runtimeStatus: runtimeStatus)

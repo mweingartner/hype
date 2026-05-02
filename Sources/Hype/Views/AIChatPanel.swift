@@ -9,6 +9,15 @@ struct AIChatPanel: View {
     @State private var messages: [ChatBubble] = []
     @State private var conversationMessages: [OllamaMessage] = []  // Full context for model
     @State private var isProcessing = false
+    /// Set when sendMessage launches `processWithTools` so the user
+    /// can interrupt it via the Stop button (or via "cancel
+    /// operation" voice command). Cleared when the task completes
+    /// or is cancelled.
+    @State private var activeChatTask: Task<Void, Never>? = nil
+    /// Speech-to-text controller. Lazily initialized — its
+    /// `start()` requests mic + speech-recognition authorization.
+    @StateObject private var speechCapture = AISpeechCapture()
+    @State private var lastFinalizedTranscript: String? = nil
     @State private var historyIndex: Int = -1
     @State private var pendingSceneProposal: PendingSceneProposal?
     @State private var lastStructuredUndoDocument: HypeDocument?
@@ -286,21 +295,83 @@ struct AIChatPanel: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .background(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.3)))
 
-                Button(action: sendMessage) {
-                    Image(systemName: "paperplane.fill")
-                        .font(.system(size: 14))
+                // Trailing button column: Send (or Stop while
+                // processing) + Mic. Voice + halt sit next to the
+                // text entry, right-aligned per the spec.
+                HStack(spacing: 4) {
+                    if isProcessing {
+                        Button(action: haltCurrentTask) {
+                            Image(systemName: "stop.circle.fill")
+                                .font(.system(size: 16))
+                                .foregroundColor(.red)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Stop the AI (or say 'cancel operation')")
+                    } else {
+                        Button(action: sendMessage) {
+                            Image(systemName: "paperplane.fill")
+                                .font(.system(size: 14))
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .help("Send (Return)")
+                    }
+
+                    Button(action: { speechCapture.toggle() }) {
+                        Image(systemName: speechCapture.isListening ? "mic.fill" : "mic")
+                            .font(.system(size: 14))
+                            .foregroundColor(speechCapture.isListening ? .red : .primary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(speechCapture.isListening ? "Stop listening" : "Start voice input")
                 }
-                .buttonStyle(.borderless)
-                .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isProcessing)
                 .padding(.bottom, 6)
             }
             .padding(8)
+            // Mirror the live transcript into the input field while
+            // listening, so the user sees what's being recognized.
+            .onChange(of: speechCapture.transcript) { _, newValue in
+                if speechCapture.isListening {
+                    inputText = newValue
+                }
+            }
+            // When the recognizer finalizes an utterance, treat it
+            // like the user pressed Return — but first check for
+            // the "cancel operation" voice command, which halts an
+            // in-flight model call instead of submitting a message.
+            .onReceive(speechCapture.transcriptDidFinalize) { finalText in
+                let cleaned = finalText
+                    .lowercased()
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let cancelPhrases = ["cancel operation", "cancel the operation", "stop", "halt"]
+                if isProcessing && cancelPhrases.contains(where: { cleaned.contains($0) }) {
+                    haltCurrentTask()
+                    inputText = ""
+                    return
+                }
+                if !cleaned.isEmpty {
+                    lastFinalizedTranscript = finalText
+                    inputText = finalText
+                    sendMessage()
+                }
+            }
             .onAppear {
                 isInputFocused = true
                 preloadModelIfNeeded()
             }
             .onChange(of: ollamaModel) { _ in
                 preloadModelIfNeeded()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .haltAIChat)) { _ in
+                if isProcessing {
+                    haltCurrentTask()
+                }
+            }
+            .onDisappear {
+                // Stop voice capture if the panel is closed mid-listen
+                // — otherwise the audio engine and recognition task
+                // keep running in the background.
+                speechCapture.stop()
             }
         }
         .frame(width: 350)
@@ -551,11 +622,35 @@ struct AIChatPanel: View {
         inputText = ""
         isProcessing = true
 
-        Task {
+        // Track the task so the Stop button (and the "cancel
+        // operation" voice command) can interrupt mid-flight. Hype
+        // structured concurrency: the cancellation propagates into
+        // the underlying URLSession requests via Task.isCancelled
+        // checks scattered through processWithTools / iterateScript
+        // / OllamaToolClient.chat().
+        activeChatTask = Task {
             await processWithTools(userMessage: text)
-            isProcessing = false
-            isInputFocused = true
+            await MainActor.run {
+                isProcessing = false
+                isInputFocused = true
+                activeChatTask = nil
+            }
         }
+    }
+
+    /// Cancel the currently-running AI chat round, if any.
+    /// Wired to: the on-screen Stop button, the "cancel operation"
+    /// voice phrase, and the `.haltAIChat` notification (so a
+    /// keyboard shortcut can be added later without touching this
+    /// view).
+    private func haltCurrentTask() {
+        activeChatTask?.cancel()
+        activeChatTask = nil
+        isProcessing = false
+        iterationStatus = nil
+        captureStatus = nil
+        appendMessage(role: "assistant", content: "Stopped.")
+        isInputFocused = true
     }
 
     private func applyPendingSceneProposal() {

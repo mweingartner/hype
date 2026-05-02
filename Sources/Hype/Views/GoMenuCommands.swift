@@ -65,8 +65,23 @@ struct ArrangeMenuCommands: Commands {
 }
 
 struct ToolsMenuCommands: Commands {
+    @AppStorage("hypeRuntimeMode") private var isRuntimeMode: Bool = false
+    @AppStorage("hypeObjectsPanelVisible") private var objectsPanelVisible: Bool = true
+
     var body: some Commands {
         CommandMenu("Tools") {
+            Button(isRuntimeMode ? "Switch to Edit Mode" : "Switch to Runtime Mode") {
+                NotificationCenter.default.post(name: .toggleRuntimeMode, object: nil)
+            }
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+
+            Button(objectsPanelVisible ? "Hide Objects Panel" : "Show Objects Panel") {
+                NotificationCenter.default.post(name: .toggleObjectsPanel, object: nil)
+            }
+            .keyboardShortcut("o", modifiers: [.command, .shift])
+
+            Divider()
+
             Button("Browse") { NotificationCenter.default.post(name: .selectTool, object: ToolName.browse) }
                 .keyboardShortcut("b", modifiers: .command)
             Button("Button") { NotificationCenter.default.post(name: .selectTool, object: ToolName.button) }
@@ -131,6 +146,9 @@ extension Notification.Name {
     static let distributeV = Notification.Name("distributeV")
     static let showAllCards = Notification.Name("showAllCards")
     static let openSpriteRepository = Notification.Name("openSpriteRepository")
+    static let toggleRuntimeMode = Notification.Name("toggleRuntimeMode")
+    static let toggleObjectsPanel = Notification.Name("toggleObjectsPanel")
+    static let haltAIChat = Notification.Name("haltAIChat")
     /// Posted by `CardCanvasView.Coordinator` when a HypeTalk runtime
     /// or parse error is surfaced during dispatch. `userInfo` contains:
     ///   - `"target"`: a `ScriptTarget` value (part / card / background
