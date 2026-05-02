@@ -81,7 +81,10 @@ public enum HypeTalkGuide {
         ## Properties — get and set
             put the name of button "OK" into n
             set the text of field "input" to "hello"
-            set the visible of field "info" to false
+            set the visible of field "info" to false       -- hide a field
+            set the visible of image "logo" to true        -- show an image
+            set the visible of button "OK" to false        -- hide a button
+            set the visible of image "logo" to not the visible of image "logo"   -- toggle (boolean negation)
             set the loc of sprite "player" to "200,300"      -- points are "x,y" strings
 
         **Part properties:** name, id, left, top, width, height, right, bottom, loc, rect, visible, enabled, hilite, style, script, textFont, textSize, textAlign, textStyle, textContent, fillColor, strokeColor, strokeWidth, cornerRadius, showName, autoHilite, lockText, url.
@@ -236,6 +239,25 @@ public enum HypeTalkGuide {
             on mouseUp
               go next
             end mouseUp
+
+        **Toggle a part's visibility on click:**
+            on mouseUp
+              set the visible of image "logo" to not the visible of image "logo"
+            end mouseUp
+
+        **Flash a part — hide, wait, show:**
+            on mouseUp
+              set the visible of image "flash" to false
+              wait 1 second
+              set the visible of image "flash" to true
+            end mouseUp
+
+        **React when a field's text changes — use `on closeField`, NOT `on change`:**
+            on closeField
+              put "updated" into field "shared_status"
+            end closeField
+            -- closeField fires when the user finishes editing (focus loss /
+            -- Tab / Return). HypeTalk has no `on change` handler.
 
         **Idle logic (use for custom state, not physics simulation):**
             on idle
