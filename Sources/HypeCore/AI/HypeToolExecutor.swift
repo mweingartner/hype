@@ -1174,6 +1174,18 @@ public struct HypeToolExecutor: Sendable {
             let layer = place.backgroundId != nil ? " on background" : ""
             return "Created toggle '\(part.name)'\(layer)"
 
+        case "set_image_filter":
+            let imageName = arguments["image_name"] ?? ""
+            let filter = (arguments["filter"] ?? "").lowercased()
+            let intensity = Double(arguments["intensity"] ?? "0.7") ?? 0.7
+            guard let idx = scopedPartIndex(named: imageName, currentCardId: currentCardId, in: document),
+                  document.parts[idx].partType == .image else {
+                return "Image '\(imageName)' not found"
+            }
+            document.parts[idx].imageFilter = (filter == "none") ? "" : filter
+            document.parts[idx].imageFilterIntensity = max(0, min(1, intensity))
+            return "Set image filter on '\(imageName)' to '\(filter)' (intensity \(intensity))"
+
         case "create_scene3d":
             let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
             var part = Part(
@@ -1422,6 +1434,11 @@ public struct HypeToolExecutor: Sendable {
                     // Image / GIF chroma-key flag — see ImageRenderer
                     // and ImageChromaKey for the masking algorithm.
                     document.parts[index].transparentBackground = (value.lowercased() == "true")
+                case "imagefilter", "image_filter", "filter":
+                    // CoreImage filter name applied at render time.
+                    document.parts[index].imageFilter = value.lowercased() == "none" ? "" : value.lowercased()
+                case "imagefilterintensity", "image_filter_intensity", "filterintensity", "filter_intensity":
+                    document.parts[index].imageFilterIntensity = max(0, min(1, Double(value) ?? 0.7))
                 case "textfont", "font": document.parts[index].textFont = value
                 case "textsize", "size": document.parts[index].textSize = Double(value) ?? 14
                 case "textalign": document.parts[index].textAlign = TextAlignment(rawValue: value.lowercased()) ?? .left
@@ -2345,6 +2362,10 @@ public struct HypeToolExecutor: Sendable {
             case "transparentbackground", "transparent_background", "transparent",
                  "transparentbg", "alpha":
                 return String(part.transparentBackground)
+            case "imagefilter", "image_filter", "filter":
+                return part.imageFilter
+            case "imagefilterintensity", "image_filter_intensity", "filterintensity", "filter_intensity":
+                return String(part.imageFilterIntensity)
             // Calendar-specific properties — readable on any part,
             // but only meaningful when the part's type is .calendar.
             case "selecteddate", "selected_date": return part.selectedDate

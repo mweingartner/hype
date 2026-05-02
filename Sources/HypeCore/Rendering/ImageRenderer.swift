@@ -20,9 +20,14 @@ public enum ImageRenderer {
 
         // Query the animator for the current GIF frame.
         if let cgImage = GIFAnimator.shared.currentFrame(partId: part.id) {
-            let toDraw = part.transparentBackground
+            var toDraw = part.transparentBackground
                 ? ImageChromaKey.apply(to: cgImage)
                 : cgImage
+            // CoreImage filter pass (sepia, blur, vignette, etc.) —
+            // returns the original when filter name is empty/unknown.
+            if !part.imageFilter.isEmpty {
+                toDraw = ImageFilter.apply(part.imageFilter, intensity: part.imageFilterIntensity, to: toDraw)
+            }
             drawCGImageFlipped(ctx: ctx, image: toDraw, rect: rect)
             drewFromAnimator = true
         }
@@ -32,9 +37,12 @@ public enum ImageRenderer {
             if let data = part.imageData,
                let image = NSImage(data: data),
                let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                let toDraw = part.transparentBackground
+                var toDraw = part.transparentBackground
                     ? ImageChromaKey.apply(to: cgImage)
                     : cgImage
+                if !part.imageFilter.isEmpty {
+                    toDraw = ImageFilter.apply(part.imageFilter, intensity: part.imageFilterIntensity, to: toDraw)
+                }
                 drawCGImageFlipped(ctx: ctx, image: toDraw, rect: rect)
             } else if part.imageData == nil {
                 // Placeholder — no image loaded yet.

@@ -230,6 +230,18 @@ public struct HypeToolDefinitions {
             "on_background": ("string", "true to place on background", false),
         ]),
 
+        makeTool(name: "set_image_filter", description: """
+            Apply a CoreImage filter to an existing image part. Friendly names: \
+            'none' (clears the filter), 'sepia', 'blackwhite', 'mono', 'noir', 'blur', \
+            'vignette', 'invert', 'posterize', 'comic', 'process', 'transfer', \
+            'instant', 'fade', 'tonal', 'chrome'. `intensity` is 0..1 and affects \
+            sepia / blur / vignette / posterize; ignored by the rest.
+            """, params: [
+            "image_name": ("string", "The image part to filter", true),
+            "filter": ("string", "Filter name (see description). 'none' clears.", true),
+            "intensity": ("string", "0..1 strength (default 0.7)", false),
+        ]),
+
         makeTool(name: "create_scene3d", description: """
             Create a 3D scene viewer (SceneKit). Loads `.usdz`, `.scn`, `.dae`, `.obj` \
             from a local file path or http(s) URL. Camera control (mouse-orbit / scroll-zoom) \
@@ -1196,6 +1208,7 @@ public struct HypeToolDefinitions {
             "create_segmented",
             "create_audio_recorder",
             "create_scene3d",
+            "set_image_filter",
             "duplicate_part",
             "delete_part",
             "get_card_parts",
@@ -1322,6 +1335,7 @@ public struct HypeToolDefinitions {
             "create_segmented",
             "create_audio_recorder",
             "create_scene3d",
+            "set_image_filter",
             "repair_form_controls",
             "delete_part",
             "set_card_name",

@@ -80,8 +80,13 @@ Surface actual macOS calendar events inside the Calendar control. Requires `NSCa
 ### 10. WebAuthenticationServices
 For OAuth flows in stacks that talk to web services. Not generally useful in a HyperCard model — defer until a stack actually needs this.
 
-### 11. CoreImage Filter Effects on Image Parts
-Apply CIFilter (sepia, blur, vignette, etc.) to existing image parts. Could enhance the existing `image` part rather than be a new control. **Effort**: ~400 lines.
+### 11. CoreImage Filter Effects on Image Parts ✅ shipped
+**Backing API**: `CIFilter` + a small `ImageFilter` helper with a 32-entry LRU cache keyed by `(CGImage identity, filter name, intensity)`. Software-only `CIContext` to avoid GPU resource allocation for one-shot filter passes.
+**Hype properties** (added to existing `image` part): `imageFilter` (friendly name), `imageFilterIntensity` (0..1 — affects sepia / blur / vignette / posterize; ignored elsewhere).
+**Recognized friendly names**: `none`, `sepia`, `blackwhite`, `mono`, `noir`, `blur`, `vignette`, `invert`, `posterize`, `comic`, `process`, `transfer`, `instant`, `fade`, `tonal`, `chrome`. Unknown names are treated as `none` — never crash.
+**HypeTalk**: `set the imageFilter of image "logo" to "sepia"`.
+**AI tool**: `set_image_filter` with `image_name`, `filter`, `intensity` args.
+**Integrated in**: `ImageRenderer` (both static + GIF-frame paths), so animated GIFs apply the filter per-frame; PropertyInspector image section gains a Picker + an intensity slider that shows only for filters that honor intensity.
 
 ### 12. PassKit / GameKit / HomeKit / HealthKit
 Skip. Not relevant to the HyperCard usage model on macOS.

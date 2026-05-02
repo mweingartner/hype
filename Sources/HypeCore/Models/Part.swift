@@ -126,6 +126,20 @@ public struct Part: Identifiable, Codable, Sendable {
     /// month + analog clock).
     public var calendarStyle: String
 
+    // Image-filter (CoreImage CIFilter applied to image parts only)
+    /// Friendly filter name applied to the image at render time.
+    /// Empty = no filter (the image renders as-is).
+    /// Recognized: "" (none), "sepia", "blackwhite", "mono", "blur",
+    /// "vignette", "invert", "posterize", "comic", "process",
+    /// "transfer", "instant", "fade", "tonal", "noir", "chrome".
+    /// Unknown values are treated as "" (no filter) — never crash.
+    public var imageFilter: String
+    /// 0…1 intensity for filters that take an `inputIntensity` /
+    /// `inputAmount` / `inputRadius` parameter. Defaults to 0.7 so
+    /// a freshly-applied filter looks meaningful without further
+    /// tuning. Ignored by filters that don't accept an intensity.
+    public var imageFilterIntensity: Double
+
     // PDF-specific
     /// File path or HTTP URL of the PDF to display. Empty when no
     /// document is loaded — the renderer shows a placeholder.
@@ -280,6 +294,8 @@ public struct Part: Identifiable, Codable, Sendable {
         self.minDate = ""
         self.maxDate = ""
         self.calendarStyle = "graphical"
+        self.imageFilter = ""
+        self.imageFilterIntensity = 0.7
         self.pdfURL = ""
         self.pdfCurrentPage = 1
         self.pdfDisplayMode = "continuous"
@@ -373,6 +389,9 @@ public struct Part: Identifiable, Codable, Sendable {
         minDate = try container.decodeIfPresent(String.self, forKey: .minDate) ?? ""
         maxDate = try container.decodeIfPresent(String.self, forKey: .maxDate) ?? ""
         calendarStyle = try container.decodeIfPresent(String.self, forKey: .calendarStyle) ?? "graphical"
+        // Image filter — backward-compat optional.
+        imageFilter = try container.decodeIfPresent(String.self, forKey: .imageFilter) ?? ""
+        imageFilterIntensity = try container.decodeIfPresent(Double.self, forKey: .imageFilterIntensity) ?? 0.7
         // PDF fields — backward-compat optional.
         pdfURL = try container.decodeIfPresent(String.self, forKey: .pdfURL) ?? ""
         pdfCurrentPage = try container.decodeIfPresent(Int.self, forKey: .pdfCurrentPage) ?? 1

@@ -891,6 +891,42 @@ struct PropertyInspector: View {
             Toggle("Transparent Background", isOn: bindPartBool(part.id, \.transparentBackground))
                 .help("Treat the image's dominant corner color as transparent so whatever's behind shows through. Already-transparent PNGs are unaffected.")
 
+            // CoreImage filter — applied at render time. None means
+            // pass-through. Some filters (sepia / blur / vignette /
+            // posterize) honor the intensity slider; others ignore it.
+            HStack {
+                Text("Filter").font(.system(size: 10))
+                Picker("", selection: bindPartString(part.id, \.imageFilter)) {
+                    Text("None").tag("")
+                    Text("Sepia").tag("sepia")
+                    Text("Black & White").tag("blackwhite")
+                    Text("Mono").tag("mono")
+                    Text("Noir").tag("noir")
+                    Text("Blur").tag("blur")
+                    Text("Vignette").tag("vignette")
+                    Text("Invert").tag("invert")
+                    Text("Posterize").tag("posterize")
+                    Text("Comic").tag("comic")
+                    Text("Process").tag("process")
+                    Text("Transfer").tag("transfer")
+                    Text("Instant").tag("instant")
+                    Text("Fade").tag("fade")
+                    Text("Tonal").tag("tonal")
+                    Text("Chrome").tag("chrome")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+            if !part.imageFilter.isEmpty && ["sepia", "blur", "vignette", "posterize"].contains(part.imageFilter) {
+                HStack {
+                    Text("Intensity").font(.system(size: 10))
+                    Slider(value: bindPartIntensityValue(part.id), in: 0...1)
+                    Text(String(format: "%.2f", part.imageFilterIntensity))
+                        .font(.system(size: 10, design: .monospaced))
+                        .frame(width: 36, alignment: .trailing)
+                }
+            }
+
             if let data = part.imageData {
                 Text("Image loaded (\(data.count / 1024) KB)")
                     .font(.system(size: 10))
@@ -1114,6 +1150,20 @@ struct PropertyInspector: View {
             set: { newValue in
                 let parsed = Double(newValue) ?? 0
                 self.document.document.updatePart(id: id) { $0[keyPath: keyPath] = parsed }
+            }
+        )
+    }
+
+    /// Slider binding for `imageFilterIntensity` clamped to 0...1.
+    private func bindPartIntensityValue(_ id: UUID) -> Binding<Double> {
+        Binding<Double>(
+            get: {
+                self.document.document.parts.first(where: { $0.id == id })?.imageFilterIntensity ?? 0
+            },
+            set: { newValue in
+                self.document.document.updatePart(id: id) {
+                    $0.imageFilterIntensity = max(0, min(1, newValue))
+                }
             }
         )
     }

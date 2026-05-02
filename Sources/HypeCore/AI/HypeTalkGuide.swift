@@ -280,6 +280,14 @@ public enum HypeTalkGuide {
               end if
             end valueChanged
 
+        **Apply a filter to an image:**
+            set the imageFilter of image "logo" to "sepia"
+            set the imageFilterIntensity of image "logo" to 0.5
+            -- Filters: "" (none), sepia, blackwhite, mono, noir, blur,
+            -- vignette, invert, posterize, comic, process, transfer,
+            -- instant, fade, tonal, chrome.
+            -- Intensity (0..1) affects sepia, blur, vignette, posterize.
+
         **Load a 3D model:**
             set the modelURL of scene3d "model" to "/path/to/cube.usdz"
             -- The user can orbit/zoom by default; toggle off with

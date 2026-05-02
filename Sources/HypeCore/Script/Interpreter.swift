@@ -2761,6 +2761,8 @@ public struct Interpreter: Sendable {
         case "outputpath", "output_path", "filepath", "file_path": return part.audioOutputPath
         case "format":              return part.audioFormat
         // Scene3D
+        case "imagefilter", "image_filter", "filter": return part.imageFilter
+        case "imagefilterintensity", "image_filter_intensity", "filterintensity", "filter_intensity": return formatNumber(part.imageFilterIntensity)
         case "modelurl", "model_url", "sceneurl", "scene_url": return part.scene3DURL
         case "allowscameracontrol", "allows_camera_control", "cameracontrol": return part.scene3DAllowsCameraControl ? "true" : "false"
         case "autolighting", "auto_lighting", "defaultlighting": return part.scene3DAutoLighting ? "true" : "false"
@@ -3554,6 +3556,10 @@ public struct Interpreter: Sendable {
         case "format":
             document.parts[partIndex].audioFormat = value
         // Scene3D
+        case "imagefilter", "image_filter", "filter":
+            document.parts[partIndex].imageFilter = value.lowercased() == "none" ? "" : value.lowercased()
+        case "imagefilterintensity", "image_filter_intensity", "filterintensity", "filter_intensity":
+            document.parts[partIndex].imageFilterIntensity = max(0, min(1, toNumber(value)))
         case "modelurl", "model_url", "sceneurl", "scene_url":
             document.parts[partIndex].scene3DURL = value
         case "allowscameracontrol", "allows_camera_control", "cameracontrol":
