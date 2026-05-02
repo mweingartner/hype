@@ -88,5 +88,16 @@ public extension NSColor {
         let b = CGFloat(rgb & 0xFF) / 255.0
         self.init(red: r, green: g, blue: b, alpha: 1.0)
     }
+
+    /// Render this color as a `#RRGGBB` hex string. Converts to
+    /// sRGB first so the round-trip is consistent regardless of
+    /// the color's source space (deviceRGB, calibratedRGB, etc.).
+    var hexString: String {
+        let srgb = usingColorSpace(.sRGB) ?? self
+        let r = Int((srgb.redComponent * 255).rounded())
+        let g = Int((srgb.greenComponent * 255).rounded())
+        let b = Int((srgb.blueComponent * 255).rounded())
+        return String(format: "#%02X%02X%02X", r, g, b)
+    }
 }
 #endif

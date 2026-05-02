@@ -20,30 +20,18 @@ set the selectedDate of calendar "due" to "2026-12-25"
 **AI tools**: `create_calendar`, generic `set_part_property` / `get_part_property` cover read/write.
 **Effort**: ~600 lines + 8-10 tests (this commit).
 
-### 2. PDF Viewer (PDFKit)
-**User value**: drop-in document viewer for help systems, manuals, embedded specs.
+### 2. PDF Viewer (PDFKit) ✅ shipped
 **Backing API**: `PDFView` from PDFKit.
-**Hype properties**: `url` (file path or http://), `currentPage`, `pageCount`, `displayMode` (single / continuous / two-up), `autoScales`, `enableSelection`.
-**HypeTalk**:
-```
-set the url of pdf "manual" to "manual.pdf"
-go to page 5 of pdf "manual"
-put the pageCount of pdf "manual" into total
-```
-**AI tools**: `create_pdf`, `set_part_property` covers per-property; new `go_to_pdf_page` for the navigation verb.
-**Effort**: ~500 lines + 6 tests.
+**Hype properties**: `pdfurl`, `currentPage`, `displayMode` (single / continuous / twoUp / twoUpContinuous), `autoScales`.
+**HypeTalk**: `set the currentPage of pdf "manual" to 5`, `set the pdfurl of pdf "manual" to "/path/to/file.pdf"`.
+**AI tools**: `create_pdf`; per-property reads/writes via `set_part_property` / `get_part_property`.
 
-### 3. Map (MapKit)
-**User value**: location-aware stacks (travel diaries, location-tagged notes, store locator demos).
+### 3. Map (MapKit) ✅ shipped
 **Backing API**: `MKMapView`.
-**Hype properties**: `centerLat`, `centerLon`, `zoomLevel`, `mapType` (standard / satellite / hybrid), `showsUserLocation`, `annotations` (JSON array of {lat, lon, title}).
-**HypeTalk**:
-```
-set the centerLat of map "store" to 37.7749
-add annotation with lat 37.7749, lon -122.4194, title "HQ" to map "store"
-```
-**AI tools**: `create_map`, `add_map_annotation`, `clear_map_annotations`, `set_part_property` for the simpler properties.
-**Effort**: ~700 lines + 8 tests. Requires `NSLocationUsageDescription` in Info.plist if `showsUserLocation` is enabled.
+**Hype properties**: `centerLat`, `centerLon`, `span`, `mapType` (standard / satellite / hybrid / mutedStandard), `annotations` (JSON array of {lat, lon, title}).
+**HypeTalk**: `set the centerLat of map "store" to 37.7749`. Pins via `add_map_annotation` AI tool or by writing the `annotations` property directly.
+**AI tools**: `create_map`, `add_map_annotation`, `clear_map_annotations`, `set_part_property` for everything else.
+**Note**: `showsUserLocation` deferred to v2 — would require `NSLocationUsageDescription` and a CoreLocation auth round-trip.
 
 ---
 
@@ -69,12 +57,11 @@ add annotation with lat 37.7749, lon -122.4194, title "HQ" to map "store"
 **HypeTalk**: `start recording into recorder "memo"` / `stop recording recorder "memo"`.
 **Effort**: ~500 lines + Info.plist mic description (already added for AI voice).
 
-### 7. Color Well (AppKit `NSColorWell`)
-**User value**: lightweight color-pick control for paint apps, theme designers, mood-board stacks.
+### 7. Color Well (AppKit `NSColorWell`) ✅ shipped
 **Backing API**: `NSColorWell`.
-**Hype properties**: `colorHex`, `supportsAlpha`, `style` (default / minimal / expanded).
-**HypeTalk**: `put the colorHex of colorWell "fillPicker" into c`.
-**Effort**: ~250 lines. Smallest of the bunch — could ship sooner.
+**Hype properties**: `color` (hex string), `interactive` (bool — false makes it a static swatch).
+**HypeTalk**: `put the color of colorWell "fill" into c`. The `colorChanged` message fires on the part when the user picks a new color.
+**AI tools**: `create_color_well`, `set_part_property` for color/interactive.
 
 ### 8. Stepper / Slider / Toggle / SegmentedControl (AppKit)
 **User value**: classic form controls — currently faked as Buttons. Native controls give native interaction (keyboard nav, accessibility).

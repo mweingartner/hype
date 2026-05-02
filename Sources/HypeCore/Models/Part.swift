@@ -126,6 +126,42 @@ public struct Part: Identifiable, Codable, Sendable {
     /// month + analog clock).
     public var calendarStyle: String
 
+    // PDF-specific
+    /// File path or HTTP URL of the PDF to display. Empty when no
+    /// document is loaded — the renderer shows a placeholder.
+    public var pdfURL: String
+    /// 1-based page index currently shown by `PDFView`.
+    public var pdfCurrentPage: Int
+    /// Display mode: "single" (one page at a time), "continuous"
+    /// (vertical scroll through all pages, default), "twoUp" (two
+    /// pages side-by-side).
+    public var pdfDisplayMode: String
+    /// When true, `PDFView` autoScales each page to fit the part's
+    /// rect. Defaults to true.
+    public var pdfAutoScales: Bool
+
+    // Map-specific
+    /// Latitude of the map center, decimal degrees.
+    public var mapCenterLat: Double
+    /// Longitude of the map center, decimal degrees.
+    public var mapCenterLon: Double
+    /// Zoom level expressed as a span in degrees (smaller = more
+    /// zoomed in). Default 0.05 ≈ city blocks.
+    public var mapSpan: Double
+    /// "standard" (street map, default), "satellite", "hybrid"
+    /// (satellite + street labels), "mutedStandard".
+    public var mapType: String
+    /// JSON-encoded `[{lat, lon, title}]` annotations to drop on
+    /// the map. Empty string means no annotations.
+    public var mapAnnotationsJSON: String
+
+    // ColorWell-specific
+    /// Currently-bound color as a hex string (e.g. "#FF5500").
+    public var colorWellHex: String
+    /// Whether the well exposes the "Show Colors" picker on click
+    /// (default true) — false makes it a static color swatch.
+    public var colorWellInteractive: Bool
+
     // Script
     public var script: String
 
@@ -193,6 +229,17 @@ public struct Part: Identifiable, Codable, Sendable {
         self.minDate = ""
         self.maxDate = ""
         self.calendarStyle = "graphical"
+        self.pdfURL = ""
+        self.pdfCurrentPage = 1
+        self.pdfDisplayMode = "continuous"
+        self.pdfAutoScales = true
+        self.mapCenterLat = 37.7749
+        self.mapCenterLon = -122.4194
+        self.mapSpan = 0.05
+        self.mapType = "standard"
+        self.mapAnnotationsJSON = ""
+        self.colorWellHex = "#FF5500"
+        self.colorWellInteractive = true
         self.script = ""
     }
 
@@ -261,6 +308,20 @@ public struct Part: Identifiable, Codable, Sendable {
         minDate = try container.decodeIfPresent(String.self, forKey: .minDate) ?? ""
         maxDate = try container.decodeIfPresent(String.self, forKey: .maxDate) ?? ""
         calendarStyle = try container.decodeIfPresent(String.self, forKey: .calendarStyle) ?? "graphical"
+        // PDF fields — backward-compat optional.
+        pdfURL = try container.decodeIfPresent(String.self, forKey: .pdfURL) ?? ""
+        pdfCurrentPage = try container.decodeIfPresent(Int.self, forKey: .pdfCurrentPage) ?? 1
+        pdfDisplayMode = try container.decodeIfPresent(String.self, forKey: .pdfDisplayMode) ?? "continuous"
+        pdfAutoScales = try container.decodeIfPresent(Bool.self, forKey: .pdfAutoScales) ?? true
+        // Map fields — backward-compat optional.
+        mapCenterLat = try container.decodeIfPresent(Double.self, forKey: .mapCenterLat) ?? 37.7749
+        mapCenterLon = try container.decodeIfPresent(Double.self, forKey: .mapCenterLon) ?? -122.4194
+        mapSpan = try container.decodeIfPresent(Double.self, forKey: .mapSpan) ?? 0.05
+        mapType = try container.decodeIfPresent(String.self, forKey: .mapType) ?? "standard"
+        mapAnnotationsJSON = try container.decodeIfPresent(String.self, forKey: .mapAnnotationsJSON) ?? ""
+        // ColorWell fields — backward-compat optional.
+        colorWellHex = try container.decodeIfPresent(String.self, forKey: .colorWellHex) ?? "#FF5500"
+        colorWellInteractive = try container.decodeIfPresent(Bool.self, forKey: .colorWellInteractive) ?? true
         script = try container.decode(String.self, forKey: .script)
     }
 }

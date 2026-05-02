@@ -139,6 +139,12 @@ public final class CardRenderer: Sendable {
             SpriteAreaRenderer.draw(ctx: ctx, part: part, rect: rect)
         case .calendar:
             CalendarRenderer.draw(ctx: ctx, part: part, rect: rect)
+        case .pdf:
+            PDFRenderer.draw(ctx: ctx, part: part, rect: rect)
+        case .map:
+            MapRenderer.draw(ctx: ctx, part: part, rect: rect)
+        case .colorWell:
+            ColorWellRenderer.draw(ctx: ctx, part: part, rect: rect)
         }
     }
 

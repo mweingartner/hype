@@ -2721,6 +2721,26 @@ public struct Interpreter: Sendable {
         case "mindate", "min_date":             return part.minDate
         case "maxdate", "max_date":             return part.maxDate
         case "calendarstyle", "calendar_style": return part.calendarStyle
+        // PDF
+        case "pdfurl", "pdf_url":               return part.pdfURL
+        case "currentpage", "current_page":     return String(part.pdfCurrentPage)
+        case "displaymode", "display_mode":     return part.pdfDisplayMode
+        case "autoscales", "auto_scales":       return part.pdfAutoScales ? "true" : "false"
+        case "pagecount", "page_count":
+            // PageCount is observable only when the live PDFView
+            // has loaded the document; for the model layer we
+            // return 0 so HypeTalk doesn't crash. The runtime
+            // layer can later override this from PDFHostNSView.
+            return "0"
+        // Map
+        case "centerlat", "center_lat":         return formatNumber(part.mapCenterLat)
+        case "centerlon", "center_lon":         return formatNumber(part.mapCenterLon)
+        case "span":                            return formatNumber(part.mapSpan)
+        case "maptype", "map_type":             return part.mapType
+        case "annotations":                     return part.mapAnnotationsJSON
+        // ColorWell
+        case "color", "colorhex", "color_hex":  return part.colorWellHex
+        case "interactive":                     return part.colorWellInteractive ? "true" : "false"
         case "text", "textcontent": return part.textContent
         case "topleft":
             return "\(formatNumber(part.left)),\(formatNumber(part.top))"
@@ -3037,6 +3057,9 @@ public struct Interpreter: Sendable {
         case "chart": targetType = .chart
         case "spritearea": targetType = .spriteArea
         case "calendar": targetType = .calendar
+        case "pdf": targetType = .pdf
+        case "map": targetType = .map
+        case "colorwell", "color_well": targetType = .colorWell
         default: targetType = nil
         }
 
@@ -3448,6 +3471,31 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].maxDate = value
         case "calendarstyle", "calendar_style":
             document.parts[partIndex].calendarStyle = value
+        // PDF
+        case "pdfurl", "pdf_url":
+            document.parts[partIndex].pdfURL = value
+        case "currentpage", "current_page":
+            document.parts[partIndex].pdfCurrentPage = Int(toNumber(value))
+        case "displaymode", "display_mode":
+            document.parts[partIndex].pdfDisplayMode = value
+        case "autoscales", "auto_scales":
+            document.parts[partIndex].pdfAutoScales = isTruthy(value)
+        // Map
+        case "centerlat", "center_lat":
+            document.parts[partIndex].mapCenterLat = toNumber(value)
+        case "centerlon", "center_lon":
+            document.parts[partIndex].mapCenterLon = toNumber(value)
+        case "span":
+            document.parts[partIndex].mapSpan = toNumber(value)
+        case "maptype", "map_type":
+            document.parts[partIndex].mapType = value
+        case "annotations":
+            document.parts[partIndex].mapAnnotationsJSON = value
+        // ColorWell
+        case "color", "colorhex", "color_hex":
+            document.parts[partIndex].colorWellHex = value
+        case "interactive":
+            document.parts[partIndex].colorWellInteractive = isTruthy(value)
         case "popupitems", "popup_items":
             document.parts[partIndex].popupItems = value
         case "htmlcontent", "html_content":

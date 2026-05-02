@@ -283,6 +283,15 @@ struct CardCanvasView: NSViewRepresentable {
             dispatchMessage("dateChanged", to: id)
         }
 
+        /// Write the user's interactive color pick back into the
+        /// document. Same writeback pattern as
+        /// `setPartCalendarDate`. Dispatches `colorChanged` on the
+        /// part so HypeTalk handlers can react.
+        func setPartColorWellHex(id: UUID, hex: String) {
+            parent.document.document.updatePart(id: id) { $0.colorWellHex = hex }
+            dispatchMessage("colorChanged", to: id)
+        }
+
         func deletePart(id: UUID) {
             // Dispatch delete message before removing
             if let part = parent.document.document.parts.first(where: { $0.id == id }) {
@@ -670,6 +679,11 @@ class CardCanvasNSView: NSView {
     // Mirrors chart/sprite pattern — the live picker shows in browse
     // mode, the CG placeholder shows in edit mode.
     private var calendarViews: [UUID: CalendarHostNSView] = [:]
+    // Live PDFView, MKMapView, NSColorWell hosts. Same lifecycle.
+    private var pdfViews: [UUID: PDFHostNSView] = [:]
+    private var loadedPDFURLs: [UUID: String] = [:]
+    private var mapViews: [UUID: MapHostNSView] = [:]
+    private var colorWellViews: [UUID: ColorWellHostNSView] = [:]
 
     // Active SKViews for spriteArea parts (keyed by part ID)
     private var spriteViews: [UUID: SKView] = [:]
@@ -920,7 +934,7 @@ class CardCanvasNSView: NSView {
             } else {
                 renderBgParts = []
             }
-            let nativeKinds: Set<PartType> = [.spriteArea, .chart, .webpage, .video, .calendar]
+            let nativeKinds: Set<PartType> = [.spriteArea, .chart, .webpage, .video, .calendar, .pdf, .map, .colorWell]
             nativePartIds = Set(
                 (renderCardParts + renderBgParts)
                     .filter { $0.visible && nativeKinds.contains($0.partType) }
@@ -996,6 +1010,11 @@ class CardCanvasNSView: NSView {
 
         // Update calendar views for calendar parts
         updateCalendarViews()
+
+        // Update PDF / map / color-well overlays for their parts.
+        updatePDFViews()
+        updateMapViews()
+        updateColorWellViews()
 
         // Update sprite views for spriteArea parts
         updateSpriteViews()
@@ -2399,6 +2418,151 @@ class CardCanvasNSView: NSView {
         for id in calendarViews.keys where !activeIds.contains(id) {
             calendarViews[id]?.removeFromSuperview()
             calendarViews.removeValue(forKey: id)
+        }
+    }
+
+    // MARK: - PDF View Management
+
+    /// Create, update, or remove `PDFView` hosts for `pdf` parts.
+    /// Same lifecycle as charts/calendars — live in browse mode,
+    /// placeholder via `PDFRenderer` in edit mode.
+    private func updatePDFViews() {
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let isBrowseMode = toolState.category == .browse
+
+        let cardParts = document.partsForCard(currentCardId)
+        let bgParts: [Part]
+        if let card = document.cards.first(where: { $0.id == currentCardId }) {
+            bgParts = document.partsForBackground(card.backgroundId)
+        } else {
+            bgParts = []
+        }
+        let allParts = cardParts + bgParts
+        let pdfParts = allParts.filter { $0.partType == .pdf && $0.visible }
+
+        if !isBrowseMode || pdfParts.isEmpty {
+            for (_, view) in pdfViews { view.removeFromSuperview() }
+            pdfViews.removeAll()
+            loadedPDFURLs.removeAll()
+            return
+        }
+
+        var activeIds = Set<UUID>()
+        for part in pdfParts {
+            activeIds.insert(part.id)
+            let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+
+            if let existing = pdfViews[part.id] {
+                existing.frame = frame
+                existing.apply(part)
+                continue
+            }
+            let host = PDFHostNSView(frame: frame)
+            host.apply(part)
+            addSubview(host, positioned: .above, relativeTo: nil)
+            pdfViews[part.id] = host
+        }
+        for id in pdfViews.keys where !activeIds.contains(id) {
+            pdfViews[id]?.removeFromSuperview()
+            pdfViews.removeValue(forKey: id)
+            loadedPDFURLs.removeValue(forKey: id)
+        }
+    }
+
+    // MARK: - Map View Management
+
+    /// Create, update, or remove `MKMapView` hosts for `map` parts.
+    private func updateMapViews() {
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let isBrowseMode = toolState.category == .browse
+
+        let cardParts = document.partsForCard(currentCardId)
+        let bgParts: [Part]
+        if let card = document.cards.first(where: { $0.id == currentCardId }) {
+            bgParts = document.partsForBackground(card.backgroundId)
+        } else {
+            bgParts = []
+        }
+        let allParts = cardParts + bgParts
+        let mapParts = allParts.filter { $0.partType == .map && $0.visible }
+
+        if !isBrowseMode || mapParts.isEmpty {
+            for (_, view) in mapViews { view.removeFromSuperview() }
+            mapViews.removeAll()
+            return
+        }
+
+        var activeIds = Set<UUID>()
+        for part in mapParts {
+            activeIds.insert(part.id)
+            let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+
+            if let existing = mapViews[part.id] {
+                existing.frame = frame
+                existing.apply(part)
+                continue
+            }
+            let host = MapHostNSView(frame: frame)
+            host.apply(part)
+            addSubview(host, positioned: .above, relativeTo: nil)
+            mapViews[part.id] = host
+        }
+        for id in mapViews.keys where !activeIds.contains(id) {
+            mapViews[id]?.removeFromSuperview()
+            mapViews.removeValue(forKey: id)
+        }
+    }
+
+    // MARK: - Color Well View Management
+
+    /// Create, update, or remove `NSColorWell` hosts for
+    /// `colorWell` parts. Color picks fire back through the
+    /// coordinator so HypeTalk reads see the new value
+    /// immediately and `colorChanged` messages dispatch on the
+    /// part.
+    private func updateColorWellViews() {
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let isBrowseMode = toolState.category == .browse
+
+        let cardParts = document.partsForCard(currentCardId)
+        let bgParts: [Part]
+        if let card = document.cards.first(where: { $0.id == currentCardId }) {
+            bgParts = document.partsForBackground(card.backgroundId)
+        } else {
+            bgParts = []
+        }
+        let allParts = cardParts + bgParts
+        let cwParts = allParts.filter { $0.partType == .colorWell && $0.visible }
+
+        if !isBrowseMode || cwParts.isEmpty {
+            for (_, view) in colorWellViews { view.removeFromSuperview() }
+            colorWellViews.removeAll()
+            return
+        }
+
+        var activeIds = Set<UUID>()
+        for part in cwParts {
+            activeIds.insert(part.id)
+            let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+
+            if let existing = colorWellViews[part.id] {
+                existing.frame = frame
+                existing.apply(part)
+                continue
+            }
+            let host = ColorWellHostNSView(frame: frame)
+            host.apply(part)
+            let partId = part.id
+            host.onColorChange = { [weak self] hex in
+                guard let self = self else { return }
+                self.coordinator?.setPartColorWellHex(id: partId, hex: hex)
+            }
+            addSubview(host, positioned: .above, relativeTo: nil)
+            colorWellViews[part.id] = host
+        }
+        for id in colorWellViews.keys where !activeIds.contains(id) {
+            colorWellViews[id]?.removeFromSuperview()
+            colorWellViews.removeValue(forKey: id)
         }
     }
 

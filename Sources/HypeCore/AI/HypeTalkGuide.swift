@@ -76,7 +76,8 @@ public enum HypeTalkGuide {
             sprite "player"    label "score"       shape "wall"
             camera "cam"       emitter "fire"      tilemap "map"
             audio "music"      video "intro"       chart "sales"
-            calendar "due"
+            calendar "due"     pdf "manual"        map "store"
+            colorWell "fill"
         Use double-quoted names; bare words are only valid for short keywords.
 
         ## Properties — get and set
@@ -251,6 +252,25 @@ public enum HypeTalkGuide {
               put the selectedDate of calendar "due" into d
               put "Due: " & d into field "status"
             end dateChanged
+
+        **Navigate a PDF programmatically:**
+            set the currentPage of pdf "manual" to 5
+            -- Other PDF properties: pdfurl, displayMode (single/continuous/twoUp), autoScales.
+
+        **React to a color pick:**
+            on colorChanged
+              put the color of colorWell "fill" into hex
+              set the fillColor of shape "swatch" to hex
+            end colorChanged
+
+        **Re-center a map:**
+            set the centerLat of map "store" to 37.7749
+            set the centerLon of map "store" to -122.4194
+            set the span of map "store" to 0.02
+            -- Add pins via the AI tool `add_map_annotation`, or
+            -- replace the entire annotation set by setting
+            -- `annotations` to a JSON string like
+            -- '[{"lat":37.77,"lon":-122.42,"title":"HQ"}]'.
             -- The `dateChanged` message fires on the calendar part
             -- whenever the user picks a new date in the live picker.
             -- Read the date as ISO 8601 (yyyy-MM-dd) and write/format

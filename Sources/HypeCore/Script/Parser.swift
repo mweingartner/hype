@@ -1889,10 +1889,11 @@ public struct Parser: Sendable {
         case .card, .background, .field, .button, .stack, .webpage, .image, .video, .sprite, .spritearea, .scene, .request, .connection, .listener:
             return try parseObjectReference()
 
-        case .identifier where ["label", "shape", "audio", "chart", "calendar"].contains(current.value.lowercased()):
+        case .identifier where ["label", "shape", "audio", "chart", "calendar", "pdf", "map", "colorwell", "color_well"].contains(current.value.lowercased()):
             // Scene node types and HypeTalk part types recognized as
-            // object references: label "name", shape "name",
-            // audio "name", chart "name", calendar "name".
+            // object references. Two-word kinds ("color well") aren't
+            // tokenized as identifiers so we only accept the
+            // single-token form here ("colorwell" or "color_well").
             return try parseObjectReference()
 
         case .identifier where current.value.lowercased() == "data":

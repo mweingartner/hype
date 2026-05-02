@@ -568,6 +568,23 @@ public struct HypeToolExecutor: Sendable {
             if !p.minDate.isEmpty { props.append("minDate=\(p.minDate)") }
             if !p.maxDate.isEmpty { props.append("maxDate=\(p.maxDate)") }
             props.append("calendarStyle=\(p.calendarStyle)")
+        case .pdf:
+            if !p.pdfURL.isEmpty { props.append("pdfURL=\(p.pdfURL)") }
+            props.append("pdfCurrentPage=\(p.pdfCurrentPage)")
+            props.append("pdfDisplayMode=\(p.pdfDisplayMode)")
+        case .map:
+            props.append(String(format: "center=%.4f,%.4f", p.mapCenterLat, p.mapCenterLon))
+            props.append(String(format: "span=%.4f", p.mapSpan))
+            props.append("mapType=\(p.mapType)")
+            if !p.mapAnnotationsJSON.isEmpty {
+                if let data = p.mapAnnotationsJSON.data(using: .utf8),
+                   let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+                    props.append("annotations=\(arr.count)")
+                }
+            }
+        case .colorWell:
+            props.append("colorHex=\(p.colorWellHex)")
+            if !p.colorWellInteractive { props.append("interactive=false") }
         }
 
         // Common text styling (if non-default)
@@ -971,6 +988,114 @@ public struct HypeToolExecutor: Sendable {
             let chartLayer = place.backgroundId != nil ? " on background" : ""
             return "Created chart '\(part.name)' (\(chartType.rawValue))\(chartLayer)"
 
+        case "create_pdf":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            var part = Part(
+                partType: .pdf,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
+                name: arguments["name"] ?? "PDF",
+                left: Double(arguments["left"] ?? "100") ?? 100,
+                top: Double(arguments["top"] ?? "100") ?? 100,
+                width: Double(arguments["width"] ?? "400") ?? 400,
+                height: Double(arguments["height"] ?? "500") ?? 500
+            )
+            part.pdfURL = arguments["pdfurl"] ?? ""
+            part.pdfCurrentPage = Int(arguments["current_page"] ?? "1") ?? 1
+            let mode = (arguments["display_mode"] ?? "continuous").lowercased()
+            switch mode {
+            case "single", "continuous", "twoup", "twoupcontinuous":
+                part.pdfDisplayMode = mode == "twoup" ? "twoUp" : (mode == "twoupcontinuous" ? "twoUpContinuous" : mode)
+            default:
+                part.pdfDisplayMode = "continuous"
+            }
+            if let auto = arguments["auto_scales"] {
+                part.pdfAutoScales = (auto.lowercased() == "true")
+            }
+            document.addPart(part)
+            let layer = place.backgroundId != nil ? " on background" : ""
+            return "Created pdf '\(part.name)'\(layer)"
+
+        case "create_map":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            var part = Part(
+                partType: .map,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
+                name: arguments["name"] ?? "Map",
+                left: Double(arguments["left"] ?? "100") ?? 100,
+                top: Double(arguments["top"] ?? "100") ?? 100,
+                width: Double(arguments["width"] ?? "400") ?? 400,
+                height: Double(arguments["height"] ?? "300") ?? 300
+            )
+            if let lat = arguments["center_lat"], let v = Double(lat) { part.mapCenterLat = v }
+            if let lon = arguments["center_lon"], let v = Double(lon) { part.mapCenterLon = v }
+            if let span = arguments["span"], let v = Double(span) { part.mapSpan = v }
+            let kind = (arguments["map_type"] ?? "standard").lowercased()
+            switch kind {
+            case "standard", "satellite", "hybrid", "mutedstandard":
+                part.mapType = kind == "mutedstandard" ? "mutedStandard" : kind
+            default:
+                part.mapType = "standard"
+            }
+            document.addPart(part)
+            let layer = place.backgroundId != nil ? " on background" : ""
+            return "Created map '\(part.name)'\(layer)"
+
+        case "add_map_annotation":
+            let mapName = arguments["map_name"] ?? ""
+            guard let idx = scopedPartIndex(named: mapName, currentCardId: currentCardId, in: document),
+                  document.parts[idx].partType == .map else {
+                return "Map '\(mapName)' not found"
+            }
+            guard let lat = Double(arguments["lat"] ?? ""), let lon = Double(arguments["lon"] ?? "") else {
+                return "Invalid lat/lon for annotation"
+            }
+            let title = arguments["title"] ?? ""
+            // Append to the existing JSON array; tolerate empty/malformed input.
+            var existing: [[String: Any]] = []
+            let raw = document.parts[idx].mapAnnotationsJSON
+            if !raw.isEmpty,
+               let data = raw.data(using: .utf8),
+               let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+                existing = arr
+            }
+            existing.append(["lat": lat, "lon": lon, "title": title])
+            if let updated = try? JSONSerialization.data(withJSONObject: existing),
+               let json = String(data: updated, encoding: .utf8) {
+                document.parts[idx].mapAnnotationsJSON = json
+            }
+            return "Added annotation to map '\(mapName)' (\(existing.count) total)"
+
+        case "clear_map_annotations":
+            let mapName = arguments["map_name"] ?? ""
+            guard let idx = scopedPartIndex(named: mapName, currentCardId: currentCardId, in: document),
+                  document.parts[idx].partType == .map else {
+                return "Map '\(mapName)' not found"
+            }
+            document.parts[idx].mapAnnotationsJSON = ""
+            return "Cleared annotations on map '\(mapName)'"
+
+        case "create_color_well":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            var part = Part(
+                partType: .colorWell,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
+                name: arguments["name"] ?? "ColorWell",
+                left: Double(arguments["left"] ?? "100") ?? 100,
+                top: Double(arguments["top"] ?? "100") ?? 100,
+                width: Double(arguments["width"] ?? "60") ?? 60,
+                height: Double(arguments["height"] ?? "30") ?? 30
+            )
+            part.colorWellHex = arguments["color"] ?? "#FF5500"
+            if let interactive = arguments["interactive"] {
+                part.colorWellInteractive = (interactive.lowercased() == "true")
+            }
+            document.addPart(part)
+            let layer = place.backgroundId != nil ? " on background" : ""
+            return "Created colorWell '\(part.name)'\(layer)"
+
         case "create_calendar":
             let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
             var part = Part(
@@ -1030,6 +1155,20 @@ public struct HypeToolExecutor: Sendable {
                 case "mindate", "min_date": document.parts[index].minDate = value
                 case "maxdate", "max_date": document.parts[index].maxDate = value
                 case "calendarstyle", "calendar_style", "style": document.parts[index].calendarStyle = value
+                // PDF-specific
+                case "pdfurl", "pdf_url": document.parts[index].pdfURL = value
+                case "currentpage", "current_page": document.parts[index].pdfCurrentPage = Int(value) ?? 1
+                case "displaymode", "display_mode": document.parts[index].pdfDisplayMode = value
+                case "autoscales", "auto_scales": document.parts[index].pdfAutoScales = (value.lowercased() == "true")
+                // Map-specific
+                case "centerlat", "center_lat": document.parts[index].mapCenterLat = Double(value) ?? 0
+                case "centerlon", "center_lon": document.parts[index].mapCenterLon = Double(value) ?? 0
+                case "span": document.parts[index].mapSpan = Double(value) ?? 0.05
+                case "maptype", "map_type": document.parts[index].mapType = value
+                case "annotations": document.parts[index].mapAnnotationsJSON = value
+                // ColorWell-specific
+                case "color", "colorhex", "color_hex": document.parts[index].colorWellHex = value
+                case "interactive": document.parts[index].colorWellInteractive = (value.lowercased() == "true")
                 case "script":
                     // Wrap bare commands and validate via the host gate
                     // before mutating the document.
@@ -2043,6 +2182,20 @@ public struct HypeToolExecutor: Sendable {
             case "mindate", "min_date": return part.minDate
             case "maxdate", "max_date": return part.maxDate
             case "calendarstyle", "calendar_style": return part.calendarStyle
+            // PDF
+            case "pdfurl", "pdf_url": return part.pdfURL
+            case "currentpage", "current_page": return String(part.pdfCurrentPage)
+            case "displaymode", "display_mode": return part.pdfDisplayMode
+            case "autoscales", "auto_scales": return String(part.pdfAutoScales)
+            // Map
+            case "centerlat", "center_lat": return String(part.mapCenterLat)
+            case "centerlon", "center_lon": return String(part.mapCenterLon)
+            case "span": return String(part.mapSpan)
+            case "maptype", "map_type": return part.mapType
+            case "annotations": return part.mapAnnotationsJSON
+            // ColorWell
+            case "color", "colorhex", "color_hex": return part.colorWellHex
+            case "interactive": return String(part.colorWellInteractive)
             case "textfont", "font": return part.textFont
             case "textsize", "size": return String(part.textSize)
             case "textalign": return part.textAlign.rawValue

@@ -117,6 +117,74 @@ public struct HypeToolDefinitions {
             "on_background": ("string", "true to place on background", false),
         ]),
 
+        makeTool(name: "create_pdf", description: """
+            Create a PDF viewer control. Loads a PDF from a local file path or http(s) \
+            URL and presents it as a scrollable, zoomable PDFView. The user can change the \
+            page; HypeTalk reads of `the currentPage of pdf "manual"` reflect the visible \
+            page. Set `pdfurl` (file path or URL), `current_page` (1-based), `display_mode` \
+            ('single' | 'continuous' | 'twoUp' | 'twoUpContinuous'), `auto_scales` ('true'/'false').
+            """, params: [
+            "name": ("string", "PDF part name", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "pdfurl": ("string", "Path or http(s) URL of the PDF document", false),
+            "current_page": ("string", "1-based initial page number", false),
+            "display_mode": ("string", "single | continuous (default) | twoUp | twoUpContinuous", false),
+            "auto_scales": ("string", "true (default) to fit pages to width", false),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
+        makeTool(name: "create_map", description: """
+            Create a map control. Wraps MKMapView. Provide `center_lat`/`center_lon` (decimal \
+            degrees), `span` (degrees of latitude shown — smaller is more zoomed in; 0.05 ≈ \
+            city blocks), `map_type` ('standard' | 'satellite' | 'hybrid' | 'mutedStandard'). \
+            Annotations attach via the separate `add_map_annotation` tool or by setting the \
+            `annotations` property to a JSON array of {lat, lon, title} objects.
+            """, params: [
+            "name": ("string", "Map part name", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "center_lat": ("string", "Center latitude (decimal degrees)", false),
+            "center_lon": ("string", "Center longitude (decimal degrees)", false),
+            "span": ("string", "Span in degrees (default 0.05)", false),
+            "map_type": ("string", "standard (default) | satellite | hybrid | mutedStandard", false),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
+        makeTool(name: "add_map_annotation", description: """
+            Append an annotation pin to an existing map part. Annotations stack — call this \
+            multiple times to add multiple pins. To replace the entire set, use \
+            `set_part_property` with property=annotations and a JSON array string.
+            """, params: [
+            "map_name": ("string", "Map part name", true),
+            "lat": ("string", "Latitude (decimal degrees)", true),
+            "lon": ("string", "Longitude (decimal degrees)", true),
+            "title": ("string", "Annotation title shown on tap", false),
+        ]),
+
+        makeTool(name: "clear_map_annotations", description: "Remove every annotation from a map part.", params: [
+            "map_name": ("string", "Map part name", true),
+        ]),
+
+        makeTool(name: "create_color_well", description: """
+            Create a color-picker (NSColorWell) control. Click opens the macOS color panel; \
+            picks fire the `colorChanged` HypeTalk message on the part. Read the bound color \
+            via `the color of colorWell "name"` (returns a hex string like '#FF5500').
+            """, params: [
+            "name": ("string", "Color-well part name", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "color": ("string", "Initial color as hex (e.g. '#FF5500')", false),
+            "interactive": ("string", "'true' (default) to allow opening the color panel; 'false' for a static swatch", false),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
         makeTool(name: "create_calendar", description: """
             Create a calendar/date-picker control. The user picks dates via a live \
             macOS NSDatePicker; the selected date is stored on the part as ISO 8601 \
@@ -1019,6 +1087,11 @@ public struct HypeToolDefinitions {
             "create_video",
             "create_chart",
             "create_calendar",
+            "create_pdf",
+            "create_map",
+            "add_map_annotation",
+            "clear_map_annotations",
+            "create_color_well",
             "duplicate_part",
             "delete_part",
             "get_card_parts",
@@ -1134,6 +1207,11 @@ public struct HypeToolDefinitions {
             "create_video",
             "create_chart",
             "create_calendar",
+            "create_pdf",
+            "create_map",
+            "add_map_annotation",
+            "clear_map_annotations",
+            "create_color_well",
             "repair_form_controls",
             "delete_part",
             "set_card_name",

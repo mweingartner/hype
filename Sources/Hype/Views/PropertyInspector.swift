@@ -48,6 +48,9 @@ struct PropertyInspector: View {
                         case .chart: chartSection(part: part)
                         case .spriteArea: spriteAreaSection(part: part)
                         case .calendar: calendarSection(part: part)
+                        case .pdf: pdfSection(part: part)
+                        case .map: mapSection(part: part)
+                        case .colorWell: colorWellSection(part: part)
                         }
 
                         // Font controls for buttons and fields
@@ -926,6 +929,103 @@ struct PropertyInspector: View {
                 .pickerStyle(.menu)
             }
         }
+    }
+
+    private func pdfSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("PDF").font(.subheadline).foregroundColor(.secondary)
+            propertyRow("URL/Path", binding: bindPartString(part.id, \.pdfURL))
+            Button("Choose PDF...") { choosePDFForPart(partId: part.id) }
+            HStack {
+                Text("Page").font(.system(size: 10))
+                Stepper(value: bindPartInt(part.id, \.pdfCurrentPage), in: 1...10000) {
+                    Text("\(part.pdfCurrentPage)")
+                }
+            }
+            HStack {
+                Text("Mode").font(.system(size: 10))
+                Picker("", selection: bindPartString(part.id, \.pdfDisplayMode)) {
+                    Text("Single").tag("single")
+                    Text("Continuous").tag("continuous")
+                    Text("Two Up").tag("twoUp")
+                    Text("Two Up Continuous").tag("twoUpContinuous")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+            Toggle("Auto-scale to fit", isOn: bindPartBool(part.id, \.pdfAutoScales))
+        }
+    }
+
+    private func choosePDFForPart(partId: UUID) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            document.document.updatePart(id: partId) { $0.pdfURL = url.path }
+        }
+    }
+
+    private func mapSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Map").font(.subheadline).foregroundColor(.secondary)
+            propertyRow("Center Lat", binding: bindPartDoubleString(part.id, \.mapCenterLat))
+            propertyRow("Center Lon", binding: bindPartDoubleString(part.id, \.mapCenterLon))
+            propertyRow("Span (deg)", binding: bindPartDoubleString(part.id, \.mapSpan))
+            HStack {
+                Text("Type").font(.system(size: 10))
+                Picker("", selection: bindPartString(part.id, \.mapType)) {
+                    Text("Standard").tag("standard")
+                    Text("Satellite").tag("satellite")
+                    Text("Hybrid").tag("hybrid")
+                    Text("Muted Standard").tag("mutedStandard")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+            propertyRow("Annotations JSON", binding: bindPartString(part.id, \.mapAnnotationsJSON))
+            Text("Format: [{\"lat\":37.77,\"lon\":-122.42,\"title\":\"HQ\"}]")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private func colorWellSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Color Well").font(.subheadline).foregroundColor(.secondary)
+            propertyRow("Color (hex)", binding: bindPartString(part.id, \.colorWellHex))
+            Toggle("Interactive", isOn: bindPartBool(part.id, \.colorWellInteractive))
+        }
+    }
+
+    /// String<->Double round-trip binding for property-row text
+    /// fields that need a numeric backing value. Empty / unparsable
+    /// input is treated as zero so the field stays editable.
+    private func bindPartDoubleString(_ id: UUID, _ keyPath: WritableKeyPath<Part, Double>) -> Binding<String> {
+        Binding<String>(
+            get: {
+                guard let part = self.document.document.parts.first(where: { $0.id == id }) else { return "" }
+                return String(part[keyPath: keyPath])
+            },
+            set: { newValue in
+                let parsed = Double(newValue) ?? 0
+                self.document.document.updatePart(id: id) { $0[keyPath: keyPath] = parsed }
+            }
+        )
+    }
+
+    /// Int-backed property-row helper. Mirrors `bindPartDoubleString`.
+    private func bindPartInt(_ id: UUID, _ keyPath: WritableKeyPath<Part, Int>) -> Binding<Int> {
+        Binding<Int>(
+            get: {
+                self.document.document.parts.first(where: { $0.id == id })?[keyPath: keyPath] ?? 0
+            },
+            set: { newValue in
+                self.document.document.updatePart(id: id) { $0[keyPath: keyPath] = newValue }
+            }
+        )
     }
 
     private func chooseVideoForPart(partId: UUID) {
