@@ -31,7 +31,7 @@ public final class ToneSynthesizer {
     }
 
     /// Play a sequence of notes at the given tempo (BPM).
-    public func playNotes(_ notes: [Note], tempo: Int, waveform: Waveform, completion: @escaping () -> Void) {
+    public func playNotes(_ notes: [Note], tempo: Int, waveform: Waveform, completion: @escaping @Sendable () -> Void) {
         stop()
         guard !notes.isEmpty else { completion(); return }
 
