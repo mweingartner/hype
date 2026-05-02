@@ -255,32 +255,32 @@ struct AIChatPanel: View {
                 .padding(.bottom, 4)
             }
 
-            // Input area — dynamic height TextEditor
+            // Input area — zero-inset NSTextView wrapper so the live
+            // cursor sits at the same pixel position as the placeholder.
+            // SwiftUI's TextEditor inherits ~10pt of NSTextView text-
+            // container insets that aren't accounted for by sibling
+            // Text padding — the visible bug was a few-pixel jump on
+            // focus. AIChatInputView zeroes those insets so a single
+            // SwiftUI .padding(8) on both this and the placeholder
+            // makes them coincide exactly.
             HStack(alignment: .bottom, spacing: 4) {
                 ZStack(alignment: .topLeading) {
-                    // Placeholder
                     if inputText.isEmpty {
                         Text("Ask AI to build something...")
                             .foregroundColor(.secondary)
                             .font(.system(size: 13))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 8)
+                            .padding(8)
+                            .allowsHitTesting(false)
                     }
-                    TextEditor(text: $inputText)
-                        .font(.system(size: 13))
-                        .scrollContentBackground(.hidden)
-                        .padding(4)
-                        .focused($isInputFocused)
-                        .disabled(isProcessing)
-                        .onKeyPress(.upArrow) { recallHistory(direction: .up); return .handled }
-                        .onKeyPress(.downArrow) { recallHistory(direction: .down); return .handled }
-                        .onChange(of: inputText) { oldVal, newVal in
-                            // Detect Enter key (newline inserted) — send on plain Enter
-                            if newVal.hasSuffix("\n") && !NSEvent.modifierFlags.contains(.shift) {
-                                inputText = String(newVal.dropLast()) // remove the newline
-                                sendMessage()
-                            }
-                        }
+                    AIChatInputView(
+                        text: $inputText,
+                        isEnabled: !isProcessing,
+                        onSubmit: { sendMessage() },
+                        onHistoryUp: { recallHistory(direction: .up) },
+                        onHistoryDown: { recallHistory(direction: .down) }
+                    )
+                    .padding(8)
+                    .focused($isInputFocused)
                 }
                 .frame(minHeight: 32, maxHeight: 120)
                 .fixedSize(horizontal: false, vertical: true)
