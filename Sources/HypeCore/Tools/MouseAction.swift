@@ -82,6 +82,19 @@ public struct MouseHandler: Sendable {
             case "video": partType = .video
             case "chart": partType = .chart
             case "spriteArea": partType = .spriteArea
+            // Phase 1 framework controls.
+            case "calendar": partType = .calendar
+            case "pdf": partType = .pdf
+            case "map": partType = .map
+            case "colorWell": partType = .colorWell
+            // Phase 2 form controls.
+            case "stepper": partType = .stepper
+            case "slider": partType = .slider
+            case "toggle": partType = .toggle
+            case "segmented": partType = .segmented
+            // Phase 2 media + 3D.
+            case "audioRecorder": partType = .audioRecorder
+            case "scene3D": partType = .scene3D
             default: return .none
             }
             return .createPart(partType, rect, extras)
