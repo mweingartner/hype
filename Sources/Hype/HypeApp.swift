@@ -151,6 +151,7 @@ struct HypeApp: App {
             ObjectsMenuCommands()
             ArrangeMenuCommands()
             ToolsMenuCommands()
+            ViewMenuCommands()
             AIMenuCommands()
             WindowMenuCommands()
         }

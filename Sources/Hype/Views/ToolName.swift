@@ -36,7 +36,7 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .spray: return "Spray"
         case .bucket: return "Bucket Fill"
         case .eraser: return "Eraser"
-        case .text: return "Text"
+        case .text: return "Text Annotation"
         }
     }
 
@@ -89,11 +89,11 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .pencil:
             return "Free-form pencil drawing onto the card's paint layer. Adjust the brush size with [ and ] keys. Choose color from the status-bar color picker."
         case .line:
-            return "Click-drag to draw a straight line on the paint layer. Held Shift constrains to 0/45/90°."
+            return "Click-drag to draw a straight-line shape part. Held Shift constrains to 0/45/90°."
         case .rect:
-            return "Click-drag to draw a rectangle outline on the paint layer. (For a vector / movable rectangle, use the Shape tool instead.)"
+            return "Click-drag to create a rectangle Shape part (vector, movable, scriptable). Pulls fill/stroke colors from the active theme. For raster paint, use Pencil + Bucket instead."
         case .oval:
-            return "Click-drag to draw an oval outline on the paint layer. (For a vector / movable oval, use the Shape tool instead.)"
+            return "Click-drag to create an oval Shape part (vector, movable, scriptable). Pulls fill/stroke colors from the active theme. For raster paint, use Pencil + Bucket instead."
         case .spray:
             return "Spray-paint scattering of pixels onto the paint layer. Hold mouse longer for denser fill."
         case .bucket:
@@ -101,7 +101,7 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .eraser:
             return "Click-drag to erase paint-layer pixels. Adjust eraser size with [ and ] keys."
         case .text:
-            return "Click to drop a text annotation on the paint layer. (For an editable, named text part, use the Field tool instead.)"
+            return "Click to drop a transparent text annotation field at that point. The result is a regular Field part — for editable text, use the Field tool to draw a sized field instead."
         }
     }
 

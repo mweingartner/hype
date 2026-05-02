@@ -1,6 +1,11 @@
 import SwiftUI
 import HypeCore
 
+// MARK: - Go menu (navigation + card/background management)
+
+/// Card navigation + card/background management. Cleaned up so card-
+/// management items live alongside the navigation verbs they relate
+/// to, rather than being split across Go and Objects.
 struct GoMenuCommands: Commands {
     var body: some Commands {
         CommandMenu("Go") {
@@ -12,26 +17,79 @@ struct GoMenuCommands: Commands {
                 .keyboardShortcut(.rightArrow, modifiers: .command)
             Button("Last Card") { NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.last) }
                 .keyboardShortcut("4", modifiers: .command)
+
+            Divider()
+
+            Button("New Card") { NotificationCenter.default.post(name: .addNewCard, object: nil) }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+            Button("Delete Current Card") { NotificationCenter.default.post(name: .deleteCurrentCard, object: nil) }
+
+            Divider()
+
+            Button("Edit Card") { NotificationCenter.default.post(name: .toggleEditBackground, object: false) }
+            Button("Edit Background") { NotificationCenter.default.post(name: .toggleEditBackground, object: true) }
+                .keyboardShortcut("b", modifiers: [.command, .shift])
+            Button("New Background…") { NotificationCenter.default.post(name: .addNewBackground, object: nil) }
         }
     }
 }
 
+// MARK: - Objects menu (control / part creation — every PartType)
+
+/// One menu item per ToolName that creates a new part. Replaces the
+/// old "Objects" menu, which had only a handful of entries plus
+/// dead `Card Info…` / `Background Info…` / `Stack Info…` stubs.
+///
+/// The menu items post `.selectTool` notifications — same channel
+/// the toolbar uses — so picking "Calendar" from this menu puts the
+/// canvas into the calendar drag-to-create mode just like clicking
+/// the calendar icon in the left panel.
 struct ObjectsMenuCommands: Commands {
     var body: some Commands {
         CommandMenu("Objects") {
-            Button("Edit Background") { NotificationCenter.default.post(name: .toggleEditBackground, object: true) }
-                .keyboardShortcut("b", modifiers: [.command, .shift])
-            Button("Edit Card") { NotificationCenter.default.post(name: .toggleEditBackground, object: false) }
+            // Basic objects.
+            Group {
+                Button("Button") { NotificationCenter.default.post(name: .selectTool, object: ToolName.button) }
+                Button("Field") { NotificationCenter.default.post(name: .selectTool, object: ToolName.field) }
+                Button("Shape") { NotificationCenter.default.post(name: .selectTool, object: ToolName.shape) }
+                Button("Image") { NotificationCenter.default.post(name: .selectTool, object: ToolName.image) }
+                Button("Text Annotation") { NotificationCenter.default.post(name: .selectTool, object: ToolName.text) }
+                Button("Web Page") { NotificationCenter.default.post(name: .selectTool, object: ToolName.webpage) }
+                Button("Video") { NotificationCenter.default.post(name: .selectTool, object: ToolName.video) }
+                Button("Chart") { NotificationCenter.default.post(name: .selectTool, object: ToolName.chart) }
+            }
+
             Divider()
-            Button("New Card") { NotificationCenter.default.post(name: .addNewCard, object: nil) }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
-            Button("Delete Card") { NotificationCenter.default.post(name: .deleteCurrentCard, object: nil) }
+
+            // Framework-backed controls (Phase 1 + 2 roadmap items).
+            Group {
+                Button("Calendar") { NotificationCenter.default.post(name: .selectTool, object: ToolName.calendar) }
+                Button("PDF Viewer") { NotificationCenter.default.post(name: .selectTool, object: ToolName.pdf) }
+                Button("Map") { NotificationCenter.default.post(name: .selectTool, object: ToolName.map) }
+                Button("Color Well") { NotificationCenter.default.post(name: .selectTool, object: ToolName.colorWell) }
+                Button("Audio Recorder") { NotificationCenter.default.post(name: .selectTool, object: ToolName.audioRecorder) }
+                Button("3D Scene") { NotificationCenter.default.post(name: .selectTool, object: ToolName.scene3D) }
+                Button("Sprite Area") { NotificationCenter.default.post(name: .selectTool, object: ToolName.spriteArea) }
+            }
+
             Divider()
-            Button("New Background...") { NotificationCenter.default.post(name: .addNewBackground, object: nil) }
+
+            // Form controls — share a controlValue backing.
+            Group {
+                Button("Stepper") { NotificationCenter.default.post(name: .selectTool, object: ToolName.stepper) }
+                Button("Slider") { NotificationCenter.default.post(name: .selectTool, object: ToolName.slider) }
+                Button("Toggle") { NotificationCenter.default.post(name: .selectTool, object: ToolName.toggle) }
+                Button("Segmented Control") { NotificationCenter.default.post(name: .selectTool, object: ToolName.segmented) }
+            }
+
             Divider()
-            Button("Card Info...") { }
-            Button("Background Info...") { }
-            Button("Stack Info...") { }
+
+            // Drag-to-create vector shape shortcuts.
+            Group {
+                Button("Rectangle") { NotificationCenter.default.post(name: .selectTool, object: ToolName.rect) }
+                Button("Oval") { NotificationCenter.default.post(name: .selectTool, object: ToolName.oval) }
+                Button("Line") { NotificationCenter.default.post(name: .selectTool, object: ToolName.line) }
+            }
         }
     }
 }
@@ -64,61 +122,83 @@ struct ArrangeMenuCommands: Commands {
     }
 }
 
+// MARK: - Tools menu (selection + paint tools only)
+
+/// Tools menu now contains only the "what does a click DO" tools —
+/// browse, select, and the raster paint tools. Object-creation tools
+/// moved to the dedicated Objects menu; mode/panel toggles moved to
+/// the new View menu; the dead Sprite Repository entry moved to
+/// Window where it belongs.
 struct ToolsMenuCommands: Commands {
+    var body: some Commands {
+        CommandMenu("Tools") {
+            Button("Browse") { NotificationCenter.default.post(name: .selectTool, object: ToolName.browse) }
+                .keyboardShortcut("b", modifiers: .command)
+            Button("Select") { NotificationCenter.default.post(name: .selectTool, object: ToolName.select) }
+
+            Divider()
+
+            // Raster paint tools.
+            Button("Pencil") { NotificationCenter.default.post(name: .selectTool, object: ToolName.pencil) }
+            Button("Spray") { NotificationCenter.default.post(name: .selectTool, object: ToolName.spray) }
+            Button("Bucket Fill") { NotificationCenter.default.post(name: .selectTool, object: ToolName.bucket) }
+            Button("Eraser") { NotificationCenter.default.post(name: .selectTool, object: ToolName.eraser) }
+        }
+    }
+}
+
+// MARK: - View menu (mode + panel + window-visibility toggles)
+
+/// New "View" menu consolidating every "show/hide a piece of UI"
+/// command. Previously these were scattered across Tools (mode +
+/// objects panel), AI (AI assistant), and Window (console). Putting
+/// them in one place makes the toggle surface obvious.
+struct ViewMenuCommands: Commands {
     @AppStorage("hypeRuntimeMode") private var isRuntimeMode: Bool = false
     @AppStorage("hypeObjectsPanelVisible") private var objectsPanelVisible: Bool = true
 
     var body: some Commands {
-        CommandMenu("Tools") {
+        CommandMenu("View") {
             Button(isRuntimeMode ? "Switch to Edit Mode" : "Switch to Runtime Mode") {
                 NotificationCenter.default.post(name: .toggleRuntimeMode, object: nil)
             }
             .keyboardShortcut("e", modifiers: [.command, .shift])
+
+            Divider()
 
             Button(objectsPanelVisible ? "Hide Objects Panel" : "Show Objects Panel") {
                 NotificationCenter.default.post(name: .toggleObjectsPanel, object: nil)
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
 
-            Divider()
-
-            Button("Browse") { NotificationCenter.default.post(name: .selectTool, object: ToolName.browse) }
-                .keyboardShortcut("b", modifiers: .command)
-            Button("Button") { NotificationCenter.default.post(name: .selectTool, object: ToolName.button) }
-            Button("Field") { NotificationCenter.default.post(name: .selectTool, object: ToolName.field) }
-            Button("Shape") { NotificationCenter.default.post(name: .selectTool, object: ToolName.shape) }
-            Divider()
-            Button("Select") { NotificationCenter.default.post(name: .selectTool, object: ToolName.select) }
-            Button("Pencil") { NotificationCenter.default.post(name: .selectTool, object: ToolName.pencil) }
-            Button("Line") { NotificationCenter.default.post(name: .selectTool, object: ToolName.line) }
-            Button("Rectangle") { NotificationCenter.default.post(name: .selectTool, object: ToolName.rect) }
-            Button("Oval") { NotificationCenter.default.post(name: .selectTool, object: ToolName.oval) }
-            Divider()
-            Button("Sprite Area") { NotificationCenter.default.post(name: .selectTool, object: ToolName.spriteArea) }
-            Button("Sprite Repository...") {
-                NotificationCenter.default.post(name: .openSpriteRepository, object: nil)
+            Button("Show AI Assistant") {
+                NotificationCenter.default.post(name: .toggleAI, object: nil)
             }
-            .keyboardShortcut("r", modifiers: [.command, .shift])
+            .keyboardShortcut("i", modifiers: [.command, .shift])
+
+            Button("Show Console") {
+                NotificationCenter.default.post(name: .showConsole, object: nil)
+            }
+            .keyboardShortcut("j", modifiers: [.command, .shift])
         }
     }
 }
 
-/// Adds Theme-related items to the existing Edit menu.
+/// Adds Hype-specific items to the existing Edit menu.
 ///
 /// Edit is a system-managed menu (DocumentGroup creates it via the
 /// standard pasteboard commands), so we splice in via
 /// `CommandGroup(after: .pasteboard)` rather than declaring a fresh
 /// `CommandMenu("Edit")` — the latter would produce a duplicate Edit
 /// menu next to the system one.
+///
+/// Note: the Themes menu item moved to Window (the Theme Designer is
+/// a window, not an edit operation). This struct is currently empty
+/// but kept as a stub so future Hype-specific Edit additions have a
+/// place to go without re-introducing the parallel-Edit-menu bug.
 struct EditMenuCommands: Commands {
     var body: some Commands {
-        CommandGroup(after: .pasteboard) {
-            Divider()
-            Button("Themes...") {
-                NotificationCenter.default.post(name: .openThemeDesigner, object: nil)
-            }
-            .keyboardShortcut("t", modifiers: [.command, .shift])
-        }
+        CommandGroup(after: .pasteboard) { }
     }
 }
 
@@ -202,27 +282,43 @@ extension Notification.Name {
     static let openThemeDesigner = Notification.Name("hype.openThemeDesigner")
 }
 
+// MARK: - AI menu (chat panel + AI-specific actions)
+
+/// AI menu hosts AI-feature-specific actions. The "Show AI
+/// Assistant" toggle now lives in View (with the other show/hide
+/// commands), so this menu is reserved for actions that DO things
+/// with the AI rather than just toggling its visibility — Halt
+/// being the obvious example.
 struct AIMenuCommands: Commands {
     var body: some Commands {
         CommandMenu("AI") {
-            Button("Show AI Assistant") {
-                NotificationCenter.default.post(name: .toggleAI, object: nil)
+            Button("Halt Current Run") {
+                NotificationCenter.default.post(name: .haltAIChat, object: nil)
             }
-            .keyboardShortcut("i", modifiers: [.command, .shift])
+            .keyboardShortcut(".", modifiers: .command)
         }
     }
 }
 
+// MARK: - Window menu additions
+
 /// Adds items to the existing Window menu (created by DocumentGroup)
-/// rather than creating a duplicate "Window" menu.
+/// rather than creating a duplicate "Window" menu. This is where
+/// auxiliary windows live — sprite repository, theme designer, etc.
+/// Console moved to View since it's a transient toggleable panel,
+/// not a true window.
 struct WindowMenuCommands: Commands {
     var body: some Commands {
         CommandGroup(after: .windowList) {
             Divider()
-            Button("Show Console") {
-                NotificationCenter.default.post(name: .showConsole, object: nil)
+            Button("Sprite Repository") {
+                NotificationCenter.default.post(name: .openSpriteRepository, object: nil)
             }
-            .keyboardShortcut("j", modifiers: [.command, .shift])
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+            Button("Theme Designer") {
+                NotificationCenter.default.post(name: .openThemeDesigner, object: nil)
+            }
+            .keyboardShortcut("t", modifiers: [.command, .shift])
         }
     }
 }

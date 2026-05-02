@@ -3,23 +3,20 @@ import SwiftUI
 /// Slide-out objects/tools panel docked on the left edge of the
 /// stack window. Replaces the legacy top-of-window object toolbar.
 ///
-/// Auto-flow into a second column when the window is too short to
-/// hold every tool button at the chosen icon size — `LazyVGrid` with
-/// `GridItem(.adaptive(...))` handles that automatically. The panel
-/// width adapts to the column count: one column when everything
-/// fits, two columns otherwise.
+/// Sections (top → bottom):
+/// 1. Run / Edit mode toggle pair (vertical stack so each button has
+///    its full width inside the narrow panel — the previous side-by-
+///    side layout clipped both labels)
+/// 2. Selection / Browse tools
+/// 3. Object-creation tools, grouped by family (basic / framework /
+///    form-controls / paint shortcuts) with subtle section dividers
+///    and small captions
+/// 4. Paint-layer tools (pencil, spray, bucket, eraser, line)
 ///
-/// First two items are the **Run** and **Edit** mode toggles per the
-/// design brief — they are visually separated from the tool palette
-/// by a divider so users see them as a distinct affordance, not as
-/// "another tool."
-///
-/// Hovering any button for ~0.4s pops a fly-out info window to the
-/// right of the panel describing what the tool does. Provides
-/// substantially richer guidance than the native `.help()` tooltip
-/// — full title + 2-3 sentence description per tool, matching the
-/// pedagogical goal of "the user shouldn't need to memorize the
-/// icon set."
+/// **Resizable**: the panel uses `minWidth / idealWidth / maxWidth`
+/// rather than a fixed `.frame(width:)` so the user can drag the
+/// `HSplitView` divider to widen the panel — the `LazyVGrid` then
+/// reflows to two or three columns automatically (`.adaptive(...)`).
 struct ObjectsToolPanel: View {
     @Binding var currentTool: ToolName
     @Binding var selectedPartIds: Set<UUID>
@@ -30,48 +27,67 @@ struct ObjectsToolPanel: View {
     /// Fly-out hover state. `hoveredItem` identifies the button the
     /// flyout is currently attached to; `hoveredFrameMidY` is the
     /// vertical center of that button (in panel-local coordinates)
-    /// so the flyout aligns with it. Both are nil/0 when no flyout
-    /// is showing.
+    /// so the flyout aligns with it.
     @State private var hoveredItem: FlyoutItem? = nil
     @State private var hoveredFrameMidY: CGFloat = 0
-    /// Pending dispatch to set / unset `hoveredItem` after a short
-    /// delay. Cancelled and replaced on every `.onHover` toggle so
-    /// quick mouse passes don't trigger the flyout, and so moving
-    /// between adjacent buttons doesn't flicker.
     @State private var hoverWorkItem: DispatchWorkItem? = nil
 
-    /// Pre-computed tool list — `ToolName.allCases` minus tools that
-    /// don't make sense in browse-only runtime mode.
-    private var palette: [ToolName] {
-        // In runtime mode the palette is hidden entirely (see
-        // MainContentView's slide-out gating). When edit mode the
-        // full palette is exposed.
-        ToolName.allCases
-    }
+    // MARK: - Tool grouping
 
-    /// Diameter of each tool button. Fixed so the grid math stays
-    /// predictable across themes.
+    /// Selection / runtime-vs-edit clicking. Two distinct semantics
+    /// even though the icons sit close to each other in the panel.
+    private static let selectionTools: [ToolName] = [.browse, .select]
+
+    /// Classic HyperCard-feeling object creators: button, field,
+    /// shape, image. Plus the more recent web/video/chart trio.
+    private static let basicTools: [ToolName] = [
+        .button, .field, .shape, .image, .text,
+        .webpage, .video, .chart
+    ]
+
+    /// Framework-backed controls added in 2026 — calendar, PDF, map,
+    /// 3D scene, etc. Grouped together so users can see them as a
+    /// distinct "richer media" family.
+    private static let frameworkTools: [ToolName] = [
+        .calendar, .pdf, .map, .colorWell, .audioRecorder,
+        .scene3D, .spriteArea
+    ]
+
+    /// AppKit form controls. They share a control-value backing
+    /// field and a similar feel.
+    private static let formControlTools: [ToolName] = [
+        .stepper, .slider, .toggle, .segmented
+    ]
+
+    /// Drag-to-create vector shape shortcuts (rectangle, oval, line)
+    /// PLUS the raster-paint tools (pencil, spray, bucket, eraser).
+    /// Grouped at the bottom because they're used less often than
+    /// object-creation tools.
+    private static let paintTools: [ToolName] = [
+        .rect, .oval, .line,
+        .pencil, .spray, .bucket, .eraser
+    ]
+
+    // MARK: - Sizing constants
+
     private static let buttonSize: CGFloat = 36
-    /// Delay between hover-start and flyout-show. ~0.4s feels
-    /// responsive without firing on every quick mouse pass.
+    private static let panelMinWidth: CGFloat = 60
+    private static let panelIdealWidth: CGFloat = 60
+    private static let panelMaxWidth: CGFloat = 220
     private static let hoverShowDelay: TimeInterval = 0.4
-    /// Delay between hover-end and flyout-hide. Short, but non-zero
-    /// so moving between adjacent buttons doesn't flicker.
     private static let hoverHideDelay: TimeInterval = 0.1
-    private static let panelWidth: CGFloat = 52
-    /// Width of the fly-out info window itself.
     private static let flyoutWidth: CGFloat = 260
 
     var body: some View {
-        // Adaptive grid: 1 column when window is tall enough for
-        // every tool, 2 columns when it isn't. The fixed-width
-        // GridItem with min: 44 keeps the cells from expanding past
-        // the button-size + padding.
-        let gridItem = GridItem(.adaptive(minimum: 44, maximum: 44), spacing: 4)
+        // Adaptive grid — wraps to 2/3 columns automatically when
+        // the user widens the panel via the HSplitView divider.
+        let gridItem = GridItem(.adaptive(minimum: 44, maximum: 52), spacing: 4)
 
         VStack(spacing: 0) {
-            // Run / Edit toggle pair — first two items per spec.
-            HStack(spacing: 4) {
+            // 1. Run / Edit toggle — VERTICAL stack so each label is
+            //    fully visible inside the narrow panel. Side-by-side
+            //    layout was clipping both buttons.
+            VStack(spacing: 4) {
                 modeButton(
                     item: .runMode,
                     title: "Run",
@@ -100,51 +116,49 @@ struct ObjectsToolPanel: View {
             .padding(.top, 6)
             .padding(.bottom, 4)
 
-            Divider()
-                .padding(.horizontal, 4)
+            Divider().padding(.horizontal, 4)
 
-            // Tool palette — hidden in runtime mode.
             if !isRuntimeMode {
                 ScrollView(.vertical, showsIndicators: false) {
-                    LazyVGrid(columns: [gridItem], spacing: 4) {
-                        ForEach(palette, id: \.self) { tool in
-                            toolButton(tool)
-                        }
+                    VStack(spacing: 8) {
+                        toolSection("Select", tools: Self.selectionTools, gridItem: gridItem)
+                        sectionDivider
+                        toolSection("Objects", tools: Self.basicTools, gridItem: gridItem)
+                        sectionDivider
+                        toolSection("Framework", tools: Self.frameworkTools, gridItem: gridItem)
+                        sectionDivider
+                        toolSection("Form", tools: Self.formControlTools, gridItem: gridItem)
+                        sectionDivider
+                        toolSection("Paint", tools: Self.paintTools, gridItem: gridItem)
                     }
                     .padding(.horizontal, 4)
                     .padding(.vertical, 6)
                 }
             } else {
-                // Spacer so the panel still occupies its width when
-                // the palette is hidden — feels less like the panel
-                // collapsed.
-                Spacer()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Spacer().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        // The panel's natural width grows with column count. 52 pt
-        // for one column, 96 pt for two. SwiftUI evaluates this
-        // implicitly when the LazyVGrid wraps to two columns.
-        .frame(width: Self.panelWidth)
+        // Resizable: HSplitView honours minWidth / idealWidth / maxWidth.
+        // Default ~60pt for a single column; user can drag the divider
+        // to ~220pt for two or three columns.
+        .frame(
+            minWidth: Self.panelMinWidth,
+            idealWidth: Self.panelIdealWidth,
+            maxWidth: Self.panelMaxWidth
+        )
         .background(.regularMaterial)
         .overlay(alignment: .trailing) {
-            // Right-edge separator so the panel reads as a distinct
-            // surface from the canvas margin.
             Rectangle()
                 .fill(Color.secondary.opacity(0.3))
                 .frame(width: 1)
         }
         .coordinateSpace(name: "objectsToolPanel")
-        // Fly-out overlay — anchored to the trailing edge of the
-        // panel and offset vertically to align with the hovered
-        // button. `allowsHitTesting(false)` lets the user keep
-        // interacting with buttons while the flyout is on screen.
         .overlay(alignment: .topLeading) {
             if let item = hoveredItem {
                 ToolFlyoutView(title: item.title, description: item.description)
                     .frame(width: Self.flyoutWidth, alignment: .topLeading)
                     .offset(
-                        x: Self.panelWidth + 8,
+                        x: panelCurrentWidth() + 8,
                         y: max(0, hoveredFrameMidY - 30)
                     )
                     .allowsHitTesting(false)
@@ -155,19 +169,54 @@ struct ObjectsToolPanel: View {
         .animation(.easeInOut(duration: 0.15), value: hoveredItem)
     }
 
+    /// Best-effort current panel width for flyout positioning. We
+    /// can't read the actual frame from inside an `.overlay`, so we
+    /// approximate using the ideal width — adjacent buttons all get
+    /// the same offset, so a single drift between actual and
+    /// approximated widths only shifts the flyout uniformly. Good
+    /// enough for this UX.
+    private func panelCurrentWidth() -> CGFloat {
+        Self.panelIdealWidth
+    }
+
+    @ViewBuilder
+    private var sectionDivider: some View {
+        Divider()
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private func toolSection(_ title: String, tools: [ToolName], gridItem: GridItem) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 4)
+            LazyVGrid(columns: [gridItem], spacing: 4) {
+                ForEach(tools, id: \.self) { tool in
+                    toolButton(tool)
+                }
+            }
+        }
+    }
+
     // MARK: - Buttons
 
     @ViewBuilder
     private func modeButton(item: FlyoutItem, title: String, systemImage: String, isActive: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 1) {
+            HStack(spacing: 6) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 14, weight: isActive ? .semibold : .regular))
+                    .font(.system(size: 13, weight: isActive ? .semibold : .regular))
                 Text(title)
-                    .font(.system(size: 9))
+                    .font(.system(size: 12, weight: isActive ? .semibold : .regular))
+                Spacer(minLength: 0)
             }
             .foregroundColor(isActive ? .accentColor : .primary)
-            .frame(width: 38, height: 36)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity)
+            .frame(height: 28)
             .background(
                 RoundedRectangle(cornerRadius: 6)
                     .fill(isActive ? Color.accentColor.opacity(0.15) : Color.clear)
@@ -196,11 +245,8 @@ struct ObjectsToolPanel: View {
         .background(hoverGeometry(for: .tool(tool)))
     }
 
-    /// Per-button hover detector + frame tracker. Built as a
-    /// `GeometryReader` background so SwiftUI gives us the button's
-    /// frame in panel-local coordinates. `Color.clear`'s
-    /// `.contentShape(Rectangle())` ensures hover events fire even
-    /// over the button's transparent regions.
+    // MARK: - Hover plumbing
+
     private func hoverGeometry(for item: FlyoutItem) -> some View {
         GeometryReader { geo in
             Color.clear
@@ -212,9 +258,6 @@ struct ObjectsToolPanel: View {
         }
     }
 
-    /// Schedule (or cancel) a flyout transition. Uses
-    /// `DispatchWorkItem` so a fast mouse-out can cancel a still-
-    /// pending show, and a fast mouse-in can cancel a pending hide.
     private func scheduleFlyout(for item: FlyoutItem, hovering: Bool, midY: CGFloat) {
         hoverWorkItem?.cancel()
         if hovering {
@@ -238,9 +281,6 @@ struct ObjectsToolPanel: View {
 
 // MARK: - Flyout content
 
-/// Identifies a single button slot for fly-out attachment. Mode
-/// buttons (Run/Edit) aren't ToolNames so we wrap both in a single
-/// enum.
 private enum FlyoutItem: Hashable {
     case runMode
     case editMode
@@ -266,8 +306,6 @@ private enum FlyoutItem: Hashable {
     }
 }
 
-/// Rendered fly-out info window. A rounded rect with `.thickMaterial`
-/// background, subtle drop shadow, and accent-colored title.
 private struct ToolFlyoutView: View {
     let title: String
     let description: String
