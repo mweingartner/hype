@@ -51,15 +51,42 @@ public struct OllamaProperty: Codable, Sendable {
 }
 
 /// A message in the Ollama chat.
+///
+/// The `images` field carries base64-encoded PNG strings for vision-capable models.
+/// Custom `init(from:)` and `encode(to:)` implementations ensure that `images: nil`
+/// serialises as an absent key rather than JSON `null`, which some Ollama vision
+/// pipeline versions misinterpret as an empty array.
 public struct OllamaMessage: Codable, Sendable {
     public let role: String
     public let content: String?
     public let tool_calls: [OllamaToolCall]?
+    /// Base64-encoded PNG strings attached to this message for vision models.
+    /// Nil means no images; use `encodeIfPresent` so the key is omitted entirely.
+    public let images: [String]?
 
-    public init(role: String, content: String? = nil, tool_calls: [OllamaToolCall]? = nil) {
+    public init(role: String, content: String? = nil, tool_calls: [OllamaToolCall]? = nil, images: [String]? = nil) {
         self.role = role
         self.content = content
         self.tool_calls = tool_calls
+        self.images = images
+    }
+
+    private enum CodingKeys: String, CodingKey { case role, content, tool_calls, images }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        role = try c.decode(String.self, forKey: .role)
+        content = try c.decodeIfPresent(String.self, forKey: .content)
+        tool_calls = try c.decodeIfPresent([OllamaToolCall].self, forKey: .tool_calls)
+        images = try c.decodeIfPresent([String].self, forKey: .images)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(role, forKey: .role)
+        try c.encodeIfPresent(content, forKey: .content)
+        try c.encodeIfPresent(tool_calls, forKey: .tool_calls)
+        try c.encodeIfPresent(images, forKey: .images)
     }
 }
 
@@ -1020,6 +1047,9 @@ public actor OllamaToolClient {
                 }
                 .joined(separator: "\n")
             parts.append("TOOL CALLS:\n\(calls)")
+        }
+        if let images = message.images, !images.isEmpty {
+            parts.append("IMAGES ATTACHED: \(images.count) (\(images.map { "\($0.count) chars" }.joined(separator: ", ")))")
         }
         return parts.joined(separator: "\n")
     }

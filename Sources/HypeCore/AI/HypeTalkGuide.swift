@@ -349,6 +349,7 @@ public enum HypeTalkGuide {
         - If a SpriteKit request needs input handling, use handlers like `keyDown`, `keyUp`, `beginContact`, or `endContact` to adjust physics state or actions instead of manually updating loc every frame.
         - `me` refers to the script-owning part: `the loc of me`, `set the rotation of me to 45`. Shapes support a `rotation` property (degrees clockwise).
         - Prefer the commands listed above. Do not invent new verbs or SpriteKit method calls — if something is not shown here, it is probably not supported.
+        - When unsure about layout, alignment, spacing, or whether your last change rendered correctly, call `capture_card_image` to receive a screenshot of the current card on your next turn.
 
         ## MANDATORY: validate scripts with `check_script` before storing
         You MUST call the `check_script` tool on every HypeTalk script before

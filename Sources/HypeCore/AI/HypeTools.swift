@@ -933,6 +933,22 @@ public struct HypeToolDefinitions {
         makeTool(name: "list_directory", description: "List files in a directory.", params: [
             "path": ("string", "Directory path", true),
         ]),
+
+        // Visual capture
+        makeTool(name: "capture_card_image", description: """
+            Render the current card (or a named card) to a PNG image and attach it to your next \
+            reasoning step. Use this to (a) verify a layout you just modified, (b) assess visual \
+            polish before suggesting changes, or (c) form a mental picture of an unfamiliar card. \
+            The image arrives as a synthetic user message on your next turn; you do not receive \
+            bytes here. The image shows pure card content (buttons, fields, shapes, text, images) \
+            but does NOT include macOS chrome, selection handles, alignment guides, or live \
+            SpriteKit/video frames — those render as their static placeholder. You have a budget \
+            of \(CardCaptureBudget.maxPerSession) captures per chat session and at most one capture \
+            per turn. The host will tell you how many captures remain in the result message.
+            """, params: [
+            "card_name": ("string", "Optional. The name of the card to capture. Defaults to the current card when omitted or empty.", false),
+            "purpose": ("string", "Optional. A short free-text reason for the capture (e.g. 'verify button alignment'). Recorded in the chat log so the user understands why you are looking. Never executed.", false),
+        ]),
     ]
 
     /// Default AI authoring surface for the in-app assistant.
@@ -1004,6 +1020,8 @@ public struct HypeToolDefinitions {
             "check_script",
             // Narrow current-card remediation for prior bad form output
             "repair_form_controls",
+            // Visual capture — available on all authoring surfaces
+            "capture_card_image",
         ])
         return allowed.contains($0.function.name)
     }
@@ -1130,6 +1148,8 @@ public struct HypeToolDefinitions {
             "list_repository_assets",
             "import_repository_asset",
             "check_script",
+            // Visual capture — available on all authoring surfaces
+            "capture_card_image",
         ])
         return allowed.contains($0.function.name)
     }

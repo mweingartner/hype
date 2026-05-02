@@ -6,7 +6,7 @@ struct AIChatPanel: View {
     @Binding var currentCardId: UUID?
     @Environment(\.hypeTheme) private var hypeTheme
     @State private var inputText = ""
-    @State private var messages: [(role: String, content: String)] = []
+    @State private var messages: [ChatBubble] = []
     @State private var conversationMessages: [OllamaMessage] = []  // Full context for model
     @State private var isProcessing = false
     @State private var historyIndex: Int = -1
@@ -18,6 +18,45 @@ struct AIChatPanel: View {
     @AppStorage("ollamaPort") private var ollamaPort = "11434"
     @AppStorage("ollamaModel") private var ollamaModel = "llama3.2"
     @AppStorage("hype.webAssets.provider") private var webAssetProviderRaw = "openverse"
+
+    // MARK: - Chat bubble model
+
+    /// A single chat message bubble, optionally carrying a captured card image for display.
+    private struct ChatBubble: Identifiable, Equatable {
+        let id: UUID = UUID()
+        let role: String
+        let content: String
+        let imageBase64: String?
+        let imagePixelWidth: Int?
+        let imagePixelHeight: Int?
+        let imageCaption: String?
+
+        init(
+            role: String,
+            content: String,
+            imageBase64: String? = nil,
+            imagePixelWidth: Int? = nil,
+            imagePixelHeight: Int? = nil,
+            imageCaption: String? = nil
+        ) {
+            self.role = role
+            self.content = content
+            self.imageBase64 = imageBase64
+            self.imagePixelWidth = imagePixelWidth
+            self.imagePixelHeight = imagePixelHeight
+            self.imageCaption = imageCaption
+        }
+
+        // Equatable ignores `id` so two bubbles with same content compare equal.
+        static func == (lhs: ChatBubble, rhs: ChatBubble) -> Bool {
+            lhs.role == rhs.role &&
+            lhs.content == rhs.content &&
+            lhs.imageBase64 == rhs.imageBase64 &&
+            lhs.imagePixelWidth == rhs.imagePixelWidth &&
+            lhs.imagePixelHeight == rhs.imagePixelHeight &&
+            lhs.imageCaption == rhs.imageCaption
+        }
+    }
 
     // MARK: - Web Asset Search state
 
@@ -41,6 +80,25 @@ struct AIChatPanel: View {
         let maxAttempts: Int
         let toolName: String
         let targetDescription: String
+    }
+
+    // MARK: - Visual capture state
+
+    /// Coordinator for `capture_card_image` tool result classification and message building.
+    @State private var captureCoordinator = CardCaptureCoordinator()
+
+    /// Tracks how many card captures have been made this session and this turn.
+    @State private var captureBudget = CardCaptureBudget()
+
+    /// Non-nil while a card capture is in progress. Drives the status indicator.
+    @State private var captureStatus: CaptureStatus?
+
+    /// Temp PNG files written for Quick Look / tap-to-open. Cleaned up on clear and disappear.
+    @State private var captureTempFiles: [URL] = []
+
+    /// Status displayed while a card capture is in progress.
+    private struct CaptureStatus: Equatable {
+        let cardName: String
     }
 
     private enum PendingSceneProposal {
@@ -102,12 +160,48 @@ struct AIChatPanel: View {
                                         .padding(8)
                                         .background(bubbleColor(for: msg.role))
                                         .cornerRadius(8)
+                                    // Thumbnail for captured card images.
+                                    if let b64 = msg.imageBase64,
+                                       let pngData = Data(base64Encoded: b64),
+                                       let nsImage = NSImage(data: pngData) {
+                                        let aspectRatio = nsImage.size.height > 0
+                                            ? nsImage.size.width / nsImage.size.height
+                                            : 1.0
+                                        Image(nsImage: nsImage)
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fit)
+                                            .frame(maxWidth: 140, maxHeight: 140 / aspectRatio)
+                                            .cornerRadius(4)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 4)
+                                                    .stroke(Color.secondary.opacity(0.3), lineWidth: 0.5)
+                                            )
+                                            .onTapGesture {
+                                                openCapturePNG(b64, suggestedName: msg.content)
+                                            }
+                                        if let caption = msg.imageCaption {
+                                            Text(caption)
+                                                .font(.system(size: 10))
+                                                .foregroundColor(.secondary)
+                                                .frame(maxWidth: 140, alignment: .leading)
+                                        }
+                                    }
                                 }
                                 if msg.role != "user" { Spacer() }
                             }
                             .id(idx)
                         }
-                        if let iterationStatus {
+                        if let captureStatus {
+                            HStack {
+                                ProgressView().scaleEffect(0.7)
+                                Text(captureStatus.cardName.isEmpty
+                                    ? "Capturing card for AI review…"
+                                    : "Capturing card '\(captureStatus.cardName)' for AI review…")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                            }
+                        } else if let iterationStatus {
                             HStack {
                                 ProgressView().scaleEffect(0.7)
                                 Text("Validating script (attempt \(iterationStatus.attemptNumber) of \(iterationStatus.maxAttempts))…")
@@ -218,6 +312,13 @@ struct AIChatPanel: View {
         // assistant labels resolve against the panel bg luminance
         // rather than the macOS appearance.
         .environment(\.colorScheme, hypeTheme.chromeColorScheme)
+        .onDisappear {
+            // Remove temp PNG files created for Quick Look when the panel closes.
+            for url in captureTempFiles {
+                try? FileManager.default.removeItem(at: url)
+            }
+            captureTempFiles.removeAll()
+        }
     }
 
     // MARK: - History
@@ -281,11 +382,37 @@ struct AIChatPanel: View {
         pendingSceneProposal = nil
         iterationStatus = nil
         Task { await webAssetSession.reset() }
+        captureBudget.resetSession()
+        captureStatus = nil
+        // Clean up any temp PNG files written for thumbnail Quick Look.
+        for url in captureTempFiles {
+            try? FileManager.default.removeItem(at: url)
+        }
+        captureTempFiles.removeAll()
     }
 
-    private func appendMessage(role: String, content: String) {
-        messages.append((role: role, content: content))
-        HypeLogger.shared.aiDialog(role: role, content: content, source: "AI Chat")
+    private func appendMessage(
+        role: String,
+        content: String,
+        imageBase64: String? = nil,
+        imagePixelWidth: Int? = nil,
+        imagePixelHeight: Int? = nil,
+        imageCaption: String? = nil
+    ) {
+        messages.append(ChatBubble(
+            role: role,
+            content: content,
+            imageBase64: imageBase64,
+            imagePixelWidth: imagePixelWidth,
+            imagePixelHeight: imagePixelHeight,
+            imageCaption: imageCaption
+        ))
+        // For logging: if this bubble carries a capture image, the caller is
+        // responsible for using HypeLogger directly with a redacted string.
+        // Plain bubbles (no image) are safe to log as-is.
+        if imageBase64 == nil {
+            HypeLogger.shared.aiDialog(role: role, content: content, source: "AI Chat")
+        }
     }
 
     // MARK: - Bubble Color
@@ -303,6 +430,25 @@ struct AIChatPanel: View {
         case "user": return hypeTheme.accent.swiftUIColor.opacity(0.15)
         case "tool": return Color.green.opacity(0.1)
         default: return hypeTheme.inspectorBackground.swiftUIColor
+        }
+    }
+
+    // MARK: - Capture PNG Quick Look
+
+    /// Write a base64-encoded PNG to a temp file and open it with the system default viewer.
+    ///
+    /// The temp file URL is appended to `captureTempFiles` so it gets cleaned up
+    /// when the chat is cleared or the panel disappears.
+    private func openCapturePNG(_ base64: String, suggestedName: String) {
+        guard let data = Data(base64Encoded: base64) else { return }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hype-capture-\(UUID().uuidString).png")
+        do {
+            try data.write(to: url)
+            captureTempFiles.append(url)
+            NSWorkspace.shared.open(url)
+        } catch {
+            HypeLogger.shared.warn("Failed to write capture PNG for Quick Look: \(error.localizedDescription)", source: "AI Chat")
         }
     }
 
@@ -838,6 +984,8 @@ struct AIChatPanel: View {
 
         // Reset the per-turn web-asset soft cap at the start of each processWithTools call.
         await webAssetSession.beginTurn()
+        // Reset the per-turn capture budget counter. Session budget (consumed) is preserved.
+        captureBudget.beginTurn()
 
         let client = OllamaToolClient(host: ollamaHost, port: ollamaPort, model: ollamaModel)
 
@@ -1076,12 +1224,88 @@ struct AIChatPanel: View {
                 if let toolCalls = effectiveToolCalls, !toolCalls.isEmpty {
                     conversationMessages.append(response.message)
 
+                    // Per-loop accumulator for the synthetic user message carrying the capture image.
+                    // SECURITY FINDING 2: defer injection until AFTER the loop so we never interleave
+                    // a `user` message between assistant tool_calls and tool results.
+                    var pendingCapture: CardCaptureResult? = nil
+
                     toolCallLoop: for call in toolCalls {
                         let argsDesc = call.function.arguments
                             .map { "\($0.key): \($0.value)" }
                             .joined(separator: ", ")
                         let toolMsg = "Tool: \(call.function.name)(\(argsDesc))"
                         appendMessage(role: "tool", content: toolMsg)
+
+                        // MARK: - capture_card_image pre-flight
+                        // Handle separately: enforce budget, inject remaining hint, redact log output.
+                        if call.function.name == "capture_card_image" {
+                            if !captureBudget.tryConsume() {
+                                let reason = captureBudget.exhaustedReason()
+                                appendMessage(role: "tool", content: "Tool: capture_card_image (refused: \(reason))")
+                                conversationMessages.append(OllamaMessage(role: "tool", content: reason))
+                                continue
+                            }
+                            let displayName = call.function.arguments["card_name"] ?? ""
+                            captureStatus = CaptureStatus(cardName: displayName)
+
+                            // Inject the host-computed remaining hint as a private argument.
+                            var augmented = call.function.arguments
+                            augmented["__captures_remaining_hint"] = String(captureBudget.remaining)
+
+                            var doc = document.document
+                            let result = await executor.execute(
+                                toolName: call.function.name,
+                                arguments: augmented,
+                                document: &doc,
+                                currentCardId: activeCardId
+                            )
+                            document.document = doc
+                            captureStatus = nil
+
+                            // SECURITY FINDING 1: redact base64 from logger — never write image bytes to disk log.
+                            let captureOutcome = captureCoordinator.classify(toolResult: result)
+                            switch captureOutcome {
+                            case .captured(let captured):
+                                let redacted = captureCoordinator.makeRedactedLogString(for: captured)
+                                HypeLogger.shared.aiDialog(role: "tool_result", content: redacted, source: "AI Tool")
+                                // Surface a thumbnail bubble in the chat.
+                                let caption = "\(captured.cardName.isEmpty ? "current card" : "card '\(captured.cardName)'")"
+                                    + " · \(captured.pixelWidth)×\(captured.pixelHeight)"
+                                    + " · captures remaining: \(captureBudget.remaining)"
+                                appendMessage(
+                                    role: "tool",
+                                    content: captured.compactDisplaySummary,
+                                    imageBase64: captured.imageBase64,
+                                    imagePixelWidth: captured.pixelWidth,
+                                    imagePixelHeight: captured.pixelHeight,
+                                    imageCaption: caption
+                                )
+                                // Append acknowledgment to the model conversation.
+                                conversationMessages.append(
+                                    captureCoordinator.makeAcknowledgmentMessage(for: captured, remaining: captureBudget.remaining)
+                                )
+                                // Defer the synthetic user message — record for post-loop injection.
+                                pendingCapture = captured
+
+                            case .decodeFailed(let raw):
+                                // Budget was consumed at pre-flight (tryConsume above)
+                                // but no image was actually delivered. Refund the slot
+                                // so a flaky encoder doesn't silently drain the
+                                // per-session budget. See CardCaptureBudget.refundOne()
+                                // for the full rationale.
+                                captureBudget.refundOne()
+                                HypeLogger.shared.warn("Capture sentinel decode failed: \(raw.prefix(200))", source: "AI Tool")
+                                appendMessage(role: "tool", content: "Capture failed: internal error reading host capture response.")
+                                conversationMessages.append(OllamaMessage(role: "tool", content: "Capture failed; proceed without an image."))
+
+                            case .notACapture:
+                                // Result is a plain error string (e.g. "Card 'X' not found").
+                                HypeLogger.shared.aiDialog(role: "tool_result", content: result, source: "AI Tool")
+                                appendMessage(role: "tool", content: result)
+                                conversationMessages.append(OllamaMessage(role: "tool", content: result))
+                            }
+                            continue
+                        }
 
                         // Show searching indicator for web-asset tools.
                         let isWebAssetTool = ["search_web_for_sprite", "import_web_asset", "find_and_import_sprite"]
@@ -1187,6 +1411,14 @@ struct AIChatPanel: View {
                         let toolResult = OllamaMessage(role: "tool", content: result)
                         conversationMessages.append(toolResult)
                     }
+
+                    // Post-loop: inject the synthetic user message for any captured image.
+                    // Deferred to maintain Ollama's expected message ordering:
+                    // assistant(tool_calls) → tool → tool → … → user(image) → next assistant.
+                    if let captured = pendingCapture {
+                        conversationMessages.append(captureCoordinator.makeSyntheticUserMessage(for: captured))
+                    }
+
                     continue
                 }
 
@@ -1366,6 +1598,14 @@ struct AIChatPanel: View {
                     document.document = doc
                     HypeLogger.shared.aiDialog(role: "tool_result", content: checkResult, source: "AI Tool")
                     conversationMessages.append(OllamaMessage(role: "tool", content: checkResult))
+                    continue
+                }
+
+                if call.function.name == "capture_card_image" {
+                    // Capture is not supported during the script iteration loop —
+                    // the model should fix the script first, then capture afterwards if needed.
+                    let msg = "Capture is not available during script iteration. Fix the script first, then capture afterwards if needed."
+                    conversationMessages.append(OllamaMessage(role: "tool", content: msg))
                     continue
                 }
 

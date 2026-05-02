@@ -689,6 +689,9 @@ public struct HypeToolExecutor: Sendable {
     /// ## Tool result string contract
     /// - `"__HYPE_INTERNAL_DRAFT_REFUSED_v1:<json>"` — host gate refused a script draft;
     ///   `AIChatPanel` iterates via `ScriptDraftCoordinator`.
+    /// - `"__HYPE_INTERNAL_CAPTURE_v1:<json>"` — `AIChatPanel` decodes and injects the image
+    ///   as a synthetic user message; budget consumption is enforced by the chat panel BEFORE
+    ///   this executor branch runs.
     /// - `"CREATED_CARD:<uuid>"` — caller updates `currentCardId`.
     /// - `"NAVIGATE:<dest>"` — caller resolves and updates `currentCardId`.
     /// - Any other string — success or read-only result; surface as-is.
@@ -3679,6 +3682,47 @@ public struct HypeToolExecutor: Sendable {
                 return "Cannot edit built-in theme '\(trimmedName)'. Use create_theme to clone it first."
             }
             return "Theme '\(trimmedName)' not found"
+
+        // MARK: - Visual capture
+        case "capture_card_image":
+            let cardName = arguments["card_name"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let purpose = (arguments["purpose"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let remainingHint = Int(arguments["__captures_remaining_hint"] ?? "0") ?? 0
+
+            // CardImageCapturer is @MainActor (because CardRenderer.renderToImage is @MainActor).
+            // Hop to the main actor for the render call, then return the sentinel string.
+            do {
+                let captured = try await MainActor.run {
+                    let capturer = CardImageCapturer()
+                    return try capturer.capture(
+                        cardName: cardName.isEmpty ? nil : cardName,
+                        document: document,
+                        currentCardId: currentCardId
+                    )
+                }
+                let result = CardCaptureResult(
+                    cardId: captured.cardId,
+                    cardName: captured.cardName,
+                    pixelWidth: captured.pixelWidth,
+                    pixelHeight: captured.pixelHeight,
+                    imageBase64: captured.imageBase64,
+                    purpose: purpose,
+                    capturesRemainingHint: remainingHint
+                )
+                return result.encodedSentinel()
+            } catch CardImageCapturer.CaptureError.cardNotFound(let n) {
+                return "Card '\(n)' not found"
+            } catch CardImageCapturer.CaptureError.noCardLoaded {
+                return "No card loaded — capture unavailable"
+            } catch CardImageCapturer.CaptureError.imageTooLarge(let bytes) {
+                return "Capture image too large after compression (\(bytes) bytes); cannot encode"
+            } catch CardImageCapturer.CaptureError.encodingFailed {
+                return "Capture encoding failed; cannot produce PNG"
+            } catch CardImageCapturer.CaptureError.renderFailed {
+                return "Card rendering failed; capture unavailable"
+            } catch {
+                return "Capture failed: \(error.localizedDescription)"
+            }
 
         default:
             return "Unknown tool: \(toolName)"
