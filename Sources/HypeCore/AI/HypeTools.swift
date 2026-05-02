@@ -230,6 +230,26 @@ public struct HypeToolDefinitions {
             "on_background": ("string", "true to place on background", false),
         ]),
 
+        makeTool(name: "create_audio_recorder", description: """
+            Create an audio-recorder control. Setting `recording` to true (via the AI \
+            tool, HypeTalk `set the recording of recorder "memo" to true`, or the \
+            inspector toggle) starts capturing from the microphone; setting it false \
+            stops. The recorder writes m4a (AAC) by default to a temp file under \
+            FileManager.temporaryDirectory; pass `output_path` to choose where. \
+            HypeTalk reads: `the duration of recorder "X"` (seconds), `the recording \
+            of recorder "X"`, `the outputPath of recorder "X"`. Messages: \
+            `recordingStarted` / `recordingStopped`.
+            """, params: [
+            "name": ("string", "Recorder part name", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "format": ("string", "'m4a' (AAC, default) or 'caf' (LinearPCM)", false),
+            "output_path": ("string", "Absolute file path. Empty = auto-generate.", false),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
         makeTool(name: "create_color_well", description: """
             Create a color-picker (NSColorWell) control. Click opens the macOS color panel; \
             picks fire the `colorChanged` HypeTalk message on the part. Read the bound color \
@@ -1156,6 +1176,7 @@ public struct HypeToolDefinitions {
             "create_slider",
             "create_toggle",
             "create_segmented",
+            "create_audio_recorder",
             "duplicate_part",
             "delete_part",
             "get_card_parts",
@@ -1280,6 +1301,7 @@ public struct HypeToolDefinitions {
             "create_slider",
             "create_toggle",
             "create_segmented",
+            "create_audio_recorder",
             "repair_form_controls",
             "delete_part",
             "set_card_name",

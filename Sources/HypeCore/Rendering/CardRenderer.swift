@@ -147,6 +147,8 @@ public final class CardRenderer: Sendable {
             ColorWellRenderer.draw(ctx: ctx, part: part, rect: rect)
         case .stepper, .slider, .toggle, .segmented:
             FormControlsRenderer.draw(part.partType, ctx: ctx, part: part, rect: rect)
+        case .audioRecorder:
+            AudioRecorderRenderer.draw(ctx: ctx, part: part, rect: rect)
         }
     }
 

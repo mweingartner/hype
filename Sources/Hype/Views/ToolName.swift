@@ -3,7 +3,7 @@ import Foundation
 public enum ToolName: String, CaseIterable, Sendable {
     case browse, button, field, shape, webpage, image, video, chart, spriteArea
     case calendar, pdf, map, colorWell
-    case stepper, slider, toggle, segmented, select
+    case stepper, slider, toggle, segmented, audioRecorder, select
     case pencil, line, rect, oval, spray, bucket, eraser, text
 
     var systemImageName: String {
@@ -25,6 +25,7 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .slider: return "slider.horizontal.3"
         case .toggle: return "switch.2"
         case .segmented: return "rectangle.split.3x1"
+        case .audioRecorder: return "mic.circle"
         case .select: return "cursor.rays"
         case .pencil: return "pencil"
         case .line: return "line.diagonal"

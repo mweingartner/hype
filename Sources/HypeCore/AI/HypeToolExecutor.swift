@@ -595,6 +595,11 @@ public struct HypeToolExecutor: Sendable {
         case .segmented:
             props.append("segments=\(p.segmentItems)")
             props.append("selectedSegment=\(Int(p.controlValue))")
+        case .audioRecorder:
+            props.append("recording=\(p.audioRecording)")
+            props.append(String(format: "duration=%.1f", p.audioDuration))
+            if !p.audioOutputPath.isEmpty { props.append("outputPath=\(p.audioOutputPath)") }
+            props.append("format=\(p.audioFormat)")
         }
 
         // Common text styling (if non-default)
@@ -1163,6 +1168,25 @@ public struct HypeToolExecutor: Sendable {
             let layer = place.backgroundId != nil ? " on background" : ""
             return "Created toggle '\(part.name)'\(layer)"
 
+        case "create_audio_recorder":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            var part = Part(
+                partType: .audioRecorder,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
+                name: arguments["name"] ?? "Recorder",
+                left: Double(arguments["left"] ?? "100") ?? 100,
+                top: Double(arguments["top"] ?? "100") ?? 100,
+                width: Double(arguments["width"] ?? "180") ?? 180,
+                height: Double(arguments["height"] ?? "44") ?? 44
+            )
+            let fmt = (arguments["format"] ?? "m4a").lowercased()
+            part.audioFormat = (fmt == "caf") ? "caf" : "m4a"
+            part.audioOutputPath = arguments["output_path"] ?? ""
+            document.addPart(part)
+            let layer = place.backgroundId != nil ? " on background" : ""
+            return "Created audio recorder '\(part.name)'\(layer)"
+
         case "create_segmented":
             let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
             var part = Part(
@@ -1267,6 +1291,10 @@ public struct HypeToolExecutor: Sendable {
                 case "step", "increment": document.parts[index].controlStep = Double(value) ?? 1
                 case "segments", "segmentitems", "segment_items": document.parts[index].segmentItems = value
                 case "selectedsegment", "selected_segment": document.parts[index].controlValue = Double(value) ?? 0
+                // AudioRecorder
+                case "recording": document.parts[index].audioRecording = (value.lowercased() == "true")
+                case "outputpath", "output_path", "filepath", "file_path": document.parts[index].audioOutputPath = value
+                case "format": document.parts[index].audioFormat = value
                 case "script":
                     // Wrap bare commands and validate via the host gate
                     // before mutating the document.
@@ -2305,6 +2333,11 @@ public struct HypeToolExecutor: Sendable {
             case "step", "increment": return String(part.controlStep)
             case "segments", "segmentitems": return part.segmentItems
             case "selectedsegment", "selected_segment": return String(Int(part.controlValue))
+            // AudioRecorder
+            case "recording": return String(part.audioRecording)
+            case "duration": return String(part.audioDuration)
+            case "outputpath", "output_path", "filepath", "file_path": return part.audioOutputPath
+            case "format": return part.audioFormat
             case "textfont", "font": return part.textFont
             case "textsize", "size": return String(part.textSize)
             case "textalign": return part.textAlign.rawValue

@@ -54,6 +54,7 @@ struct PropertyInspector: View {
                         case .stepper, .slider: numericControlSection(part: part)
                         case .toggle: toggleSection(part: part)
                         case .segmented: segmentedSection(part: part)
+                        case .audioRecorder: audioRecorderSection(part: part)
                         }
 
                         // Font controls for buttons and fields
@@ -1033,6 +1034,31 @@ struct PropertyInspector: View {
             Text("Segmented").font(.subheadline).foregroundColor(.secondary)
             propertyRow("Segments (pipe-separated)", binding: bindPartString(part.id, \.segmentItems))
             propertyRow("Selected Index", binding: bindPartDoubleString(part.id, \.controlValue))
+        }
+    }
+
+    private func audioRecorderSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Audio Recorder").font(.subheadline).foregroundColor(.secondary)
+            Toggle("Recording", isOn: bindPartBool(part.id, \.audioRecording))
+            HStack {
+                Text("Format").font(.system(size: 10))
+                Picker("", selection: bindPartString(part.id, \.audioFormat)) {
+                    Text("AAC (.m4a)").tag("m4a")
+                    Text("Linear PCM (.caf)").tag("caf")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+            propertyRow("Output Path", binding: bindPartString(part.id, \.audioOutputPath))
+            Text("Empty path = auto-generate under temp directory")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+            HStack {
+                Text("Duration:").font(.system(size: 10)).foregroundColor(.secondary)
+                Text(String(format: "%.1f s", part.audioDuration))
+                    .font(.system(size: 10, design: .monospaced))
+            }
         }
     }
 

@@ -2755,6 +2755,11 @@ public struct Interpreter: Sendable {
         case "step", "increment":                return formatNumber(part.controlStep)
         case "segments", "segmentitems":         return part.segmentItems
         case "selectedsegment", "selected_segment": return String(Int(part.controlValue))
+        // AudioRecorder
+        case "recording":           return part.audioRecording ? "true" : "false"
+        case "duration":            return formatNumber(part.audioDuration)
+        case "outputpath", "output_path", "filepath", "file_path": return part.audioOutputPath
+        case "format":              return part.audioFormat
         case "text", "textcontent": return part.textContent
         case "topleft":
             return "\(formatNumber(part.left)),\(formatNumber(part.top))"
@@ -3078,6 +3083,7 @@ public struct Interpreter: Sendable {
         case "slider": targetType = .slider
         case "toggle": targetType = .toggle
         case "segmented": targetType = .segmented
+        case "recorder", "audiorecorder": targetType = .audioRecorder
         default: targetType = nil
         }
 
@@ -3533,6 +3539,13 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].segmentItems = value
         case "selectedsegment", "selected_segment":
             document.parts[partIndex].controlValue = toNumber(value)
+        // AudioRecorder
+        case "recording":
+            document.parts[partIndex].audioRecording = isTruthy(value)
+        case "outputpath", "output_path", "filepath", "file_path":
+            document.parts[partIndex].audioOutputPath = value
+        case "format":
+            document.parts[partIndex].audioFormat = value
         case "popupitems", "popup_items":
             document.parts[partIndex].popupItems = value
         case "htmlcontent", "html_content":

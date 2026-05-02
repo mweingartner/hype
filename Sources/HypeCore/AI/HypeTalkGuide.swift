@@ -78,7 +78,7 @@ public enum HypeTalkGuide {
             audio "music"      video "intro"       chart "sales"
             calendar "due"     pdf "manual"        map "store"
             colorWell "fill"   stepper "qty"       slider "volume"
-            toggle "muted"     segmented "tabs"
+            toggle "muted"     segmented "tabs"    recorder "memo"
         Use double-quoted names; bare words are only valid for short keywords.
 
         ## Properties — get and set
@@ -278,6 +278,18 @@ public enum HypeTalkGuide {
                 play stop
               end if
             end valueChanged
+
+        **Start / stop voice memo recording:**
+            on mouseUp
+              if the recording of recorder "memo" then
+                set the recording of recorder "memo" to false
+              else
+                set the recording of recorder "memo" to true
+              end if
+            end mouseUp
+            -- Watch the live duration via `the duration of recorder "X"`,
+            -- and read the saved file via `the outputPath of recorder "X"`
+            -- after a `recordingStopped` message fires on the part.
 
         **React to a segmented selection:**
             on selectionChanged

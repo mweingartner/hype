@@ -177,6 +177,26 @@ public struct Part: Identifiable, Codable, Sendable {
     /// "Day|Week|Month"). Only meaningful when partType == .segmented.
     public var segmentItems: String
 
+    // AudioRecorder-specific
+    /// True while the recorder is actively capturing. Setting this
+    /// to true via the AI / HypeTalk surface starts a recording;
+    /// setting to false stops it. The host runtime reflects engine
+    /// state back into the document so HypeTalk reads stay accurate.
+    public var audioRecording: Bool
+    /// Absolute path the recorder writes to. Empty = use a temp
+    /// file under `FileManager.temporaryDirectory` named after the
+    /// part. The path is captured at start-of-recording time.
+    public var audioOutputPath: String
+    /// Output format. "m4a" (AAC, default) or "caf" (LinearPCM in
+    /// CoreAudio Format). m4a is what most users want — small files
+    /// + native macOS playback.
+    public var audioFormat: String
+    /// Last-known recording duration in seconds. Updated ~10x/sec
+    /// while recording so HypeTalk reads of `the duration of
+    /// recorder "X"` reflect live progress without polling AVKit
+    /// directly.
+    public var audioDuration: Double
+
     // Script
     public var script: String
 
@@ -260,6 +280,10 @@ public struct Part: Identifiable, Codable, Sendable {
         self.controlMax = 100
         self.controlStep = 1
         self.segmentItems = "First|Second|Third"
+        self.audioRecording = false
+        self.audioOutputPath = ""
+        self.audioFormat = "m4a"
+        self.audioDuration = 0
         self.script = ""
     }
 
@@ -348,6 +372,11 @@ public struct Part: Identifiable, Codable, Sendable {
         controlMax = try container.decodeIfPresent(Double.self, forKey: .controlMax) ?? 100
         controlStep = try container.decodeIfPresent(Double.self, forKey: .controlStep) ?? 1
         segmentItems = try container.decodeIfPresent(String.self, forKey: .segmentItems) ?? "First|Second|Third"
+        // AudioRecorder fields — backward-compat optional.
+        audioRecording = try container.decodeIfPresent(Bool.self, forKey: .audioRecording) ?? false
+        audioOutputPath = try container.decodeIfPresent(String.self, forKey: .audioOutputPath) ?? ""
+        audioFormat = try container.decodeIfPresent(String.self, forKey: .audioFormat) ?? "m4a"
+        audioDuration = try container.decodeIfPresent(Double.self, forKey: .audioDuration) ?? 0
         script = try container.decode(String.self, forKey: .script)
     }
 }

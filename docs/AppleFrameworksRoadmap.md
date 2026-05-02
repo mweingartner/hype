@@ -50,12 +50,12 @@ set the selectedDate of calendar "due" to "2026-12-25"
 **Hype properties**: `sceneURL`, `cameraName`, `allowsCameraControl`, `autoenablesDefaultLighting`, `backgroundColor`, `antialiasingMode`.
 **Effort**: ~800 lines. Significant — 3D camera math + lighting controls have a learning curve.
 
-### 6. Audio Recorder (AVFoundation)
-**User value**: voice-memo style recording into a stack (lecture notes, audio annotations, talking-card stacks).
-**Backing API**: `AVAudioRecorder` + waveform visualization.
-**Hype properties**: `recording`, `duration`, `peakLevel`, `outputFile`, `format`.
-**HypeTalk**: `start recording into recorder "memo"` / `stop recording recorder "memo"`.
-**Effort**: ~500 lines + Info.plist mic description (already added for AI voice).
+### 6. Audio Recorder (AVFoundation) ✅ shipped
+**Backing API**: `AVAudioRecorder` (m4a / AAC by default; LinearPCM CAF available).
+**Hype properties**: `recording` (bool — flipping this drives engine start/stop), `duration` (live, updated 10×/sec while recording), `outputPath`, `format`.
+**HypeTalk**: `set the recording of recorder "memo" to true`, `put the duration of recorder "memo" into d`. Messages: `recordingStarted`, `recordingStopped`.
+**AI tools**: `create_audio_recorder`; reads/writes via `set_part_property` / `get_part_property` accept `recording`, `duration`, `outputPath`, `format`.
+**Permission**: re-uses the existing `NSMicrophoneUsageDescription` already added for AI voice capture — no new entitlement needed.
 
 ### 7. Color Well (AppKit `NSColorWell`) ✅ shipped
 **Backing API**: `NSColorWell`.

@@ -302,6 +302,23 @@ struct CardCanvasView: NSViewRepresentable {
             dispatchMessage(message, to: id)
         }
 
+        /// Writeback for the audio-recorder host. State changes
+        /// update three fields atomically: recording flag,
+        /// duration, output-file path. Dispatches `recordingStarted`
+        /// or `recordingStopped` on transitions so HypeTalk handlers
+        /// can react.
+        func setPartAudioRecorderState(id: UUID, recording: Bool, duration: Double, outputPath: String) {
+            let priorRecording = parent.document.document.parts.first(where: { $0.id == id })?.audioRecording ?? false
+            parent.document.document.updatePart(id: id) {
+                $0.audioRecording = recording
+                $0.audioDuration = duration
+                if !outputPath.isEmpty { $0.audioOutputPath = outputPath }
+            }
+            if recording != priorRecording {
+                dispatchMessage(recording ? "recordingStarted" : "recordingStopped", to: id)
+            }
+        }
+
         func deletePart(id: UUID) {
             // Dispatch delete message before removing
             if let part = parent.document.document.parts.first(where: { $0.id == id }) {
@@ -699,6 +716,7 @@ class CardCanvasNSView: NSView {
     private var sliderViews: [UUID: SliderHostNSView] = [:]
     private var toggleViews: [UUID: ToggleHostNSView] = [:]
     private var segmentedViews: [UUID: SegmentedHostNSView] = [:]
+    private var audioRecorderViews: [UUID: AudioRecorderHostNSView] = [:]
 
     // Active SKViews for spriteArea parts (keyed by part ID)
     private var spriteViews: [UUID: SKView] = [:]
@@ -949,7 +967,7 @@ class CardCanvasNSView: NSView {
             } else {
                 renderBgParts = []
             }
-            let nativeKinds: Set<PartType> = [.spriteArea, .chart, .webpage, .video, .calendar, .pdf, .map, .colorWell, .stepper, .slider, .toggle, .segmented]
+            let nativeKinds: Set<PartType> = [.spriteArea, .chart, .webpage, .video, .calendar, .pdf, .map, .colorWell, .stepper, .slider, .toggle, .segmented, .audioRecorder]
             nativePartIds = Set(
                 (renderCardParts + renderBgParts)
                     .filter { $0.visible && nativeKinds.contains($0.partType) }
@@ -1031,6 +1049,7 @@ class CardCanvasNSView: NSView {
         updateMapViews()
         updateColorWellViews()
         updateFormControlViews()
+        updateAudioRecorderViews()
 
         // Update sprite views for spriteArea parts
         updateSpriteViews()
@@ -2710,6 +2729,66 @@ class CardCanvasNSView: NSView {
         for id in segmentedViews.keys where !activeSegmented.contains(id) {
             segmentedViews[id]?.removeFromSuperview()
             segmentedViews.removeValue(forKey: id)
+        }
+    }
+
+    // MARK: - Audio Recorder View Management
+
+    /// Create, update, or remove `AudioRecorderHostNSView`s for
+    /// `audioRecorder` parts. The host owns the AVAudioRecorder
+    /// engine; setting the part's `audioRecording` flag to true
+    /// flips the host into recording mode.
+    private func updateAudioRecorderViews() {
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let isBrowseMode = toolState.category == .browse
+
+        let cardParts = document.partsForCard(currentCardId)
+        let bgParts: [Part]
+        if let card = document.cards.first(where: { $0.id == currentCardId }) {
+            bgParts = document.partsForBackground(card.backgroundId)
+        } else {
+            bgParts = []
+        }
+        let allParts = cardParts + bgParts
+        let recorderParts = allParts.filter { $0.partType == .audioRecorder && $0.visible }
+
+        if !isBrowseMode || recorderParts.isEmpty {
+            for (_, view) in audioRecorderViews {
+                view.stop()
+                view.removeFromSuperview()
+            }
+            audioRecorderViews.removeAll()
+            return
+        }
+
+        var activeIds = Set<UUID>()
+        for part in recorderParts {
+            activeIds.insert(part.id)
+            let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+
+            if let existing = audioRecorderViews[part.id] {
+                existing.frame = frame
+                existing.apply(part)
+                continue
+            }
+            let host = AudioRecorderHostNSView(frame: frame)
+            host.apply(part)
+            let partId = part.id
+            host.onStateChange = { [weak self] recording, duration, outputPath in
+                self?.coordinator?.setPartAudioRecorderState(
+                    id: partId,
+                    recording: recording,
+                    duration: duration,
+                    outputPath: outputPath
+                )
+            }
+            addSubview(host, positioned: .above, relativeTo: nil)
+            audioRecorderViews[part.id] = host
+        }
+        for id in audioRecorderViews.keys where !activeIds.contains(id) {
+            audioRecorderViews[id]?.stop()
+            audioRecorderViews[id]?.removeFromSuperview()
+            audioRecorderViews.removeValue(forKey: id)
         }
     }
 
