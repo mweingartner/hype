@@ -288,6 +288,148 @@ struct Phase1ControlsTests {
         #expect(doc.parts.first { $0.partType == .map }?.mapLocation.count == 256)
     }
 
+    @Test("HypeTalk: `set the location of map \"X\" to \"97537\"` routes to mapLocation (not coords)")
+    func hypeTalkMapLocationOverloadString() throws {
+        var doc = HypeDocument.newDocument(name: "MapTest")
+        let cardId = doc.cards[0].id
+        let originalLeft: Double = 100
+        let originalTop: Double = 50
+        let part = Part(partType: .map, cardId: cardId, name: "store",
+                        left: originalLeft, top: originalTop, width: 400, height: 300)
+        doc.addPart(part)
+
+        let source = "on test\n  set the location of map \"store\" to \"97537\"\nend test"
+        var lexer = Lexer(source: source)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        let handler = script.handlers.first!
+        let context = ExecutionContext(targetId: cardId, currentCardId: cardId, document: doc)
+        let result = Interpreter().execute(handler: handler, params: [], context: context)
+
+        let updated = (result.modifiedDocument ?? doc).parts.first { $0.name == "store" }!
+        #expect(updated.mapLocation == "97537")
+        // Geometry must NOT have moved.
+        #expect(updated.left == originalLeft)
+        #expect(updated.top == originalTop)
+    }
+
+    @Test("HypeTalk: `set the location of map \"X\" to \"100,200\"` still moves the part (coords)")
+    func hypeTalkMapLocationOverloadCoords() throws {
+        var doc = HypeDocument.newDocument(name: "MapTest")
+        let cardId = doc.cards[0].id
+        let part = Part(partType: .map, cardId: cardId, name: "store",
+                        left: 0, top: 0, width: 400, height: 300)
+        doc.addPart(part)
+
+        let source = "on test\n  set the location of map \"store\" to \"100,200\"\nend test"
+        var lexer = Lexer(source: source)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        let handler = script.handlers.first!
+        let context = ExecutionContext(targetId: cardId, currentCardId: cardId, document: doc)
+        let result = Interpreter().execute(handler: handler, params: [], context: context)
+
+        let updated = (result.modifiedDocument ?? doc).parts.first { $0.name == "store" }!
+        // 100,200 is a center so left = 100 - 400/2 = -100, top = 200 - 300/2 = 50.
+        #expect(updated.left == -100)
+        #expect(updated.top == 50)
+        #expect(updated.mapLocation == "")
+    }
+
+    @Test("HypeTalk: cross-object — a button's mouseUp script can set the location of a map part")
+    func hypeTalkButtonScriptSetsMapLocation() throws {
+        var doc = HypeDocument.newDocument(name: "MapTest")
+        let cardId = doc.cards[0].id
+        let map = Part(partType: .map, cardId: cardId, name: "store",
+                       left: 0, top: 0, width: 400, height: 300)
+        let btn = Part(partType: .button, cardId: cardId, name: "trigger",
+                       left: 500, top: 0, width: 100, height: 30)
+        doc.addPart(map)
+        doc.addPart(btn)
+
+        // Compose a button-style mouseUp handler — exactly what an
+        // author would type into a button or text-field script.
+        let source = """
+        on mouseUp
+          set the location of map "store" to "97537"
+        end mouseUp
+        """
+        var lexer = Lexer(source: source)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        let handler = script.handlers.first!
+        let context = ExecutionContext(targetId: btn.id, currentCardId: cardId, document: doc)
+        let result = Interpreter().execute(handler: handler, params: [], context: context)
+
+        let updated = (result.modifiedDocument ?? doc).parts.first { $0.name == "store" }!
+        #expect(updated.mapLocation == "97537")
+    }
+
+    @Test("AI tool getter: `location` on map returns mapLocation when set")
+    func aiGetMapLocationWhenSet() async {
+        var doc = HypeDocument.newDocument(name: "MapTest")
+        let cardId = doc.cards[0].id
+        var part = Part(partType: .map, cardId: cardId, name: "store",
+                        left: 100, top: 200, width: 400, height: 300)
+        part.mapLocation = "97537"
+        doc.addPart(part)
+        let executor = HypeToolExecutor()
+        let read = await executor.execute(
+            toolName: "get_part_property",
+            arguments: ["part_name": "store", "property": "location"],
+            document: &doc, currentCardId: cardId
+        )
+        #expect(read == "97537")
+    }
+
+    @Test("AI tool: list_all_properties returns map-specific properties")
+    func aiListAllPropertiesMap() async {
+        var doc = HypeDocument.newDocument(name: "MapTest")
+        let cardId = doc.cards[0].id
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_map",
+            arguments: ["name": "store", "left": "0", "top": "0", "width": "400", "height": "300", "location": "97537"],
+            document: &doc, currentCardId: cardId
+        )
+        let result = await executor.execute(
+            toolName: "list_all_properties",
+            arguments: ["part_name": "store"],
+            document: &doc, currentCardId: cardId
+        )
+        // Map-specific section is present
+        #expect(result.contains("centerLat"))
+        #expect(result.contains("centerLon"))
+        #expect(result.contains("span"))
+        #expect(result.contains("mapType"))
+        #expect(result.contains("location"))
+        #expect(result.contains("annotations"))
+        #expect(result.contains("97537"))
+        // Common section is present
+        #expect(result.contains("visible"))
+        #expect(result.contains("script"))
+        #expect(result.contains("textFont"))
+        // Setter hint is present
+        #expect(result.contains("set_part_property"))
+        #expect(result.contains("HypeTalk"))
+    }
+
+    @Test("AI tool: list_all_properties returns Part not found for unknown name")
+    func aiListAllPropertiesNotFound() async {
+        var doc = HypeDocument.newDocument(name: "MapTest")
+        let cardId = doc.cards[0].id
+        let executor = HypeToolExecutor()
+        let result = await executor.execute(
+            toolName: "list_all_properties",
+            arguments: ["part_name": "doesNotExist"],
+            document: &doc, currentCardId: cardId
+        )
+        #expect(result.contains("not found"))
+    }
+
     // MARK: - ColorWell
 
     @Test("ColorWell defaults: orange-ish hex, interactive true")

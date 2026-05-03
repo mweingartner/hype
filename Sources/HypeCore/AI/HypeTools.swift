@@ -594,6 +594,24 @@ public struct HypeToolDefinitions {
             "property": ("string", "Property name to read", true),
         ]),
 
+        makeTool(name: "list_all_properties", description: """
+            Return EVERY property of a named part (with current value AND default), so you \
+            can discover what's settable without guessing the name. Use this before set_part_property \
+            when you don't already know the property name — saves a round-trip on misspellings.
+
+            The output is a structured text block, one property per line, formatted as \
+            `propertyName = currentValue   (default: defaultValue)`. Common properties \
+            (geometry, state, text, script) come first; type-specific properties (e.g. \
+            mapCenterLat / audioOutputPath / scene3DAntialiasing) follow. The same property \
+            names work as the `property` argument to set_part_property and get_part_property, \
+            and as the property name in HypeTalk's `the X of <kind> "name"` syntax.
+
+            Returns "Part 'X' not found" if the named part doesn't exist on the current card or \
+            its background.
+            """, params: [
+            "part_name": ("string", "Name of the part to enumerate. Match is case-insensitive.", true),
+        ]),
+
         makeTool(name: "get_node_property", description: """
             Read the current value of a single property on a scene node. Use this instead of \
             dumping the whole scene via get_scene_spec when you only need one field. Supports \
@@ -1224,6 +1242,7 @@ public struct HypeToolDefinitions {
             "get_card_parts",
             "get_background_parts",
             "get_part_property",
+            "list_all_properties",
             "set_part_property",
             // Stack/card/background properties and scripts
             "get_stack_property",
@@ -1325,6 +1344,7 @@ public struct HypeToolDefinitions {
             // happens to contain a sprite area.
             "set_part_property",
             "get_part_property",
+            "list_all_properties",
             "create_button",
             "create_field",
             "create_label",

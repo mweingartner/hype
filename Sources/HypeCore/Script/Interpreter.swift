@@ -2695,6 +2695,15 @@ public struct Interpreter: Sendable {
         case "right":       return formatNumber(part.left + part.width)
         case "bottom":      return formatNumber(part.top + part.height)
         case "loc", "location":
+            // Map parts overload `location` to mean the geocoded
+            // place-name field when one is set. `loc` always returns
+            // the geometric centre. `location` on a map without a
+            // place name set falls back to the geometric centre so
+            // existing scripts that read `the location of map "X"`
+            // for layout never silently break.
+            if property.lowercased() == "location" && part.partType == .map && !part.mapLocation.isEmpty {
+                return part.mapLocation
+            }
             return "\(formatNumber(part.left + part.width / 2)),\(formatNumber(part.top + part.height / 2))"
         case "rect", "rectangle":
             return "\(formatNumber(part.left)),\(formatNumber(part.top)),\(formatNumber(part.left + part.width)),\(formatNumber(part.top + part.height))"
@@ -3403,10 +3412,22 @@ public struct Interpreter: Sendable {
                 document.parts[partIndex].height = components[3] - components[1]
             }
         case "loc", "location":
-            let components = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
-            if components.count == 2 {
-                document.parts[partIndex].left = components[0] - document.parts[partIndex].width / 2
-                document.parts[partIndex].top = components[1] - document.parts[partIndex].height / 2
+            // Map parts overload `location` to mean the geocoded
+            // place-name field — `set the location of map "X" to "97537"`.
+            // We detect the overload by trying to parse the value as
+            // an "x,y" coordinate pair: if it parses cleanly, we use
+            // the geometric meaning; otherwise we route to
+            // `mapLocation`. This keeps backward-compat for scripts
+            // that move map parts via `set the loc of map "X" to
+            // "100,200"` while making the human-friendly form work.
+            // Non-map parts always get the geometric meaning.
+            let components = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) }
+            let parsedAsCoords = components.count == 2 && components.allSatisfy { $0 != nil }
+            if document.parts[partIndex].partType == .map && !parsedAsCoords {
+                document.parts[partIndex].mapLocation = String(value.prefix(256))
+            } else if parsedAsCoords {
+                document.parts[partIndex].left = components[0]! - document.parts[partIndex].width / 2
+                document.parts[partIndex].top = components[1]! - document.parts[partIndex].height / 2
             }
         case "marked":
             if let idx = document.cards.firstIndex(where: { $0.id == context.currentCardId }) {

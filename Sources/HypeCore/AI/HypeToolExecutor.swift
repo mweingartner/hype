@@ -2484,6 +2484,21 @@ public struct HypeToolExecutor: Sendable {
                 return "Unknown property '\(property)'"
             }
 
+        case "list_all_properties":
+            // Enumerate every settable / readable property on the
+            // named part. The output mirrors the property names the
+            // SETTER accepts (set_part_property + HypeTalk's
+            // `set the X of <kind> "name"` syntax) so the model
+            // can copy them verbatim. Format:
+            //   `propertyName = currentValue   (default: defaultValue)`
+            // Common section first (geometry / state / text / script)
+            // then a type-specific section.
+            let partName = arguments["part_name"] ?? ""
+            guard let partIndex = scopedPartIndex(named: partName, currentCardId: currentCardId, in: document) else {
+                return "Part '\(partName)' not found"
+            }
+            return Self.formatAllProperties(document.parts[partIndex])
+
         case "get_node_property":
             let areaName = arguments["sprite_area_name"] ?? ""
             let nodeName = arguments["node_name"] ?? ""
@@ -4537,6 +4552,152 @@ public struct HypeToolExecutor: Sendable {
             // Do NOT forward localizedDescription — fixed safe string only (Finding 5).
             return "\(context) network error (transport failure)"
         }
+    }
+
+    // MARK: - List-all-properties helper
+
+    /// Render every property of `part` as a multi-line string the AI
+    /// can grep for property names. Output format (one per line):
+    ///   `propertyName = currentValue   (default: defaultValue)`
+    /// — names match what `set_part_property` and HypeTalk's
+    /// `the X of <kind> "name"` syntax accept, so the model can copy
+    /// them verbatim into a setter call.
+    static func formatAllProperties(_ p: Part) -> String {
+        var lines: [String] = []
+        lines.append("# All properties of [\(p.partType.rawValue)] '\(p.name)'")
+        lines.append("# Format: name = current   (default: default)")
+        lines.append("")
+
+        func row(_ name: String, _ current: String, _ defaultValue: String) {
+            lines.append("\(name) = \(current)   (default: \(defaultValue))")
+        }
+
+        // ----- Identity -----
+        lines.append("## Identity")
+        row("name", p.name, "(set on create)")
+        row("id", p.id.uuidString, "(stable UUID)")
+        lines.append("")
+
+        // ----- Geometry -----
+        lines.append("## Geometry")
+        row("left", String(p.left), "0")
+        row("top", String(p.top), "0")
+        row("width", String(p.width), "100")
+        row("height", String(p.height), "30")
+        row("right", String(p.left + p.width), "(left+width)")
+        row("bottom", String(p.top + p.height), "(top+height)")
+        row("loc", "\"\(Int(p.left + p.width / 2)),\(Int(p.top + p.height / 2))\"", "\"x,y\"")
+        row("rotation", String(p.rotation), "0")
+        lines.append("")
+
+        // ----- State -----
+        lines.append("## State")
+        row("visible", String(p.visible), "true")
+        row("enabled", String(p.enabled), "true")
+        row("hilite", String(p.hilite), "false")
+        row("autoHilite", String(p.autoHilite), "false (true for buttons)")
+        lines.append("")
+
+        // ----- Text styling (every part) -----
+        lines.append("## Text & styling")
+        row("textContent", "\"\(p.textContent.prefix(60))\"", "\"\"")
+        row("textFont", p.textFont.isEmpty ? "(empty)" : p.textFont, "System")
+        row("textSize", String(p.textSize), "14")
+        row("textStyle", p.textStyle.isEmpty ? "plain" : p.textStyle, "plain")
+        row("textAlign", p.textAlign.rawValue, "left")
+        row("fillColor", p.fillColor.isEmpty ? "(empty)" : p.fillColor, "(empty)")
+        row("strokeColor", p.strokeColor.isEmpty ? "(empty)" : p.strokeColor, "(empty)")
+        row("strokeWidth", String(p.strokeWidth), "1")
+        row("cornerRadius", String(p.cornerRadius), "0")
+        lines.append("")
+
+        // ----- Script -----
+        lines.append("## Script")
+        let scriptPreview = p.script.isEmpty ? "(empty)" : "\"\(p.script.prefix(80))\(p.script.count > 80 ? "..." : "")\""
+        row("script", scriptPreview, "(empty)")
+        lines.append("")
+
+        // ----- Type-specific section -----
+        lines.append("## Type-specific (kind: \(p.partType.rawValue))")
+        switch p.partType {
+        case .button:
+            row("style", p.buttonStyle.rawValue, "rounded")
+            row("showName", String(p.showName), "true")
+            row("popupItems", "\"\(p.popupItems.replacingOccurrences(of: "\n", with: "|"))\"", "\"\"")
+        case .field:
+            row("style", p.fieldStyle.rawValue, "rectangle")
+            row("lockText", String(p.lockText), "false")
+            row("dontWrap", String(p.dontWrap), "false")
+            row("wideMargins", String(p.wideMargins), "false")
+            row("richText", String(p.richText), "false")
+            row("enterKeyEnabled", String(p.enterKeyEnabled), "false")
+        case .shape:
+            row("shapeType", p.shapeType.rawValue, "rectangle")
+        case .webpage:
+            row("url", "\"\(p.url)\"", "\"\"")
+        case .video:
+            row("videoURL", "\"\(p.videoURL)\"", "\"\"")
+        case .image:
+            row("hasImage", String(p.imageData != nil), "false")
+            row("invertOnClick", String(p.invertOnClick), "false")
+            row("animated", String(p.animated), "true (for GIFs)")
+            row("transparentBackground", String(p.transparentBackground), "false")
+            row("imageFilter", p.imageFilter.isEmpty ? "(none)" : p.imageFilter, "(none)")
+            row("imageFilterIntensity", String(p.imageFilterIntensity), "0.7")
+        case .chart:
+            row("chartData", "\"\(p.chartData.prefix(80))\(p.chartData.count > 80 ? "..." : "")\"", "JSON config")
+        case .spriteArea:
+            row("sceneSpec", "\"\(p.sceneSpec.prefix(80))\(p.sceneSpec.count > 80 ? "..." : "")\"", "JSON spec")
+        case .calendar:
+            row("selectedDate", "\"\(p.selectedDate)\"", "\"\" (today)")
+            row("displayMonth", "\"\(p.displayMonth)\"", "\"\"")
+            row("minDate", "\"\(p.minDate)\"", "\"\"")
+            row("maxDate", "\"\(p.maxDate)\"", "\"\"")
+            row("calendarStyle", p.calendarStyle, "graphical")
+        case .pdf:
+            row("pdfURL", "\"\(p.pdfURL)\"", "\"\"")
+            row("currentPage", String(p.pdfCurrentPage), "1")
+            row("displayMode", p.pdfDisplayMode, "continuous")
+            row("autoScales", String(p.pdfAutoScales), "true")
+        case .map:
+            row("centerLat", String(p.mapCenterLat), "37.7749")
+            row("centerLon", String(p.mapCenterLon), "-122.4194")
+            row("span", String(p.mapSpan), "0.05")
+            row("mapType", p.mapType, "standard")
+            row("location", "\"\(p.mapLocation)\"", "\"\" (use lat/lon)")
+            row("annotations", "\"\(p.mapAnnotationsJSON.prefix(80))\(p.mapAnnotationsJSON.count > 80 ? "..." : "")\"", "\"\" (JSON array)")
+        case .colorWell:
+            row("color", p.colorWellHex, "#FF5500")
+            row("interactive", String(p.colorWellInteractive), "true")
+        case .stepper, .slider:
+            row("value", String(p.controlValue), "0")
+            row("min", String(p.controlMin), "0")
+            row("max", String(p.controlMax), "100")
+            row("step", String(p.controlStep), "1")
+        case .toggle:
+            row("on", String(p.controlValue >= 0.5), "false")
+        case .segmented:
+            row("segments", "\"\(p.segmentItems)\"", "\"First|Second|Third\"")
+            row("selectedSegment", String(Int(p.controlValue)), "0")
+        case .audioRecorder:
+            row("recording", String(p.audioRecording), "false")
+            row("playing", String(p.audioPlaying), "false")
+            row("duration", String(p.audioDuration), "0")
+            row("outputPath", "\"\(p.audioOutputPath)\"", "\"\" (auto temp)")
+            row("format", p.audioFormat, "m4a")
+        case .scene3D:
+            row("object", "\"\(p.scene3DSourceURL.isEmpty ? p.scene3DURL : p.scene3DSourceURL)\"", "\"\"")
+            row("modelURL", "\"\(p.scene3DURL)\"", "\"\" (resolved cache path)")
+            row("allowsCameraControl", String(p.scene3DAllowsCameraControl), "true")
+            row("autoLighting", String(p.scene3DAutoLighting), "true")
+            row("antialiasing", p.scene3DAntialiasing, "multisampling4X")
+            row("background3d", "\"\(p.scene3DBackground)\"", "\"\" (transparent)")
+        }
+        lines.append("")
+        lines.append("# Set any of these via:")
+        lines.append("#   AI tool: set_part_property(part_name=\"\(p.name)\", property=\"<name>\", value=\"<new>\")")
+        lines.append("#   HypeTalk: set the <name> of \(p.partType.rawValue) \"\(p.name)\" to <new>")
+        return lines.joined(separator: "\n")
     }
 
     // MARK: - STL Model Path Resolver

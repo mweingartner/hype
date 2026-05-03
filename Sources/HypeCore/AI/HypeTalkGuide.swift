@@ -90,6 +90,13 @@ public enum HypeTalkGuide {
             set the visible of button "OK" to false        -- hide a button
             set the visible of image "logo" to not the visible of image "logo"   -- toggle (boolean negation)
             set the loc of sprite "player" to "200,300"      -- points are "x,y" strings
+            set the location of map "store" to "97537"       -- map: location is overloaded — non-coords routes to mapLocation (geocode)
+            set the location of button "play" to "100,200"   -- non-map: location = geometric center (same as loc)
+
+        Discoverability: when you don't remember a property name, call the
+        `list_all_properties(part_name)` tool — it returns every property
+        (current + default) for that part using exactly the names this
+        syntax accepts.
 
         **Part properties:** name, id, left, top, width, height, right, bottom, loc, rect, visible, enabled, hilite, style, script, textFont, textSize, textAlign, textStyle, textContent, fillColor, strokeColor, strokeWidth, cornerRadius, showName, autoHilite, lockText, url.
         **Sprite-node properties:** loc, size, width, height, rotation, alpha, xScale, yScale, zPosition, hidden, text, fontName, fontSize, fontColor, fillColor, strokeColor, lineWidth, velocity, angularVelocity, density, friction, restitution, damping, dynamic, affectedByGravity, birthRate, particleLifetime, particleSpeed, particleColor, particleScale, emissionAngle, volume, loop, autoplay, target, zoom.
