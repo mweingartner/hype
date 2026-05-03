@@ -293,7 +293,12 @@ public enum HypeTalkGuide {
             -- The user can orbit/zoom by default; toggle off with
             -- `set the allowsCameraControl of scene3d "model" to false`.
 
-        **Start / stop voice memo recording:**
+        **Audio recorder — record, save to a chosen file, play back:**
+            -- Pin the file path BEFORE starting (otherwise a temp file
+            -- under FileManager.temporaryDirectory is auto-generated):
+            set the outputPath of recorder "memo" to "/Users/me/voice-memo.m4a"
+
+            -- Start / stop recording (toggle from a button handler):
             on mouseUp
               if the recording of recorder "memo" then
                 set the recording of recorder "memo" to false
@@ -301,9 +306,30 @@ public enum HypeTalkGuide {
                 set the recording of recorder "memo" to true
               end if
             end mouseUp
-            -- Watch the live duration via `the duration of recorder "X"`,
-            -- and read the saved file via `the outputPath of recorder "X"`
-            -- after a `recordingStopped` message fires on the part.
+
+            -- Play back the most-recent recording:
+            set the playing of recorder "memo" to true
+            -- ...stops automatically when the file ends, or:
+            set the playing of recorder "memo" to false
+
+            -- React to lifecycle messages:
+            on recordingStarted
+              put "Recording..." into field "status"
+            end recordingStarted
+            on recordingStopped
+              put "Saved " & the outputPath of me into field "status"
+            end recordingStopped
+            on playbackStarted
+              put "Playing back" into field "status"
+            end playbackStarted
+            on playbackStopped
+              put "Done" into field "status"
+            end playbackStopped
+
+            -- Live polling: `the duration of recorder "X"` ticks every
+            -- 0.1s while recording. `the recording of <r>` and
+            -- `the playing of <r>` return "true"/"false". Format
+            -- ("m4a" or "caf") is set via `the format of recorder "X"`.
 
         **React to a segmented selection:**
             on selectionChanged

@@ -597,6 +597,7 @@ public struct HypeToolExecutor: Sendable {
             props.append("selectedSegment=\(Int(p.controlValue))")
         case .audioRecorder:
             props.append("recording=\(p.audioRecording)")
+            props.append("playing=\(p.audioPlaying)")
             props.append(String(format: "duration=%.1f", p.audioDuration))
             if !p.audioOutputPath.isEmpty { props.append("outputPath=\(p.audioOutputPath)") }
             props.append("format=\(p.audioFormat)")
@@ -1352,6 +1353,7 @@ public struct HypeToolExecutor: Sendable {
                 case "selectedsegment", "selected_segment": document.parts[index].controlValue = Double(value) ?? 0
                 // AudioRecorder
                 case "recording": document.parts[index].audioRecording = (value.lowercased() == "true")
+                case "playing": document.parts[index].audioPlaying = (value.lowercased() == "true")
                 case "outputpath", "output_path", "filepath", "file_path": document.parts[index].audioOutputPath = value
                 case "format": document.parts[index].audioFormat = value
                 // Scene3D
@@ -2410,6 +2412,7 @@ public struct HypeToolExecutor: Sendable {
             case "selectedsegment", "selected_segment": return String(Int(part.controlValue))
             // AudioRecorder
             case "recording": return String(part.audioRecording)
+            case "playing": return String(part.audioPlaying)
             case "duration": return String(part.audioDuration)
             case "outputpath", "output_path", "filepath", "file_path": return part.audioOutputPath
             case "format": return part.audioFormat

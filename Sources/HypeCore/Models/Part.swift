@@ -216,6 +216,12 @@ public struct Part: Identifiable, Codable, Sendable {
     /// recorder "X"` reflect live progress without polling AVKit
     /// directly.
     public var audioDuration: Double
+    /// True while the recorder is actively playing back its
+    /// recorded file. Setting this to true via the AI / HypeTalk
+    /// surface starts playback of `audioOutputPath`; setting to
+    /// false stops. Mutually exclusive with `audioRecording` —
+    /// the host stops one before starting the other.
+    public var audioPlaying: Bool
 
     // Scene3D-specific (SceneKit)
     /// File path or http(s) URL of the 3D model to load. `.usdz`,
@@ -323,6 +329,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.audioOutputPath = ""
         self.audioFormat = "m4a"
         self.audioDuration = 0
+        self.audioPlaying = false
         self.scene3DURL = ""
         self.scene3DAllowsCameraControl = true
         self.scene3DAutoLighting = true
@@ -426,6 +433,7 @@ public struct Part: Identifiable, Codable, Sendable {
         audioOutputPath = try container.decodeIfPresent(String.self, forKey: .audioOutputPath) ?? ""
         audioFormat = try container.decodeIfPresent(String.self, forKey: .audioFormat) ?? "m4a"
         audioDuration = try container.decodeIfPresent(Double.self, forKey: .audioDuration) ?? 0
+        audioPlaying = try container.decodeIfPresent(Bool.self, forKey: .audioPlaying) ?? false
         // Scene3D fields — backward-compat optional.
         scene3DURL = try container.decodeIfPresent(String.self, forKey: .scene3DURL) ?? ""
         scene3DAllowsCameraControl = try container.decodeIfPresent(Bool.self, forKey: .scene3DAllowsCameraControl) ?? true

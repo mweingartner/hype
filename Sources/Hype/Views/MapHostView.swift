@@ -1,6 +1,5 @@
 import AppKit
 import MapKit
-import CoreLocation
 import HypeCore
 
 /// AppKit-hosted MapKit view for `map` parts.
@@ -30,18 +29,35 @@ final class MapHostNSView: NSView, MKMapViewDelegate {
     /// so apply() doesn't re-issue a geocode on every redraw.
     private var appliedLocation: String = ""
 
-    /// Has apply() ever been called? Used to gate geocoding so
-    /// values DESERIALIZED from disk (first apply()) don't trigger
-    /// a network call — only INTERACTIVE changes within this
-    /// session do. Without this gate, opening a hostile stack
-    /// would silently ping Apple's geocoding servers on load,
-    /// which is a covert-telemetry vector.
-    private var hasAppliedOnce = false
+    /// Last-applied lat/lon/span. Without these, `apply()` would
+    /// unconditionally `setRegion(...)` on every redraw — including
+    /// the apply() call that arrives mid-geocode while the user is
+    /// still typing in the Location field. That snaps the map back
+    /// to whatever stale lat/lon is stored in the document and
+    /// clobbers the just-geocoded coordinates from
+    /// `applyResolvedCoordinate(...)`. Tracking applied state lets
+    /// us skip the redundant setRegion when the coords haven't
+    /// actually changed.
+    private var appliedLat: Double = .nan
+    private var appliedLon: Double = .nan
+    private var appliedSpan: Double = .nan
+    private var appliedMapType: String = ""
 
-    /// Active geocoder. Held as an instance property so we can
-    /// `cancelGeocode()` if the part is torn down mid-request,
-    /// avoiding a callback into a freed view.
-    private let geocoder = CLGeocoder()
+    /// Active in-flight `MKLocalSearch`, if any. `MKLocalSearch`
+    /// replaces `CLGeocoder` (which Apple deprecated in macOS 26
+    /// with the explicit advice "Use MapKit"). Held as an instance
+    /// property so we can `cancel()` if the host is torn down or
+    /// the user types a new address before the previous resolves.
+    private var activeSearch: MKLocalSearch?
+
+    /// Debounce timer — the inspector's TextField binding writes
+    /// back on every keystroke, so without debouncing we'd issue
+    /// an MKLocalSearch request per character ("E" → "Ei" → "Eif"
+    /// → ...) and Apple's rate limiter would silently fail most of
+    /// them. We wait `debounceInterval` seconds after the last
+    /// change before actually calling the search.
+    private var debounceTimer: Timer?
+    private let debounceInterval: TimeInterval = 0.5
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -61,31 +77,52 @@ final class MapHostNSView: NSView, MKMapViewDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func apply(_ part: Part) {
-        mapView.mapType = Self.mapType(for: part.mapType)
+        if part.mapType != appliedMapType {
+            mapView.mapType = Self.mapType(for: part.mapType)
+            appliedMapType = part.mapType
+        }
 
-        let center = CLLocationCoordinate2D(latitude: part.mapCenterLat, longitude: part.mapCenterLon)
-        // Always refresh the region — cheap and idempotent.
-        let span = MKCoordinateSpan(
-            latitudeDelta: max(0.0001, part.mapSpan),
-            longitudeDelta: max(0.0001, part.mapSpan)
-        )
-        mapView.setRegion(MKCoordinateRegion(center: center, span: span), animated: false)
+        // Compare-and-skip the region update. Without this, every
+        // keystroke in the inspector's Location field re-triggers
+        // apply() and snaps the map back to whatever lat/lon is in
+        // the doc — clobbering the just-geocoded coordinates from
+        // `applyResolvedCoordinate(...)`. We only call setRegion
+        // when the doc's lat/lon/span changed since we last applied.
+        let needsRegionUpdate =
+            part.mapCenterLat != appliedLat ||
+            part.mapCenterLon != appliedLon ||
+            part.mapSpan != appliedSpan
+        if needsRegionUpdate {
+            let center = CLLocationCoordinate2D(latitude: part.mapCenterLat, longitude: part.mapCenterLon)
+            let span = MKCoordinateSpan(
+                latitudeDelta: max(0.0001, part.mapSpan),
+                longitudeDelta: max(0.0001, part.mapSpan)
+            )
+            mapView.setRegion(MKCoordinateRegion(center: center, span: span), animated: false)
+            appliedLat = part.mapCenterLat
+            appliedLon = part.mapCenterLon
+            appliedSpan = part.mapSpan
+        }
 
-        // Forward-geocode the user-entered location string when it
-        // changes — but ONLY for interactive changes within this
-        // session. The first apply() (right after the host is created)
-        // captures whatever mapLocation came from disk WITHOUT
-        // geocoding it, so opening a hostile stack can't silently
-        // beacon to Apple. Subsequent changes (inspector edits, AI
-        // tool calls, HypeTalk setters) DO trigger geocoding.
+        // Forward-geocode the user-entered location string whenever
+        // it changes from what we last applied. The cache (process-
+        // singleton, 60s negative TTL) absorbs repeat opens and
+        // navigation-induced host recreations so we don't hammer
+        // Apple. The compare-and-skip on `appliedLocation` is
+        // initialized to "" on host creation, so the first apply
+        // with a non-empty location WILL fire a geocode — necessary
+        // because the host is destroyed/recreated on card transitions
+        // and inspector toggles, and the user expects the displayed
+        // map to match the part's stored location string regardless.
         let normalizedLocation = MapGeocodeCache.normalize(part.mapLocation)
-        if !hasAppliedOnce {
-            appliedLocation = normalizedLocation
-            hasAppliedOnce = true
-        } else if normalizedLocation != appliedLocation {
+        if normalizedLocation != appliedLocation {
             appliedLocation = normalizedLocation
             if !normalizedLocation.isEmpty {
-                resolveLocation(part.mapLocation)
+                scheduleGeocode(part.mapLocation)
+            } else {
+                // Cleared — cancel any pending debounce.
+                debounceTimer?.invalidate()
+                debounceTimer = nil
             }
         }
 
@@ -103,11 +140,33 @@ final class MapHostNSView: NSView, MKMapViewDelegate {
         }
     }
 
+    /// Schedule a debounced geocode. Cancels any prior pending
+    /// request and starts a new timer; only after `debounceInterval`
+    /// seconds of quiescence do we actually hit MKLocalSearch. This
+    /// keeps fast typing in the inspector field from issuing a
+    /// request per keystroke and tripping Apple's rate limit.
+    private func scheduleGeocode(_ raw: String) {
+        debounceTimer?.invalidate()
+        debounceTimer = Timer.scheduledTimer(withTimeInterval: debounceInterval, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.resolveLocation(raw)
+            }
+        }
+    }
+
     /// Resolve a human-friendly location string into a coordinate.
-    /// Cache-hit-first; falls back to CLGeocoder on a miss; records
-    /// failures for 60s to dampen retry storms. Captures only
-    /// `[weak self]` + the partId-bearing closure already wired in
-    /// updateMapViews — no Part struct or document strong refs.
+    /// Cache-hit-first; falls back to `MKLocalSearch` on a miss;
+    /// records failures for 60s to dampen retry storms. Captures
+    /// only `[weak self]` + the partId-bearing closure already
+    /// wired in updateMapViews — no Part struct or document strong
+    /// refs.
+    ///
+    /// We use `MKLocalSearch` rather than `CLGeocoder` because the
+    /// latter was deprecated in macOS 26 with the explicit Apple
+    /// advice "Use MapKit". `MKLocalSearch` accepts the same kinds
+    /// of natural-language queries (place names, full addresses,
+    /// US ZIP codes, points of interest) and returns
+    /// `MKMapItem` results with `.placemark.coordinate`.
     private func resolveLocation(_ raw: String) {
         if let cached = MapGeocodeCache.shared.cachedCoordinate(for: raw) {
             applyResolvedCoordinate(cached)
@@ -116,15 +175,56 @@ final class MapHostNSView: NSView, MKMapViewDelegate {
         if MapGeocodeCache.shared.isRecentlyFailed(raw) {
             return
         }
-        geocoder.geocodeAddressString(raw) { [weak self] placemarks, _ in
-            Task { @MainActor [weak self] in
+
+        // Cancel any prior in-flight search so a slow earlier query
+        // can't race ahead of the latest one and clobber the map.
+        activeSearch?.cancel()
+
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = raw
+        // Bias the search toward what the map is currently showing.
+        // Without a region hint, ambiguous strings (e.g. "Springfield")
+        // pick essentially at random; with a hint they prefer matches
+        // near the visible area.
+        request.region = mapView.region
+
+        let search = MKLocalSearch(request: request)
+        activeSearch = search
+        search.start { [weak self] response, error in
+            // The completion handler is documented to run on the
+            // main thread, but be belt-and-suspenders explicit.
+            DispatchQueue.main.async {
                 guard let self = self else { return }
-                if let coord = placemarks?.first?.location?.coordinate {
-                    MapGeocodeCache.shared.recordHit(for: raw, coordinate: coord)
-                    self.applyResolvedCoordinate(coord)
-                } else {
+                self.activeSearch = nil
+
+                if let error = error {
+                    let nsError = error as NSError
+                    // MKError.cancelled fires when we cancel a stale
+                    // request — it's expected and not a real failure.
+                    if nsError.domain == MKErrorDomain,
+                       nsError.code == MKError.Code.placemarkNotFound.rawValue {
+                        HypeLogger.shared.info(
+                            "MapHost.resolveLocation: no match for '\(raw)' (placemarkNotFound)",
+                            source: "MapGeocode"
+                        )
+                        MapGeocodeCache.shared.recordFailure(for: raw)
+                        return
+                    }
+                    HypeLogger.shared.error(
+                        "MapHost.resolveLocation: MKLocalSearch error for '\(raw)': \(error.localizedDescription) (domain=\(nsError.domain) code=\(nsError.code))",
+                        source: "MapGeocode"
+                    )
                     MapGeocodeCache.shared.recordFailure(for: raw)
+                    return
                 }
+
+                guard let coord = response?.mapItems.first?.placemark.coordinate else {
+                    MapGeocodeCache.shared.recordFailure(for: raw)
+                    return
+                }
+
+                MapGeocodeCache.shared.recordHit(for: raw, coordinate: coord)
+                self.applyResolvedCoordinate(coord)
             }
         }
     }
@@ -135,11 +235,23 @@ final class MapHostNSView: NSView, MKMapViewDelegate {
     private func applyResolvedCoordinate(_ coord: CLLocationCoordinate2D) {
         let span = mapView.region.span
         mapView.setRegion(MKCoordinateRegion(center: coord, span: span), animated: true)
+        // Update the cached "last-applied" coords BEFORE firing the
+        // writeback. The writeback triggers a SwiftUI re-render,
+        // which calls apply() again — and apply()'s compare-and-skip
+        // needs to see "yes, these coords are already applied" so it
+        // doesn't redundantly setRegion (which can flicker the map
+        // briefly back through an animation).
+        appliedLat = coord.latitude
+        appliedLon = coord.longitude
+        appliedSpan = span.latitudeDelta
         onLocationResolved?(coord.latitude, coord.longitude)
     }
 
     override func removeFromSuperview() {
-        geocoder.cancelGeocode()
+        debounceTimer?.invalidate()
+        debounceTimer = nil
+        activeSearch?.cancel()
+        activeSearch = nil
         super.removeFromSuperview()
     }
 

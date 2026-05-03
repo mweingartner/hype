@@ -320,15 +320,21 @@ struct CardCanvasView: NSViewRepresentable {
         /// duration, output-file path. Dispatches `recordingStarted`
         /// or `recordingStopped` on transitions so HypeTalk handlers
         /// can react.
-        func setPartAudioRecorderState(id: UUID, recording: Bool, duration: Double, outputPath: String) {
-            let priorRecording = parent.document.document.parts.first(where: { $0.id == id })?.audioRecording ?? false
+        func setPartAudioRecorderState(id: UUID, recording: Bool, playing: Bool, duration: Double, outputPath: String) {
+            let prior = parent.document.document.parts.first(where: { $0.id == id })
+            let priorRecording = prior?.audioRecording ?? false
+            let priorPlaying = prior?.audioPlaying ?? false
             parent.document.document.updatePart(id: id) {
                 $0.audioRecording = recording
+                $0.audioPlaying = playing
                 $0.audioDuration = duration
                 if !outputPath.isEmpty { $0.audioOutputPath = outputPath }
             }
             if recording != priorRecording {
                 dispatchMessage(recording ? "recordingStarted" : "recordingStopped", to: id)
+            }
+            if playing != priorPlaying {
+                dispatchMessage(playing ? "playbackStarted" : "playbackStopped", to: id)
             }
         }
 
@@ -2816,10 +2822,11 @@ class CardCanvasNSView: NSView {
             let host = AudioRecorderHostNSView(frame: frame)
             host.apply(part)
             let partId = part.id
-            host.onStateChange = { [weak self] recording, duration, outputPath in
+            host.onStateChange = { [weak self] recording, playing, duration, outputPath in
                 self?.coordinator?.setPartAudioRecorderState(
                     id: partId,
                     recording: recording,
+                    playing: playing,
                     duration: duration,
                     outputPath: outputPath
                 )

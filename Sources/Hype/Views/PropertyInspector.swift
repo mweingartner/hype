@@ -1131,6 +1131,11 @@ struct PropertyInspector: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Audio Recorder").font(.subheadline).foregroundColor(.secondary)
             Toggle("Recording", isOn: bindPartBool(part.id, \.audioRecording))
+            Toggle("Playing", isOn: bindPartBool(part.id, \.audioPlaying))
+                .disabled(part.audioOutputPath.isEmpty)
+            Text("Toggle Recording / Playing here, or use the buttons on the part. HypeTalk: `set the recording of recorder \"X\" to true`, `set the playing of recorder \"X\" to true`.")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
             HStack {
                 Text("Format").font(.system(size: 10))
                 Picker("", selection: bindPartString(part.id, \.audioFormat)) {
@@ -1141,7 +1146,7 @@ struct PropertyInspector: View {
                 .pickerStyle(.menu)
             }
             propertyRow("Output Path", binding: bindPartString(part.id, \.audioOutputPath))
-            Text("Empty path = auto-generate under temp directory")
+            Text("Empty path = auto-generate under temp directory. Set explicitly to control where the recording is saved (and which file `Play` plays back).")
                 .font(.system(size: 9))
                 .foregroundColor(.secondary)
             HStack {

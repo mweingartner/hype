@@ -2758,6 +2758,7 @@ public struct Interpreter: Sendable {
         case "selectedsegment", "selected_segment": return String(Int(part.controlValue))
         // AudioRecorder
         case "recording":           return part.audioRecording ? "true" : "false"
+        case "playing":             return part.audioPlaying ? "true" : "false"
         case "duration":            return formatNumber(part.audioDuration)
         case "outputpath", "output_path", "filepath", "file_path": return part.audioOutputPath
         case "format":              return part.audioFormat
@@ -3561,6 +3562,8 @@ public struct Interpreter: Sendable {
         // AudioRecorder
         case "recording":
             document.parts[partIndex].audioRecording = isTruthy(value)
+        case "playing":
+            document.parts[partIndex].audioPlaying = isTruthy(value)
         case "outputpath", "output_path", "filepath", "file_path":
             document.parts[partIndex].audioOutputPath = value
         case "format":

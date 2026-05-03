@@ -68,7 +68,7 @@
 		</dict>
 	</array>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Hype uses the microphone for voice input in the AI Chat panel — your speech is transcribed locally and sent to your AI model as text.</string>
+	<string>Hype uses the microphone for voice input in the AI Chat panel (transcribed locally and sent to your AI model as text) and for recording audio into Audio Recorder parts in your stacks.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Hype uses speech recognition to transcribe voice commands in the AI Chat panel into text prompts for your AI model. Recognition is performed on-device when supported.</string>
 </dict>
