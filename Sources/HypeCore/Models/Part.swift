@@ -168,6 +168,12 @@ public struct Part: Identifiable, Codable, Sendable {
     /// JSON-encoded `[{lat, lon, title}]` annotations to drop on
     /// the map. Empty string means no annotations.
     public var mapAnnotationsJSON: String
+    /// Human-friendly location string the user enters (place name,
+    /// street address, or US ZIP). When non-empty, MapHostNSView
+    /// geocodes it via CLGeocoder and writes the resolved lat/lon
+    /// back into the part so HypeTalk reads and save/load always
+    /// see authoritative coordinates. Empty = use lat/lon directly.
+    public var mapLocation: String
 
     // ColorWell-specific
     /// Currently-bound color as a hex string (e.g. "#FF5500").
@@ -305,6 +311,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.mapSpan = 0.05
         self.mapType = "standard"
         self.mapAnnotationsJSON = ""
+        self.mapLocation = ""
         self.colorWellHex = "#FF5500"
         self.colorWellInteractive = true
         self.controlValue = 0
@@ -403,6 +410,8 @@ public struct Part: Identifiable, Codable, Sendable {
         mapSpan = try container.decodeIfPresent(Double.self, forKey: .mapSpan) ?? 0.05
         mapType = try container.decodeIfPresent(String.self, forKey: .mapType) ?? "standard"
         mapAnnotationsJSON = try container.decodeIfPresent(String.self, forKey: .mapAnnotationsJSON) ?? ""
+        // mapLocation — added after the initial map schema; backward-compat optional.
+        mapLocation = try container.decodeIfPresent(String.self, forKey: .mapLocation) ?? ""
         // ColorWell fields — backward-compat optional.
         colorWellHex = try container.decodeIfPresent(String.self, forKey: .colorWellHex) ?? "#FF5500"
         colorWellInteractive = try container.decodeIfPresent(Bool.self, forKey: .colorWellInteractive) ?? true

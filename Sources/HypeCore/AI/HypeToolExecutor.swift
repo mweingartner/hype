@@ -1059,6 +1059,13 @@ public struct HypeToolExecutor: Sendable {
             default:
                 part.mapType = "standard"
             }
+            // Geocoding is intentionally deferred to MapHostNSView.apply()
+            // so we don't block the AI's tool-call loop on a network round-
+            // trip — the host has the full cache + writeback machinery and
+            // will update lat/lon as soon as the map is on screen.
+            if let loc = arguments["location"]?.trimmingCharacters(in: .whitespacesAndNewlines), !loc.isEmpty {
+                part.mapLocation = String(loc.prefix(256))
+            }
             document.addPart(part)
             let layer = place.backgroundId != nil ? " on background" : ""
             return "Created map '\(part.name)'\(layer)"
@@ -1325,6 +1332,8 @@ public struct HypeToolExecutor: Sendable {
                 case "span": document.parts[index].mapSpan = Double(value) ?? 0.05
                 case "maptype", "map_type": document.parts[index].mapType = value
                 case "annotations": document.parts[index].mapAnnotationsJSON = value
+                case "location", "maplocation", "map_location":
+                    document.parts[index].mapLocation = String(value.prefix(256))
                 // ColorWell-specific
                 case "color", "colorhex", "color_hex": document.parts[index].colorWellHex = value
                 case "interactive": document.parts[index].colorWellInteractive = (value.lowercased() == "true")
@@ -2384,6 +2393,7 @@ public struct HypeToolExecutor: Sendable {
             case "span": return String(part.mapSpan)
             case "maptype", "map_type": return part.mapType
             case "annotations": return part.mapAnnotationsJSON
+            case "location", "maplocation", "map_location": return part.mapLocation
             // ColorWell
             case "color", "colorhex", "color_hex": return part.colorWellHex
             case "interactive": return String(part.colorWellInteractive)

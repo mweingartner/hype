@@ -1015,6 +1015,20 @@ struct PropertyInspector: View {
             propertyRow("Center Lat", binding: bindPartDoubleString(part.id, \.mapCenterLat))
             propertyRow("Center Lon", binding: bindPartDoubleString(part.id, \.mapCenterLon))
             propertyRow("Span (deg)", binding: bindPartDoubleString(part.id, \.mapSpan))
+            propertyRow("Location", binding: Binding<String>(
+                get: { document.document.parts.first(where: { $0.id == part.id })?.mapLocation ?? "" },
+                // Clamp to 256 chars to match the AI tool + HypeTalk
+                // setter contract — keeps document size predictable
+                // and avoids transmitting bloated strings to CLGeocoder.
+                set: { newValue in
+                    document.document.updatePart(id: part.id) {
+                        $0.mapLocation = String(newValue.prefix(256))
+                    }
+                }
+            ))
+            Text("Place name, address, or US ZIP. Sent to Apple for geocoding. Leave blank to use lat/lon directly.")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
             HStack {
                 Text("Type").font(.system(size: 10))
                 Picker("", selection: bindPartString(part.id, \.mapType)) {

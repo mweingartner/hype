@@ -186,6 +186,108 @@ struct Phase1ControlsTests {
         }
     }
 
+    @Test("Map location defaults to empty string")
+    func mapLocationDefault() {
+        let part = Part(partType: .map, name: "store")
+        #expect(part.mapLocation == "")
+    }
+
+    @Test("Map location round-trips through Codable")
+    func mapLocationCodable() throws {
+        var part = Part(partType: .map, name: "store")
+        part.mapLocation = "97537"
+        let data = try JSONEncoder().encode(part)
+        let decoded = try JSONDecoder().decode(Part.self, from: data)
+        #expect(decoded.mapLocation == "97537")
+    }
+
+    @Test("Map location backward-compat: JSON without mapLocation decodes to empty string")
+    func mapLocationBackwardCompat() throws {
+        var part = Part(partType: .map, name: "store")
+        part.mapLocation = "Rogue River, OR"
+        var dict = try JSONSerialization.jsonObject(
+            with: try JSONEncoder().encode(part)
+        ) as! [String: Any]
+        dict.removeValue(forKey: "mapLocation")
+        let stripped = try JSONSerialization.data(withJSONObject: dict)
+        let decoded = try JSONDecoder().decode(Part.self, from: stripped)
+        #expect(decoded.mapLocation == "")
+    }
+
+    @Test("create_map with location writes mapLocation, leaves lat/lon at SF defaults")
+    func aiCreateMapWithLocation() async {
+        var doc = HypeDocument.newDocument(name: "MapTest")
+        let cardId = doc.cards[0].id
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_map",
+            arguments: [
+                "name": "store",
+                "left": "0", "top": "0", "width": "400", "height": "300",
+                "location": "Rogue River, OR"
+            ],
+            document: &doc, currentCardId: cardId
+        )
+        let part = doc.parts.first { $0.partType == .map }
+        #expect(part?.mapLocation == "Rogue River, OR")
+        // lat/lon remain at the Part defaults when no explicit center args given
+        #expect(part?.mapCenterLat == 37.7749)
+        #expect(part?.mapCenterLon == -122.4194)
+    }
+
+    @Test("set_part_property accepts location on a map")
+    func aiSetMapLocation() async {
+        var doc = HypeDocument.newDocument(name: "MapTest")
+        let cardId = doc.cards[0].id
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_map",
+            arguments: ["name": "store", "left": "0", "top": "0", "width": "400", "height": "300"],
+            document: &doc, currentCardId: cardId
+        )
+        _ = await executor.execute(
+            toolName: "set_part_property",
+            arguments: ["part_name": "store", "property": "location", "value": "97537"],
+            document: &doc, currentCardId: cardId
+        )
+        #expect(doc.parts.first { $0.partType == .map }?.mapLocation == "97537")
+    }
+
+    @Test("HypeTalk parser accepts `the location of map \"store\"`")
+    func hypeTalkMapLocation() throws {
+        let source = "the location of map \"store\""
+        var lexer = Lexer(source: source)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let expr = try parser.parseExpression()
+        if case .propertyAccess(let prop, let target) = expr,
+           prop == "location",
+           case .objectRef(let ref) = target ?? .literal("") {
+            #expect(ref.objectType == "map")
+        } else {
+            Issue.record("expected propertyAccess(location, objectRef(map, ...)), got \(expr)")
+        }
+    }
+
+    @Test("mapLocation is clamped to 256 chars via set_part_property")
+    func mapLocationClampedTo256() async {
+        var doc = HypeDocument.newDocument(name: "MapTest")
+        let cardId = doc.cards[0].id
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_map",
+            arguments: ["name": "store", "left": "0", "top": "0", "width": "400", "height": "300"],
+            document: &doc, currentCardId: cardId
+        )
+        let longValue = String(repeating: "A", count: 1000)
+        _ = await executor.execute(
+            toolName: "set_part_property",
+            arguments: ["part_name": "store", "property": "location", "value": longValue],
+            document: &doc, currentCardId: cardId
+        )
+        #expect(doc.parts.first { $0.partType == .map }?.mapLocation.count == 256)
+    }
+
     // MARK: - ColorWell
 
     @Test("ColorWell defaults: orange-ish hex, interactive true")

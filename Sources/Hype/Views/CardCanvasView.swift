@@ -292,6 +292,19 @@ struct CardCanvasView: NSViewRepresentable {
             dispatchMessage("colorChanged", to: id)
         }
 
+        /// Write the geocoder-resolved coordinate back into the
+        /// document so HypeTalk reads + save/load see the new
+        /// lat/lon as authoritative. Mirrors setPartColorWellHex
+        /// and setPartCalendarDate. Dispatches `locationResolved`
+        /// so HypeTalk authors can react.
+        func setPartMapCoordinate(id: UUID, lat: Double, lon: Double) {
+            parent.document.document.updatePart(id: id) { part in
+                part.mapCenterLat = lat
+                part.mapCenterLon = lon
+            }
+            dispatchMessage("locationResolved", to: id)
+        }
+
         /// Shared writeback for stepper / slider / toggle /
         /// segmented control changes. The `message` parameter
         /// chooses which HypeTalk handler the part gets:
@@ -2558,6 +2571,10 @@ class CardCanvasNSView: NSView {
             }
             let host = MapHostNSView(frame: frame)
             host.apply(part)
+            let partId = part.id
+            host.onLocationResolved = { [weak self] lat, lon in
+                self?.coordinator?.setPartMapCoordinate(id: partId, lat: lat, lon: lon)
+            }
             addSubview(host, positioned: .above, relativeTo: nil)
             mapViews[part.id] = host
         }

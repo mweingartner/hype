@@ -2738,6 +2738,7 @@ public struct Interpreter: Sendable {
         case "span":                            return formatNumber(part.mapSpan)
         case "maptype", "map_type":             return part.mapType
         case "annotations":                     return part.mapAnnotationsJSON
+        case "maplocation", "map_location":     return part.mapLocation
         // ColorWell
         case "color", "colorhex", "color_hex":  return part.colorWellHex
         case "interactive":                     return part.colorWellInteractive ? "true" : "false"
@@ -3524,6 +3525,15 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].mapType = value
         case "annotations":
             document.parts[partIndex].mapAnnotationsJSON = value
+        case "maplocation", "map_location":
+            // `location` is already claimed as the geometry center-point
+            // alias ("loc/location") at the top of this switch, so map
+            // geocoding uses the unambiguous `maplocation` / `map_location`
+            // names in HypeTalk. The AI tool and inspector layers still
+            // accept "location" since those switches have no geometry case.
+            // Clamp to 256 chars — anything longer is bogus and would just
+            // bloat the document without helping geocoding.
+            document.parts[partIndex].mapLocation = String(value.prefix(256))
         // ColorWell
         case "color", "colorhex", "color_hex":
             document.parts[partIndex].colorWellHex = value

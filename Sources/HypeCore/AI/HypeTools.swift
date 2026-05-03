@@ -141,7 +141,12 @@ public struct HypeToolDefinitions {
             degrees), `span` (degrees of latitude shown — smaller is more zoomed in; 0.05 ≈ \
             city blocks), `map_type` ('standard' | 'satellite' | 'hybrid' | 'mutedStandard'). \
             Annotations attach via the separate `add_map_annotation` tool or by setting the \
-            `annotations` property to a JSON array of {lat, lon, title} objects.
+            `annotations` property to a JSON array of {lat, lon, title} objects. \
+            A `location` argument is also accepted for human-friendly placement \
+            ("Eiffel Tower", "Rogue River, OR", "97537") — the host geocodes it \
+            asynchronously via CLGeocoder and writes the resolved lat/lon back \
+            into the part. Geocoding may fail (network, invalid query, rate \
+            limit) — when it does, the supplied or default lat/lon stays in place.
             """, params: [
             "name": ("string", "Map part name", true),
             "left": ("string", "X position", true),
@@ -152,6 +157,7 @@ public struct HypeToolDefinitions {
             "center_lon": ("string", "Center longitude (decimal degrees)", false),
             "span": ("string", "Span in degrees (default 0.05)", false),
             "map_type": ("string", "standard (default) | satellite | hybrid | mutedStandard", false),
+            "location": ("string", "Human-friendly location: place name, address, or US ZIP. Resolved asynchronously by the host (CLGeocoder) on display; lat/lon are written back into the part once geocoded. If both location and center_lat/center_lon are provided, the geocoded location overrides lat/lon. Empty = use lat/lon directly.", false),
             "on_background": ("string", "true to place on background", false),
         ]),
 

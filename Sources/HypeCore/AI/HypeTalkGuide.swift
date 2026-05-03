@@ -313,19 +313,30 @@ public enum HypeTalkGuide {
               if idx is 2 then go to card "Settings"
             end selectionChanged
 
-        **Re-center a map:**
+        **Re-center a map by location string OR by lat/lon:**
+            -- Easiest: type a place name, address, or US ZIP and the
+            -- host geocodes it for you (async; results land in
+            -- centerLat/centerLon when it resolves).
+            -- Note: use `mapLocation` (not `location`) in HypeTalk
+            -- since `location` is the geometry center-point of any part:
+            set the mapLocation of map "store" to "Rogue River, OR"
+            set the mapLocation of map "store" to "97537"
+            set the mapLocation of map "store" to "Eiffel Tower"
+
+            -- Or set lat/lon directly (no geocoding needed):
             set the centerLat of map "store" to 37.7749
             set the centerLon of map "store" to -122.4194
             set the span of map "store" to 0.02
+
+            -- React to a successful geocode (fires after async lookup):
+            on locationResolved
+              put "Now showing " & the centerLat of me & "," & the centerLon of me into field "status"
+            end locationResolved
+
             -- Add pins via the AI tool `add_map_annotation`, or
             -- replace the entire annotation set by setting
             -- `annotations` to a JSON string like
             -- '[{"lat":37.77,"lon":-122.42,"title":"HQ"}]'.
-            -- The `dateChanged` message fires on the calendar part
-            -- whenever the user picks a new date in the live picker.
-            -- Read the date as ISO 8601 (yyyy-MM-dd) and write/format
-            -- as needed. Set the value programmatically with
-            -- `set the selectedDate of calendar "due" to "2026-12-25"`.
 
         **Flash a part — hide, wait, show:**
             on mouseUp
