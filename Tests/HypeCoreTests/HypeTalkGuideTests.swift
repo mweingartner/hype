@@ -32,19 +32,63 @@ struct HypeTalkGuideTests {
         #expect(HypeTalkGuide.llmContext.count > 500)
     }
 
-    @Test("guide stays under the 16 KB budget so it is cheap to ship on every request")
+    @Test("guide stays under the 32 KB budget so it is cheap to ship on every request")
     func guideStaysUnderBudget() {
-        // Budget: 16 KB (≈ 4000 tokens). Raised from 12 KB on
-        // 2026-04-10 to accommodate the Sound and Animation
-        // sections. The guide now covers play/beep/wait/NAOD notes,
-        // system sounds, animate command, tile maps, check_script
-        // validation protocol, and the full sprite-scene command
-        // set. At ~12.4 KB it's ≈3% of a 128K-context model.
+        // Budget: 32 KB (≈ 8000 tokens). Raised from 16 KB on
+        // 2026-05-02 to accommodate the Phase 1 + 2 framework
+        // controls (Calendar, PDF, Map, ColorWell, Stepper, Slider,
+        // Toggle, Segmented, Audio Recorder, Scene3D, Image
+        // Filters), the centralized Framework Control Properties
+        // table, and the System & Lifecycle Messages catalog
+        // (recordingStarted/Stopped, playbackStarted/Stopped,
+        // dateChanged, colorChanged, valueChanged, selectionChanged,
+        // locationResolved). At ~26 KB it's ≈6% of a 128K-context
+        // model — still well within typical chat budgets.
         //
         // Raise the budget deliberately if future additions justify
         // it, but only with an accompanying note on the tradeoff.
-        #expect(HypeTalkGuide.llmContext.count < 16384,
+        #expect(HypeTalkGuide.llmContext.count < 32768,
                 "HypeTalkGuide.llmContext is \(HypeTalkGuide.llmContext.count) characters — bump the budget intentionally if this is expected")
+    }
+
+    // MARK: - Framework controls + lifecycle messages coverage
+
+    @Test("guide lists the framework control object types and key properties")
+    func guideListsFrameworkControls() {
+        let text = HypeTalkGuide.llmContext
+        // Phase 1
+        for kind in ["calendar", "pdf", "map", "colorWell"] {
+            #expect(text.contains(kind), "guide is missing framework control kind '\(kind)'")
+        }
+        // Phase 2 form controls
+        for kind in ["stepper", "slider", "toggle", "segmented"] {
+            #expect(text.contains(kind), "guide is missing form control kind '\(kind)'")
+        }
+        // Phase 2 media + 3D
+        for kind in ["recorder", "scene3d"] {
+            #expect(text.contains(kind), "guide is missing media/3D control kind '\(kind)'")
+        }
+        // Audio + map property names that postdate the original guide
+        for prop in ["recording", "playing", "outputPath", "selectedDate", "currentPage", "centerLat", "centerLon", "maplocation", "color", "value", "on", "selectedSegment"] {
+            #expect(text.contains(prop), "guide is missing framework property '\(prop)'")
+        }
+    }
+
+    @Test("guide lists every lifecycle message dispatched by the host runtime")
+    func guideListsLifecycleMessages() {
+        let text = HypeTalkGuide.llmContext
+        let messages = [
+            // Audio recorder
+            "recordingStarted", "recordingStopped",
+            "playbackStarted", "playbackStopped",
+            // Calendar / ColorWell / Form controls
+            "dateChanged", "colorChanged", "valueChanged", "selectionChanged",
+            // Map
+            "locationResolved",
+        ]
+        for msg in messages {
+            #expect(text.contains(msg), "guide is missing lifecycle message '\(msg)'")
+        }
     }
 
     // MARK: - Section coverage

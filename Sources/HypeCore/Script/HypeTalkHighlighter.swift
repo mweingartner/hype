@@ -51,9 +51,18 @@ public struct HypeTalkHighlighter: Sendable {
     ]
 
     private static let objectTypes: Set<String> = [
+        // Original HyperCard-style object kinds.
         "card", "background", "bg", "field", "fld", "button", "btn",
         "sprite", "scene", "spritearea", "stack", "webpage", "image", "video", "emitter",
         "action", "ai", "paint", "file", "printing",
+        // Phase 1 framework controls (Calendar / PDF / Map / ColorWell)
+        // and the chart part — referenced in HypeTalk as
+        // `the X of map "store"`, `the centerLat of map "X"`, etc.
+        "chart", "calendar", "pdf", "map", "colorwell",
+        // Phase 2 form controls.
+        "stepper", "slider", "toggle", "segmented",
+        // Phase 2 media + 3D.
+        "audiorecorder", "recorder", "scene3d", "model3d",
     ]
 
     private static let constants: Set<String> = [

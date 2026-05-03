@@ -69,6 +69,43 @@ struct HypeTalkHighlighterThemeTests {
                 "light and dark script themes should have different backgrounds")
     }
 
+    @Test("highlighter recognizes Phase 1+2 framework control object types")
+    func highlighterRecognizesFrameworkControls() {
+        let h = HypeTalkHighlighter()
+        // One per kind so we can verify the .objectType category fires.
+        let source = """
+        set the selectedDate of calendar "due" to "2026-12-25"
+        set the currentPage of pdf "manual" to 5
+        set the maplocation of map "store" to "97537"
+        set the color of colorWell "fill" to "#FF0000"
+        set the value of stepper "qty" to 10
+        set the value of slider "vol" to 0.5
+        set the on of toggle "muted" to true
+        set the selectedSegment of segmented "tabs" to 1
+        set the recording of recorder "memo" to true
+        set the playing of recorder "memo" to true
+        set the modelURL of scene3d "model" to "/path/to.usdz"
+        play chart "graph"
+        """
+        let tokens = h.highlight(source)
+
+        // Pluck the lowercased word for every .objectType token.
+        let kinds = Set(tokens.compactMap { tok -> String? in
+            guard tok.category == .objectType else { return nil }
+            return String(source[tok.range]).lowercased()
+        })
+
+        let expected = [
+            "calendar", "pdf", "map", "colorwell",
+            "stepper", "slider", "toggle", "segmented",
+            "recorder", "scene3d", "chart",
+        ]
+        for kind in expected {
+            #expect(kinds.contains(kind),
+                    "highlighter did not classify '\(kind)' as .objectType — got kinds: \(kinds.sorted())")
+        }
+    }
+
     @Test("Each built-in theme carries a script theme with all fields populated")
     func everyBuiltInHasCompleteScriptTheme() {
         for theme in BuiltInThemes.all {

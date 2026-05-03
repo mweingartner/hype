@@ -93,7 +93,33 @@ public enum HypeTalkGuide {
 
         **Part properties:** name, id, left, top, width, height, right, bottom, loc, rect, visible, enabled, hilite, style, script, textFont, textSize, textAlign, textStyle, textContent, fillColor, strokeColor, strokeWidth, cornerRadius, showName, autoHilite, lockText, url.
         **Sprite-node properties:** loc, size, width, height, rotation, alpha, xScale, yScale, zPosition, hidden, text, fontName, fontSize, fontColor, fillColor, strokeColor, lineWidth, velocity, angularVelocity, density, friction, restitution, damping, dynamic, affectedByGravity, birthRate, particleLifetime, particleSpeed, particleColor, particleScale, emissionAngle, volume, loop, autoplay, target, zoom.
+        **Framework control properties** (used as `the <prop> of <kind> "name"`):
+          - **calendar:** selectedDate, displayMonth, minDate, maxDate, calendarStyle (graphical | textual | clockAndCalendar)
+          - **pdf:** pdfurl, currentPage, displayMode (single | continuous | twoUp), autoScales
+          - **map:** centerLat, centerLon, span, mapType (standard | satellite | hybrid | mutedStandard), annotations, location (alias: maplocation / map_location — geocoded place name, address, or US ZIP; resolves async)
+          - **colorWell:** color (hex like "#FF5500"), interactive
+          - **stepper / slider:** value, min, max, step
+          - **toggle:** on (true / false)
+          - **segmented:** segments, selectedSegment
+          - **recorder:** recording, playing, duration, outputPath, format (m4a | caf)
+          - **scene3d:** modelURL, allowsCameraControl, autoLighting, antialiasing, background3d
+          - **image:** imageFilter, imageFilterIntensity (along with the standard part properties)
         **Global properties:** the date, the time, the ticks, the seconds, the mouseLoc (returns "x,y"), the mouseH, the mouseV, the shiftKey, the optionKey, the commandKey, the version.
+
+        ## System & lifecycle messages
+
+        Hype dispatches messages to a part / card / background / stack when the
+        underlying engine event happens. Write `on <messageName> ... end <messageName>`
+        in a script to react.
+
+        **Generic part / mouse / keyboard:** mouseUp, mouseDown, mouseEnter, mouseLeave, mouseStillDown, openCard, closeCard, openStack, closeStack, openBackground, closeBackground, idle, openField, closeField, returnInField, tabInField, keyDown, deleteButton, deleteField.
+        **Calendar (`recorder` style — fires on the calendar part):** dateChanged.
+        **ColorWell:** colorChanged.
+        **Stepper / Slider / Toggle:** valueChanged.
+        **Segmented:** selectionChanged.
+        **Audio Recorder:** recordingStarted, recordingStopped, playbackStarted, playbackStopped.
+        **Map:** locationResolved (fires after a successful async geocode of `the maplocation`; read `the centerLat / centerLon of me` inside the handler to get the resolved coords).
+        **AI tools:** aiToolFinished, aiToolFailed.
 
         ## Chunks (text slicing)
             word 3 of "alpha beta gamma"      -- "gamma"
