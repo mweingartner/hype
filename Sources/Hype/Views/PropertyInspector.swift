@@ -1091,8 +1091,23 @@ struct PropertyInspector: View {
     private func scene3DSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("3D Scene").font(.subheadline).foregroundColor(.secondary)
-            propertyRow("Model URL/Path", binding: bindPartString(part.id, \.scene3DURL))
-            Button("Choose 3D Model...") { chooseModelForPart(partId: part.id) }
+            // Object Path is the author-visible source path (preferred field).
+            // Accepts .usdz / .usd / .scn / .dae / .obj / .stl. STL is
+            // auto-converted to a cached .obj on import.
+            HStack {
+                propertyRow("Object Path", binding: bindPartObjectPath(part.id))
+                Button("Choose 3D Model...") { chooseModelForPart(partId: part.id) }
+                    .controlSize(.small)
+            }
+            Text("Accepts .usdz, .usd, .scn, .dae, .obj, .stl. STL is converted to a cached .obj automatically. HypeTalk: `set the object of scene3d \"X\" to \"/path/to/model.stl\"`.")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+            // Resolved path is read-only — it shows what SceneKit
+            // actually loads (a cached .obj for STL inputs, the
+            // source path for everything else). Letting the user
+            // edit it directly would bypass STLConverter's size cap
+            // and NaN sanitization, so we render it as a label.
+            propertyRow("Resolved", value: part.scene3DURL.isEmpty ? "(none)" : part.scene3DURL)
             Toggle("Allow Camera Control", isOn: bindPartBool(part.id, \.scene3DAllowsCameraControl))
             Toggle("Default Lighting", isOn: bindPartBool(part.id, \.scene3DAutoLighting))
             propertyRow("Background (hex, blank=clear)", binding: bindPartString(part.id, \.scene3DBackground))
@@ -1102,6 +1117,7 @@ struct PropertyInspector: View {
                     Text("None").tag("none")
                     Text("2× MSAA").tag("multisampling2X")
                     Text("4× MSAA").tag("multisampling4X")
+                    Text("8× MSAA").tag("multisampling8X")
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
@@ -1109,21 +1125,57 @@ struct PropertyInspector: View {
         }
     }
 
+    /// Binding for the author-visible `scene3DSourceURL` field that also
+    /// routes through the STL converter when the extension is `.stl`.
+    /// Reading returns `scene3DSourceURL` (or falls back to `scene3DURL`
+    /// for older documents). Writing stores the source path AND resolves
+    /// the SceneKit-loadable URL.
+    private func bindPartObjectPath(_ id: UUID) -> Binding<String> {
+        Binding(
+            get: {
+                guard let part = self.document.document.parts.first(where: { $0.id == id }) else { return "" }
+                return part.scene3DSourceURL.isEmpty ? part.scene3DURL : part.scene3DSourceURL
+            },
+            set: { newValue in
+                self.document.document.updatePart(id: id) {
+                    $0.scene3DSourceURL = newValue
+                    if STLConverter.isSTL(path: newValue) {
+                        $0.scene3DURL = (try? STLConverter.convert(stlPath: newValue)) ?? ""
+                    } else {
+                        $0.scene3DURL = newValue
+                    }
+                }
+            }
+        )
+    }
+
     private func chooseModelForPart(partId: UUID) {
         let panel = NSOpenPanel()
-        // SceneKit-loadable formats. .usdz is the modern Apple-native
-        // format; .scn is SceneKit's archived form; .dae and .obj cover
-        // the most common third-party exports. We use UTType.init(
-        // filenameExtension:) to silence the macOS 12+ deprecation of
-        // allowedFileTypes; falling through nil-extensions is a no-op.
-        panel.allowedContentTypes = ["usdz", "scn", "dae", "obj"].compactMap {
-            UTType(filenameExtension: $0)
-        }
+        // SceneKit-loadable formats plus .stl (auto-converted on import).
+        // Include `.usd` (plain ASCII USD) alongside `.usdz`. macOS has
+        // built-in UTType registrations for all of these — STL maps to
+        // `public.standard-tesselated-geometry-format`.
+        let exts = ["usdz", "usd", "scn", "dae", "obj", "stl"]
+        panel.allowedContentTypes = exts.compactMap { UTType(filenameExtension: $0) }
+        // Belt-and-suspenders: if a user has a model in a non-standard
+        // format we still accept it — the Scene3D loader will reject
+        // unsupported types at load time with a `modelLoadFailed` event,
+        // which is more user-friendly than the picker greying it out.
+        panel.allowsOtherFileTypes = true
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
+        panel.message = "Pick a 3D model — .usdz / .usd / .scn / .dae / .obj / .stl"
         if panel.runModal() == .OK, let url = panel.url {
-            document.document.updatePart(id: partId) { $0.scene3DURL = url.path }
+            let path = url.path
+            document.document.updatePart(id: partId) {
+                $0.scene3DSourceURL = path
+                if STLConverter.isSTL(path: path) {
+                    $0.scene3DURL = (try? STLConverter.convert(stlPath: path)) ?? ""
+                } else {
+                    $0.scene3DURL = path
+                }
+            }
         }
     }
 

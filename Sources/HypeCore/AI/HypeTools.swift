@@ -249,16 +249,20 @@ public struct HypeToolDefinitions {
         ]),
 
         makeTool(name: "create_scene3d", description: """
-            Create a 3D scene viewer (SceneKit). Loads `.usdz`, `.scn`, `.dae`, `.obj` \
-            from a local file path or http(s) URL. Camera control (mouse-orbit / scroll-zoom) \
-            on by default. HypeTalk reads use `the modelURL of scene3d "X"`.
+            Create a 3D scene viewer (SceneKit). Loads `.usdz`, `.scn`, `.dae`, `.obj`, `.stl` \
+            from a local file path or http(s) URL. `.stl` files are auto-converted to `.obj` \
+            on import (cached by SHA-256 of file contents). Camera control \
+            (mouse-orbit / scroll-zoom) on by default. HypeTalk reads: \
+            `the object of scene3d "X"` (source path) or `the modelURL of scene3d "X"` \
+            (resolved path after STL conversion).
             """, params: [
             "name": ("string", "Scene3D part name", true),
             "left": ("string", "X position", true),
             "top": ("string", "Y position", true),
             "width": ("string", "Width", true),
             "height": ("string", "Height", true),
-            "model_url": ("string", "Path or URL of the 3D model file", false),
+            "object": ("string", "Path or URL of the 3D model file. Accepts .usdz, .usd, .scn, .dae, .obj, .stl. STL is auto-converted to OBJ on import.", false),
+            "model_url": ("string", "(deprecated alias for object — still works)", false),
             "allows_camera_control": ("string", "'true' (default) to let user orbit/zoom", false),
             "auto_lighting": ("string", "'true' (default) to add default lights", false),
             "background": ("string", "Hex color for the scene background (empty = transparent)", false),

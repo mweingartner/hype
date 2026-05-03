@@ -102,7 +102,7 @@ public enum HypeTalkGuide {
           - **toggle:** on (true / false)
           - **segmented:** segments, selectedSegment
           - **recorder:** recording, playing, duration, outputPath, format (m4a | caf)
-          - **scene3d:** modelURL, allowsCameraControl, autoLighting, antialiasing, background3d
+          - **scene3d:** object (source path — preferred), modelURL (resolved path, legacy alias), allowsCameraControl, autoLighting, antialiasing, background3d
           - **image:** imageFilter, imageFilterIntensity (along with the standard part properties)
         **Global properties:** the date, the time, the ticks, the seconds, the mouseLoc (returns "x,y"), the mouseH, the mouseV, the shiftKey, the optionKey, the commandKey, the version.
 
@@ -119,6 +119,7 @@ public enum HypeTalkGuide {
         **Segmented:** selectionChanged.
         **Audio Recorder:** recordingStarted, recordingStopped, playbackStarted, playbackStopped.
         **Map:** locationResolved (fires after a successful async geocode of `the maplocation`; read `the centerLat / centerLon of me` inside the handler to get the resolved coords).
+        **Scene3D:** modelLoadFailed (param 1 = reason string; fires when SCNScene returns nil or STL conversion fails — use to show a fallback or log an error).
         **AI tools:** aiToolFinished, aiToolFailed.
 
         ## Chunks (text slicing)
@@ -314,10 +315,19 @@ public enum HypeTalkGuide {
             -- instant, fade, tonal, chrome.
             -- Intensity (0..1) affects sepia, blur, vignette, posterize.
 
-        **Load a 3D model:**
-            set the modelURL of scene3d "model" to "/path/to/cube.usdz"
-            -- The user can orbit/zoom by default; toggle off with
-            -- `set the allowsCameraControl of scene3d "model" to false`.
+        **Load a 3D model (STL, USDZ, OBJ, SCN, DAE):**
+            -- Preferred: `object` accepts .stl and auto-converts to OBJ (cached).
+            set the object of scene3d "model" to "/path/to/cube.stl"
+            -- Non-STL formats work the same way:
+            set the object of scene3d "model" to "/path/to/cube.usdz"
+            -- Read back the author-visible source path:
+            put the object of scene3d "model" into src
+            -- The user can orbit/zoom by default; toggle off with:
+            -- `set the allowsCameraControl of scene3d "model" to false`
+            -- Handle load failure:
+            on modelLoadFailed reason
+              put "3D load failed: " & reason into field "status"
+            end modelLoadFailed
 
         **Audio recorder — record, save to a chosen file, play back:**
             -- Pin the file path BEFORE starting (otherwise a temp file

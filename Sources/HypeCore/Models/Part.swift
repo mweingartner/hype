@@ -238,6 +238,14 @@ public struct Part: Identifiable, Codable, Sendable {
     /// Anti-aliasing mode: "none" / "multisampling2X" /
     /// "multisampling4X" / "multisampling8X". Default "multisampling4X".
     public var scene3DAntialiasing: String
+    /// The raw source path supplied by the author via `set the object of
+    /// scene3d "X" to "/path/to/model.stl"` or the inspector "Choose..."
+    /// button. For non-STL files this mirrors `scene3DURL`. For STL files
+    /// the converter writes the cache-hit OBJ path into `scene3DURL` while
+    /// this field retains the original `.stl` path so HypeTalk reads of
+    /// `the object of scene3d "X"` return the author-visible path, not the
+    /// internal cache path.
+    public var scene3DSourceURL: String
 
     // Script
     public var script: String
@@ -335,6 +343,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.scene3DAutoLighting = true
         self.scene3DBackground = ""
         self.scene3DAntialiasing = "multisampling4X"
+        self.scene3DSourceURL = ""
         self.script = ""
     }
 
@@ -440,6 +449,8 @@ public struct Part: Identifiable, Codable, Sendable {
         scene3DAutoLighting = try container.decodeIfPresent(Bool.self, forKey: .scene3DAutoLighting) ?? true
         scene3DBackground = try container.decodeIfPresent(String.self, forKey: .scene3DBackground) ?? ""
         scene3DAntialiasing = try container.decodeIfPresent(String.self, forKey: .scene3DAntialiasing) ?? "multisampling4X"
+        // scene3DSourceURL — added with STL import; backward-compat optional.
+        scene3DSourceURL = try container.decodeIfPresent(String.self, forKey: .scene3DSourceURL) ?? ""
         script = try container.decode(String.self, forKey: .script)
     }
 }

@@ -9,10 +9,18 @@ import HypeCore
 /// loads the scene when the URL actually changed — toggling
 /// camera control or anti-aliasing without forcing a heavyweight
 /// scene rebuild.
+///
+/// `onLoadFailed` is called (on the main thread) when `SCNScene(url:)`
+/// returns nil — e.g. the file is missing, corrupt, or an unsupported
+/// format. The caller wires this to a HypeTalk `modelLoadFailed` dispatch.
 final class Scene3DHostNSView: NSView {
 
     let scnView = SCNView()
     private var loadedURL: String = ""
+
+    /// Called on the main thread when a scene fails to load. The `reason`
+    /// string is a safe structural description (no raw file bytes).
+    var onLoadFailed: ((_ reason: String) -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -69,6 +77,9 @@ final class Scene3DHostNSView: NSView {
             let scene: SCNScene? = (try? SCNScene(url: url, options: nil))
             DispatchQueue.main.async {
                 self?.scnView.scene = scene
+                if scene == nil {
+                    self?.onLoadFailed?("SCNScene returned nil for \(url.path)")
+                }
             }
         }
     }

@@ -122,4 +122,120 @@ struct Scene3DTests {
             Issue.record("expected objectRef(model3d, ...), got \(expr)")
         }
     }
+
+    // MARK: - STL / object property end-to-end
+
+    @Test("scene3DSourceURL defaults to empty string")
+    func sourceURLDefault() {
+        let part = Part(partType: .scene3D, name: "model")
+        #expect(part.scene3DSourceURL == "")
+    }
+
+    @Test("scene3DSourceURL and scene3DURL round-trip through Codable")
+    func sourceURLCodable() throws {
+        var part = Part(partType: .scene3D, name: "model")
+        part.scene3DURL = "/tmp/cache/abc.obj"
+        part.scene3DSourceURL = "/original/cube.stl"
+        let data = try JSONEncoder().encode(part)
+        let decoded = try JSONDecoder().decode(Part.self, from: data)
+        #expect(decoded.scene3DURL == "/tmp/cache/abc.obj")
+        #expect(decoded.scene3DSourceURL == "/original/cube.stl")
+    }
+
+    @Test("Old documents without scene3DSourceURL decode with default empty string")
+    func sourceURLBackwardCompat() throws {
+        var part = Part(partType: .scene3D, name: "model")
+        part.scene3DURL = "/tmp/cube.usdz"
+        let data = try JSONEncoder().encode(part)
+        // Strip scene3DSourceURL to simulate an old document.
+        var json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        json.removeValue(forKey: "scene3DSourceURL")
+        let stripped = try JSONSerialization.data(withJSONObject: json)
+        let decoded = try JSONDecoder().decode(Part.self, from: stripped)
+        #expect(decoded.scene3DSourceURL == "")
+        #expect(decoded.scene3DURL == "/tmp/cube.usdz")
+    }
+
+    @Test("get_part_property 'object' returns scene3DSourceURL when set")
+    func aiGetObjectProp() async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_scene3d",
+            arguments: ["name": "model", "left": "0", "top": "0", "width": "200", "height": "200"],
+            document: &doc, currentCardId: cardId
+        )
+        // Set scene3DSourceURL manually to simulate an existing source path.
+        if let idx = doc.parts.firstIndex(where: { $0.partType == .scene3D }) {
+            doc.parts[idx].scene3DSourceURL = "/src/cube.usdz"
+            doc.parts[idx].scene3DURL = "/src/cube.usdz"
+        }
+        let result = await executor.execute(
+            toolName: "get_part_property",
+            arguments: ["part_name": "model", "property": "object"],
+            document: &doc, currentCardId: cardId
+        )
+        #expect(result == "/src/cube.usdz")
+    }
+
+    @Test("set_part_property 'object' stores source URL and resolved URL")
+    func aiSetObjectProp() async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_scene3d",
+            arguments: ["name": "model", "left": "0", "top": "0", "width": "200", "height": "200"],
+            document: &doc, currentCardId: cardId
+        )
+        _ = await executor.execute(
+            toolName: "set_part_property",
+            arguments: ["part_name": "model", "property": "object", "value": "/tmp/cube.usdz"],
+            document: &doc, currentCardId: cardId
+        )
+        let part = doc.parts.first { $0.partType == .scene3D }
+        // For a non-STL file, source and resolved URL should match.
+        #expect(part?.scene3DSourceURL == "/tmp/cube.usdz")
+        #expect(part?.scene3DURL == "/tmp/cube.usdz")
+    }
+
+    @Test("create_scene3d with object arg sets scene3DSourceURL")
+    func aiCreateWithObjectArg() async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_scene3d",
+            arguments: [
+                "name": "model",
+                "left": "0", "top": "0", "width": "400", "height": "300",
+                "object": "/tmp/robot.usdz"
+            ],
+            document: &doc, currentCardId: cardId
+        )
+        let part = doc.parts.first { $0.partType == .scene3D }
+        #expect(part?.scene3DSourceURL == "/tmp/robot.usdz")
+        #expect(part?.scene3DURL == "/tmp/robot.usdz")
+    }
+
+    @Test("create_scene3d: object arg takes precedence over model_url")
+    func aiCreateObjectPrecedence() async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_scene3d",
+            arguments: [
+                "name": "model",
+                "left": "0", "top": "0", "width": "400", "height": "300",
+                "object": "/tmp/preferred.usdz",
+                "model_url": "/tmp/legacy.usdz"
+            ],
+            document: &doc, currentCardId: cardId
+        )
+        let part = doc.parts.first { $0.partType == .scene3D }
+        // "object" wins over "model_url".
+        #expect(part?.scene3DSourceURL == "/tmp/preferred.usdz")
+    }
 }

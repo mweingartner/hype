@@ -2765,6 +2765,10 @@ public struct Interpreter: Sendable {
         // Scene3D
         case "imagefilter", "image_filter", "filter": return part.imageFilter
         case "imagefilterintensity", "image_filter_intensity", "filterintensity", "filter_intensity": return formatNumber(part.imageFilterIntensity)
+        case "object":
+            // Return the author-visible source path when set; fall back to
+            // the resolved scene3DURL so older documents still read correctly.
+            return part.scene3DSourceURL.isEmpty ? part.scene3DURL : part.scene3DSourceURL
         case "modelurl", "model_url", "sceneurl", "scene_url": return part.scene3DURL
         case "allowscameracontrol", "allows_camera_control", "cameracontrol": return part.scene3DAllowsCameraControl ? "true" : "false"
         case "autolighting", "auto_lighting", "defaultlighting": return part.scene3DAutoLighting ? "true" : "false"
@@ -3573,8 +3577,20 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].imageFilter = value.lowercased() == "none" ? "" : value.lowercased()
         case "imagefilterintensity", "image_filter_intensity", "filterintensity", "filter_intensity":
             document.parts[partIndex].imageFilterIntensity = max(0, min(1, toNumber(value)))
+        case "object":
+            // Store the author-visible source path, then resolve to the
+            // working URL (converting STL → OBJ via cache if needed).
+            document.parts[partIndex].scene3DSourceURL = value
+            document.parts[partIndex].scene3DURL = resolveScene3DPath(
+                value, partId: document.parts[partIndex].id, context: context
+            )
         case "modelurl", "model_url", "sceneurl", "scene_url":
-            document.parts[partIndex].scene3DURL = value
+            // Legacy alias: route through the resolver so STL files auto-
+            // convert whether the author uses `object` or `modelURL`.
+            document.parts[partIndex].scene3DSourceURL = value
+            document.parts[partIndex].scene3DURL = resolveScene3DPath(
+                value, partId: document.parts[partIndex].id, context: context
+            )
         case "allowscameracontrol", "allows_camera_control", "cameracontrol":
             document.parts[partIndex].scene3DAllowsCameraControl = isTruthy(value)
         case "autolighting", "auto_lighting", "defaultlighting":
@@ -3610,6 +3626,32 @@ public struct Interpreter: Sendable {
             }
         default:
             env.setVariable(property, value)
+        }
+    }
+
+    /// Resolve a raw 3D model path for storage in `Part.scene3DURL`.
+    ///
+    /// - Returns the `raw` path unchanged for non-STL files.
+    /// - For `.stl` files, calls `STLConverter.convert` which writes
+    ///   (or cache-hits) an OBJ under `~/Library/Caches/…/stl-cache/`
+    ///   and returns that path.
+    /// - On empty input, returns `""`.
+    /// - On conversion failure, logs the error and returns `""` so the
+    ///   3D view shows empty rather than a stale corrupt path.
+    private func resolveScene3DPath(_ raw: String, partId: UUID, context: ExecutionContext) -> String {
+        guard !raw.isEmpty else { return "" }
+        guard STLConverter.isSTL(path: raw) else { return raw }
+        do {
+            return try STLConverter.convert(stlPath: raw)
+        } catch let stlError as STLConverter.Error {
+            // Log only the structural reason — never the user-supplied
+            // path, which on shared/crash-report systems would leak
+            // home-directory layout into application logs.
+            HypeLogger.shared.error("STL conversion failed: \(stlError.sanitizedReason)", source: "Interpreter")
+            return ""
+        } catch {
+            HypeLogger.shared.error("STL conversion failed: unknown error", source: "Interpreter")
+            return ""
         }
     }
 

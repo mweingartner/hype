@@ -338,6 +338,13 @@ struct CardCanvasView: NSViewRepresentable {
             }
         }
 
+        /// Dispatch `modelLoadFailed` to the scene3D part so HypeTalk
+        /// handlers can react (e.g. `on modelLoadFailed reason ...`).
+        /// Called from `Scene3DHostNSView.onLoadFailed`.
+        func dispatchScene3DLoadFailed(id: UUID, reason: String) {
+            dispatchMessage("modelLoadFailed", to: id, params: [reason])
+        }
+
         func deletePart(id: UUID) {
             // Dispatch delete message before removing
             if let part = parent.document.document.parts.first(where: { $0.id == id }) {
@@ -2876,6 +2883,10 @@ class CardCanvasNSView: NSView {
                 continue
             }
             let host = Scene3DHostNSView(frame: frame)
+            let partId = part.id
+            host.onLoadFailed = { [weak self] reason in
+                self?.coordinator?.dispatchScene3DLoadFailed(id: partId, reason: reason)
+            }
             host.apply(part)
             addSubview(host, positioned: .above, relativeTo: nil)
             scene3DViews[part.id] = host

@@ -1206,7 +1206,14 @@ public struct HypeToolExecutor: Sendable {
                 width: Double(arguments["width"] ?? "400") ?? 400,
                 height: Double(arguments["height"] ?? "300") ?? 300
             )
-            part.scene3DURL = arguments["model_url"] ?? ""
+            // `object` takes precedence over the legacy `model_url` alias.
+            let rawModelPath = arguments["object"] ?? arguments["model_url"] ?? ""
+            if !rawModelPath.isEmpty {
+                // Store the author-visible source path.
+                part.scene3DSourceURL = rawModelPath
+                // Resolve to the working URL (STL → OBJ if needed).
+                part.scene3DURL = Self.resolveModelPath(rawModelPath)
+            }
             if let camera = arguments["allows_camera_control"] {
                 part.scene3DAllowsCameraControl = (camera.lowercased() == "true")
             }
@@ -1357,7 +1364,12 @@ public struct HypeToolExecutor: Sendable {
                 case "outputpath", "output_path", "filepath", "file_path": document.parts[index].audioOutputPath = value
                 case "format": document.parts[index].audioFormat = value
                 // Scene3D
-                case "modelurl", "model_url", "sceneurl", "scene_url": document.parts[index].scene3DURL = value
+                case "object":
+                    document.parts[index].scene3DSourceURL = value
+                    document.parts[index].scene3DURL = Self.resolveModelPath(value)
+                case "modelurl", "model_url", "sceneurl", "scene_url":
+                    document.parts[index].scene3DSourceURL = value
+                    document.parts[index].scene3DURL = Self.resolveModelPath(value)
                 case "allowscameracontrol", "allows_camera_control", "cameracontrol": document.parts[index].scene3DAllowsCameraControl = (value.lowercased() == "true")
                 case "autolighting", "auto_lighting", "defaultlighting": document.parts[index].scene3DAutoLighting = (value.lowercased() == "true")
                 case "antialiasing", "anti_aliasing": document.parts[index].scene3DAntialiasing = value
@@ -2417,6 +2429,8 @@ public struct HypeToolExecutor: Sendable {
             case "outputpath", "output_path", "filepath", "file_path": return part.audioOutputPath
             case "format": return part.audioFormat
             // Scene3D
+            case "object":
+                return part.scene3DSourceURL.isEmpty ? part.scene3DURL : part.scene3DSourceURL
             case "modelurl", "model_url", "sceneurl", "scene_url": return part.scene3DURL
             case "allowscameracontrol", "allows_camera_control", "cameracontrol": return String(part.scene3DAllowsCameraControl)
             case "autolighting", "auto_lighting", "defaultlighting": return String(part.scene3DAutoLighting)
@@ -4522,6 +4536,33 @@ public struct HypeToolExecutor: Sendable {
         case .networkFailure:
             // Do NOT forward localizedDescription — fixed safe string only (Finding 5).
             return "\(context) network error (transport failure)"
+        }
+    }
+
+    // MARK: - STL Model Path Resolver
+
+    /// Resolve a raw 3D model path to a SceneKit-loadable URL string.
+    ///
+    /// For non-STL files the `raw` path is returned unchanged.
+    /// For `.stl` files `STLConverter.convert` is called, writing (or
+    /// cache-hitting) an OBJ under `~/Library/Caches/…/stl-cache/` and
+    /// returning that path. On failure the error is logged and `""` is
+    /// returned — no live runtime dispatch because the AI tool executor
+    /// has no associated UI runtime.
+    static func resolveModelPath(_ raw: String) -> String {
+        guard !raw.isEmpty else { return "" }
+        guard STLConverter.isSTL(path: raw) else { return raw }
+        do {
+            return try STLConverter.convert(stlPath: raw)
+        } catch let stlError as STLConverter.Error {
+            // Log only the structural reason — never the user-supplied
+            // path, which on shared/crash-report systems would leak
+            // home-directory layout into application logs.
+            HypeLogger.shared.error("STL conversion failed: \(stlError.sanitizedReason)", source: "HypeToolExecutor")
+            return ""
+        } catch {
+            HypeLogger.shared.error("STL conversion failed: unknown error", source: "HypeToolExecutor")
+            return ""
         }
     }
 }
