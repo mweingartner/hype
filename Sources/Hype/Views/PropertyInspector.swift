@@ -52,17 +52,18 @@ struct PropertyInspector: View {
                         case .map: mapSection(part: part)
                         case .colorWell: colorWellSection(part: part)
                         case .stepper, .slider: numericControlSection(part: part)
-                        case .toggle: toggleSection(part: part)
                         case .segmented: segmentedSection(part: part)
                         case .audioRecorder: audioRecorderSection(part: part)
                         case .scene3D: scene3DSection(part: part)
                         case .progressView: progressViewSection(part: part)
                         case .gauge: gaugeSection(part: part)
-                        case .link: linkSection(part: part)
-                        case .menu: menuSection(part: part)
-                        case .searchField: searchFieldSection(part: part)
                         case .divider: dividerSection(part: part)
-                        case .unknown: EmptyView()
+                        // .toggle / .link / .menu / .searchField handled
+                        // by the migration in Part.init(from:) — old
+                        // documents arrive here as button / field with
+                        // the appropriate style, so the section
+                        // dispatches above already cover them.
+                        case .toggle, .link, .menu, .searchField, .unknown: EmptyView()
                         }
 
                         // Font controls for buttons and fields
@@ -1075,17 +1076,9 @@ struct PropertyInspector: View {
         }
     }
 
-    private func toggleSection(part: Part) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Toggle").font(.subheadline).foregroundColor(.secondary)
-            Toggle("On", isOn: Binding<Bool>(
-                get: { (self.document.document.parts.first { $0.id == part.id }?.controlValue ?? 0) >= 0.5 },
-                set: { newValue in
-                    self.document.document.updatePart(id: part.id) { $0.controlValue = newValue ? 1 : 0 }
-                }
-            ))
-        }
-    }
+    // toggleSection removed — toggle parts now migrate to button +
+    // ButtonStyle.switch on decode (see Part.init(from:)) and use
+    // the existing button section.
 
     private func segmentedSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -1259,45 +1252,10 @@ struct PropertyInspector: View {
         }
     }
 
-    private func linkSection(part: Part) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Link").font(.subheadline).foregroundColor(.secondary)
-            propertyRow("Text", binding: bindPartString(part.id, \.textContent))
-            propertyRow("URL", binding: bindPartString(part.id, \.url))
-            Text("Allowed schemes: http, https, mailto. Other schemes are refused at open time.")
-                .font(.system(size: 9)).foregroundColor(.secondary)
-            Text("HypeTalk: `set the url of link \"X\" to \"https://...\"`. Fires `linkOpened` on click.")
-                .font(.system(size: 9)).foregroundColor(.secondary)
-        }
-    }
-
-    private func menuSection(part: Part) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Menu").font(.subheadline).foregroundColor(.secondary)
-            propertyRow("Title", binding: bindPartString(part.id, \.menuTitle))
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Items (one per line: Label||script)")
-                    .font(.system(size: 10)).foregroundColor(.secondary)
-                TextEditor(text: bindPartString(part.id, \.menuItems))
-                    .font(.system(size: 11, design: .monospaced))
-                    .frame(minHeight: 80, maxHeight: 180)
-                    .border(Color.secondary.opacity(0.3), width: 1)
-            }
-            Text("HypeTalk: `set the items of menu \"X\" to \"A||go next\nB||go previous\"`. Fires `menuItemSelected itemLabel`.")
-                .font(.system(size: 9)).foregroundColor(.secondary)
-        }
-    }
-
-    private func searchFieldSection(part: Part) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Search Field").font(.subheadline).foregroundColor(.secondary)
-            propertyRow("Prompt", binding: bindPartString(part.id, \.searchPrompt))
-            propertyRow("Search Text", binding: bindPartString(part.id, \.searchText))
-            Toggle("Send on Each Keystroke", isOn: bindPartBool(part.id, \.searchSendsImmediately))
-            Text("HypeTalk: `the searchText of searchField \"X\"`. Fires `searchChanged text` per keystroke (when immediate) or on Return.")
-                .font(.system(size: 9)).foregroundColor(.secondary)
-        }
-    }
+    // linkSection / menuSection / searchFieldSection removed in dedup —
+    // these standalone PartTypes were collapsed into ButtonStyle.link /
+    // .popup and FieldStyle.search. The inspector dispatch routes the
+    // migrated parts through the existing button / field sections.
 
     private func dividerSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {

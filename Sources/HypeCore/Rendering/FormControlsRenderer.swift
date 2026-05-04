@@ -2,17 +2,19 @@ import Foundation
 #if canImport(AppKit)
 import AppKit
 
-/// CG fallback renderers for the four small form-control parts:
-/// stepper, slider, toggle, segmented. Each is a faithful enough
-/// preview that a user looking at a card in edit mode (or in an AI
-/// vision capture) can identify the control by sight.
+/// CG fallback renderers for the small form-control parts:
+/// stepper, slider, segmented. Each is a faithful enough preview
+/// that a user looking at a card in edit mode (or in an AI vision
+/// capture) can identify the control by sight.
+///
+/// Toggle was removed in dedup — toggle parts now migrate to button
+/// + ButtonStyle.switch on decode and render via ButtonRenderer.
 public enum FormControlsRenderer {
 
     public static func draw(_ kind: PartType, ctx: CGContext, part: Part, rect: CGRect) {
         switch kind {
         case .stepper:    drawStepper(ctx: ctx, part: part, rect: rect)
         case .slider:     drawSlider(ctx: ctx, part: part, rect: rect)
-        case .toggle:     drawToggle(ctx: ctx, part: part, rect: rect)
         case .segmented:  drawSegmented(ctx: ctx, part: part, rect: rect)
         default: break
         }
@@ -93,36 +95,8 @@ public enum FormControlsRenderer {
         ctx.restoreGState()
     }
 
-    // MARK: - Toggle
-
-    private static func drawToggle(ctx: CGContext, part: Part, rect: CGRect) {
-        ctx.saveGState()
-        let isOn = part.controlValue >= 0.5
-        // Pill background — green when on, gray when off.
-        let pillHeight = min(rect.height, 22)
-        let pillWidth = max(36, min(rect.width, 44))
-        let pillRect = CGRect(
-            x: rect.midX - pillWidth / 2,
-            y: rect.midY - pillHeight / 2,
-            width: pillWidth,
-            height: pillHeight
-        )
-        let path = CGPath(roundedRect: pillRect, cornerWidth: pillHeight / 2, cornerHeight: pillHeight / 2, transform: nil)
-        ctx.addPath(path)
-        ctx.setFillColor((isOn ? NSColor.systemGreen : NSColor.tertiaryLabelColor).cgColor)
-        ctx.fillPath()
-
-        // Knob.
-        let knobDiameter = pillHeight - 4
-        let knobX = isOn ? pillRect.maxX - knobDiameter - 2 : pillRect.minX + 2
-        let knobRect = CGRect(x: knobX, y: pillRect.minY + 2, width: knobDiameter, height: knobDiameter)
-        ctx.setFillColor(NSColor.white.cgColor)
-        ctx.fillEllipse(in: knobRect)
-        ctx.setStrokeColor(NSColor.separatorColor.cgColor)
-        ctx.setLineWidth(0.5)
-        ctx.strokeEllipse(in: knobRect)
-        ctx.restoreGState()
-    }
+    // drawToggle removed — toggle parts now migrate to button +
+    // ButtonStyle.switch and render via ButtonRenderer's switch case.
 
     // MARK: - Segmented
 

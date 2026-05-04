@@ -111,18 +111,22 @@ struct FormControlsTests {
         #expect(part?.controlValue == 50)
     }
 
-    @Test("create_toggle 'on' arg writes 1.0 into controlValue")
-    func aiCreateToggleOn() async {
+    // create_toggle removed in dedup — toggle is now a button style.
+    // The equivalent test is aiCreateButtonSwitch below.
+
+    @Test("create_button with style=switch creates a switch-styled button")
+    func aiCreateButtonSwitch() async {
         var doc = HypeDocument.newDocument(name: "FormTest")
         let cardId = doc.cards[0].id
         let executor = HypeToolExecutor()
         _ = await executor.execute(
-            toolName: "create_toggle",
-            arguments: ["name": "muted", "left": "0", "top": "0", "width": "44", "height": "26", "on": "true"],
+            toolName: "create_button",
+            arguments: ["name": "muted", "left": "0", "top": "0", "width": "44", "height": "26", "style": "switch"],
             document: &doc, currentCardId: cardId
         )
-        let part = doc.parts.first { $0.partType == .toggle }
-        #expect(part?.controlValue == 1.0)
+        let part = doc.parts.first { $0.name == "muted" && $0.partType == .button }
+        #expect(part != nil)
+        #expect(part?.buttonStyle == .switch)
     }
 
     @Test("create_segmented sets segments + selected index")
@@ -162,54 +166,21 @@ struct FormControlsTests {
         #expect(doc.parts.first { $0.partType == .stepper }?.controlValue == 13)
     }
 
-    @Test("set_part_property 'on' on a toggle stores 1.0 / 0.0")
-    func aiSetToggleOn() async {
+    // toggle-specific 'on' tests removed — toggle migrated to button
+    // with ButtonStyle.switch; the on/off state is now part.hilite,
+    // covered by the existing button tests.
+
+    @Test("get_part_property returns the integer for selectedSegment")
+    func aiGetSelectedSegment() async {
         var doc = HypeDocument.newDocument(name: "FormTest")
         let cardId = doc.cards[0].id
         let executor = HypeToolExecutor()
-        _ = await executor.execute(
-            toolName: "create_toggle",
-            arguments: ["name": "muted", "left": "0", "top": "0", "width": "44", "height": "26"],
-            document: &doc, currentCardId: cardId
-        )
-        _ = await executor.execute(
-            toolName: "set_part_property",
-            arguments: ["part_name": "muted", "property": "on", "value": "true"],
-            document: &doc, currentCardId: cardId
-        )
-        #expect(doc.parts.first { $0.partType == .toggle }?.controlValue == 1)
-
-        _ = await executor.execute(
-            toolName: "set_part_property",
-            arguments: ["part_name": "muted", "property": "on", "value": "false"],
-            document: &doc, currentCardId: cardId
-        )
-        #expect(doc.parts.first { $0.partType == .toggle }?.controlValue == 0)
-    }
-
-    @Test("get_part_property returns 'true'/'false' for toggle.on, integer for selectedSegment")
-    func aiGetters() async {
-        var doc = HypeDocument.newDocument(name: "FormTest")
-        let cardId = doc.cards[0].id
-        let executor = HypeToolExecutor()
-        _ = await executor.execute(
-            toolName: "create_toggle",
-            arguments: ["name": "muted", "left": "0", "top": "0", "width": "44", "height": "26", "on": "true"],
-            document: &doc, currentCardId: cardId
-        )
         _ = await executor.execute(
             toolName: "create_segmented",
             arguments: ["name": "tabs", "left": "0", "top": "0", "width": "240", "height": "26",
                         "segments": "A|B|C", "selected_segment": "2"],
             document: &doc, currentCardId: cardId
         )
-        let onResult = await executor.execute(
-            toolName: "get_part_property",
-            arguments: ["part_name": "muted", "property": "on"],
-            document: &doc, currentCardId: cardId
-        )
-        #expect(onResult == "true")
-
         let segResult = await executor.execute(
             toolName: "get_part_property",
             arguments: ["part_name": "tabs", "property": "selected_segment"],

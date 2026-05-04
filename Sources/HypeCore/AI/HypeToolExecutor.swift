@@ -598,8 +598,6 @@ public struct HypeToolExecutor: Sendable {
             props.append("min=\(p.controlMin)")
             props.append("max=\(p.controlMax)")
             if p.partType == .stepper { props.append("step=\(p.controlStep)") }
-        case .toggle:
-            props.append("on=\(p.controlValue >= 0.5)")
         case .segmented:
             props.append("segments=\(p.segmentItems)")
             props.append("selectedSegment=\(Int(p.controlValue))")
@@ -629,17 +627,12 @@ public struct HypeToolExecutor: Sendable {
             props.append("style=\(p.gaugeStyle)")
             if !p.gaugeLabel.isEmpty { props.append("label=\"\(p.gaugeLabel)\"") }
             if !p.gaugeTint.isEmpty { props.append("tint=\(p.gaugeTint)") }
-        case .link:
-            props.append("url=\"\(p.url)\"")
-            if !p.textContent.isEmpty { props.append("text=\"\(p.textContent)\"") }
-        case .menu:
-            props.append("title=\"\(p.menuTitle)\"")
-            let lineCount = p.menuItems.split(separator: "\n").count
-            props.append("items=\(lineCount) item(s)")
-        case .searchField:
-            if !p.searchText.isEmpty { props.append("searchText=\"\(p.searchText)\"") }
-            props.append("prompt=\"\(p.searchPrompt)\"")
-            props.append("sendsImmediately=\(p.searchSendsImmediately)")
+        case .toggle, .link, .menu, .searchField:
+            // Migrated to button/field with appropriate style at decode
+            // time — these PartTypes are unreachable in normal flow but
+            // keep an empty branch so the switch stays exhaustive for
+            // safety.
+            break
         case .divider:
             props.append("orientation=\(p.dividerOrientation)")
             props.append("thickness=\(p.dividerThickness)")
@@ -1203,23 +1196,7 @@ public struct HypeToolExecutor: Sendable {
             let layer = place.backgroundId != nil ? " on background" : ""
             return "Created slider '\(part.name)'\(layer)"
 
-        case "create_toggle":
-            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
-            var part = Part(
-                partType: .toggle,
-                cardId: place.cardId,
-                backgroundId: place.backgroundId,
-                name: arguments["name"] ?? "Toggle",
-                left: Double(arguments["left"] ?? "100") ?? 100,
-                top: Double(arguments["top"] ?? "100") ?? 100,
-                width: Double(arguments["width"] ?? "44") ?? 44,
-                height: Double(arguments["height"] ?? "26") ?? 26
-            )
-            let on = (arguments["on"] ?? "false").lowercased() == "true"
-            part.controlValue = on ? 1 : 0
-            document.addPart(part)
-            let layer = place.backgroundId != nil ? " on background" : ""
-            return "Created toggle '\(part.name)'\(layer)"
+        // create_toggle removed — use create_button with style="switch".
 
         case "set_image_filter":
             let imageName = arguments["image_name"] ?? ""
@@ -1397,75 +1374,11 @@ public struct HypeToolExecutor: Sendable {
             let layer1 = place.backgroundId != nil ? " on background" : ""
             return "Created gauge '\(part.name)'\(layer1)"
 
-        case "create_link":
-            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
-            var part = Part(
-                partType: .link,
-                cardId: place.cardId,
-                backgroundId: place.backgroundId,
-                name: arguments["name"] ?? "Link",
-                left: Double(arguments["left"] ?? "100") ?? 100,
-                top: Double(arguments["top"] ?? "100") ?? 100,
-                width: Double(arguments["width"] ?? "120") ?? 120,
-                height: Double(arguments["height"] ?? "24") ?? 24
-            )
-            part.textContent = arguments["text"] ?? ""
-            part.url = arguments["url"] ?? ""
-            document.addPart(part)
-            let layer2 = place.backgroundId != nil ? " on background" : ""
-            return "Created link '\(part.name)'\(layer2)"
-
-        case "create_menu":
-            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
-            var part = Part(
-                partType: .menu,
-                cardId: place.cardId,
-                backgroundId: place.backgroundId,
-                name: arguments["name"] ?? "Menu",
-                left: Double(arguments["left"] ?? "100") ?? 100,
-                top: Double(arguments["top"] ?? "100") ?? 100,
-                width: Double(arguments["width"] ?? "120") ?? 120,
-                height: Double(arguments["height"] ?? "28") ?? 28
-            )
-            part.menuTitle = String((arguments["title"] ?? "Menu").prefix(256))
-            let rawItems = arguments["items"] ?? ""
-            // Security condition 3: validate inline scripts in menu items.
-            let itemLines = rawItems.split(separator: "\n", omittingEmptySubsequences: true)
-            for line in itemLines {
-                let s = String(line)
-                if let pipeRange = s.range(of: "||") {
-                    let inlineScript = String(s[pipeRange.upperBound...]).trimmingCharacters(in: .whitespaces)
-                    if !inlineScript.isEmpty {
-                        let wrapped = wrapScript(inlineScript)
-                        if let errMsg = scriptParseErrorMessage(wrapped) {
-                            return "Menu item script syntax error: \(errMsg). Fix the script before creating the menu."
-                        }
-                    }
-                }
-            }
-            // Security condition 6: cap at 64 KB.
-            part.menuItems = String(rawItems.prefix(65536))
-            document.addPart(part)
-            let layer3 = place.backgroundId != nil ? " on background" : ""
-            return "Created menu '\(part.name)'\(layer3)"
-
-        case "create_searchfield":
-            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
-            var part = Part(
-                partType: .searchField,
-                cardId: place.cardId,
-                backgroundId: place.backgroundId,
-                name: arguments["name"] ?? "Search",
-                left: Double(arguments["left"] ?? "100") ?? 100,
-                top: Double(arguments["top"] ?? "100") ?? 100,
-                width: Double(arguments["width"] ?? "200") ?? 200,
-                height: Double(arguments["height"] ?? "28") ?? 28
-            )
-            part.searchPrompt = String((arguments["prompt"] ?? "Search").prefix(256))
-            part.searchSendsImmediately = (arguments["immediate"] ?? "false").lowercased() == "true"
-            document.addPart(part)
-            let layer4 = place.backgroundId != nil ? " on background" : ""
-            return "Created searchField '\(part.name)'\(layer4)"
+        // create_link / create_menu / create_searchfield removed in
+        // dedup. Use:
+        //   create_button(style="link", url="...", text="...")
+        //   create_button(style="popup", popup_items="A\nB\nC")
+        //   create_field(style="search")
 
         case "create_divider":
             let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
@@ -4985,8 +4898,6 @@ public struct HypeToolExecutor: Sendable {
             row("min", String(p.controlMin), "0")
             row("max", String(p.controlMax), "100")
             row("step", String(p.controlStep), "1")
-        case .toggle:
-            row("on", String(p.controlValue >= 0.5), "false")
         case .segmented:
             row("segments", "\"\(p.segmentItems)\"", "\"First|Second|Third\"")
             row("selectedSegment", String(Int(p.controlValue)), "0")
@@ -5019,16 +4930,10 @@ public struct HypeToolExecutor: Sendable {
             row("label", "\"\(p.gaugeLabel)\"", "\"\"")
             row("minLabel", "\"\(p.gaugeMinLabel)\"", "\"\"")
             row("maxLabel", "\"\(p.gaugeMaxLabel)\"", "\"\"")
-        case .link:
-            row("url", "\"\(p.url)\"", "\"\"")
-            row("text", "\"\(p.textContent)\"", "\"\"")
-        case .menu:
-            row("title", "\"\(p.menuTitle)\"", "\"Menu\"")
-            row("items", "\"\(p.menuItems.prefix(80))\(p.menuItems.count > 80 ? "..." : "")\"", "\"\" (Label||script per line)")
-        case .searchField:
-            row("searchText", "\"\(p.searchText)\"", "\"\"")
-            row("prompt", "\"\(p.searchPrompt)\"", "\"Search\"")
-            row("immediate", String(p.searchSendsImmediately), "false")
+        case .toggle, .link, .menu, .searchField:
+            // Migrated to button/field with appropriate style at decode.
+            // Empty branch keeps the switch exhaustive.
+            break
         case .divider:
             row("orientation", p.dividerOrientation, "horizontal")
             row("thickness", String(p.dividerThickness), "1.0")

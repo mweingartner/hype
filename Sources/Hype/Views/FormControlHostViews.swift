@@ -122,41 +122,11 @@ final class SliderHostNSView: NSView {
     }
 }
 
-// MARK: - Toggle (NSSwitch)
-
-final class ToggleHostNSView: NSView {
-    let toggle = NSSwitch()
-    var onValueChange: ((Bool) -> Void)?
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        toggle.translatesAutoresizingMaskIntoConstraints = false
-        toggle.target = self
-        toggle.action = #selector(toggleDidChange)
-        addSubview(toggle)
-        NSLayoutConstraint.activate([
-            toggle.centerXAnchor.constraint(equalTo: centerXAnchor),
-            toggle.centerYAnchor.constraint(equalTo: centerYAnchor)
-        ])
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    private var appliedOn: Bool?
-
-    func apply(_ part: Part) {
-        let on = part.controlValue >= 0.5
-        if on != appliedOn {
-            toggle.state = on ? .on : .off
-            appliedOn = on
-        }
-    }
-
-    @objc private func toggleDidChange() {
-        let on = toggle.state == .on
-        appliedOn = on
-        onValueChange?(on)
-    }
-}
+// ToggleHostNSView removed in dedup — toggle parts migrate to
+// button + ButtonStyle.switch on decode (see Part.init(from:)).
+// The button's mouseUp dispatch flips `hilite`, the renderer
+// draws the NSSwitch-style track + knob, no live AppKit overlay
+// needed.
 
 // MARK: - SegmentedControl
 

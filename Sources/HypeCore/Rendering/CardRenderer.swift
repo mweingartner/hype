@@ -147,7 +147,7 @@ public final class CardRenderer: Sendable {
             MapRenderer.draw(ctx: ctx, part: part, rect: rect)
         case .colorWell:
             ColorWellRenderer.draw(ctx: ctx, part: part, rect: rect)
-        case .stepper, .slider, .toggle, .segmented:
+        case .stepper, .slider, .segmented:
             FormControlsRenderer.draw(part.partType, ctx: ctx, part: part, rect: rect)
         case .audioRecorder:
             AudioRecorderRenderer.draw(ctx: ctx, part: part, rect: rect)
@@ -157,14 +157,13 @@ public final class CardRenderer: Sendable {
             ProgressViewRenderer.draw(ctx: ctx, part: part, rect: rect)
         case .gauge:
             GaugeRenderer.draw(ctx: ctx, part: part, rect: rect)
-        case .link:
-            LinkRenderer.draw(ctx: ctx, part: part, rect: rect)
-        case .menu:
-            MenuRenderer.draw(ctx: ctx, part: part, rect: rect)
-        case .searchField:
-            SearchFieldRenderer.draw(ctx: ctx, part: part, rect: rect)
         case .divider:
             DividerRenderer.draw(ctx: ctx, part: part, rect: rect)
+        case .toggle, .link, .menu, .searchField:
+            // Migrated to button/field with appropriate style at decode
+            // time — these PartTypes are unreachable in normal flow.
+            // Empty branch keeps the switch exhaustive.
+            break
         case .unknown:
             // Unknown types are filtered out at load time; if one slips
             // through, render nothing.

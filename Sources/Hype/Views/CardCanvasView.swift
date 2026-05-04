@@ -777,16 +777,15 @@ class CardCanvasNSView: NSView {
     // Live form-control hosts.
     private var stepperViews: [UUID: StepperHostNSView] = [:]
     private var sliderViews: [UUID: SliderHostNSView] = [:]
-    private var toggleViews: [UUID: ToggleHostNSView] = [:]
     private var segmentedViews: [UUID: SegmentedHostNSView] = [:]
     private var audioRecorderViews: [UUID: AudioRecorderHostNSView] = [:]
     private var scene3DViews: [UUID: Scene3DHostNSView] = [:]
     // Phase 3 framework controls.
     private var progressViewHosts: [UUID: ProgressViewHostNSView] = [:]
     private var gaugeHosts: [UUID: GaugeHostNSView] = [:]
-    private var linkHosts: [UUID: LinkHostNSView] = [:]
-    private var menuHosts: [UUID: MenuHostNSView] = [:]
-    private var searchFieldHosts: [UUID: SearchFieldHostNSView] = [:]
+    // toggleViews / linkHosts / menuHosts / searchFieldHosts removed
+    // in dedup — those PartTypes migrate to button / field with
+    // appropriate style at decode time.
 
     // Active SKViews for spriteArea parts (keyed by part ID)
     private var spriteViews: [UUID: SKView] = [:]
@@ -1124,9 +1123,9 @@ class CardCanvasNSView: NSView {
         // Phase 3 controls.
         updateProgressViewHosts()
         updateGaugeHosts()
-        updateLinkHosts()
-        updateMenuHosts()
-        updateSearchFieldHosts()
+        // Link / Menu / SearchField hosts removed in dedup —
+        // those PartTypes are migrated to button (.link / .popup
+        // style) and field (.search style) on decode.
 
         // Update sprite views for spriteArea parts
         updateSpriteViews()
@@ -1514,16 +1513,12 @@ class CardCanvasNSView: NSView {
         for (_, v) in colorWellViews { v.isHidden = true }
         for (_, v) in stepperViews { v.isHidden = true }
         for (_, v) in sliderViews { v.isHidden = true }
-        for (_, v) in toggleViews { v.isHidden = true }
         for (_, v) in segmentedViews { v.isHidden = true }
         for (_, v) in audioRecorderViews { v.isHidden = true }
         for (_, v) in scene3DViews { v.isHidden = true }
         // Phase 3 control overlays.
         for (_, v) in progressViewHosts { v.isHidden = true }
         for (_, v) in gaugeHosts { v.isHidden = true }
-        for (_, v) in linkHosts { v.isHidden = true }
-        for (_, v) in menuHosts { v.isHidden = true }
-        for (_, v) in searchFieldHosts { v.isHidden = true }
     }
 
     /// Perform a card transition using SpriteKit.
@@ -2746,16 +2741,14 @@ class CardCanvasNSView: NSView {
         func clearAll() {
             for (_, v) in stepperViews { v.removeFromSuperview() }
             for (_, v) in sliderViews { v.removeFromSuperview() }
-            for (_, v) in toggleViews { v.removeFromSuperview() }
             for (_, v) in segmentedViews { v.removeFromSuperview() }
             stepperViews.removeAll()
             sliderViews.removeAll()
-            toggleViews.removeAll()
             segmentedViews.removeAll()
         }
 
         let formParts = allParts.filter {
-            ($0.partType == .stepper || $0.partType == .slider || $0.partType == .toggle || $0.partType == .segmented) && $0.visible
+            ($0.partType == .stepper || $0.partType == .slider || $0.partType == .segmented) && $0.visible
         }
         if !isBrowseMode || formParts.isEmpty {
             clearAll()
@@ -2764,7 +2757,6 @@ class CardCanvasNSView: NSView {
 
         var activeStepper = Set<UUID>()
         var activeSlider = Set<UUID>()
-        var activeToggle = Set<UUID>()
         var activeSegmented = Set<UUID>()
 
         for part in formParts {
@@ -2802,21 +2794,6 @@ class CardCanvasNSView: NSView {
                     addSubview(host, positioned: .above, relativeTo: nil)
                     sliderViews[partId] = host
                 }
-            case .toggle:
-                activeToggle.insert(partId)
-                if let existing = toggleViews[partId] {
-                    existing.isHidden = false
-                    existing.frame = frame
-                    existing.apply(part)
-                } else {
-                    let host = ToggleHostNSView(frame: frame)
-                    host.apply(part)
-                    host.onValueChange = { [weak self] on in
-                        self?.coordinator?.setPartControlValue(id: partId, value: on ? 1.0 : 0.0, message: "valueChanged")
-                    }
-                    addSubview(host, positioned: .above, relativeTo: nil)
-                    toggleViews[partId] = host
-                }
             case .segmented:
                 activeSegmented.insert(partId)
                 if let existing = segmentedViews[partId] {
@@ -2845,10 +2822,6 @@ class CardCanvasNSView: NSView {
         for id in sliderViews.keys where !activeSlider.contains(id) {
             sliderViews[id]?.removeFromSuperview()
             sliderViews.removeValue(forKey: id)
-        }
-        for id in toggleViews.keys where !activeToggle.contains(id) {
-            toggleViews[id]?.removeFromSuperview()
-            toggleViews.removeValue(forKey: id)
         }
         for id in segmentedViews.keys where !activeSegmented.contains(id) {
             segmentedViews[id]?.removeFromSuperview()
@@ -3047,130 +3020,14 @@ class CardCanvasNSView: NSView {
         }
     }
 
-    /// Create, update, or remove `LinkHostNSView`s for `link` parts.
-    private func updateLinkHosts() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        let isBrowseMode = toolState.category == .browse
-
-        let allParts = partsForCurrentCard()
-        let typeParts = allParts.filter { $0.partType == .link && $0.visible }
-
-        if !isBrowseMode || typeParts.isEmpty {
-            for (_, v) in linkHosts { v.removeFromSuperview() }
-            linkHosts.removeAll()
-            return
-        }
-
-        var activeIds = Set<UUID>()
-        for part in typeParts {
-            activeIds.insert(part.id)
-            let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
-            if let existing = linkHosts[part.id] {
-                existing.isHidden = false
-                existing.frame = frame
-                existing.apply(part)
-                continue
-            }
-            let host = LinkHostNSView(frame: frame)
-            host.apply(part)
-            let partId = part.id
-            // Capture the current part's URL at wiring time so the closure
-            // doesn't need to re-query the document on click.
-            host.onClick = { [weak self, weak host] in
-                guard let self = self, let host = host else { return }
-                self.coordinator?.setPartLinkOpened(id: partId)
-                // Get the current URL from the document (may have changed).
-                let urlString = self.document.parts.first(where: { $0.id == partId })?.url ?? ""
-                host.safeLinkOpen(urlString: urlString)
-            }
-            addSubview(host, positioned: .above, relativeTo: nil)
-            linkHosts[part.id] = host
-        }
-        for id in linkHosts.keys where !activeIds.contains(id) {
-            linkHosts[id]?.removeFromSuperview()
-            linkHosts.removeValue(forKey: id)
-        }
-    }
-
-    /// Create, update, or remove `MenuHostNSView`s for `menu` parts.
-    private func updateMenuHosts() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        let isBrowseMode = toolState.category == .browse
-
-        let allParts = partsForCurrentCard()
-        let typeParts = allParts.filter { $0.partType == .menu && $0.visible }
-
-        if !isBrowseMode || typeParts.isEmpty {
-            for (_, v) in menuHosts { v.removeFromSuperview() }
-            menuHosts.removeAll()
-            return
-        }
-
-        var activeIds = Set<UUID>()
-        for part in typeParts {
-            activeIds.insert(part.id)
-            let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
-            if let existing = menuHosts[part.id] {
-                existing.isHidden = false
-                existing.frame = frame
-                existing.apply(part)
-                continue
-            }
-            let host = MenuHostNSView(frame: frame)
-            host.apply(part)
-            let partId = part.id
-            host.onItemSelected = { [weak self] label in
-                self?.coordinator?.setPartMenuItemSelected(id: partId, label: label)
-            }
-            addSubview(host, positioned: .above, relativeTo: nil)
-            menuHosts[part.id] = host
-        }
-        for id in menuHosts.keys where !activeIds.contains(id) {
-            menuHosts[id]?.removeFromSuperview()
-            menuHosts.removeValue(forKey: id)
-        }
-    }
-
-    /// Create, update, or remove `SearchFieldHostNSView`s for `searchField` parts.
-    private func updateSearchFieldHosts() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        let isBrowseMode = toolState.category == .browse
-
-        let allParts = partsForCurrentCard()
-        let typeParts = allParts.filter { $0.partType == .searchField && $0.visible }
-
-        if !isBrowseMode || typeParts.isEmpty {
-            for (_, v) in searchFieldHosts { v.removeFromSuperview() }
-            searchFieldHosts.removeAll()
-            return
-        }
-
-        var activeIds = Set<UUID>()
-        for part in typeParts {
-            activeIds.insert(part.id)
-            let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
-            if let existing = searchFieldHosts[part.id] {
-                existing.isHidden = false
-                existing.frame = frame
-                existing.apply(part)
-                continue
-            }
-            let host = SearchFieldHostNSView(frame: frame)
-            host.apply(part)
-            let partId = part.id
-            let immediate = part.searchSendsImmediately
-            host.onSearchChange = { [weak self] text in
-                let msg = immediate ? "searchChanged" : "searchSubmitted"
-                self?.coordinator?.setPartSearchText(id: partId, text: text, message: msg)
-            }
-            addSubview(host, positioned: .above, relativeTo: nil)
-            searchFieldHosts[part.id] = host
-        }
-        for id in searchFieldHosts.keys where !activeIds.contains(id) {
-            searchFieldHosts[id]?.removeFromSuperview()
-            searchFieldHosts.removeValue(forKey: id)
-        }
-    }
+    // updateLinkHosts / updateMenuHosts / updateSearchFieldHosts removed
+    // in dedup. The new home for these controls:
+    //   - link → button with ButtonStyle.link (URL open + scheme allowlist
+    //     handled in the canvas's mouseUp dispatch)
+    //   - menu → button with ButtonStyle.popup (popupItems)
+    //   - searchField → field with FieldStyle.search (existing field
+    //     overlay handles the input)
+    // Old documents migrate at decode time so this code is unreachable.
 
     /// Helper: all parts visible on the current card + its background.
     private func partsForCurrentCard() -> [Part] {
