@@ -245,6 +245,64 @@ public enum ButtonRenderer {
             }
             ctx.restoreGState()
             return
+
+        case .switch:
+            // Modern NSSwitch-style toggle. Identical drawing to
+            // the existing `.toggle` case (also a switch UI).
+            // ButtonStyle.toggle = depressed-button toggle (legacy);
+            // ButtonStyle.switch = modern Apple switch.
+            let trackWidth: CGFloat = 44
+            let trackHeight: CGFloat = 24
+            let trackX = rect.minX + 4
+            let trackY = rect.midY - trackHeight / 2
+            let trackRect = CGRect(x: trackX, y: trackY, width: trackWidth, height: trackHeight)
+            let trackPath = CGPath(roundedRect: trackRect, cornerWidth: trackHeight / 2, cornerHeight: trackHeight / 2, transform: nil)
+            ctx.addPath(trackPath)
+            ctx.setFillColor(part.hilite ? NSColor.controlAccentColor.cgColor : NSColor.systemGray.withAlphaComponent(0.3).cgColor)
+            ctx.fillPath()
+            let knobSize = trackHeight - 4
+            let knobX = part.hilite ? trackX + trackWidth - knobSize - 2 : trackX + 2
+            let knobY = trackY + 2
+            ctx.addEllipse(in: CGRect(x: knobX, y: knobY, width: knobSize, height: knobSize))
+            ctx.setFillColor(NSColor.white.cgColor)
+            ctx.fillPath()
+            ctx.addEllipse(in: CGRect(x: knobX, y: knobY, width: knobSize, height: knobSize))
+            ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+            ctx.setLineWidth(0.5)
+            ctx.strokePath()
+            let switchLabel = part.showName ? part.name : part.textContent
+            if !switchLabel.isEmpty {
+                drawLabel(ctx: ctx, text: switchLabel, at: CGPoint(x: trackX + trackWidth + 8, y: rect.midY),
+                         font: part.textFont, size: part.textSize, color: textColor, align: .left)
+            }
+            ctx.restoreGState()
+            return
+
+        case .link:
+            // Underlined link styling: blue text, underline.
+            // Click handling lives in the host view (NSWorkspace.open
+            // with scheme allowlist).
+            let linkText = part.textContent.isEmpty
+                ? (part.url.isEmpty ? "(link)" : part.url)
+                : part.textContent
+            let linkColor = NSColor.linkColor.cgColor
+            drawLabel(ctx: ctx, text: linkText,
+                      at: CGPoint(x: rect.midX, y: rect.midY),
+                      font: part.textFont, size: part.textSize, color: linkColor, align: .center)
+            // Underline beneath the text — measure to centre the line.
+            let nsfont = NSFont(name: part.textFont.isEmpty ? "Helvetica" : part.textFont,
+                                size: CGFloat(part.textSize > 0 ? part.textSize : 14))
+                ?? NSFont.systemFont(ofSize: 14)
+            let attrs: [NSAttributedString.Key: Any] = [.font: nsfont]
+            let textWidth = (linkText as NSString).size(withAttributes: attrs).width
+            let lineY = rect.midY - nsfont.descender - 1
+            ctx.setStrokeColor(linkColor)
+            ctx.setLineWidth(1)
+            ctx.move(to: CGPoint(x: rect.midX - textWidth / 2, y: lineY))
+            ctx.addLine(to: CGPoint(x: rect.midX + textWidth / 2, y: lineY))
+            ctx.strokePath()
+            ctx.restoreGState()
+            return
         }
 
         // Draw centered label

@@ -26,11 +26,11 @@ public struct ToolState: Sendable {
              // Phase 1 framework controls.
              "calendar", "pdf", "map", "colorWell",
              // Phase 2 form controls.
-             "stepper", "slider", "toggle", "segmented",
+             "stepper", "slider", "segmented",
              // Phase 2 media + 3D.
              "audioRecorder", "scene3D",
              // Phase 3 UI controls.
-             "progressView", "gauge", "link", "menu", "searchField", "divider":
+             "progressView", "gauge", "divider":
             return .edit
         // Everything else (rect, oval, line, pencil, spray, bucket,
         // eraser, text) is a drag-to-paint or drag-to-create-shape

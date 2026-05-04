@@ -80,7 +80,6 @@ struct HypeTalkHighlighterThemeTests {
         set the color of colorWell "fill" to "#FF0000"
         set the value of stepper "qty" to 10
         set the value of slider "vol" to 0.5
-        set the on of toggle "muted" to true
         set the selectedSegment of segmented "tabs" to 1
         set the recording of recorder "memo" to true
         set the playing of recorder "memo" to true
@@ -97,8 +96,12 @@ struct HypeTalkHighlighterThemeTests {
 
         let expected = [
             "calendar", "pdf", "map", "colorwell",
-            "stepper", "slider", "toggle", "segmented",
+            "stepper", "slider", "segmented",
             "recorder", "scene3d", "chart",
+            // toggle / link / menu / searchfield removed in dedup —
+            // they're now button styles (.switch/.link/.popup) or
+            // a field style (.search), referenced via the existing
+            // `button "X"` / `field "X"` kind words.
         ]
         for kind in expected {
             #expect(kinds.contains(kind),

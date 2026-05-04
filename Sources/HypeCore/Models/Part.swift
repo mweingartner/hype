@@ -566,5 +566,56 @@ public struct Part: Identifiable, Codable, Sendable {
         dividerThickness = try container.decodeIfPresent(Double.self, forKey: .dividerThickness) ?? 1.0
         dividerColor = try container.decodeIfPresent(String.self, forKey: .dividerColor) ?? ""
         script = try container.decode(String.self, forKey: .script)
+
+        // ----- Legacy-PartType migration -----
+        //
+        // The standalone `toggle`, `menu`, `link`, and `searchField`
+        // PartTypes were collapsed into ButtonStyle.switch /
+        // ButtonStyle.popup / ButtonStyle.link / FieldStyle.search
+        // to give the user one consistent interactive-button surface
+        // and one text-input surface. Old documents that still have
+        // these PartTypes get rewritten in-place at decode time so
+        // every downstream consumer (renderer, host view, AI tool,
+        // HypeTalk getter) only ever sees the canonical button/field
+        // shapes. The `unknown` filter in `HypeDocument.init(from:)`
+        // does NOT see these — they migrate to a real PartType.
+        switch partType {
+        case .toggle:
+            partType = .button
+            buttonStyle = .switch
+            // controlValue 0/1 → hilite Bool. Migration is one-way;
+            // saving back will store as a button.
+            hilite = controlValue >= 0.5
+        case .menu:
+            partType = .button
+            buttonStyle = .popup
+            // menuItems format is `Label||script\nLabel||script`.
+            // popupItems is just `Label\n` lines. We strip the `||`
+            // suffix per item — per-item scripts don't survive the
+            // migration. The button's existing `script` is preserved
+            // so authors can use a generic `on mouseUp` that reads
+            // the selected `textContent`.
+            popupItems = menuItems
+                .split(separator: "\n", omittingEmptySubsequences: true)
+                .map { String($0).split(separator: "|", omittingEmptySubsequences: false).first.map(String.init) ?? "" }
+                .joined(separator: "\n")
+        case .link:
+            partType = .button
+            buttonStyle = .link
+            // `url` and `textContent` are already on Part — link's
+            // text was stored in textContent. No mapping needed.
+        case .searchField:
+            partType = .field
+            fieldStyle = .search
+            // `searchText` becomes the field's textContent. The
+            // search-specific lifecycle messages (searchChanged,
+            // searchSubmitted) still dispatch from FieldHostNSView
+            // when fieldStyle == .search.
+            if !searchText.isEmpty && textContent.isEmpty {
+                textContent = searchText
+            }
+        default:
+            break
+        }
     }
 }

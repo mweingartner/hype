@@ -208,18 +208,9 @@ public struct HypeToolDefinitions {
             "on_background": ("string", "true to place on background", false),
         ]),
 
-        makeTool(name: "create_toggle", description: """
-            Create a toggle switch (NSSwitch). Reads use `the on of toggle "X"` \
-            (returns 'true'/'false'). User flips fire the `valueChanged` message.
-            """, params: [
-            "name": ("string", "Toggle part name", true),
-            "left": ("string", "X position", true),
-            "top": ("string", "Y position", true),
-            "width": ("string", "Width", true),
-            "height": ("string", "Height", true),
-            "on": ("string", "'true' for on, 'false' for off (default 'false')", false),
-            "on_background": ("string", "true to place on background", false),
-        ]),
+        // create_toggle removed in dedup — use create_button with
+        // style="switch" instead. The button's `hilite` field
+        // backs the on/off state.
 
         makeTool(name: "create_segmented", description: """
             Create a segmented control (NSSegmentedControl) with a comma- or pipe-separated \
@@ -372,52 +363,11 @@ public struct HypeToolDefinitions {
             "on_background": ("string", "true to place on background", false),
         ]),
 
-        makeTool(name: "create_link", description: """
-            Create a clickable hyperlink that opens a URL in the user's default browser. The \
-            link's visible text is `text`; clicks open `url`. Fires `linkOpened` HypeTalk \
-            message before opening. Only http, https, and mailto URLs are allowed — other \
-            schemes are refused.
-            """, params: [
-            "name": ("string", "Link part name", true),
-            "text": ("string", "Visible link text", true),
-            "url": ("string", "Destination URL (https:// recommended)", true),
-            "left": ("string", "X position", true),
-            "top": ("string", "Y position", true),
-            "width": ("string", "Width", true),
-            "height": ("string", "Height", true),
-            "on_background": ("string", "true to place on background", false),
-        ]),
-
-        makeTool(name: "create_menu", description: """
-            Create a menu button that reveals a list of actions on click. Pass `items` as a \
-            newline-separated list of 'Label||script' pairs (the script after '||' runs when \
-            the item is chosen) or bare 'Label' lines for label-only items. Fires \
-            `menuItemSelected itemLabel` HypeTalk message when an item is selected.
-            """, params: [
-            "name": ("string", "Menu part name", true),
-            "title": ("string", "Title shown on the menu button (default 'Menu')", false),
-            "items": ("string", "Newline-separated 'Label||script' or bare 'Label' items", true),
-            "left": ("string", "X position", true),
-            "top": ("string", "Y position", true),
-            "width": ("string", "Width", true),
-            "height": ("string", "Height", true),
-            "on_background": ("string", "true to place on background", false),
-        ]),
-
-        makeTool(name: "create_searchfield", description: """
-            Create a search field (NSSearchField). Fires `searchChanged text` on keystroke \
-            (when `immediate` is true, debounced ~300ms) or `searchSubmitted text` on Return. \
-            HypeTalk reads: `the searchText of searchField "X"`, `the prompt of searchField "X"`.
-            """, params: [
-            "name": ("string", "Search field part name", true),
-            "left": ("string", "X position", true),
-            "top": ("string", "Y position", true),
-            "width": ("string", "Width", true),
-            "height": ("string", "Height", true),
-            "prompt": ("string", "Placeholder text (default 'Search')", false),
-            "immediate": ("string", "'true' to fire searchChanged on each keystroke; 'false' (default) to fire only on Return", false),
-            "on_background": ("string", "true to place on background", false),
-        ]),
+        // create_link, create_menu, create_searchfield removed in dedup —
+        // use create_button with style="link" / style="popup" or
+        // create_field with style="search" instead. URL handling for
+        // .link buttons enforces the http/https/mailto allowlist on
+        // mouseUp dispatch in CardCanvasView.
 
         makeTool(name: "create_divider", description: """
             Create a thin horizontal or vertical separator line. Use to visually group content \
@@ -1339,15 +1289,11 @@ public struct HypeToolDefinitions {
             "create_color_well",
             "create_stepper",
             "create_slider",
-            "create_toggle",
             "create_segmented",
             "create_audio_recorder",
             "create_scene3d",
             "create_progressview",
             "create_gauge",
-            "create_link",
-            "create_menu",
-            "create_searchfield",
             "create_divider",
             "set_image_filter",
             "duplicate_part",
@@ -1474,15 +1420,11 @@ public struct HypeToolDefinitions {
             "create_color_well",
             "create_stepper",
             "create_slider",
-            "create_toggle",
             "create_segmented",
             "create_audio_recorder",
             "create_scene3d",
             "create_progressview",
             "create_gauge",
-            "create_link",
-            "create_menu",
-            "create_searchfield",
             "create_divider",
             "set_image_filter",
             "repair_form_controls",

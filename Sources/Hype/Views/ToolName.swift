@@ -3,10 +3,14 @@ import Foundation
 public enum ToolName: String, CaseIterable, Sendable {
     case browse, button, field, shape, webpage, image, video, chart, spriteArea
     case calendar, pdf, map, colorWell
-    case stepper, slider, toggle, segmented, audioRecorder, scene3D
-    case progressView, gauge, link, menu, searchField, divider
+    case stepper, slider, segmented, audioRecorder, scene3D
+    case progressView, gauge, divider
     case select
     case pencil, line, rect, oval, spray, bucket, eraser, text
+    // Removed in dedup: .toggle, .link, .menu, .searchField — these
+    // are now created via ButtonStyle.switch / .link / .popup and
+    // FieldStyle.search on the existing button / field tools, so
+    // the user sees one canonical surface per control type.
 
     /// Human-readable title for the fly-out info window.
     var displayTitle: String {
@@ -26,15 +30,11 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .colorWell: return "Color Well"
         case .stepper: return "Stepper"
         case .slider: return "Slider"
-        case .toggle: return "Toggle"
         case .segmented: return "Segmented Control"
         case .audioRecorder: return "Audio Recorder"
         case .scene3D: return "3D Scene"
         case .progressView: return "Progress View"
         case .gauge: return "Gauge"
-        case .link: return "Link"
-        case .menu: return "Menu"
-        case .searchField: return "Search Field"
         case .divider: return "Divider"
         case .select: return "Select"
         case .pencil: return "Pencil"
@@ -84,8 +84,6 @@ public enum ToolName: String, CaseIterable, Sendable {
             return "An NSStepper with optional min/max/step bounds. User clicks ▲/▼ to adjust the value; HypeTalk reads `the value of stepper \"name\"`. Fires valueChanged on each change."
         case .slider:
             return "An NSSlider with continuous tracking. valueChanged fires during drag (not just on release). Set min/max bounds via the inspector or AI tool. Read with `the value of slider \"name\"`."
-        case .toggle:
-            return "An NSSwitch (on/off toggle). Read state with `the on of toggle \"name\"` (returns true/false). Fires valueChanged when the user flips it."
         case .segmented:
             return "An NSSegmentedControl for selecting one of N labeled options. Configure labels with `set the segments of segmented \"X\" to \"Day|Week|Month\"`. Read selection with `the selectedSegment of segmented \"name\"`."
         case .audioRecorder:
@@ -96,12 +94,6 @@ public enum ToolName: String, CaseIterable, Sendable {
             return "A linear or circular progress indicator. Supports determinate (value/total) and indeterminate spinning modes. Fires progressFinished when value reaches total."
         case .gauge:
             return "A SwiftUI Gauge showing a value within a min/max range. Supports circular and linear styles with optional tint color, center label, and min/max axis labels."
-        case .link:
-            return "A clickable text link that opens a URL in the default browser. Supports http, https, and mailto schemes. Fires linkOpened after the browser launches."
-        case .menu:
-            return "A popup button menu. Items are defined as newline-separated \"Label||script\" pairs. Fires menuItemSelected with the chosen label, and runs the per-item script if one is provided."
-        case .searchField:
-            return "An NSSearchField with placeholder text. When searchSendsImmediately is true, fires searchChanged (debounced) as the user types. Always fires searchSubmitted on Return."
         case .divider:
             return "A visual separator line. Can be horizontal or vertical with configurable thickness and color. No interaction — purely decorative layout element."
         case .select:
@@ -142,15 +134,11 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .colorWell: return "paintpalette"
         case .stepper: return "plus.slash.minus"
         case .slider: return "slider.horizontal.3"
-        case .toggle: return "switch.2"
         case .segmented: return "rectangle.split.3x1"
         case .audioRecorder: return "mic.circle"
         case .scene3D: return "cube.transparent"
         case .progressView: return "chart.bar.xaxis"
         case .gauge: return "gauge"
-        case .link: return "link"
-        case .menu: return "list.bullet.rectangle"
-        case .searchField: return "magnifyingglass"
         case .divider: return "minus"
         case .select: return "cursor.rays"
         case .pencil: return "pencil"

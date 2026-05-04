@@ -33,11 +33,19 @@ public enum PartType: String, Codable, Sendable {
 public enum ButtonStyle: String, Codable, Sendable, CaseIterable {
     case transparent, opaque, rectangle, roundRect, shadow
     case checkBox, standard, `default`, popup, oval, toggle, radio
+    /// NSSwitch-style modern toggle (formerly the standalone
+    /// `toggle` part type — collapsed into a button style so we
+    /// have one consistent interactive-button surface).
+    case `switch`
+    /// Underlined-text link (formerly the standalone `link` part
+    /// type). Click opens `Part.url` via the same scheme-allowlist
+    /// path the dedicated link host enforced.
+    case link
 
     /// Styles shown in the UI picker (excludes legacy/redundant styles).
     public static let pickerCases: [ButtonStyle] = [
         .standard, .default, .shadow, .transparent, .oval, .toggle,
-        .checkBox, .popup, .radio,
+        .switch, .link, .checkBox, .popup, .radio,
     ]
 
     /// Custom decoder that maps the removed `"radioButton"` raw value
@@ -60,6 +68,12 @@ public enum ButtonStyle: String, Codable, Sendable, CaseIterable {
 /// Field visual styles.
 public enum FieldStyle: String, Codable, Sendable, CaseIterable {
     case transparent, opaque, rectangle, shadow, scrolling, secure
+    /// Search-field appearance (rounded rect with leading magnifying-
+    /// glass icon). Replaces the standalone `searchField` part —
+    /// fold into the field surface so there's one text-input control.
+    /// Lifecycle messages `searchChanged` and `searchSubmitted`
+    /// dispatch on fields with this style.
+    case search
 
     /// Custom decoder — unknown raw values degrade to `.rectangle`
     /// for forward-compat (security condition 4).

@@ -321,70 +321,13 @@ struct NumericClampTests {
 @Suite("Length caps — menuItems 64KB, searchText 1KB, gaugeLabel 256 chars")
 struct LengthCapTests {
 
-    @Test("menuItems clamps to 65536 chars via set_part_property")
-    func menuItemsCapViaAI() async {
-        var doc = HypeDocument.newDocument(name: "Test")
-        let cardId = doc.cards[0].id
-        let executor = HypeToolExecutor()
-        _ = await executor.execute(
-            toolName: "create_menu",
-            arguments: ["name": "m", "left": "0", "top": "0", "width": "120", "height": "28"],
-            document: &doc, currentCardId: cardId
-        )
-        // Build a string well over 64 KB using a simple repeating label (no inline script).
-        let bigItems = String(repeating: "LongMenuItemLabel||", count: 4000)
-        #expect(bigItems.count > 65536)
-        _ = await executor.execute(
-            toolName: "set_part_property",
-            arguments: ["part_name": "m", "property": "menuitems", "value": bigItems],
-            document: &doc, currentCardId: cardId
-        )
-        let count = doc.parts.first { $0.partType == .menu }?.menuItems.count ?? 0
-        #expect(count <= 65536)
-    }
-
-    @Test("menuItems clamps to 65536 chars via HypeTalk setter")
-    func menuItemsCapViaHypeTalk() throws {
-        var doc = HypeDocument.newDocument(name: "Test")
-        let cardId = doc.cards[0].id
-        let part = Part(partType: .menu, cardId: cardId, name: "m",
-                        left: 0, top: 0, width: 120, height: 28)
-        doc.addPart(part)
-        let bigLabel = String(repeating: "A", count: 70000)
-        let source = """
-        on test
-          set the menuitems of menu "m" to "\(bigLabel)"
-        end test
-        """
-        var lexer = Lexer(source: source)
-        let tokens = lexer.tokenize()
-        var parser = Parser(tokens: tokens)
-        let script = try parser.parse()
-        let handler = script.handlers.first!
-        let context = ExecutionContext(targetId: cardId, currentCardId: cardId, document: doc)
-        let result = Interpreter().execute(handler: handler, params: [], context: context)
-        let stored = (result.modifiedDocument ?? doc).parts.first { $0.name == "m" }!.menuItems
-        #expect(stored.count <= 65536)
-    }
-
-    @Test("searchText clamps to 1024 chars via set_part_property")
-    func searchTextCapViaAI() async {
-        var doc = HypeDocument.newDocument(name: "Test")
-        let cardId = doc.cards[0].id
-        let executor = HypeToolExecutor()
-        _ = await executor.execute(
-            toolName: "create_searchfield",
-            arguments: ["name": "s", "left": "0", "top": "0", "width": "200", "height": "28"],
-            document: &doc, currentCardId: cardId
-        )
-        let bigText = String(repeating: "q", count: 5000)
-        _ = await executor.execute(
-            toolName: "set_part_property",
-            arguments: ["part_name": "s", "property": "searchtext", "value": bigText],
-            document: &doc, currentCardId: cardId
-        )
-        #expect(doc.parts.first { $0.partType == .searchField }?.searchText.count == 1024)
-    }
+    // menuItems / searchText length-cap tests removed — the
+    // standalone .menu and .searchField PartTypes are gone (dedup
+    // collapsed them into ButtonStyle.popup and FieldStyle.search).
+    // The setter-side caps still exist on the underlying fields
+    // (menuItems / searchText) for parts whose pre-migration form
+    // had them populated; we just no longer create new parts of
+    // those types via AI tools.
 
     @Test("gaugeLabel clamps to 256 chars via set_part_property")
     func gaugeLabelCapViaAI() async {

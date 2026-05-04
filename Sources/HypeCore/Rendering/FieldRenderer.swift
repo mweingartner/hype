@@ -54,6 +54,38 @@ public enum FieldRenderer {
             ctx.setFillColor(fillColor)
             ctx.fill(rect)
             strokeFieldRect(rect)
+        case .search:
+            // Pill-shaped field with a leading magnifying-glass icon.
+            // Mirrors NSSearchField's macOS look so edit-mode and
+            // run-mode are visually consistent.
+            let radius = min(rect.height / 2, 12)
+            let pillPath = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+            ctx.addPath(pillPath)
+            ctx.setFillColor(NSColor.textBackgroundColor.cgColor)
+            ctx.fillPath()
+            ctx.addPath(pillPath)
+            ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+            ctx.setLineWidth(1)
+            ctx.strokePath()
+            // Magnifying glass — circle + diagonal handle.
+            let iconSize: CGFloat = 12
+            let iconCenter = CGPoint(x: rect.minX + 8 + iconSize / 2,
+                                     y: rect.midY)
+            ctx.setStrokeColor(NSColor.secondaryLabelColor.cgColor)
+            ctx.setLineWidth(1.4)
+            let circleRadius = iconSize / 2 - 1
+            ctx.strokeEllipse(in: CGRect(x: iconCenter.x - circleRadius,
+                                         y: iconCenter.y - circleRadius,
+                                         width: circleRadius * 2,
+                                         height: circleRadius * 2))
+            // Handle line (45° down-right from circle's edge)
+            let handleStart = CGPoint(x: iconCenter.x + circleRadius * 0.7,
+                                      y: iconCenter.y - circleRadius * 0.7)
+            let handleEnd = CGPoint(x: iconCenter.x + circleRadius * 1.4,
+                                    y: iconCenter.y - circleRadius * 1.4)
+            ctx.move(to: handleStart)
+            ctx.addLine(to: handleEnd)
+            ctx.strokePath()
         }
 
         if part.visible && part.fieldStyle == .transparent {
@@ -63,7 +95,15 @@ public enum FieldRenderer {
         // Draw text content
         if !part.textContent.isEmpty {
             let padding: CGFloat = part.wideMargins ? 8 : 4
-            let textRect = rect.insetBy(dx: padding, dy: padding)
+            // Leading inset for the search-field magnifying-glass
+            // icon so text doesn't overlap the icon.
+            let leadingIconInset: CGFloat = part.fieldStyle == .search ? 24 : 0
+            let textRect = CGRect(
+                x: rect.minX + padding + leadingIconInset,
+                y: rect.minY + padding,
+                width: rect.width - padding * 2 - leadingIconInset,
+                height: rect.height - padding * 2
+            )
             let maxWidth = textRect.width - (part.fieldStyle == .scrolling ? 16 : 0)
 
             let nsFont = NSFont(name: part.textFont, size: CGFloat(part.textSize)) ?? NSFont.systemFont(ofSize: CGFloat(part.textSize))

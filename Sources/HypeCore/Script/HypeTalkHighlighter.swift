@@ -60,11 +60,15 @@ public struct HypeTalkHighlighter: Sendable {
         // `the X of map "store"`, `the centerLat of map "X"`, etc.
         "chart", "calendar", "pdf", "map", "colorwell",
         // Phase 2 form controls.
-        "stepper", "slider", "toggle", "segmented",
+        "stepper", "slider", "segmented",
         // Phase 2 media + 3D.
         "audiorecorder", "recorder", "scene3d", "model3d",
         // Phase 3 UI controls.
-        "progressview", "progress", "gauge", "link", "menu", "searchfield", "search", "divider",
+        "progressview", "progress", "gauge", "divider",
+        // Removed in dedup: toggle, link, menu, searchfield, search.
+        // These are now button styles (.switch, .link, .popup) and
+        // a field style (.search) — referenced via `button "X"` /
+        // `field "X"` in HypeTalk.
     ]
 
     private static let constants: Set<String> = [

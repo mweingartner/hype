@@ -78,10 +78,11 @@ public enum HypeTalkGuide {
             audio "music"      video "intro"       chart "sales"
             calendar "due"     pdf "manual"        map "store"
             colorWell "fill"   stepper "qty"       slider "volume"
-            toggle "muted"     segmented "tabs"    recorder "memo"
-            scene3d "model"    progressView "bar"  gauge "rpm"
-            link "docs"        menu "actions"      searchField "find"
-            divider "sep"
+            segmented "tabs"   recorder "memo"     scene3d "model"
+            progressView "bar" gauge "rpm"         divider "sep"
+            -- (toggle / link / menu / searchField were collapsed into
+            --  button styles `.switch / .link / .popup` and field
+            --  style `.search` — see `set the style of button "X"`).
         Use double-quoted names; bare words are only valid for short keywords.
 
         ## Properties — get and set
@@ -108,16 +109,16 @@ public enum HypeTalkGuide {
           - **map:** centerLat, centerLon, span, mapType (standard | satellite | hybrid | mutedStandard), annotations, location (alias: maplocation / map_location — geocoded place name, address, or US ZIP; resolves async)
           - **colorWell:** color (hex like "#FF5500"), interactive
           - **stepper / slider:** value, min, max, step
-          - **toggle:** on (true / false)
+          - **button (style=switch / toggle / checkBox):** hilite (true/false — backs the on/off state of switch / toggle / checkbox styles); the `on` of <kind> "X" is also accepted as an alias for hilite on these styles.
           - **segmented:** segments, selectedSegment
           - **recorder:** recording, playing, duration, outputPath, format (m4a | caf)
           - **scene3d:** object (source path — preferred), modelURL (resolved path, legacy alias), allowsCameraControl, autoLighting, antialiasing, background3d
           - **image:** imageFilter, imageFilterIntensity (along with the standard part properties)
           - **progressView:** value (0..total), progressTotal (default 100), progressIsCircular (true/false), progressIsIndeterminate (true/false), progressLabel, progressTint (hex)
           - **gauge:** value (gaugeMin..gaugeMax), gaugeMin (default 0), gaugeMax (default 100), gaugeStyle (circular | linear), gaugeTint (hex), gaugeLabel, gaugeMinLabel, gaugeMaxLabel
-          - **link:** url (the target URL — must use http, https, or mailto scheme), textContent (display text; defaults to url if empty)
-          - **menu:** menuTitle (button label), menuItems (newline-separated "Label||script" pairs — `Label` shown in menu; `script` runs on selection)
-          - **searchField:** searchText (current input), searchPrompt (placeholder), searchSendsImmediately (true/false — debounced live firing vs. Return-only)
+          - **button (style=link):** url (target — http / https / mailto only; other schemes are refused at click time), textContent (visible link text; defaults to url if empty)
+          - **button (style=popup):** popupItems (newline-separated labels), textContent (currently-selected label)
+          - **field (style=search):** textContent (current search text — use `the text of field "search"`); fields with this style fire `searchChanged` on debounced keystroke and `searchSubmitted` on Return.
           - **divider:** dividerOrientation (horizontal | vertical), dividerThickness (pixels, default 1), dividerColor (hex)
         **Global properties:** the date, the time, the ticks, the seconds, the mouseLoc (returns "x,y"), the mouseH, the mouseV, the shiftKey, the optionKey, the commandKey, the version.
 
@@ -130,15 +131,14 @@ public enum HypeTalkGuide {
         **Generic part / mouse / keyboard:** mouseUp, mouseDown, mouseEnter, mouseLeave, mouseStillDown, openCard, closeCard, openStack, closeStack, openBackground, closeBackground, idle, openField, closeField, returnInField, tabInField, keyDown, deleteButton, deleteField.
         **Calendar (`recorder` style — fires on the calendar part):** dateChanged.
         **ColorWell:** colorChanged.
-        **Stepper / Slider / Toggle:** valueChanged.
+        **Stepper / Slider / Gauge:** valueChanged. (Gauge fires on user click/drag when `enabled` is true.)
         **Segmented:** selectionChanged.
+        **Button (style=switch / toggle / checkBox):** mouseUp (the click also flips `hilite` automatically).
+        **Field (style=search):** searchChanged (param 1 = current text; fires debounced as user types when searchSendsImmediately is true), searchSubmitted (param 1 = final text; fires on Return).
         **Audio Recorder:** recordingStarted, recordingStopped, playbackStarted, playbackStopped.
         **Map:** locationResolved (fires after a successful async geocode of `the maplocation`; read `the centerLat / centerLon of me` inside the handler to get the resolved coords).
         **Scene3D:** modelLoadFailed (param 1 = reason string; fires when SCNScene returns nil or STL conversion fails — use to show a fallback or log an error).
         **ProgressView:** progressFinished (fires once when value reaches total; resets when value drops below total).
-        **Link:** linkOpened (fires after the URL is opened in the browser).
-        **Menu:** menuItemSelected (param 1 = chosen item label).
-        **SearchField:** searchChanged (param 1 = current text; fires debounced when searchSendsImmediately is true), searchSubmitted (param 1 = final text; fires on Return).
         **AI tools:** aiToolFinished, aiToolFailed.
 
         ## Chunks (text slicing)
@@ -319,12 +319,15 @@ public enum HypeTalkGuide {
             -- Stepper has the same `value` property and the same
             -- `valueChanged` message.
 
-        **React to a toggle flip:**
-            on valueChanged
-              if the on of toggle "muted" then
+        **React to a toggle / switch flip:**
+            -- Switch / checkbox / toggle styled buttons flip `hilite`
+            -- on click. Use mouseUp (the dedicated `valueChanged`
+            -- event was retired with the standalone toggle PartType):
+            on mouseUp
+              if the hilite of me then
                 play stop
               end if
-            end valueChanged
+            end mouseUp
 
         **Apply a filter to an image:**
             set the imageFilter of image "logo" to "sepia"
@@ -430,32 +433,35 @@ public enum HypeTalkGuide {
               put "Done!" into field "status"
             end progressFinished
 
-        **Open a URL link (script-driven):**
-            -- A link part opens its url automatically when clicked in browse mode.
-            -- To navigate to a URL from script, set the url then simulate a click:
-            set the url of link "docs" to "https://example.com"
-            -- To react after the link is opened:
-            on linkOpened
+        **Open a URL — use a button styled as a link:**
+            -- Set the button's style to "link" (underlined text, blue
+            -- color) and put the destination in the `url` field.
+            -- Clicks dispatch an http/https/mailto open (other
+            -- schemes are refused for safety).
+            set the style of button "docs" to "link"
+            set the url of button "docs" to "https://example.com"
+            -- React in the button's mouseUp handler if you need it:
+            on mouseUp
               put "Opened the docs page" into field "status"
-            end linkOpened
+            end mouseUp
 
-        **Popup menu — build items and react to selection:**
-            -- Items are newline-separated "Label||script" pairs.
-            -- The script part runs when the item is chosen; leave it empty
-            -- if you only need the menuItemSelected message instead.
-            set the menuItems of menu "actions" to "Delete||" & return & "Archive||" & return & "Share||"
-            set the menuTitle of menu "actions" to "Options"
-
-            on menuItemSelected item
-              if item is "Delete" then
+        **Popup menu — use a button styled as popup:**
+            -- popupItems is newline-separated labels. The selected
+            -- label appears in the button's textContent. Per-item
+            -- scripts aren't supported — branch on textContent in
+            -- the button's mouseUp handler instead.
+            set the style of button "actions" to "popup"
+            set the popupItems of button "actions" to "Delete" & return & "Archive" & return & "Share"
+            on mouseUp
+              if the textContent of me is "Delete" then
                 -- handle delete
               end if
-            end menuItemSelected
+            end mouseUp
 
-        **Live search with a searchField:**
+        **Live search — use a field styled as search:**
+            set the style of field "find" to "search"
             on searchChanged query
-              -- fires debounced (~300 ms) while the user types,
-              -- only when searchSendsImmediately of the part is true
+              -- fires debounced (~300 ms) while the user types
               put query into field "filter"
             end searchChanged
 

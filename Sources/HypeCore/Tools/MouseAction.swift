@@ -90,7 +90,6 @@ public struct MouseHandler: Sendable {
             // Phase 2 form controls.
             case "stepper": partType = .stepper
             case "slider": partType = .slider
-            case "toggle": partType = .toggle
             case "segmented": partType = .segmented
             // Phase 2 media + 3D.
             case "audioRecorder": partType = .audioRecorder
@@ -98,10 +97,10 @@ public struct MouseHandler: Sendable {
             // Phase 3 UI controls.
             case "progressView": partType = .progressView
             case "gauge": partType = .gauge
-            case "link": partType = .link
-            case "menu": partType = .menu
-            case "searchField": partType = .searchField
             case "divider": partType = .divider
+            // .toggle / .link / .menu / .searchField removed in
+            // dedup — those are now button (with .switch / .link
+            // / .popup style) or field (with .search style).
             default: return .none
             }
             return .createPart(partType, rect, extras)

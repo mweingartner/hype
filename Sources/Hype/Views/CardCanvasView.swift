@@ -2194,11 +2194,26 @@ class CardCanvasNSView: NSView {
                 if part.partType == .image && part.invertOnClick {
                     coordinator?.togglePartHilite(id: part.id)
                 }
-                // Auto-hilite for buttons: checkboxes and toggles toggle on click
+                // Auto-hilite for buttons: checkboxes, toggles, and
+                // the modern switch style flip hilite on click.
                 if part.partType == .button {
                     switch part.buttonStyle {
-                    case .checkBox, .toggle:
+                    case .checkBox, .toggle, .switch:
                         coordinator?.togglePartHilite(id: part.id)
+                    case .link:
+                        // Link-style buttons open Part.url with a
+                        // scheme allowlist (http / https / mailto).
+                        // Same security guard the dedicated
+                        // `LinkHostNSView` enforced before the
+                        // dedup migration. The mouseUp script (if
+                        // any) still dispatches afterwards.
+                        let urlString = part.url
+                        if !urlString.isEmpty,
+                           let url = URL(string: urlString),
+                           let scheme = url.scheme?.lowercased(),
+                           ["http", "https", "mailto"].contains(scheme) {
+                            NSWorkspace.shared.open(url)
+                        }
                     default:
                         break
                     }
