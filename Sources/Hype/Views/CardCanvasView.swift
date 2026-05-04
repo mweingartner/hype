@@ -315,6 +315,16 @@ struct CardCanvasView: NSViewRepresentable {
             dispatchMessage(message, to: id)
         }
 
+        /// Writeback for the gauge host's interactive scrub gesture.
+        /// Gauge uses `gaugeValue` (not `controlValue` — the form
+        /// controls own that field). Fires `valueChanged` on every
+        /// drag tick so HypeTalk authors get the same lifecycle as
+        /// stepper / slider / toggle.
+        func setPartGaugeValue(id: UUID, value: Double) {
+            parent.document.document.updatePart(id: id) { $0.gaugeValue = value }
+            dispatchMessage("valueChanged", to: id)
+        }
+
         /// Writeback for the audio-recorder host. State changes
         /// update three fields atomically: recording flag,
         /// duration, output-file path. Dispatches `recordingStarted`
@@ -3009,6 +3019,10 @@ class CardCanvasNSView: NSView {
             }
             let host = GaugeHostNSView(frame: frame)
             host.apply(part)
+            let partId = part.id
+            host.onValueChange = { [weak self] v in
+                self?.coordinator?.setPartGaugeValue(id: partId, value: v)
+            }
             addSubview(host, positioned: .above, relativeTo: nil)
             gaugeHosts[part.id] = host
         }

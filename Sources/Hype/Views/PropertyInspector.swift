@@ -1312,8 +1312,17 @@ struct PropertyInspector: View {
                 .pickerStyle(.segmented)
             }
             propertyRow("Thickness (pts)", binding: bindPartDoubleString(part.id, \.dividerThickness))
-            propertyRow("Color (hex)", binding: bindPartString(part.id, \.dividerColor))
-            Text("Empty color = system separator color.")
+            HStack {
+                ColorPicker("Color", selection: bindPartColor(part.id, \.dividerColor), supportsOpacity: false)
+                    .labelsHidden()
+                Text("Color")
+                    .font(.system(size: 11))
+                    .foregroundColor(.primary)
+                Spacer()
+                propertyRow("hex", binding: bindPartString(part.id, \.dividerColor))
+                    .frame(width: 90)
+            }
+            Text("Empty hex = system separator color.")
                 .font(.system(size: 9)).foregroundColor(.secondary)
         }
     }

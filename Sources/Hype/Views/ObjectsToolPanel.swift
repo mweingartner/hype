@@ -32,6 +32,12 @@ struct ObjectsToolPanel: View {
     @State private var hoveredFrameMidY: CGFloat = 0
     @State private var hoverWorkItem: DispatchWorkItem? = nil
 
+    /// Measured panel width — flyouts position themselves just past
+    /// the trailing edge of THIS, not the ideal-width constant, so
+    /// a user-resized panel still gets correctly-anchored flyouts.
+    /// Updated via a GeometryReader background on the root.
+    @State private var measuredPanelWidth: CGFloat = 52
+
     // MARK: - Tool grouping
 
     /// Selection / runtime-vs-edit clicking. Two distinct semantics
@@ -154,12 +160,24 @@ struct ObjectsToolPanel: View {
                 .frame(width: 1)
         }
         .coordinateSpace(name: "objectsToolPanel")
+        .background(
+            // Measure the panel's actual width so the flyout
+            // anchors next to the trailing edge regardless of
+            // user resize.
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { measuredPanelWidth = geo.size.width }
+                    .onChange(of: geo.size.width) { _, w in
+                        measuredPanelWidth = w
+                    }
+            }
+        )
         .overlay(alignment: .topLeading) {
             if let item = hoveredItem {
                 ToolFlyoutView(title: item.title, description: item.description)
                     .frame(width: Self.flyoutWidth, alignment: .topLeading)
                     .offset(
-                        x: panelCurrentWidth() + 8,
+                        x: measuredPanelWidth + 8,
                         y: max(0, hoveredFrameMidY - 30)
                     )
                     .allowsHitTesting(false)
@@ -168,16 +186,6 @@ struct ObjectsToolPanel: View {
             }
         }
         .animation(.easeInOut(duration: 0.15), value: hoveredItem)
-    }
-
-    /// Best-effort current panel width for flyout positioning. We
-    /// can't read the actual frame from inside an `.overlay`, so we
-    /// approximate using the ideal width — adjacent buttons all get
-    /// the same offset, so a single drift between actual and
-    /// approximated widths only shifts the flyout uniformly. Good
-    /// enough for this UX.
-    private func panelCurrentWidth() -> CGFloat {
-        Self.panelIdealWidth
     }
 
     @ViewBuilder

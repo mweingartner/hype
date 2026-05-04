@@ -56,9 +56,27 @@ struct GaugeHostSwiftView: View {
 ///
 /// Uses an `NSHostingView<GaugeHostSwiftView>` on macOS 13+ and falls
 /// back to an `NSProgressIndicator` on older systems.
+///
+/// When `part.enabled == true`, the gauge is interactive: click or
+/// drag horizontally on the gauge to scrub the value. The closure
+/// `onValueChange` fires each tick so the chat / coordinator can
+/// write back into the document. Disabled gauges are display-only.
 final class GaugeHostNSView: NSView {
 
     private var hostingView: NSView?
+    private var panGesture: NSPanGestureRecognizer?
+    private var clickGesture: NSClickGestureRecognizer?
+
+    /// Live state captured at apply() time so the pan/click handlers
+    /// can map mouse position → value without re-reading the part.
+    private var liveMin: Double = 0
+    private var liveMax: Double = 1
+    private var liveEnabled: Bool = false
+
+    /// Closure fires whenever the user adjusts the gauge value via
+    /// click or drag. Wired in `CardCanvasView.updateGaugeViews` to
+    /// the coordinator's writeback.
+    var onValueChange: ((Double) -> Void)?
 
     // Cached last-applied state to avoid redundant SwiftUI updates.
     private var lastValue: Double?
@@ -67,12 +85,40 @@ final class GaugeHostNSView: NSView {
     private var lastStyle: String?
     private var lastTint: String?
     private var lastLabel: String?
+    private var lastEnabled: Bool?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        installGestures()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private func installGestures() {
+        let pan = NSPanGestureRecognizer(target: self, action: #selector(didPan(_:)))
+        addGestureRecognizer(pan)
+        panGesture = pan
+        let click = NSClickGestureRecognizer(target: self, action: #selector(didClick(_:)))
+        addGestureRecognizer(click)
+        clickGesture = click
+    }
+
+    @objc private func didClick(_ g: NSClickGestureRecognizer) {
+        guard liveEnabled else { return }
+        commitValue(from: g.location(in: self))
+    }
+
+    @objc private func didPan(_ g: NSPanGestureRecognizer) {
+        guard liveEnabled else { return }
+        commitValue(from: g.location(in: self))
+    }
+
+    private func commitValue(from point: NSPoint) {
+        let w = max(1, bounds.width)
+        let frac = max(0, min(1, point.x / w))
+        let value = liveMin + frac * (liveMax - liveMin)
+        onValueChange?(value)
+    }
 
     func apply(_ part: Part) {
         // Security condition 5: guard NaN/Inf and enforce max > min.
@@ -81,9 +127,15 @@ final class GaugeHostNSView: NSView {
         let safeMax = rawMax > safeMin ? rawMax : safeMin + 1
         let safeValue = min(safeMax, max(safeMin, part.gaugeValue.isFinite ? part.gaugeValue : safeMin))
 
+        // Track live state so gesture handlers can compute values
+        // without re-reading the part.
+        liveMin = safeMin
+        liveMax = safeMax
+        liveEnabled = part.enabled
+
         let same = (safeValue == lastValue) && (safeMin == lastMin) && (safeMax == lastMax)
             && (part.gaugeStyle == lastStyle) && (part.gaugeTint == lastTint)
-            && (part.gaugeLabel == lastLabel)
+            && (part.gaugeLabel == lastLabel) && (part.enabled == lastEnabled)
         guard !same else { return }
 
         lastValue = safeValue
@@ -92,6 +144,7 @@ final class GaugeHostNSView: NSView {
         lastStyle = part.gaugeStyle
         lastTint = part.gaugeTint
         lastLabel = part.gaugeLabel
+        lastEnabled = part.enabled
 
         // Remove stale view.
         hostingView?.removeFromSuperview()
