@@ -76,7 +76,17 @@ public struct HypeDocument: Codable, Sendable {
         stack = try container.decode(Stack.self, forKey: .stack)
         backgrounds = try container.decode([Background].self, forKey: .backgrounds)
         cards = try container.decode([Card].self, forKey: .cards)
-        parts = try container.decode([Part].self, forKey: .parts)
+        let rawParts = try container.decode([Part].self, forKey: .parts)
+        // Forward-compat: filter out parts with unknown types so future .hype
+        // files containing newer part-types still load without crashing.
+        let filteredParts = rawParts.filter { part in
+            if part.partType == .unknown {
+                HypeLogger.shared.warn("Skipping part '\(part.name)' with unrecognised partType — document may have been created by a newer Hype version", source: "HypeDocument.init(from:)")
+                return false
+            }
+            return true
+        }
+        parts = filteredParts
         constraints = try container.decodeIfPresent([LayoutConstraint].self, forKey: .constraints) ?? []
         spriteRepository = try container.decodeIfPresent(SpriteRepository.self, forKey: .spriteRepository) ?? SpriteRepository()
         aiPromptHistory = try container.decodeIfPresent([String].self, forKey: .aiPromptHistory) ?? []

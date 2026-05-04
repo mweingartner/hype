@@ -79,7 +79,9 @@ public enum HypeTalkGuide {
             calendar "due"     pdf "manual"        map "store"
             colorWell "fill"   stepper "qty"       slider "volume"
             toggle "muted"     segmented "tabs"    recorder "memo"
-            scene3d "model"
+            scene3d "model"    progressView "bar"  gauge "rpm"
+            link "docs"        menu "actions"      searchField "find"
+            divider "sep"
         Use double-quoted names; bare words are only valid for short keywords.
 
         ## Properties — get and set
@@ -111,6 +113,12 @@ public enum HypeTalkGuide {
           - **recorder:** recording, playing, duration, outputPath, format (m4a | caf)
           - **scene3d:** object (source path — preferred), modelURL (resolved path, legacy alias), allowsCameraControl, autoLighting, antialiasing, background3d
           - **image:** imageFilter, imageFilterIntensity (along with the standard part properties)
+          - **progressView:** value (0..total), progressTotal (default 100), progressIsCircular (true/false), progressIsIndeterminate (true/false), progressLabel, progressTint (hex)
+          - **gauge:** value (gaugeMin..gaugeMax), gaugeMin (default 0), gaugeMax (default 100), gaugeStyle (circular | linear), gaugeTint (hex), gaugeLabel, gaugeMinLabel, gaugeMaxLabel
+          - **link:** url (the target URL — must use http, https, or mailto scheme), textContent (display text; defaults to url if empty)
+          - **menu:** menuTitle (button label), menuItems (newline-separated "Label||script" pairs — `Label` shown in menu; `script` runs on selection)
+          - **searchField:** searchText (current input), searchPrompt (placeholder), searchSendsImmediately (true/false — debounced live firing vs. Return-only)
+          - **divider:** dividerOrientation (horizontal | vertical), dividerThickness (pixels, default 1), dividerColor (hex)
         **Global properties:** the date, the time, the ticks, the seconds, the mouseLoc (returns "x,y"), the mouseH, the mouseV, the shiftKey, the optionKey, the commandKey, the version.
 
         ## System & lifecycle messages
@@ -127,6 +135,10 @@ public enum HypeTalkGuide {
         **Audio Recorder:** recordingStarted, recordingStopped, playbackStarted, playbackStopped.
         **Map:** locationResolved (fires after a successful async geocode of `the maplocation`; read `the centerLat / centerLon of me` inside the handler to get the resolved coords).
         **Scene3D:** modelLoadFailed (param 1 = reason string; fires when SCNScene returns nil or STL conversion fails — use to show a fallback or log an error).
+        **ProgressView:** progressFinished (fires once when value reaches total; resets when value drops below total).
+        **Link:** linkOpened (fires after the URL is opened in the browser).
+        **Menu:** menuItemSelected (param 1 = chosen item label).
+        **SearchField:** searchChanged (param 1 = current text; fires debounced when searchSendsImmediately is true), searchSubmitted (param 1 = final text; fires on Return).
         **AI tools:** aiToolFinished, aiToolFailed.
 
         ## Chunks (text slicing)
@@ -406,6 +418,51 @@ public enum HypeTalkGuide {
             -- replace the entire annotation set by setting
             -- `annotations` to a JSON string like
             -- '[{"lat":37.77,"lon":-122.42,"title":"HQ"}]'.
+
+        **Track progress and react when complete:**
+            -- Advance a linear progress bar one step at a time:
+            on mouseUp
+              set the value of progressView "bar" to (the value of progressView "bar") + 10
+            end mouseUp
+
+            -- React when progress hits 100%:
+            on progressFinished
+              put "Done!" into field "status"
+            end progressFinished
+
+        **Open a URL link (script-driven):**
+            -- A link part opens its url automatically when clicked in browse mode.
+            -- To navigate to a URL from script, set the url then simulate a click:
+            set the url of link "docs" to "https://example.com"
+            -- To react after the link is opened:
+            on linkOpened
+              put "Opened the docs page" into field "status"
+            end linkOpened
+
+        **Popup menu — build items and react to selection:**
+            -- Items are newline-separated "Label||script" pairs.
+            -- The script part runs when the item is chosen; leave it empty
+            -- if you only need the menuItemSelected message instead.
+            set the menuItems of menu "actions" to "Delete||" & return & "Archive||" & return & "Share||"
+            set the menuTitle of menu "actions" to "Options"
+
+            on menuItemSelected item
+              if item is "Delete" then
+                -- handle delete
+              end if
+            end menuItemSelected
+
+        **Live search with a searchField:**
+            on searchChanged query
+              -- fires debounced (~300 ms) while the user types,
+              -- only when searchSendsImmediately of the part is true
+              put query into field "filter"
+            end searchChanged
+
+            on searchSubmitted query
+              -- always fires when the user presses Return
+              put query into field "result"
+            end searchSubmitted
 
         **Flash a part — hide, wait, show:**
             on mouseUp

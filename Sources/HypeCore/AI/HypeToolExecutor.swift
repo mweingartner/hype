@@ -521,7 +521,15 @@ public struct HypeToolExecutor: Sendable {
             if !p.textContent.isEmpty { props.append("text=\"\(p.textContent)\"") }
         case .field:
             props.append("style=\(p.fieldStyle.rawValue)")
-            if !p.textContent.isEmpty {
+            // Secure fields are display-masking controls. We never
+            // echo their textContent through the AI's part-summary
+            // surface (`get_card_parts` / `get_background_parts`)
+            // because the AI panel logs tool I/O — leaking a
+            // password into the chat transcript would defeat the
+            // point of using a secure field.
+            if p.fieldStyle == .secure {
+                if !p.textContent.isEmpty { props.append("text=(masked)") }
+            } else if !p.textContent.isEmpty {
                 let preview = String(p.textContent.prefix(100))
                 props.append("text=\"\(preview)\(p.textContent.count > 100 ? "..." : "")\"")
             }
@@ -607,6 +615,37 @@ public struct HypeToolExecutor: Sendable {
             if !p.scene3DAutoLighting { props.append("autoLighting=false") }
             if !p.scene3DBackground.isEmpty { props.append("background=\(p.scene3DBackground)") }
             props.append("antialiasing=\(p.scene3DAntialiasing)")
+        case .progressView:
+            props.append("value=\(p.progressValue)")
+            props.append("total=\(p.progressTotal)")
+            props.append("circular=\(p.progressIsCircular)")
+            props.append("indeterminate=\(p.progressIsIndeterminate)")
+            if !p.progressLabel.isEmpty { props.append("label=\"\(p.progressLabel)\"") }
+            if !p.progressTint.isEmpty { props.append("tint=\(p.progressTint)") }
+        case .gauge:
+            props.append("value=\(p.gaugeValue)")
+            props.append("min=\(p.gaugeMin)")
+            props.append("max=\(p.gaugeMax)")
+            props.append("style=\(p.gaugeStyle)")
+            if !p.gaugeLabel.isEmpty { props.append("label=\"\(p.gaugeLabel)\"") }
+            if !p.gaugeTint.isEmpty { props.append("tint=\(p.gaugeTint)") }
+        case .link:
+            props.append("url=\"\(p.url)\"")
+            if !p.textContent.isEmpty { props.append("text=\"\(p.textContent)\"") }
+        case .menu:
+            props.append("title=\"\(p.menuTitle)\"")
+            let lineCount = p.menuItems.split(separator: "\n").count
+            props.append("items=\(lineCount) item(s)")
+        case .searchField:
+            if !p.searchText.isEmpty { props.append("searchText=\"\(p.searchText)\"") }
+            props.append("prompt=\"\(p.searchPrompt)\"")
+            props.append("sendsImmediately=\(p.searchSendsImmediately)")
+        case .divider:
+            props.append("orientation=\(p.dividerOrientation)")
+            props.append("thickness=\(p.dividerThickness)")
+            if !p.dividerColor.isEmpty { props.append("color=\(p.dividerColor)") }
+        case .unknown:
+            break
         }
 
         // Common text styling (if non-default)
@@ -1298,6 +1337,156 @@ public struct HypeToolExecutor: Sendable {
             let layer = place.backgroundId != nil ? " on background" : ""
             return "Created calendar '\(part.name)'\(layer)"
 
+        // MARK: - Phase 3 creation tools
+
+        case "create_progressview":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            var part = Part(
+                partType: .progressView,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
+                name: arguments["name"] ?? "Progress",
+                left: Double(arguments["left"] ?? "100") ?? 100,
+                top: Double(arguments["top"] ?? "100") ?? 100,
+                width: Double(arguments["width"] ?? "240") ?? 240,
+                height: Double(arguments["height"] ?? "20") ?? 20
+            )
+            // Security condition 5: clamp total; value within [0, total].
+            let rawTotal = Double(arguments["total"] ?? "1.0") ?? 1.0
+            let safeTotal = max(1e-10, rawTotal)
+            let rawValue = Double(arguments["value"] ?? "0") ?? 0
+            part.progressTotal = safeTotal
+            part.progressValue = min(safeTotal, max(0, rawValue))
+            part.progressIsCircular = (arguments["is_circular"] ?? "false").lowercased() == "true"
+            part.progressIsIndeterminate = (arguments["is_indeterminate"] ?? "false").lowercased() == "true"
+            part.progressLabel = String((arguments["label"] ?? "").prefix(256))
+            part.progressTint = arguments["tint"] ?? ""
+            document.addPart(part)
+            let layer0 = place.backgroundId != nil ? " on background" : ""
+            return "Created progressView '\(part.name)'\(layer0)"
+
+        case "create_gauge":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            var part = Part(
+                partType: .gauge,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
+                name: arguments["name"] ?? "Gauge",
+                left: Double(arguments["left"] ?? "100") ?? 100,
+                top: Double(arguments["top"] ?? "100") ?? 100,
+                width: Double(arguments["width"] ?? "200") ?? 200,
+                height: Double(arguments["height"] ?? "44") ?? 44
+            )
+            let gMin = Double(arguments["min"] ?? "0") ?? 0
+            var gMax = Double(arguments["max"] ?? "1.0") ?? 1.0
+            // Security condition 5: enforce max > min.
+            if gMax <= gMin { gMax = gMin + 1 }
+            let gValue = min(gMax, max(gMin, Double(arguments["value"] ?? "0") ?? 0))
+            part.gaugeMin = gMin
+            part.gaugeMax = gMax
+            part.gaugeValue = gValue
+            let gStyle = arguments["style"] ?? "linearCapacity"
+            let validGaugeStyles = ["linearCapacity", "accessoryCircular", "accessoryCircularCapacity",
+                                     "accessoryLinear", "accessoryLinearCapacity"]
+            part.gaugeStyle = validGaugeStyles.contains(gStyle) ? gStyle : "linearCapacity"
+            part.gaugeTint = arguments["tint"] ?? ""
+            part.gaugeLabel = String((arguments["label"] ?? "").prefix(256))
+            part.gaugeMinLabel = String((arguments["min_label"] ?? "").prefix(256))
+            part.gaugeMaxLabel = String((arguments["max_label"] ?? "").prefix(256))
+            document.addPart(part)
+            let layer1 = place.backgroundId != nil ? " on background" : ""
+            return "Created gauge '\(part.name)'\(layer1)"
+
+        case "create_link":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            var part = Part(
+                partType: .link,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
+                name: arguments["name"] ?? "Link",
+                left: Double(arguments["left"] ?? "100") ?? 100,
+                top: Double(arguments["top"] ?? "100") ?? 100,
+                width: Double(arguments["width"] ?? "120") ?? 120,
+                height: Double(arguments["height"] ?? "24") ?? 24
+            )
+            part.textContent = arguments["text"] ?? ""
+            part.url = arguments["url"] ?? ""
+            document.addPart(part)
+            let layer2 = place.backgroundId != nil ? " on background" : ""
+            return "Created link '\(part.name)'\(layer2)"
+
+        case "create_menu":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            var part = Part(
+                partType: .menu,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
+                name: arguments["name"] ?? "Menu",
+                left: Double(arguments["left"] ?? "100") ?? 100,
+                top: Double(arguments["top"] ?? "100") ?? 100,
+                width: Double(arguments["width"] ?? "120") ?? 120,
+                height: Double(arguments["height"] ?? "28") ?? 28
+            )
+            part.menuTitle = String((arguments["title"] ?? "Menu").prefix(256))
+            let rawItems = arguments["items"] ?? ""
+            // Security condition 3: validate inline scripts in menu items.
+            let itemLines = rawItems.split(separator: "\n", omittingEmptySubsequences: true)
+            for line in itemLines {
+                let s = String(line)
+                if let pipeRange = s.range(of: "||") {
+                    let inlineScript = String(s[pipeRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+                    if !inlineScript.isEmpty {
+                        let wrapped = wrapScript(inlineScript)
+                        if let errMsg = scriptParseErrorMessage(wrapped) {
+                            return "Menu item script syntax error: \(errMsg). Fix the script before creating the menu."
+                        }
+                    }
+                }
+            }
+            // Security condition 6: cap at 64 KB.
+            part.menuItems = String(rawItems.prefix(65536))
+            document.addPart(part)
+            let layer3 = place.backgroundId != nil ? " on background" : ""
+            return "Created menu '\(part.name)'\(layer3)"
+
+        case "create_searchfield":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            var part = Part(
+                partType: .searchField,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
+                name: arguments["name"] ?? "Search",
+                left: Double(arguments["left"] ?? "100") ?? 100,
+                top: Double(arguments["top"] ?? "100") ?? 100,
+                width: Double(arguments["width"] ?? "200") ?? 200,
+                height: Double(arguments["height"] ?? "28") ?? 28
+            )
+            part.searchPrompt = String((arguments["prompt"] ?? "Search").prefix(256))
+            part.searchSendsImmediately = (arguments["immediate"] ?? "false").lowercased() == "true"
+            document.addPart(part)
+            let layer4 = place.backgroundId != nil ? " on background" : ""
+            return "Created searchField '\(part.name)'\(layer4)"
+
+        case "create_divider":
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            var part = Part(
+                partType: .divider,
+                cardId: place.cardId,
+                backgroundId: place.backgroundId,
+                name: arguments["name"] ?? "Divider",
+                left: Double(arguments["left"] ?? "50") ?? 50,
+                top: Double(arguments["top"] ?? "100") ?? 100,
+                width: Double(arguments["width"] ?? "400") ?? 400,
+                height: Double(arguments["height"] ?? "2") ?? 2
+            )
+            let orient = (arguments["orientation"] ?? "horizontal").lowercased()
+            part.dividerOrientation = (orient == "vertical") ? "vertical" : "horizontal"
+            part.dividerThickness = max(0.5, Double(arguments["thickness"] ?? "1") ?? 1)
+            part.dividerColor = arguments["color"] ?? ""
+            document.addPart(part)
+            let layer5 = place.backgroundId != nil ? " on background" : ""
+            return "Created divider '\(part.name)'\(layer5)"
+
         case "repair_form_controls":
             return repairFormControls(
                 arguments: arguments,
@@ -1347,9 +1536,17 @@ public struct HypeToolExecutor: Sendable {
                 case "interactive": document.parts[index].colorWellInteractive = (value.lowercased() == "true")
                 // Form controls (stepper / slider / toggle / segmented).
                 case "value":
-                    if document.parts[index].partType == .toggle {
+                    switch document.parts[index].partType {
+                    case .progressView:
+                        let total = max(1e-10, document.parts[index].progressTotal)
+                        document.parts[index].progressValue = min(total, max(0, Double(value) ?? 0))
+                    case .gauge:
+                        let gMin = document.parts[index].gaugeMin
+                        let gMax = document.parts[index].gaugeMax
+                        document.parts[index].gaugeValue = min(gMax, max(gMin, Double(value) ?? 0))
+                    case .toggle:
                         document.parts[index].controlValue = (value.lowercased() == "true") ? 1 : 0
-                    } else {
+                    default:
                         document.parts[index].controlValue = Double(value) ?? 0
                     }
                 case "on": document.parts[index].controlValue = (value.lowercased() == "true") ? 1 : 0
@@ -1448,6 +1645,76 @@ public struct HypeToolExecutor: Sendable {
                     default:
                         return "Part type '\(part.partType.rawValue)' does not support style property"
                     }
+                // ProgressView
+                case "progressvalue", "progress_value":
+                    let total = max(1e-10, document.parts[index].progressTotal)
+                    document.parts[index].progressValue = min(total, max(0, Double(value) ?? 0))
+                case "progresstotal", "progress_total", "total":
+                    let clampedTotal = max(1e-10, Double(value) ?? 1.0)
+                    document.parts[index].progressTotal = clampedTotal
+                case "progresscircular", "progress_circular", "circular", "iscircular", "is_circular":
+                    document.parts[index].progressIsCircular = (value.lowercased() == "true")
+                case "progressindeterminate", "progress_indeterminate", "indeterminate", "isindeterminate", "is_indeterminate":
+                    document.parts[index].progressIsIndeterminate = (value.lowercased() == "true")
+                case "progresslabel", "progress_label":
+                    document.parts[index].progressLabel = String(value.prefix(256))
+                case "progresstint", "progress_tint", "tint":
+                    document.parts[index].progressTint = value
+                // Gauge
+                case "gaugevalue", "gauge_value":
+                    let gMin = document.parts[index].gaugeMin
+                    let gMax = document.parts[index].gaugeMax
+                    document.parts[index].gaugeValue = min(gMax, max(gMin, Double(value) ?? 0))
+                case "gaugemin", "gauge_min":
+                    document.parts[index].gaugeMin = Double(value) ?? 0
+                case "gaugemax", "gauge_max":
+                    let newMax = Double(value) ?? 1
+                    let gMin = document.parts[index].gaugeMin
+                    document.parts[index].gaugeMax = newMax > gMin ? newMax : gMin + 1
+                case "gaugestyle", "gauge_style":
+                    document.parts[index].gaugeStyle = value
+                case "gaugetint", "gauge_tint":
+                    document.parts[index].gaugeTint = value
+                case "gaugelabel", "gauge_label":
+                    document.parts[index].gaugeLabel = String(value.prefix(256))
+                case "gaugeminlabel", "gauge_min_label":
+                    document.parts[index].gaugeMinLabel = String(value.prefix(256))
+                case "gaugemaxlabel", "gauge_max_label":
+                    document.parts[index].gaugeMaxLabel = String(value.prefix(256))
+                // Menu
+                case "menuitems", "menu_items", "items":
+                    // Security condition 3: validate inline scripts.
+                    let itemLines = value.split(separator: "\n", omittingEmptySubsequences: true)
+                    for line in itemLines {
+                        let s = String(line)
+                        if let pipeRange = s.range(of: "||") {
+                            let inlineScript = String(s[pipeRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+                            if !inlineScript.isEmpty {
+                                let wrapped = wrapScript(inlineScript)
+                                if let errMsg = scriptParseErrorMessage(wrapped) {
+                                    return "Menu item script syntax error: \(errMsg)"
+                                }
+                            }
+                        }
+                    }
+                    // Security condition 6: cap at 64 KB.
+                    document.parts[index].menuItems = String(value.prefix(65536))
+                case "menutitle", "menu_title":
+                    document.parts[index].menuTitle = String(value.prefix(256))
+                // SearchField
+                case "searchtext", "search_text":
+                    document.parts[index].searchText = String(value.prefix(1024))
+                case "searchprompt", "search_prompt", "prompt":
+                    document.parts[index].searchPrompt = String(value.prefix(256))
+                case "searchsendsimmediately", "search_sends_immediately", "immediate":
+                    document.parts[index].searchSendsImmediately = (value.lowercased() == "true")
+                // Divider
+                case "dividerorientation", "divider_orientation", "orientation":
+                    document.parts[index].dividerOrientation = (value.lowercased() == "vertical") ? "vertical" : "horizontal"
+                case "dividerthickness", "divider_thickness", "thickness":
+                    document.parts[index].dividerThickness = max(0.5, Double(value) ?? 1)
+                case "dividercolor", "divider_color":
+                    document.parts[index].dividerColor = value
                 case "hilite": document.parts[index].hilite = (value.lowercased() == "true")
                 case "autohilite": document.parts[index].autoHilite = (value.lowercased() == "true")
                 case "showname": document.parts[index].showName = (value.lowercased() == "true")
@@ -2369,7 +2636,12 @@ public struct HypeToolExecutor: Sendable {
             case "width": return String(part.width)
             case "height": return String(part.height)
             case "rotation": return String(part.rotation)
-            case "text", "textcontent": return part.textContent
+            case "text", "textcontent":
+                // Security condition 2: mask secure field text.
+                if part.partType == .field && part.fieldStyle == .secure {
+                    return "(masked)"
+                }
+                return part.textContent
             case "url": return part.url
             case "videourl", "video_url": return part.videoURL
             case "fillcolor", "fill_color": return part.fillColor
@@ -2411,8 +2683,10 @@ public struct HypeToolExecutor: Sendable {
             // ColorWell
             case "color", "colorhex", "color_hex": return part.colorWellHex
             case "interactive": return String(part.colorWellInteractive)
-            // Form controls.
+            // Form controls (and progressView / gauge).
             case "value":
+                if part.partType == .progressView { return String(part.progressValue) }
+                if part.partType == .gauge { return String(part.gaugeValue) }
                 if part.partType == .toggle { return String(part.controlValue >= 0.5) }
                 if part.partType == .segmented { return String(Int(part.controlValue)) }
                 return String(part.controlValue)
@@ -2480,6 +2754,33 @@ public struct HypeToolExecutor: Sendable {
                 return "true"
             case "chartdata", "chart_data":
                 return part.chartData
+            // ProgressView
+            case "progressvalue", "progress_value": return String(part.progressValue)
+            case "progresstotal", "progress_total": return String(part.progressTotal)
+            case "progresscircular", "progress_circular", "circular", "iscircular": return String(part.progressIsCircular)
+            case "progressindeterminate", "progress_indeterminate", "indeterminate": return String(part.progressIsIndeterminate)
+            case "progresslabel", "progress_label": return part.progressLabel
+            case "progresstint", "progress_tint", "tint": return part.progressTint
+            // Gauge
+            case "gaugevalue", "gauge_value": return String(part.gaugeValue)
+            case "gaugemin", "gauge_min": return String(part.gaugeMin)
+            case "gaugemax", "gauge_max": return String(part.gaugeMax)
+            case "gaugestyle", "gauge_style": return part.gaugeStyle
+            case "gaugetint", "gauge_tint": return part.gaugeTint
+            case "gaugelabel", "gauge_label": return part.gaugeLabel
+            case "gaugeminlabel", "gauge_min_label": return part.gaugeMinLabel
+            case "gaugemaxlabel", "gauge_max_label": return part.gaugeMaxLabel
+            // Menu
+            case "menuitems", "menu_items", "items": return part.menuItems
+            case "menutitle", "menu_title": return part.menuTitle
+            // SearchField
+            case "searchtext", "search_text": return part.searchText
+            case "searchprompt", "search_prompt", "prompt": return part.searchPrompt
+            case "searchsendsimmediately", "search_sends_immediately", "immediate": return String(part.searchSendsImmediately)
+            // Divider
+            case "dividerorientation", "divider_orientation", "orientation": return part.dividerOrientation
+            case "dividerthickness", "divider_thickness", "thickness": return String(part.dividerThickness)
+            case "dividercolor", "divider_color": return part.dividerColor
             default:
                 return "Unknown property '\(property)'"
             }
@@ -4600,7 +4901,17 @@ public struct HypeToolExecutor: Sendable {
 
         // ----- Text styling (every part) -----
         lines.append("## Text & styling")
-        row("textContent", "\"\(p.textContent.prefix(60))\"", "\"\"")
+        // Secure (password) fields must NEVER expose plaintext to the
+        // AI through the introspection surface — the AI panel logs
+        // its tool I/O and would otherwise echo the password into the
+        // conversation transcript.
+        let textDisplay: String
+        if p.partType == .field && p.fieldStyle == .secure {
+            textDisplay = "(masked)"
+        } else {
+            textDisplay = "\"\(p.textContent.prefix(60))\""
+        }
+        row("textContent", textDisplay, "\"\"")
         row("textFont", p.textFont.isEmpty ? "(empty)" : p.textFont, "System")
         row("textSize", String(p.textSize), "14")
         row("textStyle", p.textStyle.isEmpty ? "plain" : p.textStyle, "plain")
@@ -4692,6 +5003,38 @@ public struct HypeToolExecutor: Sendable {
             row("autoLighting", String(p.scene3DAutoLighting), "true")
             row("antialiasing", p.scene3DAntialiasing, "multisampling4X")
             row("background3d", "\"\(p.scene3DBackground)\"", "\"\" (transparent)")
+        case .progressView:
+            row("value", String(p.progressValue), "0")
+            row("total", String(p.progressTotal), "1.0")
+            row("circular", String(p.progressIsCircular), "false")
+            row("indeterminate", String(p.progressIsIndeterminate), "false")
+            row("label", "\"\(p.progressLabel)\"", "\"\"")
+            row("tint", "\"\(p.progressTint)\"", "\"\" (system accent)")
+        case .gauge:
+            row("value", String(p.gaugeValue), "0")
+            row("min", String(p.gaugeMin), "0")
+            row("max", String(p.gaugeMax), "1.0")
+            row("style", p.gaugeStyle, "linearCapacity")
+            row("tint", "\"\(p.gaugeTint)\"", "\"\" (system accent)")
+            row("label", "\"\(p.gaugeLabel)\"", "\"\"")
+            row("minLabel", "\"\(p.gaugeMinLabel)\"", "\"\"")
+            row("maxLabel", "\"\(p.gaugeMaxLabel)\"", "\"\"")
+        case .link:
+            row("url", "\"\(p.url)\"", "\"\"")
+            row("text", "\"\(p.textContent)\"", "\"\"")
+        case .menu:
+            row("title", "\"\(p.menuTitle)\"", "\"Menu\"")
+            row("items", "\"\(p.menuItems.prefix(80))\(p.menuItems.count > 80 ? "..." : "")\"", "\"\" (Label||script per line)")
+        case .searchField:
+            row("searchText", "\"\(p.searchText)\"", "\"\"")
+            row("prompt", "\"\(p.searchPrompt)\"", "\"Search\"")
+            row("immediate", String(p.searchSendsImmediately), "false")
+        case .divider:
+            row("orientation", p.dividerOrientation, "horizontal")
+            row("thickness", String(p.dividerThickness), "1.0")
+            row("color", "\"\(p.dividerColor)\"", "\"\" (system separator)")
+        case .unknown:
+            break
         }
         lines.append("")
         lines.append("# Set any of these via:")

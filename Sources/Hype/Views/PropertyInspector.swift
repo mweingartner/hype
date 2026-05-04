@@ -56,6 +56,13 @@ struct PropertyInspector: View {
                         case .segmented: segmentedSection(part: part)
                         case .audioRecorder: audioRecorderSection(part: part)
                         case .scene3D: scene3DSection(part: part)
+                        case .progressView: progressViewSection(part: part)
+                        case .gauge: gaugeSection(part: part)
+                        case .link: linkSection(part: part)
+                        case .menu: menuSection(part: part)
+                        case .searchField: searchFieldSection(part: part)
+                        case .divider: dividerSection(part: part)
+                        case .unknown: EmptyView()
                         }
 
                         // Font controls for buttons and fields
@@ -1206,6 +1213,108 @@ struct PropertyInspector: View {
                 Text(String(format: "%.1f s", part.audioDuration))
                     .font(.system(size: 10, design: .monospaced))
             }
+        }
+    }
+
+    // MARK: - Phase 3 control sections
+
+    private func progressViewSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Progress View").font(.subheadline).foregroundColor(.secondary)
+            propertyRow("Label", binding: bindPartString(part.id, \.progressLabel))
+            Toggle("Circular Spinner", isOn: bindPartBool(part.id, \.progressIsCircular))
+            Toggle("Indeterminate", isOn: bindPartBool(part.id, \.progressIsIndeterminate))
+            if !part.progressIsIndeterminate {
+                propertyRow("Value", binding: bindPartDoubleString(part.id, \.progressValue))
+                propertyRow("Total", binding: bindPartDoubleString(part.id, \.progressTotal))
+            }
+            propertyRow("Tint (hex)", binding: bindPartString(part.id, \.progressTint))
+            Text("HypeTalk: `set the value of progressView \"X\" to 0.5`. Fires `progressFinished` when value reaches total.")
+                .font(.system(size: 9)).foregroundColor(.secondary)
+        }
+    }
+
+    private func gaugeSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Gauge").font(.subheadline).foregroundColor(.secondary)
+            propertyRow("Label", binding: bindPartString(part.id, \.gaugeLabel))
+            propertyRow("Value", binding: bindPartDoubleString(part.id, \.gaugeValue))
+            propertyRow("Min", binding: bindPartDoubleString(part.id, \.gaugeMin))
+            propertyRow("Max", binding: bindPartDoubleString(part.id, \.gaugeMax))
+            HStack {
+                Text("Style").font(.system(size: 10))
+                Picker("", selection: bindPartString(part.id, \.gaugeStyle)) {
+                    Text("Linear Capacity").tag("linearCapacity")
+                    Text("Accessory Circular").tag("accessoryCircular")
+                    Text("Acc. Circular Cap.").tag("accessoryCircularCapacity")
+                    Text("Accessory Linear").tag("accessoryLinear")
+                    Text("Acc. Linear Cap.").tag("accessoryLinearCapacity")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+            propertyRow("Tint (hex)", binding: bindPartString(part.id, \.gaugeTint))
+            propertyRow("Min Label", binding: bindPartString(part.id, \.gaugeMinLabel))
+            propertyRow("Max Label", binding: bindPartString(part.id, \.gaugeMaxLabel))
+        }
+    }
+
+    private func linkSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Link").font(.subheadline).foregroundColor(.secondary)
+            propertyRow("Text", binding: bindPartString(part.id, \.textContent))
+            propertyRow("URL", binding: bindPartString(part.id, \.url))
+            Text("Allowed schemes: http, https, mailto. Other schemes are refused at open time.")
+                .font(.system(size: 9)).foregroundColor(.secondary)
+            Text("HypeTalk: `set the url of link \"X\" to \"https://...\"`. Fires `linkOpened` on click.")
+                .font(.system(size: 9)).foregroundColor(.secondary)
+        }
+    }
+
+    private func menuSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Menu").font(.subheadline).foregroundColor(.secondary)
+            propertyRow("Title", binding: bindPartString(part.id, \.menuTitle))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Items (one per line: Label||script)")
+                    .font(.system(size: 10)).foregroundColor(.secondary)
+                TextEditor(text: bindPartString(part.id, \.menuItems))
+                    .font(.system(size: 11, design: .monospaced))
+                    .frame(minHeight: 80, maxHeight: 180)
+                    .border(Color.secondary.opacity(0.3), width: 1)
+            }
+            Text("HypeTalk: `set the items of menu \"X\" to \"A||go next\nB||go previous\"`. Fires `menuItemSelected itemLabel`.")
+                .font(.system(size: 9)).foregroundColor(.secondary)
+        }
+    }
+
+    private func searchFieldSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Search Field").font(.subheadline).foregroundColor(.secondary)
+            propertyRow("Prompt", binding: bindPartString(part.id, \.searchPrompt))
+            propertyRow("Search Text", binding: bindPartString(part.id, \.searchText))
+            Toggle("Send on Each Keystroke", isOn: bindPartBool(part.id, \.searchSendsImmediately))
+            Text("HypeTalk: `the searchText of searchField \"X\"`. Fires `searchChanged text` per keystroke (when immediate) or on Return.")
+                .font(.system(size: 9)).foregroundColor(.secondary)
+        }
+    }
+
+    private func dividerSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Divider").font(.subheadline).foregroundColor(.secondary)
+            HStack {
+                Text("Orientation").font(.system(size: 10))
+                Picker("", selection: bindPartString(part.id, \.dividerOrientation)) {
+                    Text("Horizontal").tag("horizontal")
+                    Text("Vertical").tag("vertical")
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+            }
+            propertyRow("Thickness (pts)", binding: bindPartDoubleString(part.id, \.dividerThickness))
+            propertyRow("Color (hex)", binding: bindPartString(part.id, \.dividerColor))
+            Text("Empty color = system separator color.")
+                .font(.system(size: 9)).foregroundColor(.secondary)
         }
     }
 

@@ -63,6 +63,8 @@ public struct HypeTalkHighlighter: Sendable {
         "stepper", "slider", "toggle", "segmented",
         // Phase 2 media + 3D.
         "audiorecorder", "recorder", "scene3d", "model3d",
+        // Phase 3 UI controls.
+        "progressview", "progress", "gauge", "link", "menu", "searchfield", "search", "divider",
     ]
 
     private static let constants: Set<String> = [

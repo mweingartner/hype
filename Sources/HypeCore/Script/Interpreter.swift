@@ -2755,6 +2755,8 @@ public struct Interpreter: Sendable {
         // Toggle's `on` returns boolean; segmented's `selectedSegment`
         // returns the integer index. Stepper/slider use `value`.
         case "value":
+            if part.partType == .progressView { return formatNumber(part.progressValue) }
+            if part.partType == .gauge { return formatNumber(part.gaugeValue) }
             if part.partType == .toggle { return part.controlValue >= 0.5 ? "true" : "false" }
             if part.partType == .segmented { return String(Int(part.controlValue)) }
             return formatNumber(part.controlValue)
@@ -2783,7 +2785,44 @@ public struct Interpreter: Sendable {
         case "autolighting", "auto_lighting", "defaultlighting": return part.scene3DAutoLighting ? "true" : "false"
         case "antialiasing", "anti_aliasing": return part.scene3DAntialiasing
         case "background3d", "background_3d", "scenebackground": return part.scene3DBackground
-        case "text", "textcontent": return part.textContent
+        case "text", "textcontent":
+            // Security condition 2: mask secure field text in HypeTalk reads.
+            if part.partType == .field && part.fieldStyle == .secure {
+                return "(masked)"
+            }
+            return part.textContent
+        // ProgressView
+        case "progressvalue", "progress_value":     return formatNumber(part.progressValue)
+        case "progresstotal", "progress_total":     return formatNumber(part.progressTotal)
+        case "progresscircular", "progress_circular", "circular", "iscircular":
+            return part.progressIsCircular ? "true" : "false"
+        case "progressindeterminate", "progress_indeterminate", "indeterminate":
+            return part.progressIsIndeterminate ? "true" : "false"
+        case "progresslabel", "progress_label":     return part.progressLabel
+        case "progresstint", "progress_tint":       return part.progressTint
+        // Gauge
+        case "gaugevalue", "gauge_value":           return formatNumber(part.gaugeValue)
+        case "gaugemin", "gauge_min":               return formatNumber(part.gaugeMin)
+        case "gaugemax", "gauge_max":               return formatNumber(part.gaugeMax)
+        case "gaugestyle", "gauge_style":           return part.gaugeStyle
+        case "gaugetint", "gauge_tint":             return part.gaugeTint
+        case "gaugelabel", "gauge_label":           return part.gaugeLabel
+        case "gaugeminlabel", "gauge_min_label":    return part.gaugeMinLabel
+        case "gaugemaxlabel", "gauge_max_label":    return part.gaugeMaxLabel
+        // Menu
+        case "menuitems", "menu_items", "items":    return part.menuItems
+        case "menutitle", "menu_title":             return part.menuTitle
+        // SearchField
+        case "searchtext", "search_text":           return part.searchText
+        case "searchprompt", "search_prompt", "prompt": return part.searchPrompt
+        case "searchsendsimmediately", "search_sends_immediately", "immediate":
+            return part.searchSendsImmediately ? "true" : "false"
+        // Divider
+        case "dividerorientation", "divider_orientation", "orientation":
+            return part.dividerOrientation
+        case "dividerthickness", "divider_thickness", "thickness":
+            return formatNumber(part.dividerThickness)
+        case "dividercolor", "divider_color":       return part.dividerColor
         case "topleft":
             return "\(formatNumber(part.left)),\(formatNumber(part.top))"
         case "bottomright":
@@ -3030,6 +3069,30 @@ public struct Interpreter: Sendable {
             if let part = document.parts.first(where: { $0.partType == .chart && $0.name.lowercased() == identifier.lowercased() }) {
                 return part.id.uuidString
             }
+        case "progressview", "progress":
+            if let part = document.parts.first(where: { $0.partType == .progressView && $0.name.lowercased() == identifier.lowercased() }) {
+                return part.id.uuidString
+            }
+        case "gauge":
+            if let part = document.parts.first(where: { $0.partType == .gauge && $0.name.lowercased() == identifier.lowercased() }) {
+                return part.id.uuidString
+            }
+        case "link":
+            if let part = document.parts.first(where: { $0.partType == .link && $0.name.lowercased() == identifier.lowercased() }) {
+                return part.id.uuidString
+            }
+        case "menu":
+            if let part = document.parts.first(where: { $0.partType == .menu && $0.name.lowercased() == identifier.lowercased() }) {
+                return part.id.uuidString
+            }
+        case "searchfield", "search":
+            if let part = document.parts.first(where: { $0.partType == .searchField && $0.name.lowercased() == identifier.lowercased() }) {
+                return part.id.uuidString
+            }
+        case "divider":
+            if let part = document.parts.first(where: { $0.partType == .divider && $0.name.lowercased() == identifier.lowercased() }) {
+                return part.id.uuidString
+            }
         case "scene":
             if let location = sceneLocation(named: identifier, document: document, currentCardId: context.currentCardId),
                let activeSceneEntry = location.areaSpec.scenes.first(where: { $0.scene.name.lowercased() == identifier.lowercased() }) {
@@ -3108,6 +3171,12 @@ public struct Interpreter: Sendable {
         case "segmented": targetType = .segmented
         case "recorder", "audiorecorder": targetType = .audioRecorder
         case "scene3d", "model3d": targetType = .scene3D
+        case "progressview", "progress": targetType = .progressView
+        case "gauge": targetType = .gauge
+        case "link": targetType = .link
+        case "menu": targetType = .menu
+        case "searchfield", "search": targetType = .searchField
+        case "divider": targetType = .divider
         default: targetType = nil
         }
 
@@ -3622,6 +3691,94 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].scene3DBackground = value
         case "popupitems", "popup_items":
             document.parts[partIndex].popupItems = value
+        // ProgressView setters (security condition 5: clamp values).
+        case "progressvalue", "progress_value":
+            let total = max(1e-10, document.parts[partIndex].progressTotal)
+            document.parts[partIndex].progressValue = min(total, max(0, toNumber(value)))
+        case "progresstotal", "progress_total":
+            document.parts[partIndex].progressTotal = max(1e-10, toNumber(value))
+        case "progresscircular", "progress_circular", "circular", "iscircular":
+            document.parts[partIndex].progressIsCircular = isTruthy(value)
+        case "progressindeterminate", "progress_indeterminate", "indeterminate":
+            document.parts[partIndex].progressIsIndeterminate = isTruthy(value)
+        case "progresslabel", "progress_label":
+            // Security condition 6: cap at 256 chars.
+            document.parts[partIndex].progressLabel = String(value.prefix(256))
+        case "progresstint", "progress_tint":
+            document.parts[partIndex].progressTint = value
+        // Gauge setters (security condition 5: enforce max > min).
+        case "gaugevalue", "gauge_value":
+            let gMin = document.parts[partIndex].gaugeMin
+            let gMax = document.parts[partIndex].gaugeMax
+            document.parts[partIndex].gaugeValue = min(gMax, max(gMin, toNumber(value)))
+        case "gaugemin", "gauge_min":
+            document.parts[partIndex].gaugeMin = toNumber(value)
+        case "gaugemax", "gauge_max":
+            let newMax = toNumber(value)
+            let gMin = document.parts[partIndex].gaugeMin
+            document.parts[partIndex].gaugeMax = newMax > gMin ? newMax : gMin + 1
+        case "gaugestyle", "gauge_style":
+            document.parts[partIndex].gaugeStyle = value
+        case "gaugetint", "gauge_tint", "tint":
+            document.parts[partIndex].gaugeTint = value
+        case "gaugelabel", "gauge_label":
+            document.parts[partIndex].gaugeLabel = String(value.prefix(256))
+        case "gaugeminlabel", "gauge_min_label":
+            document.parts[partIndex].gaugeMinLabel = String(value.prefix(256))
+        case "gaugemaxlabel", "gauge_max_label":
+            document.parts[partIndex].gaugeMaxLabel = String(value.prefix(256))
+        // Menu setters.
+        case "menuitems", "menu_items":
+            // Security condition 6: cap at 64 KB.
+            // Security condition 3: per-item scripts (after `||`)
+            // must parse cleanly. The AI executor enforces this at
+            // create_menu / set_part_property time. Here we mirror
+            // it for HypeTalk so a script can't write a malformed
+            // inline action via `set the menuitems of menu "X" to
+            // "Save||not real script{{{"` and surface a runtime
+            // ScriptError when the user opens the menu — rejected-
+            // at-write is friendlier than rejected-at-execute.
+            //
+            // On failure we silently leave the existing value
+            // unchanged (matches HypeTalk's existing tolerant
+            // setters — bad input is a no-op, not a thrown error).
+            let capped = String(value.prefix(65536))
+            var allItemsValid = true
+            for line in capped.split(separator: "\n", omittingEmptySubsequences: true) {
+                let s = String(line)
+                guard let pipeRange = s.range(of: "||") else { continue }
+                let inlineScript = String(s[pipeRange.upperBound...])
+                    .trimmingCharacters(in: .whitespaces)
+                if inlineScript.isEmpty { continue }
+                let wrapped = "on menuItemAction\n  \(inlineScript)\nend menuItemAction"
+                var lex = Lexer(source: wrapped)
+                let tokens = lex.tokenize()
+                var parser = Parser(tokens: tokens)
+                if (try? parser.parse()) == nil {
+                    allItemsValid = false
+                    break
+                }
+            }
+            if allItemsValid {
+                document.parts[partIndex].menuItems = capped
+            }
+        case "menutitle", "menu_title":
+            document.parts[partIndex].menuTitle = String(value.prefix(256))
+        // SearchField setters.
+        case "searchtext", "search_text":
+            // Security condition 6: cap at 1 KB.
+            document.parts[partIndex].searchText = String(value.prefix(1024))
+        case "searchprompt", "search_prompt", "prompt":
+            document.parts[partIndex].searchPrompt = String(value.prefix(256))
+        case "searchsendsimmediately", "search_sends_immediately", "immediate":
+            document.parts[partIndex].searchSendsImmediately = isTruthy(value)
+        // Divider setters.
+        case "dividerorientation", "divider_orientation", "orientation":
+            document.parts[partIndex].dividerOrientation = (value.lowercased() == "vertical") ? "vertical" : "horizontal"
+        case "dividerthickness", "divider_thickness", "thickness":
+            document.parts[partIndex].dividerThickness = max(0.5, toNumber(value))
+        case "dividercolor", "divider_color":
+            document.parts[partIndex].dividerColor = value
         case "htmlcontent", "html_content":
             document.parts[partIndex].htmlContent = value
         case "linesize":

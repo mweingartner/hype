@@ -3,7 +3,9 @@ import Foundation
 public enum ToolName: String, CaseIterable, Sendable {
     case browse, button, field, shape, webpage, image, video, chart, spriteArea
     case calendar, pdf, map, colorWell
-    case stepper, slider, toggle, segmented, audioRecorder, scene3D, select
+    case stepper, slider, toggle, segmented, audioRecorder, scene3D
+    case progressView, gauge, link, menu, searchField, divider
+    case select
     case pencil, line, rect, oval, spray, bucket, eraser, text
 
     /// Human-readable title for the fly-out info window.
@@ -28,6 +30,12 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .segmented: return "Segmented Control"
         case .audioRecorder: return "Audio Recorder"
         case .scene3D: return "3D Scene"
+        case .progressView: return "Progress View"
+        case .gauge: return "Gauge"
+        case .link: return "Link"
+        case .menu: return "Menu"
+        case .searchField: return "Search Field"
+        case .divider: return "Divider"
         case .select: return "Select"
         case .pencil: return "Pencil"
         case .line: return "Line"
@@ -84,6 +92,18 @@ public enum ToolName: String, CaseIterable, Sendable {
             return "An AVFoundation recorder. Setting `the recording of recorder \"X\"` to true starts capturing from the mic; false stops. Live duration updates 10×/sec; output written to m4a or CAF. Fires recordingStarted / recordingStopped."
         case .scene3D:
             return "A SceneKit view that loads .usdz / .scn / .dae / .obj 3D models. Camera control (orbit / zoom) on by default. Set `the modelURL of scene3d \"name\"` to load a model from disk or URL."
+        case .progressView:
+            return "A linear or circular progress indicator. Supports determinate (value/total) and indeterminate spinning modes. Fires progressFinished when value reaches total."
+        case .gauge:
+            return "A SwiftUI Gauge showing a value within a min/max range. Supports circular and linear styles with optional tint color, center label, and min/max axis labels."
+        case .link:
+            return "A clickable text link that opens a URL in the default browser. Supports http, https, and mailto schemes. Fires linkOpened after the browser launches."
+        case .menu:
+            return "A popup button menu. Items are defined as newline-separated \"Label||script\" pairs. Fires menuItemSelected with the chosen label, and runs the per-item script if one is provided."
+        case .searchField:
+            return "An NSSearchField with placeholder text. When searchSendsImmediately is true, fires searchChanged (debounced) as the user types. Always fires searchSubmitted on Return."
+        case .divider:
+            return "A visual separator line. Can be horizontal or vertical with configurable thickness and color. No interaction — purely decorative layout element."
         case .select:
             return "Selection / move tool. Click a part to select it; drag to move; shift-click to extend the selection. Use the inspector on the right to edit the selected part's properties."
         case .pencil:
@@ -126,6 +146,12 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .segmented: return "rectangle.split.3x1"
         case .audioRecorder: return "mic.circle"
         case .scene3D: return "cube.transparent"
+        case .progressView: return "chart.bar.xaxis"
+        case .gauge: return "gauge"
+        case .link: return "link"
+        case .menu: return "list.bullet.rectangle"
+        case .searchField: return "magnifyingglass"
+        case .divider: return "minus"
         case .select: return "cursor.rays"
         case .pencil: return "pencil"
         case .line: return "line.diagonal"

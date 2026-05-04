@@ -95,6 +95,13 @@ public struct MouseHandler: Sendable {
             // Phase 2 media + 3D.
             case "audioRecorder": partType = .audioRecorder
             case "scene3D": partType = .scene3D
+            // Phase 3 UI controls.
+            case "progressView": partType = .progressView
+            case "gauge": partType = .gauge
+            case "link": partType = .link
+            case "menu": partType = .menu
+            case "searchField": partType = .searchField
+            case "divider": partType = .divider
             default: return .none
             }
             return .createPart(partType, rect, extras)

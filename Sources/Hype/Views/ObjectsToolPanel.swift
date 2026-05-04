@@ -56,7 +56,8 @@ struct ObjectsToolPanel: View {
     /// AppKit form controls. They share a control-value backing
     /// field and a similar feel.
     private static let formControlTools: [ToolName] = [
-        .stepper, .slider, .toggle, .segmented
+        .stepper, .slider, .toggle, .segmented,
+        .progressView, .gauge, .link, .menu, .searchField, .divider
     ]
 
     /// Drag-to-create vector shape shortcuts (rectangle, oval, line)

@@ -345,6 +345,33 @@ struct CardCanvasView: NSViewRepresentable {
             dispatchMessage("modelLoadFailed", to: id, params: [reason])
         }
 
+        // MARK: - Phase 3 control writebacks
+
+        /// Writeback for progressView: fires `progressFinished` once
+        /// when value first crosses total. Mutation happens before the
+        /// dispatch so HypeTalk reads inside the handler see the final value.
+        func setPartProgressFinished(id: UUID) {
+            dispatchMessage("progressFinished", to: id)
+        }
+
+        /// Writeback for searchField: fires `searchChanged` or `searchSubmitted`.
+        func setPartSearchText(id: UUID, text: String, message: String) {
+            parent.document.document.updatePart(id: id) {
+                $0.searchText = String(text.prefix(1024))
+            }
+            dispatchMessage(message, to: id, params: [text])
+        }
+
+        /// Writeback for menu: fires `menuItemSelected` with the chosen label.
+        func setPartMenuItemSelected(id: UUID, label: String) {
+            dispatchMessage("menuItemSelected", to: id, params: [label])
+        }
+
+        /// Writeback for link: dispatches `linkOpened` before the URL opens.
+        func setPartLinkOpened(id: UUID) {
+            dispatchMessage("linkOpened", to: id)
+        }
+
         func deletePart(id: UUID) {
             // Dispatch delete message before removing
             if let part = parent.document.document.parts.first(where: { $0.id == id }) {
@@ -744,6 +771,12 @@ class CardCanvasNSView: NSView {
     private var segmentedViews: [UUID: SegmentedHostNSView] = [:]
     private var audioRecorderViews: [UUID: AudioRecorderHostNSView] = [:]
     private var scene3DViews: [UUID: Scene3DHostNSView] = [:]
+    // Phase 3 framework controls.
+    private var progressViewHosts: [UUID: ProgressViewHostNSView] = [:]
+    private var gaugeHosts: [UUID: GaugeHostNSView] = [:]
+    private var linkHosts: [UUID: LinkHostNSView] = [:]
+    private var menuHosts: [UUID: MenuHostNSView] = [:]
+    private var searchFieldHosts: [UUID: SearchFieldHostNSView] = [:]
 
     // Active SKViews for spriteArea parts (keyed by part ID)
     private var spriteViews: [UUID: SKView] = [:]
@@ -994,7 +1027,7 @@ class CardCanvasNSView: NSView {
             } else {
                 renderBgParts = []
             }
-            let nativeKinds: Set<PartType> = [.spriteArea, .chart, .webpage, .video, .calendar, .pdf, .map, .colorWell, .stepper, .slider, .toggle, .segmented, .audioRecorder, .scene3D]
+            let nativeKinds: Set<PartType> = [.spriteArea, .chart, .webpage, .video, .calendar, .pdf, .map, .colorWell, .stepper, .slider, .toggle, .segmented, .audioRecorder, .scene3D, .progressView, .gauge, .link, .menu, .searchField]
             nativePartIds = Set(
                 (renderCardParts + renderBgParts)
                     .filter { $0.visible && nativeKinds.contains($0.partType) }
@@ -1078,6 +1111,12 @@ class CardCanvasNSView: NSView {
         updateFormControlViews()
         updateAudioRecorderViews()
         updateScene3DViews()
+        // Phase 3 controls.
+        updateProgressViewHosts()
+        updateGaugeHosts()
+        updateLinkHosts()
+        updateMenuHosts()
+        updateSearchFieldHosts()
 
         // Update sprite views for spriteArea parts
         updateSpriteViews()
@@ -1469,6 +1508,12 @@ class CardCanvasNSView: NSView {
         for (_, v) in segmentedViews { v.isHidden = true }
         for (_, v) in audioRecorderViews { v.isHidden = true }
         for (_, v) in scene3DViews { v.isHidden = true }
+        // Phase 3 control overlays.
+        for (_, v) in progressViewHosts { v.isHidden = true }
+        for (_, v) in gaugeHosts { v.isHidden = true }
+        for (_, v) in linkHosts { v.isHidden = true }
+        for (_, v) in menuHosts { v.isHidden = true }
+        for (_, v) in searchFieldHosts { v.isHidden = true }
     }
 
     /// Perform a card transition using SpriteKit.
@@ -2895,6 +2940,219 @@ class CardCanvasNSView: NSView {
             scene3DViews[id]?.removeFromSuperview()
             scene3DViews.removeValue(forKey: id)
         }
+    }
+
+    // MARK: - Phase 3 Control View Management
+
+    /// Create, update, or remove `ProgressViewHostNSView`s for `progressView` parts.
+    private func updateProgressViewHosts() {
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let isBrowseMode = toolState.category == .browse
+
+        let allParts = partsForCurrentCard()
+        let typeParts = allParts.filter { $0.partType == .progressView && $0.visible }
+
+        if !isBrowseMode || typeParts.isEmpty {
+            for (_, v) in progressViewHosts { v.removeFromSuperview() }
+            progressViewHosts.removeAll()
+            return
+        }
+
+        var activeIds = Set<UUID>()
+        for part in typeParts {
+            activeIds.insert(part.id)
+            let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+            if let existing = progressViewHosts[part.id] {
+                existing.isHidden = false
+                existing.frame = frame
+                existing.apply(part)
+                continue
+            }
+            let host = ProgressViewHostNSView(frame: frame)
+            host.apply(part)
+            let partId = part.id
+            host.onProgressFinished = { [weak self] in
+                self?.coordinator?.setPartProgressFinished(id: partId)
+            }
+            addSubview(host, positioned: .above, relativeTo: nil)
+            progressViewHosts[part.id] = host
+        }
+        for id in progressViewHosts.keys where !activeIds.contains(id) {
+            progressViewHosts[id]?.removeFromSuperview()
+            progressViewHosts.removeValue(forKey: id)
+        }
+    }
+
+    /// Create, update, or remove `GaugeHostNSView`s for `gauge` parts.
+    private func updateGaugeHosts() {
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let isBrowseMode = toolState.category == .browse
+
+        let allParts = partsForCurrentCard()
+        let typeParts = allParts.filter { $0.partType == .gauge && $0.visible }
+
+        if !isBrowseMode || typeParts.isEmpty {
+            for (_, v) in gaugeHosts { v.removeFromSuperview() }
+            gaugeHosts.removeAll()
+            return
+        }
+
+        var activeIds = Set<UUID>()
+        for part in typeParts {
+            activeIds.insert(part.id)
+            let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+            if let existing = gaugeHosts[part.id] {
+                existing.isHidden = false
+                existing.frame = frame
+                existing.apply(part)
+                continue
+            }
+            let host = GaugeHostNSView(frame: frame)
+            host.apply(part)
+            addSubview(host, positioned: .above, relativeTo: nil)
+            gaugeHosts[part.id] = host
+        }
+        for id in gaugeHosts.keys where !activeIds.contains(id) {
+            gaugeHosts[id]?.removeFromSuperview()
+            gaugeHosts.removeValue(forKey: id)
+        }
+    }
+
+    /// Create, update, or remove `LinkHostNSView`s for `link` parts.
+    private func updateLinkHosts() {
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let isBrowseMode = toolState.category == .browse
+
+        let allParts = partsForCurrentCard()
+        let typeParts = allParts.filter { $0.partType == .link && $0.visible }
+
+        if !isBrowseMode || typeParts.isEmpty {
+            for (_, v) in linkHosts { v.removeFromSuperview() }
+            linkHosts.removeAll()
+            return
+        }
+
+        var activeIds = Set<UUID>()
+        for part in typeParts {
+            activeIds.insert(part.id)
+            let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+            if let existing = linkHosts[part.id] {
+                existing.isHidden = false
+                existing.frame = frame
+                existing.apply(part)
+                continue
+            }
+            let host = LinkHostNSView(frame: frame)
+            host.apply(part)
+            let partId = part.id
+            // Capture the current part's URL at wiring time so the closure
+            // doesn't need to re-query the document on click.
+            host.onClick = { [weak self, weak host] in
+                guard let self = self, let host = host else { return }
+                self.coordinator?.setPartLinkOpened(id: partId)
+                // Get the current URL from the document (may have changed).
+                let urlString = self.document.parts.first(where: { $0.id == partId })?.url ?? ""
+                host.safeLinkOpen(urlString: urlString)
+            }
+            addSubview(host, positioned: .above, relativeTo: nil)
+            linkHosts[part.id] = host
+        }
+        for id in linkHosts.keys where !activeIds.contains(id) {
+            linkHosts[id]?.removeFromSuperview()
+            linkHosts.removeValue(forKey: id)
+        }
+    }
+
+    /// Create, update, or remove `MenuHostNSView`s for `menu` parts.
+    private func updateMenuHosts() {
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let isBrowseMode = toolState.category == .browse
+
+        let allParts = partsForCurrentCard()
+        let typeParts = allParts.filter { $0.partType == .menu && $0.visible }
+
+        if !isBrowseMode || typeParts.isEmpty {
+            for (_, v) in menuHosts { v.removeFromSuperview() }
+            menuHosts.removeAll()
+            return
+        }
+
+        var activeIds = Set<UUID>()
+        for part in typeParts {
+            activeIds.insert(part.id)
+            let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+            if let existing = menuHosts[part.id] {
+                existing.isHidden = false
+                existing.frame = frame
+                existing.apply(part)
+                continue
+            }
+            let host = MenuHostNSView(frame: frame)
+            host.apply(part)
+            let partId = part.id
+            host.onItemSelected = { [weak self] label in
+                self?.coordinator?.setPartMenuItemSelected(id: partId, label: label)
+            }
+            addSubview(host, positioned: .above, relativeTo: nil)
+            menuHosts[part.id] = host
+        }
+        for id in menuHosts.keys where !activeIds.contains(id) {
+            menuHosts[id]?.removeFromSuperview()
+            menuHosts.removeValue(forKey: id)
+        }
+    }
+
+    /// Create, update, or remove `SearchFieldHostNSView`s for `searchField` parts.
+    private func updateSearchFieldHosts() {
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let isBrowseMode = toolState.category == .browse
+
+        let allParts = partsForCurrentCard()
+        let typeParts = allParts.filter { $0.partType == .searchField && $0.visible }
+
+        if !isBrowseMode || typeParts.isEmpty {
+            for (_, v) in searchFieldHosts { v.removeFromSuperview() }
+            searchFieldHosts.removeAll()
+            return
+        }
+
+        var activeIds = Set<UUID>()
+        for part in typeParts {
+            activeIds.insert(part.id)
+            let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+            if let existing = searchFieldHosts[part.id] {
+                existing.isHidden = false
+                existing.frame = frame
+                existing.apply(part)
+                continue
+            }
+            let host = SearchFieldHostNSView(frame: frame)
+            host.apply(part)
+            let partId = part.id
+            let immediate = part.searchSendsImmediately
+            host.onSearchChange = { [weak self] text in
+                let msg = immediate ? "searchChanged" : "searchSubmitted"
+                self?.coordinator?.setPartSearchText(id: partId, text: text, message: msg)
+            }
+            addSubview(host, positioned: .above, relativeTo: nil)
+            searchFieldHosts[part.id] = host
+        }
+        for id in searchFieldHosts.keys where !activeIds.contains(id) {
+            searchFieldHosts[id]?.removeFromSuperview()
+            searchFieldHosts.removeValue(forKey: id)
+        }
+    }
+
+    /// Helper: all parts visible on the current card + its background.
+    private func partsForCurrentCard() -> [Part] {
+        let cardParts = document.partsForCard(currentCardId)
+        let bgParts: [Part]
+        if let card = document.cards.first(where: { $0.id == currentCardId }) {
+            bgParts = document.partsForBackground(card.backgroundId)
+        } else {
+            bgParts = []
+        }
+        return cardParts + bgParts
     }
 
     // MARK: - Sprite View Management

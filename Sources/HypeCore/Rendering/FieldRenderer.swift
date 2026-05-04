@@ -49,6 +49,11 @@ public enum FieldRenderer {
             ctx.setFillColor(NSColor.controlColor.cgColor)
             ctx.fill(scrollRect)
             strokeFieldRect(scrollRect)
+        case .secure:
+            // Secure fields look like rectangle fields but mask text as bullets.
+            ctx.setFillColor(fillColor)
+            ctx.fill(rect)
+            strokeFieldRect(rect)
         }
 
         if part.visible && part.fieldStyle == .transparent {
@@ -73,7 +78,13 @@ public enum FieldRenderer {
                 .paragraphStyle: paragraphStyle,
             ]
 
-            let displayText = String(part.textContent.prefix(10_000))
+            // Secure fields render bullets instead of the raw text (security condition 2).
+            let displayText: String
+            if part.fieldStyle == .secure {
+                displayText = String(repeating: "●", count: min(part.textContent.count, 50))
+            } else {
+                displayText = String(part.textContent.prefix(10_000))
+            }
 
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)

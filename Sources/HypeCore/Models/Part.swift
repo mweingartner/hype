@@ -223,6 +223,71 @@ public struct Part: Identifiable, Codable, Sendable {
     /// the host stops one before starting the other.
     public var audioPlaying: Bool
 
+    // ProgressView-specific
+    /// Current progress value; 0..progressTotal. Default 0.
+    public var progressValue: Double
+    /// Maximum value for the progress bar. Must be > 0 to avoid
+    /// divide-by-zero in the renderer. Clamped to max(value, 1e-10)
+    /// at store time (security condition 5).
+    public var progressTotal: Double
+    /// When true the control renders as a circular NSProgressIndicator
+    /// spinner; when false a linear bar is used. Default false.
+    public var progressIsCircular: Bool
+    /// When true the indicator animates continuously in an indeterminate
+    /// (barber-pole / spinner) style, ignoring value/total. Default false.
+    public var progressIsIndeterminate: Bool
+    /// Optional caption shown above the bar. Default "". Capped at 256
+    /// chars (security condition 6).
+    public var progressLabel: String
+    /// Optional tint color hex (e.g. "#FF8800"). Empty = system accent.
+    public var progressTint: String
+
+    // Gauge-specific
+    /// Current gauge value within [gaugeMin, gaugeMax]. Default 0.
+    public var gaugeValue: Double
+    /// Range minimum. Default 0.
+    public var gaugeMin: Double
+    /// Range maximum. Default 1.0. Must be > gaugeMin; enforced at
+    /// store time as max = min + 1 if max <= min (security condition 5).
+    public var gaugeMax: Double
+    /// Visual style: "linearCapacity" (default) | "accessoryCircular" |
+    /// "accessoryCircularCapacity" | "accessoryLinear" | "accessoryLinearCapacity".
+    public var gaugeStyle: String
+    /// Optional tint color hex. Empty = system accent.
+    public var gaugeTint: String
+    /// Label shown near the gauge. Capped at 256 chars.
+    public var gaugeLabel: String
+    /// Label at the minimum end of the gauge.
+    public var gaugeMinLabel: String
+    /// Label at the maximum end of the gauge.
+    public var gaugeMaxLabel: String
+
+    // Menu-specific
+    /// Newline-separated "Label||script" pairs defining the action items.
+    /// Double-pipe separates label from optional inline HypeTalk. Capped
+    /// at 64 KB (security condition 6).
+    public var menuItems: String
+    /// Text shown on the menu button face. Default "Menu". Capped at 256.
+    public var menuTitle: String
+
+    // SearchField-specific
+    /// Currently bound search text. Capped at 1 KB (security condition 6).
+    public var searchText: String
+    /// Placeholder text shown when the field is empty. Default "Search".
+    /// Capped at 256 chars.
+    public var searchPrompt: String
+    /// When true, the `searchChanged` message fires on every keystroke
+    /// (debounced ~300ms). When false it fires only on Return. Default false.
+    public var searchSendsImmediately: Bool
+
+    // Divider-specific
+    /// "horizontal" (default) or "vertical".
+    public var dividerOrientation: String
+    /// Line thickness in points. Default 1.0.
+    public var dividerThickness: Double
+    /// Line color hex (e.g. "#AAAAAA"). Empty = NSColor.separatorColor.
+    public var dividerColor: String
+
     // Scene3D-specific (SceneKit)
     /// File path or http(s) URL of the 3D model to load. `.usdz`,
     /// `.scn`, `.dae`, and `.obj` (with materials) all supported by
@@ -338,6 +403,28 @@ public struct Part: Identifiable, Codable, Sendable {
         self.audioFormat = "m4a"
         self.audioDuration = 0
         self.audioPlaying = false
+        self.progressValue = 0
+        self.progressTotal = 1.0
+        self.progressIsCircular = false
+        self.progressIsIndeterminate = false
+        self.progressLabel = ""
+        self.progressTint = ""
+        self.gaugeValue = 0
+        self.gaugeMin = 0
+        self.gaugeMax = 1.0
+        self.gaugeStyle = "linearCapacity"
+        self.gaugeTint = ""
+        self.gaugeLabel = ""
+        self.gaugeMinLabel = ""
+        self.gaugeMaxLabel = ""
+        self.menuItems = ""
+        self.menuTitle = "Menu"
+        self.searchText = ""
+        self.searchPrompt = "Search"
+        self.searchSendsImmediately = false
+        self.dividerOrientation = "horizontal"
+        self.dividerThickness = 1.0
+        self.dividerColor = ""
         self.scene3DURL = ""
         self.scene3DAllowsCameraControl = true
         self.scene3DAutoLighting = true
@@ -451,6 +538,33 @@ public struct Part: Identifiable, Codable, Sendable {
         scene3DAntialiasing = try container.decodeIfPresent(String.self, forKey: .scene3DAntialiasing) ?? "multisampling4X"
         // scene3DSourceURL — added with STL import; backward-compat optional.
         scene3DSourceURL = try container.decodeIfPresent(String.self, forKey: .scene3DSourceURL) ?? ""
+        // ProgressView fields — backward-compat optional.
+        progressValue = try container.decodeIfPresent(Double.self, forKey: .progressValue) ?? 0
+        progressTotal = try container.decodeIfPresent(Double.self, forKey: .progressTotal) ?? 1.0
+        progressIsCircular = try container.decodeIfPresent(Bool.self, forKey: .progressIsCircular) ?? false
+        progressIsIndeterminate = try container.decodeIfPresent(Bool.self, forKey: .progressIsIndeterminate) ?? false
+        progressLabel = try container.decodeIfPresent(String.self, forKey: .progressLabel) ?? ""
+        progressTint = try container.decodeIfPresent(String.self, forKey: .progressTint) ?? ""
+        // Gauge fields — backward-compat optional.
+        gaugeValue = try container.decodeIfPresent(Double.self, forKey: .gaugeValue) ?? 0
+        gaugeMin = try container.decodeIfPresent(Double.self, forKey: .gaugeMin) ?? 0
+        gaugeMax = try container.decodeIfPresent(Double.self, forKey: .gaugeMax) ?? 1.0
+        gaugeStyle = try container.decodeIfPresent(String.self, forKey: .gaugeStyle) ?? "linearCapacity"
+        gaugeTint = try container.decodeIfPresent(String.self, forKey: .gaugeTint) ?? ""
+        gaugeLabel = try container.decodeIfPresent(String.self, forKey: .gaugeLabel) ?? ""
+        gaugeMinLabel = try container.decodeIfPresent(String.self, forKey: .gaugeMinLabel) ?? ""
+        gaugeMaxLabel = try container.decodeIfPresent(String.self, forKey: .gaugeMaxLabel) ?? ""
+        // Menu fields — backward-compat optional.
+        menuItems = try container.decodeIfPresent(String.self, forKey: .menuItems) ?? ""
+        menuTitle = try container.decodeIfPresent(String.self, forKey: .menuTitle) ?? "Menu"
+        // SearchField fields — backward-compat optional.
+        searchText = try container.decodeIfPresent(String.self, forKey: .searchText) ?? ""
+        searchPrompt = try container.decodeIfPresent(String.self, forKey: .searchPrompt) ?? "Search"
+        searchSendsImmediately = try container.decodeIfPresent(Bool.self, forKey: .searchSendsImmediately) ?? false
+        // Divider fields — backward-compat optional.
+        dividerOrientation = try container.decodeIfPresent(String.self, forKey: .dividerOrientation) ?? "horizontal"
+        dividerThickness = try container.decodeIfPresent(Double.self, forKey: .dividerThickness) ?? 1.0
+        dividerColor = try container.decodeIfPresent(String.self, forKey: .dividerColor) ?? ""
         script = try container.decode(String.self, forKey: .script)
     }
 }

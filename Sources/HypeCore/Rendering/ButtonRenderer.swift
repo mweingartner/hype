@@ -210,6 +210,41 @@ public enum ButtonRenderer {
             }
             ctx.restoreGState()
             return
+
+        case .radio:
+            // Radio button: hollow circle with filled dot when hilited.
+            let radioSize: CGFloat = min(rect.height, 18)
+            let radioRect = CGRect(
+                x: rect.minX + 2,
+                y: rect.midY - radioSize / 2,
+                width: radioSize,
+                height: radioSize
+            )
+            ctx.setFillColor(NSColor.controlBackgroundColor.cgColor)
+            ctx.fillEllipse(in: radioRect)
+            ctx.setStrokeColor(NSColor.secondaryLabelColor.cgColor)
+            ctx.setLineWidth(1.5)
+            ctx.strokeEllipse(in: radioRect)
+            if part.hilite {
+                let dotSize = radioSize * 0.5
+                let dotRect = CGRect(
+                    x: radioRect.midX - dotSize / 2,
+                    y: radioRect.midY - dotSize / 2,
+                    width: dotSize,
+                    height: dotSize
+                )
+                ctx.setFillColor(NSColor.controlAccentColor.cgColor)
+                ctx.fillEllipse(in: dotRect)
+            }
+            // Label to the right of the radio circle
+            let radioLabel = part.showName ? part.name : part.textContent
+            if !radioLabel.isEmpty {
+                drawLabel(ctx: ctx, text: radioLabel,
+                          at: CGPoint(x: radioRect.maxX + 6, y: rect.midY),
+                          font: part.textFont, size: part.textSize, color: textColor, align: .left)
+            }
+            ctx.restoreGState()
+            return
         }
 
         // Draw centered label

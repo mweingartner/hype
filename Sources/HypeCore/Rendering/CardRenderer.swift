@@ -151,6 +151,22 @@ public final class CardRenderer: Sendable {
             AudioRecorderRenderer.draw(ctx: ctx, part: part, rect: rect)
         case .scene3D:
             Scene3DRenderer.draw(ctx: ctx, part: part, rect: rect)
+        case .progressView:
+            ProgressViewRenderer.draw(ctx: ctx, part: part, rect: rect)
+        case .gauge:
+            GaugeRenderer.draw(ctx: ctx, part: part, rect: rect)
+        case .link:
+            LinkRenderer.draw(ctx: ctx, part: part, rect: rect)
+        case .menu:
+            MenuRenderer.draw(ctx: ctx, part: part, rect: rect)
+        case .searchField:
+            SearchFieldRenderer.draw(ctx: ctx, part: part, rect: rect)
+        case .divider:
+            DividerRenderer.draw(ctx: ctx, part: part, rect: rect)
+        case .unknown:
+            // Unknown types are filtered out at load time; if one slips
+            // through, render nothing.
+            break
         }
     }
 

@@ -328,6 +328,113 @@ public struct HypeToolDefinitions {
             "on_background": ("string", "true to place on background", false),
         ]),
 
+        // MARK: - Phase 3 framework controls
+
+        makeTool(name: "create_progressview", description: """
+            Create a progress indicator showing determinate or indeterminate progress as a \
+            linear bar (default) or circular spinner. Set `value` between 0 and `total` to show \
+            progress. Set `is_indeterminate` to 'true' for a spinner/barber-pole bar. The \
+            `progressFinished` HypeTalk message fires once when value reaches total.
+            """, params: [
+            "name": ("string", "Progress part name", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "value": ("string", "Initial progress value (default 0)", false),
+            "total": ("string", "Total / maximum value (default 1.0)", false),
+            "is_circular": ("string", "'true' for circular spinner; 'false' (default) for linear bar", false),
+            "is_indeterminate": ("string", "'true' for indeterminate animation; 'false' (default) for determinate", false),
+            "label": ("string", "Optional caption shown above the bar", false),
+            "tint": ("string", "Optional tint color hex (e.g. '#FF8800')", false),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
+        makeTool(name: "create_gauge", description: """
+            Create a Gauge indicator showing a value within a range. Available styles: \
+            'linearCapacity' (default), 'accessoryCircular', 'accessoryCircularCapacity', \
+            'accessoryLinear', 'accessoryLinearCapacity'. Requires macOS 13+; falls back to a \
+            progress bar on older systems. HypeTalk: `the value of gauge "X"`.
+            """, params: [
+            "name": ("string", "Gauge part name", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "value": ("string", "Initial value (default 0)", false),
+            "min": ("string", "Range minimum (default 0)", false),
+            "max": ("string", "Range maximum (default 1.0)", false),
+            "style": ("string", "Gauge style: linearCapacity (default), accessoryCircular, accessoryCircularCapacity, accessoryLinear, accessoryLinearCapacity", false),
+            "tint": ("string", "Tint color hex (e.g. '#FF8800')", false),
+            "label": ("string", "Label text", false),
+            "min_label": ("string", "Label at the minimum end", false),
+            "max_label": ("string", "Label at the maximum end", false),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
+        makeTool(name: "create_link", description: """
+            Create a clickable hyperlink that opens a URL in the user's default browser. The \
+            link's visible text is `text`; clicks open `url`. Fires `linkOpened` HypeTalk \
+            message before opening. Only http, https, and mailto URLs are allowed — other \
+            schemes are refused.
+            """, params: [
+            "name": ("string", "Link part name", true),
+            "text": ("string", "Visible link text", true),
+            "url": ("string", "Destination URL (https:// recommended)", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
+        makeTool(name: "create_menu", description: """
+            Create a menu button that reveals a list of actions on click. Pass `items` as a \
+            newline-separated list of 'Label||script' pairs (the script after '||' runs when \
+            the item is chosen) or bare 'Label' lines for label-only items. Fires \
+            `menuItemSelected itemLabel` HypeTalk message when an item is selected.
+            """, params: [
+            "name": ("string", "Menu part name", true),
+            "title": ("string", "Title shown on the menu button (default 'Menu')", false),
+            "items": ("string", "Newline-separated 'Label||script' or bare 'Label' items", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
+        makeTool(name: "create_searchfield", description: """
+            Create a search field (NSSearchField). Fires `searchChanged text` on keystroke \
+            (when `immediate` is true, debounced ~300ms) or `searchSubmitted text` on Return. \
+            HypeTalk reads: `the searchText of searchField "X"`, `the prompt of searchField "X"`.
+            """, params: [
+            "name": ("string", "Search field part name", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "prompt": ("string", "Placeholder text (default 'Search')", false),
+            "immediate": ("string", "'true' to fire searchChanged on each keystroke; 'false' (default) to fire only on Return", false),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
+        makeTool(name: "create_divider", description: """
+            Create a thin horizontal or vertical separator line. Use to visually group content \
+            on a card. Set `orientation` to 'horizontal' (default) or 'vertical'. No lifecycle \
+            messages — purely visual.
+            """, params: [
+            "name": ("string", "Divider part name", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "orientation": ("string", "'horizontal' (default) or 'vertical'", false),
+            "thickness": ("string", "Line thickness in pts (default 1)", false),
+            "color": ("string", "Line color hex (default uses system separator color)", false),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
         makeTool(name: "repair_form_controls", description: """
             Convert a form-like Sprite Area on the current card into ordinary Hype controls. \
             Label nodes become locked transparent field labels. If the Sprite Area contains \
@@ -1236,6 +1343,12 @@ public struct HypeToolDefinitions {
             "create_segmented",
             "create_audio_recorder",
             "create_scene3d",
+            "create_progressview",
+            "create_gauge",
+            "create_link",
+            "create_menu",
+            "create_searchfield",
+            "create_divider",
             "set_image_filter",
             "duplicate_part",
             "delete_part",
@@ -1365,6 +1478,12 @@ public struct HypeToolDefinitions {
             "create_segmented",
             "create_audio_recorder",
             "create_scene3d",
+            "create_progressview",
+            "create_gauge",
+            "create_link",
+            "create_menu",
+            "create_searchfield",
+            "create_divider",
             "set_image_filter",
             "repair_form_controls",
             "delete_part",
