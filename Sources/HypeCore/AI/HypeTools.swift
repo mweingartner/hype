@@ -360,6 +360,7 @@ public struct HypeToolDefinitions {
             "label": ("string", "Label text", false),
             "min_label": ("string", "Label at the minimum end", false),
             "max_label": ("string", "Label at the maximum end", false),
+            "decimals": ("string", "Number of fractional digits the gauge rounds its value to (and shows in the value label). Default 0 — integral steps only when the user scrubs interactively. Capped at 10.", false),
             "on_background": ("string", "true to place on background", false),
         ]),
 

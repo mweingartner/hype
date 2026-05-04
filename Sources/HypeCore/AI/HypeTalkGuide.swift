@@ -115,7 +115,7 @@ public enum HypeTalkGuide {
           - **scene3d:** object (source path — preferred), modelURL (resolved path, legacy alias), allowsCameraControl, autoLighting, antialiasing, background3d
           - **image:** imageFilter, imageFilterIntensity (along with the standard part properties)
           - **progressView:** value (0..total), progressTotal (default 100), progressIsCircular (true/false), progressIsIndeterminate (true/false), progressLabel, progressTint (hex)
-          - **gauge:** value (gaugeMin..gaugeMax), gaugeMin (default 0), gaugeMax (default 100), gaugeStyle (circular | linear), gaugeTint (hex), gaugeLabel, gaugeMinLabel, gaugeMaxLabel
+          - **gauge:** value (gaugeMin..gaugeMax), gaugeMin (default 0), gaugeMax (default 100), gaugeStyle (circular | linear), gaugeTint (hex), gaugeLabel, gaugeMinLabel, gaugeMaxLabel, gaugeDecimals (alias `decimals` — 0 default, integral steps; raise for fractional precision)
           - **button (style=link):** url (target — http / https / mailto only; other schemes are refused at click time), textContent (visible link text; defaults to url if empty)
           - **button (style=popup):** popupItems (newline-separated labels), textContent (currently-selected label)
           - **field (style=search):** textContent (current search text — use `the text of field "search"`); fields with this style fire `searchChanged` on debounced keystroke and `searchSubmitted` on Return.

@@ -1249,6 +1249,24 @@ struct PropertyInspector: View {
             propertyRow("Tint (hex)", binding: bindPartString(part.id, \.gaugeTint))
             propertyRow("Min Label", binding: bindPartString(part.id, \.gaugeMinLabel))
             propertyRow("Max Label", binding: bindPartString(part.id, \.gaugeMaxLabel))
+            HStack {
+                Stepper(
+                    "Decimals: \(part.gaugeDecimals)",
+                    value: Binding<Int>(
+                        get: { (self.document.document.parts.first { $0.id == part.id }?.gaugeDecimals) ?? 0 },
+                        set: { newValue in
+                            self.document.document.updatePart(id: part.id) {
+                                $0.gaugeDecimals = max(0, min(10, newValue))
+                            }
+                        }
+                    ),
+                    in: 0...10
+                )
+                .font(.system(size: 11))
+            }
+            Text("0 = integer-only steps when scrubbing the gauge. Raise for finer precision (max 10).")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
         }
     }
 

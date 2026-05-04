@@ -15,12 +15,16 @@ struct GaugeHostSwiftView: View {
     let label: String
     let minLabel: String
     let maxLabel: String
+    /// Number of fractional digits in the displayed value (and in
+    /// the user-scrub writeback — see `GaugeHostNSView.commitValue`).
+    /// `0` shows integers only, matching the documented default.
+    let decimals: Int
 
     var body: some View {
         let gauge = Gauge(value: value, in: bounds) {
             Text(label)
         } currentValueLabel: {
-            Text(String(format: "%g", value))
+            Text(formatValue(value))
         } minimumValueLabel: {
             Text(minLabel)
         } maximumValueLabel: {
@@ -28,6 +32,11 @@ struct GaugeHostSwiftView: View {
         }
         return AnyView(styledGauge(gauge))
             .padding(4)
+    }
+
+    private func formatValue(_ v: Double) -> String {
+        let d = max(0, decimals)
+        return String(format: "%.\(d)f", v)
     }
 
     @ViewBuilder
@@ -72,6 +81,9 @@ final class GaugeHostNSView: NSView {
     private var liveMin: Double = 0
     private var liveMax: Double = 1
     private var liveEnabled: Bool = false
+    /// Decimal places to round to when the user scrubs interactively.
+    /// 0 = integral steps (the documented default).
+    private var liveDecimals: Int = 0
 
     /// Closure fires whenever the user adjusts the gauge value via
     /// click or drag. Wired in `CardCanvasView.updateGaugeViews` to
@@ -86,6 +98,7 @@ final class GaugeHostNSView: NSView {
     private var lastTint: String?
     private var lastLabel: String?
     private var lastEnabled: Bool?
+    private var lastDecimals: Int?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -116,8 +129,15 @@ final class GaugeHostNSView: NSView {
     private func commitValue(from point: NSPoint) {
         let w = max(1, bounds.width)
         let frac = max(0, min(1, point.x / w))
-        let value = liveMin + frac * (liveMax - liveMin)
-        onValueChange?(value)
+        let raw = liveMin + frac * (liveMax - liveMin)
+        // Quantize to the part's `gaugeDecimals` precision so a
+        // gauge configured for integer-only steps doesn't write
+        // 17.93624… on every drag tick. `decimals = 0` rounds to
+        // the nearest integer (the default).
+        let d = max(0, liveDecimals)
+        let scale = pow(10.0, Double(d))
+        let quantized = (raw * scale).rounded() / scale
+        onValueChange?(quantized)
     }
 
     func apply(_ part: Part) {
@@ -132,10 +152,12 @@ final class GaugeHostNSView: NSView {
         liveMin = safeMin
         liveMax = safeMax
         liveEnabled = part.enabled
+        liveDecimals = max(0, part.gaugeDecimals)
 
         let same = (safeValue == lastValue) && (safeMin == lastMin) && (safeMax == lastMax)
             && (part.gaugeStyle == lastStyle) && (part.gaugeTint == lastTint)
             && (part.gaugeLabel == lastLabel) && (part.enabled == lastEnabled)
+            && (part.gaugeDecimals == lastDecimals)
         guard !same else { return }
 
         lastValue = safeValue
@@ -145,6 +167,7 @@ final class GaugeHostNSView: NSView {
         lastTint = part.gaugeTint
         lastLabel = part.gaugeLabel
         lastEnabled = part.enabled
+        lastDecimals = part.gaugeDecimals
 
         // Remove stale view.
         hostingView?.removeFromSuperview()
@@ -157,7 +180,8 @@ final class GaugeHostNSView: NSView {
                 tintHex: part.gaugeTint,
                 label: String(part.gaugeLabel.prefix(256)),
                 minLabel: String(part.gaugeMinLabel.prefix(256)),
-                maxLabel: String(part.gaugeMaxLabel.prefix(256))
+                maxLabel: String(part.gaugeMaxLabel.prefix(256)),
+                decimals: max(0, part.gaugeDecimals)
             )
             let hv = NSHostingView(rootView: swiftView)
             hv.translatesAutoresizingMaskIntoConstraints = false

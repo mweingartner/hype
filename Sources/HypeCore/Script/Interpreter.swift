@@ -2809,6 +2809,7 @@ public struct Interpreter: Sendable {
         case "gaugelabel", "gauge_label":           return part.gaugeLabel
         case "gaugeminlabel", "gauge_min_label":    return part.gaugeMinLabel
         case "gaugemaxlabel", "gauge_max_label":    return part.gaugeMaxLabel
+        case "gaugedecimals", "gauge_decimals", "decimals": return formatNumber(Double(part.gaugeDecimals))
         // Menu
         case "menuitems", "menu_items", "items":    return part.menuItems
         case "menutitle", "menu_title":             return part.menuTitle
@@ -3727,6 +3728,13 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].gaugeMinLabel = String(value.prefix(256))
         case "gaugemaxlabel", "gauge_max_label":
             document.parts[partIndex].gaugeMaxLabel = String(value.prefix(256))
+        case "gaugedecimals", "gauge_decimals", "decimals":
+            // Number of fractional digits the gauge rounds to on
+            // user scrub + displays in the value label. Default 0
+            // (integral steps). Negative values clamp to 0; values
+            // above ~10 are nonsense for a UI control so cap there.
+            let n = Int(toNumber(value))
+            document.parts[partIndex].gaugeDecimals = max(0, min(10, n))
         // Menu setters.
         case "menuitems", "menu_items":
             // Security condition 6: cap at 64 KB.

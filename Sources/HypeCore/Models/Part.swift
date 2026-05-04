@@ -261,6 +261,13 @@ public struct Part: Identifiable, Codable, Sendable {
     public var gaugeMinLabel: String
     /// Label at the maximum end of the gauge.
     public var gaugeMaxLabel: String
+    /// Number of decimal places the gauge should round its value to.
+    /// Default 0 → integral increments only. Applies both to the
+    /// displayed value (in the SwiftUI Gauge's currentValueLabel /
+    /// renderer text) and to the writeback when the user scrubs the
+    /// gauge interactively. A value of 2 would round 3.14159 → 3.14.
+    /// Negative values are treated as 0 (defensive).
+    public var gaugeDecimals: Int
 
     // Menu-specific
     /// Newline-separated "Label||script" pairs defining the action items.
@@ -417,6 +424,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.gaugeLabel = ""
         self.gaugeMinLabel = ""
         self.gaugeMaxLabel = ""
+        self.gaugeDecimals = 0
         self.menuItems = ""
         self.menuTitle = "Menu"
         self.searchText = ""
@@ -554,6 +562,7 @@ public struct Part: Identifiable, Codable, Sendable {
         gaugeLabel = try container.decodeIfPresent(String.self, forKey: .gaugeLabel) ?? ""
         gaugeMinLabel = try container.decodeIfPresent(String.self, forKey: .gaugeMinLabel) ?? ""
         gaugeMaxLabel = try container.decodeIfPresent(String.self, forKey: .gaugeMaxLabel) ?? ""
+        gaugeDecimals = try container.decodeIfPresent(Int.self, forKey: .gaugeDecimals) ?? 0
         // Menu fields — backward-compat optional.
         menuItems = try container.decodeIfPresent(String.self, forKey: .menuItems) ?? ""
         menuTitle = try container.decodeIfPresent(String.self, forKey: .menuTitle) ?? "Menu"

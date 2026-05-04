@@ -48,8 +48,11 @@ public enum GaugeRenderer {
                            endAngle: start + CGFloat(fraction) * .pi * 2, clockwise: false)
                 ctx.strokePath()
             }
-            // Value label in center
-            let valueText = String(format: "%g", safeValue)
+            // Value label in center — honor gaugeDecimals so a
+            // gauge configured for integral steps shows "17" not
+            // "17.0". Negative decimals defensively clamp to 0.
+            let d = max(0, part.gaugeDecimals)
+            let valueText = String(format: "%.\(d)f", safeValue)
             let labelRect = CGRect(x: center.x - 20, y: center.y - 8, width: 40, height: 16)
             drawText(valueText, in: labelRect, ctx: ctx,
                      font: NSFont.systemFont(ofSize: 10, weight: .medium),

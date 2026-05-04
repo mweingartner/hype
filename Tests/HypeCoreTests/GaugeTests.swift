@@ -12,7 +12,7 @@ struct GaugeTests {
 
     // MARK: - Model defaults
 
-    @Test("Gauge defaults: value 0, min 0, max 1, linearCapacity style, empty tint/labels")
+    @Test("Gauge defaults: value 0, min 0, max 1, linearCapacity style, empty tint/labels, decimals 0")
     func defaults() {
         let part = Part(partType: .gauge, name: "temp")
         #expect(part.partType == .gauge)
@@ -24,6 +24,123 @@ struct GaugeTests {
         #expect(part.gaugeLabel == "")
         #expect(part.gaugeMinLabel == "")
         #expect(part.gaugeMaxLabel == "")
+        #expect(part.gaugeDecimals == 0)
+    }
+
+    // MARK: - Decimals
+
+    @Test("create_gauge accepts a `decimals` argument and stores it")
+    func aiCreateGaugeWithDecimals() async {
+        var doc = HypeDocument.newDocument(name: "GaugeTest")
+        let cardId = doc.cards[0].id
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_gauge",
+            arguments: [
+                "name": "temp", "left": "0", "top": "0", "width": "200", "height": "44",
+                "min": "0", "max": "100", "decimals": "2"
+            ],
+            document: &doc, currentCardId: cardId
+        )
+        let part = doc.parts.first { $0.partType == .gauge }
+        #expect(part?.gaugeDecimals == 2)
+    }
+
+    @Test("create_gauge clamps decimals to [0, 10]")
+    func aiCreateGaugeDecimalsClamped() async {
+        var doc = HypeDocument.newDocument(name: "GaugeTest")
+        let cardId = doc.cards[0].id
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_gauge",
+            arguments: ["name": "g1", "left": "0", "top": "0", "width": "200", "height": "44", "decimals": "-3"],
+            document: &doc, currentCardId: cardId
+        )
+        _ = await executor.execute(
+            toolName: "create_gauge",
+            arguments: ["name": "g2", "left": "0", "top": "0", "width": "200", "height": "44", "decimals": "999"],
+            document: &doc, currentCardId: cardId
+        )
+        #expect(doc.parts.first { $0.name == "g1" }?.gaugeDecimals == 0)
+        #expect(doc.parts.first { $0.name == "g2" }?.gaugeDecimals == 10)
+    }
+
+    @Test("set_part_property `decimals` updates gaugeDecimals")
+    func aiSetGaugeDecimals() async {
+        var doc = HypeDocument.newDocument(name: "GaugeTest")
+        let cardId = doc.cards[0].id
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_gauge",
+            arguments: ["name": "temp", "left": "0", "top": "0", "width": "200", "height": "44"],
+            document: &doc, currentCardId: cardId
+        )
+        _ = await executor.execute(
+            toolName: "set_part_property",
+            arguments: ["part_name": "temp", "property": "decimals", "value": "3"],
+            document: &doc, currentCardId: cardId
+        )
+        #expect(doc.parts.first { $0.partType == .gauge }?.gaugeDecimals == 3)
+    }
+
+    @Test("get_part_property reads gaugeDecimals")
+    func aiGetGaugeDecimals() async {
+        var doc = HypeDocument.newDocument(name: "GaugeTest")
+        let cardId = doc.cards[0].id
+        var part = Part(partType: .gauge, cardId: cardId, name: "temp",
+                        left: 0, top: 0, width: 200, height: 44)
+        part.gaugeDecimals = 4
+        doc.addPart(part)
+        let executor = HypeToolExecutor()
+        let result = await executor.execute(
+            toolName: "get_part_property",
+            arguments: ["part_name": "temp", "property": "decimals"],
+            document: &doc, currentCardId: cardId
+        )
+        #expect(result == "4")
+    }
+
+    @Test("HypeTalk: `set the decimals of gauge \"X\" to 3` updates gaugeDecimals")
+    func hypeTalkSetDecimals() throws {
+        var doc = HypeDocument.newDocument(name: "GaugeTest")
+        let cardId = doc.cards[0].id
+        let part = Part(partType: .gauge, cardId: cardId, name: "temp",
+                        left: 0, top: 0, width: 200, height: 44)
+        doc.addPart(part)
+        let source = "on test\n  set the decimals of gauge \"temp\" to 3\nend test"
+        var lexer = Lexer(source: source)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        let handler = script.handlers.first!
+        let context = ExecutionContext(targetId: cardId, currentCardId: cardId, document: doc)
+        let result = Interpreter().execute(handler: handler, params: [], context: context)
+        let updated = (result.modifiedDocument ?? doc).parts.first { $0.name == "temp" }!
+        #expect(updated.gaugeDecimals == 3)
+    }
+
+    @Test("Gauge decimals = 0 default → integer-only behaviour preserved across Codable")
+    func decimalsZeroDefaultRoundTrip() throws {
+        let part = Part(partType: .gauge, name: "temp")
+        #expect(part.gaugeDecimals == 0)
+        let data = try JSONEncoder().encode(part)
+        let decoded = try JSONDecoder().decode(Part.self, from: data)
+        #expect(decoded.gaugeDecimals == 0)
+    }
+
+    @Test("Old document without gaugeDecimals decodes with default 0")
+    func decimalsBackwardCompat() throws {
+        var part = Part(partType: .gauge, name: "temp")
+        part.gaugeValue = 5
+        part.gaugeMax = 10
+        let data = try JSONEncoder().encode(part)
+        var json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        json.removeValue(forKey: "gaugeDecimals")
+        let stripped = try JSONSerialization.data(withJSONObject: json)
+        let decoded = try JSONDecoder().decode(Part.self, from: stripped)
+        #expect(decoded.gaugeDecimals == 0)
+        #expect(decoded.gaugeValue == 5)
+        #expect(decoded.gaugeMax == 10)
     }
 
     // MARK: - Codable round-trip

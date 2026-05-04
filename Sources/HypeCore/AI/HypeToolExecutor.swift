@@ -627,6 +627,7 @@ public struct HypeToolExecutor: Sendable {
             props.append("style=\(p.gaugeStyle)")
             if !p.gaugeLabel.isEmpty { props.append("label=\"\(p.gaugeLabel)\"") }
             if !p.gaugeTint.isEmpty { props.append("tint=\(p.gaugeTint)") }
+            if p.gaugeDecimals != 0 { props.append("decimals=\(p.gaugeDecimals)") }
         case .toggle, .link, .menu, .searchField:
             // Migrated to button/field with appropriate style at decode
             // time — these PartTypes are unreachable in normal flow but
@@ -1370,6 +1371,10 @@ public struct HypeToolExecutor: Sendable {
             part.gaugeLabel = String((arguments["label"] ?? "").prefix(256))
             part.gaugeMinLabel = String((arguments["min_label"] ?? "").prefix(256))
             part.gaugeMaxLabel = String((arguments["max_label"] ?? "").prefix(256))
+            // Decimal precision — default 0 → integral increments.
+            // Clamp to [0, 10] to keep the format string sane.
+            let rawDecimals = Int(arguments["decimals"] ?? "0") ?? 0
+            part.gaugeDecimals = max(0, min(10, rawDecimals))
             document.addPart(part)
             let layer1 = place.backgroundId != nil ? " on background" : ""
             return "Created gauge '\(part.name)'\(layer1)"
@@ -1594,6 +1599,9 @@ public struct HypeToolExecutor: Sendable {
                     document.parts[index].gaugeMinLabel = String(value.prefix(256))
                 case "gaugemaxlabel", "gauge_max_label":
                     document.parts[index].gaugeMaxLabel = String(value.prefix(256))
+                case "gaugedecimals", "gauge_decimals", "decimals":
+                    let n = Int(Double(value) ?? 0)
+                    document.parts[index].gaugeDecimals = max(0, min(10, n))
                 // Menu
                 case "menuitems", "menu_items", "items":
                     // Security condition 3: validate inline scripts.
@@ -2683,6 +2691,7 @@ public struct HypeToolExecutor: Sendable {
             case "gaugelabel", "gauge_label": return part.gaugeLabel
             case "gaugeminlabel", "gauge_min_label": return part.gaugeMinLabel
             case "gaugemaxlabel", "gauge_max_label": return part.gaugeMaxLabel
+            case "gaugedecimals", "gauge_decimals", "decimals": return String(part.gaugeDecimals)
             // Menu
             case "menuitems", "menu_items", "items": return part.menuItems
             case "menutitle", "menu_title": return part.menuTitle
@@ -4930,6 +4939,7 @@ public struct HypeToolExecutor: Sendable {
             row("label", "\"\(p.gaugeLabel)\"", "\"\"")
             row("minLabel", "\"\(p.gaugeMinLabel)\"", "\"\"")
             row("maxLabel", "\"\(p.gaugeMaxLabel)\"", "\"\"")
+            row("decimals", String(p.gaugeDecimals), "0 (integral)")
         case .toggle, .link, .menu, .searchField:
             // Migrated to button/field with appropriate style at decode.
             // Empty branch keeps the switch exhaustive.
