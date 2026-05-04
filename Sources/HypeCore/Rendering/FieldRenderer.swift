@@ -114,7 +114,10 @@ public enum FieldRenderer {
 
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: nsFont,
-                .foregroundColor: NSColor.black,
+                // labelColor is dynamic (dark-mode aware), so field
+                // text remains readable on light + dark themes
+                // without hardcoding either extreme.
+                .foregroundColor: NSColor.labelColor,
                 .paragraphStyle: paragraphStyle,
             ]
 

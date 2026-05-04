@@ -98,7 +98,9 @@ public final class CardRenderer: Sendable {
         let text = "No stack open" as NSString
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 16),
-            .foregroundColor: NSColor.gray,
+            // secondaryLabelColor is dark-mode aware (lighter on
+            // dark themes, darker on light themes).
+            .foregroundColor: NSColor.secondaryLabelColor,
         ]
         let textSize = text.size(withAttributes: attrs)
         let x = (size.width - textSize.width) / 2

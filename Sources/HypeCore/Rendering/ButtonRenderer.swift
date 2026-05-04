@@ -8,15 +8,23 @@ public enum ButtonRenderer {
     public static func draw(ctx: CGContext, part: Part, rect: CGRect) {
         ctx.saveGState()
 
-        let fillColor = part.hilite ? NSColor.controlAccentColor.cgColor : NSColor.white.cgColor
+        // Use system-aware colors so the renderer's edit-mode preview
+        // adapts to the active appearance (light / dark / theme).
+        // labelColor + controlBackgroundColor are dynamic — they
+        // pick the right shade for the current Aqua appearance.
+        let fillColor = part.hilite ? NSColor.controlAccentColor.cgColor : NSColor.controlBackgroundColor.cgColor
         // For checkboxes, radio buttons, and toggles, the label color stays black
         // because hilite only affects the indicator (check/dot/switch), not the label background
         let textColor: CGColor
         switch part.buttonStyle {
         case .checkBox, .toggle:
-            textColor = part.enabled ? NSColor.black.cgColor : NSColor.gray.cgColor
+            textColor = part.enabled ? NSColor.labelColor.cgColor : NSColor.disabledControlTextColor.cgColor
         default:
-            textColor = part.hilite ? NSColor.white.cgColor : (part.enabled ? NSColor.black.cgColor : NSColor.gray.cgColor)
+            // Hilite buttons get inverted text (white on tint).
+            // Default-state text uses labelColor so dark mode flips
+            // to the proper light-on-dark shade.
+            textColor = part.hilite ? NSColor.alternateSelectedControlTextColor.cgColor
+                : (part.enabled ? NSColor.labelColor.cgColor : NSColor.disabledControlTextColor.cgColor)
         }
 
         switch part.buttonStyle {
