@@ -859,8 +859,10 @@ struct PropertyInspector: View {
                     Text(type.rawValue).tag(type)
                 }
             }
-            ColorPicker("Fill", selection: bindPartColor(part.id, \.fillColor))
-            ColorPicker("Stroke", selection: bindPartColor(part.id, \.strokeColor))
+            colorPropertyRow(label: "Fill", partId: part.id, keyPath: \.fillColor,
+                             supportsOpacity: true)
+            colorPropertyRow(label: "Stroke", partId: part.id, keyPath: \.strokeColor,
+                             supportsOpacity: true)
             numberField("Stroke Width", binding: bindPartDouble(part.id, \.strokeWidth))
             numberField("Corner Radius", binding: bindPartDouble(part.id, \.cornerRadius))
         }
@@ -1058,7 +1060,8 @@ struct PropertyInspector: View {
     private func colorWellSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Color Well").font(.subheadline).foregroundColor(.secondary)
-            propertyRow("Color (hex)", binding: bindPartString(part.id, \.colorWellHex))
+            colorPropertyRow(label: "Color", partId: part.id, keyPath: \.colorWellHex,
+                             supportsOpacity: true)
             Toggle("Interactive", isOn: bindPartBool(part.id, \.colorWellInteractive))
         }
     }
@@ -1110,7 +1113,8 @@ struct PropertyInspector: View {
             propertyRow("Resolved", value: part.scene3DURL.isEmpty ? "(none)" : part.scene3DURL)
             Toggle("Allow Camera Control", isOn: bindPartBool(part.id, \.scene3DAllowsCameraControl))
             Toggle("Default Lighting", isOn: bindPartBool(part.id, \.scene3DAutoLighting))
-            propertyRow("Background (hex, blank=clear)", binding: bindPartString(part.id, \.scene3DBackground))
+            colorPropertyRow(label: "Background", partId: part.id, keyPath: \.scene3DBackground,
+                             hint: "Empty hex = transparent (let the card show through)")
             HStack {
                 Text("Anti-aliasing").font(.system(size: 10))
                 Picker("", selection: bindPartString(part.id, \.scene3DAntialiasing)) {
@@ -1221,7 +1225,8 @@ struct PropertyInspector: View {
                 propertyRow("Value", binding: bindPartDoubleString(part.id, \.progressValue))
                 propertyRow("Total", binding: bindPartDoubleString(part.id, \.progressTotal))
             }
-            propertyRow("Tint (hex)", binding: bindPartString(part.id, \.progressTint))
+            colorPropertyRow(label: "Tint", partId: part.id, keyPath: \.progressTint,
+                             hint: "Empty = system accent color")
             Text("HypeTalk: `set the value of progressView \"X\" to 0.5`. Fires `progressFinished` when value reaches total.")
                 .font(.system(size: 9)).foregroundColor(.secondary)
         }
@@ -1246,7 +1251,8 @@ struct PropertyInspector: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
             }
-            propertyRow("Tint (hex)", binding: bindPartString(part.id, \.gaugeTint))
+            colorPropertyRow(label: "Tint", partId: part.id, keyPath: \.gaugeTint,
+                             hint: "Empty = system accent color")
             propertyRow("Min Label", binding: bindPartString(part.id, \.gaugeMinLabel))
             propertyRow("Max Label", binding: bindPartString(part.id, \.gaugeMaxLabel))
             HStack {
@@ -1288,18 +1294,8 @@ struct PropertyInspector: View {
                 .pickerStyle(.segmented)
             }
             propertyRow("Thickness (pts)", binding: bindPartDoubleString(part.id, \.dividerThickness))
-            HStack {
-                ColorPicker("Color", selection: bindPartColor(part.id, \.dividerColor), supportsOpacity: false)
-                    .labelsHidden()
-                Text("Color")
-                    .font(.system(size: 11))
-                    .foregroundColor(.primary)
-                Spacer()
-                propertyRow("hex", binding: bindPartString(part.id, \.dividerColor))
-                    .frame(width: 90)
-            }
-            Text("Empty hex = system separator color.")
-                .font(.system(size: 9)).foregroundColor(.secondary)
+            colorPropertyRow(label: "Color", partId: part.id, keyPath: \.dividerColor,
+                             hint: "Empty hex = system separator color")
         }
     }
 
@@ -3117,6 +3113,39 @@ struct PropertyInspector: View {
                 document.document.updatePart(id: id) { $0[keyPath: keyPath] = newValue.toHex() }
             }
         )
+    }
+
+    /// Shared color-property row. Renders an interactive ColorPicker
+    /// + an editable hex text field side by side, both bound to the
+    /// same `Part` keypath. Picking a color writes the hex value
+    /// back; typing a hex value updates the picker's swatch on the
+    /// next render. The optional `hint` line below renders in the
+    /// secondary text style.
+    ///
+    /// Use this anywhere a part has a stored hex color so authors
+    /// can choose either a visual swatch (most common) or a precise
+    /// hex value (scriptable / shareable). One pattern, all parts.
+    @ViewBuilder
+    private func colorPropertyRow(
+        label: String,
+        partId: UUID,
+        keyPath: WritableKeyPath<Part, String>,
+        hint: String? = nil,
+        supportsOpacity: Bool = false
+    ) -> some View {
+        HStack {
+            ColorPicker("", selection: bindPartColor(partId, keyPath), supportsOpacity: supportsOpacity)
+                .labelsHidden()
+            Text(label).font(.system(size: 11))
+            Spacer()
+            TextField("hex", text: bindPartString(partId, keyPath))
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 11, design: .monospaced))
+                .frame(width: 90)
+        }
+        if let hint = hint {
+            Text(hint).font(.system(size: 9)).foregroundColor(.secondary)
+        }
     }
 
     // MARK: - Helper views
