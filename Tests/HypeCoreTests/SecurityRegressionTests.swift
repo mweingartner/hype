@@ -176,12 +176,54 @@ struct BackwardCompatTests {
         #expect(decoded == .standard)
     }
 
-    @Test("ButtonStyle init(from:) maps legacy 'radioButton' to .standard")
+    @Test("ButtonStyle init(from:) maps legacy 'radioButton' to .radio")
     func buttonStyleLegacyRadioButton() throws {
+        // Older Hype builds had a `.radioButton` enum case that was
+        // later renamed to `.radio`. The migration table in
+        // `ButtonStyle.resolved(rawOrAlias:)` maps the legacy raw
+        // value back to its modern equivalent so older `.hype` files
+        // still load with the correct radio-circle rendering.
+        //
+        // This previously mapped to `.standard` (a filled rectangle),
+        // which was a bug — radio buttons would silently morph into
+        // rectangles after a save/reload round-trip. Fixed in the
+        // duplicate-styles cleanup.
         let json = "\"radioButton\""
         let data = json.data(using: .utf8)!
         let decoded = try JSONDecoder().decode(ButtonStyle.self, from: data)
+        #expect(decoded == .radio)
+    }
+
+    @Test("ButtonStyle init(from:) maps legacy 'rectangle' to .standard")
+    func buttonStyleLegacyRectangle() throws {
+        // `.rectangle` was a duplicate of `.standard` (byte-identical
+        // renderer code) and has been removed. The migration alias
+        // keeps older `.hype` files loading cleanly without changing
+        // their visual appearance.
+        let json = "\"rectangle\""
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(ButtonStyle.self, from: data)
         #expect(decoded == .standard)
+    }
+
+    @Test("ButtonStyle init(from:) maps legacy 'switch' to .toggle")
+    func buttonStyleLegacySwitch() throws {
+        // `.switch` was a duplicate of `.toggle` and has been removed.
+        let json = "\"switch\""
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(ButtonStyle.self, from: data)
+        #expect(decoded == .toggle)
+    }
+
+    @Test("FieldStyle init(from:) maps legacy 'opaque' to .rectangle")
+    func fieldStyleLegacyOpaque() throws {
+        // `.opaque` was a duplicate of `.rectangle` (same renderer
+        // code) and has been removed. The migration alias preserves
+        // older `.hype` files.
+        let json = "\"opaque\""
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(FieldStyle.self, from: data)
+        #expect(decoded == .rectangle)
     }
 
     @Test("FieldStyle init(from:) degrades unknown raw value to .rectangle")

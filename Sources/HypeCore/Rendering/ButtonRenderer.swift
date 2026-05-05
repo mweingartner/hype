@@ -35,7 +35,7 @@ public enum ButtonRenderer {
             ctx.setFillColor(fillColor)
             ctx.fill(rect)
 
-        case .rectangle, .standard:
+        case .standard:
             ctx.setFillColor(fillColor)
             ctx.fill(rect)
             ctx.setStrokeColor(NSColor.separatorColor.cgColor)

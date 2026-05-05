@@ -23,13 +23,11 @@ public enum FieldRenderer {
         switch part.fieldStyle {
         case .transparent:
             break
-        case .opaque:
-            ctx.setFillColor(fillColor)
-            ctx.fill(rect)
-            strokeFieldRect(rect)
         case .rectangle:
-            // Rectangle fields render the field's stored fill and
-            // stroke values so AI/user property edits are visible.
+            // Filled background plus a 1px frame. The legacy
+            // `.opaque` style was a duplicate of this case (same
+            // bytes, same behavior); `.opaque` migrates to
+            // `.rectangle` via `FieldStyle.resolved(rawOrAlias:)`.
             ctx.setFillColor(fillColor)
             ctx.fill(rect)
             strokeFieldRect(rect)

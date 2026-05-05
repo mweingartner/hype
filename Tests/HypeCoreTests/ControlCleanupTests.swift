@@ -126,31 +126,40 @@ struct ControlCleanupTests {
 
     #if canImport(AppKit)
     @MainActor
-    @Test("rectangle field renders darker overall than an opaque field (perimeter border adds ink)")
-    func rectangleFieldBorderVsOpaque() {
-        // Rectangle and opaque both fill the interior with white, so
-        // the only difference between the two renders is the 1px
-        // black border painted by the rectangle style. Averaging
-        // over the FULL bitmap, the rectangle version must come out
-        // darker by a measurable amount because of those perimeter
-        // pixels (a 1px outline on a 90×30 rect contributes ~234
-        // darker pixels out of ~4000 — plenty to clear a small
-        // threshold). This is a robust whole-image differential that
-        // doesn't depend on exact stroke alignment.
-        var rectPart = Part(partType: .field)
-        rectPart.fieldStyle = .rectangle
-        let rectImg = renderField(rectPart, size: NSSize(width: 100, height: 40))
+    @Test("rectangle field with a 1px stroke renders darker than the same field with stroke=0 (perimeter ink)")
+    func rectangleFieldStrokeAddsInk() {
+        // Differential check: a rectangle field with a 1px black
+        // stroke must average darker than the SAME field with the
+        // stroke disabled (`strokeWidth = 0`), purely because of the
+        // perimeter pixels. A 1px outline on a 92×32 inset rect adds
+        // ~248 dark pixels out of ~4000 — easy to clear a small
+        // threshold without depending on exact stroke alignment.
+        //
+        // The legacy `.opaque` field style was a duplicate of
+        // `.rectangle` — both rendered with the same fill + stroke
+        // call sequence — and has been removed. Pre-existing
+        // documents containing `"opaque"` migrate to `.rectangle`
+        // via `FieldStyle.resolved(rawOrAlias:)`; that migration is
+        // covered separately by `opaqueFieldStyleMigratesToRectangle`.
+        var stroked = Part(partType: .field)
+        stroked.fieldStyle = .rectangle
+        let strokedImg = renderField(stroked, size: NSSize(width: 100, height: 40))
 
-        var opaquePart = Part(partType: .field)
-        opaquePart.fieldStyle = .opaque
-        opaquePart.strokeWidth = 0
-        let opaqueImg = renderField(opaquePart, size: NSSize(width: 100, height: 40))
+        var unstroked = Part(partType: .field)
+        unstroked.fieldStyle = .rectangle
+        unstroked.strokeWidth = 0
+        let unstrokedImg = renderField(unstroked, size: NSSize(width: 100, height: 40))
 
-        let rectAvg = rectImg.averageBrightness(xRange: 0...99, yRange: 0...39)
-        let opaqueAvg = opaqueImg.averageBrightness(xRange: 0...99, yRange: 0...39)
-        #expect(rectAvg < opaqueAvg,
-                "expected rectangle field to average darker than opaque due to perimeter border: rect=\(rectAvg) opaque=\(opaqueAvg)")
+        let strokedAvg = strokedImg.averageBrightness(xRange: 0...99, yRange: 0...39)
+        let unstrokedAvg = unstrokedImg.averageBrightness(xRange: 0...99, yRange: 0...39)
+        #expect(strokedAvg < unstrokedAvg,
+                "expected stroke=1 to average darker than stroke=0 (perimeter ink): stroked=\(strokedAvg) unstroked=\(unstrokedAvg)")
     }
+
+    // ButtonStyle / FieldStyle migration tests for the removed
+    // `.rectangle`, `.opaque`, and `radioButton` cases live in
+    // SecurityRegressionTests next to the existing legacy-decoder
+    // assertions, so the migration table has a single test home.
 
     @MainActor
     @Test("rectangle field: interior is near-white (field fills with white)")

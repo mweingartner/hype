@@ -1571,7 +1571,9 @@ public struct HypeToolExecutor: Sendable {
                             return "Invalid button style '\(value)'. Valid: \(valid)"
                         }
                     case .field:
-                        if let fs = FieldStyle(rawValue: value) {
+                        // resolved() accepts every raw value plus the
+                        // deprecated "opaque" alias (→ .rectangle).
+                        if let fs = FieldStyle.resolved(rawOrAlias: value) {
                             document.parts[index].fieldStyle = fs
                         } else {
                             let valid = FieldStyle.allCases.map(\.rawValue).joined(separator: ", ")

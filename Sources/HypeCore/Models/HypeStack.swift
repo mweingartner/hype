@@ -31,7 +31,7 @@ public enum PartType: String, Codable, Sendable {
 
 /// Button visual styles.
 public enum ButtonStyle: String, Codable, Sendable, CaseIterable {
-    case transparent, opaque, rectangle, roundRect, shadow
+    case transparent, opaque, roundRect, shadow
     case checkBox, standard, `default`, popup, oval, toggle, radio
     /// Underlined-text link (formerly the standalone `link` part
     /// type). Click opens `Part.url` via the same scheme-allowlist
@@ -39,11 +39,19 @@ public enum ButtonStyle: String, Codable, Sendable, CaseIterable {
     case link
 
     /// Styles shown in the UI picker (excludes legacy/redundant styles).
-    /// `.toggle` is the canonical NSSwitch-style modern switch UI;
-    /// the older `.switch` enum case was a duplicate of `.toggle`
-    /// and has been removed (the decoder still accepts the
-    /// `"switch"` raw value and migrates it to `.toggle` for
-    /// backward-compat with older `.hype` files).
+    ///
+    /// Three `ButtonStyle` cases were removed because they were
+    /// byte-identical duplicates of cases that remain:
+    /// - `.switch` was a duplicate of `.toggle` (NSSwitch UI)
+    /// - `.rectangle` was a duplicate of `.standard` (filled rect
+    ///    with a 1px separator stroke)
+    ///
+    /// The decoder still accepts those raw values and migrates them
+    /// (see `resolved(rawOrAlias:)`) so older `.hype` files load
+    /// cleanly. Old `radioButton` is also accepted and now correctly
+    /// migrates to `.radio` (it had previously been bug-routed to
+    /// `.standard`, which rendered as a rectangle instead of the
+    /// expected radio circle).
     public static let pickerCases: [ButtonStyle] = [
         .standard, .default, .shadow, .transparent, .oval, .toggle,
         .link, .checkBox, .popup, .radio,
@@ -51,11 +59,10 @@ public enum ButtonStyle: String, Codable, Sendable, CaseIterable {
 
     /// Custom decoder.
     ///
-    /// - `"radioButton"` → `.standard` (older renamed .hype files)
-    /// - `"switch"` → `.toggle` (`.switch` was a duplicate that has
-    ///   been removed)
-    /// - Unknown future values → `.standard` (security condition 4 —
-    ///   forward-compat without crashing)
+    /// Migration table — see `resolved(rawOrAlias:)` for the full
+    /// list. Unknown future values degrade to `.standard` for
+    /// forward-compat (security condition 4 — never crash on a
+    /// future-stamped .hype file).
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let raw = try container.decode(String.self)
@@ -73,8 +80,9 @@ public enum ButtonStyle: String, Codable, Sendable, CaseIterable {
     /// callers decide whether to fall back to a default or refuse.
     public static func resolved(rawOrAlias raw: String) -> ButtonStyle? {
         switch raw {
-        case "radioButton": return .standard
-        case "switch":      return .toggle
+        case "radioButton": return .radio    // pre-rename .hype files
+        case "switch":      return .toggle   // collapsed duplicate
+        case "rectangle":   return .standard // collapsed duplicate
         default:            return ButtonStyle(rawValue: raw)
         }
     }
@@ -82,7 +90,7 @@ public enum ButtonStyle: String, Codable, Sendable, CaseIterable {
 
 /// Field visual styles.
 public enum FieldStyle: String, Codable, Sendable, CaseIterable {
-    case transparent, opaque, rectangle, shadow, scrolling, secure
+    case transparent, rectangle, shadow, scrolling, secure
     /// Search-field appearance (rounded rect with leading magnifying-
     /// glass icon). Replaces the standalone `searchField` part —
     /// fold into the field surface so there's one text-input control.
@@ -90,12 +98,30 @@ public enum FieldStyle: String, Codable, Sendable, CaseIterable {
     /// dispatch on fields with this style.
     case search
 
-    /// Custom decoder — unknown raw values degrade to `.rectangle`
-    /// for forward-compat (security condition 4).
+    /// Custom decoder — see `resolved(rawOrAlias:)` for the migration
+    /// table. Unknown raw values degrade to `.rectangle` for
+    /// forward-compat (security condition 4).
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let raw = try container.decode(String.self)
-        self = FieldStyle(rawValue: raw) ?? .rectangle
+        self = FieldStyle.resolved(rawOrAlias: raw) ?? .rectangle
+    }
+
+    /// Map a string (raw value or known alias) to a `FieldStyle`.
+    ///
+    /// `.opaque` was removed because its renderer code was
+    /// byte-identical to `.rectangle` (both did
+    /// `fill(rect); strokeFieldRect(rect)`), and `.rectangle` is the
+    /// canonical default everywhere — `Part.init`, the AI
+    /// `create_field` tool, the script-interpreter `set the style`
+    /// fallback, the Inspector binding, and the `formatAllProperties`
+    /// "default=rectangle" tag all use it. The `"opaque"` raw value
+    /// is still accepted on decode and migrates to `.rectangle`.
+    public static func resolved(rawOrAlias raw: String) -> FieldStyle? {
+        switch raw {
+        case "opaque": return .rectangle  // collapsed duplicate
+        default:       return FieldStyle(rawValue: raw)
+        }
     }
 }
 
