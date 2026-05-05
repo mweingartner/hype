@@ -31,6 +31,24 @@ final class ProgressViewHostNSView: NSView {
     /// current `value >= total` condition. Resets when value drops below total.
     private var didFireCompleted = false
 
+    /// Standard height for the linear progress bar. Without an
+    /// explicit constraint, AutoLayout will let NSProgressIndicator
+    /// stretch to the host's full height, which makes the fill
+    /// appear to occupy the entire part bounding rect instead of
+    /// a slim bar centered within it. Pin to a fixed value so the
+    /// bar stays slim regardless of the part's user-set size.
+    private static let barHeight: CGFloat = 20
+
+    /// Bar-style constraints (leading + trailing + fixed height).
+    /// Active when `progressIsCircular == false`.
+    private var barConstraints: [NSLayoutConstraint] = []
+
+    /// Circular-style constraints (centered square sized to fit
+    /// the smaller of the host's width/height, capped). Active
+    /// when `progressIsCircular == true`.
+    private var circleConstraints: [NSLayoutConstraint] = []
+    private var circleSizeConstraint: NSLayoutConstraint!
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         progressIndicator.translatesAutoresizingMaskIntoConstraints = false
@@ -41,16 +59,66 @@ final class ProgressViewHostNSView: NSView {
         addSubview(labelField)
         addSubview(progressIndicator)
 
+        // Always-active label constraints.
         NSLayoutConstraint.activate([
             labelField.topAnchor.constraint(equalTo: topAnchor, constant: 2),
             labelField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             labelField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             labelField.heightAnchor.constraint(equalToConstant: 16),
+        ])
 
+        // Linear-bar constraints — full width, centered Y, fixed
+        // slim height. NSProgressIndicator's fill renders within
+        // these bounds, so capping height here keeps the visible
+        // bar slim regardless of how tall the user makes the part.
+        barConstraints = [
             progressIndicator.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             progressIndicator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             progressIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
+            progressIndicator.heightAnchor.constraint(equalToConstant: Self.barHeight),
+        ]
+
+        // Circular constraints — centered square. Size is set in
+        // applyLayoutForStyle() based on the host's frame so the
+        // spinner scales to the part without exceeding bounds.
+        circleSizeConstraint = progressIndicator.widthAnchor.constraint(equalToConstant: 32)
+        circleConstraints = [
+            progressIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
+            progressIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
+            circleSizeConstraint,
+            progressIndicator.heightAnchor.constraint(equalTo: progressIndicator.widthAnchor),
+        ]
+
+        // Default: linear bar.
+        NSLayoutConstraint.activate(barConstraints)
+    }
+
+    /// Swap between bar and circular layouts based on the part's
+    /// `progressIsCircular`. Called from `apply(_:)` whenever the
+    /// style changes.
+    private func applyLayoutForStyle(circular: Bool) {
+        if circular {
+            NSLayoutConstraint.deactivate(barConstraints)
+            // Size the spinner to fit the smaller of width/height,
+            // capped at 64pt so it doesn't dominate huge parts.
+            let side = max(16, min(64, min(bounds.width, bounds.height) - 8))
+            circleSizeConstraint.constant = side
+            NSLayoutConstraint.activate(circleConstraints)
+        } else {
+            NSLayoutConstraint.deactivate(circleConstraints)
+            NSLayoutConstraint.activate(barConstraints)
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        // Re-pick the spinner side when the host resizes.
+        if appliedIsCircular == true {
+            let side = max(16, min(64, min(bounds.width, bounds.height) - 8))
+            if circleSizeConstraint.constant != side {
+                circleSizeConstraint.constant = side
+            }
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -70,6 +138,7 @@ final class ProgressViewHostNSView: NSView {
         if newIsCircular != appliedIsCircular {
             appliedIsCircular = newIsCircular
             progressIndicator.style = newIsCircular ? .spinning : .bar
+            applyLayoutForStyle(circular: newIsCircular)
         }
 
         // Indeterminate
