@@ -226,6 +226,15 @@ private func renderRectangleField() -> RenderedPixels {
 /// device-scale-aware drawing path (Retina doubling, color space
 /// coercion) so the pixel coordinates in our assertions match the
 /// points we passed to the renderer.
+///
+/// The render runs under a forced `.aqua` (light-mode) appearance so
+/// the dynamic system colors used by the renderers
+/// (`controlBackgroundColor`, `shadowColor`, `controlAccentColor`,
+/// etc.) resolve to the same values regardless of the developer's
+/// macOS appearance setting. Without this, tests that compare
+/// brightness regions fail on dark-mode machines because
+/// `controlBackgroundColor` is light gray on light mode and dark
+/// gray on dark mode — flipping the assertion's expected ordering.
 @MainActor
 private func renderToBitmap(size: NSSize, flipped: Bool = true, _ draw: (CGContext) -> Void) -> RenderedPixels {
     let w = Int(size.width)
@@ -254,7 +263,15 @@ private func renderToBitmap(size: NSSize, flipped: Bool = true, _ draw: (CGConte
         ctx.translateBy(x: 0, y: size.height)
         ctx.scaleBy(x: 1, y: -1)
     }
-    draw(ctx)
+    // Force light appearance so dynamic system colors are
+    // deterministic across developer machines.
+    if let aqua = NSAppearance(named: .aqua) {
+        aqua.performAsCurrentDrawingAppearance {
+            draw(ctx)
+        }
+    } else {
+        draw(ctx)
+    }
     guard let data = rep.bitmapData else {
         return RenderedPixels(width: w, height: h, pixels: [])
     }

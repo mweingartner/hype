@@ -71,8 +71,21 @@ public final class HypeLogger: @unchecked Sendable {
     /// The console window observes this to refresh.
     public static let didLogNotification = Notification.Name("HypeLoggerDidLog")
 
-    private init() {
-        setupLogFile()
+    /// Construct a HypeLogger.
+    ///
+    /// - Parameter setupFileLogging: when `true` (the default), the
+    ///   logger opens / appends to the rotating log file at
+    ///   `~/Library/Logs/Hype/console.log`. Tests that want an
+    ///   isolated, in-memory-only logger should pass `false` so the
+    ///   shared file handle is not contended.
+    ///
+    /// Marked `internal` (not `private`) so tests can construct
+    /// fresh, isolated logger instances via `@testable import`. The
+    /// production path always uses `HypeLogger.shared`.
+    internal init(setupFileLogging: Bool = true) {
+        if setupFileLogging {
+            setupLogFile()
+        }
     }
 
     // MARK: - Public API

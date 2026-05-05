@@ -79,7 +79,25 @@ private final class LoopbackHTTPServer: @unchecked Sendable {
 }
 #endif
 
+/// Serialization gate so two concurrent test threads can't pick the
+/// same loopback port and race the OS into giving them the same
+/// number after their probe sockets close. The lock is held just
+/// long enough to ask the kernel for a port and read its number;
+/// once we return the port number the listener still has to bind to
+/// it, but at least we don't have multiple tests probing in lockstep.
+private let _freeLoopbackPortLock = NSLock()
+
+/// Ask the kernel for an available loopback port by binding a probe
+/// socket to port 0, then returning the auto-assigned number. The
+/// probe socket is closed immediately, so callers should bind the
+/// returned port quickly to minimize the TOCTOU window where another
+/// process could grab it. The serialization lock above prevents
+/// concurrent test threads from racing each other; it does NOT
+/// prevent races against unrelated processes on the host.
 private func freeLoopbackPort() -> Int {
+    _freeLoopbackPortLock.lock()
+    defer { _freeLoopbackPortLock.unlock() }
+
     let fd = socket(AF_INET, SOCK_STREAM, 0)
     precondition(fd >= 0, "socket() failed")
     defer { close(fd) }
@@ -164,7 +182,15 @@ private func waitUntil(
     return false
 }
 
-@Suite("StackRuntime async + networking")
+/// `.serialized` because the networking subset of these tests opens
+/// loopback TCP/HTTP listeners on auto-assigned ports. Even with the
+/// `_freeLoopbackPortLock` gate, running multiple listener tests in
+/// parallel widens the TOCTOU window between port discovery and the
+/// listener actually binding — under enough load, two tests could
+/// each get a "free" port and one's listener loses the race. The
+/// non-network tests in this suite are cheap, so paying the cost of
+/// serialization for all of them is acceptable.
+@Suite("StackRuntime async + networking", .serialized)
 struct StackRuntimeAsyncTests {
     @Test("wait uses the runtime clock instead of blocking the thread")
     func waitUsesRuntimeClock() async {
@@ -333,13 +359,20 @@ struct StackRuntimeAsyncTests {
             callbackMessage: "socketEvent",
             autoStart: true
         )
+        // Note: the handler intentionally does NOT call
+        // `close connection` after sending the response. Closing the
+        // connection from inside HypeTalk races the kernel's TCP send
+        // buffer — the FIN packet can land before the "pong" payload
+        // flushes, causing the client's receive() to observe EOF with
+        // empty data. The test cancels the client side at the end,
+        // which is enough to let the runtime tear the connection down
+        // cleanly via NWConnection state changes.
         let (doc, _, _, fieldID) = makeRuntimeDocument(
             stackScript: """
             on socketEvent connectionId, eventName
               if eventName is "data" then
                 put the body of connection connectionId into field "output"
                 send "pong" to connection connectionId
-                close connection connectionId
               end if
             end socketEvent
             """,

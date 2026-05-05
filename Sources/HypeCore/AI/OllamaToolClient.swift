@@ -429,16 +429,27 @@ public actor OllamaToolClient {
     private let timeouts: Timeouts
     private let session: URLSession
 
+    /// Logger sink for request / response transcripts.
+    ///
+    /// Defaults to the process-wide `HypeLogger.shared` so production
+    /// callers get the unified console / log-file output. Tests can
+    /// inject a private `HypeLogger()` instance to isolate their
+    /// observed entries from sibling tests running in parallel — the
+    /// console-logging test suite specifically depends on this.
+    private let logger: HypeLogger
+
     public init(
         host: String = "localhost",
         port: String = "11434",
         model: String = "llama3.2",
-        timeouts: Timeouts = .structured
+        timeouts: Timeouts = .structured,
+        logger: HypeLogger = .shared
     ) {
         self.host = host
         self.port = port
         self.model = model
         self.timeouts = timeouts
+        self.logger = logger
 
         // A dedicated URLSession so the resource timeout lines up
         // with the structured-chat budget. `URLSession.shared` has
@@ -456,13 +467,15 @@ public actor OllamaToolClient {
         port: String = "11434",
         model: String = "llama3.2",
         timeouts: Timeouts = .structured,
-        session: URLSession
+        session: URLSession,
+        logger: HypeLogger = .shared
     ) {
         self.host = host
         self.port = port
         self.model = model
         self.timeouts = timeouts
         self.session = session
+        self.logger = logger
     }
 
     /// The base URL for the Ollama server.
@@ -537,7 +550,7 @@ public actor OllamaToolClient {
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        HypeLogger.shared.aiInput(
+        self.logger.aiInput(
             Self.describeGenerateRequest(model: requestModel, prompt: prompt, system: system),
             source: "Ollama"
         )
@@ -550,13 +563,13 @@ public actor OllamaToolClient {
             }
 
             let decoded = try JSONDecoder().decode(OllamaGenerateResponse.self, from: data)
-            HypeLogger.shared.aiOutput(
+            self.logger.aiOutput(
                 Self.describeGenerateResponse(model: requestModel, response: decoded),
                 source: "Ollama"
             )
             return decoded.response
         } catch {
-            HypeLogger.shared.error(
+            self.logger.error(
                 "/api/generate model=\(requestModel) failed: \(error.localizedDescription)",
                 source: "Ollama"
             )
@@ -586,7 +599,7 @@ public actor OllamaToolClient {
         )
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        HypeLogger.shared.aiInput(
+        self.logger.aiInput(
             Self.describeChatRequest(
                 model: model,
                 messages: messages,
@@ -604,13 +617,13 @@ public actor OllamaToolClient {
             }
 
             let decoded = try JSONDecoder().decode(OllamaChatResponse.self, from: data)
-            HypeLogger.shared.aiOutput(
+            self.logger.aiOutput(
                 Self.describeChatResponse(model: model, response: decoded),
                 source: "Ollama"
             )
             return decoded
         } catch {
-            HypeLogger.shared.error(
+            self.logger.error(
                 "/api/chat model=\(model) failed: \(error.localizedDescription)",
                 source: "Ollama"
             )
@@ -665,7 +678,7 @@ public actor OllamaToolClient {
             // grammar-constrained output. Retry without `format` but
             // nudge the model toward the right shape with a
             // synthetic system message describing the schema.
-            HypeLogger.shared.warn(
+            self.logger.warn(
                 "/api/chat model=\(model) does not support server-side structured output; retrying with schema prompt",
                 source: "Ollama"
             )

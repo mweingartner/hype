@@ -638,11 +638,13 @@ struct OllamaToolClientConsoleLoggingTests {
 
     @Test("chat logs request messages and response tool calls")
     func chatLogsRequestAndResponse() async throws {
-        HypeLogger.shared.clear()
-        defer {
-            MockURLProtocol.requestHandler = nil
-            HypeLogger.shared.clear()
-        }
+        // Test-local logger so parallel sibling tests writing to
+        // `HypeLogger.shared` cannot pollute or wipe the entries
+        // we're about to assert on. The injected logger does not
+        // open the on-disk log file, keeping the test purely
+        // in-memory.
+        let testLogger = HypeLogger(setupFileLogging: false)
+        defer { MockURLProtocol.requestHandler = nil }
 
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
@@ -684,7 +686,8 @@ struct OllamaToolClientConsoleLoggingTests {
             host: "localhost",
             port: "11434",
             model: "test-model",
-            session: session
+            session: session,
+            logger: testLogger
         )
         let tool = OllamaTool(
             type: "function",
@@ -710,7 +713,7 @@ struct OllamaToolClientConsoleLoggingTests {
             tools: [tool]
         )
 
-        let entries = HypeLogger.shared.entries
+        let entries = testLogger.entries
         #expect(entries.contains { $0.source == "Ollama" && $0.message.contains("POST /api/chat") && $0.message.contains("Create a button") })
         #expect(entries.contains { $0.source == "Ollama" && $0.message.contains("I'll update the card.") && $0.message.contains("set_card_property") })
     }
