@@ -52,6 +52,23 @@ private final class _LargeStackResultBox<V>: @unchecked Sendable {
     init() { self.value = nil }
 }
 
+/// Run synchronous work on a dedicated 8 MB-stack thread.
+///
+/// IMPORTANT — parallel-runner deadlock risk
+/// -----------------------------------------
+/// This helper blocks the calling cooperative thread on a
+/// `DispatchSemaphore` while the worker thread runs `work()`. If
+/// `work()` calls `MessageDispatcher.dispatch`, the dispatcher
+/// itself schedules `Task { @MainActor in await dispatchAsync(...) }`
+/// whose continuation needs a cooperative thread to resume. With
+/// swift-testing's default parallel runner, all cooperative threads
+/// can end up blocked here at once — the resume can never run, and
+/// the suite hangs forever.
+///
+/// Run tests via `scripts/test.sh` (which adds `--no-parallel`)
+/// until the @Test functions and helpers are converted to async
+/// (Option C in the test-suite cleanup plan). Direct
+/// `swift test` invocations without that flag are NOT supported.
 private func runOnLargeStack<T>(_ work: @Sendable @escaping () -> T) -> T {
     let semaphore = DispatchSemaphore(value: 0)
     let box = _LargeStackResultBox<T>()
