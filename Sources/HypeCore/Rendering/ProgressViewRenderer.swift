@@ -11,17 +11,16 @@ public enum ProgressViewRenderer {
     public static func draw(ctx: CGContext, part: Part, rect: CGRect) {
         ctx.saveGState()
 
-        // Background — light surface with rounded corners.
-        let bg = NSColor.controlBackgroundColor.cgColor
-        ctx.setFillColor(bg)
-        let path = CGPath(roundedRect: rect, cornerWidth: 6, cornerHeight: 6, transform: nil)
-        ctx.addPath(path)
-        ctx.fillPath()
-
-        ctx.setStrokeColor(NSColor.separatorColor.cgColor)
-        ctx.setLineWidth(1)
-        ctx.addPath(path)
-        ctx.strokePath()
+        // No full-rect background. The renderer used to fill the
+        // entire part bounds with `controlBackgroundColor` + a
+        // rounded stroke, but in browse mode the live
+        // `NSProgressIndicator` host overlays only the slim bar
+        // area, so the renderer's rounded box showed through
+        // ABOVE and BELOW the bar — making the part look like
+        // it was "filled" across its entire rectangle. Drop the
+        // outer box entirely; only draw the slim bar/label/spinner
+        // so edit-mode + run-mode visually match the host view's
+        // narrow vertical extent.
 
         let barPadding: CGFloat = 8
         let barHeight: CGFloat = min(12, rect.height * 0.35)

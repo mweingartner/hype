@@ -338,6 +338,7 @@ public struct HypeToolDefinitions {
             "is_indeterminate": ("string", "'true' for indeterminate animation; 'false' (default) for determinate", false),
             "label": ("string", "Optional caption shown above the bar", false),
             "tint": ("string", "Optional tint color hex (e.g. '#FF8800')", false),
+            "decimals": ("string", "Number of fractional digits the value is rounded to on every write. Default 0 — integer-only steps. Capped at 10. Same contract as the gauge control.", false),
             "on_background": ("string", "true to place on background", false),
         ]),
 

@@ -84,7 +84,8 @@ struct ProgressViewTests {
                 "is_circular": "false",
                 "is_indeterminate": "false",
                 "label": "Syncing",
-                "tint": "#3399FF"
+                "tint": "#3399FF",
+                "decimals": "2"     // round to 2 decimals so 0.4 round-trips
             ],
             document: &doc, currentCardId: cardId
         )
@@ -124,7 +125,8 @@ struct ProgressViewTests {
         let executor = HypeToolExecutor()
         _ = await executor.execute(
             toolName: "create_progressview",
-            arguments: ["name": "loader", "left": "0", "top": "0", "width": "200", "height": "20"],
+            arguments: ["name": "loader", "left": "0", "top": "0", "width": "200", "height": "20",
+                        "decimals": "2"],
             document: &doc, currentCardId: cardId
         )
         _ = await executor.execute(
@@ -133,6 +135,47 @@ struct ProgressViewTests {
             document: &doc, currentCardId: cardId
         )
         #expect(doc.parts.first { $0.partType == .progressView }?.progressValue == 0.75)
+    }
+
+    @Test("Default progressDecimals=0 → progressView rounds writes to integers")
+    func defaultDecimalsRoundsToInteger() async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_progressview",
+            arguments: ["name": "loader", "left": "0", "top": "0", "width": "200", "height": "20",
+                        "total": "100", "value": "17.93"],
+            document: &doc, currentCardId: cardId
+        )
+        // Default decimals=0 → 17.93 rounds to 18.
+        let part = doc.parts.first { $0.partType == .progressView }
+        #expect(part?.progressValue == 18)
+    }
+
+    @Test("set_part_property `decimals` rounds subsequent value writes")
+    func aiSetDecimalsRoundsValue() async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_progressview",
+            arguments: ["name": "loader", "left": "0", "top": "0", "width": "200", "height": "20",
+                        "total": "100"],
+            document: &doc, currentCardId: cardId
+        )
+        // Set decimals=1 then write a value with more precision.
+        _ = await executor.execute(
+            toolName: "set_part_property",
+            arguments: ["part_name": "loader", "property": "decimals", "value": "1"],
+            document: &doc, currentCardId: cardId
+        )
+        _ = await executor.execute(
+            toolName: "set_part_property",
+            arguments: ["part_name": "loader", "property": "value", "value": "42.789"],
+            document: &doc, currentCardId: cardId
+        )
+        #expect(doc.parts.first { $0.partType == .progressView }?.progressValue == 42.8)
     }
 
     @Test("set_part_property updates progressTotal on a progressView")
@@ -210,8 +253,11 @@ struct ProgressViewTests {
     func hypeTalkSetter() throws {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id
-        let part = Part(partType: .progressView, cardId: cardId, name: "loader",
+        var part = Part(partType: .progressView, cardId: cardId, name: "loader",
                         left: 0, top: 0, width: 200, height: 20)
+        // Default progressDecimals is 0 (integer-only steps); raise it to 2
+        // so the fractional 0.8 round-trips through the setter.
+        part.progressDecimals = 2
         doc.addPart(part)
         let source = """
         on test

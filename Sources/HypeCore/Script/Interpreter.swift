@@ -2814,7 +2814,15 @@ public struct Interpreter: Sendable {
         case "gaugelabel", "gauge_label":           return part.gaugeLabel
         case "gaugeminlabel", "gauge_min_label":    return part.gaugeMinLabel
         case "gaugemaxlabel", "gauge_max_label":    return part.gaugeMaxLabel
-        case "gaugedecimals", "gauge_decimals", "decimals": return formatNumber(Double(part.gaugeDecimals))
+        case "gaugedecimals", "gauge_decimals":     return formatNumber(Double(part.gaugeDecimals))
+        case "progressdecimals", "progress_decimals": return formatNumber(Double(part.progressDecimals))
+        case "decimals":
+            // Shared alias — dispatch by part type so progressView
+            // and gauge each read their own field. Other types
+            // return "0" (no decimals concept).
+            if part.partType == .gauge { return formatNumber(Double(part.gaugeDecimals)) }
+            if part.partType == .progressView { return formatNumber(Double(part.progressDecimals)) }
+            return "0"
         // Menu
         case "menuitems", "menu_items", "items":    return part.menuItems
         case "menutitle", "menu_title":             return part.menuTitle
@@ -3647,7 +3655,12 @@ public struct Interpreter: Sendable {
             if pt == .toggle {
                 document.parts[partIndex].controlValue = isTruthy(value) ? 1 : 0
             } else if pt == .progressView {
-                document.parts[partIndex].progressValue = toNumber(value)
+                // Round to the part's configured decimal precision.
+                // Default 0 → integer steps, matching the gauge.
+                let raw = toNumber(value)
+                let d = max(0, document.parts[partIndex].progressDecimals)
+                let scale = pow(10.0, Double(d))
+                document.parts[partIndex].progressValue = (raw * scale).rounded() / scale
             } else if pt == .gauge {
                 document.parts[partIndex].gaugeValue = toNumber(value)
             } else if pt == .field {
@@ -3711,9 +3724,26 @@ public struct Interpreter: Sendable {
         // ProgressView setters (security condition 5: clamp values).
         case "progressvalue", "progress_value":
             let total = max(1e-10, document.parts[partIndex].progressTotal)
-            document.parts[partIndex].progressValue = min(total, max(0, toNumber(value)))
+            let raw = min(total, max(0, toNumber(value)))
+            let d = max(0, document.parts[partIndex].progressDecimals)
+            let scale = pow(10.0, Double(d))
+            document.parts[partIndex].progressValue = (raw * scale).rounded() / scale
         case "progresstotal", "progress_total":
             document.parts[partIndex].progressTotal = max(1e-10, toNumber(value))
+        case "progressdecimals", "progress_decimals":
+            let n = Int(toNumber(value))
+            document.parts[partIndex].progressDecimals = max(0, min(10, n))
+        case "decimals":
+            // Shared alias — dispatch by part type. Mirrors the
+            // gauge.decimals contract for both: 0 = integral steps
+            // (default), capped at 10 for sane formatting.
+            let n = Int(toNumber(value))
+            let clamped = max(0, min(10, n))
+            switch document.parts[partIndex].partType {
+            case .gauge:        document.parts[partIndex].gaugeDecimals = clamped
+            case .progressView: document.parts[partIndex].progressDecimals = clamped
+            default: break
+            }
         case "progresscircular", "progress_circular", "circular", "iscircular":
             document.parts[partIndex].progressIsCircular = isTruthy(value)
         case "progressindeterminate", "progress_indeterminate", "indeterminate":
@@ -3744,11 +3774,10 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].gaugeMinLabel = String(value.prefix(256))
         case "gaugemaxlabel", "gauge_max_label":
             document.parts[partIndex].gaugeMaxLabel = String(value.prefix(256))
-        case "gaugedecimals", "gauge_decimals", "decimals":
-            // Number of fractional digits the gauge rounds to on
-            // user scrub + displays in the value label. Default 0
-            // (integral steps). Negative values clamp to 0; values
-            // above ~10 are nonsense for a UI control so cap there.
+        case "gaugedecimals", "gauge_decimals":
+            // Disambiguated form — `decimals` (without the
+            // `gauge` prefix) is handled in the shared dispatch
+            // case above so progressView + gauge can share it.
             let n = Int(toNumber(value))
             document.parts[partIndex].gaugeDecimals = max(0, min(10, n))
         // Menu setters.

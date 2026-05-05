@@ -620,6 +620,7 @@ public struct HypeToolExecutor: Sendable {
             props.append("indeterminate=\(p.progressIsIndeterminate)")
             if !p.progressLabel.isEmpty { props.append("label=\"\(p.progressLabel)\"") }
             if !p.progressTint.isEmpty { props.append("tint=\(p.progressTint)") }
+            if p.progressDecimals != 0 { props.append("decimals=\(p.progressDecimals)") }
         case .gauge:
             props.append("value=\(p.gaugeValue)")
             props.append("min=\(p.gaugeMin)")
@@ -1332,9 +1333,15 @@ public struct HypeToolExecutor: Sendable {
             // Security condition 5: clamp total; value within [0, total].
             let rawTotal = Double(arguments["total"] ?? "1.0") ?? 1.0
             let safeTotal = max(1e-10, rawTotal)
+            let rawDecimals = Int(arguments["decimals"] ?? "0") ?? 0
+            let dec = max(0, min(10, rawDecimals))
             let rawValue = Double(arguments["value"] ?? "0") ?? 0
+            let scale = pow(10.0, Double(dec))
             part.progressTotal = safeTotal
-            part.progressValue = min(safeTotal, max(0, rawValue))
+            // Quantize the initial value to the configured decimals
+            // (default 0 → integer-only). Same contract as gauge.
+            part.progressValue = ((min(safeTotal, max(0, rawValue))) * scale).rounded() / scale
+            part.progressDecimals = dec
             part.progressIsCircular = (arguments["is_circular"] ?? "false").lowercased() == "true"
             part.progressIsIndeterminate = (arguments["is_indeterminate"] ?? "false").lowercased() == "true"
             part.progressLabel = String((arguments["label"] ?? "").prefix(256))
@@ -1457,11 +1464,17 @@ public struct HypeToolExecutor: Sendable {
                     switch document.parts[index].partType {
                     case .progressView:
                         let total = max(1e-10, document.parts[index].progressTotal)
-                        document.parts[index].progressValue = min(total, max(0, Double(value) ?? 0))
+                        let raw = min(total, max(0, Double(value) ?? 0))
+                        let d = max(0, document.parts[index].progressDecimals)
+                        let scale = pow(10.0, Double(d))
+                        document.parts[index].progressValue = (raw * scale).rounded() / scale
                     case .gauge:
                         let gMin = document.parts[index].gaugeMin
                         let gMax = document.parts[index].gaugeMax
-                        document.parts[index].gaugeValue = min(gMax, max(gMin, Double(value) ?? 0))
+                        let raw = min(gMax, max(gMin, Double(value) ?? 0))
+                        let d = max(0, document.parts[index].gaugeDecimals)
+                        let scale = pow(10.0, Double(d))
+                        document.parts[index].gaugeValue = (raw * scale).rounded() / scale
                     case .toggle:
                         document.parts[index].controlValue = (value.lowercased() == "true") ? 1 : 0
                     case .field:
@@ -1571,7 +1584,10 @@ public struct HypeToolExecutor: Sendable {
                 // ProgressView
                 case "progressvalue", "progress_value":
                     let total = max(1e-10, document.parts[index].progressTotal)
-                    document.parts[index].progressValue = min(total, max(0, Double(value) ?? 0))
+                    let raw = min(total, max(0, Double(value) ?? 0))
+                    let d = max(0, document.parts[index].progressDecimals)
+                    let scale = pow(10.0, Double(d))
+                    document.parts[index].progressValue = (raw * scale).rounded() / scale
                 case "progresstotal", "progress_total", "total":
                     let clampedTotal = max(1e-10, Double(value) ?? 1.0)
                     document.parts[index].progressTotal = clampedTotal
@@ -1583,6 +1599,9 @@ public struct HypeToolExecutor: Sendable {
                     document.parts[index].progressLabel = String(value.prefix(256))
                 case "progresstint", "progress_tint", "tint":
                     document.parts[index].progressTint = value
+                case "progressdecimals", "progress_decimals":
+                    let n = Int(Double(value) ?? 0)
+                    document.parts[index].progressDecimals = max(0, min(10, n))
                 // Gauge
                 case "gaugevalue", "gauge_value":
                     let gMin = document.parts[index].gaugeMin
@@ -1604,9 +1623,18 @@ public struct HypeToolExecutor: Sendable {
                     document.parts[index].gaugeMinLabel = String(value.prefix(256))
                 case "gaugemaxlabel", "gauge_max_label":
                     document.parts[index].gaugeMaxLabel = String(value.prefix(256))
-                case "gaugedecimals", "gauge_decimals", "decimals":
+                case "gaugedecimals", "gauge_decimals":
                     let n = Int(Double(value) ?? 0)
                     document.parts[index].gaugeDecimals = max(0, min(10, n))
+                case "decimals":
+                    // Shared alias — dispatch by part type.
+                    let n = Int(Double(value) ?? 0)
+                    let clamped = max(0, min(10, n))
+                    switch document.parts[index].partType {
+                    case .gauge:        document.parts[index].gaugeDecimals = clamped
+                    case .progressView: document.parts[index].progressDecimals = clamped
+                    default: break
+                    }
                 // Menu
                 case "menuitems", "menu_items", "items":
                     // Security condition 3: validate inline scripts.
@@ -2699,7 +2727,13 @@ public struct HypeToolExecutor: Sendable {
             case "gaugelabel", "gauge_label": return part.gaugeLabel
             case "gaugeminlabel", "gauge_min_label": return part.gaugeMinLabel
             case "gaugemaxlabel", "gauge_max_label": return part.gaugeMaxLabel
-            case "gaugedecimals", "gauge_decimals", "decimals": return String(part.gaugeDecimals)
+            case "gaugedecimals", "gauge_decimals": return String(part.gaugeDecimals)
+            case "progressdecimals", "progress_decimals": return String(part.progressDecimals)
+            case "decimals":
+                // Shared alias — dispatch by part type.
+                if part.partType == .gauge { return String(part.gaugeDecimals) }
+                if part.partType == .progressView { return String(part.progressDecimals) }
+                return "0"
             // Menu
             case "menuitems", "menu_items", "items": return part.menuItems
             case "menutitle", "menu_title": return part.menuTitle
@@ -4938,6 +4972,7 @@ public struct HypeToolExecutor: Sendable {
             row("indeterminate", String(p.progressIsIndeterminate), "false")
             row("label", "\"\(p.progressLabel)\"", "\"\"")
             row("tint", "\"\(p.progressTint)\"", "\"\" (system accent)")
+            row("decimals", String(p.progressDecimals), "0 (integral)")
         case .gauge:
             row("value", String(p.gaugeValue), "0")
             row("min", String(p.gaugeMin), "0")

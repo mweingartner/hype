@@ -1227,6 +1227,23 @@ struct PropertyInspector: View {
             }
             colorPropertyRow(label: "Tint", partId: part.id, keyPath: \.progressTint,
                              hint: "Empty = system accent color")
+            HStack {
+                Stepper(
+                    "Decimals: \(part.progressDecimals)",
+                    value: Binding<Int>(
+                        get: { (self.document.document.parts.first { $0.id == part.id }?.progressDecimals) ?? 0 },
+                        set: { newValue in
+                            self.document.document.updatePart(id: part.id) {
+                                $0.progressDecimals = max(0, min(10, newValue))
+                            }
+                        }
+                    ),
+                    in: 0...10
+                )
+                .font(.system(size: 11))
+            }
+            Text("0 = integer-only steps when the value is set. Same contract as the gauge control.")
+                .font(.system(size: 9)).foregroundColor(.secondary)
             Text("HypeTalk: `set the value of progressView \"X\" to 0.5`. Fires `progressFinished` when value reaches total.")
                 .font(.system(size: 9)).foregroundColor(.secondary)
         }

@@ -241,6 +241,14 @@ public struct Part: Identifiable, Codable, Sendable {
     public var progressLabel: String
     /// Optional tint color hex (e.g. "#FF8800"). Empty = system accent.
     public var progressTint: String
+    /// Number of decimal places the value is rounded to when written
+    /// (via HypeTalk setter or `set_part_property`). Default 0 →
+    /// integral increments only, matching the documented gauge
+    /// behaviour. Negative values are treated as 0; values above 10
+    /// are capped (defensive). With `decimals = 0`, a script doing
+    /// `set the value of me to the value of me + 0.1` snaps to
+    /// integer boundaries.
+    public var progressDecimals: Int
 
     // Gauge-specific
     /// Current gauge value within [gaugeMin, gaugeMax]. Default 0.
@@ -416,6 +424,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.progressIsIndeterminate = false
         self.progressLabel = ""
         self.progressTint = ""
+        self.progressDecimals = 0
         self.gaugeValue = 0
         self.gaugeMin = 0
         self.gaugeMax = 1.0
@@ -553,6 +562,7 @@ public struct Part: Identifiable, Codable, Sendable {
         progressIsIndeterminate = try container.decodeIfPresent(Bool.self, forKey: .progressIsIndeterminate) ?? false
         progressLabel = try container.decodeIfPresent(String.self, forKey: .progressLabel) ?? ""
         progressTint = try container.decodeIfPresent(String.self, forKey: .progressTint) ?? ""
+        progressDecimals = try container.decodeIfPresent(Int.self, forKey: .progressDecimals) ?? 0
         // Gauge fields — backward-compat optional.
         gaugeValue = try container.decodeIfPresent(Double.self, forKey: .gaugeValue) ?? 0
         gaugeMin = try container.decodeIfPresent(Double.self, forKey: .gaugeMin) ?? 0
