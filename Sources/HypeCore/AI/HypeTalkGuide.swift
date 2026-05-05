@@ -10,34 +10,50 @@ import Foundation
 /// import `HypeTalkGuide.llmContext` rather than hand-rolling its own
 /// prompt fragment — the language evolves in one place.
 ///
-/// The guide is intentionally **concise** (under ~4 KB, roughly 900
-/// tokens) so the injection cost per request stays bounded. It trades
-/// narrative prose for structured headings and compact examples that a
-/// model can grep by keyword. The complete, verbose reference lives in
-/// `HypeTalk-LLM-Context.md` / `HyperTalk_Reference.md` in the repo
-/// root — this constant is the curated subset we ship to the model.
+/// The guide trades narrative prose for structured headings and
+/// compact examples that a model can grep by keyword. The complete,
+/// verbose reference lives in `HypeTalk-LLM-Context.md` /
+/// `HyperTalk_Reference.md` in the repo root — this constant is the
+/// curated subset we ship to the model. Roughly ~33 KB / ~8000 tokens
+/// after the 2026 grammar-coverage expansion; kept that size on
+/// purpose so the model has the operator table, constants list,
+/// stub-command list, and full hallucination catalogue inline rather
+/// than relying on guesswork.
 public enum HypeTalkGuide {
 
     /// The HypeTalk authoring guide embedded on every Ollama chat turn.
     ///
     /// Sections:
     ///
-    /// 1. Language essentials (character, comments, values, message routing)
-    /// 2. Handler syntax and common events
-    /// 3. Variables, arithmetic, concatenation, and the `it` variable
-    /// 4. Object references (parts and sprite-scene nodes)
-    /// 5. Property get/set surface for parts and sprite nodes
-    /// 6. Chunk expressions (text slicing)
-    /// 7. Control flow
-    /// 8. Navigation and visual effects
-    /// 9. Dialogs (ask / answer)
-    /// 10. Sprite scene commands (SpriteKit)
-    /// 11. Canonical handler patterns
-    /// 12. Generation rules the model should follow
+    /// 1. Language essentials (character, comments, values, line continuation)
+    /// 2. Constants (empty, quote, return, tab, pi, …)
+    /// 3. Message routing, handler syntax, common events
+    /// 4. Variables, scoping, the `it` variable, `global`
+    /// 5. Object references (parts and sprite-scene nodes)
+    /// 6. Property get/set surface for parts and sprite nodes
+    /// 7. Operators and precedence (arithmetic, comparison, membership,
+    ///    type test, existence, boolean, concatenation)
+    /// 8. Chunk expressions (text slicing — read-only)
+    /// 9. Control flow (if/else, repeat, exit, pass)
+    /// 10. Built-in functions (full enumeration)
+    /// 11. Navigation, visual effects, dialogs
+    /// 12. Sound, animation, sprite scenes, tile maps, networking
+    /// 13. Stub commands (recognized but no-op — do not rely on these)
+    /// 14. Canonical handler patterns
+    /// 15. Common AI hallucinations to AVOID
+    /// 16. Generation rules and validation contract
     public static let llmContext: String = """
         # HypeTalk scripting guide
 
         HypeTalk is a HyperCard-inspired, case-insensitive, English-like scripting language used inside Hype. Scripts attach to parts (buttons, fields, shapes, images, videos, web views, charts, sprite areas), cards, backgrounds, stacks, and nodes inside sprite scenes, and run in response to events. All values are strings; arithmetic coerces them to numbers when needed. Line comments start with `--`.
+
+        ## Language essentials
+        - **Comments:** `-- to end of line`. There is no block-comment syntax.
+        - **Case:** keywords, identifiers, and string equality (`is`, `=`, `contains`, `is in`) are all CASE-INSENSITIVE. So `if X is "yes" then` matches "Yes", "YES", "yes" alike. Names of parts are looked up case-insensitively but their original case is preserved on display.
+        - **String literals:** double-quoted: `"hello"`. Curly/smart quotes (`"…"`) are also accepted at the lexer level — pasted user text won't break parsing. There are no backslash escapes inside a string; to embed a quote, use the `quote` constant: `"He said " & quote & "hi" & quote`.
+        - **Line continuation:** end a line with `\\` (a single backslash) immediately before the newline to fold the next line onto it. Useful for very long URLs or JSON bodies.
+        - **Truthiness:** only `"true"` (case-insensitive) and any non-zero number are truthy. `"false"`, `""` (empty), and `"0"` are falsy. Strings like `"yes"`, `"on"`, `"1.5"` are NOT special — `"1.5"` is truthy because it's a non-zero number; `"yes"` is FALSY because it's neither `"true"` nor numeric. When you need a boolean from a non-canonical source, compare explicitly: `if x is "yes" then`.
+        - **Numeric coercion:** `value(s)` and arithmetic coerce strings to numbers. Empty strings and non-numeric strings become `0` silently — no error is raised. `n / 0` and `n mod 0` return `0`; the older `divide x by 0` form returns `"INF"`. Always range-check inputs before dividing.
 
         ## Message routing
         When an event fires, Hype looks for a matching handler in order and stops at the first match. Use `pass <message>` to let it continue up the chain explicitly.
@@ -64,11 +80,42 @@ public enum HypeTalkGuide {
         ## Variables and data
             put "hello" into myVar        -- assign
             put 42 into score
-            global score                  -- declare a shared global in this handler
+            global score                  -- declare a shared global in THIS handler
             add 5 to score                -- arithmetic mutators: add, subtract, multiply, divide
             put a & b into result         -- string concatenation (tight)
             put a && b into result        -- concatenation with a single space
-        The special variable `it` receives the result of `ask`, `answer`, `get`, and built-ins. `me` is the object whose script is running; `this card`, `this background`, `this stack` are also valid.
+            put "X: " before field "log"  -- prepend to a field's text
+            put " done" after field "log" -- append to a field's text
+            get the name of me            -- shorthand: equivalent to `put the name of me into it`
+            get the loc of me into pt     -- variant: also writes to a named target
+
+        **`it` lifecycle.** `it` is set by `ask`, `answer`, `get`, every async request (the request UUID), most built-in queries, and the synchronous `ollama(...)` function. `it` is a per-handler local — it persists across statements WITHIN a handler but does NOT carry over from one handler to another. Globals carry; `it` does not.
+
+        **`global` scoping.** You MUST redeclare `global <name>` inside every handler that reads or writes the global. A `global x` in handler A does not register `x` as global in handler B — without the declaration, handler B's `put 5 into x` writes to a local that disappears when the handler returns. Globals persist for the life of the stack session (across idle ticks, navigation, and handler calls).
+
+        **`me` returns a UUID, not a name.** `me` is the script-owning object's UUID string. The property accessor resolves UUIDs back to parts, so `the loc of me`, `set the rotation of me to 45`, `the name of me` all work. But `if me is "OK" then` will NEVER match a part name — compare with `the name of me` instead. `this card`, `this background`, `this stack` refer to the current navigation context.
+
+        ## Constants
+        Bare identifiers that evaluate to fixed string/number values. They cannot be assigned to.
+
+            empty             -- the empty string ""
+            quote             -- a single double-quote character "
+            space             -- " "
+            tab               -- a single tab character
+            return / cr       -- carriage return "\r"  (use to join multi-line text)
+            linefeed / lf     -- newline "\n"
+            comma             -- ","
+            colon             -- ":"
+            pi                -- 3.14159265358979
+            zero one two three four five six seven eight nine ten   -- 0..10
+            up                -- "up"   (used by shiftKey/optionKey/commandKey)
+            down              -- "down"
+
+        Examples:
+            put "Item 1" & return & "Item 2" & return & "Item 3" into field "list"
+            if the shiftKey is down then ...
+            if x is empty then put "(unset)" into x
+            put quote & "hi" & quote into greeting     -- becomes:  "hi"
 
         ## Object references
             button "OK"        field "input"       card "home"          card 3
@@ -117,7 +164,7 @@ public enum HypeTalkGuide {
           - **recorder:** recording, playing, duration, outputPath, format (m4a | caf)
           - **scene3d:** object (source path — preferred), modelURL (resolved path, legacy alias), allowsCameraControl, autoLighting, antialiasing, background3d
           - **image:** imageFilter, imageFilterIntensity (along with the standard part properties)
-          - **progressView:** value (0..total), progressTotal (default 100), progressIsCircular (true/false), progressIsIndeterminate (true/false), progressLabel, progressTint (hex)
+          - **progressView:** value (0..total), progressTotal (default 100), progressIsCircular (true/false), progressIsIndeterminate (true/false), progressLabel, progressTint (hex), progressDecimals (alias `decimals` — 0 default, integral steps; raise for fractional precision; same contract as gauge)
           - **gauge:** value (gaugeMin..gaugeMax), gaugeMin (default 0), gaugeMax (default 100), gaugeStyle (circular | linear), gaugeTint (hex), gaugeLabel, gaugeMinLabel, gaugeMaxLabel, gaugeDecimals (alias `decimals` — 0 default, integral steps; raise for fractional precision)
           - **button (style=link):** url (target — http / https / mailto only; other schemes are refused at click time), textContent (visible link text; defaults to url if empty)
           - **button (style=popup):** popupItems (newline-separated labels), textContent (currently-selected label)
@@ -144,6 +191,70 @@ public enum HypeTalkGuide {
         **ProgressView:** progressFinished (fires once when value reaches total; resets when value drops below total).
         **AI tools:** aiToolFinished, aiToolFailed.
 
+        ## Operators and precedence
+
+        **Arithmetic:** `+`  `-`  `*`  `/`  `mod`  `div`  `^` (power)
+            put 5 + 3 into x         -- 8
+            put 17 mod 5 into x      -- 2
+            put 17 div 5 into x      -- 3   (integer division)
+            put 2 ^ 8 into x         -- 256
+
+        **Comparison:** `=`  `is`  `<>`  `!=`  `≠`  `is not`  `<`  `<=`  `>`  `>=`
+            if x = 5 then ...        -- numeric or string equality (case-insensitive)
+            if name is "OK" then     -- same; "is" and "=" are interchangeable
+            if x <> 0 then ...       -- "is not", "<>", and "!=" all parse identically
+        Equality on strings is CASE-INSENSITIVE. `"OK" is "ok"` is true.
+
+        **Membership / substring:** `contains`  `is in`  `is not in`
+            if field "log" contains "error" then ...
+            if "error" is in field "log" then ...    -- same meaning, reversed sides
+            if needle is not in haystack then ...
+        These are CASE-INSENSITIVE substring tests.
+
+        **Geometry:** `is within`  `is not within`
+            if "100,50" is within "0,0,200,200" then ...    -- point in rect
+            if the mouseLoc is within the rect of button "OK" then ...
+
+        **Type tests:** `is a number | integer | float | logical | boolean | point | rect | empty`
+        and the negated forms `is not a ...`
+            if x is a number then put x * 2 into x
+            if x is empty then put "(default)" into x
+            if it is a point then set the loc of me to it      -- "x,y" string
+            if r is a rect then set the rect of me to r        -- "l,t,r,b" string
+        `logical` and `boolean` are synonyms — both match `"true"`/`"false"`.
+
+        **Existence:** `there is a <kind> "<name>"`  /  `there is no <kind> "<name>"`
+            if there is a button "OK" then go next
+            if there is no field "result" then create_field ...
+        The kind matches any object reference: button, field, image, card, sprite, label, shape, etc.
+
+        **Boolean:** `and`  `or`  `not`  (and `!` as an alias for `not`)
+            if x > 0 and x < 10 then ...
+            if not the visible of image "logo" then ...
+            if !state then ...
+
+        **String concatenation:** `&` (tight, no space) and `&&` (one space between)
+            put "x=" & x into msg                  -- "x=5"
+            put "Score:" && score into label       -- "Score: 5"
+
+        **Precedence (loosest at top, tightest at bottom):**
+            or
+            and
+            not
+            comparisons   ( = is <> != ≠ < <= > >= contains "is in" "is within" "is a" )
+            concatenation ( & && )
+            + -
+            * / mod div
+            ^
+            unary -, await
+            primary (literal, variable, the X, paren group, ordinal, chunk, function call)
+
+        Concrete precedence pitfalls:
+        - **`&` binds TIGHTER than comparison** but LOOSER than `+`/`-`. `if "x=" & x is "x=5" then` works as written, but `a + b & "!"` parses as `(a + b) & "!"`.
+        - **`not` binds tighter than `and`/`or`.** `not a or b` is `(not a) or b`, never `not (a or b)`.
+        - **Unary minus after a binary operator works**, e.g. `x = -1`, but at the start of a function call argument prefer parens: `random(-5)` not `random -5`.
+        - **When in doubt, parenthesize.** Parens are always free.
+
         ## Chunks (text slicing)
             word 3 of "alpha beta gamma"      -- "gamma"
             item 1 of "a,b,c"                 -- "a"
@@ -152,14 +263,70 @@ public enum HypeTalkGuide {
             the number of words in s
             the length of "hello"             -- 5
 
+        Chunk types: `char` / `character`, `word`, `item`, `line`. Plural forms (`chars`, `characters`, `words`, `items`, `lines`) are accepted as synonyms.
+
+        **Ranges:** `<chunk> N to M of X` returns the joined slice.
+            put words 2 to 4 of "the quick brown fox jumps" into s     -- "quick brown fox"
+            put items 2 to -1 of "a,b,c,d" into s                       -- "b,c,d" (negative = from end)
+            put chars 1 to 5 of "hello world" into s                    -- "hello"
+
+        **Ordinals:** `first`, `second`, `third`, ..., `last`, `middle`, `any` work in place of a numeric index.
+            put the first word of s into firstWord
+            put the last item of "a,b,c" into x       -- "c"
+            put the middle line of field "log" into m
+            put any item of "red,green,blue" into pick    -- random pick
+
+        **Chunks are READ-ONLY.** There is NO chunk-write or `put before/after chunk` form. To "edit" a chunk, splice and write back the whole field:
+            -- WRONG: set the word 3 of field "X" to "newWord"   (parse error)
+            -- WRONG: put "Hi " before word 3 of field "X"        (parse error)
+            -- RIGHT: read, splice with concatenation, write back
+            put word 1 to 2 of field "X" && "newWord" && word 4 to -1 of field "X" into field "X"
+
         ## Control flow
+
+        **Multi-line `if/then/else`:**
             if x > 10 then
               put "big" into field "out"
             else
               put "small" into field "out"
             end if
 
+        **Single-line `if/then[/else]`** (no `end if` needed):
+            if x > 0 then put "positive" into field "out"
+            if x = 0 then put "zero" into field "out" else put "negative" into field "out"
+
+        **`else if` does NOT exist.** There is no `elseif` or `else if` keyword. Use a NESTED if inside the else, with its own `end if`:
+            if x = 1 then
+              put "one" into field "out"
+            else
+              if x = 2 then
+                put "two" into field "out"
+              else
+                if x = 3 then
+                  put "three" into field "out"
+                else
+                  put "other" into field "out"
+                end if
+              end if
+            end if
+
+        For long ladders the single-line form keeps it tidy:
+            if x = 1 then put "one" into field "out"
+            else if x = 2 then put "two" into field "out"        -- WRONG: parse error
+            -- Correct ladder:
+            if x = 1 then put "one" into field "out"
+            else if x = 2 then put "two" into field "out"        -- still WRONG
+            -- Use a chain of single-line ifs and `exit` early instead:
+            if x = 1 then put "one" into field "out"
+            if x = 2 then put "two" into field "out"
+            if x = 3 then put "three" into field "out"
+
+        **Loops:**
             repeat 5 times                    -- fixed count
+              beep
+            end repeat
+
+            repeat for 5                      -- accepted alias of "repeat 5 times"
               beep
             end repeat
 
@@ -167,18 +334,41 @@ public enum HypeTalkGuide {
               put i into line i of field "list"
             end repeat
 
+            repeat with i = 10 down to 1      -- countdown
+              put i into field "out"
+              wait 1
+            end repeat
+
             repeat while x < 100              -- conditional
               add 1 to x
             end repeat
 
+            repeat until x >= 100             -- inverse conditional
+              add 1 to x
+            end repeat
+
+        **Loop control & handler control:**
+            exit repeat        -- break out of the innermost repeat
+            next repeat        -- continue at the top of the loop
+            exit mouseUp       -- stop this handler (must name the handler)
+            pass mouseUp       -- stop this handler AND let the next handler in the chain see the message
+            return x           -- exit this handler with a value (caller reads it via `the result` only on user functions; for messages, the value is discarded)
+
         ## Navigation
             go next            go previous        go first         go last
             go card "name"     go card 3          go back
-            visual effect "dissolve"             -- queued for the next `go`
+            visual effect dissolve               -- queued for the next `go` (UNQUOTED literal)
+            visual effect wipe left              -- multi-word literals also work
+            visual effect iris open
+            visual effect "dissolve"             -- the quoted form is also accepted
+        Effect names: dissolve, wipe (left|right|up|down), iris (open|close), barn (door open|door close), zoom (in|out|open|close), scroll (left|right|up|down), checkerboard, venetian blinds, push (left|right|up|down).
 
         ## Dialogs
-            answer "Are you sure?"               -- alert; result in `it`
+            answer "Are you sure?"               -- alert with OK; `it` is set to "OK" or the chosen button
+            answer "Save?" with "Save" or "Discard" or "Cancel"   -- 3-way choice
             ask "What is your name?"             -- input prompt; typed text in `it`
+            ask "Pick:" with "default text"      -- prefilled input
+        After every `ask`/`answer`, READ FROM `it` IMMEDIATELY — any subsequent command can overwrite it.
 
         ## Async rules
         HypeTalk is sync by default. A handler only suspends when it uses one of the explicit async forms below.
@@ -541,16 +731,72 @@ public enum HypeTalkGuide {
             -- you want the action to fire once per hover (not
             -- every frame while the cursor stays over the sprite).
 
-        ## Functions
-        Built-in functions accept either paren syntax or prefix syntax:
+        ## Built-in functions
 
-            put random(10) into r      -- paren form (always safe)
+        Functions are called with paren syntax (always safe) or — for unary built-ins — prefix syntax:
+            put random(10) into r      -- paren form
             put random 10 into r       -- prefix form (HyperTalk idiom, also OK)
-            put abs -5 into n          -- abs of -5, result 5
+            put abs(-5) into n         -- 5
             put sqrt 16 into s         -- 4
             put length "hello" into l  -- 5
 
-        Prefix syntax works for unary built-ins: `random`, `abs`, `round`, `trunc`, `sqrt`, `sin`, `cos`, `tan`, `atan`, `exp`, `ln`, `log2`, `length`, `value`, `charToNum`, `numToChar`. Prefix binds tight — `random 2 - 1` is `random(2) - 1`, not `random(2 - 1)`. Use parens if you need a computed argument.
+        **Prefix-form rule.** The argument is a single PRIMARY — number, string, variable, paren group, `the X`, `it`/`me`, ordinal, or chunk. Anything more complex still parses, but greedily: `random 2 - 1` is `random(2) - 1`. `random a + 1` is `(random a) + 1`. For computed arguments, parenthesize: `random(a + 1)`.
+
+        Allow-list of prefix-form unary built-ins: `random`, `abs`, `round`, `trunc`, `sqrt`, `sin`, `cos`, `tan`, `atan`, `exp`, `ln`, `log2`, `length`, `value`, `charToNum`, `numToChar`.
+
+        **Numeric:**
+            random(N)            -- random integer in [1, N]
+            abs(x)               -- absolute value
+            round(x) trunc(x)    -- nearest integer / drop fraction
+            sqrt(x)
+            sin(x) cos(x) tan(x) atan(x)        -- radians
+            exp(x) exp1(x) exp2(x)              -- e^x, e^x - 1, 2^x
+            ln(x) ln1(x) log2(x)                -- natural log, ln(1+x), log base 2
+            min(a, b, ...)  max(a, b, ...)      -- 1+ args
+            sum(a, b, ...)  average(a, b, ...)  -- 1+ args
+            annuity(rate, periods)              -- HyperTalk financial helper
+            compound(rate, periods)             -- HyperTalk financial helper
+
+        **Strings:**
+            length(s)                            -- number of characters
+            offset(needle, haystack)             -- 1-based char offset, 0 if not found
+            charToNum(s)                         -- ASCII/UTF-16 code of char 1
+            numToChar(n)                         -- single character
+            value(s)                             -- coerce to number (0 if non-numeric)
+
+        **System / lifecycle (no argument; can be called as `the X` too):**
+            the date           the time          the ticks         the seconds
+            the version        the systemVersion the screenRect
+            the diskSpace      the heapSpace     the stackSpace
+            the mouseLoc       the mouseH        the mouseV
+            the shiftKey       the optionKey     the commandKey   -- return "down" or "up"
+            the hoveredSprite  the spriteUnderMouse                -- name or "" if none
+            the key                                                  -- inside keyDown/keyUp only
+            the otherNode                                            -- inside begin/endContact only
+
+        **AI / models:**
+            ollama(prompt)                       -- sync; result returned, also in `it`
+            await ollama(prompt)                 -- async variant
+            ollamaModels()  /  the aiModels      -- list installed Ollama models, newline-separated
+
+        Note: `the result` (the classic HyperTalk "what did the last command do?") is NOT implemented in this dialect — it always returns `""`. Read return values directly: synchronous calls put their result in `it`; async/network forms invoke a callback handler with the request UUID.
+
+        ## Stub commands & getters — recognized but no-op
+
+        These exist in the lexer/parser for HyperTalk lineage but currently do nothing observable. **Do not rely on them for real behavior.** Use the alternative shown.
+
+        | Stub | What it does today | Alternative |
+        | --- | --- | --- |
+        | `find "needle" in field "X"` | Stores the search string in `it`. Does NOT highlight / scroll / locate. | `if field "X" contains "needle" then ...` for membership; iterate `line N of field "X"` for line-level search. |
+        | `select word 3 of field "X"` | No selection happens; field text is unaffected. | None — programmatic selection is not exposed. |
+        | `do "<expression>"` | No-op (parsed but not evaluated). | Inline the expression directly. |
+        | `push card`, `pop card` | No-op. | Track navigation in a global if you need a stack. |
+        | `clickAt`, `dial`, `print`, `reset`, `run`, `doMenu`, `copy template`, `type "X"` | No-op (recognized as legacy verbs). | Use the relevant explicit command (`go card "X"`, `play "Glass"`, `set the textContent of field "Y" to "X"`). |
+        | `the result` | Always returns `""`. | Read sync return values from `it`; for async, use the callback handler and `the body of request <id>`. |
+        | `the foundChunk` / `the foundField` / `the foundLine` / `the foundText` | Always return `""`. | Same as `find` row above. |
+        | `the params` / `the paramCount` / `param 1` | Always return `""`. | Declare named handler parameters: `on requestFinished requestId, eventName`. |
+        | `the selectedChunk` / `the selectedField` / `the selectedLine` / `the selectedText` | Always return `""`. | Read field text and parse it yourself. |
+        | `the target` | Returns `""`. | Use `the name of me` or pass identifiers explicitly. |
 
         ## Common AI hallucinations to AVOID
         - **`int`** is NOT a HypeTalk keyword. To negate a number, just write `-1`, not `-int 1`.
@@ -558,11 +804,23 @@ public enum HypeTalkGuide {
         - **`function random(N)`** is not a user-definable function. Use the built-in directly.
         - **`var` / `let`** don't exist. Variables are created on first use with `put 5 into x`.
         - **`return` at top level of a handler** is fine, but a handler body is not a function body — use `exit <name>` to stop early.
+        - **`else if x = 1 then`** is a parse error. There is NO `elseif`/`else if` keyword. Nest an `if` inside the `else` branch with its own `end if`, OR use a chain of single-line `if/then` statements (see Control flow).
+        - **`x starts with "foo"` / `x ends with "foo"`** are NOT operators. Use `char 1 to 3 of x is "foo"` for prefix, `char -3 to -1 of x is "foo"` for suffix, or `x contains "foo"` if position doesn't matter.
+        - **`set the word 3 of field "X" to "Hi"`** is a parse error. Chunks are read-only — splice and write the whole field back.
+        - **`put "Hi" before/after word 3 of field "X"`** is a parse error too. `put before/after` only targets variables, `it`, or whole object refs (e.g. `put "Hi" before field "X"`).
+        - **`do "put 5 into x"` (eval string as script)** is a no-op. Inline the code directly.
+        - **`find "x" in field "Y"` followed by reading `the foundChunk`** does not work — both are stubs. Use `if field "Y" contains "x" then ...`.
+        - **`the result` after `request ...` / `ask ai ...`** always returns `""`. The sync forms (`ollama(prompt)`, `ask "question"`) put the answer in `it`; the async forms (`request ... with message ...`) deliver it to the callback handler — read `the body of request <id>` there.
+        - **`the params`, `the paramCount`, `param 1`** are all stubs. Declare named parameters in the handler signature: `on requestFinished requestId, eventName`.
+        - **`send "mouseUp" to button "OK"`** does not trigger a button's handler. The `send` keyword in this dialect is only `send <data> to connection <id>` for TCP. Refactor shared logic into a helper handler (or just call a function-style handler) instead.
+        - **Named colors like `red`, `blue`, `green`** are NOT accepted as color values. Use `"#RRGGBB"` hex strings (or `""` for none).
         - **`node at <location>`** is NOT a HypeTalk expression. To find the sprite under the cursor, use `the hoveredSprite` / `the spriteUnderMouse`. There is no `at` keyword for spatial queries.
         - **`contact.nodeA` / `contact.nodeB`** do not exist — HypeTalk has no dot-property syntax. Inside `on beginContact` or `on endContact`, use the handler parameter or `the otherNode`, which carries the name of the colliding sprite on the other side of the contact.
         - **Bare sprite names as references**: always write `sprite "blue_ball"`, never bare `blue_ball`. A bare identifier is treated as a variable lookup and silently returns empty.
         - **`end` without the block name**: always write `end if`, `end mouseUp`, `end frameUpdate`. Bare `end` will not parse.
         - **`the velocityX of physicsBody of sprite "X"`** is tolerated (the parser drops the `physicsBody` wrapper) but the canonical form is `the velocityX of sprite "X"` — physics properties live directly on sprite nodes in HypeTalk.
+        - **Comparing `me` to a string name:** `if me is "OK" then ...` will never match. `me` is a UUID; compare with `the name of me` instead.
+        - **Boolean-y strings like `"yes"`, `"on"`:** these are FALSY. Only `"true"` (case-insensitive) and non-zero numbers are truthy. Compare explicitly: `if x is "yes" then`.
 
         ## Generation rules
         - Wrap handler bodies in `on <name> ... end <name>` blocks. The only exception is a bare command passed as a button's `script` tool argument (e.g. `go next`), which Hype auto-wraps in `on mouseUp ... end mouseUp`.

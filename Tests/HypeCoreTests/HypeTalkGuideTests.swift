@@ -32,22 +32,45 @@ struct HypeTalkGuideTests {
         #expect(HypeTalkGuide.llmContext.count > 500)
     }
 
-    @Test("guide stays under the 32 KB budget so it is cheap to ship on every request")
+    @Test("guide stays under the 64 KB budget so it is cheap to ship on every request")
     func guideStaysUnderBudget() {
-        // Budget: 32 KB (≈ 8000 tokens). Raised from 16 KB on
-        // 2026-05-02 to accommodate the Phase 1 + 2 framework
-        // controls (Calendar, PDF, Map, ColorWell, Stepper, Slider,
-        // Toggle, Segmented, Audio Recorder, Scene3D, Image
-        // Filters), the centralized Framework Control Properties
-        // table, and the System & Lifecycle Messages catalog
-        // (recordingStarted/Stopped, playbackStarted/Stopped,
-        // dateChanged, colorChanged, valueChanged, selectionChanged,
-        // locationResolved). At ~26 KB it's ≈6% of a 128K-context
-        // model — still well within typical chat budgets.
+        // Budget: 64 KB (≈ 16000 tokens). Raised from 32 KB on
+        // 2026-05-05 to accommodate the grammar-coverage expansion
+        // requested to push smaller models (qwen3:35b, etc.) into
+        // the lead on accuracy benchmarks. The expansion adds:
+        //   - a dedicated Operators & Precedence section
+        //     (membership, type tests, existence tests, boolean
+        //     operators, full precedence ladder)
+        //   - a Constants section (empty, quote, return, tab, pi,
+        //     up/down, zero..ten)
+        //   - explicit `it` lifecycle and `global` redeclaration
+        //     rules
+        //   - a comprehensive Built-in Functions list (replaces
+        //     the prior brief paragraph)
+        //   - a Stub commands table — verbs the parser accepts but
+        //     do nothing (find/select/do/push/pop/clickAt/etc.)
+        //     so the model stops generating dead code that pretends
+        //     to work
+        //   - control-flow expansion: single-line if/then/else,
+        //     repeat for / down to / until, the explicit
+        //     "no else if" rule with the canonical nested form
+        //   - chunk expansion: ranges, ordinals, plural keywords,
+        //     and the explicit READ-ONLY rule with the splice-and-
+        //     write-back idiom
+        //   - ~20 additional AVOID bullets covering the most common
+        //     model hallucinations (else if, starts with / ends with,
+        //     chunk writes, do "...", the result, send to button,
+        //     named colors, comparing me to a string, "yes" being
+        //     falsy, etc.)
+        //
+        // At ~54 KB it's ≈11% of a 128K-context model — still well
+        // within typical chat budgets, and the accuracy gain on
+        // smaller open-weight models is the explicit reason for
+        // the trade.
         //
         // Raise the budget deliberately if future additions justify
         // it, but only with an accompanying note on the tradeoff.
-        #expect(HypeTalkGuide.llmContext.count < 32768,
+        #expect(HypeTalkGuide.llmContext.count < 65536,
                 "HypeTalkGuide.llmContext is \(HypeTalkGuide.llmContext.count) characters — bump the budget intentionally if this is expected")
     }
 
