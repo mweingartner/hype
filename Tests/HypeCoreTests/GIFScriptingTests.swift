@@ -98,35 +98,25 @@ private func makeGIFTestDoc() -> (doc: HypeDocument, cardId: UUID, imageId: UUID
 }
 
 /// Run a script attached to `btnId` by dispatching a `mouseUp` message,
-/// returning the `ExecutionResult`.  Uses the same large-stack pattern
-/// as `ComprehensiveScriptTests` to avoid stack overflows.
-private final class _ScriptResultBox: @unchecked Sendable {
-    var value: ExecutionResult?
-}
-
+/// returning the `ExecutionResult`. Runs on a large-stack thread via
+/// `runOnLargeStack` so the interpreter's deep-recursion stack frames
+/// never overflow the cooperative thread's small stack.
 private func runGIFScript(
     _ source: String,
     on doc: inout HypeDocument,
     cardId: UUID,
     targetId: UUID
-) -> ExecutionResult {
+) async -> ExecutionResult {
     doc.updatePart(id: targetId) { $0.script = source }
     let dispatcher = MessageDispatcher()
     let snapshot = doc
-    let semaphore = DispatchSemaphore(value: 0)
-    let box = _ScriptResultBox()
-    let thread = Thread {
-        box.value = dispatcher.dispatch(
+    let result = await runOnLargeStack {
+        dispatcher.dispatch(
             message: "mouseUp", params: [],
             targetId: targetId, document: snapshot,
             currentCardId: cardId
         )
-        semaphore.signal()
     }
-    thread.stackSize = 8 * 1024 * 1024
-    thread.start()
-    semaphore.wait()
-    let result = box.value!
     if let modified = result.modifiedDocument { doc = modified }
     return result
 }
@@ -138,8 +128,7 @@ struct GIFParserTests {
 
     // MARK: 1. start the animation of "foo" parses to .startAnimation
 
-    @Test("'start the animation of \"foo\"' parses to .startAnimation")
-    func parseStartAnimationBareString() throws {
+    @Test("'start the animation of \"foo\"' parses to .startAnimation") func parseStartAnimationBareString() async throws {
         let stmt = try parseFirstStatement("""
         on test
           start the animation of "foo"
@@ -184,8 +173,7 @@ struct GIFParserTests {
 
     // MARK: 3. stop the animation of "foo" parses to .stopAnimation
 
-    @Test("'stop the animation of \"foo\"' parses to .stopAnimation")
-    func parseStopAnimation() throws {
+    @Test("'stop the animation of \"foo\"' parses to .stopAnimation") func parseStopAnimation() async throws {
         let stmt = try parseFirstStatement("""
         on test
           stop the animation of "foo"
@@ -261,8 +249,7 @@ struct GIFParserTests {
     // itself is the gate. So "start the animation from" is gracefully handled
     // as startUsing rather than erroring, which is a safe and correct behaviour.
 
-    @Test("'start the animation from \"foo\"' falls through to startUsing, not a parse error")
-    func parseStartAnimationFromFallsThroughToStartUsing() throws {
+    @Test("'start the animation from \"foo\"' falls through to startUsing, not a parse error") func parseStartAnimationFromFallsThroughToStartUsing() async throws {
         // The 3-token lookahead sees the third token is .from, not .of,
         // so the animation branch is NOT taken — it silently becomes startUsing.
         // This verifies the parser does not crash and produces a valid AST.
@@ -277,8 +264,7 @@ struct GIFParserTests {
 
     // MARK: 8. "animation" lexes as .animation token
 
-    @Test("'animation' keyword lexes as .animation token")
-    func lexerAnimationToken() {
+    @Test("'animation' keyword lexes as .animation token") func lexerAnimationToken() async {
         var lexer = Lexer(source: "animation")
         let tokens = lexer.tokenize()
         #expect(tokens.first?.type == .animation)
@@ -309,10 +295,9 @@ struct GIFInterpreterTests {
 
     // MARK: 1. the animated of "foo" initially returns "true"
 
-    @Test("'the animated of \"foo\"' returns \"true\" by default")
-    func animatedPropertyDefaultsTrue() {
+    @Test("'the animated of \"foo\"' returns \"true\" by default") func animatedPropertyDefaultsTrue() async {
         var (doc, cardId, imageId, btnId) = makeGIFTestDoc()
-        let result = runGIFScript("""
+        let result = await runGIFScript("""
         on mouseUp
           put the animated of image "foo" into field "out"
         end mouseUp
@@ -327,12 +312,11 @@ struct GIFInterpreterTests {
 
     // MARK: 2. set the animated of "foo" to false flips the property
 
-    @Test("'set the animated of \"foo\" to false' persists in the document")
-    func setAnimatedFalseFlipsProperty() {
+    @Test("'set the animated of \"foo\" to false' persists in the document") func setAnimatedFalseFlipsProperty() async {
         var (doc, cardId, imageId, btnId) = makeGIFTestDoc()
         defer { GIFAnimator.shared.remove(partId: imageId) }
 
-        let result = runGIFScript("""
+        let result = await runGIFScript("""
         on mouseUp
           set the animated of image "foo" to false
           put the animated of image "foo" into field "out"
@@ -352,15 +336,14 @@ struct GIFInterpreterTests {
 
     // MARK: 3. the animating of "foo" returns "false" when GIF is not running
 
-    @Test("'the animating of \"foo\"' returns \"false\" when not animating")
-    func animatingPropertyFalseWhenIdle() {
+    @Test("'the animating of \"foo\"' returns \"false\" when not animating") func animatingPropertyFalseWhenIdle() async {
         var (doc, cardId, imageId, btnId) = makeGIFTestDoc()
         defer { GIFAnimator.shared.remove(partId: imageId) }
 
         // Ensure no animation is running.
         GIFAnimator.shared.remove(partId: imageId)
 
-        let result = runGIFScript("""
+        let result = await runGIFScript("""
         on mouseUp
           put the animating of image "foo" into field "out"
         end mouseUp
@@ -375,12 +358,11 @@ struct GIFInterpreterTests {
 
     // MARK: 4. Interpreter: start the animation of "foo" triggers GIFAnimator
 
-    @Test("'start the animation of \"foo\"' executes without error")
-    func startAnimationExecutes() {
+    @Test("'start the animation of \"foo\"' executes without error") func startAnimationExecutes() async {
         var (doc, cardId, imageId, btnId) = makeGIFTestDoc()
         defer { GIFAnimator.shared.remove(partId: imageId) }
 
-        let result = runGIFScript("""
+        let result = await runGIFScript("""
         on mouseUp
           start the animation of "foo"
         end mouseUp
@@ -392,12 +374,11 @@ struct GIFInterpreterTests {
 
     // MARK: 5. Interpreter: stop the animation of "foo" executes without error
 
-    @Test("'stop the animation of \"foo\"' executes without error")
-    func stopAnimationExecutes() {
+    @Test("'stop the animation of \"foo\"' executes without error") func stopAnimationExecutes() async {
         var (doc, cardId, imageId, btnId) = makeGIFTestDoc()
         defer { GIFAnimator.shared.remove(partId: imageId) }
 
-        let result = runGIFScript("""
+        let result = await runGIFScript("""
         on mouseUp
           stop the animation of "foo"
         end mouseUp
@@ -409,12 +390,11 @@ struct GIFInterpreterTests {
 
     // MARK: 6. Interpreter: start then stop sequentially
 
-    @Test("'start' then 'stop the animation' sequence executes without error")
-    func startThenStopSequence() {
+    @Test("'start' then 'stop the animation' sequence executes without error") func startThenStopSequence() async {
         var (doc, cardId, imageId, btnId) = makeGIFTestDoc()
         defer { GIFAnimator.shared.remove(partId: imageId) }
 
-        let result = runGIFScript("""
+        let result = await runGIFScript("""
         on mouseUp
           start the animation of image "foo"
           stop the animation of image "foo"
@@ -427,12 +407,11 @@ struct GIFInterpreterTests {
 
     // MARK: 7. Interpreter: set animated to false calls GIFAnimator.stop (no crash)
 
-    @Test("'set the animated of image \"foo\" to false' calls through to GIFAnimator without crash")
-    func setAnimatedFalseCallsStop() {
+    @Test("'set the animated of image \"foo\" to false' calls through to GIFAnimator without crash") func setAnimatedFalseCallsStop() async {
         var (doc, cardId, imageId, btnId) = makeGIFTestDoc()
         defer { GIFAnimator.shared.remove(partId: imageId) }
 
-        let result = runGIFScript("""
+        let result = await runGIFScript("""
         on mouseUp
           set the animated of image "foo" to false
         end mouseUp
@@ -444,11 +423,10 @@ struct GIFInterpreterTests {
 
     // MARK: 8. Interpreter: start animation on non-existent name is a silent no-op
 
-    @Test("'start the animation of \"ghost\"' is a silent no-op for missing part")
-    func startAnimationMissingPartIsNoOp() {
+    @Test("'start the animation of \"ghost\"' is a silent no-op for missing part") func startAnimationMissingPartIsNoOp() async {
         var (doc, cardId, _, btnId) = makeGIFTestDoc()
 
-        let result = runGIFScript("""
+        let result = await runGIFScript("""
         on mouseUp
           start the animation of "ghost"
         end mouseUp
@@ -461,10 +439,10 @@ struct GIFInterpreterTests {
     // MARK: 9. Interpreter: start animation on a non-image part is a silent no-op
 
     @Test("'start the animation of button \"runner\"' is a silent no-op (non-image part)")
-    func startAnimationOnNonImagePartIsNoOp() {
+    func startAnimationOnNonImagePartIsNoOp() async {
         var (doc, cardId, _, btnId) = makeGIFTestDoc()
 
-        let result = runGIFScript("""
+        let result = await runGIFScript("""
         on mouseUp
           start the animation of button "runner"
         end mouseUp
@@ -476,15 +454,14 @@ struct GIFInterpreterTests {
 
     // MARK: 10. Interpreter: the animating OR-combines PartAnimator and GIFAnimator
 
-    @Test("'the animating' is false when neither PartAnimator nor GIFAnimator is running")
-    func animatingORCombinesBothFalse() {
+    @Test("'the animating' is false when neither PartAnimator nor GIFAnimator is running") func animatingORCombinesBothFalse() async {
         var (doc, cardId, imageId, btnId) = makeGIFTestDoc()
         defer { GIFAnimator.shared.remove(partId: imageId) }
 
         // Make sure GIFAnimator has no state for the image.
         GIFAnimator.shared.remove(partId: imageId)
 
-        let result = runGIFScript("""
+        let result = await runGIFScript("""
         on mouseUp
           put the animating of image "foo" into field "out"
         end mouseUp
@@ -504,7 +481,7 @@ struct GIFInterpreterTests {
 
     #if canImport(AppKit)
     @Test("'the animating' returns \"true\" when a PartAnimator tween is active (OR-combine regression)")
-    func animatingTrueWhenPartAnimatorTweenActive() {
+    func animatingTrueWhenPartAnimatorTweenActive() async {
         var (doc, cardId, _, btnId) = makeGIFTestDoc()
         defer { PartAnimator.shared.stopAll() }
 
@@ -521,7 +498,7 @@ struct GIFInterpreterTests {
                 "PartAnimator should be animating the button part")
 
         // GIFAnimator has NO state for btnId — the OR is (true || false) = true.
-        let result = runGIFScript("""
+        let result = await runGIFScript("""
         on mouseUp
           put the animating of button "runner" into field "out"
         end mouseUp
@@ -537,20 +514,19 @@ struct GIFInterpreterTests {
 
     // MARK: 12. Interpreter: set animated to true starts playback via GIFAnimator
 
-    @Test("'set the animated of \"foo\" to true' calls GIFAnimator.start without error")
-    func setAnimatedTrueCallsStart() {
+    @Test("'set the animated of \"foo\" to true' calls GIFAnimator.start without error") func setAnimatedTrueCallsStart() async {
         var (doc, cardId, imageId, btnId) = makeGIFTestDoc()
         defer { GIFAnimator.shared.remove(partId: imageId) }
 
         // First set to false so the start pathway actually fires when set back to true.
-        let _ = runGIFScript("""
+        let _ = await runGIFScript("""
         on mouseUp
           set the animated of image "foo" to false
         end mouseUp
         """, on: &doc, cardId: cardId, targetId: btnId)
 
         // Now set back to true — should call GIFAnimator.start without crashing.
-        let result = runGIFScript("""
+        let result = await runGIFScript("""
         on mouseUp
           set the animated of image "foo" to true
           put the animated of image "foo" into field "out"
@@ -574,8 +550,7 @@ struct PartAnimatedCodableTests {
 
     // MARK: 1. Round-trip with animated = false preserved
 
-    @Test("Part with animated=false survives Codable round-trip")
-    func roundTripAnimatedFalse() throws {
+    @Test("Part with animated=false survives Codable round-trip") func roundTripAnimatedFalse() async throws {
         var part = Part(partType: .image, cardId: UUID())
         part.animated = false
 
@@ -588,8 +563,7 @@ struct PartAnimatedCodableTests {
 
     // MARK: 2. Round-trip with animated = true preserved
 
-    @Test("Part with animated=true survives Codable round-trip")
-    func roundTripAnimatedTrue() throws {
+    @Test("Part with animated=true survives Codable round-trip") func roundTripAnimatedTrue() async throws {
         var part = Part(partType: .image, cardId: UUID())
         part.animated = true
 
@@ -619,8 +593,7 @@ struct PartAnimatedCodableTests {
 
     // MARK: 4. Default Part.animated is true
 
-    @Test("New Part's animated field defaults to true")
-    func newPartAnimatedDefaultsToTrue() {
+    @Test("New Part's animated field defaults to true") func newPartAnimatedDefaultsToTrue() async {
         let part = Part(partType: .image)
         #expect(part.animated == true,
                 "newly created image Part should have animated=true by default")
@@ -628,8 +601,7 @@ struct PartAnimatedCodableTests {
 
     // MARK: 5. Non-image Part also has animated=true default
 
-    @Test("New button Part's animated field also defaults to true")
-    func buttonPartAnimatedDefaultsToTrue() {
+    @Test("New button Part's animated field also defaults to true") func buttonPartAnimatedDefaultsToTrue() async {
         let part = Part(partType: .button)
         #expect(part.animated == true,
                 "animated defaults to true for all part types (field is universal)")

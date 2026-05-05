@@ -222,8 +222,7 @@ struct BackgroundUsageTests {
 
     // MARK: - HypeTalk background scripting Tests
 
-    @Test("HypeTalk set the background of card works")
-    func hypeTalkSetBackgroundOfCard() {
+    @Test("HypeTalk set the background of card works") func hypeTalkSetBackgroundOfCard() async {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id
         doc.cards[0].name = "Card 1"
@@ -237,21 +236,20 @@ struct BackgroundUsageTests {
         """
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(
             message: "openCard",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script should not error: \(result.error?.message ?? "")")
         let updatedCard = result.modifiedDocument?.cards.first(where: { $0.id == cardId })
         let detailBg = result.modifiedDocument?.backgroundByName("Detail")
         #expect(updatedCard?.backgroundId == detailBg?.id, "Card should now be on the Detail background")
     }
 
-    @Test("HypeTalk the background of card returns the name")
-    func hypeTalkGetBackgroundOfCard() {
+    @Test("HypeTalk the background of card returns the name") func hypeTalkGetBackgroundOfCard() async {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id
         doc.cards[0].name = "Card 1"
@@ -270,13 +268,13 @@ struct BackgroundUsageTests {
         """
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(
             message: "openCard",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script should not error: \(result.error?.message ?? "")")
         let outputField = result.modifiedDocument?.parts.first(where: { $0.name == "output" })
         #expect(outputField?.textContent == "Main", "Expected 'Main' but got '\(outputField?.textContent ?? "nil")'")

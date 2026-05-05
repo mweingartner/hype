@@ -4,7 +4,7 @@ import Foundation
 
 @Suite("Stack-level property access", .serialized)
 struct StackPropertyTests {
-    @Test func userScriptParses() {
+    @Test func userScriptParses() async {
         let script = """
         on mouseUp
           put the defaultFont of stack into f
@@ -24,7 +24,7 @@ struct StackPropertyTests {
         }
     }
 
-    @Test func setDefaultFontOfStackParses() {
+    @Test func setDefaultFontOfStackParses() async {
         let script = """
         on mouseUp
           set the defaultFont of stack to "Menlo"
@@ -41,7 +41,7 @@ struct StackPropertyTests {
         }
     }
 
-    @Test func getDefaultFontOfStackReturnsValue() {
+    @Test func getDefaultFontOfStackReturnsValue() async {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id
         var field = Part(partType: .field, cardId: cardId, name: "output")
@@ -51,17 +51,17 @@ struct StackPropertyTests {
           put the defaultFont of stack into field "output"
         end openCard
         """
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
         let output = result.modifiedDocument?.parts.first { $0.name == "output" }
         #expect(output?.textContent == "Apple Braille",
                 "Expected 'Apple Braille' but got '\(output?.textContent ?? "nil")'")
     }
 
-    @Test func setDefaultFontOfStackWorks() {
+    @Test func setDefaultFontOfStackWorks() async {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id
         doc.cards[0].script = """
@@ -69,10 +69,10 @@ struct StackPropertyTests {
           set the defaultFont of stack to "Menlo"
         end openCard
         """
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
         #expect(result.modifiedDocument?.stack.defaultFont == "Menlo")
     }

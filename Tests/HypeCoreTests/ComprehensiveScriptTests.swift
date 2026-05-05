@@ -24,73 +24,15 @@ private func makeTestDoc() -> (HypeDocument, UUID, UUID) {
     return (doc, cardId, btn.id)
 }
 
-/// Run a closure on a dedicated Thread with an 8 MB stack, mirroring
-/// the main thread's stack size on macOS.
-///
-/// **Why this exists:** `Interpreter.executeStatement` is a single
-/// ~99 KB compiled function that handles every HypeTalk statement
-/// kind in one giant switch. Swift allocates the union of every
-/// case's locals at function entry, so its stack frame per
-/// invocation is large. Under Swift Testing's default thread stack
-/// (≤512 KB on detached dispatch workers), a moderately recursive
-/// script (nested if/repeat, handler bodies that call other
-/// handlers, etc.) can blow the stack guard page and crash with
-/// SIGBUS. Running the dispatch on a Thread with an explicit 8 MB
-/// stack matches the main-thread stack size that users actually
-/// get in the shipping app, where this never crashes. The fix is
-/// scoped to the test helper so no production code is affected.
-///
-/// Uses `DispatchSemaphore` to synchronously wait for the worker
-/// thread to complete, so callers see the same semantics as a
-/// direct call.
-/// Unchecked-Sendable box used by `runOnLargeStack` to smuggle a
-/// value across a thread boundary without triggering Swift
-/// concurrency checks. Generic nested types aren't allowed in Swift
-/// so this has to live at file scope.
-private final class _LargeStackResultBox<V>: @unchecked Sendable {
-    var value: V?
-    init() { self.value = nil }
-}
-
-/// Run synchronous work on a dedicated 8 MB-stack thread.
-///
-/// IMPORTANT — parallel-runner deadlock risk
-/// -----------------------------------------
-/// This helper blocks the calling cooperative thread on a
-/// `DispatchSemaphore` while the worker thread runs `work()`. If
-/// `work()` calls `MessageDispatcher.dispatch`, the dispatcher
-/// itself schedules `Task { @MainActor in await dispatchAsync(...) }`
-/// whose continuation needs a cooperative thread to resume. With
-/// swift-testing's default parallel runner, all cooperative threads
-/// can end up blocked here at once — the resume can never run, and
-/// the suite hangs forever.
-///
-/// Run tests via `scripts/test.sh` (which adds `--no-parallel`)
-/// until the @Test functions and helpers are converted to async
-/// (Option C in the test-suite cleanup plan). Direct
-/// `swift test` invocations without that flag are NOT supported.
-private func runOnLargeStack<T>(_ work: @Sendable @escaping () -> T) -> T {
-    let semaphore = DispatchSemaphore(value: 0)
-    let box = _LargeStackResultBox<T>()
-    let thread = Thread {
-        box.value = work()
-        semaphore.signal()
-    }
-    thread.stackSize = 8 * 1024 * 1024  // 8 MB — matches main thread
-    thread.start()
-    semaphore.wait()
-    return box.value!
-}
-
 /// Run a script on the target part by setting its script and
-/// dispatching mouseUp. The dispatch runs on a dedicated
-/// large-stack thread (see `runOnLargeStack`) so nested-handler
-/// recursion never trips the test thread's small stack guard.
-private func runScript(_ script: String, on doc: inout HypeDocument, cardId: UUID, targetId: UUID) -> ExecutionResult {
+/// dispatching mouseUp. The dispatch runs on a dedicated 8 MB-stack
+/// thread via `runOnLargeStack` so nested-handler recursion never
+/// trips the cooperative thread's small stack guard.
+private func runScript(_ script: String, on doc: inout HypeDocument, cardId: UUID, targetId: UUID) async -> ExecutionResult {
     doc.updatePart(id: targetId) { $0.script = script }
     let dispatcher = MessageDispatcher()
     let snapshot = doc
-    let result = runOnLargeStack {
+    let result = await runOnLargeStack {
         dispatcher.dispatch(
             message: "mouseUp", params: [], targetId: targetId,
             document: snapshot, currentCardId: cardId
@@ -180,9 +122,9 @@ struct ParserCoverageTests {
 @Suite("Command Execution", .serialized)
 struct CommandExecutionTests {
 
-    @Test func putIntoField() {
+    @Test func putIntoField() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put "hello" into field "output"
         end mouseUp
@@ -191,9 +133,9 @@ struct CommandExecutionTests {
         #expect(fieldText(result, name: "output") == "hello")
     }
 
-    @Test func putIntoVariable() {
+    @Test func putIntoVariable() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put 42 into x
           put x into field "output"
@@ -202,9 +144,9 @@ struct CommandExecutionTests {
         #expect(fieldText(result, name: "output") == "42")
     }
 
-    @Test func addToVariable() {
+    @Test func addToVariable() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put 10 into x
           add 5 to x
@@ -214,9 +156,9 @@ struct CommandExecutionTests {
         #expect(fieldText(result, name: "output") == "15")
     }
 
-    @Test func subtractFromVariable() {
+    @Test func subtractFromVariable() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put 10 into x
           subtract 3 from x
@@ -226,9 +168,9 @@ struct CommandExecutionTests {
         #expect(fieldText(result, name: "output") == "7")
     }
 
-    @Test func multiplyVariable() {
+    @Test func multiplyVariable() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put 6 into x
           multiply x by 7
@@ -238,9 +180,9 @@ struct CommandExecutionTests {
         #expect(fieldText(result, name: "output") == "42")
     }
 
-    @Test func divideVariable() {
+    @Test func divideVariable() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put 20 into x
           divide x by 4
@@ -250,9 +192,9 @@ struct CommandExecutionTests {
         #expect(fieldText(result, name: "output") == "5")
     }
 
-    @Test func setPartProperty() {
+    @Test func setPartProperty() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the name of button "TestButton" to "Renamed"
         end mouseUp
@@ -262,9 +204,9 @@ struct CommandExecutionTests {
         #expect(renamed != nil)
     }
 
-    @Test func setPartVisible() {
+    @Test func setPartVisible() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the visible of field "output" to false
         end mouseUp
@@ -274,9 +216,9 @@ struct CommandExecutionTests {
         #expect(outputField?.visible == false)
     }
 
-    @Test func setPartLocation() {
+    @Test func setPartLocation() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the loc of button "TestButton" to "200,300"
         end mouseUp
@@ -289,9 +231,9 @@ struct CommandExecutionTests {
         #expect(btn?.top == 285)
     }
 
-    @Test func hideShowPart() {
+    @Test func hideShowPart() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           hide field "output"
           put the visible of field "output" into field "output"
@@ -302,10 +244,10 @@ struct CommandExecutionTests {
         #expect(outputField?.visible == false)
     }
 
-    @Test func showPartAfterHide() {
+    @Test func showPartAfterHide() async {
         var (doc, cardId, btnId) = makeTestDoc()
         // First hide the field, then show it.
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           hide field "output"
           show field "output"
@@ -316,9 +258,9 @@ struct CommandExecutionTests {
         #expect(outputField?.visible == true)
     }
 
-    @Test func deleteObjectPart() {
+    @Test func deleteObjectPart() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           delete button "TestButton"
         end mouseUp
@@ -328,9 +270,9 @@ struct CommandExecutionTests {
         #expect(deletedBtn == nil)
     }
 
-    @Test func stringConcatenation() {
+    @Test func stringConcatenation() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put "a" & "b" into field "output"
         end mouseUp
@@ -338,9 +280,9 @@ struct CommandExecutionTests {
         #expect(fieldText(result, name: "output") == "ab")
     }
 
-    @Test func spacedConcatenation() {
+    @Test func spacedConcatenation() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put "a" && "b" into field "output"
         end mouseUp
@@ -348,9 +290,9 @@ struct CommandExecutionTests {
         #expect(fieldText(result, name: "output") == "a b")
     }
 
-    @Test func beepCommand() {
+    @Test func beepCommand() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           beep
           put "done" into field "output"
@@ -366,7 +308,7 @@ struct CommandExecutionTests {
 @Suite("Message Dispatch Chain", .serialized)
 struct MessageChainTests {
 
-    @Test func partHandlesMessage() {
+    @Test func partHandlesMessage() async {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
         var btn = Part(partType: .button, cardId: cardId, name: "Btn")
@@ -378,13 +320,13 @@ struct MessageChainTests {
         doc.addPart(btn)
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn.id,
-                                          document: doc, currentCardId: cardId)
+        let result = await runOnLargeStack { [doc, cardId, btn] in dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn.id,
+                                          document: doc, currentCardId: cardId) }
         #expect(result.status == .completed)
         #expect(result.returnValue == "part handled")
     }
 
-    @Test func partPassesToCard() {
+    @Test func partPassesToCard() async {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
 
@@ -404,13 +346,13 @@ struct MessageChainTests {
         }
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn.id,
-                                          document: doc, currentCardId: cardId)
+        let result = await runOnLargeStack { [doc, cardId, btn] in dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn.id,
+                                          document: doc, currentCardId: cardId) }
         #expect(result.status == .completed)
         #expect(fieldText(result, name: "output") == "card caught it")
     }
 
-    @Test func cardPassesToBackground() {
+    @Test func cardPassesToBackground() async {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
         let bgId = doc.cards[0].backgroundId
@@ -430,13 +372,13 @@ struct MessageChainTests {
         }
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(message: "mouseUp", params: [], targetId: cardId,
-                                          document: doc, currentCardId: cardId)
+        let result = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(message: "mouseUp", params: [], targetId: cardId,
+                                          document: doc, currentCardId: cardId) }
         #expect(result.status == .completed)
         #expect(fieldText(result, name: "output") == "bg caught it")
     }
 
-    @Test func backgroundPassesToStack() {
+    @Test func backgroundPassesToStack() async {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
         let bgId = doc.cards[0].backgroundId
@@ -454,13 +396,13 @@ struct MessageChainTests {
         """
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(message: "mouseUp", params: [], targetId: bgId,
-                                          document: doc, currentCardId: cardId)
+        let result = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(message: "mouseUp", params: [], targetId: bgId,
+                                          document: doc, currentCardId: cardId) }
         #expect(result.status == .completed)
         #expect(fieldText(result, name: "output") == "stack caught it")
     }
 
-    @Test func fullChainPartToStack() {
+    @Test func fullChainPartToStack() async {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
         let bgId = doc.cards[0].backgroundId
@@ -485,8 +427,8 @@ struct MessageChainTests {
         """
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn.id,
-                                          document: doc, currentCardId: cardId)
+        let result = await runOnLargeStack { [doc, cardId, btn] in dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn.id,
+                                          document: doc, currentCardId: cardId) }
         #expect(result.status == .completed)
         #expect(fieldText(result, name: "output") == "stack caught it")
     }
@@ -497,9 +439,9 @@ struct MessageChainTests {
 @Suite("Part Properties", .serialized)
 struct PartPropertyTests {
 
-    @Test func getSetButtonName() {
+    @Test func getSetButtonName() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the name of button "TestButton" to "NewName"
           put the name of button "NewName" into field "output"
@@ -509,9 +451,9 @@ struct PartPropertyTests {
         #expect(fieldText(result, name: "output") == "NewName")
     }
 
-    @Test func getSetFieldText() {
+    @Test func getSetFieldText() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put "test content" into field "output"
         end mouseUp
@@ -519,9 +461,9 @@ struct PartPropertyTests {
         #expect(fieldText(result, name: "output") == "test content")
     }
 
-    @Test func getSetPartLocation() {
+    @Test func getSetPartLocation() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the loc of field "output" to "150,250"
         end mouseUp
@@ -534,9 +476,9 @@ struct PartPropertyTests {
         #expect(f?.top == 235)
     }
 
-    @Test func getSetPartSize() {
+    @Test func getSetPartSize() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the width of field "output" to 300
           set the height of field "output" to 100
@@ -560,9 +502,9 @@ struct PartPropertyTests {
         #expect(shape?.partType == .shape)
     }
 
-    @Test func getSetPartVisible() {
+    @Test func getSetPartVisible() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the visible of field "output" to false
         end mouseUp
@@ -571,9 +513,9 @@ struct PartPropertyTests {
         #expect(f?.visible == false)
     }
 
-    @Test func getSetPartEnabled() {
+    @Test func getSetPartEnabled() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the enabled of button "TestButton" to false
         end mouseUp
@@ -582,9 +524,9 @@ struct PartPropertyTests {
         #expect(b?.enabled == false)
     }
 
-    @Test func getSetHilite() {
+    @Test func getSetHilite() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the hilite of button "TestButton" to true
         end mouseUp
@@ -593,9 +535,9 @@ struct PartPropertyTests {
         #expect(b?.hilite == true)
     }
 
-    @Test func getSetButtonStyle() {
+    @Test func getSetButtonStyle() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the style of button "TestButton" to "checkBox"
         end mouseUp
@@ -604,9 +546,9 @@ struct PartPropertyTests {
         #expect(b?.buttonStyle == .checkBox)
     }
 
-    @Test func getSetFieldStyle() {
+    @Test func getSetFieldStyle() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the style of field "output" to "scrolling"
         end mouseUp
@@ -621,7 +563,7 @@ struct PartPropertyTests {
 @Suite("Scene Node Properties", .serialized)
 struct SceneNodePropertyTests {
 
-    @Test func getSetNestedSpritePosition() {
+    @Test func getSetNestedSpritePosition() async {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
 
@@ -635,7 +577,7 @@ struct SceneNodePropertyTests {
         area.setSpriteAreaSpec(SpriteAreaSpec(scene: spec, fallbackSize: SizeSpec(width: 400, height: 300)))
         doc.addPart(area)
 
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the position of sprite "ball" to "300,400"
         end mouseUp
@@ -648,9 +590,9 @@ struct SceneNodePropertyTests {
         #expect(updatedBall?.position.y == 400)
     }
 
-    @Test func getSetSpritePosition() {
+    @Test func getSetSpritePosition() async {
         var (doc, cardId, btnId) = makeSceneDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the position of sprite "ball" to "300,400"
         end mouseUp
@@ -663,9 +605,9 @@ struct SceneNodePropertyTests {
         #expect(ball?.position.y == 400)
     }
 
-    @Test func getSetSpriteAlpha() {
+    @Test func getSetSpriteAlpha() async {
         var (doc, cardId, btnId) = makeSceneDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the alpha of sprite "ball" to 0.5
         end mouseUp
@@ -677,9 +619,9 @@ struct SceneNodePropertyTests {
         #expect(ball?.alpha == 0.5)
     }
 
-    @Test func getSetLabelText() {
+    @Test func getSetLabelText() async {
         var (doc, cardId, btnId) = makeSceneDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the text of label "scoreLabel" to "Score: 100"
         end mouseUp
@@ -691,9 +633,9 @@ struct SceneNodePropertyTests {
         #expect(label?.text == "Score: 100")
     }
 
-    @Test func getSetLabelFont() {
+    @Test func getSetLabelFont() async {
         var (doc, cardId, btnId) = makeSceneDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the fontName of label "scoreLabel" to "Courier"
         end mouseUp
@@ -705,9 +647,9 @@ struct SceneNodePropertyTests {
         #expect(label?.fontName == "Courier")
     }
 
-    @Test func getSetShapeFill() {
+    @Test func getSetShapeFill() async {
         var (doc, cardId, btnId) = makeSceneDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the fillColor of shape "platform" to "#0000FF"
         end mouseUp
@@ -719,9 +661,9 @@ struct SceneNodePropertyTests {
         #expect(platform?.shapeSpec?.fillColor == "#0000FF")
     }
 
-    @Test func getSetPhysicsVelocity() {
+    @Test func getSetPhysicsVelocity() async {
         var (doc, cardId, btnId) = makeSceneDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the velocity of sprite "ball" to "100,200"
         end mouseUp
@@ -734,9 +676,9 @@ struct SceneNodePropertyTests {
         #expect(ball?.physicsBody?.velocityY == 200)
     }
 
-    @Test func getSetSpriteHidden() {
+    @Test func getSetSpriteHidden() async {
         var (doc, cardId, btnId) = makeSceneDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the hidden of sprite "ball" to true
         end mouseUp
@@ -779,7 +721,7 @@ struct NavigationTests {
         return (doc, doc.sortedCards)
     }
 
-    @Test func goNext() {
+    @Test func goNext() async {
         var (doc, sorted) = makeNavDoc()
         let card1 = sorted[0]
         let card2 = sorted[1]
@@ -788,12 +730,12 @@ struct NavigationTests {
         doc.addPart(btn)
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn.id,
-                                          document: doc, currentCardId: card1.id)
+        let result = await runOnLargeStack { [doc, btn] in dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn.id,
+                                          document: doc, currentCardId: card1.id) }
         #expect(result.navigationTarget == card2.id)
     }
 
-    @Test func goPrevious() {
+    @Test func goPrevious() async {
         var (doc, sorted) = makeNavDoc()
         let card1 = sorted[0]
         let card2 = sorted[1]
@@ -802,12 +744,12 @@ struct NavigationTests {
         doc.addPart(btn)
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn.id,
-                                          document: doc, currentCardId: card2.id)
+        let result = await runOnLargeStack { [doc, btn] in dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn.id,
+                                          document: doc, currentCardId: card2.id) }
         #expect(result.navigationTarget == card1.id)
     }
 
-    @Test func goFirst() {
+    @Test func goFirst() async {
         var (doc, sorted) = makeNavDoc()
         let card1 = sorted[0]
         let card3 = sorted[2]
@@ -816,12 +758,12 @@ struct NavigationTests {
         doc.addPart(btn)
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn.id,
-                                          document: doc, currentCardId: card3.id)
+        let result = await runOnLargeStack { [doc, btn] in dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn.id,
+                                          document: doc, currentCardId: card3.id) }
         #expect(result.navigationTarget == card1.id)
     }
 
-    @Test func goLast() {
+    @Test func goLast() async {
         var (doc, sorted) = makeNavDoc()
         let card1 = sorted[0]
         let card3 = sorted[2]
@@ -830,12 +772,12 @@ struct NavigationTests {
         doc.addPart(btn)
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn.id,
-                                          document: doc, currentCardId: card1.id)
+        let result = await runOnLargeStack { [doc, btn] in dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn.id,
+                                          document: doc, currentCardId: card1.id) }
         #expect(result.navigationTarget == card3.id)
     }
 
-    @Test func goCardByName() {
+    @Test func goCardByName() async {
         var (doc, sorted) = makeNavDoc()
         let card1 = sorted[0]
         let card2 = sorted[1]
@@ -844,12 +786,12 @@ struct NavigationTests {
         doc.addPart(btn)
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn.id,
-                                          document: doc, currentCardId: card1.id)
+        let result = await runOnLargeStack { [doc, btn] in dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn.id,
+                                          document: doc, currentCardId: card1.id) }
         #expect(result.navigationTarget == card2.id)
     }
 
-    @Test func goCardByNumber() {
+    @Test func goCardByNumber() async {
         var (doc, sorted) = makeNavDoc()
         let card1 = sorted[0]
         let card2 = sorted[1]
@@ -858,8 +800,8 @@ struct NavigationTests {
         doc.addPart(btn)
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn.id,
-                                          document: doc, currentCardId: card1.id)
+        let result = await runOnLargeStack { [doc, btn] in dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn.id,
+                                          document: doc, currentCardId: card1.id) }
         #expect(result.navigationTarget == card2.id)
     }
 }
@@ -869,9 +811,9 @@ struct NavigationTests {
 @Suite("Conditionals", .serialized)
 struct ConditionalTests {
 
-    @Test func ifEqual() {
+    @Test func ifEqual() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           if 1 = 1 then
             put "yes" into field "output"
@@ -881,9 +823,9 @@ struct ConditionalTests {
         #expect(fieldText(result, name: "output") == "yes")
     }
 
-    @Test func ifNotEqual() {
+    @Test func ifNotEqual() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           if 1 <> 2 then
             put "yes" into field "output"
@@ -893,9 +835,9 @@ struct ConditionalTests {
         #expect(fieldText(result, name: "output") == "yes")
     }
 
-    @Test func ifLessThan() {
+    @Test func ifLessThan() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           if 1 < 2 then
             put "yes" into field "output"
@@ -905,9 +847,9 @@ struct ConditionalTests {
         #expect(fieldText(result, name: "output") == "yes")
     }
 
-    @Test func ifGreaterThan() {
+    @Test func ifGreaterThan() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           if 2 > 1 then
             put "yes" into field "output"
@@ -917,9 +859,9 @@ struct ConditionalTests {
         #expect(fieldText(result, name: "output") == "yes")
     }
 
-    @Test func ifElseBranch() {
+    @Test func ifElseBranch() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           if 1 > 2 then
             put "yes" into field "output"
@@ -931,9 +873,9 @@ struct ConditionalTests {
         #expect(fieldText(result, name: "output") == "no")
     }
 
-    @Test func ifContains() {
+    @Test func ifContains() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           if "hello" contains "ell" then
             put "yes" into field "output"
@@ -943,9 +885,9 @@ struct ConditionalTests {
         #expect(fieldText(result, name: "output") == "yes")
     }
 
-    @Test func ifIsIn() {
+    @Test func ifIsIn() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           if "b" is in "abc" then
             put "yes" into field "output"
@@ -955,9 +897,9 @@ struct ConditionalTests {
         #expect(fieldText(result, name: "output") == "yes")
     }
 
-    @Test func nestedIfElse() {
+    @Test func nestedIfElse() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put 5 into x
           if x > 10 then
@@ -980,9 +922,9 @@ struct ConditionalTests {
 @Suite("Repeat", .serialized)
 struct RepeatTests {
 
-    @Test func repeatCount() {
+    @Test func repeatCount() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put 0 into x
           repeat 5
@@ -994,9 +936,9 @@ struct RepeatTests {
         #expect(fieldText(result, name: "output") == "5")
     }
 
-    @Test func repeatWhile() {
+    @Test func repeatWhile() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put 0 into x
           repeat while x < 10
@@ -1008,9 +950,9 @@ struct RepeatTests {
         #expect(fieldText(result, name: "output") == "10")
     }
 
-    @Test func repeatWith() {
+    @Test func repeatWith() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put 0 into total
           repeat with i = 1 to 5
@@ -1022,9 +964,9 @@ struct RepeatTests {
         #expect(fieldText(result, name: "output") == "15")
     }
 
-    @Test func exitRepeat() {
+    @Test func exitRepeat() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put 0 into x
           repeat 100
@@ -1039,9 +981,9 @@ struct RepeatTests {
         #expect(fieldText(result, name: "output") == "3")
     }
 
-    @Test func nextRepeat() {
+    @Test func nextRepeat() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put 0 into total
           repeat with i = 1 to 6
@@ -1062,11 +1004,11 @@ struct RepeatTests {
 @Suite("Global Variables", .serialized)
 struct GlobalTests {
 
-    @Test func globalPersistsAcrossHandlers() {
+    @Test func globalPersistsAcrossHandlers() async {
         // Use a button whose script defines a handler that sets a global,
         // then the mouseUp handler calls it and reads the global.
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           global gValue
           put "shared" into gValue
@@ -1076,9 +1018,9 @@ struct GlobalTests {
         #expect(fieldText(result, name: "output") == "shared")
     }
 
-    @Test func globalDeclaredInHandler() {
+    @Test func globalDeclaredInHandler() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           global x, y
           put 10 into x
@@ -1089,7 +1031,7 @@ struct GlobalTests {
         #expect(fieldText(result, name: "output") == "30")
     }
 
-    @Test func localNotVisibleOutside() {
+    @Test func localNotVisibleOutside() async {
         // A local variable in one dispatch should not bleed into another.
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
@@ -1117,12 +1059,12 @@ struct GlobalTests {
         let dispatcher = MessageDispatcher()
 
         // First dispatch: btn1 sets local 'secret'
-        let _ = dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn1.id,
-                                     document: doc, currentCardId: cardId)
+        let _ = await runOnLargeStack { [doc, cardId, btn1] in dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn1.id,
+                                     document: doc, currentCardId: cardId) }
 
         // Second dispatch: btn2 reads 'secret' -- should be empty
-        let result2 = dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn2.id,
-                                           document: doc, currentCardId: cardId)
+        let result2 = await runOnLargeStack { [doc, cardId, btn2] in dispatcher.dispatch(message: "mouseUp", params: [], targetId: btn2.id,
+                                           document: doc, currentCardId: cardId) }
         #expect(result2.returnValue == "")
     }
 }
@@ -1132,9 +1074,9 @@ struct GlobalTests {
 @Suite("Chunk Expressions", .serialized)
 struct ChunkTests {
 
-    @Test func itemOfString() {
+    @Test func itemOfString() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put item 1 of "a,b,c" into field "output"
         end mouseUp
@@ -1142,9 +1084,9 @@ struct ChunkTests {
         #expect(fieldText(result, name: "output") == "a")
     }
 
-    @Test func item2OfString() {
+    @Test func item2OfString() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put item 2 of "a,b,c" into field "output"
         end mouseUp
@@ -1152,9 +1094,9 @@ struct ChunkTests {
         #expect(fieldText(result, name: "output") == "b")
     }
 
-    @Test func wordOfString() {
+    @Test func wordOfString() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put word 2 of "hello world" into field "output"
         end mouseUp
@@ -1162,9 +1104,9 @@ struct ChunkTests {
         #expect(fieldText(result, name: "output") == "world")
     }
 
-    @Test func charOfString() {
+    @Test func charOfString() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put char 3 of "hello" into field "output"
         end mouseUp
@@ -1172,10 +1114,10 @@ struct ChunkTests {
         #expect(fieldText(result, name: "output") == "l")
     }
 
-    @Test func lineOfString() {
+    @Test func lineOfString() async {
         var (doc, cardId, btnId) = makeTestDoc()
         // Use a variable since multi-line string literals with \n are tricky in HypeTalk.
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put "alpha" into x
           put x & "\\n" & "beta" & "\\n" & "gamma" into x
@@ -1187,9 +1129,9 @@ struct ChunkTests {
         #expect(result.status == .completed)
     }
 
-    @Test func itemOfStringLast() {
+    @Test func itemOfStringLast() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put item 3 of "x,y,z" into field "output"
         end mouseUp
@@ -1203,9 +1145,9 @@ struct ChunkTests {
 @Suite("Built-in Functions", .serialized)
 struct FunctionTests {
 
-    @Test func lengthFunction() {
+    @Test func lengthFunction() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put length("hello") into field "output"
         end mouseUp
@@ -1213,9 +1155,9 @@ struct FunctionTests {
         #expect(fieldText(result, name: "output") == "5")
     }
 
-    @Test func offsetFunction() {
+    @Test func offsetFunction() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put offset("ll", "hello") into field "output"
         end mouseUp
@@ -1223,9 +1165,9 @@ struct FunctionTests {
         #expect(fieldText(result, name: "output") == "3")
     }
 
-    @Test func absFunction() {
+    @Test func absFunction() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put abs(-5) into field "output"
         end mouseUp
@@ -1233,9 +1175,9 @@ struct FunctionTests {
         #expect(fieldText(result, name: "output") == "5")
     }
 
-    @Test func roundFunction() {
+    @Test func roundFunction() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put round(3.7) into field "output"
         end mouseUp
@@ -1243,9 +1185,9 @@ struct FunctionTests {
         #expect(fieldText(result, name: "output") == "4")
     }
 
-    @Test func sqrtFunction() {
+    @Test func sqrtFunction() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put sqrt(16) into field "output"
         end mouseUp
@@ -1253,9 +1195,9 @@ struct FunctionTests {
         #expect(fieldText(result, name: "output") == "4")
     }
 
-    @Test func randomFunction() {
+    @Test func randomFunction() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put random(10) into field "output"
         end mouseUp
@@ -1266,9 +1208,9 @@ struct FunctionTests {
         #expect(val! >= 1 && val! <= 10)
     }
 
-    @Test func minMaxFunction() {
+    @Test func minMaxFunction() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put min(3, 7) & "," & max(3, 7) into field "output"
         end mouseUp
@@ -1276,7 +1218,7 @@ struct FunctionTests {
         #expect(fieldText(result, name: "output") == "3,7")
     }
 
-    @Test func customFunction() {
+    @Test func customFunction() async {
         // Custom functions are invoked as built-in calls; however, the interpreter
         // currently dispatches all function calls through evaluateBuiltIn which
         // does not look up user-defined functions. Test that the return value
@@ -1306,9 +1248,9 @@ struct FunctionTests {
 @Suite("Dialogs", .serialized)
 struct DialogTests {
 
-    @Test func answerSetsIt() {
+    @Test func answerSetsIt() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           answer "hello"
           put it into field "output"
@@ -1318,9 +1260,9 @@ struct DialogTests {
         #expect(fieldText(result, name: "output") == "OK")
     }
 
-    @Test func askSetsIt() {
+    @Test func askSetsIt() async {
         var (doc, cardId, btnId) = makeTestDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           ask "name?"
           put it into field "output"
@@ -1336,7 +1278,7 @@ struct DialogTests {
 @Suite("Scene Events", .serialized)
 struct SceneEventTests {
 
-    @Test func sceneDidLoadDispatch() {
+    @Test func sceneDidLoadDispatch() async {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
 
@@ -1352,13 +1294,13 @@ struct SceneEventTests {
         doc.addPart(area)
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(message: "sceneDidLoad", params: [], targetId: area.id,
-                                          document: doc, currentCardId: cardId)
+        let result = await runOnLargeStack { [doc, cardId, area] in dispatcher.dispatch(message: "sceneDidLoad", params: [], targetId: area.id,
+                                          document: doc, currentCardId: cardId) }
         #expect(result.status == .completed)
         #expect(fieldText(result, name: "output") == "loaded")
     }
 
-    @Test func openSceneDispatch() {
+    @Test func openSceneDispatch() async {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
 
@@ -1374,13 +1316,13 @@ struct SceneEventTests {
         doc.addPart(area)
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(message: "openScene", params: [], targetId: area.id,
-                                          document: doc, currentCardId: cardId)
+        let result = await runOnLargeStack { [doc, cardId, area] in dispatcher.dispatch(message: "openScene", params: [], targetId: area.id,
+                                          document: doc, currentCardId: cardId) }
         #expect(result.status == .completed)
         #expect(fieldText(result, name: "output") == "opened")
     }
 
-    @Test func closeSceneDispatch() {
+    @Test func closeSceneDispatch() async {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
 
@@ -1396,8 +1338,8 @@ struct SceneEventTests {
         doc.addPart(area)
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(message: "closeScene", params: [], targetId: area.id,
-                                          document: doc, currentCardId: cardId)
+        let result = await runOnLargeStack { [doc, cardId, area] in dispatcher.dispatch(message: "closeScene", params: [], targetId: area.id,
+                                          document: doc, currentCardId: cardId) }
         #expect(result.status == .completed)
         #expect(fieldText(result, name: "output") == "closed")
     }
@@ -1406,7 +1348,7 @@ struct SceneEventTests {
 @Suite("Scene Registry Commands", .serialized)
 struct SceneRegistryCommandTests {
 
-    @Test func createSceneAddsNamedSceneWithoutOverwritingExistingScene() {
+    @Test func createSceneAddsNamedSceneWithoutOverwritingExistingScene() async {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
 
@@ -1419,7 +1361,7 @@ struct SceneRegistryCommandTests {
         )
         doc.addPart(area)
 
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           create scene "battle" in spritearea "gameArea" with size 640,480
         end mouseUp
@@ -1440,7 +1382,7 @@ struct SceneRegistryCommandTests {
         #expect(areaSpec.activeScene?.size.height == 480)
     }
 
-    @Test func openSceneActivatesExistingNamedScene() {
+    @Test func openSceneActivatesExistingNamedScene() async {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
 
@@ -1457,7 +1399,7 @@ struct SceneRegistryCommandTests {
         }
         doc.addPart(area)
 
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           open scene "battle"
         end mouseUp
@@ -1475,9 +1417,9 @@ struct SceneRegistryCommandTests {
 @Suite("Physics Properties", .serialized)
 struct PhysicsTests {
 
-    @Test func setVelocity() {
+    @Test func setVelocity() async {
         var (doc, cardId, btnId) = makeSceneDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the velocity of sprite "ball" to "100,200"
         end mouseUp
@@ -1490,9 +1432,9 @@ struct PhysicsTests {
         #expect(ball?.physicsBody?.velocityY == 200)
     }
 
-    @Test func getVelocity() {
+    @Test func getVelocity() async {
         var (doc, cardId, btnId) = makeSceneDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put the velocity of sprite "ball" into field "output"
         end mouseUp
@@ -1502,9 +1444,9 @@ struct PhysicsTests {
         #expect(fieldText(result, name: "output") == "10,20")
     }
 
-    @Test func setDensity() {
+    @Test func setDensity() async {
         var (doc, cardId, btnId) = makeSceneDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the density of sprite "ball" to 5
         end mouseUp
@@ -1516,9 +1458,9 @@ struct PhysicsTests {
         #expect(ball?.physicsBody?.density == 5)
     }
 
-    @Test func getFriction() {
+    @Test func getFriction() async {
         var (doc, cardId, btnId) = makeSceneDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           put the friction of sprite "ball" into field "output"
         end mouseUp
@@ -1534,9 +1476,9 @@ struct PhysicsTests {
 @Suite("Sprite CRUD", .serialized)
 struct SpriteCRUDTests {
 
-    @Test func createSpriteAddsNode() {
+    @Test func createSpriteAddsNode() async {
         var (doc, cardId, btnId) = makeSceneDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           create sprite "enemy"
         end mouseUp
@@ -1549,9 +1491,9 @@ struct SpriteCRUDTests {
         #expect(enemy?.nodeType == .sprite)
     }
 
-    @Test func removeSpriteRemovesNode() {
+    @Test func removeSpriteRemovesNode() async {
         var (doc, cardId, btnId) = makeSceneDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           remove sprite "ball"
         end mouseUp
@@ -1563,9 +1505,9 @@ struct SpriteCRUDTests {
         #expect(ball == nil)
     }
 
-    @Test func setSpritePosition() {
+    @Test func setSpritePosition() async {
         var (doc, cardId, btnId) = makeSceneDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the position of sprite "ball" to "50,60"
         end mouseUp
@@ -1578,9 +1520,9 @@ struct SpriteCRUDTests {
         #expect(ball?.position.y == 60)
     }
 
-    @Test func setLabelText() {
+    @Test func setLabelText() async {
         var (doc, cardId, btnId) = makeSceneDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           set the text of label "scoreLabel" to "Game Over"
         end mouseUp
@@ -1592,9 +1534,9 @@ struct SpriteCRUDTests {
         #expect(label?.text == "Game Over")
     }
 
-    @Test func createGroupNesting() {
+    @Test func createGroupNesting() async {
         var (doc, cardId, btnId) = makeSceneDoc()
-        let result = runScript("""
+        let result = await runScript("""
         on mouseUp
           create group "enemies"
           create sprite "baddie" in "enemies"

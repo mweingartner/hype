@@ -42,21 +42,20 @@ struct ScriptErrorObjectIdTests {
 
     // MARK: - Parse errors carry objectId
 
-    @Test("parse error in a part's script returns error.objectId == part.id")
-    func parseErrorOnPartHasPartId() {
+    @Test("parse error in a part's script returns error.objectId == part.id") func parseErrorOnPartHasPartId() async {
         var (doc, cardId) = makeDoc()
         let partId = doc.parts.first { $0.name == "Go" }!.id
         // Deliberately invalid HypeTalk — `int` is not a keyword.
         doc.updatePart(id: partId) { $0.script = "on mouseUp\n  put -int 1 into x\nend mouseUp" }
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(
             message: "mouseUp",
             params: [],
             targetId: partId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
 
         #expect(result.status == .error)
         #expect(result.error != nil)
@@ -64,8 +63,7 @@ struct ScriptErrorObjectIdTests {
                 "parse error on button should surface with objectId == button.id so the view layer can reopen its script")
     }
 
-    @Test("parse error in a card's script returns error.objectId == card.id")
-    func parseErrorOnCardHasCardId() {
+    @Test("parse error in a card's script returns error.objectId == card.id") func parseErrorOnCardHasCardId() async {
         var (doc, cardId) = makeDoc()
         let idx = doc.cards.firstIndex { $0.id == cardId }!
         // `-int 1` is the same hallucination we guard against in the
@@ -73,58 +71,55 @@ struct ScriptErrorObjectIdTests {
         doc.cards[idx].script = "on openCard\n  put -int 1 into x\nend openCard"
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(
             message: "openCard",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
 
         #expect(result.status == .error)
         #expect(result.error?.objectId == cardId)
     }
 
-    @Test("parse error in a background's script returns error.objectId == background.id")
-    func parseErrorOnBackgroundHasBgId() {
+    @Test("parse error in a background's script returns error.objectId == background.id") func parseErrorOnBackgroundHasBgId() async {
         var (doc, cardId) = makeDoc()
         let bgId = doc.backgrounds[0].id
         doc.backgrounds[0].script = "on openCard\n  put -int 1 into x\nend openCard"
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(
             message: "openCard",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
 
         #expect(result.status == .error)
         #expect(result.error?.objectId == bgId,
                 "parse error on background-level script should surface with the background's UUID")
     }
 
-    @Test("parse error in the stack script returns error.objectId == stack.id")
-    func parseErrorOnStackHasStackId() {
+    @Test("parse error in the stack script returns error.objectId == stack.id") func parseErrorOnStackHasStackId() async {
         var (doc, cardId) = makeDoc()
         doc.stack.script = "on openStack\n  put -int 1 into x\nend openStack"
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(
             message: "openStack",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
 
         #expect(result.status == .error)
         #expect(result.error?.objectId == doc.stack.id)
     }
 
-    @Test("parse error line number is extracted from ParseError description")
-    func parseErrorLineNumberExtracted() {
+    @Test("parse error line number is extracted from ParseError description") func parseErrorLineNumberExtracted() async {
         var (doc, cardId) = makeDoc()
         let idx = doc.cards.firstIndex { $0.id == cardId }!
         // The bogus `-int 1` is on line 3 (line 1 = `on openCard`,
@@ -137,33 +132,32 @@ struct ScriptErrorObjectIdTests {
             """
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(
             message: "openCard",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
 
         #expect(result.status == .error)
         #expect(result.error?.line == 3,
                 "ParseError's Line N prefix should be extracted into ScriptError.line")
     }
 
-    @Test("parse errors are logged to the Hype console")
-    func parseErrorIsLoggedToConsole() {
+    @Test("parse errors are logged to the Hype console") func parseErrorIsLoggedToConsole() async {
         HypeLogger.shared.clear()
         var (doc, cardId) = makeDoc()
         let idx = doc.cards.firstIndex { $0.id == cardId }!
         doc.cards[idx].script = "on openCard\n  put -int 1 into x\nend openCard"
 
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
 
         #expect(result.status == .error)
         #expect(HypeLogger.shared.entries.contains {
@@ -175,8 +169,7 @@ struct ScriptErrorObjectIdTests {
 
     // MARK: - Runtime errors carry objectId
 
-    @Test("runtime error on a card script is stamped with card.id by the dispatcher")
-    func runtimeErrorOnCardHasCardId() {
+    @Test("runtime error on a card script is stamped with card.id by the dispatcher") func runtimeErrorOnCardHasCardId() async {
         var (doc, cardId) = makeDoc()
         let idx = doc.cards.firstIndex { $0.id == cardId }!
         // This script parses fine, but hits the interpreter's
@@ -194,13 +187,13 @@ struct ScriptErrorObjectIdTests {
             """
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(
             message: "openCard",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
 
         #expect(result.status == .error)
         #expect(result.error != nil)
@@ -210,8 +203,7 @@ struct ScriptErrorObjectIdTests {
         #expect(result.error?.message.lowercased().contains("instruction limit") == true)
     }
 
-    @Test("runtime errors are logged to the Hype console")
-    func runtimeErrorIsLoggedToConsole() {
+    @Test("runtime errors are logged to the Hype console") func runtimeErrorIsLoggedToConsole() async {
         HypeLogger.shared.clear()
         var (doc, cardId) = makeDoc()
         let idx = doc.cards.firstIndex { $0.id == cardId }!
@@ -223,13 +215,13 @@ struct ScriptErrorObjectIdTests {
             end openCard
             """
 
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
 
         #expect(result.status == .error)
         #expect(HypeLogger.shared.entries.contains {
@@ -241,20 +233,19 @@ struct ScriptErrorObjectIdTests {
 
     // MARK: - Valid scripts produce nil errors
 
-    @Test("valid script returns no error and no objectId")
-    func validScriptHasNoError() {
+    @Test("valid script returns no error and no objectId") func validScriptHasNoError() async {
         var (doc, cardId) = makeDoc()
         let idx = doc.cards.firstIndex { $0.id == cardId }!
         doc.cards[idx].script = "on openCard\n  put \"hi\" into it\nend openCard"
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(
             message: "openCard",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
 
         #expect(result.status == .completed)
         #expect(result.error == nil)

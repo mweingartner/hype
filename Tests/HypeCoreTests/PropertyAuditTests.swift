@@ -45,8 +45,7 @@ struct ImageVideoObjectParsingTests {
         }
     }
 
-    @Test("get the name of image \"logo\" returns the image part's name")
-    func getImagePartName() {
+    @Test("get the name of image \"logo\" returns the image part's name") func getImagePartName() async {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id
         let img = Part(partType: .image, cardId: cardId, name: "logo")
@@ -58,17 +57,16 @@ struct ImageVideoObjectParsingTests {
           put the name of image "logo" into field "output"
         end openCard
         """
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
         let out = result.modifiedDocument?.parts.first { $0.name == "output" }
         #expect(out?.textContent == "logo")
     }
 
-    @Test("get the videourl of video \"clip\" returns the videoURL")
-    func getVideoURL() {
+    @Test("get the videourl of video \"clip\" returns the videoURL") func getVideoURL() async {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id
         var vid = Part(partType: .video, cardId: cardId, name: "clip")
@@ -81,17 +79,16 @@ struct ImageVideoObjectParsingTests {
           put the videourl of video "clip" into field "output"
         end openCard
         """
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
         let out = result.modifiedDocument?.parts.first { $0.name == "output" }
         #expect(out?.textContent == "http://example.com/movie.mp4")
     }
 
-    @Test("set the videourl of video \"clip\" writes the value")
-    func setVideoURL() {
+    @Test("set the videourl of video \"clip\" writes the value") func setVideoURL() async {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id
         let vid = Part(partType: .video, cardId: cardId, name: "clip")
@@ -101,10 +98,10 @@ struct ImageVideoObjectParsingTests {
           set the videourl of video "clip" to "http://example.com/new.mp4"
         end openCard
         """
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
         let newVid = result.modifiedDocument?.parts.first { $0.name == "clip" }
         #expect(newVid?.videoURL == "http://example.com/new.mp4")
@@ -113,8 +110,7 @@ struct ImageVideoObjectParsingTests {
 
 @Suite("Property audit: reachable Part properties", .serialized)
 struct ReachablePartPropertyTests {
-    @Test("popupitems is readable and writable on a button")
-    func popupItemsReadWrite() {
+    @Test("popupitems is readable and writable on a button") func popupItemsReadWrite() async {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id
         let btn = Part(partType: .button, cardId: cardId, name: "menu")
@@ -124,17 +120,16 @@ struct ReachablePartPropertyTests {
           set the popupitems of button "menu" to "Apple,Banana,Cherry"
         end openCard
         """
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
         let newBtn = result.modifiedDocument?.parts.first { $0.name == "menu" }
         #expect(newBtn?.popupItems == "Apple,Banana,Cherry")
     }
 
-    @Test("htmlcontent is readable and writable on a field")
-    func htmlContentReadWrite() {
+    @Test("htmlcontent is readable and writable on a field") func htmlContentReadWrite() async {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id
         let fld = Part(partType: .field, cardId: cardId, name: "html")
@@ -144,17 +139,16 @@ struct ReachablePartPropertyTests {
           set the htmlcontent of field "html" to "<b>hi</b>"
         end openCard
         """
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
         let newFld = result.modifiedDocument?.parts.first { $0.name == "html" }
         #expect(newFld?.htmlContent == "<b>hi</b>")
     }
 
-    @Test("linesize in SET is equivalent to strokewidth")
-    func linesizeAliasInSet() {
+    @Test("linesize in SET is equivalent to strokewidth") func linesizeAliasInSet() async {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id
         let shape = Part(partType: .shape, cardId: cardId, name: "box")
@@ -164,17 +158,17 @@ struct ReachablePartPropertyTests {
           set the linesize of shape "box" to 5
         end openCard
         """
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
         let newShape = result.modifiedDocument?.parts.first { $0.name == "box" }
         #expect(newShape?.strokeWidth == 5.0)
     }
 
     @Test("left_pos / top_pos aliases work in GET (mirror SET)")
-    func leftTopPosAliasInGet() {
+    func leftTopPosAliasInGet() async {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id
         var btn = Part(partType: .button, cardId: cardId, name: "b")
@@ -188,17 +182,17 @@ struct ReachablePartPropertyTests {
           put the left_pos of button "b" & "," & the top_pos of button "b" into field "out"
         end openCard
         """
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
         let outPart = result.modifiedDocument?.parts.first { $0.name == "out" }
         #expect(outPart?.textContent == "25,40")
     }
 
     @Test("fill_color underscore alias works in SET (no duplicate case)")
-    func fillColorUnderscoreInSet() {
+    func fillColorUnderscoreInSet() async {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id
         let shape = Part(partType: .shape, cardId: cardId, name: "s")
@@ -208,10 +202,10 @@ struct ReachablePartPropertyTests {
           set the fill_color of shape "s" to "#FF0000"
         end openCard
         """
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
         let newShape = result.modifiedDocument?.parts.first { $0.name == "s" }
         #expect(newShape?.fillColor == "#FF0000")
@@ -236,59 +230,55 @@ struct SpriteAreaPropertyTests {
         return (doc, cardId)
     }
 
-    @Test("scalemode is readable on spritearea")
-    func getScaleMode() {
+    @Test("scalemode is readable on spritearea") func getScaleMode() async {
         var (doc, cardId) = makeDoc()
         doc.cards[0].script = """
         on openCard
           put the scalemode of spritearea "arena" into field "out"
         end openCard
         """
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
         let out = result.modifiedDocument?.parts.first { $0.name == "out" }
         #expect(out?.textContent == "aspectFit")
     }
 
-    @Test("scalemode is writable on spritearea")
-    func setScaleMode() {
+    @Test("scalemode is writable on spritearea") func setScaleMode() async {
         var (doc, cardId) = makeDoc()
         doc.cards[0].script = """
         on openCard
           set the scalemode of spritearea "arena" to "aspectFill"
         end openCard
         """
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
         let area = result.modifiedDocument?.parts.first { $0.name == "arena" }
         #expect(area?.spriteAreaSpecModel?.scaleMode == .aspectFill)
     }
 
-    @Test("showsphysics is readable and writable")
-    func showsPhysicsReadWrite() {
+    @Test("showsphysics is readable and writable") func showsPhysicsReadWrite() async {
         var (doc, cardId) = makeDoc()
         doc.cards[0].script = """
         on openCard
           set the showsphysics of spritearea "arena" to "true"
         end openCard
         """
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
         let area = result.modifiedDocument?.parts.first { $0.name == "arena" }
         #expect(area?.spriteAreaSpecModel?.showsPhysics == true)
     }
 
-    @Test("showsfps and showsnodecount round-trip")
-    func showsFpsNodeCountRoundTrip() {
+    @Test("showsfps and showsnodecount round-trip") func showsFpsNodeCountRoundTrip() async {
         var (doc, cardId) = makeDoc()
         doc.cards[0].script = """
         on openCard
@@ -296,45 +286,43 @@ struct SpriteAreaPropertyTests {
           set the showsnodecount of spritearea "arena" to "true"
         end openCard
         """
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
         let area = result.modifiedDocument?.parts.first { $0.name == "arena" }
         #expect(area?.spriteAreaSpecModel?.showsFPS == true)
         #expect(area?.spriteAreaSpecModel?.showsNodeCount == true)
     }
 
-    @Test("scenecount returns number of scenes in sprite area")
-    func sceneCount() {
+    @Test("scenecount returns number of scenes in sprite area") func sceneCount() async {
         var (doc, cardId) = makeDoc()
         doc.cards[0].script = """
         on openCard
           put the scenecount of spritearea "arena" into field "out"
         end openCard
         """
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
         let out = result.modifiedDocument?.parts.first { $0.name == "out" }
         #expect(out?.textContent == "1")
     }
 
-    @Test("activescene returns the active scene name")
-    func activeSceneName() {
+    @Test("activescene returns the active scene name") func activeSceneName() async {
         var (doc, cardId) = makeDoc()
         doc.cards[0].script = """
         on openCard
           put the activescene of spritearea "arena" into field "out"
         end openCard
         """
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
         let out = result.modifiedDocument?.parts.first { $0.name == "out" }
         #expect(out?.textContent == "main")
@@ -344,7 +332,7 @@ struct SpriteAreaPropertyTests {
 @Suite("Property audit: physics body SET coverage", .serialized)
 struct PhysicsBodySetPropertyTests {
     /// Build a sprite area + scene + single sprite, then run `script` on the card.
-    private func runScriptAgainstSprite(_ script: String) -> HypeDocument? {
+    private func runScriptAgainstSprite(_ script: String) async -> HypeDocument? {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id
         var area = Part(partType: .spriteArea, cardId: cardId, name: "arena")
@@ -361,10 +349,10 @@ struct PhysicsBodySetPropertyTests {
         area.setSpriteAreaSpec(spec)
         doc.addPart(area)
         doc.cards[0].script = "on openCard\n\(script)\nend openCard"
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
         return result.modifiedDocument
     }
@@ -376,65 +364,57 @@ struct PhysicsBodySetPropertyTests {
         return scene.nodes.first(where: { $0.name == "ball" })
     }
 
-    @Test("set mass writes physics body mass")
-    func setMass() {
-        let doc = runScriptAgainstSprite("set the mass of sprite \"ball\" to 2.5")
+    @Test("set mass writes physics body mass") func setMass() async {
+        let doc = await runScriptAgainstSprite("set the mass of sprite \"ball\" to 2.5")
         #expect(sprite(doc)?.physicsBody?.mass == 2.5)
     }
 
-    @Test("set friction writes physics body friction")
-    func setFriction() {
-        let doc = runScriptAgainstSprite("set the friction of sprite \"ball\" to 0.7")
+    @Test("set friction writes physics body friction") func setFriction() async {
+        let doc = await runScriptAgainstSprite("set the friction of sprite \"ball\" to 0.7")
         #expect(sprite(doc)?.physicsBody?.friction == 0.7)
     }
 
-    @Test("set restitution writes physics body restitution")
-    func setRestitution() {
-        let doc = runScriptAgainstSprite("set the restitution of sprite \"ball\" to 0.9")
+    @Test("set restitution writes physics body restitution") func setRestitution() async {
+        let doc = await runScriptAgainstSprite("set the restitution of sprite \"ball\" to 0.9")
         #expect(sprite(doc)?.physicsBody?.restitution == 0.9)
     }
 
     @Test("set bounce (alias for restitution) writes physics body restitution")
-    func setBounce() {
-        let doc = runScriptAgainstSprite("set the bounce of sprite \"ball\" to 0.5")
+    func setBounce() async {
+        let doc = await runScriptAgainstSprite("set the bounce of sprite \"ball\" to 0.5")
         #expect(sprite(doc)?.physicsBody?.restitution == 0.5)
     }
 
     @Test("set isdynamic writes physics body isDynamic (false)")
-    func setIsDynamicFalse() {
-        let doc = runScriptAgainstSprite("set the isdynamic of sprite \"ball\" to \"false\"")
+    func setIsDynamicFalse() async {
+        let doc = await runScriptAgainstSprite("set the isdynamic of sprite \"ball\" to \"false\"")
         #expect(sprite(doc)?.physicsBody?.isDynamic == false)
     }
 
-    @Test("set affectedbygravity writes physics body affectedByGravity")
-    func setAffectedByGravity() {
-        let doc = runScriptAgainstSprite("set the affectedbygravity of sprite \"ball\" to \"false\"")
+    @Test("set affectedbygravity writes physics body affectedByGravity") func setAffectedByGravity() async {
+        let doc = await runScriptAgainstSprite("set the affectedbygravity of sprite \"ball\" to \"false\"")
         #expect(sprite(doc)?.physicsBody?.affectedByGravity == false)
     }
 
-    @Test("set allowsrotation writes physics body allowsRotation")
-    func setAllowsRotation() {
-        let doc = runScriptAgainstSprite("set the allowsrotation of sprite \"ball\" to \"false\"")
+    @Test("set allowsrotation writes physics body allowsRotation") func setAllowsRotation() async {
+        let doc = await runScriptAgainstSprite("set the allowsrotation of sprite \"ball\" to \"false\"")
         #expect(sprite(doc)?.physicsBody?.allowsRotation == false)
     }
 
-    @Test("set categorybitmask writes physics body categoryBitmask")
-    func setCategoryBitmask() {
-        let doc = runScriptAgainstSprite("set the categorybitmask of sprite \"ball\" to 4")
+    @Test("set categorybitmask writes physics body categoryBitmask") func setCategoryBitmask() async {
+        let doc = await runScriptAgainstSprite("set the categorybitmask of sprite \"ball\" to 4")
         #expect(sprite(doc)?.physicsBody?.categoryBitmask == 4)
     }
 
-    @Test("set collisionbitmask writes physics body collisionBitmask")
-    func setCollisionBitmask() {
-        let doc = runScriptAgainstSprite("set the collisionbitmask of sprite \"ball\" to 7")
+    @Test("set collisionbitmask writes physics body collisionBitmask") func setCollisionBitmask() async {
+        let doc = await runScriptAgainstSprite("set the collisionbitmask of sprite \"ball\" to 7")
         #expect(sprite(doc)?.physicsBody?.collisionBitmask == 7)
     }
 }
 
 @Suite("Property audit: scene width/height SET", .serialized)
 struct SceneWidthHeightSetTests {
-    @Test("set the width of scene updates size.width")
-    func setSceneWidth() {
+    @Test("set the width of scene updates size.width") func setSceneWidth() async {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id
         var area = Part(partType: .spriteArea, cardId: cardId, name: "arena")
@@ -449,17 +429,16 @@ struct SceneWidthHeightSetTests {
           set the width of scene "main" to 800
         end openCard
         """
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
         let area2 = result.modifiedDocument?.parts.first { $0.name == "arena" }
         #expect(area2?.spriteAreaSpecModel?.activeScene?.size.width == 800)
     }
 
-    @Test("set the height of scene updates size.height")
-    func setSceneHeight() {
+    @Test("set the height of scene updates size.height") func setSceneHeight() async {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id
         var area = Part(partType: .spriteArea, cardId: cardId, name: "arena")
@@ -474,10 +453,10 @@ struct SceneWidthHeightSetTests {
           set the height of scene "main" to 600
         end openCard
         """
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
         let area2 = result.modifiedDocument?.parts.first { $0.name == "arena" }
         #expect(area2?.spriteAreaSpecModel?.activeScene?.size.height == 600)

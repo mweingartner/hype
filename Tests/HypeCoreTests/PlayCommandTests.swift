@@ -114,7 +114,7 @@ struct PlayCommandTests {
 
     // MARK: - Interpreter tests
 
-    @Test func theSoundPropertyReturnsDone() {
+    @Test func theSoundPropertyReturnsDone() async {
         // `the sound` should return "done" when no sound is playing.
         // This exercises the global-property path in evaluateProperty
         // (not the evaluateBuiltIn function-call path).
@@ -133,13 +133,13 @@ struct PlayCommandTests {
         }
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(
             message: "openCard",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
 
         #expect(result.status == .completed)
         let outputField = result.modifiedDocument?.parts.first(where: { $0.name == "output" })

@@ -71,8 +71,7 @@ struct AnimateCommandTests {
 
     // MARK: - Interpreter tests
 
-    @Test("animate command executes without crash")
-    func animateExecutesCleanly() {
+    @Test("animate command executes without crash") func animateExecutesCleanly() async {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id
         var btn = Part(partType: .button, cardId: cardId, name: "ball",
@@ -83,18 +82,17 @@ struct AnimateCommandTests {
           animate the loc of button "ball" to "400,300" over 0.5
         end openCard
         """
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         // animate is non-blocking — the command returns immediately
         // without error, even though the animation runs async
         #expect(result.status == .completed,
                 "animate should not error: \(result.error?.message ?? "")")
     }
 
-    @Test("the animating of button returns false when no animation active")
-    func animatingPropertyDefaultsFalse() {
+    @Test("the animating of button returns false when no animation active") func animatingPropertyDefaultsFalse() async {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id
         var btn = Part(partType: .button, cardId: cardId, name: "ball")
@@ -106,10 +104,10 @@ struct AnimateCommandTests {
           put the animating of button "ball" into field "out"
         end openCard
         """
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard", params: [], targetId: cardId,
             document: doc, currentCardId: cardId
-        )
+        ) }
         let output = result.modifiedDocument?.parts.first { $0.name == "out" }
         #expect(output?.textContent == "false")
     }

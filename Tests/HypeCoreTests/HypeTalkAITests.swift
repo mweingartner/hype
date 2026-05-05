@@ -52,18 +52,20 @@ private func makeAIScriptDoc() -> (HypeDocument, UUID, UUID) {
 private func runAIScript(
     _ script: String,
     provider: any AIScriptingProvider
-) -> ExecutionResult {
+) async -> ExecutionResult {
     var (doc, cardId, buttonId) = makeAIScriptDoc()
     doc.updatePart(id: buttonId) { $0.script = script }
     let dispatcher = MessageDispatcher()
-    return dispatcher.dispatch(
-        message: "mouseUp",
-        params: [],
-        targetId: buttonId,
-        document: doc,
-        currentCardId: cardId,
-        aiProvider: provider
-    )
+    return await runOnLargeStack { [doc, cardId, buttonId] in
+        dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: buttonId,
+            document: doc,
+            currentCardId: cardId,
+            aiProvider: provider
+        )
+    }
 }
 
 private func outputText(from result: ExecutionResult) -> String? {
@@ -79,8 +81,7 @@ struct HypeTalkAITests {
         return (try? parser.parse()) != nil
     }
 
-    @Test("parses ask ai with explicit model")
-    func parseAskAIWithModel() {
+    @Test("parses ask ai with explicit model") func parseAskAIWithModel() async {
         #expect(parse("""
         on mouseUp
           ask ai "Write a loading screen hint" with model "phi4"
@@ -88,8 +89,7 @@ struct HypeTalkAITests {
         """))
     }
 
-    @Test("parses prefix ollama function syntax")
-    func parsePrefixOllamaFunction() {
+    @Test("parses prefix ollama function syntax") func parsePrefixOllamaFunction() async {
         #expect(parse("""
         on mouseUp
           put ollama "Write one line of dialog" into field "output"
@@ -97,10 +97,9 @@ struct HypeTalkAITests {
         """))
     }
 
-    @Test("ask ai stores the generated text in it")
-    func askAIStoresGeneratedTextInIt() {
+    @Test("ask ai stores the generated text in it") func askAIStoresGeneratedTextInIt() async {
         let provider = RecordingAIProvider(generated: "Scene summary")
-        let result = runAIScript("""
+        let result = await runAIScript("""
         on mouseUp
           ask ai "Summarize this scene"
           put it into field "output"
@@ -113,10 +112,9 @@ struct HypeTalkAITests {
         #expect(provider.probe.models == [nil])
     }
 
-    @Test("ask ai with model passes the requested model name")
-    func askAIWithModelUsesRequestedModel() {
+    @Test("ask ai with model passes the requested model name") func askAIWithModelUsesRequestedModel() async {
         let provider = RecordingAIProvider(generated: "Boss encounter")
-        let result = runAIScript("""
+        let result = await runAIScript("""
         on mouseUp
           ask ai "Write a boss intro" with model "phi4-mini"
           put it into field "output"
@@ -129,9 +127,9 @@ struct HypeTalkAITests {
     }
 
     @Test("ollama(model, prompt) works as an expression")
-    func ollamaFunctionWithExplicitModel() {
+    func ollamaFunctionWithExplicitModel() async {
         let provider = RecordingAIProvider(generated: "Quest accepted")
-        let result = runAIScript("""
+        let result = await runAIScript("""
         on mouseUp
           put ollama("mistral-small", "Write a quest acceptance line") into field "output"
         end mouseUp
@@ -143,10 +141,9 @@ struct HypeTalkAITests {
         #expect(provider.probe.models == ["mistral-small"])
     }
 
-    @Test("the aiModel returns the configured current model")
-    func aiModelPropertyReturnsCurrentModel() {
+    @Test("the aiModel returns the configured current model") func aiModelPropertyReturnsCurrentModel() async {
         let provider = RecordingAIProvider(current: "qwen3")
-        let result = runAIScript("""
+        let result = await runAIScript("""
         on mouseUp
           put the aiModel into field "output"
         end mouseUp
@@ -156,12 +153,11 @@ struct HypeTalkAITests {
         #expect(outputText(from: result) == "qwen3")
     }
 
-    @Test("the aiModels returns a line-delimited model list")
-    func aiModelsPropertyReturnsLines() {
+    @Test("the aiModels returns a line-delimited model list") func aiModelsPropertyReturnsLines() async {
         let provider = RecordingAIProvider(
             available: ["llama3.2", "phi4-mini", "mistral-small"]
         )
-        let result = runAIScript("""
+        let result = await runAIScript("""
         on mouseUp
           put line 2 of the aiModels into field "output"
         end mouseUp

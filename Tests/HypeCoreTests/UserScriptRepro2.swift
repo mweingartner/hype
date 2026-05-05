@@ -188,17 +188,17 @@ struct UserScriptRepro2Tests {
         doc: HypeDocument,
         cardId: UUID,
         shapeId: UUID
-    ) -> HypeDocument {
+    ) async -> HypeDocument {
         var current = doc
         let dispatcher = MessageDispatcher()
         for _ in 0..<count {
-            let result = dispatcher.dispatch(
+            let result = await runOnLargeStack { [current, shapeId, cardId] in dispatcher.dispatch(
                 message: "idle",
                 params: [],
                 targetId: shapeId,
                 document: current,
                 currentCardId: cardId
-            )
+            ) }
             if let modified = result.modifiedDocument {
                 current = modified
             }
@@ -206,8 +206,7 @@ struct UserScriptRepro2Tests {
         return current
     }
 
-    @Test("idle handler on a shape mutates the shape's position via 'set the loc of me'")
-    func idleMovesShapeViaLocOfMe() {
+    @Test("idle handler on a shape mutates the shape's position via 'set the loc of me'") func idleMovesShapeViaLocOfMe() async {
         var (doc, cardId, shapeId) = makeDocWithShapeAndIdle()
         let original = doc.parts.first(where: { $0.id == shapeId })!
         let origLeft = original.left
@@ -229,7 +228,7 @@ struct UserScriptRepro2Tests {
         doc.scriptGlobals["dy"] = "2"
         doc.scriptGlobals["rot"] = "0"
 
-        let modified = dispatchIdleTicks(10, doc: doc, cardId: cardId, shapeId: shapeId)
+        let modified = await dispatchIdleTicks(10, doc: doc, cardId: cardId, shapeId: shapeId)
         guard let shape = modified.parts.first(where: { $0.id == shapeId }) else {
             Issue.record("shape missing from modified document")
             return
@@ -242,10 +241,9 @@ struct UserScriptRepro2Tests {
                 "shape didn't move after 10 idle ticks with seeded dx=3, dy=2 (left=\(shape.left), top=\(shape.top))")
     }
 
-    @Test("idle handler on a shape sets rotation via 'set the rotation of me'")
-    func idleRotatesShape() {
+    @Test("idle handler on a shape sets rotation via 'set the rotation of me'") func idleRotatesShape() async {
         let (doc, cardId, shapeId) = makeDocWithShapeAndIdle()
-        let modified = dispatchIdleTicks(5, doc: doc, cardId: cardId, shapeId: shapeId)
+        let modified = await dispatchIdleTicks(5, doc: doc, cardId: cardId, shapeId: shapeId)
         guard let shape = modified.parts.first(where: { $0.id == shapeId }) else {
             Issue.record("shape missing from modified document")
             return

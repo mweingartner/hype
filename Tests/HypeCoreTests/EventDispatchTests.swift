@@ -10,7 +10,7 @@ import Foundation
 /// bug — `Coordinator.dispatchMessageToCard` in `CardCanvasView`
 /// (and every lifecycle dispatch in `MainContentView`) was
 /// calling `MessageDispatcher.dispatch(...)` with
-/// `let _ = dispatcher.dispatch(...)`, throwing away the
+/// `let _ = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(...) }`, throwing away the
 /// `ExecutionResult`. Handlers ran, mutated the document via the
 /// interpreter's `ExecutionContext`, and then had their entire
 /// modified document silently discarded. That's why `on idle /
@@ -51,8 +51,7 @@ struct EventDispatchTests {
 
     // MARK: - Idle on card
 
-    @Test("idle handler on card mutates document and returns modifiedDocument")
-    func idleOnCardReturnsModifiedDoc() {
+    @Test("idle handler on card mutates document and returns modifiedDocument") func idleOnCardReturnsModifiedDoc() async {
         var (doc, cardId) = makeDocWithOneCard()
         let cardIndex = doc.cards.firstIndex(where: { $0.id == cardId })!
         doc.cards[cardIndex].script = """
@@ -62,13 +61,13 @@ struct EventDispatchTests {
             """
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(
             message: "idle",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
 
         #expect(result.status == .completed)
         #expect(result.modifiedDocument != nil,
@@ -77,8 +76,7 @@ struct EventDispatchTests {
         #expect(modifiedField?.textContent == "tick")
     }
 
-    @Test("idle handler on background fires when dispatched to card")
-    func idleOnBackgroundFiresViaHierarchy() {
+    @Test("idle handler on background fires when dispatched to card") func idleOnBackgroundFiresViaHierarchy() async {
         var (doc, cardId) = makeDocWithOneCard()
         let bgIndex = doc.backgrounds.firstIndex(where: {
             $0.id == doc.cards[0].backgroundId
@@ -90,18 +88,17 @@ struct EventDispatchTests {
             """
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(
             message: "idle",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.modifiedDocument?.parts.first(where: { $0.name == "log" })?.textContent == "bg")
     }
 
-    @Test("idle handler on stack fires when card has no handler")
-    func idleOnStackFiresViaHierarchy() {
+    @Test("idle handler on stack fires when card has no handler") func idleOnStackFiresViaHierarchy() async {
         var (doc, cardId) = makeDocWithOneCard()
         doc.stack.script = """
             on idle
@@ -110,18 +107,18 @@ struct EventDispatchTests {
             """
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(
             message: "idle",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.modifiedDocument?.parts.first(where: { $0.name == "log" })?.textContent == "stack")
     }
 
     @Test("idle handler on card supersedes background handler (first wins)")
-    func idleCardSupersedesBackground() {
+    func idleCardSupersedesBackground() async {
         var (doc, cardId) = makeDocWithOneCard()
         let cardIndex = doc.cards.firstIndex(where: { $0.id == cardId })!
         let bgIndex = doc.backgrounds.firstIndex(where: {
@@ -139,18 +136,17 @@ struct EventDispatchTests {
             """
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(
             message: "idle",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.modifiedDocument?.parts.first(where: { $0.name == "log" })?.textContent == "card")
     }
 
-    @Test("pass idle bubbles from card to background")
-    func passIdleBubbles() {
+    @Test("pass idle bubbles from card to background") func passIdleBubbles() async {
         var (doc, cardId) = makeDocWithOneCard()
         let cardIndex = doc.cards.firstIndex(where: { $0.id == cardId })!
         let bgIndex = doc.backgrounds.firstIndex(where: {
@@ -168,20 +164,19 @@ struct EventDispatchTests {
             """
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(
             message: "idle",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.modifiedDocument?.parts.first(where: { $0.name == "log" })?.textContent == "bg-after-pass")
     }
 
     // MARK: - Idle on a specific part
 
-    @Test("idle handler on a part mutates document")
-    func idleOnPartMutatesDoc() {
+    @Test("idle handler on a part mutates document") func idleOnPartMutatesDoc() async {
         var (doc, cardId) = makeDocWithOneCard()
         var button = Part(
             partType: .button,
@@ -197,20 +192,19 @@ struct EventDispatchTests {
         doc.addPart(button)
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId, button] in dispatcher.dispatch(
             message: "idle",
             params: [],
             targetId: button.id,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.modifiedDocument?.parts.first(where: { $0.name == "log" })?.textContent == "part-tick")
     }
 
     // MARK: - Other card-level events
 
-    @Test("enterKey handler on card mutates document")
-    func enterKeyReturnsModifiedDoc() {
+    @Test("enterKey handler on card mutates document") func enterKeyReturnsModifiedDoc() async {
         var (doc, cardId) = makeDocWithOneCard()
         let cardIndex = doc.cards.firstIndex(where: { $0.id == cardId })!
         doc.cards[cardIndex].script = """
@@ -219,18 +213,17 @@ struct EventDispatchTests {
             end enterKey
             """
 
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "enterKey",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.modifiedDocument?.parts.first(where: { $0.name == "log" })?.textContent == "entered")
     }
 
-    @Test("returnKey handler on stack mutates document")
-    func returnKeyOnStackMutates() {
+    @Test("returnKey handler on stack mutates document") func returnKeyOnStackMutates() async {
         var (doc, cardId) = makeDocWithOneCard()
         doc.stack.script = """
             on returnKey
@@ -238,18 +231,17 @@ struct EventDispatchTests {
             end returnKey
             """
 
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "returnKey",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.modifiedDocument?.parts.first(where: { $0.name == "log" })?.textContent == "ret")
     }
 
-    @Test("keyDown handler on card mutates document")
-    func keyDownReturnsModifiedDoc() {
+    @Test("keyDown handler on card mutates document") func keyDownReturnsModifiedDoc() async {
         var (doc, cardId) = makeDocWithOneCard()
         let cardIndex = doc.cards.firstIndex(where: { $0.id == cardId })!
         doc.cards[cardIndex].script = """
@@ -258,20 +250,19 @@ struct EventDispatchTests {
             end keyDown
             """
 
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "keyDown",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.modifiedDocument?.parts.first(where: { $0.name == "log" })?.textContent == "keyed")
     }
 
     // MARK: - Lifecycle events
 
-    @Test("openCard handler mutates document")
-    func openCardMutatesDocument() {
+    @Test("openCard handler mutates document") func openCardMutatesDocument() async {
         var (doc, cardId) = makeDocWithOneCard()
         let cardIndex = doc.cards.firstIndex(where: { $0.id == cardId })!
         doc.cards[cardIndex].script = """
@@ -280,18 +271,17 @@ struct EventDispatchTests {
             end openCard
             """
 
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openCard",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.modifiedDocument?.parts.first(where: { $0.name == "log" })?.textContent == "opened")
     }
 
-    @Test("closeCard handler on background mutates document")
-    func closeCardOnBackgroundMutates() {
+    @Test("closeCard handler on background mutates document") func closeCardOnBackgroundMutates() async {
         var (doc, cardId) = makeDocWithOneCard()
         let bgIndex = doc.backgrounds.firstIndex(where: {
             $0.id == doc.cards[0].backgroundId
@@ -302,18 +292,17 @@ struct EventDispatchTests {
             end closeCard
             """
 
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "closeCard",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.modifiedDocument?.parts.first(where: { $0.name == "log" })?.textContent == "closing")
     }
 
-    @Test("openStack handler on stack mutates document")
-    func openStackMutatesDocument() {
+    @Test("openStack handler on stack mutates document") func openStackMutatesDocument() async {
         var (doc, cardId) = makeDocWithOneCard()
         doc.stack.script = """
             on openStack
@@ -321,18 +310,17 @@ struct EventDispatchTests {
             end openStack
             """
 
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openStack",
             params: [],
             targetId: doc.stack.id,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.modifiedDocument?.parts.first(where: { $0.name == "log" })?.textContent == "stack-open")
     }
 
-    @Test("openBackground handler on background mutates document")
-    func openBackgroundMutates() {
+    @Test("openBackground handler on background mutates document") func openBackgroundMutates() async {
         var (doc, cardId) = makeDocWithOneCard()
         let bgIndex = doc.backgrounds.firstIndex(where: {
             $0.id == doc.cards[0].backgroundId
@@ -344,18 +332,17 @@ struct EventDispatchTests {
             end openBackground
             """
 
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "openBackground",
             params: [],
             targetId: bgId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.modifiedDocument?.parts.first(where: { $0.name == "log" })?.textContent == "bg-open")
     }
 
-    @Test("quit handler on card mutates document")
-    func quitHandlerMutates() {
+    @Test("quit handler on card mutates document") func quitHandlerMutates() async {
         var (doc, cardId) = makeDocWithOneCard()
         let cardIndex = doc.cards.firstIndex(where: { $0.id == cardId })!
         doc.cards[cardIndex].script = """
@@ -364,28 +351,27 @@ struct EventDispatchTests {
             end quit
             """
 
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "quit",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.modifiedDocument?.parts.first(where: { $0.name == "log" })?.textContent == "bye")
     }
 
     // MARK: - No-handler path
 
-    @Test("dispatch with no matching handler returns completed with nil modifiedDocument")
-    func noHandlerReturnsCompleted() {
+    @Test("dispatch with no matching handler returns completed with nil modifiedDocument") func noHandlerReturnsCompleted() async {
         let (doc, cardId) = makeDocWithOneCard()
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "idle",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed)
         // With no handler that matches, nothing to modify — modifiedDocument
         // MAY be nil or unchanged; the important thing is no crash.
@@ -394,8 +380,7 @@ struct EventDispatchTests {
 
     // MARK: - Sprite-area idle (the specific use case the user hit)
 
-    @Test("idle handler moving a sprite inside a sprite area mutates the scene spec")
-    func idleMovingSpriteMutatesSceneSpec() throws {
+    @Test("idle handler moving a sprite inside a sprite area mutates the scene spec") func idleMovingSpriteMutatesSceneSpec() async throws {
         var (doc, cardId) = makeDocWithOneCard()
         // Give the card a sprite area with one sprite node.
         var spriteArea = Part(
@@ -422,13 +407,13 @@ struct EventDispatchTests {
             end idle
             """
 
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "idle",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         // This is THE exact bug-reproduction: if modifiedDocument is
         // nil here, the view layer's idle dispatch has nothing to
         // write back and the sprite never moves.
@@ -446,8 +431,7 @@ struct EventDispatchTests {
         #expect(updatedBall?.position.y == 100)
     }
 
-    @Test("sprite dispatch context bubbles node to group to scene to part and onward through card hierarchy")
-    func spriteDispatchContextBubblesThroughFullHierarchy() {
+    @Test("sprite dispatch context bubbles node to group to scene to part and onward through card hierarchy") func spriteDispatchContextBubblesThroughFullHierarchy() async {
         var (doc, cardId) = makeDocWithOneCard()
 
         let spriteId = UUID()
@@ -552,14 +536,14 @@ struct EventDispatchTests {
             ]
         )
 
-        let result = MessageDispatcher().dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
             message: "mouseDown",
             params: [],
             targetId: spriteId,
             document: doc,
             currentCardId: cardId,
             scriptContext: context
-        )
+        ) }
 
         #expect(result.status == .completed)
         #expect(result.modifiedDocument?.parts.first(where: { $0.name == "log" })?.textContent == "node>group>scene>part>card>bg>stack")
@@ -567,8 +551,7 @@ struct EventDispatchTests {
 
     // MARK: - Hierarchy completeness spot-check
 
-    @Test("every level of the hierarchy can handle a lifecycle event")
-    func everyHierarchyLevelCanHandle() {
+    @Test("every level of the hierarchy can handle a lifecycle event") func everyHierarchyLevelCanHandle() async {
         // Confirm the same message routes to whichever level has
         // the handler. The previous regression was specifically
         // that the VIEW layer discarded the result — NOT that
@@ -594,13 +577,13 @@ struct EventDispatchTests {
         for (label, setup) in levels {
             var (doc, cardId) = makeDocWithOneCard()
             let target = setup(&doc, cardId)
-            let result = MessageDispatcher().dispatch(
+            let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
                 message: "openCard",
                 params: [],
                 targetId: target,
                 document: doc,
                 currentCardId: cardId
-            )
+            ) }
             #expect(result.modifiedDocument?.parts.first(where: { $0.name == "log" })?.textContent == "L",
                     "handler at level '\(label)' did not mutate document")
         }

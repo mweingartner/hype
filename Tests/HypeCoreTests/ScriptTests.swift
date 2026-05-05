@@ -114,7 +114,7 @@ struct ParserTests {
         }
     }
 
-    @Test func parsesIfThenElse() throws {
+    @Test func parsesIfThenElse() async throws {
         var lexer = Lexer(source: """
         on test
           if x = 1 then
@@ -137,7 +137,7 @@ struct ParserTests {
         }
     }
 
-    @Test func parsesRepeatCount() throws {
+    @Test func parsesRepeatCount() async throws {
         var lexer = Lexer(source: """
         on test
           repeat 5
@@ -159,7 +159,7 @@ struct ParserTests {
         }
     }
 
-    @Test func parsesHandlerWithParams() throws {
+    @Test func parsesHandlerWithParams() async throws {
         var lexer = Lexer(source: """
         on greet name, greeting
           put greeting & " " & name into msg
@@ -192,7 +192,7 @@ struct InterpreterTests {
         return interpreter.execute(handler: handler, params: params, context: context)
     }
 
-    @Test func evaluatesArithmetic() {
+    @Test func evaluatesArithmetic() async {
         let result = executeScript("""
         on test
           put 2 + 3 into x
@@ -306,7 +306,7 @@ struct InterpreterTests {
 @Suite("MessageDispatcher Tests", .serialized)
 struct MessageDispatcherTests {
 
-    @Test func dispatchesToPartScript() {
+    @Test func dispatchesToPartScript() async {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
         var btn = Part(partType: .button, cardId: cardId, name: "TestBtn")
@@ -318,18 +318,18 @@ struct MessageDispatcherTests {
         doc.addPart(btn)
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId, btn] in dispatcher.dispatch(
             message: "mouseUp",
             params: [],
             targetId: btn.id,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed)
         #expect(result.returnValue == "clicked")
     }
 
-    @Test func passedMessageContinuesUpHierarchy() {
+    @Test func passedMessageContinuesUpHierarchy() async {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
         var btn = Part(partType: .button, cardId: cardId, name: "PassBtn")
@@ -341,17 +341,17 @@ struct MessageDispatcherTests {
         doc.addPart(btn)
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId, btn] in dispatcher.dispatch(
             message: "mouseUp",
             params: [],
             targetId: btn.id,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed)
     }
 
-    @Test func passedMessageCaughtByCardScript() {
+    @Test func passedMessageCaughtByCardScript() async {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
 
@@ -378,19 +378,19 @@ struct MessageDispatcherTests {
         }
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId, btn] in dispatcher.dispatch(
             message: "mouseUp",
             params: [],
             targetId: btn.id,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed)
         let outputField = result.modifiedDocument?.parts.first(where: { $0.name == "output" })
         #expect(outputField?.textContent == "card caught it")
     }
 
-    @Test func messagePassesThroughCardToBackground() {
+    @Test func messagePassesThroughCardToBackground() async {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
         let bgId = doc.cards[0].backgroundId
@@ -415,19 +415,19 @@ struct MessageDispatcherTests {
         }
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(
             message: "mouseUp",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed)
         let outputField = result.modifiedDocument?.parts.first(where: { $0.name == "output" })
         #expect(outputField?.textContent == "bg caught it")
     }
 
-    @Test func messageReachesStackScript() {
+    @Test func messageReachesStackScript() async {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
 
@@ -442,13 +442,13 @@ struct MessageDispatcherTests {
         """
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(
             message: "mouseUp",
             params: [],
             targetId: cardId,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
         #expect(result.status == .completed)
         let outputField = result.modifiedDocument?.parts.first(where: { $0.name == "output" })
         #expect(outputField?.textContent == "stack caught it")
@@ -458,7 +458,7 @@ struct MessageDispatcherTests {
 @Suite("Go Navigation Integration", .serialized)
 struct GoNavigationTests {
 
-    @Test func goPreviousFromSecondCard() {
+    @Test func goPreviousFromSecondCard() async {
         var doc = HypeDocument.newDocument(name: "Nav Test")
         let _ = doc.addCard()
         let sorted = doc.sortedCards
@@ -471,19 +471,19 @@ struct GoNavigationTests {
         doc.addPart(btn)
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, btn] in dispatcher.dispatch(
             message: "mouseUp",
             params: [],
             targetId: btn.id,
             document: doc,
             currentCardId: card2.id
-        )
+        ) }
 
         #expect(result.status == .completed)
         #expect(result.navigationTarget == card1.id, "go previous should navigate to card 1, got \(String(describing: result.navigationTarget))")
     }
 
-    @Test func goNextFromFirstCard() {
+    @Test func goNextFromFirstCard() async {
         var doc = HypeDocument.newDocument(name: "Nav Test")
         let _ = doc.addCard()
         let sorted = doc.sortedCards
@@ -495,13 +495,13 @@ struct GoNavigationTests {
         doc.addPart(btn)
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, btn] in dispatcher.dispatch(
             message: "mouseUp",
             params: [],
             targetId: btn.id,
             document: doc,
             currentCardId: card1.id
-        )
+        ) }
 
         #expect(result.status == .completed)
         #expect(result.navigationTarget == card2.id, "go next should navigate to card 2, got \(String(describing: result.navigationTarget))")
@@ -511,7 +511,7 @@ struct GoNavigationTests {
 @Suite("Put Into Field Integration", .serialized)
 struct PutIntoFieldTests {
 
-    @Test func putIntoFieldByName() {
+    @Test func putIntoFieldByName() async {
         var doc = HypeDocument.newDocument(name: "Put Test")
         let cardId = doc.cards[0].id
 
@@ -526,13 +526,13 @@ struct PutIntoFieldTests {
         doc.addPart(btn)
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId, btn] in dispatcher.dispatch(
             message: "mouseUp",
             params: [],
             targetId: btn.id,
             document: doc,
             currentCardId: cardId
-        )
+        ) }
 
         #expect(result.status == .completed)
         // The modified document should have the field's textContent updated
@@ -544,7 +544,7 @@ struct PutIntoFieldTests {
 
 @Suite("Parser Put Into Field", .serialized)
 struct ParserPutTests {
-    @Test func parsePutIntoField() throws {
+    @Test func parsePutIntoField() async throws {
         let source = "on mouseUp\n  put \"Hello\" into field \"url\"\nend mouseUp"
         var lexer = Lexer(source: source)
         let tokens = lexer.tokenize()
@@ -584,7 +584,7 @@ struct ParserPutTests {
 @Suite("If/Then/Else Tests", .serialized)
 struct IfThenElseTests {
 
-    @Test func ifElseWithHiliteTrue() {
+    @Test func ifElseWithHiliteTrue() async {
         var doc = HypeDocument()
         let card = doc.addCard()
         let cardId = card.id
@@ -607,14 +607,14 @@ struct IfThenElseTests {
         doc.addPart(field)
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(message: "mouseUp", params: [], targetId: toggle.id, document: doc, currentCardId: cardId)
+        let result = await runOnLargeStack { [doc, cardId, toggle] in dispatcher.dispatch(message: "mouseUp", params: [], targetId: toggle.id, document: doc, currentCardId: cardId) }
 
         #expect(result.status != .error, "Script should not error: \(result.error?.message ?? "")")
         let statusField = result.modifiedDocument?.parts.first(where: { $0.name == "status" })
         #expect(statusField?.textContent == "Checked!", "Expected 'Checked!' but got '\(statusField?.textContent ?? "nil")'")
     }
 
-    @Test func ifElseWithHiliteFalse() {
+    @Test func ifElseWithHiliteFalse() async {
         var doc = HypeDocument()
         let card = doc.addCard()
         let cardId = card.id
@@ -637,7 +637,7 @@ struct IfThenElseTests {
         doc.addPart(field)
 
         let dispatcher = MessageDispatcher()
-        let result = dispatcher.dispatch(message: "mouseUp", params: [], targetId: toggle.id, document: doc, currentCardId: cardId)
+        let result = await runOnLargeStack { [doc, cardId, toggle] in dispatcher.dispatch(message: "mouseUp", params: [], targetId: toggle.id, document: doc, currentCardId: cardId) }
 
         #expect(result.status != .error, "Script should not error: \(result.error?.message ?? "")")
         let statusField = result.modifiedDocument?.parts.first(where: { $0.name == "status" })
@@ -647,7 +647,7 @@ struct IfThenElseTests {
 
 @Suite("Debug If/Else", .serialized)
 struct DebugIfElseTests {
-    @Test func debugTokensAndParse() {
+    @Test func debugTokensAndParse() async {
         let script = """
         on mouseUp
           if the hilite of me is "true" then
@@ -699,8 +699,7 @@ struct NumberOfExpressionTests {
         }
     }
 
-    @Test("'the number of bg fields' parses without error")
-    func numberOfBgFields() {
+    @Test("'the number of bg fields' parses without error") func numberOfBgFields() async {
         let err = parseError("""
             on test
               put the number of bg fields into n
@@ -709,8 +708,7 @@ struct NumberOfExpressionTests {
         #expect(err == nil, "number of bg fields failed: \(err ?? "")")
     }
 
-    @Test("'the number of background fields' parses without error")
-    func numberOfBackgroundFields() {
+    @Test("'the number of background fields' parses without error") func numberOfBackgroundFields() async {
         let err = parseError("""
             on test
               put the number of background fields into n
@@ -719,8 +717,7 @@ struct NumberOfExpressionTests {
         #expect(err == nil, "number of background fields failed: \(err ?? "")")
     }
 
-    @Test("'the number of bg buttons' parses without error")
-    func numberOfBgButtons() {
+    @Test("'the number of bg buttons' parses without error") func numberOfBgButtons() async {
         let err = parseError("""
             on test
               put the number of bg buttons into n
@@ -729,8 +726,7 @@ struct NumberOfExpressionTests {
         #expect(err == nil, "number of bg buttons failed: \(err ?? "")")
     }
 
-    @Test("'the number of backgrounds' parses without error")
-    func numberOfBackgrounds() {
+    @Test("'the number of backgrounds' parses without error") func numberOfBackgrounds() async {
         let err = parseError("""
             on test
               put the number of backgrounds into n
@@ -739,8 +735,7 @@ struct NumberOfExpressionTests {
         #expect(err == nil, "number of backgrounds failed: \(err ?? "")")
     }
 
-    @Test("'the number of cards div 2' parses without error")
-    func numberOfCardsDivTwo() {
+    @Test("'the number of cards div 2' parses without error") func numberOfCardsDivTwo() async {
         let err = parseError("""
             on test
               put the number of cards div 2 into n
@@ -749,8 +744,7 @@ struct NumberOfExpressionTests {
         #expect(err == nil, "number of cards div 2 failed: \(err ?? "")")
     }
 
-    @Test("'the number of cards mod 3' parses without error")
-    func numberOfCardsModThree() {
+    @Test("'the number of cards mod 3' parses without error") func numberOfCardsModThree() async {
         let err = parseError("""
             on test
               put the number of cards mod 3 into n
@@ -759,8 +753,7 @@ struct NumberOfExpressionTests {
         #expect(err == nil, "number of cards mod 3 failed: \(err ?? "")")
     }
 
-    @Test("'the number of card fields' parses without error")
-    func numberOfCardFields() {
+    @Test("'the number of card fields' parses without error") func numberOfCardFields() async {
         let err = parseError("""
             on test
               put the number of card fields into n
@@ -769,8 +762,7 @@ struct NumberOfExpressionTests {
         #expect(err == nil, "number of card fields failed: \(err ?? "")")
     }
 
-    @Test("'the number of card buttons' parses without error")
-    func numberOfCardButtons() {
+    @Test("'the number of card buttons' parses without error") func numberOfCardButtons() async {
         let err = parseError("""
             on test
               put the number of card buttons into n
@@ -793,8 +785,7 @@ struct NumberOfExpressionTests {
         return interpreter.execute(handler: handler, params: [], context: context)
     }
 
-    @Test("number of bg fields returns correct count")
-    func numberOfBgFieldsInterpreter() {
+    @Test("number of bg fields returns correct count") func numberOfBgFieldsInterpreter() async {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
         let bgId = doc.cards[0].backgroundId
@@ -816,8 +807,7 @@ struct NumberOfExpressionTests {
         #expect(result.returnValue == "2")
     }
 
-    @Test("number of backgrounds returns correct count")
-    func numberOfBackgroundsInterpreter() {
+    @Test("number of backgrounds returns correct count") func numberOfBackgroundsInterpreter() async {
         var doc = HypeDocument.newDocument()
         let _ = doc.addBackground(name: "Second BG")
         let _ = doc.addBackground(name: "Third BG")
@@ -832,8 +822,7 @@ struct NumberOfExpressionTests {
         #expect(result.returnValue == "3")
     }
 
-    @Test("number of cards div 2 returns half the card count")
-    func numberOfCardsDivTwoInterpreter() {
+    @Test("number of cards div 2 returns half the card count") func numberOfCardsDivTwoInterpreter() async {
         var doc = HypeDocument.newDocument()
         let _ = doc.addCard()
         let _ = doc.addCard()

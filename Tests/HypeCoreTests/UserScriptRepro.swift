@@ -200,12 +200,11 @@ struct UserScriptReproTests {
         return (doc, cardId)
     }
 
-    @Test("user's rainbow idle handler mutates per-point colors on each tick")
-    func userScriptIdleMutatesColors() {
+    @Test("user's rainbow idle handler mutates per-point colors on each tick") func userScriptIdleMutatesColors() async {
         let (doc, cardId) = makeDocWithRainbowScript()
         let dispatcher = MessageDispatcher()
         // Use a no-op dialog provider so `answer` doesn't block a test run.
-        let result = dispatcher.dispatch(
+        let result = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(
             message: "idle",
             params: [],
             targetId: cardId,
@@ -213,7 +212,7 @@ struct UserScriptReproTests {
             currentCardId: cardId,
             dialogProvider: StubDialogProvider(),
             drawingProvider: StubDrawingProvider()
-        )
+        ) }
         #expect(result.status == .completed,
                 "idle dispatch didn't complete: status=\(result.status)")
         #expect(result.modifiedDocument != nil,
