@@ -57,7 +57,7 @@ public enum HypeTalkGuide {
         ## Common events
         mouseUp, mouseDown, mouseDragged, mouseWithin, mouseEnter, mouseLeave,
         openCard, closeCard, openBackground, closeBackground, openStack, closeStack,
-        openField, closeField, enterKey, keyDown, keyUp, idle,
+        openField, closeField, enterKey (alias: enter), keyDown, keyUp, idle,
         openScene, closeScene, sceneDidLoad, frameUpdate,
         beginContact, endContact, actionFinished.
 
@@ -88,6 +88,9 @@ public enum HypeTalkGuide {
         ## Properties — get and set
             put the name of button "OK" into n
             set the text of field "input" to "hello"
+            put the text of field "input" into s         -- read field text
+            put the value of field "input" into s        -- alias for the above
+            set the value of field "input" to "world"    -- alias setter
             set the visible of field "info" to false       -- hide a field
             set the visible of image "logo" to true        -- show an image
             set the visible of button "OK" to false        -- hide a button

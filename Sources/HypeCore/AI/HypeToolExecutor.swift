@@ -1464,6 +1464,11 @@ public struct HypeToolExecutor: Sendable {
                         document.parts[index].gaugeValue = min(gMax, max(gMin, Double(value) ?? 0))
                     case .toggle:
                         document.parts[index].controlValue = (value.lowercased() == "true") ? 1 : 0
+                    case .field:
+                        // `set_part_property part_name="X" property="value"` on a
+                        // text field writes the field's text — natural-language
+                        // alias for `text`.
+                        document.parts[index].textContent = value
                     default:
                         document.parts[index].controlValue = Double(value) ?? 0
                     }
@@ -2604,12 +2609,15 @@ public struct HypeToolExecutor: Sendable {
             // ColorWell
             case "color", "colorhex", "color_hex": return part.colorWellHex
             case "interactive": return String(part.colorWellInteractive)
-            // Form controls (and progressView / gauge).
+            // Form controls (and progressView / gauge / field text).
             case "value":
                 if part.partType == .progressView { return String(part.progressValue) }
                 if part.partType == .gauge { return String(part.gaugeValue) }
                 if part.partType == .toggle { return String(part.controlValue >= 0.5) }
                 if part.partType == .segmented { return String(Int(part.controlValue)) }
+                // Text fields: `value` is an alias for textContent —
+                // matches `the value of field "X"` in HypeTalk.
+                if part.partType == .field { return part.textContent }
                 return String(part.controlValue)
             case "on": return String(part.controlValue >= 0.5)
             case "min", "minvalue", "min_value": return String(part.controlMin)

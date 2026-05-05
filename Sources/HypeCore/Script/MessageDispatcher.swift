@@ -206,9 +206,14 @@ public struct MessageDispatcher: Sendable {
                 continue
             }
 
-            // Look for a matching handler.
+            // Look for a matching handler. Handler names are matched
+            // case-insensitively; we also accept a small set of
+            // "common-sense" aliases so authors can write the more
+            // natural English form (`on enter` for `enterKey`,
+            // `on tab` for `tabInField`, etc.).
+            let aliasedNames = Self.handlerAliases(for: message.lowercased())
             guard let handler = parsedScript.handlers.first(where: {
-                $0.name.lowercased() == message.lowercased()
+                aliasedNames.contains($0.name.lowercased())
             }) else { continue }
 
             // Execute the handler.
@@ -361,6 +366,34 @@ public struct MessageDispatcher: Sendable {
             visualEffect: carriedVisualEffect,
             visualEffectDuration: carriedVisualEffectDuration
         )
+    }
+
+    /// Returns the set of handler names that should match a given
+    /// dispatched message. The dispatched name is always included;
+    /// a small alias table lets authors use the more natural English
+    /// form (`on enter` matches `enterKey`, `on tab` matches
+    /// `tabInField`, etc.) without forcing them to memorize the
+    /// engine's exact event names.
+    ///
+    /// Aliases are bidirectional: dispatching `enterKey` matches
+    /// handlers named either `enterKey` OR `enter`, and dispatching
+    /// `enter` matches both names too. This means a script written
+    /// against either form keeps working.
+    static func handlerAliases(for message: String) -> Set<String> {
+        // Each tuple is a synonym group; case-insensitive.
+        let groups: [Set<String>] = [
+            ["enter", "enterkey"],
+            ["tab", "tabinfield"],
+            ["return", "returninfield"],
+            ["closefield", "change"],   // common confusion — change is JS-style
+            ["mouseup", "click"],       // very common alias
+            ["keydown", "keypress"],
+        ]
+        let lower = message.lowercased()
+        for group in groups where group.contains(lower) {
+            return group
+        }
+        return [lower]
     }
 
     /// Human-readable description of the object that owns a

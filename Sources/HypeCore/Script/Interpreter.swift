@@ -2759,6 +2759,11 @@ public struct Interpreter: Sendable {
             if part.partType == .gauge { return formatNumber(part.gaugeValue) }
             if part.partType == .toggle { return part.controlValue >= 0.5 ? "true" : "false" }
             if part.partType == .segmented { return String(Int(part.controlValue)) }
+            // For text fields `the value of <field>` returns the
+            // textContent — what the user typed. This matches the
+            // common-sense expectation. Numeric form controls
+            // (stepper / slider) still use controlValue.
+            if part.partType == .field { return part.textContent }
             return formatNumber(part.controlValue)
         case "on":
             return part.controlValue >= 0.5 ? "true" : "false"
@@ -3635,10 +3640,21 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].colorWellHex = value
         case "interactive":
             document.parts[partIndex].colorWellInteractive = isTruthy(value)
-        // Form-control writes (stepper / slider / toggle / segmented).
+        // Form-control writes (stepper / slider / segmented) and
+        // text-field text writes via the `value` alias.
         case "value":
-            if document.parts[partIndex].partType == .toggle {
+            let pt = document.parts[partIndex].partType
+            if pt == .toggle {
                 document.parts[partIndex].controlValue = isTruthy(value) ? 1 : 0
+            } else if pt == .progressView {
+                document.parts[partIndex].progressValue = toNumber(value)
+            } else if pt == .gauge {
+                document.parts[partIndex].gaugeValue = toNumber(value)
+            } else if pt == .field {
+                // `set the value of field "X" to "..."` — same as
+                // `set the text of field "X" to "..."`. Symmetrical
+                // with the getter overload above.
+                document.parts[partIndex].textContent = value
             } else {
                 document.parts[partIndex].controlValue = toNumber(value)
             }
