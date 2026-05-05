@@ -33,34 +33,49 @@ public enum PartType: String, Codable, Sendable {
 public enum ButtonStyle: String, Codable, Sendable, CaseIterable {
     case transparent, opaque, rectangle, roundRect, shadow
     case checkBox, standard, `default`, popup, oval, toggle, radio
-    /// NSSwitch-style modern toggle (formerly the standalone
-    /// `toggle` part type — collapsed into a button style so we
-    /// have one consistent interactive-button surface).
-    case `switch`
     /// Underlined-text link (formerly the standalone `link` part
     /// type). Click opens `Part.url` via the same scheme-allowlist
     /// path the dedicated link host enforced.
     case link
 
     /// Styles shown in the UI picker (excludes legacy/redundant styles).
+    /// `.toggle` is the canonical NSSwitch-style modern switch UI;
+    /// the older `.switch` enum case was a duplicate of `.toggle`
+    /// and has been removed (the decoder still accepts the
+    /// `"switch"` raw value and migrates it to `.toggle` for
+    /// backward-compat with older `.hype` files).
     public static let pickerCases: [ButtonStyle] = [
         .standard, .default, .shadow, .transparent, .oval, .toggle,
-        .switch, .link, .checkBox, .popup, .radio,
+        .link, .checkBox, .popup, .radio,
     ]
 
-    /// Custom decoder that maps the removed `"radioButton"` raw value
-    /// to `.standard` so older .hype files still load cleanly. Unknown
-    /// future values also degrade to `.standard` for forward-compat.
+    /// Custom decoder.
+    ///
+    /// - `"radioButton"` → `.standard` (older renamed .hype files)
+    /// - `"switch"` → `.toggle` (`.switch` was a duplicate that has
+    ///   been removed)
+    /// - Unknown future values → `.standard` (security condition 4 —
+    ///   forward-compat without crashing)
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let raw = try container.decode(String.self)
-        if raw == "radioButton" {
-            self = .standard
-        } else if let style = ButtonStyle(rawValue: raw) {
-            self = style
-        } else {
-            // Unknown future styles degrade to .standard (security condition 4)
-            self = .standard
+        self = ButtonStyle.resolved(rawOrAlias: raw) ?? .standard
+    }
+
+    /// Map a string (raw value or known alias) to a `ButtonStyle`.
+    ///
+    /// Used by the Codable decoder above and by callers that accept
+    /// user-supplied style strings (the AI tool surface, scripts,
+    /// inspector value-binding, etc.) so a single migration table
+    /// covers every entry point.
+    ///
+    /// Returns `nil` only when the input is genuinely unrecognized;
+    /// callers decide whether to fall back to a default or refuse.
+    public static func resolved(rawOrAlias raw: String) -> ButtonStyle? {
+        switch raw {
+        case "radioButton": return .standard
+        case "switch":      return .toggle
+        default:            return ButtonStyle(rawValue: raw)
         }
     }
 }

@@ -589,7 +589,7 @@ public struct Part: Identifiable, Codable, Sendable {
         // ----- Legacy-PartType migration -----
         //
         // The standalone `toggle`, `menu`, `link`, and `searchField`
-        // PartTypes were collapsed into ButtonStyle.switch /
+        // PartTypes were collapsed into ButtonStyle.toggle /
         // ButtonStyle.popup / ButtonStyle.link / FieldStyle.search
         // to give the user one consistent interactive-button surface
         // and one text-input surface. Old documents that still have
@@ -601,7 +601,7 @@ public struct Part: Identifiable, Codable, Sendable {
         switch partType {
         case .toggle:
             partType = .button
-            buttonStyle = .switch
+            buttonStyle = .toggle
             // controlValue 0/1 → hilite Bool. Migration is one-way;
             // saving back will store as a button.
             hilite = controlValue >= 0.5

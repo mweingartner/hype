@@ -8,7 +8,7 @@ import AppKit
 /// capture) can identify the control by sight.
 ///
 /// Toggle was removed in dedup — toggle parts now migrate to button
-/// + ButtonStyle.switch on decode and render via ButtonRenderer.
+/// + ButtonStyle.toggle on decode and render via ButtonRenderer.
 public enum FormControlsRenderer {
 
     public static func draw(_ kind: PartType, ctx: CGContext, part: Part, rect: CGRect) {
@@ -96,7 +96,7 @@ public enum FormControlsRenderer {
     }
 
     // drawToggle removed — toggle parts now migrate to button +
-    // ButtonStyle.switch and render via ButtonRenderer's switch case.
+    // ButtonStyle.toggle and render via ButtonRenderer's .toggle case.
 
     // MARK: - Segmented
 

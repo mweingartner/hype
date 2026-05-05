@@ -66,7 +66,7 @@ public struct HypeTalkHighlighter: Sendable {
         // Phase 3 UI controls.
         "progressview", "progress", "gauge", "divider",
         // Removed in dedup: toggle, link, menu, searchfield, search.
-        // These are now button styles (.switch, .link, .popup) and
+        // These are now button styles (.toggle, .link, .popup) and
         // a field style (.search) — referenced via `button "X"` /
         // `field "X"` in HypeTalk.
     ]

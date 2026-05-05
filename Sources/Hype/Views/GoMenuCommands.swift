@@ -75,7 +75,7 @@ struct ObjectsMenuCommands: Commands {
             Divider()
 
             // Form controls — share a controlValue backing.
-            // Toggle removed in dedup — create as button + .switch
+            // Toggle removed in dedup — create as button + .toggle
             // style instead.
             Group {
                 Button("Stepper") { NotificationCenter.default.post(name: .selectTool, object: ToolName.stepper) }

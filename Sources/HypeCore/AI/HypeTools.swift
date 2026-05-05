@@ -209,8 +209,9 @@ public struct HypeToolDefinitions {
         ]),
 
         // create_toggle removed in dedup — use create_button with
-        // style="switch" instead. The button's `hilite` field
-        // backs the on/off state.
+        // style="toggle" instead. The button's `hilite` field
+        // backs the on/off state. (style="switch" is a deprecated
+        // alias that still resolves to .toggle for backward compat.)
 
         makeTool(name: "create_segmented", description: """
             Create a segmented control (NSSegmentedControl) with a comma- or pipe-separated \

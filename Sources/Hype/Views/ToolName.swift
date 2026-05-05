@@ -8,7 +8,7 @@ public enum ToolName: String, CaseIterable, Sendable {
     case select
     case pencil, line, rect, oval, spray, bucket, eraser, text
     // Removed in dedup: .toggle, .link, .menu, .searchField — these
-    // are now created via ButtonStyle.switch / .link / .popup and
+    // are now created via ButtonStyle.toggle / .link / .popup and
     // FieldStyle.search on the existing button / field tools, so
     // the user sees one canonical surface per control type.
 

@@ -99,7 +99,7 @@ struct HypeTalkHighlighterThemeTests {
             "stepper", "slider", "segmented",
             "recorder", "scene3d", "chart",
             // toggle / link / menu / searchfield removed in dedup —
-            // they're now button styles (.switch/.link/.popup) or
+            // they're now button styles (.toggle/.link/.popup) or
             // a field style (.search), referenced via the existing
             // `button "X"` / `field "X"` kind words.
         ]

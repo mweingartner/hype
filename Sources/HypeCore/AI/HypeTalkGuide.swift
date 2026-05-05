@@ -128,7 +128,7 @@ public enum HypeTalkGuide {
             segmented "tabs"   recorder "memo"     scene3d "model"
             progressView "bar" gauge "rpm"         divider "sep"
             -- (toggle / link / menu / searchField were collapsed into
-            --  button styles `.switch / .link / .popup` and field
+            --  button styles `.toggle / .link / .popup` and field
             --  style `.search` — see `set the style of button "X"`).
         Use double-quoted names; bare words are only valid for short keywords.
 
@@ -159,7 +159,7 @@ public enum HypeTalkGuide {
           - **map:** centerLat, centerLon, span, mapType (standard | satellite | hybrid | mutedStandard), annotations, location (alias: maplocation / map_location — geocoded place name, address, or US ZIP; resolves async)
           - **colorWell:** color (hex like "#FF5500"), interactive
           - **stepper / slider:** value, min, max, step
-          - **button (style=switch / toggle / checkBox):** hilite (true/false — backs the on/off state of switch / toggle / checkbox styles); the `on` of <kind> "X" is also accepted as an alias for hilite on these styles.
+          - **button (style=toggle / checkBox):** hilite (true/false — backs the on/off state of toggle / checkbox styles); the `on` of <kind> "X" is also accepted as an alias for hilite on these styles. (`style=switch` is a deprecated alias that resolves to `toggle`.)
           - **segmented:** segments, selectedSegment
           - **recorder:** recording, playing, duration, outputPath, format (m4a | caf)
           - **scene3d:** object (source path — preferred), modelURL (resolved path, legacy alias), allowsCameraControl, autoLighting, antialiasing, background3d
@@ -183,7 +183,7 @@ public enum HypeTalkGuide {
         **ColorWell:** colorChanged.
         **Stepper / Slider / Gauge:** valueChanged. (Gauge fires on user click/drag when `enabled` is true.)
         **Segmented:** selectionChanged.
-        **Button (style=switch / toggle / checkBox):** mouseUp (the click also flips `hilite` automatically).
+        **Button (style=toggle / checkBox):** mouseUp (the click also flips `hilite` automatically).
         **Field (style=search):** searchChanged (param 1 = current text; fires debounced as user types when searchSendsImmediately is true), searchSubmitted (param 1 = final text; fires on Return).
         **Audio Recorder:** recordingStarted, recordingStopped, playbackStarted, playbackStopped.
         **Map:** locationResolved (fires after a successful async geocode of `the maplocation`; read `the centerLat / centerLon of me` inside the handler to get the resolved coords).

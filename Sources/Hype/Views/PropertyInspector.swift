@@ -1080,7 +1080,7 @@ struct PropertyInspector: View {
     }
 
     // toggleSection removed — toggle parts now migrate to button +
-    // ButtonStyle.switch on decode (see Part.init(from:)) and use
+    // ButtonStyle.toggle on decode (see Part.init(from:)) and use
     // the existing button section.
 
     private func segmentedSection(part: Part) -> some View {

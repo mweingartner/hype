@@ -123,7 +123,7 @@ final class SliderHostNSView: NSView {
 }
 
 // ToggleHostNSView removed in dedup — toggle parts migrate to
-// button + ButtonStyle.switch on decode (see Part.init(from:)).
+// button + ButtonStyle.toggle on decode (see Part.init(from:)).
 // The button's mouseUp dispatch flips `hilite`, the renderer
 // draws the NSSwitch-style track + knob, no live AppKit overlay
 // needed.

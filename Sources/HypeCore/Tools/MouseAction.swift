@@ -99,7 +99,7 @@ public struct MouseHandler: Sendable {
             case "gauge": partType = .gauge
             case "divider": partType = .divider
             // .toggle / .link / .menu / .searchField removed in
-            // dedup — those are now button (with .switch / .link
+            // dedup — those are now button (with .toggle / .link
             // / .popup style) or field (with .search style).
             default: return .none
             }

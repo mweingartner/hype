@@ -66,7 +66,7 @@ struct ObjectsToolPanel: View {
         .progressView, .gauge, .divider
     ]
     // .toggle, .link, .menu, .searchField removed in dedup —
-    // create them as button (with .switch / .link / .popup style)
+    // create them as button (with .toggle / .link / .popup style)
     // or field (with .search style) instead.
 
     /// Drag-to-create vector shape shortcuts (rectangle, oval, line)

@@ -112,10 +112,25 @@ struct FormControlsTests {
     }
 
     // create_toggle removed in dedup — toggle is now a button style.
-    // The equivalent test is aiCreateButtonSwitch below.
+    // The equivalent test is aiCreateButtonToggle below.
 
-    @Test("create_button with style=switch creates a switch-styled button")
-    func aiCreateButtonSwitch() async {
+    @Test("create_button with style=toggle creates a toggle-styled button")
+    func aiCreateButtonToggle() async {
+        var doc = HypeDocument.newDocument(name: "FormTest")
+        let cardId = doc.cards[0].id
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_button",
+            arguments: ["name": "muted", "left": "0", "top": "0", "width": "44", "height": "26", "style": "toggle"],
+            document: &doc, currentCardId: cardId
+        )
+        let part = doc.parts.first { $0.name == "muted" && $0.partType == .button }
+        #expect(part != nil)
+        #expect(part?.buttonStyle == .toggle)
+    }
+
+    @Test("create_button with deprecated style=switch is migrated to .toggle")
+    func aiCreateButtonSwitchAliasMigratesToToggle() async {
         var doc = HypeDocument.newDocument(name: "FormTest")
         let cardId = doc.cards[0].id
         let executor = HypeToolExecutor()
@@ -126,7 +141,12 @@ struct FormControlsTests {
         )
         let part = doc.parts.first { $0.name == "muted" && $0.partType == .button }
         #expect(part != nil)
-        #expect(part?.buttonStyle == .switch)
+        // The "switch" raw value used to be its own ButtonStyle case
+        // but was a duplicate of `.toggle` — both rendered as the
+        // same NSSwitch-style track-and-knob UI. The case was
+        // removed and "switch" now resolves to `.toggle` via
+        // ButtonStyle.resolved(rawOrAlias:).
+        #expect(part?.buttonStyle == .toggle)
     }
 
     @Test("create_segmented sets segments + selected index")
@@ -167,7 +187,7 @@ struct FormControlsTests {
     }
 
     // toggle-specific 'on' tests removed — toggle migrated to button
-    // with ButtonStyle.switch; the on/off state is now part.hilite,
+    // with ButtonStyle.toggle; the on/off state is now part.hilite,
     // covered by the existing button tests.
 
     @Test("get_part_property returns the integer for selectedSegment")

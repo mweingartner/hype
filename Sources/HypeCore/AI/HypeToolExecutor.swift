@@ -822,7 +822,9 @@ public struct HypeToolExecutor: Sendable {
             // Apply stack-level default font
             let stackFont = document.stack.defaultFont
             if !stackFont.isEmpty { part.textFont = stackFont }
-            if let style = arguments["style"], let bs = ButtonStyle(rawValue: style) {
+            if let style = arguments["style"], let bs = ButtonStyle.resolved(rawOrAlias: style) {
+                // resolved() also migrates the deprecated
+                // "switch" alias to .toggle.
                 part.buttonStyle = bs
             }
             if let script = arguments["script"] {
@@ -1198,7 +1200,9 @@ public struct HypeToolExecutor: Sendable {
             let layer = place.backgroundId != nil ? " on background" : ""
             return "Created slider '\(part.name)'\(layer)"
 
-        // create_toggle removed — use create_button with style="switch".
+        // create_toggle removed — use create_button with style="toggle".
+        // (The deprecated alias style="switch" still resolves to .toggle
+        // for backward compatibility — see ButtonStyle.resolved.)
 
         case "set_image_filter":
             let imageName = arguments["image_name"] ?? ""
@@ -1558,7 +1562,9 @@ public struct HypeToolExecutor: Sendable {
                     let part = document.parts[index]
                     switch part.partType {
                     case .button:
-                        if let bs = ButtonStyle(rawValue: value) {
+                        // resolved() accepts every raw value plus the
+                        // deprecated "switch" alias (→ .toggle).
+                        if let bs = ButtonStyle.resolved(rawOrAlias: value) {
                             document.parts[index].buttonStyle = bs
                         } else {
                             let valid = ButtonStyle.allCases.map(\.rawValue).joined(separator: ", ")

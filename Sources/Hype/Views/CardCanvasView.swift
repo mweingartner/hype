@@ -2189,11 +2189,13 @@ class CardCanvasNSView: NSView {
                 if part.partType == .image && part.invertOnClick {
                     coordinator?.togglePartHilite(id: part.id)
                 }
-                // Auto-hilite for buttons: checkboxes, toggles, and
-                // the modern switch style flip hilite on click.
+                // Auto-hilite for buttons: checkboxes and toggles
+                // flip hilite on click. (`.switch` was removed — it
+                // was a duplicate of `.toggle`; old docs migrate to
+                // `.toggle` via `ButtonStyle.resolved(rawOrAlias:)`.)
                 if part.partType == .button {
                     switch part.buttonStyle {
-                    case .checkBox, .toggle, .switch:
+                    case .checkBox, .toggle:
                         coordinator?.togglePartHilite(id: part.id)
                     case .link:
                         // Link-style buttons open Part.url with a
