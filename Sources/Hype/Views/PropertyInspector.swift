@@ -209,6 +209,18 @@ struct PropertyInspector: View {
 
     private var multiSelectionView: some View {
         let selectedParts = document.document.parts.filter { selectedPartIds.contains($0.id) }
+        // Whether the current selection is HOMOGENEOUS in part type —
+        // gates type-specific sections (text formatting, fill / stroke).
+        let allButtonOrField = !selectedParts.isEmpty && selectedParts.allSatisfy { $0.partType == .button || $0.partType == .field }
+        // Parts that respect part.fillColor / part.strokeColor when
+        // the renderer paints them (verified against ButtonRenderer,
+        // FieldRenderer, ShapeRenderer, DividerRenderer). Hiding the
+        // color row for parts that ignore those fields avoids the
+        // "I edited the color but nothing changed" footgun.
+        let allHonorFillStroke = !selectedParts.isEmpty && selectedParts.allSatisfy {
+            $0.partType == .shape || $0.partType == .button || $0.partType == .field || $0.partType == .divider
+        }
+
         return ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text("\(selectedParts.count) Parts Selected")
@@ -240,45 +252,79 @@ struct PropertyInspector: View {
 
                 Divider()
 
-                // Common properties that can be bulk-edited
+                // Position & Size — always shown. Differing values across
+                // the selection appear as empty fields with the "Multiple"
+                // placeholder; typing a value applies it uniformly to
+                // every selected part. This is the load-bearing case the
+                // user asked for: "edit the height of a selected group of
+                // controls" — type once, all match.
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("COMMON PROPERTIES")
+                    Text("POSITION & SIZE")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(.secondary)
 
-                    Toggle("Visible", isOn: Binding(
-                        get: { selectedParts.allSatisfy(\.visible) },
-                        set: { newVal in for id in selectedPartIds { document.document.updatePart(id: id) { $0.visible = newVal } } }
-                    ))
-                    Toggle("Enabled", isOn: Binding(
-                        get: { selectedParts.allSatisfy(\.enabled) },
-                        set: { newVal in for id in selectedPartIds { document.document.updatePart(id: id) { $0.enabled = newVal } } }
-                    ))
+                    HStack(spacing: 8) {
+                        multiNumberField("X", keyPath: \.left)
+                        multiNumberField("Y", keyPath: \.top)
+                    }
+                    HStack(spacing: 8) {
+                        multiNumberField("W", keyPath: \.width)
+                        multiNumberField("H", keyPath: \.height)
+                    }
                 }
 
-                // Font properties if all selected parts are buttons or fields
-                let hasText = selectedParts.allSatisfy { $0.partType == .button || $0.partType == .field }
-                if hasText {
+                Divider()
+
+                // Behavior flags — always shown. `commonValue` returns
+                // false when the selected parts disagree, so the
+                // toggle reads as "off" until you flip it (which
+                // applies "on" to all). That's intentional: it lets
+                // a user with mixed visibility flip the whole group
+                // visible in one click.
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("BEHAVIOR")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.secondary)
+
+                    Toggle("Visible", isOn: bindMultiBool(\.visible))
+                    Toggle("Enabled", isOn: bindMultiBool(\.enabled))
+                    Toggle("Show Name", isOn: bindMultiBool(\.showName))
+                }
+
+                // Appearance: fill / stroke / corner radius. Only shown
+                // when every selected part actually honors these fields
+                // in its renderer (shape / button / field / divider).
+                // Hiding the section for parts that ignore the fields
+                // (image, video, chart, sprite area, …) prevents the
+                // "I edited it but nothing happened" surprise.
+                if allHonorFillStroke {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("APPEARANCE")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.secondary)
+
+                        multiStringField("Fill (#hex)", keyPath: \.fillColor)
+                        multiStringField("Stroke (#hex)", keyPath: \.strokeColor)
+                        HStack(spacing: 8) {
+                            multiNumberField("Stroke W", keyPath: \.strokeWidth)
+                            multiNumberField("Corner R", keyPath: \.cornerRadius)
+                        }
+                    }
+                }
+
+                // Text formatting only when every selected part is a
+                // button or field — the only part types whose
+                // renderers consult textFont / textSize / etc.
+                if allButtonOrField {
                     Divider()
                     VStack(alignment: .leading, spacing: 6) {
                         Text("TEXT FORMATTING")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.secondary)
 
-                        HStack {
-                            Text("Font").font(.system(size: 11))
-                            TextField("", text: Binding(
-                                get: { selectedParts.first?.textFont ?? "" },
-                                set: { newVal in for id in selectedPartIds { document.document.updatePart(id: id) { $0.textFont = newVal } } }
-                            )).textFieldStyle(.roundedBorder).font(.system(size: 11))
-                        }
-                        HStack {
-                            Text("Size").font(.system(size: 11))
-                            TextField("", value: Binding(
-                                get: { selectedParts.first?.textSize ?? 14 },
-                                set: { newVal in for id in selectedPartIds { document.document.updatePart(id: id) { $0.textSize = newVal } } }
-                            ), format: .number).textFieldStyle(.roundedBorder).font(.system(size: 11)).frame(width: 60)
-                        }
+                        multiStringField("Font", keyPath: \.textFont)
+                        multiNumberField("Size", keyPath: \.textSize)
                     }
                 }
 
@@ -3060,6 +3106,100 @@ struct PropertyInspector: View {
             get: { document.document.parts.first(where: { $0.id == id })?[keyPath: keyPath] ?? false },
             set: { newValue in document.document.updatePart(id: id) { $0[keyPath: keyPath] = newValue } }
         )
+    }
+
+    // MARK: - Multi-selection helpers
+    //
+    // Provide get/set across the whole selection so the multi-selection
+    // panel can edit a property uniformly. When the selected parts have
+    // different values for a property, the binding's `get` returns a
+    // sentinel ("" or `false`) so the UI can render an empty field
+    // (interpreted as "Multiple"); typing into the field applies the
+    // new value to EVERY selected part.
+
+    /// The value shared by every selected part for `keyPath`, or
+    /// `nil` if the values differ. Empty selection yields `nil`.
+    /// Delegates to `MultiSelectionEditing.commonValue` so the
+    /// canonical implementation lives in one testable place.
+    private func commonValue<T: Equatable>(_ keyPath: KeyPath<Part, T>) -> T? {
+        let parts = document.document.parts.filter { selectedPartIds.contains($0.id) }
+        return MultiSelectionEditing.commonValue(in: parts, for: keyPath)
+    }
+
+    /// Apply the same value to every part in the current selection.
+    /// Delegates to `MultiSelectionEditing.applyValue`.
+    private func applyToSelected<T>(_ keyPath: WritableKeyPath<Part, T>, _ value: T) {
+        MultiSelectionEditing.applyValue(value, to: keyPath, in: &document.document, for: selectedPartIds)
+    }
+
+    /// String binding across the selection. Differing values surface
+    /// as an empty string so the placeholder ("Multiple") shows;
+    /// typing replaces every part's value.
+    private func bindMultiString(_ keyPath: WritableKeyPath<Part, String>) -> Binding<String> {
+        Binding(
+            get: { commonValue(keyPath) ?? "" },
+            set: { applyToSelected(keyPath, $0) }
+        )
+    }
+
+    /// Double binding that ROUND-TRIPS through String so SwiftUI's
+    /// `TextField` can show an empty placeholder when values differ
+    /// across the selection. `TextField(value:format:)` with a
+    /// non-optional `Binding<Double>` would force "0" as the empty
+    /// case — visually indistinguishable from a real zero. The
+    /// String form lets us keep the field actually empty in the
+    /// "differing" case so the placeholder reads as intended.
+    private func bindMultiDoubleString(_ keyPath: WritableKeyPath<Part, Double>) -> Binding<String> {
+        Binding(
+            get: {
+                guard let v = commonValue(keyPath) else { return "" }
+                return v == v.rounded() ? String(Int(v)) : String(v)
+            },
+            set: { newValue in
+                let trimmed = newValue.trimmingCharacters(in: .whitespaces)
+                guard !trimmed.isEmpty, let parsed = Double(trimmed) else { return }
+                applyToSelected(keyPath, parsed)
+            }
+        )
+    }
+
+    /// Bool binding across the selection. Differing values surface
+    /// as `false` (the toggle's "off" state); flipping the toggle
+    /// applies the new value to every selected part.
+    private func bindMultiBool(_ keyPath: WritableKeyPath<Part, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { commonValue(keyPath) ?? false },
+            set: { applyToSelected(keyPath, $0) }
+        )
+    }
+
+    /// A 60pt-wide TextField for a numeric property across the
+    /// selection. The binding's get returns "" when values differ
+    /// so the placeholder reads "Multiple"; typing applies the
+    /// parsed value to every selected part. Invalid input is
+    /// silently rejected (the field reverts on focus loss).
+    private func multiNumberField(_ label: String, keyPath: WritableKeyPath<Part, Double>) -> some View {
+        HStack(spacing: 2) {
+            Text(label).font(.system(size: 10)).foregroundColor(.secondary)
+            TextField("Multiple", text: bindMultiDoubleString(keyPath))
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 11))
+                .frame(width: 60)
+        }
+    }
+
+    /// A wider TextField for non-numeric properties (font name,
+    /// hex color string). Same placeholder semantics as
+    /// `multiNumberField` — empty value means values differ across
+    /// the selection.
+    private func multiStringField(_ label: String, keyPath: WritableKeyPath<Part, String>) -> some View {
+        HStack {
+            Text(label).font(.system(size: 11)).frame(width: 80, alignment: .trailing)
+                .foregroundColor(.secondary)
+            TextField("Multiple", text: bindMultiString(keyPath))
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 11))
+        }
     }
 
     /// Binding for the image "Animated" toggle that flips `Part.animated`

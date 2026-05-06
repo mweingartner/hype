@@ -1838,16 +1838,29 @@ class CardCanvasNSView: NSView {
             }
 
             if let part = hitPart {
-                // Clicked ON a part — select it and prepare for drag
-                if event.modifierFlags.contains(.shift) {
+                // Clicked ON a part — select it and prepare for drag.
+                //
+                // Modifier semantics:
+                // - Shift+click: extend the selection (toggle on/off).
+                //   This was the original modifier and stays for users
+                //   trained on it.
+                // - Cmd+click: same behavior. macOS users overwhelmingly
+                //   reach for Cmd to toggle individual items in finder /
+                //   table / canvas selection contexts; honoring it as a
+                //   parallel modifier matches the platform convention.
+                // - No modifier: replace the selection with this part,
+                //   unless it's already part of the current selection
+                //   (so dragging a member doesn't collapse a multi-select
+                //   to one).
+                let toggleSelection = event.modifierFlags.contains(.shift)
+                    || event.modifierFlags.contains(.command)
+                if toggleSelection {
                     if selectedPartIds.contains(part.id) {
                         coordinator?.removeFromSelection(part.id)
                     } else {
                         coordinator?.addToSelection(part.id)
                     }
                 } else if !selectedPartIds.contains(part.id) {
-                    // Only re-select if not already in the selection
-                    // (avoids clearing multi-selection when dragging one of them)
                     coordinator?.selectPart(part.id)
                 }
                 resizeHandle = .none
