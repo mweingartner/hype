@@ -110,16 +110,77 @@ struct HypeThemeTests {
 
     // MARK: - BuiltInThemes catalog
 
-    @Test("BuiltInThemes.all has all six expected themes")
-    func builtInsHasSixThemes() {
+    @Test("BuiltInThemes.all has all seven expected themes")
+    func builtInsHasSevenThemes() {
         let names = BuiltInThemes.all.map(\.name)
-        #expect(names.count == 6)
+        #expect(names.count == 7)
         #expect(names.contains("System"))
         #expect(names.contains("Classic HyperCard"))
         #expect(names.contains("Modern Light"))
         #expect(names.contains("Modern Dark"))
         #expect(names.contains("Sunset"))
         #expect(names.contains("Neon"))
+        #expect(names.contains("Liquid Glass"))
+    }
+
+    @Test("Liquid Glass theme opts into the glass-material rendering path")
+    func liquidGlassOptsIntoGlassMaterial() {
+        let theme = BuiltInThemes.liquidGlass
+        #expect(theme.usesGlassMaterial == true)
+        // Sibling themes do NOT opt in — confirms the default sticks.
+        #expect(BuiltInThemes.system.usesGlassMaterial == false)
+        #expect(BuiltInThemes.classicHyperCard.usesGlassMaterial == false)
+        #expect(BuiltInThemes.modernLight.usesGlassMaterial == false)
+        #expect(BuiltInThemes.modernDark.usesGlassMaterial == false)
+        #expect(BuiltInThemes.sunset.usesGlassMaterial == false)
+        #expect(BuiltInThemes.neon.usesGlassMaterial == false)
+    }
+
+    @Test("usesGlassMaterial round-trips through Codable; defaults to false on legacy decode")
+    func usesGlassMaterialRoundTrip() throws {
+        // Encode + decode the Liquid Glass theme — the flag must survive.
+        let encoded = try JSONEncoder().encode(BuiltInThemes.liquidGlass)
+        let decoded = try JSONDecoder().decode(HypeTheme.self, from: encoded)
+        #expect(decoded.usesGlassMaterial == true)
+
+        // A legacy theme JSON with NO `usesGlassMaterial` field
+        // should decode with the flag set to false (backward-compat
+        // for older `.hype` documents).
+        let legacyJSON = """
+        { "id": "00000000-0000-0000-0000-000000000001",
+          "name": "Legacy",
+          "isBuiltIn": false,
+          "createdAt": 0,
+          "modifiedAt": 0,
+          "cardBackground": { "hex": "#FFFFFF" },
+          "cardForeground": { "hex": "#000000" },
+          "backgroundFill": { "hex": "#EEEEEE" },
+          "canvasMargin":   { "systemKey": "windowBackgroundColor" },
+          "buttonBackground": { "hex": "#FFFFFF" },
+          "buttonForeground": { "hex": "#000000" },
+          "buttonBorder":     { "hex": "#888888" },
+          "buttonHilite":     { "hex": "#0A84FF" },
+          "fieldBackground":  { "hex": "#FFFFFF" },
+          "fieldForeground":  { "hex": "#000000" },
+          "fieldBorder":      { "hex": "#888888" },
+          "shapeFillDefault": { "hex": "#FFFFFF" },
+          "shapeStrokeDefault": { "hex": "#000000" },
+          "accent":            { "hex": "#0A84FF" },
+          "selectionFill":     { "hex": "#0A84FF40" },
+          "selectionStroke":   { "hex": "#0A84FF" },
+          "toolbarBackground": { "systemKey": "controlBackgroundColor" },
+          "inspectorBackground": { "systemKey": "controlBackgroundColor" },
+          "panelDivider":      { "systemKey": "separatorColor" },
+          "defaultFontFamily": "Helvetica", "defaultFontSize": 14,
+          "headingFontFamily": "Helvetica", "headingFontSize": 18,
+          "monospaceFontFamily": "Menlo", "labelFontSize": 11,
+          "cornerRadiusSmall": 2, "cornerRadiusMedium": 6, "cornerRadiusLarge": 12,
+          "spacingUnit": 8, "strokeWidthThin": 1, "strokeWidthMedium": 2,
+          "shadowOpacity": 0.15, "shadowRadius": 4
+        }
+        """.data(using: .utf8)!
+        let legacy = try JSONDecoder().decode(HypeTheme.self, from: legacyJSON)
+        #expect(legacy.usesGlassMaterial == false)
     }
 
     @Test("Every built-in is marked isBuiltIn=true")

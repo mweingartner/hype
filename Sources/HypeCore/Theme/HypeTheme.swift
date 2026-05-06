@@ -84,6 +84,27 @@ public struct HypeTheme: Codable, Sendable, Identifiable, Equatable, Hashable {
     public var shadowOpacity: Double
     public var shadowRadius: Double
 
+    // MARK: Material rendering opt-in
+    //
+    // When `true`, every CG renderer that consults this theme renders
+    // its part with a translucent / vibrancy-approximated "Liquid
+    // Glass" treatment instead of the flat fill+stroke pair.
+    // Concretely this means:
+    //   - buttons / fields / shapes get a low-alpha fill (~0.65) plus
+    //     a 1pt highlight along the top edge to read as a glass
+    //     bevel, and a soft outer drop shadow
+    //   - cards get a subtle ambient backdrop instead of an opaque
+    //     surface so background fill colors show through
+    // CG can't blur live content (NSVisualEffectView is the live-blur
+    // primitive at the SwiftUI layer), but the layered alpha + sheen
+    // pattern is visually compatible with the Liquid Glass look at
+    // the part level, and the chrome around the canvas (inspector,
+    // panels) gets actual material treatment.
+    //
+    // Defaults to `false` so every existing theme keeps its
+    // pre-glass rendering. The Liquid Glass built-in flips it on.
+    public var usesGlassMaterial: Bool
+
     // MARK: Script-editor sub-theme
     //
     // Syntax-highlighting colors are conceptually a separate concern
@@ -135,6 +156,7 @@ public struct HypeTheme: Codable, Sendable, Identifiable, Equatable, Hashable {
         strokeWidthMedium: Double,
         shadowOpacity: Double,
         shadowRadius: Double,
+        usesGlassMaterial: Bool = false,
         scriptTheme: HypeScriptTheme
     ) {
         self.id = id
@@ -176,6 +198,7 @@ public struct HypeTheme: Codable, Sendable, Identifiable, Equatable, Hashable {
         self.strokeWidthMedium = strokeWidthMedium
         self.shadowOpacity = shadowOpacity
         self.shadowRadius = shadowRadius
+        self.usesGlassMaterial = usesGlassMaterial
         self.scriptTheme = scriptTheme
     }
 
@@ -198,6 +221,7 @@ public struct HypeTheme: Codable, Sendable, Identifiable, Equatable, Hashable {
         case cornerRadiusSmall, cornerRadiusMedium, cornerRadiusLarge
         case spacingUnit, strokeWidthThin, strokeWidthMedium
         case shadowOpacity, shadowRadius
+        case usesGlassMaterial
         case scriptTheme
     }
 
@@ -246,6 +270,11 @@ public struct HypeTheme: Codable, Sendable, Identifiable, Equatable, Hashable {
         self.strokeWidthMedium    = (try? c.decode(Double.self, forKey: .strokeWidthMedium))  ?? 2
         self.shadowOpacity        = (try? c.decode(Double.self, forKey: .shadowOpacity))      ?? 0.15
         self.shadowRadius         = (try? c.decode(Double.self, forKey: .shadowRadius))       ?? 4
+
+        // Defaults to false so every pre-glass `.hype` document
+        // round-trips with its existing flat rendering. The Liquid
+        // Glass built-in opts in.
+        self.usesGlassMaterial    = (try? c.decode(Bool.self, forKey: .usesGlassMaterial))    ?? false
 
         self.scriptTheme          = (try? c.decode(HypeScriptTheme.self, forKey: .scriptTheme)) ?? HypeScriptTheme.defaultLight
     }

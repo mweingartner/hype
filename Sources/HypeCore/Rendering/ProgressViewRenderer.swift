@@ -8,7 +8,11 @@ import AppKit
 /// `NSProgressIndicator` wrapper) overlays this in browse mode.
 public enum ProgressViewRenderer {
 
-    public static func draw(ctx: CGContext, part: Part, rect: CGRect) {
+    public static func draw(ctx: CGContext, part: Part, rect: CGRect, theme: HypeTheme? = nil) {
+        // ProgressView uses NSProgressIndicator at runtime; the CG
+        // path is just an edit-mode placeholder. Glass treatment is
+        // applied through the live AppKit overlay's window material.
+        _ = theme
         ctx.saveGState()
 
         // No full-rect background. The renderer used to fill the

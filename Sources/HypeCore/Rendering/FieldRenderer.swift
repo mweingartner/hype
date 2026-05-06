@@ -5,8 +5,15 @@ import AppKit
 /// Renders field parts using Core Graphics.
 public enum FieldRenderer {
 
-    public static func draw(ctx: CGContext, part: Part, rect: CGRect) {
+    public static func draw(ctx: CGContext, part: Part, rect: CGRect, theme: HypeTheme? = nil) {
         ctx.saveGState()
+        // When the active theme opts into Liquid Glass, replace the
+        // flat fill+stroke pair with a translucent glass pill in
+        // the .rectangle / .scrolling / .secure / .opaque branches.
+        // .transparent and .shadow keep their bespoke geometry.
+        // .search is the search-pill which is already rounded —
+        // glass alpha + sheen still applies cleanly.
+        let useGlass = GlassRenderer.shouldUseGlass(for: theme)
 
         let fillColor = (NSColor(hexString: part.fillColor) ?? .white).cgColor
         let strokeColor = (NSColor(hexString: part.strokeColor) ?? .black).cgColor
@@ -28,9 +35,21 @@ public enum FieldRenderer {
             // `.opaque` style was a duplicate of this case (same
             // bytes, same behavior); `.opaque` migrates to
             // `.rectangle` via `FieldStyle.resolved(rawOrAlias:)`.
-            ctx.setFillColor(fillColor)
-            ctx.fill(rect)
-            strokeFieldRect(rect)
+            if useGlass, let t = theme {
+                GlassRenderer.fillRoundedRect(
+                    ctx: ctx, rect: rect,
+                    fillHex: t.fieldBackground.rawDescription,
+                    cornerRadius: CGFloat(t.cornerRadiusMedium),
+                    strokeHex: t.fieldBorder.rawDescription,
+                    strokeWidth: CGFloat(t.strokeWidthThin),
+                    shadowOpacity: CGFloat(t.shadowOpacity) * 0.5,
+                    shadowRadius: CGFloat(t.shadowRadius) * 0.5
+                )
+            } else {
+                ctx.setFillColor(fillColor)
+                ctx.fill(rect)
+                strokeFieldRect(rect)
+            }
         case .shadow:
             let shadowRect = rect.offsetBy(dx: 2, dy: -2)
             ctx.setFillColor(NSColor.shadowColor.withAlphaComponent(0.2).cgColor)

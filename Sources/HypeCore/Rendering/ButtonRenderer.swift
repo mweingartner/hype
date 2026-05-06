@@ -5,8 +5,19 @@ import AppKit
 /// Renders button parts using Core Graphics.
 public enum ButtonRenderer {
 
-    public static func draw(ctx: CGContext, part: Part, rect: CGRect) {
+    public static func draw(ctx: CGContext, part: Part, rect: CGRect, theme: HypeTheme? = nil) {
         ctx.saveGState()
+
+        // When the theme opts into Liquid Glass, override the standard
+        // / opaque / roundRect / oval branches to render through
+        // `GlassRenderer.fillRoundedRect`. Specialized branches
+        // (checkBox, radio, toggle, popup, link, shadow, default) keep
+        // their bespoke geometry — those signatures are recognizable
+        // shapes that reading as "glass" requires the same passes
+        // applied IN ADDITION to the base draw, so we let the existing
+        // code handle them and overlay the glass treatment via the
+        // helper paths below where it makes sense.
+        let useGlass = GlassRenderer.shouldUseGlass(for: theme)
 
         // Use system-aware colors so the renderer's edit-mode preview
         // adapts to the active appearance (light / dark / theme).
@@ -32,25 +43,61 @@ public enum ButtonRenderer {
             break // No background
 
         case .opaque:
-            ctx.setFillColor(fillColor)
-            ctx.fill(rect)
+            if useGlass, let t = theme {
+                GlassRenderer.fillRoundedRect(
+                    ctx: ctx, rect: rect,
+                    fillHex: part.hilite ? t.buttonHilite.rawDescription : t.buttonBackground.rawDescription,
+                    cornerRadius: CGFloat(t.cornerRadiusMedium),
+                    strokeHex: t.buttonBorder.rawDescription,
+                    strokeWidth: CGFloat(t.strokeWidthThin),
+                    shadowOpacity: CGFloat(t.shadowOpacity),
+                    shadowRadius: CGFloat(t.shadowRadius)
+                )
+            } else {
+                ctx.setFillColor(fillColor)
+                ctx.fill(rect)
+            }
 
         case .standard:
-            ctx.setFillColor(fillColor)
-            ctx.fill(rect)
-            ctx.setStrokeColor(NSColor.separatorColor.cgColor)
-            ctx.setLineWidth(1)
-            ctx.stroke(rect)
+            if useGlass, let t = theme {
+                GlassRenderer.fillRoundedRect(
+                    ctx: ctx, rect: rect,
+                    fillHex: part.hilite ? t.buttonHilite.rawDescription : t.buttonBackground.rawDescription,
+                    cornerRadius: CGFloat(t.cornerRadiusLarge),
+                    strokeHex: t.buttonBorder.rawDescription,
+                    strokeWidth: CGFloat(t.strokeWidthThin),
+                    shadowOpacity: CGFloat(t.shadowOpacity),
+                    shadowRadius: CGFloat(t.shadowRadius)
+                )
+            } else {
+                ctx.setFillColor(fillColor)
+                ctx.fill(rect)
+                ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+                ctx.setLineWidth(1)
+                ctx.stroke(rect)
+            }
 
         case .roundRect:
-            let path = CGPath(roundedRect: rect, cornerWidth: 8, cornerHeight: 8, transform: nil)
-            ctx.addPath(path)
-            ctx.setFillColor(fillColor)
-            ctx.fillPath()
-            ctx.addPath(path)
-            ctx.setStrokeColor(NSColor.separatorColor.cgColor)
-            ctx.setLineWidth(1)
-            ctx.strokePath()
+            if useGlass, let t = theme {
+                GlassRenderer.fillRoundedRect(
+                    ctx: ctx, rect: rect,
+                    fillHex: part.hilite ? t.buttonHilite.rawDescription : t.buttonBackground.rawDescription,
+                    cornerRadius: CGFloat(t.cornerRadiusLarge),
+                    strokeHex: t.buttonBorder.rawDescription,
+                    strokeWidth: CGFloat(t.strokeWidthThin),
+                    shadowOpacity: CGFloat(t.shadowOpacity),
+                    shadowRadius: CGFloat(t.shadowRadius)
+                )
+            } else {
+                let path = CGPath(roundedRect: rect, cornerWidth: 8, cornerHeight: 8, transform: nil)
+                ctx.addPath(path)
+                ctx.setFillColor(fillColor)
+                ctx.fillPath()
+                ctx.addPath(path)
+                ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+                ctx.setLineWidth(1)
+                ctx.strokePath()
+            }
 
         case .shadow:
             // Shadow sits to the top-right in the resting state and

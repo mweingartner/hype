@@ -8,7 +8,13 @@ import AppKit
 /// `NSHostingView` wrapping SwiftUI `Gauge`) overlays this.
 public enum GaugeRenderer {
 
-    public static func draw(ctx: CGContext, part: Part, rect: CGRect) {
+    public static func draw(ctx: CGContext, part: Part, rect: CGRect, theme: HypeTheme? = nil) {
+        // Gauge uses an NSHostingView<SwiftUI Gauge> at runtime; the
+        // CG path is an edit-mode placeholder. Live glass treatment
+        // happens via SwiftUI's `.background(.regularMaterial)` on
+        // the host when the theme flag is set; the placeholder stays
+        // simple so the user can always see the gauge geometry.
+        _ = theme
         ctx.saveGState()
 
         // Background

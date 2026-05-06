@@ -391,10 +391,10 @@ struct AIChatPanel: View {
             }
         }
         .frame(width: 350)
-        // AI panel surface — pulls the inspector-background token
-        // so the chat panel matches the rest of the side chrome
-        // regardless of theme.
-        .background(hypeTheme.inspectorBackground.swiftUIColor)
+        // AI panel surface — uses the theme's panel surface treatment
+        // (flat fill on classic themes; live `.regularMaterial` glass
+        // on Liquid Glass).
+        .hypeSurface(.panel, theme: hypeTheme)
         // Force chrome colorScheme so message text, input field, and
         // assistant labels resolve against the panel bg luminance
         // rather than the macOS appearance.

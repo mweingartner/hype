@@ -5,8 +5,9 @@ import AppKit
 /// Renders shape parts using Core Graphics.
 public enum ShapeRenderer {
 
-    public static func draw(ctx: CGContext, part: Part, rect: CGRect) {
+    public static func draw(ctx: CGContext, part: Part, rect: CGRect, theme: HypeTheme? = nil) {
         ctx.saveGState()
+        let useGlass = GlassRenderer.shouldUseGlass(for: theme)
 
         // Apply rotation around the shape's centre when non-zero.
         // HypeTalk's `set the rotation of <shape> to N` writes the
@@ -31,20 +32,48 @@ public enum ShapeRenderer {
 
         switch part.shapeType {
         case .rectangle:
-            ctx.fill(rect)
-            if part.strokeWidth > 0 { ctx.stroke(rect) }
+            if useGlass {
+                let cornerR = theme.map { CGFloat($0.cornerRadiusMedium) } ?? 0
+                GlassRenderer.fillRoundedRect(
+                    ctx: ctx, rect: rect,
+                    fillHex: part.fillColor,
+                    cornerRadius: cornerR,
+                    strokeHex: part.strokeWidth > 0 ? part.strokeColor : nil,
+                    strokeWidth: CGFloat(part.strokeWidth),
+                    shadowOpacity: theme.map { CGFloat($0.shadowOpacity) } ?? 0,
+                    shadowRadius: theme.map { CGFloat($0.shadowRadius) } ?? 0
+                )
+            } else {
+                ctx.fill(rect)
+                if part.strokeWidth > 0 { ctx.stroke(rect) }
+            }
 
         case .roundRect:
             let r = min(CGFloat(part.cornerRadius), rect.width / 2, rect.height / 2)
-            let path = CGPath(roundedRect: rect, cornerWidth: r, cornerHeight: r, transform: nil)
-            ctx.addPath(path)
-            ctx.fillPath()
-            if part.strokeWidth > 0 {
+            if useGlass {
+                GlassRenderer.fillRoundedRect(
+                    ctx: ctx, rect: rect,
+                    fillHex: part.fillColor,
+                    cornerRadius: r,
+                    strokeHex: part.strokeWidth > 0 ? part.strokeColor : nil,
+                    strokeWidth: CGFloat(part.strokeWidth),
+                    shadowOpacity: theme.map { CGFloat($0.shadowOpacity) } ?? 0,
+                    shadowRadius: theme.map { CGFloat($0.shadowRadius) } ?? 0
+                )
+            } else {
+                let path = CGPath(roundedRect: rect, cornerWidth: r, cornerHeight: r, transform: nil)
                 ctx.addPath(path)
-                ctx.strokePath()
+                ctx.fillPath()
+                if part.strokeWidth > 0 {
+                    ctx.addPath(path)
+                    ctx.strokePath()
+                }
             }
 
         case .oval:
+            // Glass oval would need a custom helper; for now apply
+            // the standard fill+stroke. The oval shape's signature is
+            // already strong enough that glass isn't a visual win.
             ctx.fillEllipse(in: rect)
             if part.strokeWidth > 0 { ctx.strokeEllipse(in: rect) }
 

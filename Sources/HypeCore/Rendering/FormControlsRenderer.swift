@@ -11,7 +11,14 @@ import AppKit
 /// + ButtonStyle.toggle on decode and render via ButtonRenderer.
 public enum FormControlsRenderer {
 
-    public static func draw(_ kind: PartType, ctx: CGContext, part: Part, rect: CGRect) {
+    public static func draw(_ kind: PartType, ctx: CGContext, part: Part, rect: CGRect, theme: HypeTheme? = nil) {
+        // Form controls have native AppKit overlays at runtime
+        // (NSStepper / NSSlider / NSSegmentedControl). The CG path
+        // here is an edit-mode placeholder. The runtime overlay
+        // picks up macOS's vibrancy when the host window has
+        // `material = .regularMaterial`, so live glass rendering
+        // happens at the host-view layer rather than here.
+        _ = theme
         switch kind {
         case .stepper:    drawStepper(ctx: ctx, part: part, rect: rect)
         case .slider:     drawSlider(ctx: ctx, part: part, rect: rect)

@@ -8,7 +8,13 @@ import AppKit
 /// needed. It draws a single horizontal or vertical separator line.
 public enum DividerRenderer {
 
-    public static func draw(ctx: CGContext, part: Part, rect: CGRect) {
+    public static func draw(ctx: CGContext, part: Part, rect: CGRect, theme: HypeTheme? = nil) {
+        // Dividers don't get a glass treatment — a translucent divider
+        // line would defeat its purpose. The `theme` parameter is
+        // accepted for dispatch-signature parity with the other
+        // renderers and reserved for future use (e.g. theme-driven
+        // default divider color).
+        _ = theme
         ctx.saveGState()
 
         // Resolve the stroke color (security: no force-unwrap).

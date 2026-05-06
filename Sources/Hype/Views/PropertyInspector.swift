@@ -167,11 +167,10 @@ struct PropertyInspector: View {
             }
         }
         .frame(width: 260)
-        // Inspector panel chrome — pulls from the active theme so a
-        // dark theme like Modern Dark or Neon makes the side panel
-        // dark too instead of staying system-light. Falls back to
-        // system control color in System theme.
-        .background(hypeTheme.inspectorBackground.swiftUIColor)
+        // Inspector panel chrome — uses the theme's panel surface
+        // treatment. Liquid Glass picks up `.regularMaterial`; flat
+        // themes apply `inspectorBackground` directly.
+        .hypeSurface(.panel, theme: hypeTheme)
         // Force the colorScheme to match the panel background's
         // luminance so SwiftUI's labels (Color.primary / Text /
         // Picker / TextField) pick a contrasting color. Without

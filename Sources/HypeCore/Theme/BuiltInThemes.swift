@@ -20,6 +20,7 @@ public enum BuiltInThemes {
         modernDark,
         sunset,
         neon,
+        liquidGlass,
     ]
 
     /// Look up a built-in theme by case-insensitive name. Returns
@@ -333,6 +334,68 @@ public enum BuiltInThemes {
             lineNumber:    .hex("#5C5C91"),  // lightened from #3A3A5C for 3:1 gutter
             currentLine:   .hex("#1A1828")
         )
+    )
+
+    // MARK: - 7. Liquid Glass
+    //
+    // Apple's macOS Tahoe / iOS 26 design language: translucent
+    // surfaces with vibrancy, generous corner radii (16pt), specular
+    // highlights along the top edge of every control to read as a
+    // glass bevel, and an accent palette that adapts to the system
+    // tint. CG renderers can't run a live blur — that's
+    // NSVisualEffectView's job — but the theme's
+    // `usesGlassMaterial = true` flag tells the renderers to paint
+    // a low-alpha fill plus the highlight gradient that approximates
+    // the look. SwiftUI chrome that already wraps the canvas (the
+    // inspector, panels) gets actual material treatment via
+    // `.background(.regularMaterial)` keyed off the same flag.
+    //
+    // Color values are deliberately tuned to read on top of any
+    // backdrop the user sets: the card surface is a slightly-warm
+    // semi-translucent off-white (`#F8F8FAB8` — 72% alpha) so a
+    // colorful background fills shows through. The accent matches
+    // Apple's default-tint blue so action buttons feel native. Text
+    // colors are the contrast-aware equivalents of the underlying
+    // tinted surfaces.
+    public static let liquidGlass = HypeTheme(
+        id: stableID("builtin.liquidglass"),
+        name: "Liquid Glass",
+        isBuiltIn: true,
+        cardBackground:       .hex("#F8F8FAB8"),    // 72% off-white
+        cardForeground:       .hex("#1C1C1E"),      // near-black ink
+        backgroundFill:       .hex("#EFEFF4D9"),    // 85% pale gray
+        canvasMargin:         .systemKey("windowBackgroundColor"),
+        buttonBackground:     .hex("#FFFFFFA6"),    // 65% white — glass pill
+        buttonForeground:     .hex("#1C1C1E"),
+        buttonBorder:         .hex("#FFFFFF66"),    // 40% white sheen ring
+        buttonHilite:         .hex("#0A84FF"),      // Apple system blue
+        fieldBackground:      .hex("#FFFFFFCC"),    // 80% white frosted
+        fieldForeground:      .hex("#1C1C1E"),
+        fieldBorder:          .hex("#0000001A"),    // 10% black hairline
+        shapeFillDefault:     .hex("#FFFFFFA6"),
+        shapeStrokeDefault:   .hex("#0000001F"),    // 12% black
+        accent:               .hex("#0A84FF"),
+        selectionFill:        .hex("#0A84FF33"),    // 20% accent
+        selectionStroke:      .hex("#0A84FF"),
+        toolbarBackground:    .systemKey("controlBackgroundColor"),
+        inspectorBackground:  .systemKey("controlBackgroundColor"),
+        panelDivider:         .hex("#0000001A"),    // 10% black
+        defaultFontFamily:    "SF Pro Text",
+        defaultFontSize:      14,
+        headingFontFamily:    "SF Pro Display",
+        headingFontSize:      18,
+        monospaceFontFamily:  "SF Mono",
+        labelFontSize:        11,
+        cornerRadiusSmall:    8,
+        cornerRadiusMedium:   12,
+        cornerRadiusLarge:    18,                   // matches Tahoe / iOS 26
+        spacingUnit:          8,
+        strokeWidthThin:      0.5,                  // hairline, not 1pt
+        strokeWidthMedium:    1,
+        shadowOpacity:        0.18,
+        shadowRadius:         12,
+        usesGlassMaterial:    true,
+        scriptTheme: HypeScriptTheme.defaultLight
     )
 
     // MARK: - Stable IDs

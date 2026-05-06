@@ -82,7 +82,7 @@ public final class CardRenderer: Sendable {
         // Layer 2: Background parts
         let bgParts = document.partsForBackground(bg.id)
         for part in bgParts where part.visible && part.id != skipPartId && !nativePartIds.contains(part.id) {
-            drawPart(ctx: ctx, part: part, canvasHeight: Double(size.height))
+            drawPart(ctx: ctx, part: part, canvasHeight: Double(size.height), theme: resolved)
         }
 
         // Layer 3: Card paint layer (future — bitmap overlay)
@@ -90,7 +90,7 @@ public final class CardRenderer: Sendable {
         // Layer 4: Card parts
         let cardParts = document.partsForCard(cardId)
         for part in cardParts where part.visible && part.id != skipPartId && !nativePartIds.contains(part.id) {
-            drawPart(ctx: ctx, part: part, canvasHeight: Double(size.height))
+            drawPart(ctx: ctx, part: part, canvasHeight: Double(size.height), theme: resolved)
         }
     }
 
@@ -112,8 +112,15 @@ public final class CardRenderer: Sendable {
         NSGraphicsContext.restoreGraphicsState()
     }
 
-    /// Dispatch part rendering based on type.
-    public func drawPart(ctx: CGContext, part: Part, canvasHeight: Double) {
+    /// Dispatch part rendering based on type. The optional `theme`
+    /// is forwarded to every per-part renderer that supports
+    /// theme-aware drawing — currently the new "Liquid Glass"
+    /// branch in `ButtonRenderer` / `FieldRenderer` / `ShapeRenderer`
+    /// and any future material-aware code path. Renderers ignore
+    /// `nil` and fall back to their pre-theme rendering, so adding
+    /// new renderers to the dispatch is safe without per-renderer
+    /// theme work.
+    public func drawPart(ctx: CGContext, part: Part, canvasHeight: Double, theme: HypeTheme? = nil) {
         // View is flipped (top-left origin), use part coordinates directly
         let rect = CGRect(
             x: part.left,
@@ -124,11 +131,11 @@ public final class CardRenderer: Sendable {
 
         switch part.partType {
         case .button:
-            ButtonRenderer.draw(ctx: ctx, part: part, rect: rect)
+            ButtonRenderer.draw(ctx: ctx, part: part, rect: rect, theme: theme)
         case .field:
-            FieldRenderer.draw(ctx: ctx, part: part, rect: rect)
+            FieldRenderer.draw(ctx: ctx, part: part, rect: rect, theme: theme)
         case .shape:
-            ShapeRenderer.draw(ctx: ctx, part: part, rect: rect)
+            ShapeRenderer.draw(ctx: ctx, part: part, rect: rect, theme: theme)
         case .webpage:
             WebPageRenderer.draw(ctx: ctx, part: part, rect: rect)
         case .image:
@@ -148,17 +155,17 @@ public final class CardRenderer: Sendable {
         case .colorWell:
             ColorWellRenderer.draw(ctx: ctx, part: part, rect: rect)
         case .stepper, .slider, .segmented:
-            FormControlsRenderer.draw(part.partType, ctx: ctx, part: part, rect: rect)
+            FormControlsRenderer.draw(part.partType, ctx: ctx, part: part, rect: rect, theme: theme)
         case .audioRecorder:
             AudioRecorderRenderer.draw(ctx: ctx, part: part, rect: rect)
         case .scene3D:
             Scene3DRenderer.draw(ctx: ctx, part: part, rect: rect)
         case .progressView:
-            ProgressViewRenderer.draw(ctx: ctx, part: part, rect: rect)
+            ProgressViewRenderer.draw(ctx: ctx, part: part, rect: rect, theme: theme)
         case .gauge:
-            GaugeRenderer.draw(ctx: ctx, part: part, rect: rect)
+            GaugeRenderer.draw(ctx: ctx, part: part, rect: rect, theme: theme)
         case .divider:
-            DividerRenderer.draw(ctx: ctx, part: part, rect: rect)
+            DividerRenderer.draw(ctx: ctx, part: part, rect: rect, theme: theme)
         case .toggle, .link, .menu, .searchField:
             // Migrated to button/field with appropriate style at decode
             // time — these PartTypes are unreachable in normal flow.
