@@ -171,6 +171,58 @@ struct ControlCleanupTests {
     }
 
     @MainActor
+    @Test("field with default fillColor (#FFFFFF) and text content renders dark text — even on dark mode")
+    func fieldTextStaysReadableOnWhiteFill() {
+        // The pre-fix renderer used `NSColor.labelColor` for non-active
+        // text. labelColor is dynamic — light gray on dark mode. Since
+        // the field's default `fillColor = "#FFFFFF"` is always white,
+        // dark mode produced light-on-white = invisible. The text only
+        // appeared when the user clicked into the field because the
+        // NSTextField overlay forces `.black`. After the fix, the
+        // renderer picks a color from the fill's luminance independent
+        // of system appearance — dark text on a white fill, period.
+        var part = Part(partType: .field)
+        part.fieldStyle = .rectangle
+        part.fillColor = "#FFFFFF"
+        part.textContent = "Hello world"
+        // Force dark appearance so the labelColor regression would
+        // have produced a near-white text color before the fix.
+        let appearance = NSAppearance(named: .darkAqua)
+        var textInteriorBrightness: Double = 1.0
+        appearance?.performAsCurrentDrawingAppearance {
+            let img = renderField(part, size: NSSize(width: 200, height: 32))
+            // Sample a horizontal strip where the rendered glyphs sit.
+            // The default 4pt padding + 12pt font puts glyph ink in
+            // approximately the y=8...22 band.
+            textInteriorBrightness = img.averageBrightness(xRange: 6...100, yRange: 8...22)
+        }
+        // Without the fix, this region averaged ~0.95 (near-white)
+        // because labelColor was light on dark appearance. With the
+        // fix, the dark glyph ink pulls the average below the
+        // pure-white baseline of the empty fill.
+        #expect(textInteriorBrightness < 0.92,
+                "expected text glyphs to darken the rendered region (got brightness \(textInteriorBrightness))")
+    }
+
+    @MainActor
+    @Test("field with dark fillColor renders LIGHT text — contrast pick is symmetric")
+    func fieldTextStaysReadableOnDarkFill() {
+        // Symmetric case: a dark fill should produce light text. This
+        // pins down the contrast-pick algorithm rather than just
+        // hard-coding "always black".
+        var part = Part(partType: .field)
+        part.fieldStyle = .rectangle
+        part.fillColor = "#101010"   // near-black
+        part.textContent = "Hello world"
+        let img = renderField(part, size: NSSize(width: 200, height: 32))
+        // Same band as above. Dark fill = ~0.06 baseline; light
+        // glyph ink raises the average.
+        let band = img.averageBrightness(xRange: 6...100, yRange: 8...22)
+        #expect(band > 0.10,
+                "expected light glyphs on a dark fill to raise the band brightness above the bare-fill baseline (got \(band))")
+    }
+
+    @MainActor
     @Test("field renderer honors configured border width")
     func fieldRendererHonorsConfiguredBorderWidth() {
         var part = Part(partType: .field)

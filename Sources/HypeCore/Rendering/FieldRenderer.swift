@@ -110,12 +110,19 @@ public enum FieldRenderer {
             paragraphStyle.alignment = alignment
             paragraphStyle.lineBreakMode = part.dontWrap ? .byClipping : .byWordWrapping
 
+            // Pick the text color based on the actual fillColor's
+            // luminance, NOT system appearance. The previous code
+            // used `NSColor.labelColor` (dynamic), which produced
+            // light-text-on-white in dark mode for fields that kept
+            // their default `#FFFFFF` fill — making the text
+            // invisible until the user clicked into the field (the
+            // NSTextField overlay forces .black). The contrast-aware
+            // pick mirrors what the editor does and stays readable
+            // regardless of macOS appearance.
+            let textColor = ColorContrast.readableTextColor(forFillHex: part.fillColor)
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: nsFont,
-                // labelColor is dynamic (dark-mode aware), so field
-                // text remains readable on light + dark themes
-                // without hardcoding either extreme.
-                .foregroundColor: NSColor.labelColor,
+                .foregroundColor: textColor,
                 .paragraphStyle: paragraphStyle,
             ]
 

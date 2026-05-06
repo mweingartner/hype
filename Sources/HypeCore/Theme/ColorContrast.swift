@@ -222,3 +222,28 @@ public extension ColorRef {
         }
     }
 }
+
+#if canImport(AppKit)
+public extension ColorContrast {
+    /// Pick a readable text color (near-black or near-white) for the
+    /// given fill background, regardless of system appearance.
+    ///
+    /// **Why this exists**: `NSColor.labelColor` is dynamic — light
+    /// in dark mode, dark in light mode. Using it for text rendered
+    /// on a part with an EXPLICIT fill color (e.g. `#FFFFFF`) means
+    /// the text adapts to the appearance even though the background
+    /// does not — producing white-on-white in dark mode. This helper
+    /// chooses a fixed color that contrasts against the actual fill,
+    /// independent of system appearance.
+    ///
+    /// Algorithm: relative luminance of the fill in `[0, 1]` —
+    /// > 0.5 picks `#000000`, otherwise `#FFFFFF`. Empty / invalid
+    /// fillHex falls back to `#000000` (assumes a light background
+    /// since the renderer's white default is the most common case).
+    static func readableTextColor(forFillHex fillHex: String) -> NSColor {
+        guard let rgb = parseHex(fillHex) else { return NSColor.black }
+        let lum = relativeLuminance(r: rgb.r, g: rgb.g, b: rgb.b)
+        return lum > 0.5 ? NSColor.black : NSColor.white
+    }
+}
+#endif
