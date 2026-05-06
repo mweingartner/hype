@@ -27,6 +27,12 @@ import AppKit
 ///   is in flight).
 struct AIChatInputView: NSViewRepresentable {
     @Binding var text: String
+    /// Reports the content height the input needs to display every
+    /// line of `text` without scrolling. SwiftUI uses this to grow
+    /// the wrapping frame so the user always sees the whole prompt
+    /// while composing. After `onSubmit` clears `text`, the height
+    /// naturally collapses back to a single line.
+    @Binding var contentHeight: CGFloat
     var isEnabled: Bool = true
     var onSubmit: () -> Void = {}
     var onHistoryUp: () -> Void = {}
@@ -35,6 +41,10 @@ struct AIChatInputView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
+        // Hide the scroller — the SwiftUI parent grows to fit content
+        // up to a max height, so a scroller is only visible at that
+        // ceiling. autohidesScrollers + transparent overlay keeps it
+        // out of the way for the typical "few lines of prompt" case.
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
@@ -84,6 +94,13 @@ struct AIChatInputView: NSViewRepresentable {
         context.coordinator.textView = textView
         textView.string = text
 
+        // Initial height pulse so the SwiftUI frame sizes correctly
+        // on first show — without it the initial render uses the
+        // SwiftUI-min height (one line) even if `text` was preset.
+        DispatchQueue.main.async {
+            context.coordinator.publishContentHeight()
+        }
+
         return scrollView
     }
 
@@ -98,6 +115,12 @@ struct AIChatInputView: NSViewRepresentable {
             textView.string = text
             let len = (text as NSString).length
             textView.setSelectedRange(NSRange(location: len, length: 0))
+            // History recall and post-submit reset both trigger this
+            // branch — re-measure so the SwiftUI frame collapses (on
+            // empty text) or expands (on a multi-line recalled prompt).
+            DispatchQueue.main.async {
+                context.coordinator.publishContentHeight()
+            }
         }
         if textView.isEditable != isEnabled {
             textView.isEditable = isEnabled
@@ -121,6 +144,34 @@ struct AIChatInputView: NSViewRepresentable {
             // round-trip through updateNSView is guarded by the
             // `textView.string != text` check so it doesn't loop.
             parent.text = textView.string
+            publishContentHeight()
+        }
+
+        /// Compute the height of the laid-out glyphs and write it to
+        /// the parent's `contentHeight` binding. SwiftUI re-renders
+        /// the frame in response, growing or shrinking the input.
+        ///
+        /// Uses `layoutManager.usedRect(for:)` rather than
+        /// `boundingRect(forGlyphRange:)` because the former reports
+        /// the size including trailing newline whitespace — needed so
+        /// pressing Return on an empty trailing line still expands
+        /// the frame to reveal the cursor.
+        func publishContentHeight() {
+            guard let textView = textView,
+                  let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer
+            else { return }
+            // Force layout to be current.
+            layoutManager.ensureLayout(for: textContainer)
+            let used = layoutManager.usedRect(for: textContainer)
+            // 18pt is the natural single-line height for system 13pt
+            // font with zero text-container inset; clamp the floor so
+            // an empty text view collapses to one line cleanly.
+            let measured = max(used.height, 18)
+            // Avoid pointless binding writes (would loop SwiftUI).
+            if abs(parent.contentHeight - measured) > 0.5 {
+                parent.contentHeight = measured
+            }
         }
     }
 }

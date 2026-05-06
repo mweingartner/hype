@@ -6,6 +6,13 @@ struct AIChatPanel: View {
     @Binding var currentCardId: UUID?
     @Environment(\.hypeTheme) private var hypeTheme
     @State private var inputText = ""
+    /// Live content height of the prompt input, reported by
+    /// `AIChatInputView`. Drives the wrapping HStack's frame so the
+    /// input grows vertically as the user adds lines and snaps back
+    /// to a single line on submit. Single-line baseline is 18pt
+    /// (system 13pt font with zero text-container inset) plus the
+    /// container's 16pt total padding.
+    @State private var inputContentHeight: CGFloat = 18
     @State private var messages: [ChatBubble] = []
     @State private var conversationMessages: [OllamaMessage] = []  // Full context for model
     @State private var isProcessing = false
@@ -283,6 +290,7 @@ struct AIChatPanel: View {
                     }
                     AIChatInputView(
                         text: $inputText,
+                        contentHeight: $inputContentHeight,
                         isEnabled: !isProcessing,
                         onSubmit: { sendMessage() },
                         onHistoryUp: { recallHistory(direction: .up) },
@@ -291,8 +299,16 @@ struct AIChatPanel: View {
                     .padding(8)
                     .focused($isInputFocused)
                 }
-                .frame(minHeight: 32, maxHeight: 120)
-                .fixedSize(horizontal: false, vertical: true)
+                // Frame tracks the measured content height so the
+                // input grows vertically as the user types more
+                // lines and shrinks back on submit / empty recall.
+                // Floor: 32pt (single line + 16pt container padding,
+                // matching the original fixed height). Ceiling:
+                // 320pt — well past the prior 120pt cap, but bounded
+                // so a runaway paste of an entire script doesn't
+                // overrun the chat bubbles. Past the ceiling the
+                // NSScrollView's hidden scroller takes over.
+                .frame(height: min(max(inputContentHeight + 16, 32), 320))
                 .background(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.3)))
 
                 // Trailing button column: Send (or Stop while
