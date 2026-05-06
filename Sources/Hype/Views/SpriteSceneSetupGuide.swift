@@ -362,8 +362,24 @@ struct SpriteSceneSetupGuide: View {
                 }
             }
 
-            TextField("Background color hex", text: $draft.backgroundColor)
-                .textFieldStyle(.roundedBorder)
+            // Background color — ColorPicker swatch + hex text in
+            // sync. Mirrors `PropertyInspector.colorPropertyRow` so
+            // every color-picking surface in the app has the same
+            // shape: pick visually OR type a precise hex; the two
+            // fields stay in lockstep through the shared binding.
+            HStack {
+                ColorPicker("", selection: Binding<Color>(
+                    get: { Color(hex: draft.backgroundColor) },
+                    set: { newVal in draft.backgroundColor = newVal.toHex() }
+                ), supportsOpacity: false)
+                .labelsHidden()
+                Text("Background").font(.system(size: 11))
+                Spacer()
+                TextField("hex", text: $draft.backgroundColor)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 11, design: .monospaced))
+                    .frame(width: 90)
+            }
 
             HStack {
                 labeledNumberField("Gravity X", value: $draft.gravityX)
