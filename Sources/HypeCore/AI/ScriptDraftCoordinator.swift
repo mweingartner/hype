@@ -22,9 +22,17 @@ public final class ScriptDraftCoordinator {
     /// Tunable parameters for the iteration loop.
     public struct Configuration: Sendable {
         /// Maximum number of attempts (including the initial one that produced the refusal).
+        ///
+        /// At per-turn pass rate `p`, effective accuracy after this
+        /// many tries is `1 − (1 − p)^maxAttempts`. The default of 5
+        /// lifts a 70%-per-turn model to ~99.8% effective and
+        /// trades only a few seconds of latency in the worst case.
+        /// Bumped from 3 to 5 on 2026-05-05 — see
+        /// `TOURNAMENT_RESULTS_GRANITE.md` and the path-to-100%
+        /// analysis for the math.
         public var maxAttempts: Int
 
-        public init(maxAttempts: Int = 3) {
+        public init(maxAttempts: Int = 5) {
             self.maxAttempts = maxAttempts
         }
     }

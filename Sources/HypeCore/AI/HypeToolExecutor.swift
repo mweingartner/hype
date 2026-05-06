@@ -242,7 +242,14 @@ public struct HypeToolExecutor: Sendable {
 
     /// Auto-wrap a script in `on mouseUp`/`end mouseUp` if it's not already wrapped in a handler.
     private func wrapScript(_ script: String) -> String {
-        let trimmed = script.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Pre-flight repair: silently fix mechanical mistakes (bare
+        // `end`, joined `elseif`) so the parser doesn't have to
+        // refuse-and-retry for errors that are trivially correctable.
+        // Hard-signal violations (JS-flavored tokens, etc.) are NOT
+        // touched here — the host gate's `nonHypeTalkScriptMessage`
+        // refuses those so the model retries in HypeTalk.
+        let repaired = ScriptAutoFixer.autoFix(script)
+        let trimmed = repaired.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
         // Already wrapped in a handler block?
         let lower = trimmed.lowercased()
