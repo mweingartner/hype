@@ -245,5 +245,29 @@ public extension ColorContrast {
         let lum = relativeLuminance(r: rgb.r, g: rgb.g, b: rgb.b)
         return lum > 0.5 ? NSColor.black : NSColor.white
     }
+
+    /// Same idea, but takes an arbitrary `NSColor` (which may be a
+    /// dynamic system color whose rendered RGB depends on the current
+    /// `NSAppearance`). Resolves the color to sRGB-space components
+    /// and picks `.black` for fills with luminance > 0.5, otherwise
+    /// `.white`.
+    ///
+    /// Used by renderers that paint over a theme-derived color
+    /// (`theme.accent.nsColor`, `theme.buttonHilite.nsColor`, …).
+    /// Driving the text-color choice off the actual rendered color
+    /// keeps labels readable whether the theme picked `#FF8C42`
+    /// (Sunset orange — needs dark text) or `#0A84FF` (Liquid Glass
+    /// blue — needs light text).
+    static func readableTextColor(for nsColor: NSColor) -> NSColor {
+        // Try the sRGB-resolved values; system colors only resolve
+        // when there's an active appearance, but renderers are
+        // always running inside a CGContext that has one.
+        let srgb = nsColor.usingColorSpace(.sRGB) ?? nsColor
+        let r = Double(srgb.redComponent)
+        let g = Double(srgb.greenComponent)
+        let b = Double(srgb.blueComponent)
+        let lum = relativeLuminance(r: r, g: g, b: b)
+        return lum > 0.5 ? NSColor.black : NSColor.white
+    }
 }
 #endif

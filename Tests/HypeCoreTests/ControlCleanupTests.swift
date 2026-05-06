@@ -161,6 +161,116 @@ struct ControlCleanupTests {
     // SecurityRegressionTests next to the existing legacy-decoder
     // assertions, so the migration table has a single test home.
 
+    // MARK: - Theme-driven default button
+
+    #if canImport(AppKit)
+    @MainActor
+    @Test("Default-style button: when no theme is supplied, fill is the system accent (legacy behavior)")
+    func defaultButtonNoThemeUsesSystemAccent() {
+        var part = Part(partType: .button, name: "OK")
+        part.buttonStyle = .default
+        let img = renderPart(part, size: NSSize(width: 80, height: 32), theme: nil)
+        // Sample the body of the rounded button (avoid the corner
+        // arc / outside the rounded area). Just verify it's NOT
+        // pure-white (the canvas backdrop the test fills) — i.e.
+        // some accent fill landed.
+        let center = img.averageBrightness(xRange: 30...50, yRange: 14...20)
+        #expect(center < 0.95,
+                "expected accent fill to color the button center; got brightness \(center)")
+    }
+
+    @MainActor
+    @Test("Default-style button: when a theme with a Sunset-orange accent is supplied, the button paints orange (NOT system blue)")
+    func defaultButtonHonorsThemeSunsetAccent() {
+        var part = Part(partType: .button, name: "OK")
+        part.buttonStyle = .default
+        part.showName = false
+        part.textContent = ""    // suppress the label so the body
+                                 // is pure accent fill, not blended
+                                 // with the contrast-aware label ink
+        // Sunset's accent is `#FF8C42` — distinctly red-orange. The
+        // pre-fix code would paint with `controlAccentColor` (a
+        // system blue), which has B as the dominant channel. After
+        // the fix the red dominates so a sample at the body has
+        // R > G > B.
+        let img = renderPart(part, size: NSSize(width: 80, height: 32), theme: BuiltInThemes.sunset)
+        // Sample a non-corner non-text region of the body. The
+        // button's rounded fill spans roughly x=4..76, y=4..28
+        // after the test's 4-pt outer inset; sample the upper
+        // portion well inside the rounded rect (avoid the corner
+        // arcs).
+        var rSum: Double = 0, gSum: Double = 0, bSum: Double = 0
+        var n = 0
+        for x in 30...50 {
+            for y in 8...12 {
+                let c = img.color(x: x, y: y)
+                rSum += c.r; gSum += c.g; bSum += c.b; n += 1
+            }
+        }
+        let avgR = rSum / Double(n)
+        let avgG = gSum / Double(n)
+        let avgB = bSum / Double(n)
+        // For Sunset's #FF8C42 the channels rank R > G > B clearly.
+        // The system accent's red channel is much smaller; if any
+        // pre-fix path was leaking, R wouldn't dominate.
+        #expect(avgR > avgG,
+                "expected R > G (warm accent); got R=\(avgR) G=\(avgG)")
+        #expect(avgG > avgB,
+                "expected G > B (warm accent); got G=\(avgG) B=\(avgB)")
+        #expect(avgR > 0.6,
+                "expected high red channel for Sunset accent; got R=\(avgR)")
+    }
+
+    @MainActor
+    @Test("Default-style button: theme accent label color is contrast-aware (light accent → dark text)")
+    func defaultButtonContrastAwareTextOnLightAccent() {
+        // Build a theme with an intentionally LIGHT accent (#FFE0B0
+        // — pale peach). Pre-fix code drew labels in `NSColor.white`
+        // unconditionally → invisible white-on-pale-peach. Post-fix
+        // the label color comes from
+        // `ColorContrast.readableTextColor(for:)` so a pale fill
+        // gets dark text.
+        var theme = BuiltInThemes.sunset
+        theme.accent = .hex("#FFE0B0")
+        var part = Part(partType: .button, name: "Click")
+        part.buttonStyle = .default
+        part.showName = false
+        part.textContent = "Click"
+        let img = renderPart(part, size: NSSize(width: 100, height: 32), theme: theme)
+        // Sample where the glyph ink would land — middle of the
+        // button. With dark text, this region averages darker than
+        // the bare pale fill; with pre-fix white text (which would
+        // disappear into the pale background) the average would
+        // match the pale fill exactly.
+        let textRegion = img.averageBrightness(xRange: 30...70, yRange: 12...20)
+        // Pure pale-peach fill is roughly 0.9 brightness. Dark glyph
+        // ink pulls the average below 0.85; white-on-pale would
+        // STAY at ~0.9.
+        #expect(textRegion < 0.88,
+                "expected dark glyphs on a pale accent (contrast-aware); got brightness \(textRegion)")
+    }
+
+    @MainActor
+    @Test("Default-style button: dark accent keeps light label text (contrast pick stays sane)")
+    func defaultButtonContrastAwareTextOnDarkAccent() {
+        // Symmetric case — dark accent keeps the legacy white-text
+        // behavior. Confirms the contrast pick is symmetric, not
+        // hardcoded "always dark".
+        var theme = BuiltInThemes.modernDark
+        theme.accent = .hex("#202040")    // very dark navy
+        var part = Part(partType: .button, name: "Click")
+        part.buttonStyle = .default
+        part.showName = false
+        part.textContent = "Click"
+        let img = renderPart(part, size: NSSize(width: 100, height: 32), theme: theme)
+        // Where the glyphs sit — light text raises the band
+        // brightness above the bare-fill baseline (#202040 ≈ 0.13).
+        let textRegion = img.averageBrightness(xRange: 30...70, yRange: 12...20)
+        #expect(textRegion > 0.18,
+                "expected light glyphs on a dark accent; got brightness \(textRegion)")
+    }
+    #endif
+
     @MainActor
     @Test("rectangle field: interior is near-white (field fills with white)")
     func rectangleFieldInteriorIsWhite() {
@@ -345,12 +455,12 @@ private func renderToBitmap(size: NSSize, flipped: Bool = true, _ draw: (CGConte
 }
 
 @MainActor
-private func renderPart(_ part: Part, size: NSSize) -> RenderedPixels {
+private func renderPart(_ part: Part, size: NSSize, theme: HypeTheme? = nil) -> RenderedPixels {
     renderToBitmap(size: size) { ctx in
         ctx.setFillColor(NSColor.white.cgColor)
         ctx.fill(CGRect(origin: .zero, size: size))
         let rect = CGRect(x: 4, y: 4, width: size.width - 8, height: size.height - 8)
-        ButtonRenderer.draw(ctx: ctx, part: part, rect: rect)
+        ButtonRenderer.draw(ctx: ctx, part: part, rect: rect, theme: theme)
     }
 }
 

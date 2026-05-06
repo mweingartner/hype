@@ -19,23 +19,46 @@ public enum ButtonRenderer {
         // helper paths below where it makes sense.
         let useGlass = GlassRenderer.shouldUseGlass(for: theme)
 
-        // Use system-aware colors so the renderer's edit-mode preview
-        // adapts to the active appearance (light / dark / theme).
-        // labelColor + controlBackgroundColor are dynamic — they
-        // pick the right shade for the current Aqua appearance.
-        let fillColor = part.hilite ? NSColor.controlAccentColor.cgColor : NSColor.controlBackgroundColor.cgColor
-        // For checkboxes, radio buttons, and toggles, the label color stays black
-        // because hilite only affects the indicator (check/dot/switch), not the label background
+        // Theme-derived palette. When a theme is supplied, every
+        // accent / fill / border / foreground color comes from the
+        // theme so the rendered button reflects the user's chosen
+        // aesthetic (Sunset's orange, Neon's magenta, Liquid Glass's
+        // system blue, etc.) rather than always-the-system-accent.
+        // Without a theme, the previous system-color behavior
+        // (`controlAccentColor`, `controlBackgroundColor`,
+        // `labelColor`) is preserved so legacy callers and tests
+        // see the same output as before.
+        let accentNS:    NSColor = theme?.accent.nsColor          ?? NSColor.controlAccentColor
+        let buttonBgNS:  NSColor = theme?.buttonBackground.nsColor ?? NSColor.controlBackgroundColor
+        let buttonHiNS:  NSColor = theme?.buttonHilite.nsColor    ?? NSColor.controlAccentColor
+        let buttonFgNS:  NSColor = theme?.buttonForeground.nsColor ?? NSColor.labelColor
+        let cardBgNS:    NSColor = theme?.cardBackground.nsColor   ?? NSColor.controlBackgroundColor
+        let cardFgNS:    NSColor = theme?.cardForeground.nsColor   ?? NSColor.labelColor
+        let borderNS:    NSColor = theme?.buttonBorder.nsColor    ?? NSColor.separatorColor
+
+        // Body fill for the standard / opaque / oval / roundRect
+        // / shadow.face cases. Hilite swaps to the theme's hilite
+        // color; rest uses the theme's button background.
+        let fillColor = part.hilite ? buttonHiNS.cgColor : buttonBgNS.cgColor
+
+        // Label color for the body cases. When hilited, pick a
+        // contrast-aware color over the hilite fill so the text is
+        // readable regardless of what tint the theme chose
+        // (Sunset's orange + dark text; Neon's magenta + light text).
+        // When not hilited, use the theme's button foreground.
         let textColor: CGColor
         switch part.buttonStyle {
         case .checkBox, .toggle:
-            textColor = part.enabled ? NSColor.labelColor.cgColor : NSColor.disabledControlTextColor.cgColor
+            // Indicator-style controls (check / switch). The label
+            // floats next to the indicator on the part background,
+            // not over the hilite — use the theme's foreground.
+            textColor = part.enabled ? cardFgNS.cgColor : NSColor.disabledControlTextColor.cgColor
         default:
-            // Hilite buttons get inverted text (white on tint).
-            // Default-state text uses labelColor so dark mode flips
-            // to the proper light-on-dark shade.
-            textColor = part.hilite ? NSColor.alternateSelectedControlTextColor.cgColor
-                : (part.enabled ? NSColor.labelColor.cgColor : NSColor.disabledControlTextColor.cgColor)
+            if part.hilite {
+                textColor = ColorContrast.readableTextColor(for: buttonHiNS).cgColor
+            } else {
+                textColor = part.enabled ? buttonFgNS.cgColor : NSColor.disabledControlTextColor.cgColor
+            }
         }
 
         switch part.buttonStyle {
@@ -72,7 +95,7 @@ public enum ButtonRenderer {
             } else {
                 ctx.setFillColor(fillColor)
                 ctx.fill(rect)
-                ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+                ctx.setStrokeColor(borderNS.cgColor)
                 ctx.setLineWidth(1)
                 ctx.stroke(rect)
             }
@@ -89,12 +112,13 @@ public enum ButtonRenderer {
                     shadowRadius: CGFloat(t.shadowRadius)
                 )
             } else {
-                let path = CGPath(roundedRect: rect, cornerWidth: 8, cornerHeight: 8, transform: nil)
+                let cornerR = theme.map { CGFloat($0.cornerRadiusMedium) } ?? 8
+                let path = CGPath(roundedRect: rect, cornerWidth: cornerR, cornerHeight: cornerR, transform: nil)
                 ctx.addPath(path)
                 ctx.setFillColor(fillColor)
                 ctx.fillPath()
                 ctx.addPath(path)
-                ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+                ctx.setStrokeColor(borderNS.cgColor)
                 ctx.setLineWidth(1)
                 ctx.strokePath()
             }
@@ -117,7 +141,7 @@ public enum ButtonRenderer {
             ctx.fill(shadowRect)
             ctx.setFillColor(fillColor)
             ctx.fill(faceRect)
-            ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+            ctx.setStrokeColor(borderNS.cgColor)
             ctx.stroke(faceRect)
             // Label follows the face so the button visually "presses
             // into" its shadow. Shared fall-through label would use
@@ -143,21 +167,21 @@ public enum ButtonRenderer {
             // Always draw a clearly visible rectangle where the check
             // belongs — even in the unchecked state — so users can
             // see exactly where the click target is and what the
-            // checkbox style looks like at rest. The box is a 16x16
-            // square with a 1px black stroke and a white fill.
+            // checkbox style looks like at rest.
             let boxSize: CGFloat = 16
             let boxY = rect.midY - boxSize / 2
             let boxRect = CGRect(x: rect.minX + 4, y: boxY, width: boxSize, height: boxSize)
-            ctx.setFillColor(NSColor.white.cgColor)
+            ctx.setFillColor(cardBgNS.cgColor)
             ctx.fill(boxRect)
-            ctx.setStrokeColor(NSColor.black.cgColor)
+            ctx.setStrokeColor(cardFgNS.cgColor)
             ctx.setLineWidth(1)
             ctx.stroke(boxRect)
             // When checked (hilite), draw a checkmark V-shape inside
-            // the box. The outer rectangle remains visible; the check
-            // sits on top of it.
+            // the box using the theme's accent color so a Sunset /
+            // Neon / Liquid Glass theme highlights the check in its
+            // signature tint.
             if part.hilite {
-                ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+                ctx.setStrokeColor(accentNS.cgColor)
                 ctx.setLineWidth(2)
                 ctx.move(to: CGPoint(x: boxRect.minX + 3, y: boxRect.midY))
                 ctx.addLine(to: CGPoint(x: boxRect.midX - 1, y: boxRect.maxY - 3))
@@ -172,30 +196,63 @@ public enum ButtonRenderer {
             return
 
         case .default:
-            let outerPath = CGPath(roundedRect: rect, cornerWidth: 10, cornerHeight: 10, transform: nil)
-            ctx.addPath(outerPath)
-            ctx.setFillColor(NSColor.controlAccentColor.cgColor)
-            ctx.fillPath()
+            // The "default action" button. Apple's HIG paints this in
+            // the system accent so the user can spot the primary
+            // action at a glance — e.g. the OK button in a dialog.
+            // We honor the same intent, but read the accent from the
+            // active theme so a Sunset / Neon / Liquid Glass / user-
+            // authored theme actually shows up here. Falls back to
+            // the system accent when no theme is supplied (legacy
+            // callers, tests).
+            let cornerR = theme.map { CGFloat($0.cornerRadiusLarge) } ?? 10
+            if useGlass, let t = theme {
+                GlassRenderer.fillRoundedRect(
+                    ctx: ctx, rect: rect,
+                    fillHex: t.accent.rawDescription,
+                    cornerRadius: cornerR,
+                    strokeHex: nil,
+                    strokeWidth: 0,
+                    shadowOpacity: CGFloat(t.shadowOpacity),
+                    shadowRadius: CGFloat(t.shadowRadius)
+                )
+            } else {
+                let outerPath = CGPath(roundedRect: rect, cornerWidth: cornerR, cornerHeight: cornerR, transform: nil)
+                ctx.addPath(outerPath)
+                ctx.setFillColor(accentNS.cgColor)
+                ctx.fillPath()
+            }
+            // Text color is contrast-aware against the resolved
+            // accent so a light accent (Sunset orange / Liquid Glass
+            // pale blue) gets dark text and a dark accent (Neon
+            // magenta) gets light text. Without this, a theme that
+            // picked a light accent rendered as white-on-light = an
+            // unreadable button.
             let label = part.showName ? part.name : part.textContent
+            let labelColor = ColorContrast.readableTextColor(for: accentNS).cgColor
             drawLabel(ctx: ctx, text: label, at: CGPoint(x: rect.midX, y: rect.midY),
-                     font: part.textFont, size: part.textSize, color: NSColor.white.cgColor, align: .center)
+                     font: part.textFont, size: part.textSize, color: labelColor, align: .center)
             ctx.restoreGState()
             return
 
         case .popup:
-            // macOS-style popup button with rounded corners
-            let popupPath = CGPath(roundedRect: rect, cornerWidth: 6, cornerHeight: 6, transform: nil)
+            // macOS-style popup button with rounded corners. Theme-
+            // aware: bg is the field background (so it reads as a
+            // user-input control), border is the field border, and
+            // chevrons + label are the card foreground. Falls back
+            // to system defaults when no theme is supplied.
+            let cornerR = theme.map { CGFloat($0.cornerRadiusMedium) } ?? 6
+            let popupPath = CGPath(roundedRect: rect, cornerWidth: cornerR, cornerHeight: cornerR, transform: nil)
             ctx.addPath(popupPath)
-            ctx.setFillColor(NSColor.white.cgColor)
+            ctx.setFillColor((theme?.fieldBackground.nsColor ?? NSColor.textBackgroundColor).cgColor)
             ctx.fillPath()
             ctx.addPath(popupPath)
-            ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+            ctx.setStrokeColor((theme?.fieldBorder.nsColor ?? NSColor.separatorColor).cgColor)
             ctx.setLineWidth(1)
             ctx.strokePath()
             // Draw unfilled dropdown chevron arrows (up/down)
             let arrowX = rect.maxX - 18
             let arrowCY = rect.midY
-            ctx.setStrokeColor(NSColor.black.cgColor)
+            ctx.setStrokeColor(cardFgNS.cgColor)
             ctx.setLineWidth(1.5)
             // Up chevron
             ctx.move(to: CGPoint(x: arrowX, y: arrowCY - 2))
@@ -229,11 +286,16 @@ public enum ButtonRenderer {
             ctx.setFillColor(fillColor)
             ctx.fillPath()
             ctx.addEllipse(in: rect)
-            ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+            ctx.setStrokeColor(borderNS.cgColor)
             ctx.strokePath()
 
         case .toggle:
-            // macOS-style toggle switch
+            // macOS-style toggle switch. Track-on uses the theme's
+            // accent so the active toggle reads in the theme tint;
+            // track-off stays a translucent gray (it's an "absence
+            // of accent" state and a tinted off-state would be
+            // confusingly close to on). Knob uses the theme card
+            // background so it pops on both light and dark themes.
             let trackWidth: CGFloat = 44
             let trackHeight: CGFloat = 24
             let trackX = rect.minX + 4
@@ -242,7 +304,7 @@ public enum ButtonRenderer {
             let trackPath = CGPath(roundedRect: trackRect, cornerWidth: trackHeight / 2, cornerHeight: trackHeight / 2, transform: nil)
 
             ctx.addPath(trackPath)
-            ctx.setFillColor(part.hilite ? NSColor.controlAccentColor.cgColor : NSColor.systemGray.withAlphaComponent(0.3).cgColor)
+            ctx.setFillColor(part.hilite ? accentNS.cgColor : NSColor.systemGray.withAlphaComponent(0.3).cgColor)
             ctx.fillPath()
 
             // Knob
@@ -250,10 +312,10 @@ public enum ButtonRenderer {
             let knobX = part.hilite ? trackX + trackWidth - knobSize - 2 : trackX + 2
             let knobY = trackY + 2
             ctx.addEllipse(in: CGRect(x: knobX, y: knobY, width: knobSize, height: knobSize))
-            ctx.setFillColor(NSColor.white.cgColor)
+            ctx.setFillColor(cardBgNS.cgColor)
             ctx.fillPath()
             ctx.addEllipse(in: CGRect(x: knobX, y: knobY, width: knobSize, height: knobSize))
-            ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+            ctx.setStrokeColor(borderNS.cgColor)
             ctx.setLineWidth(0.5)
             ctx.strokePath()
 
@@ -267,7 +329,11 @@ public enum ButtonRenderer {
             return
 
         case .radio:
-            // Radio button: hollow circle with filled dot when hilited.
+            // Radio button: hollow circle with filled dot when
+            // hilited. Theme-aware — the dot uses the theme accent
+            // (Sunset orange / Neon magenta / Liquid Glass blue),
+            // the circle outlines in the theme card foreground, and
+            // the empty fill uses the theme card background.
             let radioSize: CGFloat = min(rect.height, 18)
             let radioRect = CGRect(
                 x: rect.minX + 2,
@@ -275,9 +341,9 @@ public enum ButtonRenderer {
                 width: radioSize,
                 height: radioSize
             )
-            ctx.setFillColor(NSColor.controlBackgroundColor.cgColor)
+            ctx.setFillColor(cardBgNS.cgColor)
             ctx.fillEllipse(in: radioRect)
-            ctx.setStrokeColor(NSColor.secondaryLabelColor.cgColor)
+            ctx.setStrokeColor(cardFgNS.withAlphaComponent(0.6).cgColor)
             ctx.setLineWidth(1.5)
             ctx.strokeEllipse(in: radioRect)
             if part.hilite {
@@ -288,7 +354,7 @@ public enum ButtonRenderer {
                     width: dotSize,
                     height: dotSize
                 )
-                ctx.setFillColor(NSColor.controlAccentColor.cgColor)
+                ctx.setFillColor(accentNS.cgColor)
                 ctx.fillEllipse(in: dotRect)
             }
             // Label to the right of the radio circle
@@ -302,13 +368,17 @@ public enum ButtonRenderer {
             return
 
         case .link:
-            // Underlined link styling: blue text, underline.
+            // Underlined link styling. Theme-aware: when a theme is
+            // supplied, the link tint comes from `theme.accent` so a
+            // Sunset / Neon / Liquid Glass theme paints links in its
+            // signature color. Without a theme, falls back to
+            // `NSColor.linkColor` (the system blue link tint).
             // Click handling lives in the host view (NSWorkspace.open
             // with scheme allowlist).
             let linkText = part.textContent.isEmpty
                 ? (part.url.isEmpty ? "(link)" : part.url)
                 : part.textContent
-            let linkColor = NSColor.linkColor.cgColor
+            let linkColor = (theme.map { $0.accent.nsColor } ?? NSColor.linkColor).cgColor
             drawLabel(ctx: ctx, text: linkText,
                       at: CGPoint(x: rect.midX, y: rect.midY),
                       font: part.textFont, size: part.textSize, color: linkColor, align: .center)
