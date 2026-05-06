@@ -19,20 +19,26 @@ import Foundation
 ///    AI tools wanting to bulk-edit, etc.) can share.
 public enum MultiSelectionEditing {
 
-    /// The value shared by every part in `parts` for `keyPath`, or
-    /// `nil` if the values differ. Empty input yields `nil`.
+    /// The value shared by every element in `elements` for
+    /// `keyPath`, or `nil` if the values differ. Empty input yields
+    /// `nil`.
     ///
-    /// Linear-time in the size of `parts` — fine for the typical
-    /// selection size (a few dozen parts at most). Stops early on
-    /// the first divergence so a 1000-part selection with the first
-    /// two parts disagreeing returns nil after two reads.
-    public static func commonValue<T: Equatable>(
-        in parts: [Part],
-        for keyPath: KeyPath<Part, T>
+    /// Linear-time in the size of `elements` — fine for the typical
+    /// selection size (a few dozen at most). Stops early on the
+    /// first divergence so a 1000-element selection with the first
+    /// two disagreeing returns nil after two reads.
+    ///
+    /// Generic over the element type so the inspector can use the
+    /// same primitive for `Part` selections (canvas) AND
+    /// `HypeNodeSpec` selections (sprite-scene tree). The two share
+    /// no protocol other than the KeyPath protocol.
+    public static func commonValue<E, T: Equatable>(
+        in elements: [E],
+        for keyPath: KeyPath<E, T>
     ) -> T? {
-        guard let first = parts.first?[keyPath: keyPath] else { return nil }
-        for p in parts.dropFirst() {
-            if p[keyPath: keyPath] != first { return nil }
+        guard let first = elements.first?[keyPath: keyPath] else { return nil }
+        for e in elements.dropFirst() {
+            if e[keyPath: keyPath] != first { return nil }
         }
         return first
     }

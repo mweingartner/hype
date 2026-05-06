@@ -163,6 +163,42 @@ struct MultiSelectionEditingTests {
         _ = a; _ = b
     }
 
+    // MARK: - Generic commonValue: works on HypeNodeSpec too
+
+    @Test("commonValue is generic over the element type — works on HypeNodeSpec")
+    func commonValueOnSceneNodes() {
+        var n1 = HypeNodeSpec(name: "a", nodeType: .sprite, position: PointSpec(x: 100, y: 50))
+        var n2 = HypeNodeSpec(name: "b", nodeType: .sprite, position: PointSpec(x: 100, y: 50))
+        var n3 = HypeNodeSpec(name: "c", nodeType: .sprite, position: PointSpec(x: 100, y: 50))
+        // All three share x=100, y=50.
+        let nodes = [n1, n2, n3]
+        #expect(MultiSelectionEditing.commonValue(in: nodes, for: \.position.x) == 100)
+        #expect(MultiSelectionEditing.commonValue(in: nodes, for: \.position.y) == 50)
+        // Diverge on rotation; same nodeType.
+        n1.rotation = 0
+        n2.rotation = 90
+        n3.rotation = 0
+        let rotNodes = [n1, n2, n3]
+        #expect(MultiSelectionEditing.commonValue(in: rotNodes, for: \.rotation) == nil)
+        #expect(MultiSelectionEditing.commonValue(in: rotNodes, for: \.nodeType) == .sprite)
+    }
+
+    @Test("commonValue works on optional KeyPaths (HypeNodeSpec.fontSize, .text)")
+    func commonValueOptionalProperties() {
+        var n1 = HypeNodeSpec(name: "a", nodeType: .label, position: PointSpec(x: 0, y: 0))
+        n1.text = "Hi"
+        n1.fontSize = 14
+        var n2 = HypeNodeSpec(name: "b", nodeType: .label, position: PointSpec(x: 0, y: 0))
+        n2.text = "Hi"
+        n2.fontSize = 14
+        // Both labels with text="Hi", fontSize=14.
+        #expect(MultiSelectionEditing.commonValue(in: [n1, n2], for: \.text) == "Hi")
+        #expect(MultiSelectionEditing.commonValue(in: [n1, n2], for: \.fontSize) == 14)
+        // One has nil fontSize → values differ → nil.
+        n2.fontSize = nil
+        #expect(MultiSelectionEditing.commonValue(in: [n1, n2], for: \.fontSize) == nil)
+    }
+
     @Test("applyValue + commonValue round-trip: differing selection becomes uniform after apply")
     func applyAndRecheckCommonValue() {
         var doc = HypeDocument.newDocument(name: "Test")

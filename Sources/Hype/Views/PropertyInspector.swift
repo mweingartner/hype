@@ -18,7 +18,22 @@ struct PropertyInspector: View {
     @State private var showingBgScript = false
     @State private var showingStackScript = false
     @State private var showingHypeScript = false
-    @State private var selectedNodeId: UUID?
+    /// Sprite-scene node selection. A `Set<UUID>` so multiple nodes
+    /// can be selected at once. Cmd / Shift + click on a row in the
+    /// node tree toggles the row's id in this set; a plain click
+    /// replaces the set with that single id (or clears if it was
+    /// already the only one selected). Mirrors the part-selection
+    /// model on the canvas.
+    ///
+    /// Convenience accessor `selectedNodeId` returns the single
+    /// element when the set has cardinality 1, otherwise nil. The
+    /// per-node detail panel reads this so it expands ONLY when the
+    /// selection isn't ambiguous; the multi-node panel above the
+    /// tree handles selections of size 2+.
+    @State private var selectedNodeIds: Set<UUID> = []
+    private var selectedNodeId: UUID? {
+        selectedNodeIds.count == 1 ? selectedNodeIds.first : nil
+    }
     @State private var draggedNodeId: UUID?
     @State private var sceneGuideContext: SpriteSceneGuideContext?
 
@@ -198,10 +213,10 @@ struct PropertyInspector: View {
                     }
                 }
             }
-            selectedNodeId = nodeId
+            selectedNodeIds = [nodeId]
         }
         .onChange(of: selectedPartIds) { _, _ in
-            selectedNodeId = nil
+            selectedNodeIds = []
         }
     }
 
@@ -304,8 +319,11 @@ struct PropertyInspector: View {
                             .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.secondary)
 
-                        multiStringField("Fill (#hex)", keyPath: \.fillColor)
-                        multiStringField("Stroke (#hex)", keyPath: \.strokeColor)
+                        // ColorPicker swatch + hex text — two ways to
+                        // pick the same color. Differing values: swatch
+                        // is transparent; hex field shows "Multiple".
+                        multiColorRow(label: "Fill", keyPath: \.fillColor)
+                        multiColorRow(label: "Stroke", keyPath: \.strokeColor)
                         HStack(spacing: 8) {
                             multiNumberField("Stroke W", keyPath: \.strokeWidth)
                             multiNumberField("Corner R", keyPath: \.cornerRadius)
@@ -325,6 +343,22 @@ struct PropertyInspector: View {
 
                         multiStringField("Font", keyPath: \.textFont)
                         multiNumberField("Size", keyPath: \.textSize)
+
+                        // Alignment as a 3-way segmented Picker.
+                        // Differing values fall back to .center; the
+                        // user re-selects to override across all
+                        // selected parts in one click.
+                        HStack {
+                            Text("Align").font(.system(size: 11)).frame(width: 80, alignment: .trailing)
+                                .foregroundColor(.secondary)
+                            Picker("", selection: bindMultiTextAlign()) {
+                                Image(systemName: "text.alignleft").tag(HypeCore.TextAlignment.left)
+                                Image(systemName: "text.aligncenter").tag(HypeCore.TextAlignment.center)
+                                Image(systemName: "text.alignright").tag(HypeCore.TextAlignment.right)
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+                        }
                     }
                 }
 
@@ -1550,6 +1584,16 @@ struct PropertyInspector: View {
                 Text("Nodes").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
 
                 if !spec.nodes.isEmpty {
+                    // Multi-node panel — appears above the tree when
+                    // 2+ nodes are selected. Uniform-edit experience
+                    // mirrors the part-level multi-selection panel:
+                    // type a value once, every selected node adopts
+                    // it; differing values surface as the "Multiple"
+                    // placeholder.
+                    if selectedNodeIds.count > 1 {
+                        multiNodeSelectionPanel(partId: part.id, sceneSpec: spec)
+                            .padding(.bottom, 6)
+                    }
                     nodeTreeView(partId: part.id, nodes: spec.nodes, depth: 0)
 
                     // Drop zone for reparenting to top level
@@ -1652,7 +1696,7 @@ struct PropertyInspector: View {
 
                         // Disclosure triangle for nodes with children
                         if !node.children.isEmpty {
-                            Image(systemName: selectedNodeId == node.id ? "chevron.down" : "chevron.right")
+                            Image(systemName: selectedNodeIds.contains(node.id) ? "chevron.down" : "chevron.right")
                                 .font(.system(size: 8))
                                 .foregroundColor(.secondary)
                         } else {
@@ -1689,9 +1733,35 @@ struct PropertyInspector: View {
                         .buttonStyle(.borderless)
                     }
                     .contentShape(Rectangle())
-                    .onTapGesture { selectedNodeId = selectedNodeId == node.id ? nil : node.id }
+                    // Tap handler with modifier-aware semantics:
+                    // - Plain click: replace selection (or toggle off
+                    //   if this was already the only selected node)
+                    // - Cmd or Shift + click: toggle this node in /
+                    //   out of the multi-selection
+                    // SwiftUI's `onTapGesture` doesn't expose the
+                    // event's modifier flags directly, but `NSEvent`
+                    // exposes the global modifier state at any
+                    // moment; reading it inside the closure is
+                    // accurate and avoids needing layered
+                    // `.gesture(TapGesture().modifiers(...))`
+                    // declarations.
+                    .onTapGesture {
+                        let flags = NSEvent.modifierFlags
+                        let toggle = flags.contains(.command) || flags.contains(.shift)
+                        if toggle {
+                            if selectedNodeIds.contains(node.id) {
+                                selectedNodeIds.remove(node.id)
+                            } else {
+                                selectedNodeIds.insert(node.id)
+                            }
+                        } else if selectedNodeIds == [node.id] {
+                            selectedNodeIds = []
+                        } else {
+                            selectedNodeIds = [node.id]
+                        }
+                    }
                     .padding(.vertical, 2)
-                    .background(selectedNodeId == node.id ? Color.accentColor.opacity(0.08) : Color.clear)
+                    .background(selectedNodeIds.contains(node.id) ? Color.accentColor.opacity(0.08) : Color.clear)
                     .cornerRadius(4)
                     // Drag source
                     .onDrag {
@@ -1710,7 +1780,13 @@ struct PropertyInspector: View {
                     }
 
                     // Expanded detail panel
-                    if selectedNodeId == node.id {
+                    // Per-node detail expands only when exactly ONE
+                    // node is selected — when multiple are picked
+                    // the multi-node panel rendered above the tree
+                    // takes over (showing common properties across
+                    // the selection); per-node detail would be
+                    // ambiguous in that state.
+                    if selectedNodeIds.count == 1 && selectedNodeIds.contains(node.id) {
                         nodeDetailPanel(partId: partId, node: node)
                             .padding(.leading, CGFloat(depth) * 16 + 16)
                             .padding(.vertical, 4)
@@ -2085,6 +2161,244 @@ struct PropertyInspector: View {
                 }
             }
         )
+    }
+
+    // MARK: - Multi-Node Selection Panel
+    //
+    // Renders above the sprite-scene tree when 2+ nodes are
+    // selected. Mirrors the part-level multi-selection panel:
+    // common-value detection across the selection, "Multiple"
+    // placeholder for divergent properties, single-edit applies
+    // to every selected node. The set of editable properties is
+    // chosen to be common across all `HypeNodeSpec` types
+    // (sprite, label, shape, group, camera, emitter, audio,
+    // video, tilemap) — geometry, transform, alpha, visibility.
+    // Type-specific text fields (text, fontName, fontSize,
+    // fontColor) only show when every selected node is a label.
+
+    @ViewBuilder
+    private func multiNodeSelectionPanel(partId: UUID, sceneSpec: SceneSpec) -> some View {
+        // Walk the scene tree once and collect every selected node
+        // by id. The tree may be deeply nested (groups inside
+        // groups), so a flat list of candidates is awkward — but
+        // findNodeById already handles the recursive descent.
+        let selected = selectedNodeIds.compactMap { id in
+            Self.findNodeById(id, in: sceneSpec.nodes)
+        }
+        // Type-homogeneity gates the optional sections. Empty list
+        // suppresses the whole panel — defensive in case the
+        // selection state references nodes that have been removed.
+        let allLabels = !selected.isEmpty && selected.allSatisfy { $0.nodeType == .label }
+        let allHaveSize = !selected.isEmpty && selected.allSatisfy { $0.size != nil }
+
+        VStack(alignment: .leading, spacing: 6) {
+            Text("\(selected.count) Nodes Selected")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(.accentColor)
+
+            // Position + Size — the load-bearing case. Scene nodes
+            // store position as a nested PointSpec; KeyPaths to
+            // nested struct fields work because position is `var`.
+            HStack(spacing: 8) {
+                multiNodeNumberField("X", partId: partId, nodes: selected, keyPath: \.position.x)
+                multiNodeNumberField("Y", partId: partId, nodes: selected, keyPath: \.position.y)
+            }
+            if allHaveSize {
+                HStack(spacing: 8) {
+                    multiNodeOptionalSizeField("W", partId: partId, nodes: selected, axis: .width)
+                    multiNodeOptionalSizeField("H", partId: partId, nodes: selected, axis: .height)
+                }
+            }
+
+            // Transform: rotation, scale, alpha, zPosition.
+            HStack(spacing: 8) {
+                multiNodeNumberField("Rot", partId: partId, nodes: selected, keyPath: \.rotation)
+                multiNodeNumberField("Alpha", partId: partId, nodes: selected, keyPath: \.alpha)
+            }
+            HStack(spacing: 8) {
+                multiNodeNumberField("xScale", partId: partId, nodes: selected, keyPath: \.xScale)
+                multiNodeNumberField("yScale", partId: partId, nodes: selected, keyPath: \.yScale)
+            }
+            HStack(spacing: 8) {
+                multiNodeNumberField("zPos", partId: partId, nodes: selected, keyPath: \.zPosition)
+            }
+
+            // Visibility — the only non-numeric property uniformly
+            // available across every node type.
+            Toggle("Hidden", isOn: Binding(
+                get: { MultiSelectionEditing.commonValue(in: selected, for: \.isHidden) ?? false },
+                set: { newVal in applyToSelectedNodes(partId: partId, ids: selectedNodeIds) { $0.isHidden = newVal } }
+            ))
+
+            // Label-only text formatting. The Optional<String> /
+            // Optional<Double> in HypeNodeSpec means we have to
+            // bridge through dedicated bindings rather than the
+            // generic numeric / string helpers.
+            if allLabels {
+                Divider()
+                HStack {
+                    Text("Text").font(.system(size: 11)).foregroundColor(.secondary).frame(width: 50, alignment: .trailing)
+                    TextField("Multiple", text: Binding(
+                        get: { MultiSelectionEditing.commonValue(in: selected, for: \.text)?.flatMap { $0 } ?? "" },
+                        set: { newVal in applyToSelectedNodes(partId: partId, ids: selectedNodeIds) { $0.text = newVal.isEmpty ? nil : newVal } }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 11))
+                }
+                HStack(spacing: 8) {
+                    multiNodeOptionalNumberField("Size", partId: partId, nodes: selected, keyPath: \.fontSize)
+                }
+                // Font color (label nodes only).
+                HStack {
+                    ColorPicker("", selection: Binding<Color>(
+                        get: {
+                            // Optional<String> nested — flatten to a hex
+                            // for the color helper.
+                            let common = MultiSelectionEditing.commonValue(in: selected, for: \.fontColor)
+                            if let hex = common?.flatMap({ $0 }), !hex.isEmpty {
+                                return Color(hex: hex)
+                            }
+                            return Color.clear
+                        },
+                        set: { newVal in
+                            let hex = newVal.toHex()
+                            applyToSelectedNodes(partId: partId, ids: selectedNodeIds) { $0.fontColor = hex }
+                        }
+                    ), supportsOpacity: false)
+                    .labelsHidden()
+                    Text("Font Color").font(.system(size: 11))
+                    Spacer()
+                }
+            }
+        }
+        .padding(8)
+        .background(Color.accentColor.opacity(0.06))
+        .cornerRadius(6)
+    }
+
+    /// Multi-node numeric edit row for a non-optional Double KeyPath
+    /// (position.x/y, rotation, alpha, xScale, yScale, zPosition).
+    /// Mirrors `multiNumberField` for parts.
+    private func multiNodeNumberField(
+        _ label: String,
+        partId: UUID,
+        nodes: [HypeNodeSpec],
+        keyPath: WritableKeyPath<HypeNodeSpec, Double>
+    ) -> some View {
+        HStack(spacing: 2) {
+            Text(label).font(.system(size: 10)).foregroundColor(.secondary)
+            TextField("Multiple", text: Binding(
+                get: {
+                    guard let v = MultiSelectionEditing.commonValue(in: nodes, for: keyPath) else { return "" }
+                    return v == v.rounded() ? String(Int(v)) : String(v)
+                },
+                set: { newVal in
+                    let trimmed = newVal.trimmingCharacters(in: .whitespaces)
+                    guard !trimmed.isEmpty, let parsed = Double(trimmed) else { return }
+                    applyToSelectedNodes(partId: partId, ids: selectedNodeIds) { $0[keyPath: keyPath] = parsed }
+                }
+            ))
+            .textFieldStyle(.roundedBorder)
+            .font(.system(size: 11))
+            .frame(width: 60)
+        }
+    }
+
+    /// Multi-node numeric edit row for an OPTIONAL Double KeyPath
+    /// (fontSize on label nodes). Empty input clears the value to
+    /// nil; a parsable number sets it.
+    private func multiNodeOptionalNumberField(
+        _ label: String,
+        partId: UUID,
+        nodes: [HypeNodeSpec],
+        keyPath: WritableKeyPath<HypeNodeSpec, Double?>
+    ) -> some View {
+        HStack(spacing: 2) {
+            Text(label).font(.system(size: 10)).foregroundColor(.secondary)
+            TextField("Multiple", text: Binding(
+                get: {
+                    let common = MultiSelectionEditing.commonValue(in: nodes, for: keyPath)
+                    guard let v = common?.flatMap({ $0 }) else { return "" }
+                    return v == v.rounded() ? String(Int(v)) : String(v)
+                },
+                set: { newVal in
+                    let trimmed = newVal.trimmingCharacters(in: .whitespaces)
+                    if trimmed.isEmpty {
+                        applyToSelectedNodes(partId: partId, ids: selectedNodeIds) { $0[keyPath: keyPath] = nil }
+                    } else if let parsed = Double(trimmed) {
+                        applyToSelectedNodes(partId: partId, ids: selectedNodeIds) { $0[keyPath: keyPath] = parsed }
+                    }
+                }
+            ))
+            .textFieldStyle(.roundedBorder)
+            .font(.system(size: 11))
+            .frame(width: 60)
+        }
+    }
+
+    /// Multi-node numeric edit for `size.width` / `size.height`.
+    /// `size` itself is `SizeSpec?`, so the binding has to handle
+    /// the Optional<SizeSpec> case explicitly — we can't write to
+    /// `size.width` if `size == nil`. Setter assigns a fresh
+    /// SizeSpec when missing.
+    private enum SizeAxis { case width, height }
+    private func multiNodeOptionalSizeField(
+        _ label: String,
+        partId: UUID,
+        nodes: [HypeNodeSpec],
+        axis: SizeAxis
+    ) -> some View {
+        HStack(spacing: 2) {
+            Text(label).font(.system(size: 10)).foregroundColor(.secondary)
+            TextField("Multiple", text: Binding(
+                get: {
+                    // Read all current values for the chosen axis.
+                    let values: [Double?] = nodes.map { node in
+                        switch axis {
+                        case .width:  return node.size?.width
+                        case .height: return node.size?.height
+                        }
+                    }
+                    guard let first = values.first, let f = first else { return "" }
+                    return values.dropFirst().allSatisfy { $0 == f }
+                        ? (f == f.rounded() ? String(Int(f)) : String(f))
+                        : ""
+                },
+                set: { newVal in
+                    let trimmed = newVal.trimmingCharacters(in: .whitespaces)
+                    guard !trimmed.isEmpty, let parsed = Double(trimmed) else { return }
+                    applyToSelectedNodes(partId: partId, ids: selectedNodeIds) { node in
+                        switch axis {
+                        case .width:
+                            if var size = node.size { size.width = parsed; node.size = size }
+                            else { node.size = SizeSpec(width: parsed, height: 0) }
+                        case .height:
+                            if var size = node.size { size.height = parsed; node.size = size }
+                            else { node.size = SizeSpec(width: 0, height: parsed) }
+                        }
+                    }
+                }
+            ))
+            .textFieldStyle(.roundedBorder)
+            .font(.system(size: 11))
+            .frame(width: 60)
+        }
+    }
+
+    /// Apply a transform to every node in `ids` inside `partId`'s
+    /// scene spec. Single canonical entry point so the multi-node
+    /// editing path looks like a sibling of `applyToSelected`
+    /// (which targets canvas parts).
+    private func applyToSelectedNodes(
+        partId: UUID,
+        ids: Set<UUID>,
+        transform: @escaping (inout HypeNodeSpec) -> Void
+    ) {
+        modifySceneSpec(partId: partId) { spec in
+            for id in ids {
+                _ = Self.updateNodeInTree(nodeId: id, in: &spec.nodes, transform: transform)
+            }
+        }
     }
 
     // MARK: - Node Detail Panel
@@ -3200,6 +3514,72 @@ struct PropertyInspector: View {
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 11))
         }
+    }
+
+    // MARK: - Multi-selection color
+
+    /// Color binding across the selection. Reading returns the shared
+    /// color (parsed from the common hex) or `Color.clear` when the
+    /// selected parts have different colors — the swatch will appear
+    /// dim/transparent so the user can tell the field is in the
+    /// "Multiple" state. Picking a color encodes it as `#RRGGBB`
+    /// (or `#RRGGBBAA` when supportsOpacity is on) and applies that
+    /// hex to every selected part.
+    private func bindMultiColor(_ keyPath: WritableKeyPath<Part, String>) -> Binding<Color> {
+        Binding(
+            get: {
+                if let hex = commonValue(keyPath) {
+                    return Color(hex: hex)
+                }
+                return Color.clear   // visual cue: differing values → transparent swatch
+            },
+            set: { newValue in
+                applyToSelected(keyPath, newValue.toHex())
+            }
+        )
+    }
+
+    /// Multi-select equivalent of `colorPropertyRow`. Renders a
+    /// ColorPicker swatch + a hex text field side by side. When the
+    /// selection has differing values the swatch is transparent (a
+    /// macOS visual cue for "no value") and the hex field shows the
+    /// "Multiple" placeholder. Picking a color in the swatch
+    /// IMMEDIATELY synchronizes every selected part to that color
+    /// (resolves the divergence). Typing in the hex field has the
+    /// same effect.
+    @ViewBuilder
+    private func multiColorRow(
+        label: String,
+        keyPath: WritableKeyPath<Part, String>,
+        supportsOpacity: Bool = false
+    ) -> some View {
+        HStack {
+            ColorPicker("", selection: bindMultiColor(keyPath), supportsOpacity: supportsOpacity)
+                .labelsHidden()
+            Text(label).font(.system(size: 11))
+            Spacer()
+            TextField("Multiple", text: bindMultiString(keyPath))
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 11, design: .monospaced))
+                .frame(width: 90)
+        }
+    }
+
+    // MARK: - Multi-selection text alignment
+
+    /// `Binding<TextAlignment>` across the selection. When the parts
+    /// disagree, returns `.center` (the visual default) so the
+    /// segmented Picker reads as "centered" — the user re-selects
+    /// the alignment they actually want and every part adopts it.
+    /// SwiftUI's `Picker` doesn't have a clean "Multiple" placeholder
+    /// state for an enum value, so the convention here is to fall
+    /// back to a sensible default and rely on the user understanding
+    /// "every selected part now matches what I just picked."
+    private func bindMultiTextAlign() -> Binding<HypeCore.TextAlignment> {
+        Binding(
+            get: { commonValue(\.textAlign) ?? .center },
+            set: { applyToSelected(\.textAlign, $0) }
+        )
     }
 
     /// Binding for the image "Animated" toggle that flips `Part.animated`
