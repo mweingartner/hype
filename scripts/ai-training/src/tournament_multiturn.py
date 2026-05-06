@@ -233,12 +233,18 @@ def ollama_chat_messages(
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        # 240s timeout — empirically the 30B model occasionally
+        # stalls 60-120s on cold-load even on a hot Ollama server,
+        # and 120s was producing false-positive eval failures that
+        # had nothing to do with model accuracy. Tournament runs
+        # don't care about per-prompt latency tail; we care about
+        # measuring correctness once the model actually responds.
+        with urllib.request.urlopen(req, timeout=240) as resp:
             payload = _json.loads(resp.read().decode())
     except urllib.error.URLError as e:
         return {"content": f"<ollama HTTP error: {e}>", "tool_calls": []}
     except (TimeoutError, socket.timeout):
-        return {"content": "<ollama timeout after 120s>", "tool_calls": []}
+        return {"content": "<ollama timeout after 240s>", "tool_calls": []}
 
     return payload.get("message", {})
 
