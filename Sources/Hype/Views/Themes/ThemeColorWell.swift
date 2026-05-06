@@ -105,16 +105,43 @@ struct ThemeColorWell: View {
     /// a target-action shim, and translate panel changes back into
     /// the binding. The shim is retained for the lifetime of the
     /// panel session via the static registry below.
+    ///
+    /// Order-of-operations contract — DO NOT REORDER.
+    /// `NSColorPanel` holds its target with an unretained reference,
+    /// and its `color` setter fires `_forceSendAction:` synchronously
+    /// to the current target. If we assign `panel.color` (or do
+    /// anything that triggers a panel action) BEFORE installing the
+    /// new live target, AppKit dispatches to whatever stale pointer
+    /// the panel has from the previous swatch click — usually a
+    /// `ThemeColorPanelTarget` that the registry just released. The
+    /// previous shipping order did exactly that and produced the
+    /// EXC_BAD_ACCESS reported by users editing duplicated theme
+    /// colors. The fixed sequence is:
+    ///   1. Install the new (locally-retained) target + action on
+    ///      the panel — panel now no longer points at any potentially-
+    ///      dead previous target.
+    ///   2. Hand the new target to the registry (this releases the
+    ///      previous registry slot, but that's safe now because the
+    ///      panel's target pointer was already overwritten in step 1).
+    ///   3. Set `panel.color = initial` (may fire the action — fires
+    ///      to the live new target which is retained by both the
+    ///      local `target` var and the registry).
+    ///   4. Show the panel.
     private func openColorPanel() {
         let initial = color.nsColor
         let target = ThemeColorPanelTarget(initialColor: initial) { newColor in
             color = .hex(Self.hexString(from: newColor))
         }
-        ThemeColorPanelRegistry.shared.activate(target: target)
         let panel = NSColorPanel.shared
-        panel.color = initial
+        // (1) Install live target / action FIRST.
         panel.setTarget(target)
         panel.setAction(#selector(ThemeColorPanelTarget.colorDidChange(_:)))
+        // (2) Retain in the registry; releases the previous target
+        // safely because the panel no longer points at it.
+        ThemeColorPanelRegistry.shared.activate(target: target)
+        // (3) Now safe to assign — any synchronous _forceSendAction
+        // dispatches to the live target.
+        panel.color = initial
         panel.showsAlpha = true
         panel.makeKeyAndOrderFront(nil)
     }
