@@ -33,16 +33,19 @@ public struct ChartConfig: Codable, Sendable {
         self.yAxisLabel = yAxisLabel
     }
 
-    /// Parse from JSON string.
+    /// Parse from JSON string. Routes through the shared
+    /// `JSONCodec.decoder` to avoid allocating a fresh
+    /// `JSONDecoder` per call (this is hot — `ChartRenderer`
+    /// decodes on every draw frame, and `PropertyInspector` calls
+    /// `fromJSON` in 40+ chart-binding `get` closures per render).
     public static func fromJSON(_ json: String) -> ChartConfig? {
-        guard let data = json.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(ChartConfig.self, from: data)
+        return JSONCodec.decode(ChartConfig.self, from: json)
     }
 
-    /// Serialize to JSON string.
+    /// Serialize to JSON string. Routes through the shared
+    /// `JSONCodec.encoder`.
     public func toJSON() -> String {
-        guard let data = try? JSONEncoder().encode(self) else { return "{}" }
-        return String(data: data, encoding: .utf8) ?? "{}"
+        return JSONCodec.encode(self)
     }
 }
 

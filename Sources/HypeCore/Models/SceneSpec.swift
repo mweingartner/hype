@@ -115,14 +115,12 @@ public struct SceneSpec: Codable, Sendable {
 
     /// Parse a raw SceneSpec JSON payload without falling back to SpriteAreaSpec.
     public static func fromLegacyJSON(_ json: String) -> SceneSpec? {
-        guard let data = json.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(SceneSpec.self, from: data)
+        return JSONCodec.decode(SceneSpec.self, from: json)
     }
 
     /// Serialize to JSON string.
     public func toJSON() -> String {
-        guard let data = try? JSONEncoder().encode(self) else { return "{}" }
-        return String(data: data, encoding: .utf8) ?? "{}"
+        return JSONCodec.encode(self)
     }
 }
 

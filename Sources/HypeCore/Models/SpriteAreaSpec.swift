@@ -102,8 +102,7 @@ public struct SpriteAreaSpec: Codable, Sendable {
     }
 
     public static func fromJSON(_ json: String) -> SpriteAreaSpec? {
-        guard let data = json.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(SpriteAreaSpec.self, from: data)
+        return JSONCodec.decode(SpriteAreaSpec.self, from: json)
     }
 
     public static func fromStoredJSON(_ json: String, fallbackSize: SizeSpec) -> SpriteAreaSpec? {
@@ -194,8 +193,7 @@ public struct SpriteAreaSpec: Codable, Sendable {
     }
 
     public func toStoredJSON() -> String {
-        guard let data = try? JSONEncoder().encode(self) else { return "{}" }
-        return String(data: data, encoding: .utf8) ?? "{}"
+        return JSONCodec.encode(self)
     }
 
     private var activeSceneIndex: Int? {

@@ -109,6 +109,28 @@ public struct HypeDocument: Codable, Sendable {
         cards.sorted { $0.sortKey < $1.sortKey }
     }
 
+    /// Look up a part by its UUID. Returns nil if the part doesn't
+    /// exist or has been removed.
+    ///
+    /// Today this is just a wrapped linear scan over `parts` —
+    /// matching the pattern that 91 callsites in the Hype target
+    /// already use (`parts.first(where: { $0.id == id })`). Routing
+    /// those callsites through this helper is a step toward the
+    /// audit's recommended `[UUID: Int]` index: once the indirection
+    /// is in place, the underlying implementation can be swapped to
+    /// an indexed lookup without touching the call sites again.
+    /// Migration is opportunistic — new code uses this helper, old
+    /// code can move over as it's touched for other reasons.
+    public func part(byId id: UUID) -> Part? {
+        return parts.first(where: { $0.id == id })
+    }
+
+    /// Look up a part's index in `parts` by UUID. Mirror of
+    /// `part(byId:)`; same eventual-indexing rationale.
+    public func partIndex(byId id: UUID) -> Int? {
+        return parts.firstIndex(where: { $0.id == id })
+    }
+
     /// Get parts for a specific card.
     public func partsForCard(_ cardId: UUID) -> [Part] {
         parts.filter { $0.cardId == cardId }
@@ -222,7 +244,7 @@ public struct HypeDocument: Codable, Sendable {
 
     /// Update a part by ID.
     public mutating func updatePart(id: UUID, transform: (inout Part) -> Void) {
-        if let index = parts.firstIndex(where: { $0.id == id }) {
+        if let index = partIndex(byId: id) {
             transform(&parts[index])
         }
     }
