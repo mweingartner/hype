@@ -651,3 +651,50 @@ public struct Part: Identifiable, Codable, Sendable {
         }
     }
 }
+
+// MARK: - Numeric form-control value normalization
+//
+// Single source of truth for how `gaugeValue` and `progressValue`
+// are clamped and rounded when written. The architect audit found
+// THREE different behaviors for these properties across the
+// HypeTalk interpreter, the AI tool dispatcher, and the
+// `set_part_property property=value` overload — same input
+// produced different stored output depending on which path you
+// took. Routing every setter through these helpers fixes the
+// drift and keeps the rounding rule (multiply by 10^decimals,
+// round to nearest, divide back) in one place.
+public extension Part {
+    /// Apply a new gauge value, clamping to `[gaugeMin, gaugeMax]`.
+    /// When `gaugeDecimals > 0`, additionally round to that many
+    /// decimal places. The default `gaugeDecimals == 0` preserves
+    /// full Double precision — that's the historical behavior of
+    /// HypeTalk's `set the gaugeValue of …` and the AI tool's
+    /// `set_part_property property=gaugevalue`, and it's what most
+    /// users expect when they pass a fractional value without
+    /// opting into integer-only steps. Setting `gaugeDecimals = 1`
+    /// (or higher) is the explicit opt-in to quantized behavior.
+    mutating func setGaugeValue(_ raw: Double) {
+        let clamped = min(gaugeMax, max(gaugeMin, raw))
+        let d = max(0, gaugeDecimals)
+        if d == 0 {
+            gaugeValue = clamped
+        } else {
+            let scale = pow(10.0, Double(d))
+            gaugeValue = (clamped * scale).rounded() / scale
+        }
+    }
+
+    /// Apply a new progress value, clamping to `[0, progressTotal]`
+    /// and rounding to the part's `progressDecimals` precision.
+    /// progressView's contract differs from the gauge: `decimals=0`
+    /// means **integer-only steps** (verified by
+    /// `ProgressViewTests.defaultDecimalsRoundsToInteger`). Raise
+    /// decimals to allow fractional precision.
+    mutating func setProgressValue(_ raw: Double) {
+        let total = max(1e-10, progressTotal)
+        let clamped = min(total, max(0, raw))
+        let d = max(0, progressDecimals)
+        let scale = pow(10.0, Double(d))
+        progressValue = (clamped * scale).rounded() / scale
+    }
+}

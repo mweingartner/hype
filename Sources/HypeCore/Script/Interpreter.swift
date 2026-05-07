@@ -3678,14 +3678,17 @@ public struct Interpreter: Sendable {
             if pt == .toggle {
                 document.parts[partIndex].controlValue = isTruthy(value) ? 1 : 0
             } else if pt == .progressView {
-                // Round to the part's configured decimal precision.
-                // Default 0 → integer steps, matching the gauge.
-                let raw = toNumber(value)
-                let d = max(0, document.parts[partIndex].progressDecimals)
-                let scale = pow(10.0, Double(d))
-                document.parts[partIndex].progressValue = (raw * scale).rounded() / scale
+                // Route through the canonical setProgressValue
+                // helper — clamps to [0, progressTotal] and rounds
+                // to progressDecimals. Previously this branch
+                // rounded but didn't clamp; the gauge branch did
+                // neither. The audit flagged three different
+                // behaviors for "set the value of …" depending on
+                // surface; routing through Part.setProgressValue /
+                // setGaugeValue collapses them to one.
+                document.parts[partIndex].setProgressValue(toNumber(value))
             } else if pt == .gauge {
-                document.parts[partIndex].gaugeValue = toNumber(value)
+                document.parts[partIndex].setGaugeValue(toNumber(value))
             } else if pt == .field {
                 // `set the value of field "X" to "..."` — same as
                 // `set the text of field "X" to "..."`. Symmetrical
@@ -3745,12 +3748,10 @@ public struct Interpreter: Sendable {
         case "popupitems", "popup_items":
             document.parts[partIndex].popupItems = value
         // ProgressView setters (security condition 5: clamp values).
+        // Routes through Part.setProgressValue so this and `case
+        // "value"` produce identical clamp+round results.
         case "progressvalue", "progress_value":
-            let total = max(1e-10, document.parts[partIndex].progressTotal)
-            let raw = min(total, max(0, toNumber(value)))
-            let d = max(0, document.parts[partIndex].progressDecimals)
-            let scale = pow(10.0, Double(d))
-            document.parts[partIndex].progressValue = (raw * scale).rounded() / scale
+            document.parts[partIndex].setProgressValue(toNumber(value))
         case "progresstotal", "progress_total":
             document.parts[partIndex].progressTotal = max(1e-10, toNumber(value))
         case "progressdecimals", "progress_decimals":
@@ -3777,10 +3778,12 @@ public struct Interpreter: Sendable {
         case "progresstint", "progress_tint":
             document.parts[partIndex].progressTint = value
         // Gauge setters (security condition 5: enforce max > min).
+        // Routes through Part.setGaugeValue — same drift fix as
+        // progressvalue above. Previously this branch clamped but
+        // didn't round, while `case "value"` rounded but didn't
+        // clamp. They're now identical.
         case "gaugevalue", "gauge_value":
-            let gMin = document.parts[partIndex].gaugeMin
-            let gMax = document.parts[partIndex].gaugeMax
-            document.parts[partIndex].gaugeValue = min(gMax, max(gMin, toNumber(value)))
+            document.parts[partIndex].setGaugeValue(toNumber(value))
         case "gaugemin", "gauge_min":
             document.parts[partIndex].gaugeMin = toNumber(value)
         case "gaugemax", "gauge_max":

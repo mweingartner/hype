@@ -1347,12 +1347,11 @@ public struct HypeToolExecutor: Sendable {
             let rawDecimals = Int(arguments["decimals"] ?? "0") ?? 0
             let dec = max(0, min(10, rawDecimals))
             let rawValue = Double(arguments["value"] ?? "0") ?? 0
-            let scale = pow(10.0, Double(dec))
+            // Order matters: total + decimals must be set before
+            // setProgressValue clamps + rounds against them.
             part.progressTotal = safeTotal
-            // Quantize the initial value to the configured decimals
-            // (default 0 → integer-only). Same contract as gauge.
-            part.progressValue = ((min(safeTotal, max(0, rawValue))) * scale).rounded() / scale
             part.progressDecimals = dec
+            part.setProgressValue(rawValue)
             part.progressIsCircular = (arguments["is_circular"] ?? "false").lowercased() == "true"
             part.progressIsIndeterminate = (arguments["is_indeterminate"] ?? "false").lowercased() == "true"
             part.progressLabel = String((arguments["label"] ?? "").prefix(256))
@@ -1377,13 +1376,13 @@ public struct HypeToolExecutor: Sendable {
             var gMax = Double(arguments["max"] ?? "1.0") ?? 1.0
             // Security condition 5: enforce max > min.
             if gMax <= gMin { gMax = gMin + 1 }
-            let gValue = min(gMax, max(gMin, Double(arguments["value"] ?? "0") ?? 0))
-            part.gaugeMin = gMin
-            part.gaugeMax = gMax
-            part.gaugeValue = gValue
             let gStyle = arguments["style"] ?? "linearCapacity"
             let validGaugeStyles = ["linearCapacity", "accessoryCircular", "accessoryCircularCapacity",
                                      "accessoryLinear", "accessoryLinearCapacity"]
+            // Order matters: min/max/decimals must be set before
+            // setGaugeValue clamps + rounds against them.
+            part.gaugeMin = gMin
+            part.gaugeMax = gMax
             part.gaugeStyle = validGaugeStyles.contains(gStyle) ? gStyle : "linearCapacity"
             part.gaugeTint = arguments["tint"] ?? ""
             part.gaugeLabel = String((arguments["label"] ?? "").prefix(256))
@@ -1393,6 +1392,10 @@ public struct HypeToolExecutor: Sendable {
             // Clamp to [0, 10] to keep the format string sane.
             let rawDecimals = Int(arguments["decimals"] ?? "0") ?? 0
             part.gaugeDecimals = max(0, min(10, rawDecimals))
+            // setGaugeValue clamps to [gaugeMin, gaugeMax] and
+            // rounds to gaugeDecimals — same canonical helper used
+            // by the property setter and HypeTalk paths.
+            part.setGaugeValue(Double(arguments["value"] ?? "0") ?? 0)
             document.addPart(part)
             let layer1 = place.backgroundId != nil ? " on background" : ""
             return "Created gauge '\(part.name)'\(layer1)"
@@ -1483,18 +1486,9 @@ public struct HypeToolExecutor: Sendable {
                 case "value":
                     switch document.parts[index].partType {
                     case .progressView:
-                        let total = max(1e-10, document.parts[index].progressTotal)
-                        let raw = min(total, max(0, Double(value) ?? 0))
-                        let d = max(0, document.parts[index].progressDecimals)
-                        let scale = pow(10.0, Double(d))
-                        document.parts[index].progressValue = (raw * scale).rounded() / scale
+                        document.parts[index].setProgressValue(Double(value) ?? 0)
                     case .gauge:
-                        let gMin = document.parts[index].gaugeMin
-                        let gMax = document.parts[index].gaugeMax
-                        let raw = min(gMax, max(gMin, Double(value) ?? 0))
-                        let d = max(0, document.parts[index].gaugeDecimals)
-                        let scale = pow(10.0, Double(d))
-                        document.parts[index].gaugeValue = (raw * scale).rounded() / scale
+                        document.parts[index].setGaugeValue(Double(value) ?? 0)
                     case .toggle:
                         document.parts[index].controlValue = (value.lowercased() == "true") ? 1 : 0
                     case .field:
@@ -1605,13 +1599,11 @@ public struct HypeToolExecutor: Sendable {
                     default:
                         return "Part type '\(part.partType.rawValue)' does not support style property"
                     }
-                // ProgressView
+                // ProgressView — route through `setProgressValue`
+                // so this matches the `case "value"` overload above
+                // (same drift fix as gauge).
                 case "progressvalue", "progress_value":
-                    let total = max(1e-10, document.parts[index].progressTotal)
-                    let raw = min(total, max(0, Double(value) ?? 0))
-                    let d = max(0, document.parts[index].progressDecimals)
-                    let scale = pow(10.0, Double(d))
-                    document.parts[index].progressValue = (raw * scale).rounded() / scale
+                    document.parts[index].setProgressValue(Double(value) ?? 0)
                 case "progresstotal", "progress_total", "total":
                     let clampedTotal = max(1e-10, Double(value) ?? 1.0)
                     document.parts[index].progressTotal = clampedTotal
@@ -1626,11 +1618,12 @@ public struct HypeToolExecutor: Sendable {
                 case "progressdecimals", "progress_decimals":
                     let n = Int(Double(value) ?? 0)
                     document.parts[index].progressDecimals = max(0, min(10, n))
-                // Gauge
+                // Gauge — route through `setGaugeValue` so this and
+                // the `case "value"` overload above produce identical
+                // results. Previously this case clamped but did NOT
+                // round, while `case "value"` did both.
                 case "gaugevalue", "gauge_value":
-                    let gMin = document.parts[index].gaugeMin
-                    let gMax = document.parts[index].gaugeMax
-                    document.parts[index].gaugeValue = min(gMax, max(gMin, Double(value) ?? 0))
+                    document.parts[index].setGaugeValue(Double(value) ?? 0)
                 case "gaugemin", "gauge_min":
                     document.parts[index].gaugeMin = Double(value) ?? 0
                 case "gaugemax", "gauge_max":
