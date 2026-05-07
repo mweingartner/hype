@@ -45,8 +45,14 @@ struct PropertyInspector: View {
                let part = document.document.parts.first(where: { $0.id == partId }) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Properties")
+                        // Single-select headline echoes the multi-select
+                        // pattern ("N Parts Selected"): tell the user
+                        // which part they're inspecting, not just
+                        // "Properties" (the whole pane is properties).
+                        Text("\(part.name.isEmpty ? "Untitled" : part.name) — \(part.partType.rawValue.capitalized)")
                             .font(.headline)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                             .padding(.bottom, 4)
 
                         commonSection(part: part)
@@ -91,9 +97,7 @@ struct PropertyInspector: View {
 
                         // Script section
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("SCRIPT")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.secondary)
+                            sectionHeading("SCRIPT")
 
                             Button(action: {
                                 openScriptEditorWindow(document: $document, partId: partId, target: .part(partId))
@@ -245,9 +249,7 @@ struct PropertyInspector: View {
                 Divider()
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("ALIGNMENT")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.secondary)
+                    sectionHeading("ALIGNMENT")
 
                     HStack(spacing: 4) {
                         alignButton("Align Left", icon: "align.horizontal.left", notificationName: .alignLeft)
@@ -274,17 +276,15 @@ struct PropertyInspector: View {
                 // user asked for: "edit the height of a selected group of
                 // controls" — type once, all match.
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("POSITION & SIZE")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.secondary)
+                    sectionHeading("POSITION & SIZE")
 
                     HStack(spacing: 8) {
                         multiNumberField("X", keyPath: \.left)
                         multiNumberField("Y", keyPath: \.top)
                     }
                     HStack(spacing: 8) {
-                        multiNumberField("W", keyPath: \.width)
-                        multiNumberField("H", keyPath: \.height)
+                        multiNumberField("Width", keyPath: \.width)
+                        multiNumberField("Height", keyPath: \.height)
                     }
                 }
 
@@ -297,9 +297,7 @@ struct PropertyInspector: View {
                 // a user with mixed visibility flip the whole group
                 // visible in one click.
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("BEHAVIOR")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.secondary)
+                    sectionHeading("BEHAVIOR")
 
                     Toggle("Visible", isOn: bindMultiBool(\.visible))
                     Toggle("Enabled", isOn: bindMultiBool(\.enabled))
@@ -315,9 +313,7 @@ struct PropertyInspector: View {
                 if allHonorFillStroke {
                     Divider()
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("APPEARANCE")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.secondary)
+                        sectionHeading("APPEARANCE")
 
                         // ColorPicker swatch + hex text — two ways to
                         // pick the same color. Differing values: swatch
@@ -337,9 +333,7 @@ struct PropertyInspector: View {
                 if allButtonOrField {
                     Divider()
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("TEXT FORMATTING")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.secondary)
+                        sectionHeading("TEXT FORMATTING")
 
                         multiStringField("Font", keyPath: \.textFont)
                         multiNumberField("Size", keyPath: \.textSize)
@@ -386,12 +380,34 @@ struct PropertyInspector: View {
 
                 Divider()
 
-                // Delete all selected
+                // Delete all selected. Multi-delete is destructive
+                // and previously fired without any confirmation; a
+                // mis-click could vaporize a dozen parts. Match the
+                // `addNewBackgroundFlow` pattern used elsewhere — an
+                // NSAlert confirm. Single-part delete (count == 1)
+                // skips the alert: it's reversible via undo and the
+                // user clearly aimed at the one selected part.
                 Button(role: .destructive, action: {
-                    let ids = selectedPartIds
-                    selectedPartIds = []
-                    for id in ids {
-                        document.document.removePart(id: id)
+                    let ids = Array(selectedPartIds)
+                    let count = ids.count
+                    let proceed: () -> Void = {
+                        selectedPartIds = []
+                        for id in ids {
+                            document.document.removePart(id: id)
+                        }
+                    }
+                    if count >= 2 {
+                        let alert = NSAlert()
+                        alert.messageText = "Delete \(count) parts?"
+                        alert.informativeText = "This action can be undone with ⌘Z."
+                        alert.alertStyle = .warning
+                        alert.addButton(withTitle: "Delete")
+                        alert.addButton(withTitle: "Cancel")
+                        if alert.runModal() == .alertFirstButtonReturn {
+                            proceed()
+                        }
+                    } else {
+                        proceed()
                     }
                 }) {
                     HStack {
@@ -551,9 +567,7 @@ struct PropertyInspector: View {
     private var themePickerSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("THEME")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.secondary)
+                sectionHeading("THEME")
                 Spacer()
                 Button(action: {
                     NotificationCenter.default.post(name: .openThemeDesigner, object: nil)
@@ -678,9 +692,7 @@ struct PropertyInspector: View {
     @ViewBuilder
     private var themeInfoSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("THEME")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundColor(.secondary)
+            sectionHeading("THEME")
             let (theme, origin) = document.document.effectiveThemeOrigin(forCard: currentCardId)
             HStack {
                 Text("\(theme.name)")
@@ -757,7 +769,7 @@ struct PropertyInspector: View {
         let defaultId = document.document.resolvedDefaultBackgroundId
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 4) {
-                Text("BACKGROUNDS").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+                sectionHeading("BACKGROUNDS")
                 Text("(\(backgrounds.count))").font(.system(size: 10)).foregroundColor(.secondary)
                 Spacer()
                 Button(action: {
@@ -849,26 +861,41 @@ struct PropertyInspector: View {
 
     // MARK: - Sections
 
+    /// Single source of truth for inspector section headings.
+    /// Single-select used to use `.subheadline` mixed-case
+    /// ("Position", "State") while multi-select used 10pt uppercase
+    /// bold ("POSITION & SIZE") — two visual languages inside the
+    /// same inspector. Routing every section title through this
+    /// helper unifies on the 10pt uppercase pattern used by Xcode's
+    /// inspector and keeps the styling in one place if it ever
+    /// changes again.
+    @ViewBuilder
+    private func sectionHeading(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.system(size: 10, weight: .bold))
+            .foregroundColor(.secondary)
+    }
+
     @ViewBuilder
     private func commonSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Identity").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("Identity")
             propertyRow("Name", binding: bindPartString(part.id, \.name))
             propertyRow("Type", value: part.partType.rawValue.capitalized)
         }
         VStack(alignment: .leading, spacing: 6) {
-            Text("Position").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("Position")
             HStack {
                 numberField("X", binding: bindPartDouble(part.id, \.left))
                 numberField("Y", binding: bindPartDouble(part.id, \.top))
             }
             HStack {
-                numberField("W", binding: bindPartDouble(part.id, \.width))
-                numberField("H", binding: bindPartDouble(part.id, \.height))
+                numberField("Width", binding: bindPartDouble(part.id, \.width))
+                numberField("Height", binding: bindPartDouble(part.id, \.height))
             }
         }
         VStack(alignment: .leading, spacing: 6) {
-            Text("State").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("State")
             Toggle("Visible", isOn: bindPartBool(part.id, \.visible))
             Toggle("Enabled", isOn: bindPartBool(part.id, \.enabled))
         }
@@ -877,7 +904,7 @@ struct PropertyInspector: View {
     @ViewBuilder
     private func buttonSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Button").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("Button")
             Picker("Style", selection: bindPartButtonStyle(part.id)) {
                 ForEach(HypeCore.ButtonStyle.pickerCases, id: \.self) { style in
                     Text(style.rawValue).tag(style)
@@ -890,7 +917,7 @@ struct PropertyInspector: View {
             // Popup items editor (only shown for popup style)
             if part.buttonStyle == .popup {
                 Divider()
-                Text("POPUP ITEMS").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+                sectionHeading("POPUP ITEMS")
                 Text("One item per line. First item is the default selection.")
                     .font(.system(size: 10)).foregroundColor(.secondary)
                 TextEditor(text: bindPartString(part.id, \.popupItems))
@@ -905,7 +932,7 @@ struct PropertyInspector: View {
     @ViewBuilder
     private func fieldSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Field").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("Field")
             Picker("Style", selection: bindPartFieldStyle(part.id)) {
                 ForEach(HypeCore.FieldStyle.allCases, id: \.self) { style in
                     Text(style.rawValue).tag(style)
@@ -954,7 +981,7 @@ struct PropertyInspector: View {
     @ViewBuilder
     private func shapeSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Shape").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("Shape")
             Picker("Shape", selection: bindPartShapeType(part.id)) {
                 ForEach(HypeCore.ShapeType.allCases, id: \.self) { type in
                     Text(type.rawValue).tag(type)
@@ -972,7 +999,7 @@ struct PropertyInspector: View {
     @ViewBuilder
     private func webpageSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Web Page").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("Web Page")
             propertyRow("URL", binding: bindPartString(part.id, \.url))
         }
     }
@@ -980,7 +1007,7 @@ struct PropertyInspector: View {
     @ViewBuilder
     private func imageSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Image").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("Image")
 
             Button("Choose Image...") {
                 chooseImageForPart(partId: part.id)
@@ -1049,7 +1076,7 @@ struct PropertyInspector: View {
     @ViewBuilder
     private func videoSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Video").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("Video")
             propertyRow("URL/Path", binding: bindPartString(part.id, \.videoURL))
             Button("Choose Video...") {
                 chooseVideoForPart(partId: part.id)
@@ -1065,7 +1092,7 @@ struct PropertyInspector: View {
 
     private func calendarSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Calendar").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("Calendar")
             propertyRow("Selected (yyyy-MM-dd)", binding: bindPartString(part.id, \.selectedDate))
             propertyRow("Display Month", binding: bindPartString(part.id, \.displayMonth))
             propertyRow("Min Date", binding: bindPartString(part.id, \.minDate))
@@ -1085,7 +1112,7 @@ struct PropertyInspector: View {
 
     private func pdfSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("PDF").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("PDF")
             propertyRow("URL/Path", binding: bindPartString(part.id, \.pdfURL))
             Button("Choose PDF...") { choosePDFForPart(partId: part.id) }
             HStack {
@@ -1122,7 +1149,7 @@ struct PropertyInspector: View {
 
     private func mapSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Map").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("Map")
             propertyRow("Center Lat", binding: bindPartDoubleString(part.id, \.mapCenterLat))
             propertyRow("Center Lon", binding: bindPartDoubleString(part.id, \.mapCenterLon))
             propertyRow("Span (deg)", binding: bindPartDoubleString(part.id, \.mapSpan))
@@ -1160,7 +1187,7 @@ struct PropertyInspector: View {
 
     private func colorWellSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Color Well").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("Color Well")
             colorPropertyRow(label: "Color", partId: part.id, keyPath: \.colorWellHex,
                              supportsOpacity: true)
             Toggle("Interactive", isOn: bindPartBool(part.id, \.colorWellInteractive))
@@ -1186,7 +1213,7 @@ struct PropertyInspector: View {
 
     private func segmentedSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Segmented").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("Segmented")
             propertyRow("Segments (pipe-separated)", binding: bindPartString(part.id, \.segmentItems))
             propertyRow("Selected Index", binding: bindPartDoubleString(part.id, \.controlValue))
         }
@@ -1194,7 +1221,7 @@ struct PropertyInspector: View {
 
     private func scene3DSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("3D Scene").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("3D Scene")
             // Object Path is the author-visible source path (preferred field).
             // Accepts .usdz / .usd / .scn / .dae / .obj / .stl. STL is
             // auto-converted to a cached .obj on import.
@@ -1286,7 +1313,7 @@ struct PropertyInspector: View {
 
     private func audioRecorderSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Audio Recorder").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("Audio Recorder")
             Toggle("Recording", isOn: bindPartBool(part.id, \.audioRecording))
             Toggle("Playing", isOn: bindPartBool(part.id, \.audioPlaying))
                 .disabled(part.audioOutputPath.isEmpty)
@@ -1318,7 +1345,7 @@ struct PropertyInspector: View {
 
     private func progressViewSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Progress View").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("Progress View")
             propertyRow("Label", binding: bindPartString(part.id, \.progressLabel))
             Toggle("Circular Spinner", isOn: bindPartBool(part.id, \.progressIsCircular))
             Toggle("Indeterminate", isOn: bindPartBool(part.id, \.progressIsIndeterminate))
@@ -1352,7 +1379,7 @@ struct PropertyInspector: View {
 
     private func gaugeSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Gauge").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("Gauge")
             propertyRow("Label", binding: bindPartString(part.id, \.gaugeLabel))
             propertyRow("Value", binding: bindPartDoubleString(part.id, \.gaugeValue))
             propertyRow("Min", binding: bindPartDoubleString(part.id, \.gaugeMin))
@@ -1401,7 +1428,7 @@ struct PropertyInspector: View {
 
     private func dividerSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Divider").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("Divider")
             HStack {
                 Text("Orientation").font(.system(size: 10))
                 Picker("", selection: bindPartString(part.id, \.dividerOrientation)) {
@@ -1485,7 +1512,7 @@ struct PropertyInspector: View {
     @ViewBuilder
     private func spriteAreaSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Sprite Area").font(.subheadline).bold()
+            sectionHeading("Sprite Area")
 
             if let areaSpec = part.spriteAreaSpecModel,
                let spec = areaSpec.activeScene {
@@ -2451,8 +2478,8 @@ struct PropertyInspector: View {
                 numberField("Y", binding: bindNodePositionY(partId: partId, nodeId: node.id))
             }
             HStack {
-                numberField("W", binding: bindNodeWidth(partId: partId, nodeId: node.id))
-                numberField("H", binding: bindNodeHeight(partId: partId, nodeId: node.id))
+                numberField("Width", binding: bindNodeWidth(partId: partId, nodeId: node.id))
+                numberField("Height", binding: bindNodeHeight(partId: partId, nodeId: node.id))
             }
             HStack {
                 numberField("Rotation", binding: bindNodeDouble(partId: partId, nodeId: node.id, \.rotation))
@@ -2641,8 +2668,8 @@ struct PropertyInspector: View {
             .font(.system(size: 11))
 
         HStack {
-            numberField("W", binding: bindNodeWidth(partId: partId, nodeId: node.id))
-            numberField("H", binding: bindNodeHeight(partId: partId, nodeId: node.id))
+            numberField("Width", binding: bindNodeWidth(partId: partId, nodeId: node.id))
+            numberField("Height", binding: bindNodeHeight(partId: partId, nodeId: node.id))
         }
     }
 
@@ -3142,7 +3169,7 @@ struct PropertyInspector: View {
     @ViewBuilder
     private func textFormattingSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Text Formatting").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("Text Formatting")
             HStack {
                 Text("Font").frame(width: 40, alignment: .trailing).font(.system(size: 11))
                 Picker("", selection: bindPartString(part.id, \.textFont)) {
@@ -3239,7 +3266,7 @@ struct PropertyInspector: View {
     @ViewBuilder
     private func chartSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Chart").font(.subheadline).foregroundColor(.secondary)
+            sectionHeading("Chart")
 
             let config = ChartConfig.fromJSON(part.chartData) ?? ChartConfig()
 
@@ -3461,7 +3488,7 @@ struct PropertyInspector: View {
     private func constraintsSection(partId: UUID) -> some View {
         let partConstraints = document.document.constraintsForPart(partId)
         VStack(alignment: .leading, spacing: 4) {
-            Text("CONSTRAINTS").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+            sectionHeading("CONSTRAINTS")
             if partConstraints.isEmpty {
                 Text("Option+drag from this part to another part or canvas edge to create a constraint")
                     .font(.system(size: 10)).foregroundColor(.secondary)
@@ -4044,9 +4071,14 @@ func openScriptEditorWindow(
     window.title = windowTitle
     window.minSize = NSSize(width: 450, height: 350)
     window.isReleasedWhenClosed = false
-    window.appearance = NSAppearance(named: .aqua)
+    // Previously: `window.appearance = NSAppearance(named: .aqua)`
+    // — a legacy force-light from when the script editor was a
+    // monochrome view. Now that themes drive the background, that
+    // override actively fights system Dark Mode users. Letting the
+    // appearance inherit from the system + theme cascade is the
+    // right behavior on macOS 11+.
 
-    // Build the editor view with light color scheme forced at every level
+    // Build the editor view; theme + system appearance now cascade naturally.
     let closeAction: () -> Void = { [weak window] in window?.close() }
     let editorView = VStack(spacing: 0) {
         ScriptEditor(
@@ -4065,12 +4097,16 @@ func openScriptEditorWindow(
         }
         .padding(8)
     }
-    .environment(\.colorScheme, .light)
-    .colorScheme(.light)
-    .preferredColorScheme(.light)
+    // Previously forced .light at three levels (environment +
+    // colorScheme + preferredColorScheme) plus an aqua appearance
+    // on the hosting view. The Script Editor's internal chrome
+    // (toolbar, command palette) already adapts to the active
+    // theme via `hypeTheme.toolbarColorScheme` /
+    // `hypeTheme.chromeColorScheme` (ScriptEditor.swift:346, 423,
+    // 435), so the global force-light here was both redundant and
+    // user-hostile to Dark Mode users.
 
     let hostingView = NSHostingView(rootView: editorView)
-    hostingView.appearance = NSAppearance(named: .aqua)
     window.contentView = hostingView
     window.center()
     window.makeKeyAndOrderFront(nil)

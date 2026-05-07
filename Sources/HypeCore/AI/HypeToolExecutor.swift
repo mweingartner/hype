@@ -1441,6 +1441,15 @@ public struct HypeToolExecutor: Sendable {
                 case "top": document.parts[index].top = Double(value) ?? 0
                 case "width": document.parts[index].width = Double(value) ?? 100
                 case "height": document.parts[index].height = Double(value) ?? 40
+                case "rotation":
+                    // The HypeTalk setter has supported `set the rotation
+                    // of cd btn 1 to 45` for a while; the AI tool surface
+                    // was missing the matching `set_part_property
+                    // property=rotation` case so the model could read but
+                    // not write. Round-trip through a Double, falling
+                    // back to 0 on a malformed value (matches the other
+                    // numeric setters above).
+                    document.parts[index].rotation = Double(value) ?? 0
                 case "text", "textcontent": document.parts[index].textContent = value
                 case "url": document.parts[index].url = value
                 case "videourl", "video_url": document.parts[index].videoURL = value

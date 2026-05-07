@@ -146,12 +146,18 @@ struct HypeApp: App {
             CommandGroup(after: .newItem) {
                 Divider()
             }
+            // Menu order follows the macOS HIG convention used by
+            // Pages, Keynote, and Xcode: standard menus (File, Edit,
+            // View) come first, then app-specific menus (Go,
+            // Objects, Arrange, Tools, AI), with Window and Help
+            // last. Window is added by SwiftUI; Help is added by
+            // the system.
             EditMenuCommands()
+            ViewMenuCommands()
             GoMenuCommands()
             ObjectsMenuCommands()
             ArrangeMenuCommands()
             ToolsMenuCommands()
-            ViewMenuCommands()
             AIMenuCommands()
             WindowMenuCommands()
         }
