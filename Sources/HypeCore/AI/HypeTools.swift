@@ -613,30 +613,13 @@ public struct HypeToolDefinitions {
             "chart_name": ("string", "Name of the chart part to inspect", true),
         ]),
 
-        // Information / read-side
+        // Information / read-side. The granular property tools
+        // (`get_stack_property`, `get_card_property`, etc.) live in
+        // their own scope-tools section below — see the v3.x block
+        // around `set_card_property` / theme support — so we don't
+        // duplicate the makeTool declarations here. Both batches
+        // hit the same dispatcher in HypeToolExecutor.
         makeTool(name: "get_stack_info", description: "Get information about the current stack: card count, background names, current card.", params: [:]),
-        makeTool(name: "get_stack_property", description: """
-            Read one stack-level property. Use this for granular introspection instead of the \
-            broader get_stack_info summary when you only need a single value. \
-            Supported properties: id, name, width, height, defaultFont, webAssetsAllowed, \
-            cardCount, backgroundCount.
-            """, params: [
-            "property": ("string", "Property name to read", true),
-        ]),
-        makeTool(name: "get_card_property", description: """
-            Read one property from a card. Use the current card when card_name is omitted. \
-            Supported properties: id, name, marked, sortKey, backgroundName, cardNumber.
-            """, params: [
-            "card_name": ("string", "Card name (defaults to current card)", false),
-            "property": ("string", "Property name to read", true),
-        ]),
-        makeTool(name: "get_background_property", description: """
-            Read one property from a background. Use the current card's background when \
-            background_name is omitted. Supported properties: id, name, sortKey, cardCount.
-            """, params: [
-            "background_name": ("string", "Background name (defaults to current background)", false),
-            "property": ("string", "Property name to read", true),
-        ]),
         makeTool(name: "get_card_parts", description: "List all parts on the current card with their properties.", params: [:]),
 
         // ------------------------------------------------------------------

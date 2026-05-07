@@ -1036,7 +1036,15 @@ class CardCanvasNSView: NSView {
             } else {
                 renderBgParts = []
             }
-            let nativeKinds: Set<PartType> = [.spriteArea, .chart, .webpage, .video, .calendar, .pdf, .map, .colorWell, .stepper, .slider, .toggle, .segmented, .audioRecorder, .scene3D, .progressView, .gauge, .link, .menu, .searchField]
+            // PartTypes whose live view is hosted by a real
+            // NSView/SwiftUI subview (rather than drawn into the
+            // CG context). The renderer skips these in the bitmap
+            // pass so the host view's own draw doesn't double-draw.
+            // `.toggle / .link / .menu / .searchField` were once
+            // here but migrated to `.button` / `.field` styles in
+            // `Part.init(from:)`; no live Part has those types
+            // anymore, so they were dead in this set.
+            let nativeKinds: Set<PartType> = [.spriteArea, .chart, .webpage, .video, .calendar, .pdf, .map, .colorWell, .stepper, .slider, .segmented, .audioRecorder, .scene3D, .progressView, .gauge]
             nativePartIds = Set(
                 (renderCardParts + renderBgParts)
                     .filter { $0.visible && nativeKinds.contains($0.partType) }

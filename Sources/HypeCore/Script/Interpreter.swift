@@ -3100,18 +3100,16 @@ public struct Interpreter: Sendable {
             if let part = document.parts.first(where: { $0.partType == .gauge && $0.name.lowercased() == identifier.lowercased() }) {
                 return part.id.uuidString
             }
-        case "link":
-            if let part = document.parts.first(where: { $0.partType == .link && $0.name.lowercased() == identifier.lowercased() }) {
-                return part.id.uuidString
-            }
-        case "menu":
-            if let part = document.parts.first(where: { $0.partType == .menu && $0.name.lowercased() == identifier.lowercased() }) {
-                return part.id.uuidString
-            }
-        case "searchfield", "search":
-            if let part = document.parts.first(where: { $0.partType == .searchField && $0.name.lowercased() == identifier.lowercased() }) {
-                return part.id.uuidString
-            }
+        // `link`, `menu`, `searchfield` once had their own PartType
+        // values; `Part.init(from:)` (Part.swift:610-648) migrates
+        // any decoded part with those types to its canonical form
+        // (button with .link / .popup style; field with .search
+        // style). After migration, no live Part has
+        // `partType == .link / .menu / .searchField`, so the old
+        // dispatch branches matched nothing and returned "" via the
+        // default case below. Removed; matching by the new canonical
+        // form is `case "button"` / `case "field"` plus a style
+        // check at the call site.
         case "divider":
             if let part = document.parts.first(where: { $0.partType == .divider && $0.name.lowercased() == identifier.lowercased() }) {
                 return part.id.uuidString
