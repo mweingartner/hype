@@ -46,20 +46,31 @@ public enum ButtonRenderer {
         // readable regardless of what tint the theme chose
         // (Sunset's orange + dark text; Neon's magenta + light text).
         // When not hilited, use the theme's button foreground.
-        let textColor: CGColor
+        let computedTextColor: CGColor
         switch part.buttonStyle {
         case .checkBox, .toggle:
             // Indicator-style controls (check / switch). The label
             // floats next to the indicator on the part background,
             // not over the hilite — use the theme's foreground.
-            textColor = part.enabled ? cardFgNS.cgColor : NSColor.disabledControlTextColor.cgColor
+            computedTextColor = part.enabled ? cardFgNS.cgColor : NSColor.disabledControlTextColor.cgColor
         default:
             if part.hilite {
-                textColor = ColorContrast.readableTextColor(for: buttonHiNS).cgColor
+                computedTextColor = ColorContrast.readableTextColor(for: buttonHiNS).cgColor
             } else {
-                textColor = part.enabled ? buttonFgNS.cgColor : NSColor.disabledControlTextColor.cgColor
+                computedTextColor = part.enabled ? buttonFgNS.cgColor : NSColor.disabledControlTextColor.cgColor
             }
         }
+        // Explicit `part.fontColor` overrides the computed contrast-
+        // aware default when set. Empty string is the "auto" sentinel
+        // — keeps the previous behavior for parts that haven't opted
+        // into a custom font color.
+        let textColor: CGColor = {
+            if !part.fontColor.isEmpty,
+               let parsed = NSColor(hexString: part.fontColor) {
+                return parsed.cgColor
+            }
+            return computedTextColor
+        }()
 
         switch part.buttonStyle {
         case .transparent:
@@ -157,7 +168,8 @@ public enum ButtonRenderer {
                     font: part.textFont,
                     size: part.textSize,
                     color: textColor,
-                    align: align
+                    align: align,
+                    textStyle: part.textStyle
                 )
             }
             ctx.restoreGState()
@@ -191,7 +203,8 @@ public enum ButtonRenderer {
             // Label
             drawLabel(ctx: ctx, text: part.showName ? part.name : part.textContent,
                      at: CGPoint(x: rect.minX + boxSize + 8, y: rect.midY),
-                     font: part.textFont, size: part.textSize, color: textColor, align: .left)
+                     font: part.textFont, size: part.textSize, color: textColor, align: .left,
+                     textStyle: part.textStyle)
             ctx.restoreGState()
             return
 
@@ -228,9 +241,18 @@ public enum ButtonRenderer {
             // picked a light accent rendered as white-on-light = an
             // unreadable button.
             let label = part.showName ? part.name : part.textContent
-            let labelColor = ColorContrast.readableTextColor(for: accentNS).cgColor
+            // `part.fontColor` overrides the contrast-aware default
+            // here too — author-set color wins when explicit.
+            let labelColor: CGColor = {
+                if !part.fontColor.isEmpty,
+                   let parsed = NSColor(hexString: part.fontColor) {
+                    return parsed.cgColor
+                }
+                return ColorContrast.readableTextColor(for: accentNS).cgColor
+            }()
             drawLabel(ctx: ctx, text: label, at: CGPoint(x: rect.midX, y: rect.midY),
-                     font: part.textFont, size: part.textSize, color: labelColor, align: .center)
+                     font: part.textFont, size: part.textSize, color: labelColor, align: .center,
+                     textStyle: part.textStyle)
             ctx.restoreGState()
             return
 
@@ -277,7 +299,8 @@ public enum ButtonRenderer {
                 }
             }
             drawLabel(ctx: ctx, text: popupLabel, at: CGPoint(x: rect.minX + 8, y: rect.midY),
-                     font: part.textFont, size: part.textSize, color: textColor, align: .left)
+                     font: part.textFont, size: part.textSize, color: textColor, align: .left,
+                     textStyle: part.textStyle)
             ctx.restoreGState()
             return
 
@@ -323,7 +346,8 @@ public enum ButtonRenderer {
             let label = part.showName ? part.name : part.textContent
             if !label.isEmpty {
                 drawLabel(ctx: ctx, text: label, at: CGPoint(x: trackX + trackWidth + 8, y: rect.midY),
-                         font: part.textFont, size: part.textSize, color: textColor, align: .left)
+                         font: part.textFont, size: part.textSize, color: textColor, align: .left,
+                         textStyle: part.textStyle)
             }
             ctx.restoreGState()
             return
@@ -362,7 +386,8 @@ public enum ButtonRenderer {
             if !radioLabel.isEmpty {
                 drawLabel(ctx: ctx, text: radioLabel,
                           at: CGPoint(x: radioRect.maxX + 6, y: rect.midY),
-                          font: part.textFont, size: part.textSize, color: textColor, align: .left)
+                          font: part.textFont, size: part.textSize, color: textColor, align: .left,
+                          textStyle: part.textStyle)
             }
             ctx.restoreGState()
             return
@@ -378,10 +403,19 @@ public enum ButtonRenderer {
             let linkText = part.textContent.isEmpty
                 ? (part.url.isEmpty ? "(link)" : part.url)
                 : part.textContent
-            let linkColor = (theme.map { $0.accent.nsColor } ?? NSColor.linkColor).cgColor
+            // Link text honors part.fontColor if set; else takes the
+            // theme's accent (or NSColor.linkColor when no theme).
+            let linkColor: CGColor = {
+                if !part.fontColor.isEmpty,
+                   let parsed = NSColor(hexString: part.fontColor) {
+                    return parsed.cgColor
+                }
+                return (theme.map { $0.accent.nsColor } ?? NSColor.linkColor).cgColor
+            }()
             drawLabel(ctx: ctx, text: linkText,
                       at: CGPoint(x: rect.midX, y: rect.midY),
-                      font: part.textFont, size: part.textSize, color: linkColor, align: .center)
+                      font: part.textFont, size: part.textSize, color: linkColor, align: .center,
+                      textStyle: part.textStyle)
             // Underline beneath the text — measure to centre the line.
             let nsfont = NSFont(name: part.textFont.isEmpty ? "Helvetica" : part.textFont,
                                 size: CGFloat(part.textSize > 0 ? part.textSize : 14))
@@ -403,7 +437,8 @@ public enum ButtonRenderer {
         if !label.isEmpty {
             let align: LabelAlignment = part.textAlign == .left ? .left : part.textAlign == .right ? .right : .center
             drawLabel(ctx: ctx, text: label, at: CGPoint(x: rect.midX, y: rect.midY),
-                     font: part.textFont, size: part.textSize, color: textColor, align: align)
+                     font: part.textFont, size: part.textSize, color: textColor, align: align,
+                     textStyle: part.textStyle)
         }
 
         ctx.restoreGState()
@@ -411,12 +446,46 @@ public enum ButtonRenderer {
 
     enum LabelAlignment { case left, center, right }
 
-    static func drawLabel(ctx: CGContext, text: String, at point: CGPoint, font: String, size: Double, color: CGColor, align: LabelAlignment) {
-        let nsFont = NSFont(name: font, size: CGFloat(size)) ?? NSFont.systemFont(ofSize: CGFloat(size))
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: nsFont,
+    /// Central label-drawing routine used by every button-style
+    /// branch in `draw(...)`. Consults `textStyle` (parsed via
+    /// `TextStyleFlags`) so a part with `textStyle = "bold,italic,
+    /// underline,strikethrough"` actually paints with bold + italic
+    /// font traits AND the underline / strikethrough decorations.
+    /// `textStyle` defaults to `"plain"` (no flags) so legacy
+    /// callers and tests render exactly as before.
+    static func drawLabel(
+        ctx: CGContext,
+        text: String,
+        at point: CGPoint,
+        font: String,
+        size: Double,
+        color: CGColor,
+        align: LabelAlignment,
+        textStyle: String = "plain"
+    ) {
+        let baseFont = NSFont(name: font, size: CGFloat(size)) ?? NSFont.systemFont(ofSize: CGFloat(size))
+        let flags = TextStyleFlags(string: textStyle)
+        // Apply bold / italic via NSFontManager — it respects the
+        // base font's family + size while toggling the trait, so we
+        // don't lose the chosen font face by switching to system.
+        var styledFont = baseFont
+        if flags.bold {
+            styledFont = NSFontManager.shared.convert(styledFont, toHaveTrait: .boldFontMask)
+        }
+        if flags.italic {
+            styledFont = NSFontManager.shared.convert(styledFont, toHaveTrait: .italicFontMask)
+        }
+        var attrs: [NSAttributedString.Key: Any] = [
+            .font: styledFont,
             .foregroundColor: NSColor(cgColor: color) ?? NSColor.black,
         ]
+        if flags.underline {
+            attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
+        }
+        if flags.strikethrough {
+            attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+        }
+
         let nsText = text as NSString
         let textSize = nsText.size(withAttributes: attrs)
 

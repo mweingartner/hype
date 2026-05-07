@@ -539,7 +539,10 @@ public struct HypeToolDefinitions {
         makeTool(name: "set_part_property", description: """
             Set a property on a part by name. Available properties: name, left, top, width, height, \
             text, url, videoURL, fillColor, strokeColor, strokeWidth, cornerRadius, visible, enabled, hilite, \
-            autoHilite, showName, lockText, textFont, textSize, textAlign, textStyle, script, style. \
+            autoHilite, showName, lockText, textFont, textSize, textAlign, textStyle, fontColor, script, style. \
+            textStyle is a comma-separated subset of: plain, bold, italic, underline, strikethrough \
+            (e.g. "bold" or "bold,italic"). fontColor is a hex string ("#FF0000") for the text \
+            foreground; passing an empty string reverts to the auto contrast-aware default. \
             Image / GIF parts also accept: transparentBackground (boolean — when true, the renderer \
             chroma-keys the dominant corner-pixel color out so whatever is behind the image shows \
             through; useful for JPGs and indexed GIFs whose 'background' is a solid color rather \
@@ -647,7 +650,7 @@ public struct HypeToolDefinitions {
             part doesn't exist. Property names match set_part_property: name, left, top, width, \
             height, text, url, videoURL, fillColor, strokeColor, strokeWidth, cornerRadius, \
             visible, enabled, hilite, autoHilite, showName, lockText, textFont, textSize, \
-            textAlign, textStyle, script, style. For Sprite Area parts, property=script returns \
+            textAlign, textStyle, fontColor, script, style. For Sprite Area parts, property=script returns \
             the active scene script, matching set_part_property's compatibility routing.
             """, params: [
             "part_name": ("string", "Name of the part to query", true),
@@ -916,7 +919,7 @@ public struct HypeToolDefinitions {
         makeTool(name: "set_node_property", description: """
             Set a single property on a scene node by dotted key. Covers every writable \
             HypeNodeSpec field: position.x, position.y, zPosition, rotation, xScale, yScale, \
-            alpha, isHidden, name, text, fontSize, fontColor, fontName, shape.fillColor, \
+            alpha, isHidden, name, text, fontSize, fontColor, fontName, textStyle, shape.fillColor, \
             shape.strokeColor, shape.lineWidth, shape.cornerRadius, shape.shapeType, \
             physics.enabled, physics.bodyType, physics.isDynamic, physics.restitution, \
             physics.friction, physics.mass, physics.affectedByGravity, physics.allowsRotation, \

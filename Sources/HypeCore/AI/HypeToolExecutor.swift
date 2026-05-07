@@ -1701,7 +1701,21 @@ public struct HypeToolExecutor: Sendable {
                 case "textfont", "font": document.parts[index].textFont = value
                 case "textsize", "size": document.parts[index].textSize = Double(value) ?? 14
                 case "textalign": document.parts[index].textAlign = TextAlignment(rawValue: value.lowercased()) ?? .left
-                case "textstyle": document.parts[index].textStyle = value
+                case "textstyle", "text_style":
+                    // Normalize through TextStyleFlags so any alias
+                    // the model emits ("strike", "BOLD,italic") collapses
+                    // to the canonical "bold, italic, …" rawString. This
+                    // matches the HypeTalk setter's normalization so a
+                    // round-trip through `set_part_property` and
+                    // `get_part_property` is stable.
+                    document.parts[index].textStyle = TextStyleFlags(string: value).rawString
+                case "fontcolor", "font_color", "textcolor", "text_color":
+                    // Foreground (font) color. Empty string is meaningful —
+                    // it means "auto / contrast-aware" (the renderer
+                    // picks a readable color from the part's fill).
+                    // Hex parsing happens at draw time; an invalid hex
+                    // silently falls back to the contrast-aware default.
+                    document.parts[index].fontColor = value
                 case "strokewidth": document.parts[index].strokeWidth = Double(value) ?? 1
                 case "cornerradius": document.parts[index].cornerRadius = Double(value) ?? 8
                 case "chartdata", "chart_data":
@@ -2685,7 +2699,9 @@ public struct HypeToolExecutor: Sendable {
             case "textfont", "font": return part.textFont
             case "textsize", "size": return String(part.textSize)
             case "textalign": return part.textAlign.rawValue
-            case "textstyle": return part.textStyle
+            case "textstyle", "text_style": return part.textStyle
+            case "fontcolor", "font_color", "textcolor", "text_color":
+                return part.fontColor
             case "script":
                 if part.partType == .spriteArea {
                     let preview = part.activeSceneSpec?.script ?? ""
@@ -4637,6 +4653,16 @@ public struct HypeToolExecutor: Sendable {
             if let v = Double(value) { node.fontSize = v }
         case "fontColor":
             node.fontColor = value
+        case "textStyle", "textstyle", "text_style":
+            // Normalize through TextStyleFlags so the stored
+            // rawString is canonical ("bold, italic"). Empty /
+            // "plain" both clear the styling — `applyLabelTextStyle`
+            // treats `isPlain` as the signal to reset
+            // `attributedText = nil` and revert the SKLabelNode to
+            // the plain text/fontName/fontColor path. Accepts the
+            // camelCase canonical form, the lowercased alias, and
+            // the snake_case alias the AI tends to emit.
+            node.textStyle = TextStyleFlags(string: value).rawString
         case "script":
             node.script = value
         case "shape.shapeType":
@@ -4895,6 +4921,11 @@ public struct HypeToolExecutor: Sendable {
         row("textSize", String(p.textSize), "14")
         row("textStyle", p.textStyle.isEmpty ? "plain" : p.textStyle, "plain")
         row("textAlign", p.textAlign.rawValue, "left")
+        // Foreground (font) color. Empty means "auto / contrast-aware
+        // against fill" — the renderer's fallback. We surface that
+        // explicitly so the model knows it can clear back to auto by
+        // setting "" rather than guessing a hex.
+        row("fontColor", p.fontColor.isEmpty ? "(auto)" : p.fontColor, "(auto)")
         row("fillColor", p.fillColor.isEmpty ? "(empty)" : p.fillColor, "(empty)")
         row("strokeColor", p.strokeColor.isEmpty ? "(empty)" : p.strokeColor, "(empty)")
         row("strokeWidth", String(p.strokeWidth), "1")

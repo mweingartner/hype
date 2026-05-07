@@ -65,12 +65,18 @@ final class SceneBridge {
                 }
             }
 
-            // Label text
+            // Label text. Apply textStyle traits (bold / italic) to
+            // the resolved font; underline / strikethrough land via
+            // SKLabelNode.attributedText so they survive into the
+            // glyph pass. `attributedText` overrides `text` when
+            // set, so we only touch it when there's something to
+            // decorate — otherwise the simpler `text` path stays.
             if let label = node as? SKLabelNode {
                 label.text = nodeSpec.text ?? ""
                 if let fn = nodeSpec.fontName { label.fontName = fn }
                 if let fs = nodeSpec.fontSize { label.fontSize = CGFloat(fs) }
                 if let fc = nodeSpec.fontColor { label.fontColor = nsColor(from: fc) }
+                Self.applyLabelTextStyle(label, spec: nodeSpec)
             }
 
             // Shape properties
@@ -198,6 +204,7 @@ final class SceneBridge {
             label.fontColor = nsColor(from: spec.fontColor ?? "#000000")
             label.verticalAlignmentMode = .center
             label.horizontalAlignmentMode = .center
+            Self.applyLabelTextStyle(label, spec: spec)
             node = label
 
         case .shape:
@@ -816,5 +823,50 @@ final class SceneBridge {
             blue: CGFloat(rgb & 0xFF) / 255.0,
             alpha: 1.0
         )
+    }
+
+    /// Apply a node's `textStyle` (parsed via `TextStyleFlags`) to a
+    /// live `SKLabelNode`. Bold / italic flags become NSFont traits
+    /// applied to the label's resolved font; underline / strike-
+    /// through become attributedText keys.
+    ///
+    /// `attributedText` overrides `text` once set, so we only switch
+    /// to it when there's actual decoration to apply — otherwise the
+    /// simpler text + fontName + fontColor + fontSize path stays in
+    /// effect (those properties get clobbered if attributedText is
+    /// non-nil with conflicting attributes).
+    static func applyLabelTextStyle(_ label: SKLabelNode, spec: HypeNodeSpec) {
+        guard let raw = spec.textStyle else { return }
+        let flags = TextStyleFlags(string: raw)
+        if flags.isPlain {
+            // Defensive: if the user cleared the textStyle back to
+            // plain after a prior decorated render, drop the
+            // attributed text so the simple path takes over again.
+            label.attributedText = nil
+            return
+        }
+        // Resolve the font with traits. Apple's NSFontManager
+        // respects family + size when toggling traits, so we don't
+        // lose the user's font face by switching to system.
+        let baseFont = NSFont(name: label.fontName ?? "Helvetica", size: label.fontSize)
+            ?? NSFont.systemFont(ofSize: label.fontSize)
+        var styledFont = baseFont
+        if flags.bold {
+            styledFont = NSFontManager.shared.convert(styledFont, toHaveTrait: .boldFontMask)
+        }
+        if flags.italic {
+            styledFont = NSFontManager.shared.convert(styledFont, toHaveTrait: .italicFontMask)
+        }
+        var attrs: [NSAttributedString.Key: Any] = [
+            .font: styledFont,
+            .foregroundColor: label.fontColor ?? NSColor.white,
+        ]
+        if flags.underline {
+            attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
+        }
+        if flags.strikethrough {
+            attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+        }
+        label.attributedText = NSAttributedString(string: spec.text ?? "", attributes: attrs)
     }
 }

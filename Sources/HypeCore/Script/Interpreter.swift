@@ -2715,8 +2715,17 @@ public struct Interpreter: Sendable {
             return part.partType == .button ? part.buttonStyle.rawValue : part.fieldStyle.rawValue
         case "textfont", "font": return part.textFont
         case "textsize", "size": return formatNumber(part.textSize)
-        case "textstyle":   return part.textStyle
+        case "textstyle", "text_style":   return part.textStyle
         case "textalign":   return part.textAlign.rawValue
+        // Foreground (font) color. Aliases mirror the AI tool
+        // surface: `fontColor` is the canonical key, `textColor`
+        // and the bare `color` map to the same property. Empty
+        // string means "auto / contrast-aware against fill" — the
+        // renderer's fallback path. We surface the literal stored
+        // value (including ""), so a script can detect "auto" by
+        // testing `the fontColor of cd btn 1 is empty`.
+        case "fontcolor", "font_color", "textcolor", "text_color":
+            return part.fontColor
         case "script":      return part.script
         case "showname":    return part.showName ? "true" : "false"
         case "autohilite":  return part.autoHilite ? "true" : "false"
@@ -3484,8 +3493,24 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].script = value
         case "family":
             document.parts[partIndex].family = Int(toNumber(value))
-        case "textstyle":
-            document.parts[partIndex].textStyle = value
+        case "textstyle", "text_style":
+            // Normalize the input through TextStyleFlags so any
+            // alias the user wrote ("strike", "underlined", "BOLD,
+            // italic ") collapses to the canonical
+            // "bold, italic, ..." rawString form. This keeps round
+            // trips through HypeTalk → renderer → HypeTalk stable
+            // and avoids "the textStyle of X is bold,italic" failing
+            // a "is" comparison after normalization elsewhere.
+            document.parts[partIndex].textStyle = TextStyleFlags(string: value).rawString
+        case "fontcolor", "font_color", "textcolor", "text_color":
+            // Empty string is meaningful — "" means "revert to auto
+            // contrast-aware text color". We let the user clear back
+            // to auto by setting "" (or "empty" via the existing HypeTalk
+            // empty literal). Hex parsing happens in the renderer at
+            // draw time, so any string is accepted here; an invalid
+            // hex would silently fall back to the contrast-aware
+            // default at draw time.
+            document.parts[partIndex].fontColor = value
         case "rect", "rectangle":
             let components = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
             if components.count == 4 {
@@ -4182,6 +4207,13 @@ public struct Interpreter: Sendable {
             node.fontSize = toNumber(value)
         case "fontcolor", "textcolor", "color":
             node.fontColor = value
+        case "textstyle", "text_style":
+            // Normalize through TextStyleFlags so the stored
+            // rawString is canonical ("bold, italic"). Empty /
+            // "plain" both clear styling — `applyLabelTextStyle`
+            // sees `isPlain` and resets `attributedText = nil`,
+            // restoring the simple text path on SKLabelNode.
+            node.textStyle = TextStyleFlags(string: value).rawString
         case "width":
             if node.size == nil { node.size = SizeSpec(width: 50, height: 50) }
             node.size?.width = toNumber(value)
@@ -4345,6 +4377,7 @@ public struct Interpreter: Sendable {
         case "fontname", "font":    return node.fontName ?? ""
         case "fontsize", "textsize": return formatNumber(node.fontSize ?? 14)
         case "fontcolor", "textcolor", "color": return node.fontColor ?? "#000000"
+        case "textstyle", "text_style": return node.textStyle ?? "plain"
         case "fillcolor", "fill":   return node.shapeSpec?.fillColor ?? ""
         case "strokecolor", "stroke": return node.shapeSpec?.strokeColor ?? ""
         case "linewidth", "strokewidth": return formatNumber(node.shapeSpec?.lineWidth ?? 1)

@@ -209,6 +209,14 @@ public struct HypeNodeSpec: Identifiable, Codable, Sendable {
     public var fontName: String?
     public var fontSize: Double?
     public var fontColor: String?
+    /// HypeTalk-style textStyle string for label nodes:
+    /// `"plain"` / `"bold,italic"` / etc. Parsed via
+    /// `TextStyleFlags`. Optional + nil-default so older `.hype`
+    /// documents (and non-label nodes) round-trip cleanly without
+    /// migration. Underline / strikethrough land via attributedText
+    /// on the rendered `SKLabelNode`; bold / italic apply as font
+    /// traits.
+    public var textStyle: String?
 
     // Shape-specific
     public var shapeSpec: ShapeNodeSpec?
@@ -259,6 +267,7 @@ public struct HypeNodeSpec: Identifiable, Codable, Sendable {
         fontName: String? = nil,
         fontSize: Double? = nil,
         fontColor: String? = nil,
+        textStyle: String? = nil,
         shapeSpec: ShapeNodeSpec? = nil,
         emitterSpec: EmitterSpec? = nil,
         audioLoop: Bool? = nil,
@@ -290,6 +299,7 @@ public struct HypeNodeSpec: Identifiable, Codable, Sendable {
         self.fontName = fontName
         self.fontSize = fontSize
         self.fontColor = fontColor
+        self.textStyle = textStyle
         self.shapeSpec = shapeSpec
         self.emitterSpec = emitterSpec
         self.audioLoop = audioLoop
@@ -340,6 +350,7 @@ public struct HypeNodeSpec: Identifiable, Codable, Sendable {
         self.fontName = try? c.decode(String.self, forKey: .fontName)
         self.fontSize = try? c.decode(Double.self, forKey: .fontSize)
         self.fontColor = try? c.decode(String.self, forKey: .fontColor)
+        self.textStyle = try? c.decode(String.self, forKey: .textStyle)
         self.shapeSpec = try? c.decode(ShapeNodeSpec.self, forKey: .shapeSpec)
         self.audioLoop = try? c.decode(Bool.self, forKey: .audioLoop)
         self.audioVolume = try? c.decode(Double.self, forKey: .audioVolume)

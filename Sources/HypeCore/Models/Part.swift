@@ -42,6 +42,14 @@ public struct Part: Identifiable, Codable, Sendable {
     public var textSize: Double
     public var textStyle: String  // "plain", "bold", "italic", etc.
     public var textAlign: TextAlignment
+    /// Foreground (font) color for any text rendered by this part.
+    /// Stored as a hex string (`"#RRGGBB"` / `"#RRGGBBAA"`) when set
+    /// explicitly; the empty string `""` means "auto" — renderers
+    /// pick a contrast-aware color from the resolved fill so labels
+    /// stay readable independent of system appearance. Most parts
+    /// that don't draw user text (shapes, images, etc.) ignore this
+    /// field, but it's safe to set on any part for future-proofing.
+    public var fontColor: String
 
     // Button-specific
     public var buttonStyle: ButtonStyle
@@ -362,6 +370,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.textSize = 14
         self.textStyle = "plain"
         self.textAlign = (partType == .field) ? .left : .center
+        self.fontColor = ""   // "auto" — renderers compute from contrast
         self.buttonStyle = .default
         self.showName = true
         self.iconId = nil
@@ -476,6 +485,10 @@ public struct Part: Identifiable, Codable, Sendable {
         textFont = try container.decode(String.self, forKey: .textFont)
         textSize = try container.decode(Double.self, forKey: .textSize)
         textStyle = try container.decode(String.self, forKey: .textStyle)
+        // Added after the initial schema; `decodeIfPresent ?? ""`
+        // keeps older `.hype` documents loading unchanged. The empty
+        // string is the "auto / contrast-aware" sentinel.
+        fontColor = try container.decodeIfPresent(String.self, forKey: .fontColor) ?? ""
         textAlign = try container.decode(TextAlignment.self, forKey: .textAlign)
         buttonStyle = try container.decode(ButtonStyle.self, forKey: .buttonStyle)
         showName = try container.decode(Bool.self, forKey: .showName)

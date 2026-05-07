@@ -151,8 +151,21 @@ public enum HypeTalkGuide {
         (current + default) for that part using exactly the names this
         syntax accepts.
 
-        **Part properties:** name, id, left, top, width, height, right, bottom, loc, rect, visible, enabled, hilite, style, script, textFont, textSize, textAlign, textStyle, textContent, fillColor, strokeColor, strokeWidth, cornerRadius, showName, autoHilite, lockText, url.
-        **Sprite-node properties:** loc, size, width, height, rotation, alpha, xScale, yScale, zPosition, hidden, text, fontName, fontSize, fontColor, fillColor, strokeColor, lineWidth, velocity, angularVelocity, density, friction, restitution, damping, dynamic, affectedByGravity, birthRate, particleLifetime, particleSpeed, particleColor, particleScale, emissionAngle, volume, loop, autoplay, target, zoom.
+        **Part properties:** name, id, left, top, width, height, right, bottom, loc, rect, visible, enabled, hilite, style, script, textFont, textSize, textAlign, textStyle, fontColor (alias textColor / color), textContent, fillColor, strokeColor, strokeWidth, cornerRadius, showName, autoHilite, lockText, url.
+        **Sprite-node properties:** loc, size, width, height, rotation, alpha, xScale, yScale, zPosition, hidden, text, fontName, fontSize, fontColor, textStyle, fillColor, strokeColor, lineWidth, velocity, angularVelocity, density, friction, restitution, damping, dynamic, affectedByGravity, birthRate, particleLifetime, particleSpeed, particleColor, particleScale, emissionAngle, volume, loop, autoplay, target, zoom.
+
+        **Text styling.** Any part or label node that draws text supports two related properties:
+          - **fontColor** (parts: aliases `textColor`, `color`) — hex string (`"#FF0000"`) for text foreground. Empty string means "auto / contrast-aware against fill" (the renderer picks a readable color from the part's fill luminance — fixes dark-mode "white text on white fill" automatically). Set `the fontColor of cd btn 1 to ""` to revert to auto.
+          - **textStyle** (parts and label nodes) — comma-separated subset of `plain`, `bold`, `italic`, `underline`, `strikethrough`. Examples: `"plain"`, `"bold"`, `"bold, italic"`, `"underline, strikethrough"`. Aliases accepted on input: `"strike"` / `"strikeout"` → strikethrough, `"underlined"` → underline. Stored canonically as `"plain"` or comma+space joined (`"bold, italic"`). Setters normalize, so `set the textStyle of cd btn 1 to "BOLD,italic"` round-trips to `"bold, italic"`.
+
+        Examples:
+          ```
+          set the fontColor of cd btn "Title" to "#FF0000"   -- explicit red
+          set the textColor of cd btn "Title" to ""           -- back to auto
+          set the textStyle of cd btn "Title" to "bold,italic"
+          if the textStyle of cd btn "Title" contains "bold" then beep
+          set the textStyle of node "Score" of card sprite area "scene" to "bold"
+          ```
         **Framework control properties** (used as `the <prop> of <kind> "name"`):
           - **calendar:** selectedDate, displayMonth, minDate, maxDate, calendarStyle (graphical | textual | clockAndCalendar)
           - **pdf:** pdfurl, currentPage, displayMode (single | continuous | twoUp), autoScales

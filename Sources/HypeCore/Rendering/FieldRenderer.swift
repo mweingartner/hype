@@ -129,21 +129,44 @@ public enum FieldRenderer {
             paragraphStyle.alignment = alignment
             paragraphStyle.lineBreakMode = part.dontWrap ? .byClipping : .byWordWrapping
 
-            // Pick the text color based on the actual fillColor's
-            // luminance, NOT system appearance. The previous code
-            // used `NSColor.labelColor` (dynamic), which produced
-            // light-text-on-white in dark mode for fields that kept
-            // their default `#FFFFFF` fill — making the text
-            // invisible until the user clicked into the field (the
-            // NSTextField overlay forces .black). The contrast-aware
-            // pick mirrors what the editor does and stays readable
-            // regardless of macOS appearance.
-            let textColor = ColorContrast.readableTextColor(forFillHex: part.fillColor)
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: nsFont,
+            // Pick the text color: explicit `part.fontColor`
+            // overrides everything (the user's choice wins). Else
+            // fall back to a contrast-aware pick from the actual
+            // fillColor's luminance, NOT system appearance — which
+            // is what fixed the dark-mode "white text on white
+            // fill" bug.
+            let textColor: NSColor = {
+                if !part.fontColor.isEmpty,
+                   let parsed = NSColor(hexString: part.fontColor) {
+                    return parsed
+                }
+                return ColorContrast.readableTextColor(forFillHex: part.fillColor)
+            }()
+
+            // Apply textStyle traits (bold / italic) to the font and
+            // emit underline / strikethrough as attributed-string
+            // keys. `TextStyleFlags` parses every form HypeCard
+            // accepts ("plain", "bold,italic", etc.) into a flat
+            // bool struct.
+            let flags = TextStyleFlags(string: part.textStyle)
+            var styledFont = nsFont
+            if flags.bold {
+                styledFont = NSFontManager.shared.convert(styledFont, toHaveTrait: .boldFontMask)
+            }
+            if flags.italic {
+                styledFont = NSFontManager.shared.convert(styledFont, toHaveTrait: .italicFontMask)
+            }
+            var attrs: [NSAttributedString.Key: Any] = [
+                .font: styledFont,
                 .foregroundColor: textColor,
                 .paragraphStyle: paragraphStyle,
             ]
+            if flags.underline {
+                attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
+            }
+            if flags.strikethrough {
+                attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            }
 
             // Secure fields render bullets instead of the raw text (security condition 2).
             let displayText: String

@@ -359,6 +359,28 @@ struct PropertyInspector: View {
                             .pickerStyle(.segmented)
                             .labelsHidden()
                         }
+
+                        // Font color across the selection. Empty hex
+                        // means "auto / contrast-aware against fill" —
+                        // the renderer's fallback path.
+                        multiColorRow(label: "Color", keyPath: \.fontColor)
+
+                        // textStyle toggles (Bold / Italic / Underline /
+                        // Strikethrough) across the selection. A toggle
+                        // appears active when EVERY selected part has
+                        // the flag set. Tapping it flips the flag on
+                        // every selected part — so a mixed-state group
+                        // turns uniformly ON in one click, and a
+                        // uniformly-ON group turns OFF.
+                        HStack(spacing: 4) {
+                            Text("Style").font(.system(size: 11)).frame(width: 80, alignment: .trailing)
+                                .foregroundColor(.secondary)
+                            multiStyleToggle(flag: .bold,          systemImage: "bold")
+                            multiStyleToggle(flag: .italic,        systemImage: "italic")
+                            multiStyleToggle(flag: .underline,     systemImage: "underline")
+                            multiStyleToggle(flag: .strikethrough, systemImage: "strikethrough")
+                            Spacer()
+                        }
                     }
                 }
 
@@ -3138,6 +3160,79 @@ struct PropertyInspector: View {
                 Image(systemName: "text.alignright").tag(HypeCore.TextAlignment.right)
             }
             .pickerStyle(.segmented)
+
+            // Font color — empty hex means "auto / contrast-aware".
+            // ColorPicker writes any hex; the existing
+            // colorPropertyRow already pairs swatch + hex text.
+            colorPropertyRow(label: "Color", partId: part.id, keyPath: \.fontColor,
+                             hint: "Empty = auto (contrasts with the part fill).")
+
+            // textStyle toggles. Each toggle reads / writes one flag
+            // of `TextStyleFlags`; the underlying `part.textStyle`
+            // stays the canonical comma-joined string ("plain" /
+            // "bold, italic" / "bold, underline, strikethrough").
+            HStack(spacing: 4) {
+                Text("Style").frame(width: 40, alignment: .trailing).font(.system(size: 11))
+                styleToggle(part: part, flag: .bold,          systemImage: "bold")
+                styleToggle(part: part, flag: .italic,        systemImage: "italic")
+                styleToggle(part: part, flag: .underline,     systemImage: "underline")
+                styleToggle(part: part, flag: .strikethrough, systemImage: "strikethrough")
+                Spacer()
+            }
+        }
+    }
+
+    // MARK: - textStyle toggle helpers
+
+    /// Discriminator for the four supported text-style flags. Used
+    /// by both the single-part `styleToggle` and the multi-selection
+    /// `multiStyleToggle` so both surfaces share the same enum +
+    /// reads / writes through the same canonical
+    /// `TextStyleFlags.rawString`.
+    fileprivate enum TextStyleFlag {
+        case bold, italic, underline, strikethrough
+    }
+
+    /// Single-part toggle for one text-style flag. Reads
+    /// `part.textStyle`, parses through `TextStyleFlags`, mutates the
+    /// requested flag, writes the canonical rawString back. The
+    /// resulting button shows as "selected" (bold-tinted) when the
+    /// flag is currently set so the user can see the active style at
+    /// a glance.
+    @ViewBuilder
+    fileprivate func styleToggle(part: Part, flag: TextStyleFlag, systemImage: String) -> some View {
+        let active = isStyleFlagSet(part: part, flag: flag)
+        Button(action: { toggleStyleFlag(partId: part.id, flag: flag) }) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: active ? .bold : .regular))
+                .frame(width: 26, height: 22)
+                .background(active ? Color.accentColor.opacity(0.25) : Color.clear)
+                .foregroundColor(active ? .accentColor : .primary)
+                .cornerRadius(4)
+        }
+        .buttonStyle(.plain)
+    }
+
+    fileprivate func isStyleFlagSet(part: Part, flag: TextStyleFlag) -> Bool {
+        let flags = TextStyleFlags(string: part.textStyle)
+        switch flag {
+        case .bold:          return flags.bold
+        case .italic:        return flags.italic
+        case .underline:     return flags.underline
+        case .strikethrough: return flags.strikethrough
+        }
+    }
+
+    fileprivate func toggleStyleFlag(partId: UUID, flag: TextStyleFlag) {
+        document.document.updatePart(id: partId) { part in
+            var flags = TextStyleFlags(string: part.textStyle)
+            switch flag {
+            case .bold:          flags.bold.toggle()
+            case .italic:        flags.italic.toggle()
+            case .underline:     flags.underline.toggle()
+            case .strikethrough: flags.strikethrough.toggle()
+            }
+            part.textStyle = flags.rawString
         }
     }
 
@@ -3563,6 +3658,50 @@ struct PropertyInspector: View {
                 .font(.system(size: 11, design: .monospaced))
                 .frame(width: 90)
         }
+    }
+
+    // MARK: - Multi-selection text style toggles
+
+    /// One-flag toggle button (Bold / Italic / Underline /
+    /// Strikethrough) across the multi-selection. Visual states:
+    ///   • All selected parts have the flag set → "active" (accent
+    ///     background, bold weight).
+    ///   • Mixed or none → "inactive" (plain weight, no background).
+    /// Tap behavior:
+    ///   • From "active": flip OFF for every selected part.
+    ///   • From "inactive" (or mixed): flip ON for every selected
+    ///     part.
+    /// This matches the macOS convention used by
+    /// `Toolbar > Format > Bold/Italic` in TextEdit and Pages: a
+    /// mixed-state button resolves to ON in one click rather than
+    /// cycling through three states.
+    @ViewBuilder
+    fileprivate func multiStyleToggle(flag: TextStyleFlag, systemImage: String) -> some View {
+        let parts = document.document.parts.filter { selectedPartIds.contains($0.id) }
+        let allActive = !parts.isEmpty && parts.allSatisfy { isStyleFlagSet(part: $0, flag: flag) }
+        Button(action: {
+            let turnOn = !allActive
+            for p in parts {
+                document.document.updatePart(id: p.id) { part in
+                    var flags = TextStyleFlags(string: part.textStyle)
+                    switch flag {
+                    case .bold:          flags.bold = turnOn
+                    case .italic:        flags.italic = turnOn
+                    case .underline:     flags.underline = turnOn
+                    case .strikethrough: flags.strikethrough = turnOn
+                    }
+                    part.textStyle = flags.rawString
+                }
+            }
+        }) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: allActive ? .bold : .regular))
+                .frame(width: 26, height: 22)
+                .background(allActive ? Color.accentColor.opacity(0.25) : Color.clear)
+                .foregroundColor(allActive ? .accentColor : .primary)
+                .cornerRadius(4)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Multi-selection text alignment
