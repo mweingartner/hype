@@ -151,7 +151,7 @@ public enum HypeTalkGuide {
         (current + default) for that part using exactly the names this
         syntax accepts.
 
-        **Part properties:** name, id, left, top, width, height, right, bottom, loc, rect, visible, enabled, hilite, style, script, textFont, textSize, textAlign, textStyle, fontColor (alias textColor / color), textContent, fillColor, strokeColor, strokeWidth, cornerRadius, showName, autoHilite, lockText, url.
+        **Part properties:** name, id, left, top, width, height, right, bottom, loc, rect, visible, enabled, hilite, style, script, textFont, textSize, textAlign, textStyle, fontColor (alias textColor / color), textContent, fillColor, strokeColor, strokeWidth, cornerRadius, showName, autoHilite, lockText, url, helpText (aliases tooltip / help — hover bubble shown in browse mode).
         **Sprite-node properties:** loc, size, width, height, rotation, alpha, xScale, yScale, zPosition, hidden, text, fontName, fontSize, fontColor, textStyle, fillColor, strokeColor, lineWidth, velocity, angularVelocity, density, friction, restitution, damping, dynamic, affectedByGravity, birthRate, particleLifetime, particleSpeed, particleColor, particleScale, emissionAngle, volume, loop, autoplay, target, zoom.
 
         **Text styling.** Any part or label node that draws text supports two related properties:
@@ -165,6 +165,14 @@ public enum HypeTalkGuide {
           set the textStyle of cd btn "Title" to "bold,italic"
           if the textStyle of cd btn "Title" contains "bold" then beep
           set the textStyle of node "Score" of card sprite area "scene" to "bold"
+          ```
+
+        **Hover help bubbles.** Every part can optionally show a help bubble on hover in browse mode. Set the `helpText` property (aliases `tooltip`, `help`) to a string; empty disables the bubble. Multi-line allowed via `\\n`. Rendered as a native `NSToolTip` — same look and behavior as every other macOS app's tooltips. Authors can wire help text via the inspector's HELP section, HypeTalk, or AI tools:
+          ```
+          set the helpText of cd btn "Save" to "Saves the current document. ⌘S also works."
+          set the tooltip of field "shipping_address" to "Full street address — geocoded to the map below."
+          put the helpText of cd btn "Save" into recordedTooltip
+          set the helpText of cd btn "Save" to ""    -- clear the bubble
           ```
         **Framework control properties** (used as `the <prop> of <kind> "name"`):
           - **calendar:** selectedDate, displayMonth, minDate, maxDate, calendarStyle (graphical | textual | clockAndCalendar)

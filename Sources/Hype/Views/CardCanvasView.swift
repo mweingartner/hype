@@ -894,6 +894,26 @@ class CardCanvasNSView: NSView {
     // in dedup — those PartTypes migrate to button / field with
     // appropriate style at decode time.
 
+    /// Per-part tooltip registration. We use the system
+    /// `NSView.addToolTip(_:owner:userData:)` mechanism — the same
+    /// thing every native macOS app uses for hover help — to give
+    /// each card / background part its own help bubble. The bubble
+    /// content is `Part.helpText`. Empty `helpText` means no
+    /// bubble for that part.
+    ///
+    /// We keep a `tag → partId` map so the
+    /// `view(_:stringForToolTip:point:userData:)` callback (which
+    /// receives only the tag, not the part) can look the part up
+    /// fresh every time the system needs the tooltip string. This
+    /// makes the bubble content always current — if the user edits
+    /// `helpText` while the bubble is showing, the next render
+    /// uses the new text.
+    ///
+    /// Tooltips are registered/cleared in `updatePartToolTips()`
+    /// during browse mode only. Edit mode disables them so they
+    /// don't confuse authors who are clicking parts to select them.
+    private var toolTipTagToPartId: [NSView.ToolTipTag: UUID] = [:]
+
     // Active SKViews for spriteArea parts (keyed by part ID)
     private var spriteViews: [UUID: SKView] = [:]
     private var spriteScenes: [UUID: HypeSKScene] = [:]
@@ -1254,6 +1274,12 @@ class CardCanvasNSView: NSView {
         // Phase 3 controls.
         updateProgressViewHosts()
         updateGaugeHosts()
+
+        // Refresh per-part hover-help tooltips. Runs in both
+        // edit and browse mode (the function itself short-circuits
+        // out of edit mode), so changes to `Part.helpText` from
+        // the inspector or HypeTalk show up on the next draw.
+        updatePartToolTips()
         // Link / Menu / SearchField hosts removed in dedup —
         // those PartTypes are migrated to button (.link / .popup
         // style) and field (.search style) on decode.
@@ -2789,6 +2815,62 @@ class CardCanvasNSView: NSView {
             pdfViews.removeValue(forKey: id)
             loadedPDFURLs.removeValue(forKey: id)
         }
+    }
+
+    // MARK: - Per-part tooltip registration
+
+    /// Re-register the system tooltip rects for every visible part
+    /// with a non-empty `helpText`. Runs in browse mode only —
+    /// edit-mode authors don't want hover bubbles competing with
+    /// the click-to-select interaction. Called from `draw(_:)`
+    /// after layout is settled.
+    ///
+    /// The naive "remove all + re-add every part" approach is
+    /// fast enough for typical card sizes (low tens of parts) and
+    /// keeps the tooltip rects in lock-step with part geometry —
+    /// move a part, resize it, change its `helpText`, the bubble
+    /// follows on the next redraw. NSView's tracking infrastructure
+    /// uses an internal lookup table; the cost is dominated by
+    /// allocating Swift NSValues for the rects, which is trivial.
+    ///
+    /// Z-order note: when two parts overlap, NSView resolves the
+    /// hover to the most recently registered tooltip rect. We add
+    /// in document order (back to front) so the front-most part
+    /// wins, which matches what the user sees and clicks.
+    private func updatePartToolTips() {
+        removeAllToolTips()
+        toolTipTagToPartId.removeAll()
+
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        guard toolState.category == .browse else { return }
+
+        for part in document.effectivePartsForCard(currentCardId) where part.visible && !part.helpText.isEmpty {
+            let rect = NSRect(
+                x: part.left, y: part.top,
+                width: part.width, height: part.height
+            )
+            let tag = addToolTip(rect, owner: self, userData: nil)
+            toolTipTagToPartId[tag] = part.id
+        }
+    }
+
+    /// `NSToolTipOwner`-style callback. NSView calls this when the
+    /// user has hovered long enough to show a tooltip; we look up
+    /// the part via the tag we recorded in `updatePartToolTips`
+    /// and return its current `helpText`. The fresh lookup means
+    /// the displayed text is always whatever the part has stored
+    /// RIGHT NOW, even if the author edited the field while the
+    /// bubble was already on screen.
+    @objc func view(
+        _ view: NSView,
+        stringForToolTip tag: NSView.ToolTipTag,
+        point: NSPoint,
+        userData: UnsafeMutableRawPointer?
+    ) -> String {
+        guard let partId = toolTipTagToPartId[tag],
+              let part = document.parts.first(where: { $0.id == partId })
+        else { return "" }
+        return part.helpText
     }
 
     // MARK: - Map View Management

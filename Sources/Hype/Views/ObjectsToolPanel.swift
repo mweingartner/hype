@@ -17,26 +17,32 @@ import SwiftUI
 /// rather than a fixed `.frame(width:)` so the user can drag the
 /// `HSplitView` divider to widen the panel — the `LazyVGrid` then
 /// reflows to two or three columns automatically (`.adaptive(...)`).
+///
+/// **Hover help** is delivered via SwiftUI's native `.help(_:)`
+/// modifier, which wraps `NSToolTip`. The previous implementation
+/// used a custom SwiftUI flyout view with `.onHover` plumbing,
+/// debounce timers, and an animated transition. That looked nice on
+/// paper but had three real-world problems:
+///   - the slide-from-leading-edge transition read as the bubble
+///     "flying" in/out, distracting from the content;
+///   - the 0.1s hide delay made the bubble vanish before the user
+///     could read multi-line descriptions;
+///   - `.onHover` inside a `.background(GeometryReader)` was flaky
+///     in practice — depending on layout/animation interactions the
+///     hover events sometimes failed to fire at all, leaving users
+///     with no help bubbles AT ALL.
+///
+/// `NSToolTip` is what every native macOS app uses, and it's what
+/// users expect. It appears after a system-tuned hover delay
+/// (~0.7s, configurable via NSUserDefaults), wraps multi-line
+/// content cleanly, and disappears when the cursor leaves —
+/// without animation, race conditions, or tracking-area gotchas.
 struct ObjectsToolPanel: View {
     @Binding var currentTool: ToolName
     @Binding var selectedPartIds: Set<UUID>
 
     /// Persisted across launches and across all windows.
     @AppStorage("hypeRuntimeMode") private var isRuntimeMode: Bool = false
-
-    /// Fly-out hover state. `hoveredItem` identifies the button the
-    /// flyout is currently attached to; `hoveredFrameMidY` is the
-    /// vertical center of that button (in panel-local coordinates)
-    /// so the flyout aligns with it.
-    @State private var hoveredItem: FlyoutItem? = nil
-    @State private var hoveredFrameMidY: CGFloat = 0
-    @State private var hoverWorkItem: DispatchWorkItem? = nil
-
-    /// Measured panel width — flyouts position themselves just past
-    /// the trailing edge of THIS, not the ideal-width constant, so
-    /// a user-resized panel still gets correctly-anchored flyouts.
-    /// Updated via a GeometryReader background on the root.
-    @State private var measuredPanelWidth: CGFloat = 52
 
     // MARK: - Tool grouping
 
@@ -84,22 +90,6 @@ struct ObjectsToolPanel: View {
     private static let panelMinWidth: CGFloat = 60
     private static let panelIdealWidth: CGFloat = 60
     private static let panelMaxWidth: CGFloat = 220
-    /// How long the cursor must rest on a trigger before its help
-    /// bubble appears. Apple's NSToolTip waits ~1s; modern rich-
-    /// tooltip libraries (Material, Carbon, Polaris) settle around
-    /// 250–500ms. 400ms feels deliberate without being sluggish.
-    private static let hoverShowDelay: TimeInterval = 0.4
-    /// How long the bubble stays after the cursor leaves the
-    /// trigger. Used to be 0.1s — combined with the 0.15s
-    /// slide-out animation that meant the bubble was gone in
-    /// ~250ms after leave, far too fast to read multi-line help
-    /// text. Bumped to 0.45s to give the user time to read AND a
-    /// "safe zone" interval to move the cursor onto the bubble
-    /// itself (the bubble is now hit-tested and re-cancels its
-    /// own hide timer on hover, so once your cursor reaches it
-    /// you can read indefinitely).
-    private static let hoverHideDelay: TimeInterval = 0.45
-    private static let flyoutWidth: CGFloat = 260
 
     var body: some View {
         // Adaptive grid — wraps to 2/3 columns automatically when
@@ -112,10 +102,13 @@ struct ObjectsToolPanel: View {
             //    layout was clipping both buttons.
             VStack(spacing: 4) {
                 modeButton(
-                    item: .runMode,
                     title: "Run",
                     systemImage: "play.fill",
                     isActive: isRuntimeMode,
+                    helpText: tooltipText(
+                        title: "Runtime Mode",
+                        body: "Hides editing chrome (property inspector, sprite repository, AI panel) and runs the stack as the end user experiences it. Toggle with ⇧⌘E."
+                    ),
                     action: {
                         if !isRuntimeMode {
                             NotificationCenter.default.post(name: .toggleRuntimeMode, object: nil)
@@ -124,10 +117,13 @@ struct ObjectsToolPanel: View {
                 )
 
                 modeButton(
-                    item: .editMode,
                     title: "Edit",
                     systemImage: "pencil",
                     isActive: !isRuntimeMode,
+                    helpText: tooltipText(
+                        title: "Edit Mode",
+                        body: "Restores the property inspector and the full tool palette so you can author the stack. Toggle with ⇧⌘E."
+                    ),
                     action: {
                         if isRuntimeMode {
                             NotificationCenter.default.post(name: .toggleRuntimeMode, object: nil)
@@ -175,60 +171,6 @@ struct ObjectsToolPanel: View {
                 .fill(Color.secondary.opacity(0.3))
                 .frame(width: 1)
         }
-        .coordinateSpace(name: "objectsToolPanel")
-        .background(
-            // Measure the panel's actual width so the flyout
-            // anchors next to the trailing edge regardless of
-            // user resize.
-            GeometryReader { geo in
-                Color.clear
-                    .onAppear { measuredPanelWidth = geo.size.width }
-                    .onChange(of: geo.size.width) { _, w in
-                        measuredPanelWidth = w
-                    }
-            }
-        )
-        .overlay(alignment: .topLeading) {
-            if let item = hoveredItem {
-                ToolFlyoutView(title: item.title, description: item.description)
-                    .frame(width: Self.flyoutWidth, alignment: .topLeading)
-                    .offset(
-                        x: measuredPanelWidth + 8,
-                        y: max(0, hoveredFrameMidY - 30)
-                    )
-                    // Non-hit-tested so the bubble never intercepts
-                    // events meant for the trigger buttons
-                    // underneath. We initially tried
-                    // `allowsHitTesting(true)` + `.onHover` on the
-                    // bubble itself to implement the "hover safe-
-                    // zone" pattern (cursor onto bubble keeps it
-                    // open), but SwiftUI's `.overlay` + `.offset`
-                    // combination does not consistently move the
-                    // bubble's hit-test region to match its
-                    // rendered position — the underlying frame
-                    // stays at the panel's top-leading corner and
-                    // ends up swallowing hovers that should hit
-                    // the trigger buttons, suppressing the bubble
-                    // entirely. The longer hide delay (0.45s) is
-                    // enough on its own to give the user time to
-                    // read without needing the safe-zone hack.
-                    .allowsHitTesting(false)
-                    // Pure fade — no slide. The previous
-                    // `.move(edge: .leading)` made the bubble
-                    // visibly fly in from the trigger and back
-                    // out, which read as "too much velocity" and
-                    // distracted from the content. Apple HIG and
-                    // the major design systems all use a plain
-                    // opacity fade for tooltips/help bubbles.
-                    .transition(.opacity)
-                    .zIndex(100)
-            }
-        }
-        // Slightly slower than the old 0.15s and easeOut rather
-        // than easeInOut so the fade-in lands gently and the
-        // fade-out doesn't feel like a snap-cut. Still well under
-        // 250ms so it doesn't slow down a fast-moving cursor.
-        .animation(.easeOut(duration: 0.18), value: hoveredItem)
     }
 
     @ViewBuilder
@@ -253,10 +195,25 @@ struct ObjectsToolPanel: View {
         }
     }
 
+    /// Format a tooltip string with a short title on the first line
+    /// followed by a blank line and the body. NSToolTip wraps long
+    /// text automatically (~250pt-wide); the leading title gives a
+    /// quick read of what the icon does even when the body wraps to
+    /// several lines.
+    private func tooltipText(title: String, body: String) -> String {
+        "\(title)\n\n\(body)"
+    }
+
     // MARK: - Buttons
 
     @ViewBuilder
-    private func modeButton(item: FlyoutItem, title: String, systemImage: String, isActive: Bool, action: @escaping () -> Void) -> some View {
+    private func modeButton(
+        title: String,
+        systemImage: String,
+        isActive: Bool,
+        helpText: String,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             HStack(spacing: 6) {
                 Image(systemName: systemImage)
@@ -275,7 +232,7 @@ struct ObjectsToolPanel: View {
             )
         }
         .buttonStyle(.plain)
-        .background(hoverGeometry(for: item))
+        .help(helpText)
     }
 
     @ViewBuilder
@@ -294,93 +251,6 @@ struct ObjectsToolPanel: View {
                 )
         }
         .buttonStyle(.plain)
-        .background(hoverGeometry(for: .tool(tool)))
-    }
-
-    // MARK: - Hover plumbing
-
-    private func hoverGeometry(for item: FlyoutItem) -> some View {
-        GeometryReader { geo in
-            Color.clear
-                .contentShape(Rectangle())
-                .onHover { hovering in
-                    let midY = geo.frame(in: .named("objectsToolPanel")).midY
-                    scheduleFlyout(for: item, hovering: hovering, midY: midY)
-                }
-        }
-    }
-
-    private func scheduleFlyout(for item: FlyoutItem, hovering: Bool, midY: CGFloat) {
-        hoverWorkItem?.cancel()
-        if hovering {
-            let work = DispatchWorkItem {
-                hoveredItem = item
-                hoveredFrameMidY = midY
-            }
-            hoverWorkItem = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.hoverShowDelay, execute: work)
-        } else {
-            let work = DispatchWorkItem {
-                if hoveredItem == item {
-                    hoveredItem = nil
-                }
-            }
-            hoverWorkItem = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.hoverHideDelay, execute: work)
-        }
-    }
-}
-
-// MARK: - Flyout content
-
-private enum FlyoutItem: Hashable {
-    case runMode
-    case editMode
-    case tool(ToolName)
-
-    var title: String {
-        switch self {
-        case .runMode: return "Runtime Mode"
-        case .editMode: return "Edit Mode"
-        case .tool(let t): return t.displayTitle
-        }
-    }
-
-    var description: String {
-        switch self {
-        case .runMode:
-            return "Hides editing chrome (property inspector, sprite repository, AI panel) and runs the stack as the end user experiences it. Toggle with ⇧⌘E or the Run/Edit pair at the top of this panel."
-        case .editMode:
-            return "Restores the property inspector and the full tool palette so you can author the stack. Toggle with ⇧⌘E or the Run/Edit pair at the top of this panel."
-        case .tool(let t):
-            return t.description
-        }
-    }
-}
-
-private struct ToolFlyoutView: View {
-    let title: String
-    let description: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.primary)
-            Text(description)
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(.thickMaterial)
-                .shadow(color: .black.opacity(0.18), radius: 8, x: 2, y: 4)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.secondary.opacity(0.35), lineWidth: 0.5)
-        )
+        .help(tooltipText(title: tool.displayTitle, body: tool.description))
     }
 }

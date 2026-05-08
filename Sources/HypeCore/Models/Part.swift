@@ -51,6 +51,13 @@ public struct Part: Identifiable, Codable, Sendable {
     /// field, but it's safe to set on any part for future-proofing.
     public var fontColor: String
 
+    /// Optional help bubble shown on hover in browse mode. Shown as
+    /// a native `NSToolTip` (the same mechanism every macOS app
+    /// uses). Empty string means "no help bubble for this part".
+    /// Multi-line is supported — embed `\n` for line breaks; the
+    /// system tooltip wraps long lines automatically.
+    public var helpText: String
+
     // Button-specific
     public var buttonStyle: ButtonStyle
     public var showName: Bool
@@ -371,6 +378,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.textStyle = "plain"
         self.textAlign = (partType == .field) ? .left : .center
         self.fontColor = ""   // "auto" — renderers compute from contrast
+        self.helpText = ""    // no hover help bubble unless author opts in
         self.buttonStyle = .default
         self.showName = true
         self.iconId = nil
@@ -489,6 +497,7 @@ public struct Part: Identifiable, Codable, Sendable {
         // keeps older `.hype` documents loading unchanged. The empty
         // string is the "auto / contrast-aware" sentinel.
         fontColor = try container.decodeIfPresent(String.self, forKey: .fontColor) ?? ""
+        helpText = try container.decodeIfPresent(String.self, forKey: .helpText) ?? ""
         textAlign = try container.decode(TextAlignment.self, forKey: .textAlign)
         buttonStyle = try container.decode(ButtonStyle.self, forKey: .buttonStyle)
         showName = try container.decode(Bool.self, forKey: .showName)

@@ -2726,6 +2726,10 @@ public struct Interpreter: Sendable {
         // testing `the fontColor of cd btn 1 is empty`.
         case "fontcolor", "font_color", "textcolor", "text_color":
             return part.fontColor
+        // Hover help bubble. Aliases mirror what the AI tool
+        // surface accepts. Empty string means "no bubble".
+        case "helptext", "help_text", "tooltip", "tool_tip", "help":
+            return part.helpText
         case "script":      return part.script
         case "showname":    return part.showName ? "true" : "false"
         case "autohilite":  return part.autoHilite ? "true" : "false"
@@ -3509,6 +3513,12 @@ public struct Interpreter: Sendable {
             // hex would silently fall back to the contrast-aware
             // default at draw time.
             document.parts[partIndex].fontColor = value
+        // Hover help bubble — shown on hover in browse mode via
+        // a native `NSToolTip`. Empty string disables the bubble.
+        // Multi-line is supported (embed `\n` for line breaks);
+        // the system tooltip wraps long lines automatically.
+        case "helptext", "help_text", "tooltip", "tool_tip", "help":
+            document.parts[partIndex].helpText = value
         case "rect", "rectangle":
             let components = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
             if components.count == 4 {

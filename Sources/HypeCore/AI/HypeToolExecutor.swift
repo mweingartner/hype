@@ -1718,6 +1718,12 @@ public struct HypeToolExecutor: Sendable {
                     // Hex parsing happens at draw time; an invalid hex
                     // silently falls back to the contrast-aware default.
                     document.parts[index].fontColor = value
+                case "helptext", "help_text", "tooltip", "tool_tip", "help":
+                    // Hover help bubble — shown on hover in browse
+                    // mode via a native NSToolTip. Empty string
+                    // disables the bubble. Multi-line allowed via
+                    // `\n`; the system tooltip wraps long lines.
+                    document.parts[index].helpText = value
                 case "strokewidth": document.parts[index].strokeWidth = Double(value) ?? 1
                 case "cornerradius": document.parts[index].cornerRadius = Double(value) ?? 8
                 case "chartdata", "chart_data":
@@ -2704,6 +2710,8 @@ public struct HypeToolExecutor: Sendable {
             case "textstyle", "text_style": return part.textStyle
             case "fontcolor", "font_color", "textcolor", "text_color":
                 return part.fontColor
+            case "helptext", "help_text", "tooltip", "tool_tip", "help":
+                return part.helpText
             case "script":
                 if part.partType == .spriteArea {
                     let preview = part.activeSceneSpec?.script ?? ""
@@ -4928,6 +4936,15 @@ public struct HypeToolExecutor: Sendable {
         // explicitly so the model knows it can clear back to auto by
         // setting "" rather than guessing a hex.
         row("fontColor", p.fontColor.isEmpty ? "(auto)" : p.fontColor, "(auto)")
+        // Hover help bubble — empty means no bubble. We truncate
+        // long bodies for the introspection dump so the AI sees
+        // the surface without bloating its context.
+        let helpPreview: String = {
+            if p.helpText.isEmpty { return "(none)" }
+            let prefix = p.helpText.prefix(80)
+            return "\"\(prefix)\(p.helpText.count > 80 ? "…" : "")\""
+        }()
+        row("helpText", helpPreview, "(none)")
         row("fillColor", p.fillColor.isEmpty ? "(empty)" : p.fillColor, "(empty)")
         row("strokeColor", p.strokeColor.isEmpty ? "(empty)" : p.strokeColor, "(empty)")
         row("strokeWidth", String(p.strokeWidth), "1")

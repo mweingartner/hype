@@ -539,7 +539,7 @@ public struct HypeToolDefinitions {
         makeTool(name: "set_part_property", description: """
             Set a property on a part by name. Available properties: name, left, top, width, height, \
             text, url, videoURL, fillColor, strokeColor, strokeWidth, cornerRadius, visible, enabled, hilite, \
-            autoHilite, showName, lockText, textFont, textSize, textAlign, textStyle, fontColor, script, style. \
+            autoHilite, showName, lockText, textFont, textSize, textAlign, textStyle, fontColor, helpText, script, style. \
             textStyle is a comma-separated subset of: plain, bold, italic, underline, strikethrough \
             (e.g. "bold" or "bold,italic"). fontColor is a hex string ("#FF0000") for the text \
             foreground; passing an empty string reverts to the auto contrast-aware default. \
@@ -633,7 +633,7 @@ public struct HypeToolDefinitions {
             part doesn't exist. Property names match set_part_property: name, left, top, width, \
             height, text, url, videoURL, fillColor, strokeColor, strokeWidth, cornerRadius, \
             visible, enabled, hilite, autoHilite, showName, lockText, textFont, textSize, \
-            textAlign, textStyle, fontColor, script, style. For Sprite Area parts, property=script returns \
+            textAlign, textStyle, fontColor, helpText, script, style. For Sprite Area parts, property=script returns \
             the active scene script, matching set_part_property's compatibility routing.
             """, params: [
             "part_name": ("string", "Name of the part to query", true),

@@ -899,6 +899,25 @@ struct PropertyInspector: View {
             Toggle("Visible", isOn: bindPartBool(part.id, \.visible))
             Toggle("Enabled", isOn: bindPartBool(part.id, \.enabled))
         }
+        VStack(alignment: .leading, spacing: 6) {
+            sectionHeading("Help")
+            // Multi-line help text shown as a native `NSToolTip`
+            // when the user hovers this part in browse mode.
+            // Empty disables the bubble entirely. Fixed-height
+            // editor so authors can write a sentence or two
+            // without the inspector layout jumping; the system
+            // tooltip wraps long lines automatically.
+            TextEditor(text: bindPartString(part.id, \.helpText))
+                .font(.system(size: 11))
+                .frame(height: 56)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(Color.secondary.opacity(0.3), lineWidth: 0.5)
+                )
+            Text("Shown on hover in browse mode. Leave empty for no bubble.")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+        }
     }
 
     @ViewBuilder
