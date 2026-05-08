@@ -84,8 +84,21 @@ struct ObjectsToolPanel: View {
     private static let panelMinWidth: CGFloat = 60
     private static let panelIdealWidth: CGFloat = 60
     private static let panelMaxWidth: CGFloat = 220
+    /// How long the cursor must rest on a trigger before its help
+    /// bubble appears. Apple's NSToolTip waits ~1s; modern rich-
+    /// tooltip libraries (Material, Carbon, Polaris) settle around
+    /// 250–500ms. 400ms feels deliberate without being sluggish.
     private static let hoverShowDelay: TimeInterval = 0.4
-    private static let hoverHideDelay: TimeInterval = 0.1
+    /// How long the bubble stays after the cursor leaves the
+    /// trigger. Used to be 0.1s — combined with the 0.15s
+    /// slide-out animation that meant the bubble was gone in
+    /// ~250ms after leave, far too fast to read multi-line help
+    /// text. Bumped to 0.45s to give the user time to read AND a
+    /// "safe zone" interval to move the cursor onto the bubble
+    /// itself (the bubble is now hit-tested and re-cancels its
+    /// own hide timer on hover, so once your cursor reaches it
+    /// you can read indefinitely).
+    private static let hoverHideDelay: TimeInterval = 0.45
     private static let flyoutWidth: CGFloat = 260
 
     var body: some View {
@@ -183,12 +196,62 @@ struct ObjectsToolPanel: View {
                         x: measuredPanelWidth + 8,
                         y: max(0, hoveredFrameMidY - 30)
                     )
-                    .allowsHitTesting(false)
-                    .transition(.opacity.combined(with: .move(edge: .leading)))
+                    // Hit-tested so the cursor can move onto the
+                    // bubble to read it. The bubble's own onHover
+                    // cancels the hide timer while the cursor is
+                    // over it (the standard "hover safe-zone"
+                    // pattern from rich-tooltip systems like VS
+                    // Code, Linear, Notion). Without this,
+                    // `allowsHitTesting(false)` made the bubble
+                    // dismiss-on-leave-trigger only, which hid it
+                    // before users with longer help text finished
+                    // reading.
+                    .onHover { hovering in
+                        if hovering {
+                            // Cursor entered the bubble — cancel
+                            // any pending hide. Stays open for as
+                            // long as the cursor is over it.
+                            hoverWorkItem?.cancel()
+                        } else {
+                            // Cursor left the bubble — schedule a
+                            // hide on the standard delay (matches
+                            // what happens when leaving a
+                            // trigger).
+                            scheduleHideForCurrent()
+                        }
+                    }
+                    // Pure fade — no slide. The previous
+                    // `.move(edge: .leading)` made the bubble
+                    // visibly fly in from the trigger and back
+                    // out, which read as "too much velocity" and
+                    // distracted from the content. Apple HIG and
+                    // the major design systems all use a plain
+                    // opacity fade for tooltips/help bubbles.
+                    .transition(.opacity)
                     .zIndex(100)
             }
         }
-        .animation(.easeInOut(duration: 0.15), value: hoveredItem)
+        // Slightly slower than the old 0.15s and easeOut rather
+        // than easeInOut so the fade-in lands gently and the
+        // fade-out doesn't feel like a snap-cut. Still well under
+        // 250ms so it doesn't slow down a fast-moving cursor.
+        .animation(.easeOut(duration: 0.18), value: hoveredItem)
+    }
+
+    /// Schedule a hide for the currently-shown item using the
+    /// standard hover hide delay. Used by the bubble's own
+    /// `onHover { false }` handler so cursor-leaves-bubble has the
+    /// same dismissal timing as cursor-leaves-trigger.
+    private func scheduleHideForCurrent() {
+        guard let item = hoveredItem else { return }
+        hoverWorkItem?.cancel()
+        let work = DispatchWorkItem {
+            if hoveredItem == item {
+                hoveredItem = nil
+            }
+        }
+        hoverWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.hoverHideDelay, execute: work)
     }
 
     @ViewBuilder
