@@ -210,6 +210,12 @@ struct SpriteRepositoryView: View {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 64, height: 64)
+                        // See note on the detail-panel preview: tag
+                        // by data.count so the thumbnail also
+                        // refreshes immediately when an asset's
+                        // bytes change (Transparent Background, future
+                        // image-edit operations, etc.).
+                        .id(asset.data.count)
                 } else {
                     Image(systemName: "photo")
                         .font(.system(size: 32))
@@ -260,12 +266,21 @@ struct SpriteRepositoryView: View {
                         .background(Color.gray.opacity(0.1))
                         .cornerRadius(4)
                 } else if let img = NSImage(data: asset.data) {
+                    // Tag the Image with the data's byte count so
+                    // SwiftUI gives it a fresh identity whenever the
+                    // bytes change (e.g. after a Transparent
+                    // Background pass replaces the asset). Without
+                    // this, the previous decoded NSImage is cached
+                    // by view identity and the preview keeps showing
+                    // the pre-chroma-keyed pixels until the user
+                    // re-selects the asset.
                     Image(nsImage: img)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(maxHeight: 200)
                         .background(Color.gray.opacity(0.1))
                         .cornerRadius(4)
+                        .id(asset.data.count)
                 }
 
                 // Editable name — uses a local @State draft that
@@ -530,6 +545,19 @@ struct SpriteRepositoryView: View {
                     }
                     .buttonStyle(.plain)
                 }
+
+                // Transparent Background — same one-click chroma-key
+                // available in the multi-selection panel, surfaced
+                // here so the user doesn't need to multi-select a
+                // single asset to reach it. Only meaningful for image
+                // kinds; hidden for audio.
+                if asset.kind != .audioClip {
+                    Button(action: makeSelectedImagesTransparent) {
+                        HStack { Image(systemName: "square.dashed"); Text("Transparent Background") }
+                    }
+                    .buttonStyle(.plain)
+                    .help("Detect the dominant background color of this image and replace it with transparency. Re-encodes as PNG so the transparency is permanent.")
+                }
             }
             .padding()
         }
@@ -538,7 +566,11 @@ struct SpriteRepositoryView: View {
     // MARK: - Multi-Selection Panel
 
     private var multiSelectionPanel: some View {
-        VStack(spacing: 12) {
+        // Count just the image-kind assets in the selection so the
+        // Transparent Background button reflects what'll actually be
+        // processed (audio clips and the like are skipped).
+        let imageCount = selectedImageAssetCount
+        return VStack(spacing: 12) {
             Spacer()
             Image(systemName: "square.stack.3d.up")
                 .font(.system(size: 32))
@@ -558,6 +590,23 @@ struct SpriteRepositoryView: View {
                 .buttonStyle(.bordered)
                 .tint(.red)
             }
+
+            // Transparent Background — runs the same dominant-corner
+            // chroma-key the renderer uses, but writes PNG bytes
+            // back to the asset's `data` so the transparency is
+            // permanent. Disabled when the selection contains zero
+            // image-kind assets (e.g. audio-only multi-select).
+            Button(action: makeSelectedImagesTransparent) {
+                HStack {
+                    Image(systemName: "square.dashed")
+                    Text(imageCount == selectedAssetIds.count
+                        ? "Transparent Background"
+                        : "Transparent Background (\(imageCount))")
+                }
+            }
+            .buttonStyle(.bordered)
+            .disabled(imageCount == 0)
+            .help("Detect the dominant background color and replace it with transparency. Skips audio assets. Always re-encodes as PNG.")
             Spacer()
         }
     }
@@ -586,6 +635,58 @@ struct SpriteRepositoryView: View {
         for id in ids {
             if let asset = document.document.spriteRepository.asset(byId: id) {
                 duplicateAsset(asset)
+            }
+        }
+    }
+
+    /// Number of currently-selected assets that are image-kinded
+    /// (and therefore eligible for the Transparent Background
+    /// action). Used by the multi-selection panel to label the
+    /// button accurately and disable it when the selection is
+    /// audio-only.
+    private var selectedImageAssetCount: Int {
+        selectedAssetIds.reduce(0) { count, id in
+            guard let asset = document.document.spriteRepository.asset(byId: id) else { return count }
+            return Self.isImageKind(asset.kind) ? count + 1 : count
+        }
+    }
+
+    /// Image-kinds eligible for chroma-key processing. We accept
+    /// imageTexture, spriteSheet, and tileSet — all of those are
+    /// pixel data with a meaningful background to mask. We exclude
+    /// audioClip / videoClip / particlePreset / placeholderAsset
+    /// (the chroma-key would either error or produce nonsense).
+    private static func isImageKind(_ kind: AssetKind) -> Bool {
+        switch kind {
+        case .imageTexture, .spriteSheet, .tileSet:
+            return true
+        case .audioClip, .videoClip, .particlePreset, .placeholderAsset:
+            return false
+        }
+    }
+
+    /// Replace each selected image asset's `data` with a
+    /// chroma-keyed PNG that has the dominant background color
+    /// masked to transparent. Skips non-image-kinded assets in
+    /// the selection (so a mixed audio+image multi-select still
+    /// processes the images and leaves the audio alone). On
+    /// failure the asset is left untouched — this is a best-
+    /// effort, lossless-on-failure operation.
+    ///
+    /// Re-encodes to PNG regardless of source format because JPEG
+    /// can't represent per-pixel alpha. The asset's `mimeType` is
+    /// updated accordingly so downstream code that branches on
+    /// MIME (renderer's image-decoder picks, AI export paths)
+    /// stays consistent.
+    private func makeSelectedImagesTransparent() {
+        for id in selectedAssetIds {
+            guard let asset = document.document.spriteRepository.asset(byId: id),
+                  Self.isImageKind(asset.kind),
+                  let pngData = ImageChromaKey.makeTransparentPNG(from: asset.data)
+            else { continue }
+            document.document.spriteRepository.updateAsset(id: id) { mut in
+                mut.data = pngData
+                mut.mimeType = "image/png"
             }
         }
     }

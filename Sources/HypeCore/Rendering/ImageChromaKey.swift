@@ -77,6 +77,54 @@ public enum ImageChromaKey {
         cache.remove(forKey: key)
     }
 
+    /// One-shot transparent-background variant for the SPRITE
+    /// REPOSITORY workflow: take raw PNG/JPEG bytes, run the same
+    /// dominant-corner chroma-key as `apply(to:)`, and return PNG
+    /// bytes with an alpha channel. Used by the
+    /// "Transparent Background" button in the sprite-repository
+    /// inspector to make the SOURCE asset transparent (not just the
+    /// rendered output) — once stored as PNG, the asset works
+    /// transparently in every part it's used by, in scene nodes, in
+    /// exports, everywhere.
+    ///
+    /// Always returns PNG (not the input format) because JPEG and
+    /// indexed-GIF cannot represent per-pixel alpha. Returns nil on
+    /// decode/encode failure (caller leaves the asset unchanged).
+    public static func makeTransparentPNG(
+        from imageData: Data,
+        tolerance: Int = defaultTolerance
+    ) -> Data? {
+        guard let source = decodeCGImage(from: imageData) else { return nil }
+        // We deliberately bypass the cache here — the typical use
+        // is one-shot: user clicks the button, we mutate the asset.
+        // Re-firing the same edit would produce the same bytes, no
+        // win from caching.
+        guard let transparent = compute(source: source, tolerance: tolerance)
+        else { return nil }
+        return encodePNG(transparent)
+    }
+
+    /// Decode arbitrary image bytes to a CGImage. PNG, JPEG, and
+    /// every other format ImageIO understands are accepted.
+    private static func decodeCGImage(from data: Data) -> CGImage? {
+        guard let nsImage = NSImage(data: data),
+              let tiff = nsImage.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let cg = rep.cgImage
+        else { return nil }
+        return cg
+    }
+
+    /// Encode a CGImage back to PNG bytes. We force PNG so the
+    /// alpha channel actually persists on disk — JPEG would
+    /// silently discard it. NSBitmapImageRep is a couple of
+    /// hops, but it's the simplest path that's guaranteed to
+    /// honor the alpha channel from the chroma-keyed CGImage.
+    private static func encodePNG(_ cg: CGImage) -> Data? {
+        let rep = NSBitmapImageRep(cgImage: cg)
+        return rep.representation(using: .png, properties: [:])
+    }
+
     // MARK: - Implementation
 
     private static func compute(source: CGImage, tolerance: Int) -> CGImage? {
