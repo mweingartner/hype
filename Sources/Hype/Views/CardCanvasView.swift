@@ -131,6 +131,14 @@ struct CardCanvasView: NSViewRepresentable {
         nsView.pencilRadius = pencilRadius
         nsView.coordinator = context.coordinator
         nsView.updateCursor()
+        // Reconcile map-part `mapLocation` changes through the
+        // shared geocoder. This runs in BOTH browse and edit mode
+        // (the inspector lives in either), so any path that mutates
+        // `mapLocation` triggers the resolve and writes back coords
+        // — fixing the prior bug where setting Location twice in
+        // edit mode never moved the map (the live MapKit host that
+        // used to own the geocode logic is destroyed in edit mode).
+        context.coordinator.reconcileMapLocations()
         // Suppress redraws while a SpriteKit card transition is
         // playing. The SKView is on top showing the animated
         // transition between two card-texture scenes — if we
@@ -155,6 +163,19 @@ struct CardCanvasView: NSViewRepresentable {
     final class Coordinator {
         var parent: CardCanvasView
         weak var nsView: CardCanvasNSView?
+
+        /// Per-part snapshot of `mapLocation` from the last
+        /// updateNSView pass. We compare incoming `mapLocation`
+        /// values to these to detect changes from any source —
+        /// inspector typing, HypeTalk `set the location of map "X"
+        /// to "..."`, AI `set_part_property property=location`,
+        /// or `create_map`'s initial seed — and route them through
+        /// `MapLocationGeocoder.shared` so the resolved coords land
+        /// in the doc regardless of whether a live `MKMapView` is
+        /// on screen. Previously the geocode lived inside
+        /// `MapHostNSView`, which is destroyed in edit mode, so
+        /// edits made via the inspector never re-geocoded.
+        var lastMapLocations: [UUID: String] = [:]
 
         init(parent: CardCanvasView) {
             self.parent = parent
@@ -303,6 +324,92 @@ struct CardCanvasView: NSViewRepresentable {
                 part.mapCenterLon = lon
             }
             dispatchMessage("locationResolved", to: id)
+        }
+
+        /// Diff the current document's map parts against the last
+        /// snapshot in `lastMapLocations` and dispatch each changed
+        /// `mapLocation` through `MapLocationGeocoder.shared`. Runs
+        /// on every `updateNSView` cycle so any path that mutates
+        /// `mapLocation` — inspector typing, HypeTalk setter, AI
+        /// tool, AI `create_map`, document open — gets the same
+        /// resolve treatment regardless of whether the live
+        /// `MKMapView` host is on screen.
+        ///
+        /// We also retire entries for parts that are no longer in
+        /// the document so a stale `Timer` / `MKLocalSearch` doesn't
+        /// keep firing for a deleted part.
+        @MainActor
+        func reconcileMapLocations() {
+            let parts = parent.document.document.parts
+            var seenIds = Set<UUID>()
+            for part in parts where part.partType == .map {
+                seenIds.insert(part.id)
+                let current = part.mapLocation
+                let previous = lastMapLocations[part.id]
+                lastMapLocations[part.id] = current
+
+                // Skip the very first observation of a part that
+                // already has resolved coordinates: the doc was
+                // loaded from disk with `mapLocation` and matching
+                // `mapCenterLat/Lon`, no resolve needed. Detect by:
+                // previous == nil AND current matches what the geocode
+                // cache holds (or the lat/lon look intentional, i.e.
+                // not the default 0,0). Conservative heuristic — if
+                // the part already has non-zero lat/lon AND a
+                // matching cache entry, skip the resolve. Otherwise
+                // resolve so a freshly opened doc with a typo'd
+                // address still settles.
+                let isFirstSeen = previous == nil
+                let coordsAlreadyValid = abs(part.mapCenterLat) > 1e-6 || abs(part.mapCenterLon) > 1e-6
+                if isFirstSeen && coordsAlreadyValid && current.isEmpty {
+                    continue
+                }
+
+                // Skip when the value didn't change since last pass
+                // — `MapLocationGeocoder.scheduleResolve` already
+                // suppresses redundant work on a per-query basis,
+                // but bailing here avoids touching the service at
+                // all on the common no-op redraw.
+                if previous == current { continue }
+
+                // Empty value: nothing to resolve, but we still
+                // record the empty so the next non-empty edit
+                // detects the transition.
+                if current.isEmpty { continue }
+
+                // Capture parent in a way that's safe across the
+                // async callback. `parent` is a value-type
+                // CardCanvasView (NSViewRepresentable), but the
+                // coordinator lives across re-renders and the
+                // closure mutates the document via
+                // `setPartMapCoordinate` which itself uses
+                // `parent.document.document.updatePart`.
+                let partId = part.id
+                MapLocationGeocoder.shared.scheduleResolve(
+                    partId: partId,
+                    query: current
+                ) { [weak self] coord in
+                    // The service hops to MainActor before
+                    // invoking the callback, but the closure type
+                    // is non-isolated `@Sendable` so we hop again
+                    // explicitly to call the MainActor-isolated
+                    // `setPartMapCoordinate`.
+                    Task { @MainActor [weak self] in
+                        self?.setPartMapCoordinate(
+                            id: partId,
+                            lat: coord.latitude,
+                            lon: coord.longitude
+                        )
+                    }
+                }
+            }
+
+            // Retire entries for deleted map parts so the service
+            // doesn't keep them around.
+            for staleId in lastMapLocations.keys where !seenIds.contains(staleId) {
+                MapLocationGeocoder.shared.forget(partId: staleId)
+                lastMapLocations.removeValue(forKey: staleId)
+            }
         }
 
         /// Shared writeback for stepper / slider / toggle /
@@ -2672,10 +2779,12 @@ class CardCanvasNSView: NSView {
             }
             let host = MapHostNSView(frame: frame)
             host.apply(part)
-            let partId = part.id
-            host.onLocationResolved = { [weak self] lat, lon in
-                self?.coordinator?.setPartMapCoordinate(id: partId, lat: lat, lon: lon)
-            }
+            // Geocoding moved out of the host into
+            // `MapLocationGeocoder` (driven by
+            // `Coordinator.reconcileMapLocations` from updateNSView),
+            // so the old `onLocationResolved` callback is gone — the
+            // service writes resolved coords directly into the doc
+            // and the host picks them up on its next apply().
             addSubview(host, positioned: .above, relativeTo: nil)
             mapViews[part.id] = host
         }
