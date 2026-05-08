@@ -993,8 +993,24 @@ class CardCanvasNSView: NSView {
     override var acceptsFirstResponder: Bool { true }
 
     override func keyDown(with event: NSEvent) {
-        // Don't handle keys while editing a field inline
+        // While a field editor is active there's a small race
+        // window: `startFieldEditing` schedules
+        // `makeFirstResponder` via `DispatchQueue.main.async`, so
+        // for one runloop tick after the click, `activeFieldEditor`
+        // is set but the canvas is still firstResponder. If the
+        // user types fast and presses Tab in that window, the Tab
+        // event reaches THIS handler. Without intervention, the
+        // old code path called `super.keyDown` which did nothing
+        // and the event was lost — focus appeared to drop. Handle
+        // Tab/Shift-Tab here by routing through the same
+        // `moveFieldEditingFocus` that the in-field doCommandBy
+        // path uses, then return so the keystroke isn't double-
+        // dispatched.
         if activeFieldEditor != nil {
+            if event.keyCode == 48 { // Tab
+                moveFieldEditingFocus(reverse: event.modifierFlags.contains(.shift))
+                return
+            }
             super.keyDown(with: event)
             return
         }
@@ -1384,18 +1400,23 @@ class CardCanvasNSView: NSView {
 
     @discardableResult
     private func moveFieldEditingFocus(reverse: Bool) -> Bool {
-        guard let activeFieldPartId else { return false }
         let fields = Self.editableFieldTabOrder(in: document, currentCardId: currentCardId)
         guard !fields.isEmpty else { return false }
 
         let nextPart: Part
-        if let currentIndex = fields.firstIndex(where: { $0.id == activeFieldPartId }) {
+        if let activeFieldPartId,
+           let currentIndex = fields.firstIndex(where: { $0.id == activeFieldPartId }) {
+            // Currently editing a known field — advance one step,
+            // wrapping around at the ends.
             guard fields.count > 1 else { return true }
             let nextIndex = reverse
                 ? (currentIndex - 1 + fields.count) % fields.count
                 : (currentIndex + 1) % fields.count
             nextPart = fields[nextIndex]
         } else {
+            // No active editor (or editing a part that's no longer
+            // in the tab order — e.g. just deleted): fall back to
+            // the first/last in the order.
             nextPart = reverse ? fields[fields.count - 1] : fields[0]
         }
 
@@ -1466,15 +1487,24 @@ class CardCanvasNSView: NSView {
         addSubview(textField, positioned: .above, relativeTo: nil)
         needsDisplay = true  // Redraw canvas to hide the underlying part
 
-        // Delay makeFirstResponder to ensure the text field is fully in the view hierarchy
-        DispatchQueue.main.async { [weak self] in
-            self?.window?.makeFirstResponder(textField)
-            if selectText {
-                textField.selectText(nil)
-            }
-        }
-
         activeFieldEditor = textField
+
+        // Make the new field editor first responder synchronously
+        // so the very next event (often Tab from a fast typist who
+        // clicked-then-tabbed) lands on the textField's NSTextView,
+        // not on the canvas. Previously this was wrapped in
+        // `DispatchQueue.main.async` "to ensure the field is fully
+        // in the view hierarchy"; in practice `addSubview(...)` has
+        // already finished by this point and `makeFirstResponder`
+        // succeeds synchronously. The async wrapper introduced a
+        // one-runloop-tick race where Tab pressed in that window
+        // fell through to the canvas's keyDown and vanished.
+        // (The keyDown handler now also routes Tab through
+        // `moveFieldEditingFocus` as a defense-in-depth fallback.)
+        window?.makeFirstResponder(textField)
+        if selectText {
+            textField.selectText(nil)
+        }
         activeFieldPartId = part.id
     }
 
