@@ -196,30 +196,23 @@ struct ObjectsToolPanel: View {
                         x: measuredPanelWidth + 8,
                         y: max(0, hoveredFrameMidY - 30)
                     )
-                    // Hit-tested so the cursor can move onto the
-                    // bubble to read it. The bubble's own onHover
-                    // cancels the hide timer while the cursor is
-                    // over it (the standard "hover safe-zone"
-                    // pattern from rich-tooltip systems like VS
-                    // Code, Linear, Notion). Without this,
-                    // `allowsHitTesting(false)` made the bubble
-                    // dismiss-on-leave-trigger only, which hid it
-                    // before users with longer help text finished
-                    // reading.
-                    .onHover { hovering in
-                        if hovering {
-                            // Cursor entered the bubble — cancel
-                            // any pending hide. Stays open for as
-                            // long as the cursor is over it.
-                            hoverWorkItem?.cancel()
-                        } else {
-                            // Cursor left the bubble — schedule a
-                            // hide on the standard delay (matches
-                            // what happens when leaving a
-                            // trigger).
-                            scheduleHideForCurrent()
-                        }
-                    }
+                    // Non-hit-tested so the bubble never intercepts
+                    // events meant for the trigger buttons
+                    // underneath. We initially tried
+                    // `allowsHitTesting(true)` + `.onHover` on the
+                    // bubble itself to implement the "hover safe-
+                    // zone" pattern (cursor onto bubble keeps it
+                    // open), but SwiftUI's `.overlay` + `.offset`
+                    // combination does not consistently move the
+                    // bubble's hit-test region to match its
+                    // rendered position — the underlying frame
+                    // stays at the panel's top-leading corner and
+                    // ends up swallowing hovers that should hit
+                    // the trigger buttons, suppressing the bubble
+                    // entirely. The longer hide delay (0.45s) is
+                    // enough on its own to give the user time to
+                    // read without needing the safe-zone hack.
+                    .allowsHitTesting(false)
                     // Pure fade — no slide. The previous
                     // `.move(edge: .leading)` made the bubble
                     // visibly fly in from the trigger and back
@@ -236,22 +229,6 @@ struct ObjectsToolPanel: View {
         // fade-out doesn't feel like a snap-cut. Still well under
         // 250ms so it doesn't slow down a fast-moving cursor.
         .animation(.easeOut(duration: 0.18), value: hoveredItem)
-    }
-
-    /// Schedule a hide for the currently-shown item using the
-    /// standard hover hide delay. Used by the bubble's own
-    /// `onHover { false }` handler so cursor-leaves-bubble has the
-    /// same dismissal timing as cursor-leaves-trigger.
-    private func scheduleHideForCurrent() {
-        guard let item = hoveredItem else { return }
-        hoverWorkItem?.cancel()
-        let work = DispatchWorkItem {
-            if hoveredItem == item {
-                hoveredItem = nil
-            }
-        }
-        hoverWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.hoverHideDelay, execute: work)
     }
 
     @ViewBuilder
