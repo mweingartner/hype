@@ -1514,12 +1514,30 @@ class CardCanvasNSView: NSView {
             let text = editor.stringValue
             coordinator?.updatePartText(id: partId, text: text)
 
-            // Dispatch closeField (text changed) or exitField (text unchanged)
+            // Field-exit event semantics:
+            //   closeField — text changed during this edit session.
+            //     Fires FIRST so a `closeField` handler that mutates
+            //     state runs before the more general `exitField`.
+            //   exitField — fires on EVERY field exit, regardless of
+            //     whether the text changed. The universal "blur"
+            //     event (mirrors DOM `blur`, NSControl's
+            //     `editingDidEnd`).
+            //
+            // Previously these two were XOR — `exitField` only
+            // fired when the text was UNCHANGED, which meant a
+            // handler like
+            //     on exitField
+            //       set the location of map "X" to the text of me
+            //     end exitField
+            // never ran when the user actually entered a new
+            // address (text changed → only `closeField` fired).
+            // The strict-XOR behavior matched HyperCard's docs but
+            // not what authors actually expect when they write a
+            // "fire when the user is done with this field" handler.
             if text != originalFieldText {
                 coordinator?.dispatchMessage("closeField", to: partId)
-            } else {
-                coordinator?.dispatchMessage("exitField", to: partId)
             }
+            coordinator?.dispatchMessage("exitField", to: partId)
 
             editor.removeFromSuperview()
         }

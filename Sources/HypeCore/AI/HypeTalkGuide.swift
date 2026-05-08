@@ -73,7 +73,7 @@ public enum HypeTalkGuide {
         ## Common events
         mouseUp, mouseDown, mouseDragged, mouseWithin, mouseEnter, mouseLeave,
         openCard, closeCard, openBackground, closeBackground, openStack, closeStack,
-        openField, closeField, enterKey (alias: enter), keyDown, keyUp, idle,
+        openField, closeField, exitField, enterKey (alias: enter), keyDown, keyUp, idle,
         openScene, closeScene, sceneDidLoad, frameUpdate,
         beginContact, endContact, actionFinished.
 
@@ -191,7 +191,7 @@ public enum HypeTalkGuide {
         underlying engine event happens. Write `on <messageName> ... end <messageName>`
         in a script to react.
 
-        **Generic part / mouse / keyboard:** mouseUp, mouseDown, mouseEnter, mouseLeave, mouseStillDown, openCard, closeCard, openStack, closeStack, openBackground, closeBackground, idle, openField, closeField, returnInField, tabInField, keyDown, deleteButton, deleteField.
+        **Generic part / mouse / keyboard:** mouseUp, mouseDown, mouseEnter, mouseLeave, mouseStillDown, openCard, closeCard, openStack, closeStack, openBackground, closeBackground, idle, openField, closeField, exitField, returnInField, tabInField, keyDown, deleteButton, deleteField.
         **Calendar (`recorder` style — fires on the calendar part):** dateChanged.
         **ColorWell:** colorChanged.
         **Stepper / Slider / Gauge:** valueChanged. (Gauge fires on user click/drag when `enabled` is true.)
@@ -718,12 +718,25 @@ public enum HypeTalkGuide {
             -- asked for. Always pass `name` when the user named
             -- the new card.
 
-        **React when a field's text changes — use `on closeField`, NOT `on change`:**
+        **React when a field loses focus — use `on exitField` (always fires) or `on closeField` (only when text changed):**
+            on exitField
+              -- Fires on EVERY field exit (Tab out, click out, focus loss).
+              -- Use this for the universal "user is done with this
+              -- field" trigger — e.g. validating an entry, geocoding
+              -- an address into a map, copying the field's value
+              -- somewhere else. HypeTalk has no `on change` or `on
+              -- blur` handler — `on exitField` plays that role.
+              set the location of map "shipping_map" to the text of me
+            end exitField
+
             on closeField
+              -- Fires BEFORE exitField when the user changed the
+              -- field's text during this edit session. Use this when
+              -- you specifically need "did the value change?", e.g.
+              -- to mark a form dirty. If both handlers exist, both
+              -- run (closeField first, then exitField).
               put "updated" into field "shared_status"
             end closeField
-            -- closeField fires when the user finishes editing (focus loss /
-            -- Tab / Return). HypeTalk has no `on change` handler.
 
         **Idle logic (use for custom state, not physics simulation):**
             on idle
