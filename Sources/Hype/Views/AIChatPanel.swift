@@ -1287,9 +1287,24 @@ struct AIChatPanel: View {
         // Track the "active" card ID — updates when AI creates a new card
         var activeCardId = cardId
 
-        // Tool-use loop (max 5 rounds)
+        // Tool-use loop. The cap exists to bound a runaway model
+        // (one that won't stop emitting tool calls), not to fit the
+        // average build into a small budget. Real prompts —
+        // "build a customer form", "create a multi-card stack" —
+        // routinely need 15–30 calls, especially with single-tool-
+        // per-round local models like granite4.1 / llama variants
+        // that don't emit parallel tool calls.
+        //
+        // The previous cap of 5 silently truncated halfway through
+        // most useful builds (the user saw a half-built form with
+        // no error). Raised to 40 rounds (~40s wall clock at
+        // ~1 call/s) with a visible "exhausted" message at the cap
+        // so the user can choose to continue. The Stop button
+        // (line ~314) remains the manual override for early
+        // termination.
+        let maxRounds = 40
         var rounds = 0
-        while rounds < 5 {
+        while rounds < maxRounds {
             rounds += 1
 
             // Re-trim before every chat call. A single very large tool
@@ -1622,6 +1637,22 @@ struct AIChatPanel: View {
                 appendMessage(role: "assistant", content: "Error: \(error.localizedDescription)")
                 break
             }
+        }
+
+        // If the loop exited because we hit the round cap (i.e.
+        // `rounds == maxRounds` AND the last iteration had tool
+        // calls — meaning the model still wanted to keep going),
+        // surface a visible message so the user knows the build
+        // was truncated and can ask "continue" rather than seeing
+        // a half-built artifact with no explanation. Previously
+        // the loop exited silently — the original 5-round cap
+        // routinely cut off complex builds halfway through.
+        if rounds >= maxRounds {
+            appendMessage(
+                role: "assistant",
+                content: "I hit the \(maxRounds)-tool-call safety cap before finishing. "
+                    + "Type \"continue\" to keep going, or refine the request and I'll resume."
+            )
         }
     }
 
