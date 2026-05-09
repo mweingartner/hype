@@ -11,6 +11,19 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
     private var hasAppliedPendingFrame = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Halve the system tooltip delay. AppKit reads the
+        // `NSInitialToolTipDelay` UserDefaults key when deciding
+        // how long to wait before showing a tooltip; the platform
+        // default is ~750ms, which feels sluggish for hover help
+        // on tightly-packed tool palettes and authored stack
+        // controls. 0.35s ≈ half of that — still long enough not
+        // to fire while the user is just sweeping the cursor
+        // across the screen, but short enough to feel responsive
+        // when they actually pause on a control. Applies to every
+        // `.help(...)` modifier and every per-part NSToolTip we
+        // register on `CardCanvasNSView`.
+        UserDefaults.standard.set(0.35, forKey: "NSInitialToolTipDelay")
+
         pendingWindowFrame = launchState.visibleWindowFrame(
             using: NSScreen.screens.map(\.visibleFrame)
         )
