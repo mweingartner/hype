@@ -1,6 +1,6 @@
 # Hype Architecture
 
-> A snapshot of the current implementation as of 2026-04-12.
+> A snapshot of the current implementation as of 2026-05-08.
 
 Hype is a modern, macOS-native re-imagining of HyperCard. It preserves the
 HyperCard mental model — **stacks** of **cards** built on shared **backgrounds**,
@@ -54,63 +54,115 @@ hype-v2/
 │   │   │   └── ImagePartNode.swift        # SKSpriteNode rendering of an image Part
 │   │   └── Views/                  # SwiftUI / NSViewRepresentable UI
 │   │       ├── MainContentView.swift      # Main split view, state plumbing
-│   │       ├── CardCanvasView.swift       # NSViewRepresentable + CardCanvasNSView (~2,300 LoC)
-│   │       ├── PropertyInspector.swift    # Per-part property pane
+│   │       ├── CardCanvasView.swift       # NSViewRepresentable + CardCanvasNSView (~3,800 LoC)
+│   │       ├── PropertyInspector.swift    # Per-part property pane (~3,800 LoC, multi-select aware)
+│   │       ├── ObjectsToolPanel.swift     # Left-edge tool palette + Run/Edit toggle
 │   │       ├── ScriptEditor.swift         # HypeTalk script editor window
 │   │       ├── SpriteSceneSetupGuide.swift # Guided SpriteKit scene setup flow
 │   │       ├── HypeTalkTextView.swift     # NSTextView host for the editor
+│   │       ├── HypeFieldEditorCell.swift  # NSTextFieldCell — pixel-aligned field editor inset
 │   │       ├── CompletionPopup.swift      # Code completion list
 │   │       ├── AIChatPanel.swift          # Tool-calling Ollama chat (primary AI UI)
+│   │       ├── AIChatInputView.swift      # NSTextView-backed dynamic-height prompt input
 │   │       ├── AIPanel.swift              # Simple Q&A side panel
 │   │       ├── NetworkPanelView.swift     # Stack network policy + live runtime monitor
-│   │       ├── SpriteRepositoryView.swift # Sprite asset browser window
+│   │       ├── SpriteRepositoryView.swift # Sprite asset browser window (multi-select, Transparent Background)
 │   │       ├── ChartHostView.swift        # Apple Charts host
+│   │       ├── ProgressViewHostView.swift # SwiftUI hosts for the framework progress / gauge controls
+│   │       ├── GaugeHostView.swift
+│   │       ├── CalendarHostView.swift     # NSDatePicker host for calendar parts
+│   │       ├── ColorWellHostView.swift    # NSColorWell host for colorWell parts
+│   │       ├── FormControlHostViews.swift # Stepper / Slider / Segmented hosts
+│   │       ├── PDFHostView.swift          # PDFKit host for PDF parts
+│   │       ├── MapHostView.swift          # MKMapView host for map parts
+│   │       ├── MapGeocodeCache.swift      # Process-scoped forward-geocode cache
+│   │       ├── MapLocationGeocoder.swift  # Per-partId debounced MKLocalSearch dispatcher
+│   │       ├── Scene3DHostView.swift      # SCNView host for scene3D parts
+│   │       ├── AudioRecorderHostView.swift
 │   │       ├── PreferencesView.swift
 │   │       ├── MessageBoxView.swift       # HypeTalk REPL
+│   │       ├── Themes/
+│   │       │   ├── ThemeDesignerWindowController.swift  # Detached theme editor
+│   │       │   ├── ThemeColorWell.swift                 # NSColorPanel-backed color picker
+│   │       │   └── ThemePicker.swift                    # Picker bound to BuiltInThemes + stack themes
 │   │       ├── ToolName.swift             # Tool palette catalog
-│   │       └── GoMenuCommands.swift       # Menu items (Go, Objects, Arrange, Tools, AI)
+│   │       └── GoMenuCommands.swift       # Menu items (Go, Objects, Arrange, Tools, AI, View, Window)
 │   └── HypeCore/                   # Library target — model, scripting, AI, rendering
 │       ├── Models/                 # Document model (all value types)
-│       │   ├── HypeDocument.swift         # Root aggregate
-│       │   ├── HypeStack.swift            # Enums: PartType, ButtonStyle, ShapeType …
-│       │   ├── Stack.swift                # Stack metadata + script
-│       │   ├── Background.swift           # Background metadata + script
-│       │   ├── Card.swift                 # Card metadata + script
-│       │   ├── Part.swift                 # The "everything part" struct
+│       │   ├── HypeDocument.swift         # Root aggregate (themes array, scriptGlobals)
+│       │   ├── HypeStack.swift            # Enums: PartType (18 cases), ButtonStyle, ShapeType …
+│       │   ├── Stack.swift                # Stack metadata + script + themeName
+│       │   ├── Background.swift           # Background metadata + script + themeName
+│       │   ├── Card.swift                 # Card metadata + script + themeName
+│       │   ├── Part.swift                 # The "everything part" struct (60+ fields)
+│       │   ├── TextStyleFlags.swift       # Bold/italic/underline/strikethrough parser/emitter
+│       │   ├── JSONCodec.swift            # Shared JSONEncoder/Decoder for stored-as-string fields
 │       │   ├── ChartModel.swift           # Chart config / series / data points
 │       │   ├── AssetRef.swift             # Stable reference into the Sprite Repository
-│       │   ├── SpriteRepository.swift     # Stack-scoped asset store
+│       │   ├── SpriteRepository.swift     # Stack-scoped asset store (provenance, slicing, clips)
 │       │   ├── SpriteAreaSpec.swift       # Named-scene registry for sprite areas
 │       │   ├── SceneSpec.swift            # Persistent SpriteKit scene description
 │       │   ├── NetworkManifest.swift      # Persisted outbound rules + saved listeners
 │       │   ├── SceneAuthoringSupport.swift # Scene checklists, diagnostics, asset usage
+│       │   ├── MultiSelectionEditing.swift # Common-value + apply-value across selections
 │       │   └── SceneDiff.swift            # Incremental scene patch operations
 │       ├── Script/                 # HypeTalk
-│       │   ├── Token.swift                # 60+ token types
+│       │   ├── Token.swift                # 60+ token types (including `animate`)
 │       │   ├── Lexer.swift                # Hand-written tokenizer
 │       │   ├── AST.swift                  # Statement / Expression nodes
-│       │   ├── Parser.swift               # Recursive descent parser (~1,500 LoC)
-│       │   ├── Interpreter.swift          # Tree-walking interpreter (~2,400 LoC)
+│       │   ├── Parser.swift               # Recursive descent parser (~1,800 LoC)
+│       │   ├── Interpreter.swift          # Tree-walking interpreter (~5,000 LoC)
 │       │   ├── MessageDispatcher.swift    # part → card → background → stack → app
 │       │   └── HypeTalkHighlighter.swift  # Editor syntax highlighting
 │       ├── AI/                     # Local Ollama tool-calling integration
 │       │   ├── OllamaToolClient.swift     # /api/chat, /api/generate, /api/tags, structured JSON
 │       │   ├── AIScriptingProvider.swift  # Async HypeTalk-facing Ollama abstraction
-│       │   ├── HypeTools.swift            # 40+ tool schemas
-│       │   ├── HypeToolExecutor.swift     # Dispatch tool calls to model mutations
+│       │   ├── HypeTools.swift            # ~60 tool schemas (parts, scopes, themes, scenes)
+│       │   ├── HypeToolExecutor.swift     # Dispatch tool calls to model mutations (~5,000 LoC)
+│       │   ├── HypeTalkGuide.swift        # System-prompt grammar primer fed to the model
+│       │   ├── HypeTalkScriptValidator.swift # check_script syntax/semantics gate
+│       │   ├── HypeAIResponseRepair.swift # Tool-arg auto-repair for malformed model output
+│       │   ├── ScriptAutoFixer.swift      # Iterative script-attach failure recovery
+│       │   ├── SpriteKitRequestRouter.swift # Routes scene-authoring intents to the right surface
 │       │   ├── SceneAuthoringAssistant.swift # Schema-driven scene create/repair proposals
 │       │   ├── AIService.swift            # Cloud routing fallback
 │       │   └── StackGenerator.swift       # One-shot JSON-mode generator
 │       ├── Rendering/              # Core Graphics part renderers
-│       │   ├── CardRenderer.swift         # Pipeline + dispatcher
-│       │   ├── ButtonRenderer.swift
-│       │   ├── FieldRenderer.swift
+│       │   ├── CardRenderer.swift         # Pipeline + dispatcher (theme-aware)
+│       │   ├── ButtonRenderer.swift       # All button styles (opaque/round/shadow/popup/check/toggle/link)
+│       │   ├── FieldRenderer.swift        # Field text + style; routes through TextStyleFlags
 │       │   ├── ShapeRenderer.swift
-│       │   ├── ImageRenderer.swift
+│       │   ├── ImageRenderer.swift        # Calls ImageChromaKey for transparentBackground
+│       │   ├── ImageChromaKey.swift       # Dominant-corner alpha mask + makeTransparentPNG
+│       │   ├── ImageFilter.swift          # CoreImage filter pipeline for image parts
+│       │   ├── GlassRenderer.swift        # Liquid Glass material rounded-rect helpers
+│       │   ├── ColorContrast.swift        # Luminance-aware foreground picking
+│       │   ├── FormControlsRenderer.swift # Stepper / Slider / Segmented edit-mode placeholders
+│       │   ├── ProgressViewRenderer.swift
+│       │   ├── GaugeRenderer.swift
+│       │   ├── DividerRenderer.swift
+│       │   ├── CalendarRenderer.swift     # Edit-mode placeholder
+│       │   ├── PDFRenderer.swift          # Edit-mode placeholder
+│       │   ├── MapRenderer.swift          # Edit-mode placeholder (real map is MKMapView in browse)
+│       │   ├── ColorWellRenderer.swift
+│       │   ├── Scene3DRenderer.swift
+│       │   ├── AudioRecorderRenderer.swift
+│       │   ├── STLConverter.swift         # On-the-fly STL → OBJ for SceneKit imports
 │       │   ├── WebPageRenderer.swift      # Edit-mode placeholder
 │       │   ├── VideoRenderer.swift        # Edit-mode placeholder
 │       │   ├── ChartRenderer.swift        # Edit-mode placeholder
 │       │   └── SpriteAreaRenderer.swift   # Edit-mode placeholder
+│       ├── Theme/                  # Stack-scoped + built-in theme cascade
+│       │   ├── HypeTheme.swift            # Color tokens + cornerRadii + stroke weights + glass flag
+│       │   ├── BuiltInThemes.swift        # Default / Sunset / Ocean / Forest / Liquid Glass …
+│       │   ├── ColorRef.swift             # Hex / system / theme-token color reference
+│       │   ├── ColorContrast.swift        # readableTextColor(forFillHex:) helper
+│       │   ├── ThemeResolver.swift        # Card→Background→Stack effective-theme cascade
+│       │   └── ThemeEnvironment.swift     # SwiftUI EnvironmentKey for the active theme
+│       ├── Animation/              # Frame-timer animation systems
+│       │   ├── PartAnimator.swift         # Generic property tween (loc/rotation/alpha/etc.)
+│       │   ├── GIFAnimator.swift          # Animated GIF playback for image parts
+│       │   └── GIFDecoder.swift           # Frame extraction + delay parsing
 │       ├── SpriteKit/
 │       │   └── CoordinateConverter.swift  # Y-flip + rotation conversion
 │       ├── Controls/
@@ -254,13 +306,26 @@ share one background, and parts placed on the background appear on every
 card that uses it (this is the classic HyperCard reuse mechanism). A
 `Card` always belongs to exactly one background.
 
-`PartType` (Sources/HypeCore/Models/HypeStack.swift:9) is the discriminator:
+`PartType` (Sources/HypeCore/Models/HypeStack.swift:9) is the discriminator
+and has grown well beyond the original eight kinds:
 
 ```swift
 public enum PartType: String, Codable, Sendable {
+    // Classic HyperCard parts
     case button, field, shape, webpage, image, video, chart, spriteArea
+    // Framework-backed controls (Apple frameworks hosted as NSView/SwiftUI overlays)
+    case calendar, pdf, map, colorWell, audioRecorder, scene3D
+    // Form controls (AppKit-feel)
+    case stepper, slider, segmented, progressView, gauge, divider
+    // Forward-compat sentinel for partType strings written by future versions
+    case unknown
 }
 ```
+
+Several legacy values (`toggle`, `link`, `menu`, `searchField`) used to be
+distinct kinds; they now migrate at decode time to `button` (with `.toggle`,
+`.link`, `.popup` style) or `field` (with `.search` style) and never appear in
+a live document. The migration is one-way and lives in `Part.init(from:)`.
 
 ### 2.3 Part: the "everything" struct
 
@@ -271,16 +336,28 @@ given `partType`. The fields fall into bands:
 | Band             | Fields (representative)                                                  |
 |------------------|--------------------------------------------------------------------------|
 | identity         | `id`, `name`, `sortKey`, `cardId?`, `backgroundId?`                      |
-| geometry         | `left`, `top`, `width`, `height`                                         |
+| geometry         | `left`, `top`, `width`, `height`, `rotation`                             |
 | state            | `visible`, `enabled`, `hilite`, `autoHilite`                             |
-| text (any part)  | `textContent`, `textFont`, `textSize`, `textStyle`, `textAlign`          |
-| button           | `buttonStyle`, `showName`, `iconId`, `family`, `popupItems` |
-| field            | `fieldStyle`, `lockText`, `dontWrap`, `wideMargins`, `richText`, `htmlContent`, `enterKeyEnabled` |
+| text (any part)  | `textContent`, `textFont`, `textSize`, `textStyle`, `textAlign`, `fontColor` |
+| help             | `helpText` *(NSToolTip shown on hover in browse mode; multi-line; aliases tooltip / help)* |
+| button           | `buttonStyle`, `showName`, `iconId`, `popupItems`, `url` (link style)    |
+| field            | `fieldStyle`, `lockText`, `dontWrap`, `wideMargins`, `richText`, `enterKeyEnabled` |
 | shape            | `shapeType`, `fillColor`, `strokeColor`, `strokeWidth`, `cornerRadius`, `pathData[]` |
 | webpage          | `url`, `urlSourceFieldId?`                                               |
 | video            | `videoURL`                                                               |
-| image            | `imageData?`, `invertOnClick`                                            |
+| image            | `imageData?`, `invertOnClick`, `transparentBackground`, `imageFilter`, `imageFilterIntensity`, `animated` (GIF) |
 | chart            | `chartData` *(JSON-encoded ChartConfig)*                                 |
+| calendar         | `selectedDate`, `displayMonth`, `minDate`, `maxDate`, `calendarStyle`    |
+| pdf              | `pdfURL`, `pdfCurrentPage`, `pdfDisplayMode`, `pdfAutoScales`            |
+| map              | `mapCenterLat`, `mapCenterLon`, `mapSpan`, `mapType`, `mapAnnotationsJSON`, `mapLocation` *(geocoded)* |
+| colorWell        | `colorWellHex`, `colorWellInteractive`                                   |
+| stepper / slider | `controlValue`, `controlMin`, `controlMax`, `controlStep`                |
+| segmented        | `segmentItems` *(pipe-separated)*, `controlValue` *(selected index)*     |
+| progressView     | `progressValue`, `progressTotal`, `progressIsCircular`, `progressIsIndeterminate`, `progressLabel`, `progressTint`, `progressDecimals` |
+| gauge            | `gaugeValue`, `gaugeMin`, `gaugeMax`, `gaugeStyle`, `gaugeTint`, `gaugeLabel`, `gaugeMinLabel`, `gaugeMaxLabel`, `gaugeDecimals` |
+| audioRecorder    | `audioRecording`, `audioPlaying`, `audioOutputPath`, `audioFormat`, `audioDuration` |
+| scene3D          | `scene3DSourceURL`, `scene3DURL`, `scene3DAllowsCameraControl`, `scene3DAutoLighting`, `scene3DAntialiasing`, `scene3DBackground` |
+| divider          | `dividerOrientation`, `dividerThickness`, `dividerColor`                 |
 | **sprite area**  | `sceneSpec` *(JSON-encoded `SpriteAreaSpec`, with legacy `SceneSpec` migration)* |
 | script           | `script` *(HypeTalk source)*                                             |
 
@@ -297,11 +374,21 @@ Layered metadata enums (`ButtonStyle`, `FieldStyle`, `ShapeType`,
 ### 2.4 Persistence
 
 The whole document is a single JSON blob written through SwiftUI's
-`FileDocument`. `HypeDocumentWrapper` (HypeApp.swift:44) reads/writes via
+`FileDocument`. `HypeDocumentWrapper` (HypeApp.swift:228) reads/writes via
 `JSONEncoder/JSONDecoder` and exposes `.hype` files via a custom UTType
 `com.hype.stack`. There is no schema migration system: each model's
 `init(from:)` decoder uses `decodeIfPresent` with defaults so newer fields
 load gracefully against older files.
+
+For stored-as-string sub-documents — `Part.sceneSpec` (a
+JSON-encoded `SpriteAreaSpec`), `Part.chartData` (a `ChartConfig`),
+`Part.mapAnnotationsJSON` — `JSONCodec` (Sources/HypeCore/Models/JSONCodec.swift)
+provides a single shared `JSONEncoder` / `JSONDecoder` pair so the model layer
+isn't allocating a fresh codec on every `fromJSON(...)`/`toJSON(...)` round
+trip. `Part.spriteAreaSpecModel` is called from many hot paths (every draw
+frame for visible sprite areas, every dispatch that reads or writes a scene
+property, every AI tool that introspects scenes); the shared codec moves the
+allocation cost from per-call to one-time-per-app-launch.
 
 `DocumentExporter` (Sources/HypeCore/Export/DocumentExporter.swift) provides
 two side outputs: pretty-printed sorted JSON (for inspection / diff) and a
@@ -738,7 +825,7 @@ all referenced art with zero external dependencies.
 
 ```swift
 public enum AssetKind: String, Codable, Sendable {
-    case imageTexture, spriteSheet, audioClip, videoClip,
+    case imageTexture, spriteSheet, tileSet, audioClip, videoClip,
          particlePreset, placeholderAsset
 }
 
@@ -753,6 +840,10 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
     public var tags: [String]
     public var slices: [AssetSlice]            // sprite sheet → frame rects
     public var animationClips: [AnimationClip] // frame indices → fps + loops
+    // Tile-set classification (kind == .tileSet)
+    public var tileWidth, tileHeight, tileColumns, tileRows: Int
+    // Origin / license tracking (set when the AI imports from web search)
+    public var provenance: AssetProvenance?
 }
 
 public struct SpriteRepository: Codable, Sendable {
@@ -763,6 +854,17 @@ public struct SpriteRepository: Codable, Sendable {
     public mutating func addAsset/_/removeAsset/_/updateAsset(_:)
 }
 ```
+
+`AssetProvenance` records the import path: `userImport`, `webSearch`, or
+`aiGenerated`. Web-search imports also persist license + creator + source URL
+so the inspector can show an attribution block and the stack-script
+attribution synchronizer can keep an `-- Attributions --` block in the stack
+script up to date as web assets are added or removed.
+
+`tileSet` is a refinement of sprite sheet for SpriteKit `SKTileMapNode` use:
+the slicing tools record per-tile dimensions and grid extents, and
+`createTileMap` reads those directly so authors don't have to repeat the
+tile geometry on every reference.
 
 ### 4.2 Stable references via `AssetRef`
 
@@ -795,19 +897,37 @@ under the asset ID. This means:
 
 `SpriteRepositoryView` (Sources/Hype/Views/SpriteRepositoryView.swift) is
 the SwiftUI window that browses, imports, slices, and tags the repository.
-It supports drag-and-drop import, multi-select, slicing into frame rects,
-and (importantly) is the surface that the AI's `list_repository_assets`
-and `import_repository_asset` tools mirror — keeping human and AI workflows
-on the same data.
+It supports drag-and-drop import (PNG / JPEG / audio formats), Cmd+click
+multi-select, slicing into frame rects, tile-set classification (auto-detect
++ manual W×H), animation-clip authoring (FPS, loops), per-asset rename,
+duplicate, delete, and attribution view (for web-search imports). It is the
+surface that the AI's `list_repository_assets`, `import_repository_asset`,
+and `web_asset_search` tools mirror — keeping human and AI workflows on the
+same data.
+
+A **Transparent Background** action — available in both the single-asset
+detail panel and the multi-selection panel — runs the same dominant-corner
+chroma-key the renderer uses for `Part.transparentBackground`, but writes the
+result back to `SpriteAsset.data` as PNG bytes (always PNG, since JPEG can't
+carry per-pixel alpha). The shared `ImageChromaKey.makeTransparentPNG(...)`
+helper in `Sources/HypeCore/Rendering/ImageChromaKey.swift` is what both the
+view-time render path and this asset-modification path call.
+
+The detail-panel image preview and grid thumbnails tag their `Image(nsImage:)`
+with `.id(asset.data.count)` so SwiftUI gives the view a fresh identity when
+the bytes change — without that, the cached NSImage decode lingered after a
+chroma-key edit and the preview kept showing pre-transparent pixels until the
+user re-selected.
 
 ---
 
 ## 5. HypeTalk: the Scripting Language
 
-HypeTalk is the largest single subsystem in HypeCore — about 4,700 lines
+HypeTalk is the largest single subsystem in HypeCore — over 8,000 lines
 across lexer, parser, AST, interpreter, dispatcher, and highlighter. The
 goal is to feel like HyperCard's HyperTalk while addressing modern part
-types, the SpriteKit scene graph, and the asset repository.
+types, the SpriteKit scene graph, the asset repository, and a 60-fps
+property-tween animation system.
 
 ### 5.1 Pipeline
 
@@ -854,6 +974,20 @@ script source string
   `request …`, `reply to request …`, `listen for http …`, `listen for tcp …`,
   `connect to host …`, `send … to connection …`, `close connection …`,
   and `stop listener …`.
+
+  Property animation is a first-class statement:
+  `animate the loc of button "ball" to "400,300" over 0.5`,
+  `animate the rotation of shape "spinner" to 360 over 2 seconds`,
+  `animate the alpha of cd btn 1 to 0 over 0.3`. The interpreter dispatches
+  the `.animateProperty` AST node into `PartAnimator.shared`, which runs a
+  60Hz `Timer` tick (or `CADisplayLink` when paired with `GIFAnimator`) that
+  interpolates the part's property toward the target value over the given
+  duration. The animator writes through to the document via a coordinator
+  hook so the change is visible to subsequent reads (`the animating of
+  button "ball"` returns `"true"` while a tween is in flight, `"false"`
+  otherwise). Animatable properties cover the geometry / transform / color
+  surface (`left`, `top`, `width`, `height`, `loc`, `rotation`, `alpha`,
+  `fillColor`, `strokeColor`, `fontColor`).
 - **Interpreter** (Sources/HypeCore/Script/Interpreter.swift) is a
   tree walker. It maintains an `ExecutionContext` (target ID, current
   card, document, dialog/drawing providers, mouse coordinates, instruction
@@ -972,20 +1106,66 @@ scene-node type. A few representative ones:
 
 | Object        | Properties (sample)                                                                                |
 |---------------|----------------------------------------------------------------------------------------------------|
-| any part      | `name`, `visible`, `enabled`, `hilite`, `left/top/width/height`, `rect`, `loc`, `right`, `bottom`, `script`, `owner`, `number` |
-| button        | `style`, `family`, `showName`, `iconId`, `popupItems`, `autoHilite`                                 |
-| field         | `textContent`, `textFont`, `textSize`, `textStyle`, `textAlign`, `lockText`, `dontWrap`, `htmlContent` |
+| any part      | `name`, `visible`, `enabled`, `hilite`, `left/top/width/height`, `rect`, `loc`, `right`, `bottom`, `script`, `owner`, `number`, `helpText` *(aliases tooltip / help)*, `fontColor` *(aliases textColor / color)*, `textStyle` *(comma-separated bold/italic/underline/strikethrough)*, `animating` |
+| button        | `style`, `showName`, `iconId`, `popupItems`, `autoHilite`, `url` (link style)                       |
+| field         | `textContent`, `textFont`, `textSize`, `textStyle`, `textAlign`, `lockText`, `dontWrap`, `enterKeyEnabled` |
 | shape         | `shapeType`, `fillColor`, `strokeColor`, `strokeWidth`, `cornerRadius`                              |
 | webpage       | `url`                                                                                              |
-| chart         | `chartData`                                                                                        |
+| image         | `imageFilter`, `imageFilterIntensity`, `transparentBackground`, `animated`                          |
+| chart         | `chartData`, `charttitle`, `xAxisLabel`, `yAxisLabel`, `showLegend`, `showGrid`                    |
+| calendar      | `selectedDate`, `displayMonth`, `minDate`, `maxDate`, `calendarStyle`                               |
+| pdf           | `pdfurl`, `currentPage`, `displayMode`, `autoScales`, `pageCount`                                   |
+| map           | `centerLat`, `centerLon`, `span`, `mapType`, `annotations`, `location` *(geocoded async)*           |
+| colorWell     | `color`, `interactive`                                                                              |
+| stepper / slider | `value`, `min`, `max`, `step`                                                                    |
+| segmented     | `segments`, `selectedSegment`                                                                       |
+| progressView  | `value` (0..total), `progressTotal`, `progressIsCircular`, `progressIsIndeterminate`, `progressLabel`, `progressTint`, `progressDecimals` |
+| gauge         | `value` (gaugeMin..gaugeMax), `gaugeMin`, `gaugeMax`, `gaugeStyle`, `gaugeTint`, `gaugeLabel`, `gaugeDecimals` |
+| recorder      | `recording`, `playing`, `duration`, `outputPath`, `format`                                          |
+| scene3d       | `object`, `modelURL`, `allowsCameraControl`, `autoLighting`, `antialiasing`, `background3d`         |
+| divider       | `dividerOrientation`, `dividerThickness`, `dividerColor`                                            |
 | sprite area   | (top-level scene name, plus per-node access via `the position of sprite "Hero"`)                   |
-| sprite node   | `position`, `rotation`, `xScale/yScale`, `zPosition`, `alpha`, `hidden`, `text`, `fontName`, `fontColor`, `velocity`, `angularVelocity`, `density`, `damping`, `audioVolume`, `audioLoop`, `videoLoop`, `particleBirthRate`, `emissionAngle`, `cameraTarget`, `zoom`, … |
+| sprite node   | `position`, `rotation`, `xScale/yScale`, `zPosition`, `alpha`, `hidden`, `text`, `fontName`, `fontColor`, `textStyle`, `velocity`, `angularVelocity`, `density`, `damping`, `audioVolume`, `audioLoop`, `videoLoop`, `particleBirthRate`, `emissionAngle`, `cameraTarget`, `zoom`, … |
 | request       | `status`, `method`, `url`, `statusCode`, `body`, `error`, `header "Content-Type"`                  |
 | listener      | `port`, `host`, `transport`, `state`, `callbackMessage`                                            |
 | connection    | `remoteAddress`, `port`, `state`, `lastData`, `error`                                              |
-| card          | `name`, `marked`, `script`                                                                         |
-| background    | `name`, `script`, `number of cards`                                                                |
+| card          | `name`, `marked`, `script`, `theme`, `effectiveTheme`                                              |
+| background    | `name`, `script`, `theme`, `number of cards`                                                       |
 | global        | `the time`, `the date`, `the ticks`, `the seconds`, `the screenrect`, `the version`, `the mouseLoc`, `the shiftKey`, `the optionKey`, `the commandKey`, `the aiModel`, `the aiModels` |
+
+A few property surfaces deserve their own paragraph because authors run into
+them often:
+
+- **`textStyle`** — comma-separated subset of `plain`, `bold`, `italic`,
+  `underline`, `strikethrough`. Setters normalize through `TextStyleFlags`
+  (Sources/HypeCore/Models/TextStyleFlags.swift) so `"BOLD,italic"` and
+  `"strike"` both round-trip to canonical `"bold, italic"` /
+  `"strikethrough"`. Both card parts and SpriteKit label nodes share this
+  surface. The renderer applies bold/italic via `NSFontManager` font traits
+  and underline/strikethrough as attributed-string keys.
+- **`fontColor`** — hex string for text foreground; empty string means
+  "auto / contrast-aware against fill" (the renderer picks a readable color
+  from the fill's luminance via `ColorContrast.readableTextColor`). This is
+  what fixed the long-standing dark-mode-with-white-fill invisibility bug.
+- **`helpText`** — every part can opt into a hover bubble shown via native
+  `NSToolTip`. `set the helpText of cd btn "Save" to "Saves the current
+  document. ⌘S also works."` is enough; aliases `tooltip`, `help`,
+  `tool_tip`, `help_text` are accepted. Empty disables the bubble. See §6.7.
+
+**Field-exit events** (`exitField`, `closeField`) underwent a deliberate
+semantic change:
+- `exitField` fires on **every** field exit — Tab out, click out,
+  programmatic focus loss. This is the universal "blur" event authors want
+  for validation, geocoding, save-on-exit patterns.
+- `closeField` fires **before** `exitField` only when the text changed
+  during the edit session. Use it specifically for "the value changed"
+  semantics (e.g. mark a form dirty).
+
+The previous strict-XOR HyperCard semantics meant `exitField` only fired
+when text *didn't* change, which was confusing for authors writing the
+common case "do something every time the user finishes editing this
+field." Both events now coexist; the more specific `closeField` runs first
+when relevant, then the general `exitField`.
 
 Built-in functions number ~70 across string handling (`length`, `offset`,
 `chartonum`, `numtochar`), math (`abs`, `round`, `min`, `max`, `sin`, `sqrt`,
@@ -1024,6 +1204,19 @@ SpriteKit authoring side is similarly guided: `SpriteSceneSetupGuide` and
 `SceneAuthoringSupport` surface a checklist-oriented workflow for scene basics,
 world content, assets, physics, and starter scripts instead of exposing raw
 SpriteKit knobs with no scaffolding.
+
+**Author shortcuts to the script editor.** Two interaction conventions
+shorten the path from a part to its script:
+- **Cmd+click** in browse mode opens the clicked part's script editor (or
+  the current card's script editor when clicking empty canvas). Implemented
+  in `CardCanvasNSView.mouseDown` (Sources/Hype/Views/CardCanvasView.swift)
+  and consumed via the `.openPartScriptEditor` notification.
+- The inspector's per-part **"Edit Script…"** row opens the same editor
+  bound to the selected part's `script` field.
+
+Both paths converge on the shared `openScriptEditorWindow(...)` helper,
+which dedups windows by target ID, persists size/position, and supports
+error-line highlighting when navigating from a runtime error.
 
 ---
 
@@ -1173,6 +1366,134 @@ command queues up to apply on the next `go` statement. The execution path
 is described in §3.7 above: rasterize current and target cards →
 `SKTransition` → `cardSKView.presentScene(_:transition:)`.
 
+### 6.7 Themes
+
+The theme system (`Sources/HypeCore/Theme/`) introduces a Mac-app-style
+visual system on top of the per-part color fields. A `HypeTheme` is a
+named bundle of color tokens (`accent`, `windowBackground`, `inspectorBackground`,
+`cardSurface`, `fieldBackground`, `fieldBorder`, `buttonFace`, `shapeFillDefault`,
+`shapeStrokeDefault`, etc.), corner radii, stroke weights, shadow opacity /
+radius, and a `usesGlassMaterial` flag that opts into Apple's Liquid Glass
+material in the renderer.
+
+Themes cascade: card → background → stack → built-in default. `ThemeResolver`
+(Sources/HypeCore/Theme/ThemeResolver.swift) walks the chain and returns the
+effective theme for any card. Each `Stack`, `Background`, and `Card` carries
+an optional `themeName` — empty means "inherit from the next level up";
+non-empty selects a theme by name from `BuiltInThemes` (Default, Sunset,
+Ocean, Forest, Liquid Glass, …) or from the stack's `HypeDocument.themes`
+array of user-edited themes. The cascade lets one stack contain multiple
+visual moods without per-part config sprawl.
+
+`HypeTheme` is propagated to SwiftUI via a `ThemeEnvironment` `EnvironmentKey`
+and to the AppKit / Core Graphics renderer via plain function arguments —
+`CardRenderer.render(...)` and the per-type renderers (`ButtonRenderer`,
+`FieldRenderer`, `ShapeRenderer`, etc.) all accept the resolved theme so
+default fill / stroke / corner radius come from the theme instead of being
+hard-coded.
+
+`GlassRenderer` (Sources/HypeCore/Rendering/GlassRenderer.swift) is the
+opt-in companion: when a theme has `usesGlassMaterial == true`, the field
+and rectangular-button renderers route through `GlassRenderer.fillRoundedRect`
+to draw a translucent rounded-rect with shadow, sheen, and stroke that
+approximates the Liquid Glass material from outside SwiftUI/AppKit's
+`.regularMaterial`. `ColorContrast.readableTextColor(forFillHex:)` picks a
+foreground color whose luminance contrasts the actual fill, which is what
+makes labels readable across dark / light themes without the user setting
+`fontColor` on every part.
+
+The detached **Theme Designer** window
+(`Sources/Hype/Views/Themes/ThemeDesignerWindowController.swift`) lets
+authors edit colors with `NSColorWell`-backed pickers and live preview, save
+the result back into `HypeDocument.themes`, and apply it card-by-card from
+the inspector's THEME row.
+
+### 6.8 Hover help (NSToolTip)
+
+Hover help text — both for the tool palette and for any author-defined
+control — is delivered via the system `NSToolTip` mechanism, not a custom
+SwiftUI flyout. This is what every macOS app uses; the timing, wrapping,
+accessibility, and dismissal behavior all match what users already know.
+
+Two surfaces:
+
+1. **Tool palette icons.** `ObjectsToolPanel` calls `.help(...)` on every
+   tool button. Each tool's `displayTitle` and `description` (from
+   `ToolName`) are joined by a blank line and passed verbatim — the system
+   tooltip wraps long lines.
+2. **Per-part `helpText`.** Every `Part` carries a `helpText: String`
+   field (default empty). `CardCanvasNSView.updatePartToolTips()` clears
+   and re-registers tooltip rects via
+   `NSView.addToolTip(_:owner:userData:)` after every draw, browse mode
+   only. A `[NSView.ToolTipTag: UUID]` map remembers which tag points to
+   which part; the
+   `view(_:stringForToolTip:point:userData:)` callback looks up the part
+   fresh at display time so the bubble always reflects the current value.
+   Edit mode disables tooltips so they don't compete with click-to-select.
+
+The `NSInitialToolTipDelay` UserDefault is set to `0.35s` in
+`HypeAppDelegate.applicationDidFinishLaunching` — half the platform default
+(~750ms). `NSApp.activate(ignoringOtherApps: true)` is dispatched on the
+next runloop tick so SwiftUI's `DocumentGroup` first window goes through a
+proper `becomeKey` cycle (otherwise tooltips sometimes fail to register
+until the user tabs the app away and back).
+
+Authors can set `helpText` from the inspector's HELP section, from
+HypeTalk (`set the helpText of cd btn "Save" to "..."`, aliases `tooltip` /
+`help`), and from the AI tool surface (`set_part_property property=helpText`).
+All three paths converge on `Part.helpText`, which `updatePartToolTips`
+reads on the next draw.
+
+### 6.9 Map geocoding service
+
+Map parts use a `MapLocationGeocoder` actor-style singleton
+(`Sources/Hype/Views/MapLocationGeocoder.swift`) to translate
+`Part.mapLocation` (a place name, address, or US ZIP) into
+`mapCenterLat / mapCenterLon` via `MKLocalSearch`. The service runs
+**outside** the live `MKMapView` host so the geocode fires whether or not
+that host is on screen — the previous design embedded geocoding in
+`MapHostNSView`, which is destroyed in edit mode, so authors editing the
+location field saw nothing happen.
+
+The service holds per-partId state (debounce timer, in-flight
+`MKLocalSearch`, last successfully resolved query). The canvas
+coordinator's `reconcileMapLocations()` runs on every `updateNSView` cycle,
+diffs each map part's `mapLocation` against a stored snapshot, and routes
+changes through `MapLocationGeocoder.scheduleResolve(...)`. Resolved
+coordinates flow back via `setPartMapCoordinate(id:lat:lon:)` and the next
+draw mirrors them onto the live `MKMapView`. A successful resolve fires the
+`locationResolved` HypeTalk message on the part so scripts can observe it.
+
+`MapGeocodeCache` (Sources/Hype/Views/MapGeocodeCache.swift) sits underneath
+both the geocoder and the `MapHostNSView` rendering path: it memoizes
+successful (query → coordinate) pairs and records recent failures (60s TTL)
+so we don't hammer Apple after a not-found.
+
+### 6.10 Multi-selection authoring
+
+The canvas, inspector, and sprite scene host all support multi-selection
+edits. `selectedPartIds: Set<UUID>` is the single source of truth on the
+canvas side. Cmd+click toggles a part in/out of the selection; Shift+click
+is the parallel modifier (matches macOS Finder convention).
+
+The inspector renders one of three panels keyed off
+`selectedPartIds.count`:
+
+- **0 parts** — card-level / background-level inspector.
+- **1 part** — full single-part inspector (per-type sections).
+- **2+ parts** — multi-selection inspector. `MultiSelectionEditing`
+  (Sources/HypeCore/Models/MultiSelectionEditing.swift) provides
+  `commonValue(in:for:)` and `applyValue(_:to:in:for:)` so each row in the
+  multi-panel can show "Multiple" placeholders when values differ and
+  apply a uniformly-typed value to every selected part on edit. Common
+  multi-edits include geometry (X / Y / Width / Height), fill / stroke /
+  textStyle / fontColor, alignment / distribution, and helpText.
+
+Sprite scene nodes get the same treatment — the scene host's per-node
+inspector exposes a multi-selection panel keyed off `selectedNodeIds: Set<UUID>`,
+with multi-edits for position / rotation / alpha / fillColor on shape nodes,
+text / fontSize / textStyle on label nodes, and so on.
+
 ---
 
 ## 7. AI Authoring and Scripting (Local Ollama)
@@ -1209,20 +1530,27 @@ directly into typed Swift structs.
 
 ### 7.2 Tool surface: `HypeTools`
 
-`HypeTools` (Sources/HypeCore/AI/HypeTools.swift) declares ~40 tool
+`HypeTools` (Sources/HypeCore/AI/HypeTools.swift) declares ~60 tool
 schemas in one place using a small `makeTool(...)` builder that turns a
 `[String: (type, description, required)]` parameter map into a complete
 schema struct. The categories:
 
 | Category                  | Representative tools |
 |---------------------------|----------------------|
-| Stack & cards             | `create_card`, `create_background`, `go_to_card`, `delete_card` |
-| Part creation             | `create_button`, `create_field`, `create_shape`, `create_webpage`, `create_video`, `create_chart` |
-| Part modification         | `set_part_property`, `delete_part` |
-| Sprite areas / scenes     | `create_sprite_area`, `get_scene_spec`, `apply_scene_diff`, `add_sprite_to_scene`, `create_tilemap`, `create_camera` |
-| Diagnostics / introspection | `get_stack_info`, `get_card_parts`, `capture_scene_snapshot`, `get_scene_diagnostics` |
-| Asset repository          | `list_repository_assets`, `import_repository_asset` |
-| Optional extra tools      | `fetch_url`, `read_file`, `write_file`, `list_directory` |
+| Stack & cards             | `create_card`, `create_background`, `go_to_card`, `delete_card`, `list_all_cards`, `list_backgrounds`, `set_card_name`, `set_background_name`, `set_card_background`, `reorder_card`, `duplicate_part` |
+| Scope properties (read)   | `get_stack_property`, `get_card_property`, `get_background_property` |
+| Scope properties (write)  | `set_stack_property`, `set_card_property`, `set_background_property` |
+| Scope scripts             | `get_stack_script`, `set_stack_script`, `get_card_script`, `set_card_script`, `get_background_script`, `set_background_script` |
+| Part creation             | `create_button`, `create_field`, `create_shape`, `create_webpage`, `create_video`, `create_chart`, `create_image`, `create_calendar`, `create_pdf`, `create_map`, `create_color_well`, `create_stepper`, `create_slider`, `create_segmented`, `create_progressview`, `create_gauge`, `create_divider`, `create_audio_recorder`, `create_scene3d` |
+| Part modification         | `set_part_property` (canonical write surface, accepts ~250 property names + aliases incl. `helpText`, `fontColor`, `textStyle`, `rotation`, `imageFilter`), `delete_part`, `repair_form_controls` |
+| Part introspection        | `get_part_property`, `list_all_properties` (full property dump w/ defaults), `get_card_parts`, `get_background_parts`, `capture_card_image` |
+| Themes                    | `list_themes`, `get_theme`, `create_or_update_theme`, `delete_theme`, `apply_theme` |
+| Charts                    | `set_chart_data_point_color`, `get_chart_data_points` |
+| Maps                      | `add_map_annotation`, `clear_map_annotations` |
+| Images                    | `set_image_filter` |
+| Sprite areas / scenes     | `create_sprite_area`, `get_scene_spec`, `apply_scene_diff`, `add_sprite_to_scene`, `add_label_to_scene`, `add_shape_to_scene`, `add_emitter_to_scene`, `add_audio_to_scene`, `create_tilemap`, `create_camera`, `set_node_property`, `set_node_script`, `set_scene_script`, `set_physics_body` |
+| Asset repository          | `list_repository_assets`, `import_repository_asset`, `web_asset_search`, `web_asset_import` |
+| Script gating             | `check_script` (REQUIRED before storing any HypeTalk; runs the validator) |
 
 The surface is **dual mode**: it has both read tools (for the model to
 inspect current state) and write tools (for it to mutate). It is also
@@ -1254,7 +1582,7 @@ scene edit.
 
 ### 7.4 Executor and authoring loop
 
-`HypeToolExecutor` (Sources/HypeCore/AI/HypeToolExecutor.swift, 649 LoC)
+`HypeToolExecutor` (Sources/HypeCore/AI/HypeToolExecutor.swift, ~5,000 LoC)
 remains the structural mutation engine. It is still a large `switch` over tool
 name taking `document: inout HypeDocument`, but its responsibilities are now
 more sharply defined:
@@ -1263,6 +1591,32 @@ more sharply defined:
 - resolve repository assets by stable identity
 - apply `SceneDiff` patches to the active scene inside a `SpriteAreaSpec`
 - return diagnostics and navigation signals back to the UI
+- emit `formatAllProperties(_:)` dumps for `list_all_properties` so the
+  model can discover the full property surface of any part without guessing
+
+A few cross-cutting helpers harden the loop:
+
+- **`HypeTalkScriptValidator`** (`Sources/HypeCore/AI/HypeTalkScriptValidator.swift`)
+  is the gate behind the `check_script` tool. Every storage path
+  (`create_button`, `create_field`, `set_part_property property=script`,
+  `set_card_script`, …) refuses to commit a script until the validator
+  reports OK. The system prompt instructs the model to call `check_script`
+  first and iterate; if the storage tool itself receives a malformed
+  draft, it returns a `__HYPE_INTERNAL_DRAFT_REFUSED_v1:` sentinel and the
+  model is asked to fix and retry. This is what closes the loop on
+  silently-broken scripts.
+- **`HypeAIResponseRepair`** (`Sources/HypeCore/AI/HypeAIResponseRepair.swift`)
+  cleans up common malformations in the model's tool-call arguments —
+  string-vs-number coercions, accidental Markdown fencing, comma-separated
+  lists where an array was expected — so a single sloppy emit doesn't
+  abort the loop.
+- **`ScriptAutoFixer`** (`Sources/HypeCore/AI/ScriptAutoFixer.swift`) drives
+  the iterative attach-script-then-fix harness used by the multi-turn
+  benchmark suite to push the script-attach success rate to ~98%+.
+- **`SpriteKitRequestRouter`** (`Sources/HypeCore/AI/SpriteKitRequestRouter.swift`)
+  recognizes scene-authoring intents and routes them onto the structured
+  `SceneAuthoringAssistant` path instead of letting open tool-calling
+  produce malformed `SceneDiff` JSON.
 
 `AIChatPanel` (Sources/Hype/Views/AIChatPanel.swift) orchestrates three related
 loops:
@@ -1276,6 +1630,15 @@ context into the system prompt, and keeps past prompts on
 `HypeDocument.aiPromptHistory` for recall. The result is an AI authoring
 surface that is still conversational, but much more deterministic for the
 SpriteKit-heavy parts of the app.
+
+`HypeTalkGuide` (`Sources/HypeCore/AI/HypeTalkGuide.swift`) is the system-
+prompt grammar primer fed into every chat turn. It documents the property
+surface, message hierarchy, common patterns, and gotchas — including the
+`exitField` / `closeField` semantics, the `helpText` / `tooltip` aliases,
+the `textStyle` / `fontColor` set/get, and the `animate` command form. The
+guide is updated whenever a new property or grammar form lands so the model
+sees a faithful description of the live surface rather than its training-time
+prior.
 
 ### 7.5 AI from HypeTalk
 
@@ -1381,17 +1744,38 @@ surface.
 
 ### 8.4 Testing
 
-The `HypeCoreTests` target contains test suites for the model
-(`ModelTests`), the script engine (`ScriptTests`,
-`ComprehensiveScriptTests`), tools (`ToolTests`), controls
-(`ControlsTests`), alignment (`AlignmentTests`), and AI / export
-(`AIAndExportTests`). Because HypeCore has no AppKit/SpriteKit
-dependencies, the bulk of the language and model surface still runs in CI
-without a UI. Newer suites cover the runtime-backed path as well: async
-HypeTalk execution, `await ollama(...)`, HTTP request/listener flows, TCP
-listener flows, and scene authoring support. A separate `HypeTests` target
-holds app-facing smoke coverage for SpriteKit bridge behavior and related UI
-integration seams.
+The `HypeCoreTests` target now contains **149 suites and 1,451 tests**, all
+running without an attached UI because `HypeCore` has no AppKit / SpriteKit
+dependencies. The full suite executes in ~85 seconds. Coverage spans:
+
+- **Model & persistence** — Codable round-trip, forward-compat decoding for
+  every value-typed field added since v1, JSON shape stability tests.
+- **Script engine** — `ComprehensiveScriptTests`, `ParserCoverage`, expression
+  precedence, chunks, `it` lifecycle, control flow, pass-up semantics.
+- **Property dispatch** — `PropertyAuditTests` walks every property exposed
+  to HypeTalk get/set + AI tool surface and validates each one round-trips,
+  including the new `helpText`, `fontColor`, `textStyle`, `rotation`,
+  `imageFilter`, and the gauge / progress decimals contract.
+- **Async runtime** — `await ollama(...)`, HTTP request / reply / listener
+  flows, TCP listener flows, callback ordering, runtime status snapshots.
+- **AI authoring loop** — tool-call dispatch, `check_script` gating,
+  `ScriptAutoFixer` regression suite, end-to-end multi-turn dispatch
+  (`EndToEndAIDispatchTests`), tool-arg repair (`HypeAIResponseRepairTests`),
+  scene-authoring schema validation.
+- **Specific surfaces** — animate command (`AnimateCommandTests`), GIF
+  decoder + animator, chart data points, calendar / PDF / map, color well,
+  every form control, sprite slicing, tile-set classification, theme
+  resolution, multi-selection editing, text styling (TextStyleFlags +
+  rendered ink-budget regression), and the new `helpText` Codable +
+  HypeTalk + AI surfaces.
+- **Renderer ink-budget regressions** — pixel-level checks that bold draws
+  more ink than plain, that transparent-background actually masks alpha,
+  etc. These catch silent drawing regressions that wouldn't surface in
+  Codable-only tests.
+
+A separate `HypeTests` target holds app-facing smoke coverage for SpriteKit
+bridge behavior, the canvas hover-help registration path, and related UI
+integration seams that need an `NSWindow` to exercise.
 
 ---
 
