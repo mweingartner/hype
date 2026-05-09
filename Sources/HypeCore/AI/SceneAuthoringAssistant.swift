@@ -364,9 +364,9 @@ public struct SceneRepairProposal: Codable, Sendable {
 }
 
 public actor SceneAuthoringAssistant {
-    private let client: OllamaToolClient
+    private let client: any HypeAIClient
 
-    public init(client: OllamaToolClient) {
+    public init(client: any HypeAIClient) {
         self.client = client
     }
 
@@ -409,6 +409,7 @@ public actor SceneAuthoringAssistant {
         let result: (response: OllamaChatResponse, decoded: SceneCreateProposal) =
             try await client.structuredChat(
                 messages: messages,
+                tools: [],
                 format: Self.sceneCreateFormat
             )
         // Best-effort correction: if the user prompt explicitly names an
@@ -576,6 +577,7 @@ public actor SceneAuthoringAssistant {
         let result: (response: OllamaChatResponse, decoded: SceneRepairProposal) =
             try await client.structuredChat(
                 messages: messages,
+                tools: [],
                 format: Self.sceneRepairFormat
             )
         // The caller told us which sprite area to target. Authoritatively

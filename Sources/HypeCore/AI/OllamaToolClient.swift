@@ -92,9 +92,11 @@ public struct OllamaMessage: Codable, Sendable {
 
 /// A tool call returned by the model.
 public struct OllamaToolCall: Codable, Sendable {
+    public let id: String?
     public let function: OllamaToolCallFunction
 
-    public init(function: OllamaToolCallFunction) {
+    public init(id: String? = nil, function: OllamaToolCallFunction) {
+        self.id = id
         self.function = function
     }
 }
@@ -384,7 +386,7 @@ public enum OllamaResponseFormat: @unchecked Sendable {
 }
 
 /// Client for Ollama's chat API with tool support.
-public actor OllamaToolClient {
+public actor OllamaToolClient: HypeAIClient {
     private let host: String
     private let port: String
     private let model: String
@@ -479,7 +481,9 @@ public actor OllamaToolClient {
     }
 
     /// The base URL for the Ollama server.
-    public var baseURL: String { "http://\(host):\(port)" }
+    public nonisolated var baseURL: String { "http://\(host):\(port)" }
+    public nonisolated var providerName: String { "ollama" }
+    public nonisolated var modelName: String { model }
 
     public func availableModels() async throws -> [String] {
         guard let url = URL(string: "\(baseURL)/api/tags") else {
@@ -664,7 +668,7 @@ public actor OllamaToolClient {
     /// system prompt so the model still gets structural guidance.
     /// The tolerant extraction cascade above then recovers the JSON
     /// from whatever free-form response the model produces.
-    public func structuredChat<Response: Decodable>(
+    public func structuredChat<Response: Decodable & Sendable>(
         messages: [OllamaMessage],
         tools: [OllamaTool] = [],
         format: OllamaResponseFormat

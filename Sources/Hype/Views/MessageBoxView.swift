@@ -70,14 +70,14 @@ struct MessageBoxView: View {
             Task {
                 let runtime = await StackRuntimeRegistry.shared.runtime(
                     for: snapshot,
-                    configuration: StackRuntimeConfiguration(aiProvider: OllamaAIScriptingProvider())
+                    configuration: StackRuntimeConfiguration(aiProvider: SelectedAIScriptingProvider())
                 )
                 let liveDocument = await runtime.currentDocument()
                 let context = ExecutionContext(
                     targetId: liveDocument.stack.id,
                     currentCardId: cardId,
                     document: liveDocument,
-                    aiProvider: OllamaAIScriptingProvider(),
+                    aiProvider: SelectedAIScriptingProvider(),
                     runtimeProvider: runtime
                 )
                 let interpreter = Interpreter()

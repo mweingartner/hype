@@ -8,7 +8,8 @@ populated with **parts** (buttons, fields, shapes, images, video, web pages,
 charts, sprite areas), all driven by a HyperTalk-style scripting language
 called **HypeTalk** — and re-grounds it on a contemporary Apple-platforms
 stack: Swift 6, SwiftUI, SpriteKit, Core Graphics, AppKit, WKWebView,
-AVKit, Apple Charts, and a local Ollama-backed AI authoring loop.
+AVKit, Apple Charts, and a provider-selectable AI authoring loop that can use
+local Ollama models or OpenAI-hosted models.
 
 The single most important architectural decision is the introduction of
 **SpriteKit as the underlying interaction and rendering substrate** for cards.
@@ -62,7 +63,7 @@ hype-v2/
 │   │       ├── HypeTalkTextView.swift     # NSTextView host for the editor
 │   │       ├── HypeFieldEditorCell.swift  # NSTextFieldCell — pixel-aligned field editor inset
 │   │       ├── CompletionPopup.swift      # Code completion list
-│   │       ├── AIChatPanel.swift          # Tool-calling Ollama chat (primary AI UI)
+│   │       ├── AIChatPanel.swift          # Provider-backed tool-calling chat (primary AI UI)
 │   │       ├── AIChatInputView.swift      # NSTextView-backed dynamic-height prompt input
 │   │       ├── AIPanel.swift              # Simple Q&A side panel
 │   │       ├── NetworkPanelView.swift     # Stack network policy + live runtime monitor
@@ -114,8 +115,11 @@ hype-v2/
 │       │   ├── Interpreter.swift          # Tree-walking interpreter (~5,000 LoC)
 │       │   ├── MessageDispatcher.swift    # part → card → background → stack → app
 │       │   └── HypeTalkHighlighter.swift  # Editor syntax highlighting
-│       ├── AI/                     # Local Ollama tool-calling integration
+│       ├── AI/                     # Provider-backed AI, tool-calling, speech
 │       │   ├── OllamaToolClient.swift     # /api/chat, /api/generate, /api/tags, structured JSON
+│       │   ├── OpenAIResponsesClient.swift # /v1/responses text/tool/schema bridge
+│       │   ├── OpenAISpeechClient.swift   # /v1/audio transcriptions + speech
+│       │   ├── HypeAIClient.swift         # Provider-neutral client/config factory
 │       │   ├── AIScriptingProvider.swift  # Async HypeTalk-facing Ollama abstraction
 │       │   ├── HypeTools.swift            # ~60 tool schemas (parts, scopes, themes, scenes)
 │       │   ├── HypeToolExecutor.swift     # Dispatch tool calls to model mutations (~5,000 LoC)
@@ -202,7 +206,7 @@ unit-testable, while UI- and SpriteKit-specific code lives in the executable.
 │    └─ MainContentView                                                    │
 │         ├─ Tool palette / status bar / side panels                       │
 │         ├─ PropertyInspector  (SwiftUI)                                  │
-│         ├─ AIChatPanel        (SwiftUI ↔ Ollama tool loop)               │
+│         ├─ AIChatPanel        (SwiftUI ↔ selected AI tool loop)          │
 │         ├─ NetworkPanelView   (SwiftUI ↔ stack network policy/status)    │
 │         └─ CardCanvasView     (NSViewRepresentable)                      │
 │              └─ CardCanvasNSView  (NSView, isFlipped, layer-backed)      │
@@ -229,7 +233,7 @@ unit-testable, while UI- and SpriteKit-specific code lives in the executable.
 │    Bridge   : SpriteAreaSpec/SceneSpec ←→ SceneBridge ←→ live SKNode tree│
 │               (NodeRegistry: UUID ↔ SKNode)                              │
 │               (CoordinateConverter: top-left ↔ bottom-left, deg ↔ rad)   │
-│    AI       : OllamaToolClient → SceneAuthoringAssistant /               │
+│    AI       : HypeAIClient (Ollama/OpenAI) → SceneAuthoringAssistant /   │
 │               AIScriptingProvider / HypeToolExecutor                     │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1496,20 +1500,24 @@ text / fontSize / textStyle on label nodes, and so on.
 
 ---
 
-## 7. AI Authoring and Scripting (Local Ollama)
+## 7. AI Authoring, Scripting, and Speech
 
 Hype's AI integration is now split across three deliberate surfaces:
 
 - **authoring chat** (`AIChatPanel`) for structured tool-calling edits
 - **schema-driven scene authoring** for SpriteKit create/repair flows
 - **HypeTalk scripting AI** for prompt-driven generation from user scripts
+- **Script Editor AI** for code-focused help inside script windows
+- **voice input/output** for speaking requests and optionally hearing replies
 
-All three are local-first and Ollama-backed, but they use different contracts
-because they solve different problems. The authoring paths want structured
-mutations and previews; the scripting path wants plain text results or callback
-completion.
+The primary AI paths now route through `HypeAIClient`, a provider-neutral
+contract implemented by `OllamaToolClient` and `OpenAIResponsesClient`.
+They still use different contracts because they solve different problems.
+The authoring paths want structured mutations and previews; the scripting path
+wants plain text results or callback completion; speech wants explicit
+microphone capture and audio playback.
 
-### 7.1 Ollama client
+### 7.1 Provider clients
 
 `OllamaToolClient` (Sources/HypeCore/AI/OllamaToolClient.swift) is a
 multi-surface HTTP client for the local Ollama daemon. It now serves three
@@ -1518,6 +1526,24 @@ distinct architectural roles:
 - `/api/chat` for structured authoring conversations and tool calls
 - `/api/generate` for one-shot HypeTalk scripting requests
 - `/api/tags` for model discovery
+
+`OpenAIResponsesClient` (Sources/HypeCore/AI/OpenAIResponsesClient.swift)
+adapts the same Hype message/tool/schema types onto OpenAI's Responses API:
+
+- `/v1/responses` for plain text, tool calls, and JSON-schema guided output
+- OpenAI function-call items are converted to Hype's existing
+  `OllamaToolCall` shape before reaching `HypeToolExecutor`
+- tool results keep their `call_id` pairing so multi-step OpenAI tool loops
+  can continue without a provider-specific executor path
+
+`OpenAISpeechClient` (Sources/HypeCore/AI/OpenAISpeechClient.swift) covers
+the speech side:
+
+- `/v1/audio/transcriptions` for OpenAI-backed voice input
+- `/v1/audio/speech` for optional assistant reply playback
+
+Preferences store the selected AI provider/model and speech provider/model in
+`UserDefaults`, while OpenAI and Pexels API keys stay in Keychain.
 
 Tool schemas use OpenAI-style JSON: `{type: "function", function: {name,
 description, parameters: { … JSON Schema … }}}`. The client encodes those
@@ -1662,11 +1688,12 @@ This keeps the scripting surface simple and predictable:
 That split is deliberate: authoring AI is schema/tool oriented, while scripting
 AI is text-generation oriented.
 
-### 7.6 Cloud fallback and bulk generator
+### 7.6 Lightweight Q&A and bulk generator
 
-`AIService` (Sources/HypeCore/AI/AIService.swift) is a smaller routing
-layer that can call Anthropic's Claude API for plain-text Q&A when an API
-key is configured, used by the lightweight `AIPanel`. `StackGenerator`
+`AIPanel` is the lightweight Q&A surface and now uses the same selected
+`HypeAIClient` provider as the main authoring chat. `AIService`
+(Sources/HypeCore/AI/AIService.swift) remains as a small compatibility routing
+layer for simple text requests. `StackGenerator`
 (Sources/HypeCore/AI/StackGenerator.swift) is a one-shot generator that
 prompts a model for a complete stack as a single JSON payload (no tool
 calls, no loop) and reconstructs a `HypeDocument` from the parsed

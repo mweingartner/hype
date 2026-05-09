@@ -370,6 +370,14 @@ struct ScriptEditor: View {
                         .background(hypeTheme.scriptTheme.error.swiftUIColor.opacity(0.15))
                 }
             }
+
+            ScriptEditorAIView(
+                document: $document,
+                scriptText: $scriptText,
+                selectedRange: $selectedRange,
+                target: resolvedTarget
+            )
+            .frame(width: 300)
         }
         .onAppear {
             loadScript()

@@ -467,7 +467,7 @@ struct MainContentView: View {
     }
 
     private func runtimeConfiguration() -> StackRuntimeConfiguration {
-        StackRuntimeConfiguration(aiProvider: OllamaAIScriptingProvider())
+        StackRuntimeConfiguration(aiProvider: SelectedAIScriptingProvider())
     }
 
     private func refreshRuntimeStatus() {
@@ -745,7 +745,7 @@ private struct NavigationHandlers: ViewModifier {
         let snapshot = document.document
         let runtime = await StackRuntimeRegistry.shared.runtime(
             for: snapshot,
-            configuration: StackRuntimeConfiguration(aiProvider: OllamaAIScriptingProvider())
+            configuration: StackRuntimeConfiguration(aiProvider: SelectedAIScriptingProvider())
         )
         let result = await runtime.dispatchAndWait(
             message,

@@ -578,7 +578,7 @@ struct CardCanvasView: NSViewRepresentable {
 
         /// Dispatch a HypeTalk message to the current card (for card-level events).
         private let dialogProvider = AppKitDialogProvider()
-        private let aiProvider = OllamaAIScriptingProvider()
+        private let aiProvider = SelectedAIScriptingProvider()
 
         private var drawingProvider: DrawingProvider {
             if let view = nsView {

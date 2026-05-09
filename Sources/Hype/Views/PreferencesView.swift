@@ -5,10 +5,21 @@ struct PreferencesView: View {
     @AppStorage("ollamaHost") private var ollamaHost = "localhost"
     @AppStorage("ollamaPort") private var ollamaPort = "11434"
     @AppStorage("ollamaModel") private var ollamaModel = "llama3.2"
+    @AppStorage(HypeAIConfiguration.providerKey) private var aiProviderRaw = HypeAIProvider.ollama.rawValue
+    @AppStorage(HypeAIConfiguration.openAIModelKey) private var openAIModel = HypeAIConfiguration.defaultOpenAIModel
+    @AppStorage(HypeAIConfiguration.speechInputProviderKey) private var speechInputProviderRaw = HypeSpeechInputProvider.apple.rawValue
+    @AppStorage(HypeAIConfiguration.openAITranscriptionModelKey) private var openAITranscriptionModel = HypeAIConfiguration.defaultOpenAITranscriptionModel
+    @AppStorage(HypeAIConfiguration.openAITTSModelKey) private var openAITTSModel = HypeAIConfiguration.defaultOpenAITTSModel
+    @AppStorage(HypeAIConfiguration.openAIVoiceKey) private var openAIVoice = HypeAIConfiguration.defaultOpenAIVoice
+    @AppStorage(HypeAIConfiguration.speakAssistantResponsesKey) private var speakAssistantResponses = false
     @Environment(\.hypeTheme) private var hypeTheme
     @State private var availableModels: [String] = []
     @State private var isLoading = false
     @State private var connectionStatus = ""
+    @State private var openAIKeyDraft = ""
+    @State private var openAIKeyIsSet = false
+    @State private var isTestingOpenAI = false
+    @State private var openAITestStatus = ""
 
     // MARK: - Web Asset Search state
 
@@ -43,6 +54,19 @@ struct PreferencesView: View {
 
     var body: some View {
         Form {
+            Section("AI Provider") {
+                Picker("Provider", selection: $aiProviderRaw) {
+                    ForEach(HypeAIProvider.allCases) { provider in
+                        Text(provider.displayName).tag(provider.rawValue)
+                    }
+                }
+
+                Text("The selected provider powers the AI Assistant, HypeTalk `ask ai` calls, structured scene planning, and Script Editor AI.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Section("Ollama Connection") {
                 TextField("Host", text: $ollamaHost)
                 TextField("Port", text: $ollamaPort)
@@ -57,15 +81,84 @@ struct PreferencesView: View {
             }
 
             Section("Model") {
-                Picker("Model", selection: $ollamaModel) {
-                    if availableModels.isEmpty {
-                        Text(ollamaModel).tag(ollamaModel)
+                if aiProviderRaw == HypeAIProvider.openAI.rawValue {
+                    Picker("OpenAI Model", selection: $openAIModel) {
+                        ForEach(HypeAIConfiguration.openAITextModels, id: \.self) { model in
+                            Text(model).tag(model)
+                        }
                     }
-                    ForEach(availableModels, id: \.self) { model in
+                } else {
+                    Picker("Ollama Model", selection: $ollamaModel) {
+                        if availableModels.isEmpty {
+                            Text(ollamaModel).tag(ollamaModel)
+                        }
+                        ForEach(availableModels, id: \.self) { model in
+                            Text(model).tag(model)
+                        }
+                    }
+                    Button("Refresh Models") { fetchModels() }
+                }
+            }
+
+            Section("OpenAI") {
+                HStack {
+                    SecureField(
+                        openAIKeyIsSet ? "API key stored (tap to replace)" : "OpenAI API key",
+                        text: $openAIKeyDraft
+                    )
+                    .textFieldStyle(.roundedBorder)
+
+                    Button("Save") { saveOpenAIKey() }
+                        .disabled(openAIKeyDraft.isEmpty)
+
+                    if openAIKeyIsSet {
+                        Button("Delete") { deleteOpenAIKey() }
+                            .foregroundColor(.red)
+                    }
+                }
+
+                HStack {
+                    Button("Test OpenAI") { testOpenAI() }
+                        .disabled(isTestingOpenAI || !openAIKeyIsSet)
+                    if isTestingOpenAI { ProgressView().scaleEffect(0.7) }
+                    if !openAITestStatus.isEmpty {
+                        Text(openAITestStatus)
+                            .font(.system(size: 11))
+                            .foregroundColor(openAITestStatus.hasPrefix("OK") ? .green : .red)
+                    }
+                }
+            }
+
+            Section("Speech") {
+                Picker("Voice Input", selection: $speechInputProviderRaw) {
+                    ForEach(HypeSpeechInputProvider.allCases) { provider in
+                        Text(provider.displayName).tag(provider.rawValue)
+                    }
+                }
+
+                Picker("Transcription Model", selection: $openAITranscriptionModel) {
+                    ForEach(HypeAIConfiguration.openAITranscriptionModels, id: \.self) { model in
                         Text(model).tag(model)
                     }
                 }
-                Button("Refresh Models") { fetchModels() }
+                .disabled(speechInputProviderRaw != HypeSpeechInputProvider.openAI.rawValue)
+
+                Toggle("Speak assistant responses with OpenAI", isOn: $speakAssistantResponses)
+                    .disabled(aiProviderRaw != HypeAIProvider.openAI.rawValue)
+
+                Picker("Speech Model", selection: $openAITTSModel) {
+                    ForEach(HypeAIConfiguration.openAITTSModels, id: \.self) { model in
+                        Text(model).tag(model)
+                    }
+                }
+                .disabled(!speakAssistantResponses)
+
+                Picker("Voice", selection: $openAIVoice) {
+                    ForEach(HypeAIConfiguration.openAIVoices, id: \.self) { voice in
+                        Text(voice.capitalized).tag(voice)
+                    }
+                }
+                .disabled(!speakAssistantResponses)
             }
 
             // MARK: - Web Asset Search section
@@ -135,7 +228,7 @@ struct PreferencesView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 500, height: 520)
+        .frame(width: 560, height: 760)
         // Settings surface — tint with the inspector-background
         // token so the Preferences scene picks up theme swaps.
         .background(hypeTheme.inspectorBackground.swiftUIColor)
@@ -145,6 +238,7 @@ struct PreferencesView: View {
         .onAppear {
             fetchModels()
             pexelsKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.pexelsAPIKeyAccount)
+            openAIKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.openAIAPIKeyAccount)
         }
     }
 
@@ -193,6 +287,29 @@ struct PreferencesView: View {
         }
     }
 
+    private func saveOpenAIKey() {
+        guard !openAIKeyDraft.isEmpty else { return }
+        do {
+            try KeychainStore.setSecret(openAIKeyDraft, account: KeychainStore.openAIAPIKeyAccount)
+            openAIKeyDraft = ""
+            openAIKeyIsSet = true
+            openAITestStatus = ""
+        } catch {
+            openAITestStatus = keychainErrorMessage(for: error)
+        }
+    }
+
+    private func deleteOpenAIKey() {
+        do {
+            try KeychainStore.deleteSecret(account: KeychainStore.openAIAPIKeyAccount)
+            openAIKeyIsSet = false
+            openAIKeyDraft = ""
+            openAITestStatus = ""
+        } catch {
+            openAITestStatus = keychainErrorMessage(for: error)
+        }
+    }
+
     /// Render a Keychain error as a narrow user-facing string.
     ///
     /// `KeychainStoreError.unhandledStatus(OSStatus)` is the usual failure
@@ -236,6 +353,33 @@ struct PreferencesView: View {
                 await MainActor.run {
                     webAssetTestStatus = "Connection failed"   // Finding 5: no raw error text.
                     isTestingWebAsset = false
+                }
+            }
+        }
+    }
+
+    private func testOpenAI() {
+        isTestingOpenAI = true
+        openAITestStatus = ""
+        Task {
+            do {
+                let key = try KeychainStore.getSecret(account: KeychainStore.openAIAPIKeyAccount)
+                let client = OpenAIResponsesClient(apiKey: key, model: openAIModel)
+                let response = try await client.generate(
+                    prompt: "Reply with exactly: OK",
+                    model: nil,
+                    system: "You are testing connectivity for Hype Preferences."
+                )
+                await MainActor.run {
+                    openAITestStatus = response.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? "Connection failed"
+                        : "OK: OpenAI responded."
+                    isTestingOpenAI = false
+                }
+            } catch {
+                await MainActor.run {
+                    openAITestStatus = "Connection failed"
+                    isTestingOpenAI = false
                 }
             }
         }

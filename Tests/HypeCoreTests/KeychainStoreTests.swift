@@ -157,6 +157,11 @@ struct KeychainStoreTests {
         #expect(KeychainStore.pexelsAPIKeyAccount == "pexels.apiKey")
     }
 
+    @Test("openAIAPIKeyAccount is 'openai.apiKey'")
+    func openAIAPIKeyAccountConstant() {
+        #expect(KeychainStore.openAIAPIKeyAccount == "openai.apiKey")
+    }
+
     @Test("service identifier is 'com.hype.webAssets'")
     func serviceIdentifierConstant() {
         #expect(KeychainStore.service == "com.hype.webAssets")

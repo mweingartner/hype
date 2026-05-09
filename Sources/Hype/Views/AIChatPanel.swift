@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import HypeCore
 
@@ -33,7 +34,13 @@ struct AIChatPanel: View {
     @AppStorage("ollamaHost") private var ollamaHost = "localhost"
     @AppStorage("ollamaPort") private var ollamaPort = "11434"
     @AppStorage("ollamaModel") private var ollamaModel = "llama3.2"
+    @AppStorage(HypeAIConfiguration.providerKey) private var aiProviderRaw = HypeAIProvider.ollama.rawValue
+    @AppStorage(HypeAIConfiguration.openAIModelKey) private var openAIModel = HypeAIConfiguration.defaultOpenAIModel
+    @AppStorage(HypeAIConfiguration.speakAssistantResponsesKey) private var speakAssistantResponses = false
+    @AppStorage(HypeAIConfiguration.openAITTSModelKey) private var openAITTSModel = HypeAIConfiguration.defaultOpenAITTSModel
+    @AppStorage(HypeAIConfiguration.openAIVoiceKey) private var openAIVoice = HypeAIConfiguration.defaultOpenAIVoice
     @AppStorage("hype.webAssets.provider") private var webAssetProviderRaw = "openverse"
+    @State private var speechPlayer: AVAudioPlayer?
 
     // MARK: - Chat bubble model
 
@@ -151,7 +158,7 @@ struct AIChatPanel: View {
                     .buttonStyle(.borderless)
                     .help("Clear Chat")
                 }
-                Text(ollamaModel)
+                Text(currentModelDisplay)
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
@@ -334,12 +341,12 @@ struct AIChatPanel: View {
                     }
 
                     Button(action: { speechCapture.toggle() }) {
-                        Image(systemName: speechCapture.isListening ? "mic.fill" : "mic")
+                        Image(systemName: speechCapture.isTranscribing ? "waveform.circle" : (speechCapture.isListening ? "mic.fill" : "mic"))
                             .font(.system(size: 14))
                             .foregroundColor(speechCapture.isListening ? .red : .primary)
                     }
                     .buttonStyle(.borderless)
-                    .help(speechCapture.isListening ? "Stop listening" : "Start voice input")
+                    .help(speechCapture.isTranscribing ? "Transcribing..." : (speechCapture.isListening ? "Stop listening" : "Start voice input"))
                 }
                 .padding(.bottom, 6)
             }
@@ -375,7 +382,7 @@ struct AIChatPanel: View {
                 isInputFocused = true
                 preloadModelIfNeeded()
             }
-            .onChange(of: ollamaModel) { _ in
+            .onChange(of: ollamaModel) { _, _ in
                 preloadModelIfNeeded()
             }
             .onReceive(NotificationCenter.default.publisher(for: .haltAIChat)) { _ in
@@ -408,6 +415,19 @@ struct AIChatPanel: View {
         }
     }
 
+    private var selectedAIProvider: HypeAIProvider {
+        HypeAIProvider(rawValue: aiProviderRaw) ?? .ollama
+    }
+
+    private var currentModelDisplay: String {
+        switch selectedAIProvider {
+        case .ollama:
+            return ollamaModel
+        case .openAI:
+            return "OpenAI: \(openAIModel)"
+        }
+    }
+
     // MARK: - History
 
     private enum HistoryDirection { case up, down }
@@ -431,6 +451,7 @@ struct AIChatPanel: View {
     /// surface its own error if the model is genuinely
     /// unreachable.
     private func preloadModelIfNeeded() {
+        guard selectedAIProvider == .ollama else { return }
         let host = ollamaHost
         let port = ollamaPort
         let model = ollamaModel
@@ -499,6 +520,36 @@ struct AIChatPanel: View {
         // Plain bubbles (no image) are safe to log as-is.
         if imageBase64 == nil {
             HypeLogger.shared.aiDialog(role: role, content: content, source: "AI Chat")
+        }
+        if role == "assistant", speakAssistantResponses {
+            speakAssistantText(content)
+        }
+    }
+
+    private func speakAssistantText(_ content: String) {
+        guard selectedAIProvider == .openAI else { return }
+        let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        Task {
+            do {
+                let apiKey = try KeychainStore.getSecret(account: KeychainStore.openAIAPIKeyAccount)
+                let data = try await OpenAISpeechClient(apiKey: apiKey).speech(
+                    text: String(text.prefix(1200)),
+                    model: openAITTSModel,
+                    voice: openAIVoice
+                )
+                await MainActor.run {
+                    do {
+                        let player = try AVAudioPlayer(data: data)
+                        speechPlayer = player
+                        player.play()
+                    } catch {
+                        HypeLogger.shared.warn("Failed to play OpenAI speech audio", source: "AI Chat")
+                    }
+                }
+            } catch {
+                HypeLogger.shared.warn("OpenAI speech output failed: \(error.localizedDescription)", source: "AI Chat")
+            }
         }
     }
 
@@ -749,8 +800,14 @@ struct AIChatPanel: View {
                     provider: WebAssetSearchProvider(rawValue: webAssetProviderRaw) ?? .openverse
                 )
                 let pipeline = WebAssetImportPipeline()
-                let ollamaClient = OllamaToolClient(host: ollamaHost, port: ollamaPort, model: ollamaModel)
-                let assistant = SceneAuthoringAssistant(client: ollamaClient)
+                let aiClient: any HypeAIClient
+                do {
+                    aiClient = try HypeAIConfiguration.makeClient()
+                } catch {
+                    appendMessage(role: "assistant", content: "Could not auto-resolve missing assets because the AI provider is not ready: \(error.localizedDescription)")
+                    return
+                }
+                let assistant = SceneAuthoringAssistant(client: aiClient)
                 var doc = document.document
                 let report = await assistant.resolveMissingAssets(
                     proposal: snap,
@@ -962,7 +1019,13 @@ struct AIChatPanel: View {
 
     @MainActor
     private func processStructuredScenePrompt(_ userMessage: String, intent: SpriteKitStructuredIntent) async -> Bool {
-        let client = OllamaToolClient(host: ollamaHost, port: ollamaPort, model: ollamaModel)
+        let client: any HypeAIClient
+        do {
+            client = try HypeAIConfiguration.makeClient()
+        } catch {
+            appendMessage(role: "assistant", content: "Structured scene planning failed: \(error.localizedDescription)")
+            return true
+        }
         let assistant = SceneAuthoringAssistant(client: client)
 
         do {
@@ -997,9 +1060,9 @@ struct AIChatPanel: View {
             let localized = error.localizedDescription
             let hint: String
             if case OllamaError.structuredDecodeFailed = error {
-                hint = "\n\nThe model \"\(ollamaModel)\" sent back a response that didn't match the scene schema. Try a larger model (e.g. qwen2.5:14b, llama3.1:70b) or simplify the request — the JSON fallback extractor already strips markdown fences, prose, and unknown enum values, so the issue is with the raw shape of the response."
+                hint = "\n\nThe model \"\(client.modelName)\" sent back a response that didn't match the scene schema. Try a larger model or simplify the request — the JSON fallback extractor already strips markdown fences, prose, and unknown enum values, so the issue is with the raw shape of the response."
             } else if case OllamaError.noStructuredContent = error {
-                hint = "\n\nThe model \"\(ollamaModel)\" returned an empty response. Make sure Ollama is running and the model is loaded."
+                hint = "\n\nThe model \"\(client.modelName)\" returned an empty response."
             } else if case OllamaError.requestTimedOut = error {
                 // `OllamaError.requestTimedOut` already includes a
                 // detailed actionable message; no need to append
@@ -1017,9 +1080,9 @@ struct AIChatPanel: View {
                 let lower = msg.lowercased()
                 if lower.contains("failed to load model vocabulary")
                     || lower.contains("vocabulary required for format") {
-                    hint = "\n\nThe model \"\(ollamaModel)\" doesn't support server-side structured output on this Ollama build. Hype already retried without the `format` field and with the schema embedded as a prompt instruction, but that also failed. Try a model that supports structured output: `llama3.1`, `llama3.2`, `qwen2.5`, or `mistral`. Gemma models and some older fine-tunes often lack the required tokenizer metadata."
+                    hint = "\n\nThe model \"\(client.modelName)\" doesn't support server-side structured output on this Ollama build. Hype already retried without the `format` field and with the schema embedded as a prompt instruction, but that also failed. Try a model that supports structured output: `llama3.1`, `llama3.2`, `qwen2.5`, or `mistral`. Gemma models and some older fine-tunes often lack the required tokenizer metadata."
                 } else {
-                    hint = "\n\nCheck that Ollama is running at \(ollamaHost):\(ollamaPort) and the model \"\(ollamaModel)\" is installed (`ollama pull \(ollamaModel)`)."
+                    hint = "\n\nCheck that Ollama is running at \(ollamaHost):\(ollamaPort) and the model \"\(client.modelName)\" is installed."
                 }
             } else {
                 hint = ""
@@ -1098,7 +1161,13 @@ struct AIChatPanel: View {
         // Reset the per-turn capture budget counter. Session budget (consumed) is preserved.
         captureBudget.beginTurn()
 
-        let client = OllamaToolClient(host: ollamaHost, port: ollamaPort, model: ollamaModel)
+        let client: any HypeAIClient
+        do {
+            client = try HypeAIConfiguration.makeClient()
+        } catch {
+            appendMessage(role: "assistant", content: "AI provider is not ready: \(error.localizedDescription)")
+            return
+        }
 
         // Build executor with web-asset dependencies when the stack has them enabled.
         let webAssetClient: (any WebAssetSearchClient)? = document.document.stack.webAssetsAllowed
@@ -1177,7 +1246,7 @@ struct AIChatPanel: View {
         // model because its training data had a minimal system prompt
         // rather than the full guide. We detect the tuned model by tag
         // prefix and skip the injection when present.
-        let isTunedHypeTalkModel = ollamaModel.lowercased().hasPrefix("hypetalk-")
+        let isTunedHypeTalkModel = selectedAIProvider == .ollama && client.modelName.lowercased().hasPrefix("hypetalk-")
         // Inline the guide as literal text only for untrained models.
         // The tuned model already has the guide in its Modelfile SYSTEM
         // block (see scripts/ai-training/src/package.sh) so adding it
@@ -1678,7 +1747,7 @@ struct AIChatPanel: View {
     private func iterateScriptDraft(
         initialRefusal: ScriptDraftRefusal,
         executor: HypeToolExecutor,
-        client: OllamaToolClient,
+        client: any HypeAIClient,
         tools: [OllamaTool],
         activeCardId: UUID
     ) async -> ScriptDraftCoordinator.LoopResult {

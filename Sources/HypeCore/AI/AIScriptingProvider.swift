@@ -12,7 +12,7 @@ public enum AIScriptingProviderError: Error, LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .requestTimedOut:
-            return "Timed out waiting for Ollama"
+            return "Timed out waiting for the AI provider"
         }
     }
 }
@@ -100,6 +100,33 @@ public struct OllamaAIScriptingProvider: AIScriptingProvider, Sendable {
         return trimmed
     }
 
+}
+
+public struct SelectedAIScriptingProvider: AIScriptingProvider, @unchecked Sendable {
+    private let defaults: UserDefaults
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    public func currentModel() -> String {
+        switch HypeAIConfiguration.selectedProvider(defaults: defaults) {
+        case .ollama:
+            return HypeAIConfiguration.normalized(defaults.string(forKey: "ollamaModel")) ?? "llama3.2"
+        case .openAI:
+            return HypeAIConfiguration.openAIModel(defaults: defaults)
+        }
+    }
+
+    public func availableModels() async throws -> [String] {
+        let client = try HypeAIConfiguration.makeClient(defaults: defaults)
+        return try await client.availableModels()
+    }
+
+    public func generate(prompt: String, model: String?) async throws -> String {
+        let client = try HypeAIConfiguration.makeClient(defaults: defaults)
+        return try await client.generate(prompt: prompt, model: model, system: nil)
+    }
 }
 
 public extension AIScriptingProvider {

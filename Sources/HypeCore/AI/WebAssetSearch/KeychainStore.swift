@@ -10,14 +10,14 @@ public enum KeychainStoreError: Error, Sendable {
     case encodingFailed
 }
 
-/// A thin, type-safe wrapper around `SecItem*` for storing the Pexels API key.
+/// A thin, type-safe wrapper around `SecItem*` for storing user-provided API keys.
 ///
 /// All items are stored under `kSecClassGenericPassword` with the service
 /// identifier `"com.hype.webAssets"` and accessibility class
 /// `kSecAttrAccessibleWhenUnlocked`. The `WhenUnlocked` accessibility class
 /// is the tightest class that still supports silent reads while the device
-/// is unlocked — required because the Pexels key is read automatically on
-/// every search without prompting the user.
+/// is unlocked — required because provider keys are read automatically for
+/// user-initiated AI and asset-search requests without prompting each time.
 public enum KeychainStore {
 
     /// Keychain service identifier shared by all web-asset keys.
@@ -131,4 +131,7 @@ public enum KeychainStore {
 public extension KeychainStore {
     /// Account identifier for the Pexels API key.
     static let pexelsAPIKeyAccount = "pexels.apiKey"
+
+    /// Account identifier for the OpenAI API key.
+    static let openAIAPIKeyAccount = "openai.apiKey"
 }

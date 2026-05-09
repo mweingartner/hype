@@ -354,7 +354,7 @@ struct NetworkPanelView: View {
 
     private func toggleListener(_ listener: SavedNetworkListener) {
         let snapshot = document.document
-        let configuration = StackRuntimeConfiguration(aiProvider: OllamaAIScriptingProvider())
+        let configuration = StackRuntimeConfiguration(aiProvider: SelectedAIScriptingProvider())
         Task {
             let runtime = await StackRuntimeRegistry.shared.runtime(for: snapshot, configuration: configuration)
             if await runtime.isSavedListenerActive(listener.id) {

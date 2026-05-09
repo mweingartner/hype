@@ -7,10 +7,9 @@ struct AIPanel: View {
     @State private var inputText: String = ""
     @State private var messages: [(role: String, content: String)] = []
     @State private var isLoading: Bool = false
-    @State private var apiKey: String = ""
-    @State private var showKeyField: Bool = false
-
-    private let aiService = AIService()
+    @AppStorage(HypeAIConfiguration.providerKey) private var aiProviderRaw = HypeAIProvider.ollama.rawValue
+    @AppStorage("ollamaModel") private var ollamaModel = "llama3.2"
+    @AppStorage(HypeAIConfiguration.openAIModelKey) private var openAIModel = HypeAIConfiguration.defaultOpenAIModel
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,23 +19,13 @@ struct AIPanel: View {
             HStack {
                 Text("AI Assistant").font(.headline)
                 Spacer()
-                Button(showKeyField ? "Hide Key" : "API Key") { showKeyField.toggle() }
-                    .buttonStyle(.borderless)
-                    .font(.system(size: 11))
+                Text(modelLabel)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
             }
             .padding(8)
             .background(hypeTheme.toolbarBackground.swiftUIColor)
             .environment(\.colorScheme, hypeTheme.toolbarColorScheme)
-
-            if showKeyField {
-                SecureField("Anthropic API Key", text: $apiKey)
-                    .textFieldStyle(.roundedBorder)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .onChange(of: apiKey) { _, newValue in
-                        Task { await aiService.setApiKey(newValue) }
-                    }
-            }
 
             // Messages
             ScrollView {
@@ -90,6 +79,13 @@ struct AIPanel: View {
         .environment(\.colorScheme, hypeTheme.chromeColorScheme)
     }
 
+    private var modelLabel: String {
+        if aiProviderRaw == HypeAIProvider.openAI.rawValue {
+            return "OpenAI: \(openAIModel)"
+        }
+        return ollamaModel
+    }
+
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
@@ -100,11 +96,13 @@ struct AIPanel: View {
 
         Task {
             do {
-                let response = try await aiService.ask(
+                let client = try HypeAIConfiguration.makeClient()
+                let response = try await client.generate(
                     prompt: text,
+                    model: nil,
                     system: "You are a helpful assistant for Hype, a HyperCard-inspired app. Help users create and modify stacks."
                 )
-                appendMessage(role: "assistant", content: response.text)
+                appendMessage(role: "assistant", content: response)
             } catch {
                 appendMessage(role: "assistant", content: "Error: \(error.localizedDescription)")
             }

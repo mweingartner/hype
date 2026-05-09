@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import Speech
 import Combine
+import HypeCore
 
 /// Voice capture pipeline for the AI Chat panel.
 ///
@@ -26,6 +27,7 @@ final class AISpeechCapture: ObservableObject {
     enum State: Equatable {
         case idle
         case listening
+        case transcribing
         case unavailable(reason: String)
         case error(String)
     }
@@ -42,6 +44,9 @@ final class AISpeechCapture: ObservableObject {
     private let audioEngine = AVAudioEngine()
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
+    private var openAIRecorder: AVAudioRecorder?
+    private var openAIRecordingURL: URL?
+    private var captureProvider: HypeSpeechInputProvider?
     private let recognizer: SFSpeechRecognizer? = SFSpeechRecognizer(locale: Locale.current)
         ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
 
@@ -51,16 +56,26 @@ final class AISpeechCapture: ObservableObject {
     }
 
     var isListening: Bool { state == .listening }
+    var isTranscribing: Bool { state == .transcribing }
 
     func toggle() {
         if isListening {
-            stop()
+            Task { await stopAndFinalizeIfNeeded() }
         } else {
             Task { await start() }
         }
     }
 
     func start() async {
+        let provider = HypeAIConfiguration.selectedSpeechInputProvider()
+        captureProvider = provider
+        transcript = ""
+
+        if provider == .openAI {
+            await startOpenAIRecording()
+            return
+        }
+
         guard recognizer?.isAvailable == true else {
             state = .unavailable(reason: "Speech recognition isn't available on this device")
             return
@@ -93,7 +108,48 @@ final class AISpeechCapture: ObservableObject {
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest = nil
+        openAIRecorder?.stop()
+        openAIRecorder = nil
+        if let url = openAIRecordingURL {
+            try? FileManager.default.removeItem(at: url)
+        }
+        openAIRecordingURL = nil
+        captureProvider = nil
         state = .idle
+    }
+
+    func stopAndFinalizeIfNeeded() async {
+        guard captureProvider == .openAI else {
+            stop()
+            return
+        }
+
+        openAIRecorder?.stop()
+        openAIRecorder = nil
+        guard let url = openAIRecordingURL else {
+            state = .idle
+            return
+        }
+
+        state = .transcribing
+        defer {
+            try? FileManager.default.removeItem(at: url)
+            openAIRecordingURL = nil
+            captureProvider = nil
+        }
+
+        do {
+            let apiKey = try KeychainStore.getSecret(account: KeychainStore.openAIAPIKeyAccount)
+            let text = try await OpenAISpeechClient(apiKey: apiKey).transcribe(
+                audioFileURL: url,
+                model: HypeAIConfiguration.openAITranscriptionModel()
+            )
+            transcript = text
+            state = .idle
+            transcriptDidFinalize.send(text)
+        } catch {
+            state = .error(error.localizedDescription)
+        }
     }
 
     // MARK: - Permissions
@@ -129,6 +185,32 @@ final class AISpeechCapture: ObservableObject {
     }
 
     // MARK: - Audio engine
+
+    private func startOpenAIRecording() async {
+        let micAuth = await requestMicrophoneAuthorization()
+        guard micAuth else {
+            state = .unavailable(reason: "Microphone access denied — enable in System Settings → Privacy & Security → Microphone.")
+            return
+        }
+        do {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("hype-openai-speech-\(UUID().uuidString).m4a")
+            let settings: [String: Any] = [
+                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                AVSampleRateKey: 44_100,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+            ]
+            let recorder = try AVAudioRecorder(url: url, settings: settings)
+            recorder.prepareToRecord()
+            recorder.record()
+            openAIRecorder = recorder
+            openAIRecordingURL = url
+            state = .listening
+        } catch {
+            state = .error(error.localizedDescription)
+        }
+    }
 
     private func beginCapture() throws {
         guard let recognizer, recognizer.isAvailable else {

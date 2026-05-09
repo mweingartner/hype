@@ -18,7 +18,7 @@ public struct AIResponse: Sendable {
     }
 }
 
-/// Manages AI integration — routes between local (Foundation Models) and cloud (Claude).
+/// Manages simple AI integration — routes between local Ollama and cloud OpenAI.
 public actor AIService {
     private var apiKey: String?
     private var routingMode: AIRoutingMode = .auto
@@ -85,6 +85,7 @@ public actor AIService {
         guard let key = apiKey, !key.isEmpty else {
             throw AIError.noApiKey
         }
+        let estimatedTokens = (prompt.count + (context?.count ?? 0)) / 4
 
         var messages: [[String: String]] = []
         if let ctx = context {
@@ -92,19 +93,10 @@ public actor AIService {
         }
         messages.append(["role": "user", "content": prompt])
 
-        var body: [String: Any] = [
-            "model": "claude-sonnet-4-20250514",
-            "max_tokens": 4096,
-            "messages": messages,
-        ]
-        if let sys = system {
-            body["system"] = sys
-        }
-
         var logLines = [
-            "POST /v1/messages",
-            "provider=anthropic",
-            "model=claude-sonnet-4-20250514",
+            "POST /v1/responses",
+            "provider=openai",
+            "model=\(HypeAIConfiguration.defaultOpenAIModel)",
         ]
         if let system, !system.isEmpty {
             logLines.append("SYSTEM:\n\(system)")
@@ -112,34 +104,19 @@ public actor AIService {
         logLines.append("MESSAGES:\n\(messages.map { "\($0["role"] ?? "unknown"):\n\($0["content"] ?? "")" }.joined(separator: "\n"))")
         HypeLogger.shared.aiInput(logLines.joined(separator: "\n"), source: "AI Service")
 
-        let jsonData = try JSONSerialization.data(withJSONObject: body)
-        var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(key, forHTTPHeaderField: "x-api-key")
-        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        request.httpBody = jsonData
-
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-                let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
-                throw AIError.apiError(String(errorText.prefix(200)))
-            }
+            let client = OpenAIResponsesClient(apiKey: key, model: HypeAIConfiguration.defaultOpenAIModel)
+            let composedPrompt = context.map { "Context:\n\($0)\n\nPrompt:\n\(prompt)" } ?? prompt
+            let content = try await client.generate(prompt: composedPrompt, model: nil, system: system)
+            let outputTokens = max(1, content.count / 4)
 
-            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            let content = (json?["content"] as? [[String: Any]])?.compactMap { $0["text"] as? String }.joined() ?? ""
-            let usage = json?["usage"] as? [String: Any]
-            let inputTokens = (usage?["input_tokens"] as? Int) ?? 0
-            let outputTokens = (usage?["output_tokens"] as? Int) ?? 0
-
-            dailyTokensUsed += inputTokens + outputTokens
+            dailyTokensUsed += estimatedTokens + outputTokens
             HypeLogger.shared.aiOutput(
                 """
-                POST /v1/messages
-                provider=anthropic
-                model=claude-sonnet-4-20250514
-                inputTokens=\(inputTokens)
+                POST /v1/responses
+                provider=openai
+                model=\(HypeAIConfiguration.defaultOpenAIModel)
+                inputTokens≈\(estimatedTokens)
                 outputTokens=\(outputTokens)
                 RESPONSE:
                 \(content)
@@ -147,10 +124,10 @@ public actor AIService {
                 source: "AI Service"
             )
 
-            return AIResponse(text: content, provider: "claude", tokensUsed: inputTokens + outputTokens)
+            return AIResponse(text: content, provider: "openai", tokensUsed: estimatedTokens + outputTokens)
         } catch {
             HypeLogger.shared.error(
-                "Anthropic request failed: \(error.localizedDescription)",
+                "OpenAI request failed: \(error.localizedDescription)",
                 source: "AI Service"
             )
             throw error
