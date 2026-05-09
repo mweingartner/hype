@@ -32,6 +32,29 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
         if let lastURL = launchState.lastOpenedFileURL {
             openDocument(at: lastURL)
         }
+
+        // Force a proper activation cycle on the first window.
+        //
+        // SwiftUI's `DocumentGroup` opens its first window in the
+        // "key" state directly, without going through a
+        // resignKey → becomeKey transition. The .help() / NSToolTip
+        // tracking areas are registered LAZILY in response to
+        // those becomeKey/becomeMain notifications, so at first
+        // launch the tracking areas exist on disk but aren't yet
+        // dispatching. The user sees: hovering tool icons in the
+        // left panel does nothing — until they tab away from Hype
+        // and back, at which point AppKit fires the proper
+        // resignKey → becomeKey cycle and tooltips start working.
+        //
+        // Calling `NSApp.activate(ignoringOtherApps: true)` after
+        // the first runloop tick (so the document window has had
+        // a chance to actually appear) forces the same cycle
+        // explicitly: AppKit re-evaluates window state, runs the
+        // becomeKey/becomeMain notifications, and the tracking
+        // areas register without needing the user to tab.
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
@@ -126,6 +149,14 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
     @objc
     private func windowDidBecomeMain(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
+        // Belt-and-suspenders for the tooltip-doesn't-fire-at-
+        // launch issue. NSToolTip uses tracking areas which
+        // generally don't need `acceptsMouseMovedEvents`, but
+        // setting it true ensures the window's content view
+        // delivers mouseMoved through the responder chain — some
+        // SwiftUI tooltip code paths depend on that. Cheap to
+        // set, defensive against future regressions.
+        window.acceptsMouseMovedEvents = true
         persistState(for: window)
         applyPendingWindowFrame(to: window)
     }
