@@ -134,4 +134,9 @@ public extension KeychainStore {
 
     /// Account identifier for the OpenAI API key.
     static let openAIAPIKeyAccount = "openai.apiKey"
+
+    /// Account identifier for the Meshy.ai API key. Stored under the
+    /// shared `KeychainStore.service` ("com.hype.webAssets") so it
+    /// lives next to the existing AI-provider keys.
+    static let meshyAPIKeyAccount = "meshy.apiKey"
 }

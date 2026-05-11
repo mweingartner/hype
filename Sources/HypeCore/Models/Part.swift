@@ -346,6 +346,17 @@ public struct Part: Identifiable, Codable, Sendable {
     /// `the object of scene3d "X"` return the author-visible path, not the
     /// internal cache path.
     public var scene3DSourceURL: String
+    /// Optional reference to a `SpriteRepository` asset of kind
+    /// `.model3D`. When non-nil, `Scene3DHostNSView` resolves the
+    /// asset's bytes through `SpriteRepository.asset(byId:)`, writes
+    /// them to a short-lived temp file under
+    /// `URL.temporaryDirectory/hype-scene3d/<id>.<ext>`,
+    /// and hands the URL to `Scene3DAssetLoader`. This is the
+    /// preferred path for Meshy-generated and document-embedded
+    /// models; `scene3DSourceURL` / `scene3DURL` remain as the
+    /// legacy file-URL path. When BOTH are set, `scene3DAssetRef`
+    /// wins.
+    public var scene3DAssetRef: AssetRef?
 
     // Script
     public var script: String
@@ -471,6 +482,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.scene3DBackground = ""
         self.scene3DAntialiasing = "multisampling4X"
         self.scene3DSourceURL = ""
+        self.scene3DAssetRef = nil
         self.script = ""
     }
 
@@ -586,6 +598,10 @@ public struct Part: Identifiable, Codable, Sendable {
         scene3DAntialiasing = try container.decodeIfPresent(String.self, forKey: .scene3DAntialiasing) ?? "multisampling4X"
         // scene3DSourceURL — added with STL import; backward-compat optional.
         scene3DSourceURL = try container.decodeIfPresent(String.self, forKey: .scene3DSourceURL) ?? ""
+        // scene3DAssetRef — added with Meshy Phase 1; backward-compat optional.
+        // When absent (pre-Meshy documents), defaults to nil and the host view
+        // falls back to the scene3DURL path.
+        scene3DAssetRef = try container.decodeIfPresent(AssetRef.self, forKey: .scene3DAssetRef)
         // ProgressView fields — backward-compat optional.
         progressValue = try container.decodeIfPresent(Double.self, forKey: .progressValue) ?? 0
         progressTotal = try container.decodeIfPresent(Double.self, forKey: .progressTotal) ?? 1.0

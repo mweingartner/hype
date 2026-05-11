@@ -36,6 +36,12 @@ struct PropertyInspector: View {
     }
     @State private var draggedNodeId: UUID?
     @State private var sceneGuideContext: SpriteSceneGuideContext?
+    /// Pre-fetched from Keychain on `.onAppear`. Used by the
+    /// scene3D inspector's "Generate from prompt…" button to
+    /// avoid a synchronous Keychain probe on the main thread (M4).
+    @State private var meshyKeyIsSet: Bool = false
+    /// When set, `Generate3DSheet` is presented targeting this part.
+    @State private var generate3DSheetTargetPartId: UUID? = nil
 
     var body: some View {
         Group {
@@ -221,6 +227,22 @@ struct PropertyInspector: View {
         }
         .onChange(of: selectedPartIds) { _, _ in
             selectedNodeIds = []
+        }
+        .onAppear {
+            meshyKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.meshyAPIKeyAccount)
+        }
+        .sheet(item: Binding(
+            get: { generate3DSheetTargetPartId.map { Generate3DSheetPartTarget(partId: $0) } },
+            set: { generate3DSheetTargetPartId = $0?.partId }
+        )) { target in
+            Generate3DSheet(
+                document: $document,
+                targetPartId: target.partId,
+                onAssetImported: { ref in
+                    document.document.updatePart(id: target.partId) { $0.scene3DAssetRef = ref }
+                },
+                onDismiss: { generate3DSheetTargetPartId = nil }
+            )
         }
     }
 
@@ -1241,7 +1263,36 @@ struct PropertyInspector: View {
     private func scene3DSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionHeading("3D Scene")
-            // Object Path is the author-visible source path (preferred field).
+
+            // From Repository — preferred path. Picks a model3D asset
+            // embedded in the Sprite Repository. When set, this takes
+            // priority over the Object Path URL below.
+            HStack {
+                Text("From Repository").font(.system(size: 10))
+                Picker("", selection: bindScene3DAssetRef(part.id)) {
+                    Text("\u{2014} None \u{2014}").tag(Optional<UUID>.none)
+                    ForEach(model3DAssets) { asset in
+                        Text(asset.name).tag(Optional(asset.id))
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .disabled(model3DAssets.isEmpty)
+            }
+
+            // Generate-from-prompt button — opens Generate3DSheet
+            // bound to this part so the imported asset is auto-assigned.
+            Button("Generate from prompt\u{2026}") { openGenerate3DSheetForPart(partId: part.id) }
+                .controlSize(.small)
+
+            Text("Pick a 3D model from the Sprite Repository, or generate one from a prompt. Use the \"Generate 3D\u{2026}\" button in the Sprite Repository to import models.")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            // Object Path is the author-visible source path (fallback).
             // Accepts .usdz / .usd / .scn / .dae / .obj / .stl. STL is
             // auto-converted to a cached .obj on import.
             HStack {
@@ -1272,6 +1323,64 @@ struct PropertyInspector: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+            }
+        }
+    }
+
+    // MARK: - Scene3D Meshy helpers
+
+    /// All `.model3D` assets in the Sprite Repository, sorted by name.
+    private var model3DAssets: [SpriteAsset] {
+        document.document.spriteRepository.assets
+            .filter { $0.kind == .model3D }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// Binding that reads/writes `Part.scene3DAssetRef` as an optional `UUID`
+    /// for use in a `Picker`. The Picker tags are `Optional<UUID>` so the "None"
+    /// entry maps cleanly to `nil`.
+    private func bindScene3DAssetRef(_ partId: UUID) -> Binding<UUID?> {
+        Binding(
+            get: {
+                self.document.document.parts.first(where: { $0.id == partId })?.scene3DAssetRef?.id
+            },
+            set: { newId in
+                self.document.document.updatePart(id: partId) { part in
+                    if let id = newId,
+                       let asset = self.document.document.spriteRepository.asset(byId: id) {
+                        part.scene3DAssetRef = self.document.document.spriteRepository.assetRef(for: asset)
+                    } else {
+                        part.scene3DAssetRef = nil
+                    }
+                }
+            }
+        )
+    }
+
+    /// Check the Meshy gate and either open the Generate3D sheet for this
+    /// part or surface an alert directing the user to enable the feature.
+    private func openGenerate3DSheetForPart(partId: UUID) {
+        switch Meshy3DGate.status(for: document.document, keyIsSet: meshyKeyIsSet) {
+        case .ready:
+            generate3DSheetTargetPartId = partId
+        case .stackDisabled:
+            let alert = NSAlert()
+            alert.messageText = "Enable 3D generation for this stack?"
+            alert.informativeText = "Generated 3D models will be downloaded from api.meshy.ai and embedded in this stack. You can disable this in Preferences \u{2192} Meshy.ai."
+            alert.addButton(withTitle: "Enable")
+            alert.addButton(withTitle: "Cancel")
+            if alert.runModal() == .alertFirstButtonReturn {
+                document.document.stack.meshyEnabled = true
+                generate3DSheetTargetPartId = partId
+            }
+        case .apiKeyMissing:
+            let alert = NSAlert()
+            alert.messageText = "Meshy API key required"
+            alert.informativeText = "Add your Meshy.ai API key in Preferences \u{2192} Meshy.ai before generating 3D models."
+            alert.addButton(withTitle: "Open Preferences\u{2026}")
+            alert.addButton(withTitle: "Cancel")
+            if alert.runModal() == .alertFirstButtonReturn {
+                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
             }
         }
     }
@@ -3894,6 +4003,15 @@ struct PropertyInspector: View {
                 .frame(width: 60)
         }
     }
+}
+
+/// Identifiable wrapper around a `UUID` used by `PropertyInspector` to
+/// present `Generate3DSheet` via `.sheet(item:)`. Carrying the part ID in an
+/// `Identifiable` struct lets SwiftUI derive the presentation trigger from
+/// optionality (`nil` = no sheet, non-nil = present for that part).
+private struct Generate3DSheetPartTarget: Identifiable {
+    let partId: UUID
+    var id: UUID { partId }
 }
 
 /// Local scope tag used by `themePickerSection` and `cascadeNote` to

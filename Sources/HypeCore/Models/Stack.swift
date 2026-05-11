@@ -31,6 +31,18 @@ public struct Stack: Identifiable, Codable, Sendable {
     /// private project rules, source text, or customer assets.
     public var aiContextCloudSharingAllowed: Bool
 
+    /// Whether the Meshy.ai 3D-model-generation feature is enabled for this
+    /// stack. Defaults to `false`, including for stacks created before Meshy
+    /// support shipped (backward-compatible decode). Toggled in Preferences
+    /// → Meshy.ai → Enable for Current Stack, or via the first-run prompt
+    /// raised by the Sprite Repository's "Generate 3D…" button.
+    ///
+    /// Gates BOTH the Generate-3D sheet AND any future Meshy AI tool surface
+    /// (Phase 2 adds `generate_3d_model_from_text` etc., which must check
+    /// this flag exactly the way the web-asset tools check
+    /// `webAssetsAllowed`).
+    public var meshyEnabled: Bool
+
     /// The stack-level theme name. NEVER nil — the cascade
     /// (card → background → stack) needs a guaranteed terminating
     /// reference, so newly-created stacks default to
@@ -45,6 +57,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         case defaultFont, networkManifest
         case webAssetsAllowed
         case aiContextCloudSharingAllowed
+        case meshyEnabled
         case themeName
     }
 
@@ -60,6 +73,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         networkManifest: StackNetworkManifest = StackNetworkManifest(),
         webAssetsAllowed: Bool = false,
         aiContextCloudSharingAllowed: Bool = false,
+        meshyEnabled: Bool = false,
         themeName: String = "System"
     ) {
         self.id = id
@@ -73,6 +87,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         self.networkManifest = networkManifest
         self.webAssetsAllowed = webAssetsAllowed
         self.aiContextCloudSharingAllowed = aiContextCloudSharingAllowed
+        self.meshyEnabled = meshyEnabled
         self.themeName = themeName
     }
 
@@ -90,6 +105,10 @@ public struct Stack: Identifiable, Codable, Sendable {
         // Backward-compatible: pre-v2 stacks have no webAssetsAllowed field.
         webAssetsAllowed = try c.decodeIfPresent(Bool.self, forKey: .webAssetsAllowed) ?? false
         aiContextCloudSharingAllowed = try c.decodeIfPresent(Bool.self, forKey: .aiContextCloudSharingAllowed) ?? false
+        // Backward-compatible: pre-Meshy stacks have no meshyEnabled field.
+        // Defaults to false (opt-in), matching the existing privacy-on-by-default
+        // pattern for webAssetsAllowed.
+        meshyEnabled = try c.decodeIfPresent(Bool.self, forKey: .meshyEnabled) ?? false
         // Backward-compatible: pre-theme stacks default to "System".
         themeName = try c.decodeIfPresent(String.self, forKey: .themeName) ?? "System"
     }

@@ -35,6 +35,15 @@ struct SpriteRepositoryView: View {
     @State private var sliceRows: Int = 1
     @State private var clipFps: Double = 12
 
+    // MARK: - Meshy 3D generation state
+    @State private var showGenerate3DSheet: Bool = false
+    @State private var showGenerate3DEnableConfirm: Bool = false
+    @State private var showGenerate3DKeyMissingAlert: Bool = false
+    /// Pre-fetched from Keychain on `.onAppear` and after Save/Delete.
+    /// Used by `openGenerate3DSheet()` to avoid a synchronous Keychain
+    /// probe on the main thread (security M4).
+    @State private var meshyKeyIsSet: Bool = false
+
     // MARK: - Tileset classification state
     // Local state for the classify panel. Seeded from the selected
     // asset when focus changes, so the user can tweak values before
@@ -81,6 +90,11 @@ struct SpriteRepositoryView: View {
                         Image(systemName: "square.grid.3x3")
                     }
                     .help("Import Tileset Image")
+
+                    Button(action: openGenerate3DSheet) {
+                        Image(systemName: "cube.transparent")
+                    }
+                    .help("Generate 3D…")
 
                     if !selectedAssetIds.isEmpty {
                         Button(action: duplicateSelected) {
@@ -202,6 +216,36 @@ struct SpriteRepositoryView: View {
             guard let assetId = notification.userInfo?["assetId"] as? UUID else { return }
             selectedAssetIds = [assetId]
         }
+        .onAppear {
+            meshyKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.meshyAPIKeyAccount)
+        }
+        .sheet(isPresented: $showGenerate3DSheet) {
+            Generate3DSheet(
+                document: $document,
+                targetPartId: nil,
+                onAssetImported: { ref in
+                    selectedAssetIds = [ref.id]
+                },
+                onDismiss: { showGenerate3DSheet = false }
+            )
+        }
+        .alert("Enable 3D generation for this stack?", isPresented: $showGenerate3DEnableConfirm) {
+            Button("Enable") {
+                document.document.stack.meshyEnabled = true
+                showGenerate3DSheet = true
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Generated 3D models will be downloaded from api.meshy.ai and embedded in this stack. You can disable this in Preferences \u{2192} Meshy.ai.")
+        }
+        .alert("Meshy API key required", isPresented: $showGenerate3DKeyMissingAlert) {
+            Button("Open Preferences\u{2026}") {
+                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Add your Meshy.ai API key in Preferences \u{2192} Meshy.ai before generating 3D models.")
+        }
     }
 
     // MARK: - Thumbnail
@@ -211,7 +255,12 @@ struct SpriteRepositoryView: View {
         let isSelected = selectedAssetIds.contains(asset.id)
         VStack(spacing: 4) {
             ZStack(alignment: .topTrailing) {
-                if asset.kind == .audioClip {
+                if asset.kind == .model3D {
+                    Image(systemName: "cube.transparent")
+                        .font(.system(size: 32))
+                        .foregroundColor(.indigo)
+                        .frame(width: 64, height: 64)
+                } else if asset.kind == .audioClip {
                     Image(systemName: "waveform")
                         .font(.system(size: 32))
                         .foregroundColor(.purple)
@@ -269,7 +318,25 @@ struct SpriteRepositoryView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
                 // Preview
-                if asset.kind == .audioClip {
+                if asset.kind == .model3D {
+                    // Phase 1 shows a placeholder icon; an inline SceneKit
+                    // preview will be added in Phase 4. The indigo cube
+                    // icon matches the thumbnail in the grid on the left.
+                    VStack(spacing: 6) {
+                        Image(systemName: "cube.transparent")
+                            .font(.system(size: 48))
+                            .foregroundColor(.indigo)
+                        Text("3D Model")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        Text("\(ByteCountFormatter.string(fromByteCount: Int64(asset.data.count), countStyle: .file))")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: 100)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(4)
+                } else if asset.kind == .audioClip {
                     Image(systemName: "waveform")
                         .font(.system(size: 48))
                         .foregroundColor(.purple)
@@ -561,8 +628,8 @@ struct SpriteRepositoryView: View {
                 // available in the multi-selection panel, surfaced
                 // here so the user doesn't need to multi-select a
                 // single asset to reach it. Only meaningful for image
-                // kinds; hidden for audio.
-                if asset.kind != .audioClip {
+                // kinds; hidden for audio and 3D models.
+                if asset.kind != .audioClip && asset.kind != .model3D {
                     Button(action: makeSelectedImagesTransparent) {
                         HStack { Image(systemName: "square.dashed"); Text("Transparent Background") }
                     }
@@ -634,6 +701,20 @@ struct SpriteRepositoryView: View {
 
     // MARK: - Actions
 
+    /// Check the Meshy gate and either show the Generate 3D sheet or
+    /// an appropriate alert directing the user to enable the feature or
+    /// add an API key.
+    private func openGenerate3DSheet() {
+        switch Meshy3DGate.status(for: document.document, keyIsSet: meshyKeyIsSet) {
+        case .ready:
+            showGenerate3DSheet = true
+        case .stackDisabled:
+            showGenerate3DEnableConfirm = true
+        case .apiKeyMissing:
+            showGenerate3DKeyMissingAlert = true
+        }
+    }
+
     private func deleteSelected() {
         for id in selectedAssetIds {
             document.document.spriteRepository.removeAsset(id: id)
@@ -671,7 +752,7 @@ struct SpriteRepositoryView: View {
         switch kind {
         case .imageTexture, .spriteSheet, .tileSet:
             return true
-        case .audioClip, .videoClip, .particlePreset, .placeholderAsset:
+        case .audioClip, .videoClip, .particlePreset, .placeholderAsset, .model3D:
             return false
         }
     }

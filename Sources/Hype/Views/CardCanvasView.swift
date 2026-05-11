@@ -3482,7 +3482,7 @@ class CardCanvasNSView: NSView {
             if let existing = scene3DViews[part.id] {
                 existing.isHidden = false
                 existing.frame = frame
-                existing.apply(part)
+                existing.apply(part, repository: document.spriteRepository)
                 continue
             }
             let host = Scene3DHostNSView(frame: frame)
@@ -3490,7 +3490,7 @@ class CardCanvasNSView: NSView {
             host.onLoadFailed = { [weak self] reason in
                 self?.coordinator?.dispatchScene3DLoadFailed(id: partId, reason: reason)
             }
-            host.apply(part)
+            host.apply(part, repository: document.spriteRepository)
             addSubview(host, positioned: .above, relativeTo: nil)
             scene3DViews[part.id] = host
         }

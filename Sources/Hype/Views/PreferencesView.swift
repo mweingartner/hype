@@ -22,6 +22,18 @@ struct PreferencesView: View {
     @State private var isTestingOpenAI = false
     @State private var openAITestStatus = ""
 
+    // MARK: - Meshy.ai state
+
+    @State private var meshyKeyDraft: String = ""
+    @State private var meshyKeyIsSet: Bool = false
+    @State private var meshyBalance: Int? = nil
+    @State private var isTestingMeshy: Bool = false
+    @State private var meshyTestStatus: String = ""
+    /// In-flight Task for balance refresh — cancelled before starting a new one (M3).
+    @State private var meshyBalanceTask: Task<Void, Never>? = nil
+    /// In-flight Task for connection test — cancelled before starting a new one (M3).
+    @State private var meshyTestTask: Task<Void, Never>? = nil
+
     // MARK: - Web Asset Search state
 
     /// The provider preference key. Default: openverse.
@@ -136,6 +148,58 @@ struct PreferencesView: View {
                 }
 
                 Text("Used when the AI generates images for cards, backgrounds, or Sprite Repository assets. This works even when Ollama is the selected chat provider.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // MARK: - Meshy.ai section
+
+            Section("Meshy.ai (3D model generation)") {
+                Toggle("Enable for Current Stack", isOn: currentStackMeshyEnabledBinding)
+                    .disabled(document == nil)
+                    .help("Allow the AI assistant and the Sprite Repository to generate 3D models using your Meshy.ai credits for this stack.")
+
+                HStack {
+                    SecureField(
+                        meshyKeyIsSet ? "API key stored (tap to replace)" : "Meshy API key (starts with msy_)",
+                        text: $meshyKeyDraft
+                    )
+                    .textFieldStyle(.roundedBorder)
+
+                    Button("Save") { saveMeshyKey() }
+                        .disabled(meshyKeyDraft.isEmpty)
+
+                    if meshyKeyIsSet {
+                        Button("Delete") { deleteMeshyKey() }
+                            .foregroundColor(.red)
+                    }
+                }
+
+                HStack {
+                    Text("Balance:")
+                    if let balance = meshyBalance {
+                        Text("\(balance) credits")
+                    } else {
+                        Text("—").foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Button("Refresh") { refreshMeshyBalance() }
+                        .disabled(!meshyKeyIsSet)
+                }
+
+                HStack {
+                    Button("Test connection") { testMeshyConnection() }
+                        .disabled(!meshyKeyIsSet)
+                    if isTestingMeshy { ProgressView().scaleEffect(0.7) }
+                    if !meshyTestStatus.isEmpty {
+                        Text(meshyTestStatus)
+                            .font(.system(size: 11))
+                            .foregroundColor(meshyTestStatus.hasPrefix("OK") ? .green : .red)
+                    }
+                }
+
+                Text("Prompts are sent to api.meshy.ai using your Meshy.ai credits. Generated models are downloaded over HTTPS and embedded in the current .hype document — never stored elsewhere.")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -260,7 +324,7 @@ struct PreferencesView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 560, height: 820)
+        .frame(width: 560, height: 1040)
         // Settings surface — tint with the inspector-background
         // token so the Preferences scene picks up theme swaps.
         .background(hypeTheme.inspectorBackground.swiftUIColor)
@@ -271,6 +335,7 @@ struct PreferencesView: View {
             fetchModels()
             pexelsKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.pexelsAPIKeyAccount)
             openAIKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.openAIAPIKeyAccount)
+            meshyKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.meshyAPIKeyAccount)
         }
     }
 
@@ -453,6 +518,81 @@ struct PreferencesView: View {
                 connectionStatus = "Error: \(error.localizedDescription)"
             }
             isLoading = false
+        }
+    }
+
+    // MARK: - Meshy.ai Bindings and Actions
+
+    /// Binding for `stack.meshyEnabled` — mirrors `currentStackWebAssetsBinding`.
+    private var currentStackMeshyEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { document?.document.stack.meshyEnabled ?? false },
+            set: { document?.document.stack.meshyEnabled = $0 }
+        )
+    }
+
+    private func saveMeshyKey() {
+        guard !meshyKeyDraft.isEmpty else { return }
+        do {
+            try KeychainStore.setSecret(meshyKeyDraft, account: KeychainStore.meshyAPIKeyAccount)
+            meshyKeyDraft = ""
+            meshyKeyIsSet = true
+            meshyTestStatus = ""
+        } catch {
+            meshyTestStatus = keychainErrorMessage(for: error)
+        }
+    }
+
+    private func deleteMeshyKey() {
+        do {
+            try KeychainStore.deleteSecret(account: KeychainStore.meshyAPIKeyAccount)
+            meshyKeyIsSet = false
+            meshyKeyDraft = ""
+            meshyBalance = nil
+            meshyTestStatus = ""
+        } catch {
+            meshyTestStatus = keychainErrorMessage(for: error)
+        }
+    }
+
+    /// Refresh the Meshy credit balance. Cancels any in-flight refresh
+    /// before starting a new one (M3 — prevents unbounded concurrent Tasks).
+    private func refreshMeshyBalance() {
+        meshyBalanceTask?.cancel()
+        meshyBalanceTask = Task {
+            do {
+                let key = try KeychainStore.getSecret(account: KeychainStore.meshyAPIKeyAccount)
+                let client = MeshyAIClient(apiKey: key)
+                let balance = try await client.fetchBalance()
+                await MainActor.run { meshyBalance = balance }
+            } catch {
+                await MainActor.run { meshyBalance = nil }
+            }
+        }
+    }
+
+    /// Test the Meshy connection by fetching the balance. Cancels any
+    /// in-flight test before starting a new one (M3).
+    private func testMeshyConnection() {
+        meshyTestTask?.cancel()
+        isTestingMeshy = true
+        meshyTestStatus = ""
+        meshyTestTask = Task {
+            do {
+                let key = try KeychainStore.getSecret(account: KeychainStore.meshyAPIKeyAccount)
+                let client = MeshyAIClient(apiKey: key)
+                let balance = try await client.fetchBalance()
+                await MainActor.run {
+                    meshyTestStatus = "OK: \(balance) credits"
+                    meshyBalance = balance
+                    isTestingMeshy = false
+                }
+            } catch {
+                await MainActor.run {
+                    meshyTestStatus = "Connection failed"
+                    isTestingMeshy = false
+                }
+            }
         }
     }
 
