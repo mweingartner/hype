@@ -36,7 +36,7 @@ next repeat    -- continue
 
 ## Events
 
-`on mouseUp`, `on mouseDown`, `on mouseEnter`, `on mouseLeave`, `on mouseWithin`, `on openCard`, `on closeCard`, `on openField`, `on closeField`, `on enterKey`, `on idle`, `on keyDown`, `on keyUp`, `on sceneDidLoad`, `on openScene`, `on closeScene`, `on frameUpdate`, `on beginContact`, `on endContact`, `on actionFinished`
+`on mouseUp`, `on mouseDown`, `on mouseEnter`, `on mouseLeave`, `on mouseWithin`, `on openCard`, `on closeCard`, `on openField`, `on closeField`, `on enterKey`, `on idle`, `on keyDown`, `on keyUp`, `on listen`, `on sceneDidLoad`, `on openScene`, `on closeScene`, `on frameUpdate`, `on beginContact`, `on endContact`, `on actionFinished`
 
 ## Variables & Data
 
@@ -111,6 +111,22 @@ show all cards    create card       create card with background "name"
 answer "Are you sure?"    -- alert, result in "it"
 ask "What is your name?"  -- input, result in "it"
 ```
+
+## Speech
+
+```
+say "this is a test of the speech support in Hype!"
+set activateListener to true
+set activateListener to false
+answer the activateListener
+
+on listen spokenText
+  put spokenText into field "lastSpeech"
+  pass listen
+end listen
+```
+
+`say` uses OpenAI text-to-speech when OpenAI speech output is enabled in Hype preferences; otherwise it falls back to macOS text-to-speech. `activateListener` defaults to false. When true, Hype listens asynchronously and dispatches finalized spoken input as `param 1` to the current card, then background, then stack. Use `pass listen` to continue routing.
 
 ## Async Rules
 
@@ -236,6 +252,7 @@ create spritearea "game" at rect 20,20,760,560
 create scene "main" in spritearea "game" with size 760,560
 create sprite "player" in scene "main" with asset "ship"
 create sprite "ball" in scene "main"
+create shape "wall" in scene "main" with type rectangle
 remove sprite "enemy"
 pause scene "main"
 resume scene "main"
@@ -245,6 +262,8 @@ open scene "level2" with transition "fade" duration 1.0
 ### Node Properties (get/set — works for sprite, label, shape, emitter, camera)
 ```
 set the loc of sprite "player" to "200,300"
+set the left of shape "wall" to 0
+set the top of shape "wall" to 0
 set the size of sprite "player" to "48,48"
 set the width of sprite "player" to 64
 set the rotation of sprite "player" to 45

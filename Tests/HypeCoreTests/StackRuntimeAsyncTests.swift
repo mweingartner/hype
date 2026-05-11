@@ -39,8 +39,35 @@ private actor RuntimeSpeechRecorder: SpeechOutputProvider {
         spoken.append((text, source))
     }
 
+    func speakScriptText(_ text: String, source: String) async {
+        spoken.append((text, source))
+    }
+
     func texts() -> [String] {
         spoken.map(\.text)
+    }
+}
+
+private actor RuntimeSpeechListenerProbe: SpeechListenerProvider {
+    private var callback: (@Sendable (String) async -> Void)?
+    private(set) var transitions: [Bool] = []
+
+    func startSpeechListener(onTranscript: @escaping @Sendable (String) async -> Void) async throws {
+        transitions.append(true)
+        callback = onTranscript
+    }
+
+    func stopSpeechListener() async {
+        transitions.append(false)
+        callback = nil
+    }
+
+    func emit(_ transcript: String) async {
+        await callback?(transcript)
+    }
+
+    func states() -> [Bool] {
+        transitions
     }
 }
 
@@ -168,11 +195,13 @@ private func makeRuntimeDocument(
 private func runtimeConfiguration(
     aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
     speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
+    speechListenerProvider: SpeechListenerProvider = StubSpeechListenerProvider(),
     clock: RuntimeClock = SystemRuntimeClock()
 ) -> StackRuntimeConfiguration {
     StackRuntimeConfiguration(
         aiProvider: aiProvider,
         speechOutputProvider: speechOutputProvider,
+        speechListenerProvider: speechListenerProvider,
         permissionStore: UserDefaultsNetworkPermissionStore(defaults: UserDefaults(suiteName: "StackRuntimeAsyncTests.\(UUID().uuidString)")!),
         clock: clock
     )
@@ -284,6 +313,92 @@ struct StackRuntimeAsyncTests {
         #expect(completed)
         #expect(outputText(from: updated, fieldID: fieldID) == "mission briefing")
         #expect(await speechRecorder.texts() == ["mission briefing"])
+    }
+
+    @Test("say command uses the script speech provider in stack runtime")
+    func sayCommandUsesRuntimeSpeechProvider() async {
+        let speechRecorder = RuntimeSpeechRecorder()
+        let (doc, cardId, buttonId, _) = makeRuntimeDocument(buttonScript: """
+        on mouseUp
+          say "runtime speech"
+        end mouseUp
+        """)
+
+        let runtime = await StackRuntimeRegistry.shared.runtime(
+            for: doc,
+            configuration: runtimeConfiguration(speechOutputProvider: speechRecorder)
+        )
+        let result = await runtime.dispatchAndWait("mouseUp", params: [], targetId: buttonId, currentCardId: cardId)
+        await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
+
+        #expect(result.status == .completed)
+        #expect(await speechRecorder.texts() == ["runtime speech"])
+    }
+
+    @Test("activateListener dispatches listen through card background and stack")
+    func activateListenerDispatchesListenThroughHierarchy() async {
+        let listenerProbe = RuntimeSpeechListenerProbe()
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        let backgroundId = doc.cards[0].backgroundId
+
+        doc.cards[0].script = """
+        on listen spokenText
+          put "card:" & spokenText into field "output"
+          pass listen
+        end listen
+        """
+        if let bgIndex = doc.backgrounds.firstIndex(where: { $0.id == backgroundId }) {
+            doc.backgrounds[bgIndex].script = """
+            on listen spokenText
+              put "|background:" & spokenText after field "output"
+              pass listen
+            end listen
+            """
+        }
+        doc.stack.script = """
+        on listen spokenText
+          put "|stack:" & spokenText after field "output"
+        end listen
+        """
+
+        var button = Part(partType: .button, cardId: cardId, name: "Runner")
+        button.script = """
+        on mouseUp
+          set activateListener to true
+          put the activateListener into field "output"
+        end mouseUp
+        """
+        doc.addPart(button)
+        let field = Part(partType: .field, cardId: cardId, name: "output")
+        doc.addPart(field)
+
+        let runtime = await StackRuntimeRegistry.shared.runtime(
+            for: doc,
+            configuration: runtimeConfiguration(speechListenerProvider: listenerProbe)
+        )
+        let startResult = await runtime.dispatchAndWait("mouseUp", params: [], targetId: button.id, currentCardId: cardId)
+        #expect(startResult.status == .completed)
+        #expect(await runtime.isSpeechListenerActive())
+        #expect(await listenerProbe.states() == [true])
+
+        await listenerProbe.emit("open the pod bay doors")
+        var updated = await runtime.currentDocument()
+        #expect(outputText(from: updated, fieldID: field.id) == "card:open the pod bay doors|background:open the pod bay doors|stack:open the pod bay doors")
+
+        updated.updatePart(id: button.id) { part in
+            part.script = """
+            on mouseUp
+              set activateListener to false
+            end mouseUp
+            """
+        }
+        await runtime.syncDocument(updated)
+        let stopResult = await runtime.dispatchAndWait("mouseUp", params: [], targetId: button.id, currentCardId: cardId)
+        await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
+
+        #expect(stopResult.status == .completed)
+        #expect(await listenerProbe.states() == [true, false])
     }
 
     #if canImport(Network)

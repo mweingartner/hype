@@ -110,6 +110,7 @@ struct ParserCoverageTests {
     @Test func parseFunction() { #expect(parse("function double x\n  return x * 2\nend double")) }
     @Test func parseCreateSprite() { #expect(parse("on t\n  create sprite \"p\" with asset \"ship\"\nend t")) }
     @Test func parseCreateGroup() { #expect(parse("on t\n  create group \"enemies\"\nend t")) }
+    @Test func parseCreateShapeWithBareType() { #expect(parse("on t\n  create shape wallName with type rectangle\nend t")) }
     @Test func parseCreateCamera() { #expect(parse("on t\n  create camera \"cam\"\nend t")) }
     @Test func parseCreateTilemap() { #expect(parse("on t\n  create tilemap \"map\" columns 10 rows 10 tilesize 32\nend t")) }
     @Test func parseApplyForce() { #expect(parse("on t\n  apply force \"10,20\" to sprite \"ball\"\nend t")) }
@@ -118,6 +119,7 @@ struct ParserCoverageTests {
     @Test func parseConstrainCommand() { #expect(parse("on t\n  constrain sprite \"e\" distance 50 to 200 from sprite \"p\"\nend t")) }
     @Test func parseItemChunk() { #expect(parse("on t\n  put item 1 of \"a,b,c\" into x\nend t")) }
     @Test func parseWordChunk() { #expect(parse("on t\n  put word 2 of \"hello world\" into x\nend t")) }
+    @Test func parseAIGeneratedSubtractToCompatibility() { #expect(parse("on idle\n  if moveDir is \"left\" then subtract 3 to px\nend idle")) }
 }
 
 // MARK: - 2. Command Execution
@@ -165,6 +167,18 @@ struct CommandExecutionTests {
         on mouseUp
           put 10 into x
           subtract 3 from x
+          put x into field "output"
+        end mouseUp
+        """, on: &doc, cardId: cardId, targetId: btnId)
+        #expect(fieldText(result, name: "output") == "7")
+    }
+
+    @Test func subtractToVariableCompatibility() async {
+        var (doc, cardId, btnId) = makeTestDoc()
+        let result = await runScript("""
+        on mouseUp
+          put 10 into x
+          subtract 3 to x
           put x into field "output"
         end mouseUp
         """, on: &doc, cardId: cardId, targetId: btnId)
@@ -1541,6 +1555,33 @@ struct SpriteCRUDTests {
         let enemy = spec?.nodes.first(where: { $0.name == "enemy" })
         #expect(enemy != nil)
         #expect(enemy?.nodeType == .sprite)
+    }
+
+    @Test func createShapeAddsNodeAndHonorsEdgeGeometry() async {
+        var (doc, cardId, btnId) = makeSceneDoc()
+        let result = await runScript("""
+        on mouseUp
+          put "wall_" & 1 into wallName
+          create shape wallName with type rectangle
+          set the fillColor of shape wallName to "#333330"
+          set the left of shape wallName to 40
+          set the top of shape wallName to 80
+          set the width of shape wallName to 40
+          set the height of shape wallName to 20
+        end mouseUp
+        """, on: &doc, cardId: cardId, targetId: btnId)
+        #expect(result.status == .completed)
+        let area = result.modifiedDocument?.parts.first(where: { $0.partType == .spriteArea })
+        let spec = SceneSpec.fromJSON(area?.sceneSpec ?? "")
+        let wall = spec?.nodes.first(where: { $0.name == "wall_1" })
+        #expect(wall != nil)
+        #expect(wall?.nodeType == .shape)
+        #expect(wall?.shapeSpec?.shapeType == .rect)
+        #expect(wall?.shapeSpec?.fillColor == "#333330")
+        #expect(wall?.size?.width == 40)
+        #expect(wall?.size?.height == 20)
+        #expect(wall?.position.x == 60)
+        #expect(wall?.position.y == 90)
     }
 
     @Test func removeSpriteRemovesNode() async {

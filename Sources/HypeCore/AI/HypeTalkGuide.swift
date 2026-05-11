@@ -36,7 +36,7 @@ public enum HypeTalkGuide {
     /// 8. Chunk expressions (text slicing — read-only)
     /// 9. Control flow (if/else, repeat, exit, pass)
     /// 10. Built-in functions (full enumeration)
-    /// 11. Navigation, visual effects, dialogs
+    /// 11. Navigation, visual effects, dialogs, speech
     /// 12. Sound, animation, sprite scenes, tile maps, networking
     /// 13. Stub commands (recognized but no-op — do not rely on these)
     /// 14. Canonical handler patterns
@@ -80,6 +80,7 @@ public enum HypeTalkGuide {
         mouseUp, mouseDown, mouseDragged, mouseWithin, mouseEnter, mouseLeave,
         openCard, closeCard, openBackground, closeBackground, openStack, closeStack,
         openField, closeField, exitField, enterKey (alias: enter), keyDown, keyUp, idle,
+        listen,
         openScene, closeScene, sceneDidLoad, frameUpdate,
         beginContact, endContact, actionFinished.
 
@@ -239,6 +240,7 @@ public enum HypeTalkGuide {
         **Scene3D:** modelLoadFailed (param 1 = reason string; fires when SCNScene returns nil or STL conversion fails — use to show a fallback or log an error).
         **ProgressView:** progressFinished (fires once when value reaches total; resets when value drops below total).
         **AI tools:** aiToolFinished, aiToolFailed.
+        **Speech listener:** listen (param 1 = finalized spoken transcript; dispatched to the current card, then background, then stack. Use `pass listen` to continue up the chain).
 
         ## Operators and precedence
 
@@ -416,6 +418,19 @@ public enum HypeTalkGuide {
             ask "Pick:" with "default text"      -- prefilled input
         After every `ask`/`answer`, READ FROM `it` IMMEDIATELY — any subsequent command can overwrite it.
 
+        ## Speech
+            say "this is a test of the speech support in Hype!"     -- speak text aloud
+            set activateListener to true                            -- start async speech recognition
+            set activateListener to false                           -- stop async speech recognition
+            answer the activateListener                              -- "true" or "false"
+
+        `say` uses OpenAI text-to-speech when OpenAI speech output is enabled in Hype preferences; otherwise Hype falls back to macOS system text-to-speech. `activateListener` defaults to false for every stack session. When enabled, Hype listens in the background and sends finalized spoken input as `param 1` to `on listen` on the current card. Normal message routing applies: card -> background -> stack -> Hype. Use `pass listen` if the card handler should let the background or stack also handle the same transcript.
+
+            on listen spokenText
+              put spokenText into field "lastSpeech"
+              pass listen
+            end listen
+
         ## Async rules
         HypeTalk is sync by default. A handler only suspends when it uses one of the explicit async forms below.
 
@@ -471,9 +486,14 @@ public enum HypeTalkGuide {
 
         ## Sprite scenes (SpriteKit)
             create sprite "player" in scene "main" with asset "hero"
+            create shape "wall" in scene "main" with type rectangle
             remove sprite "enemy"
             pause scene "main"                   resume scene "main"
             set the loc of sprite "player" to "200,300"
+            set the left of shape "wall" to 0
+            set the top of shape "wall" to 0
+            set the width of shape "wall" to 800
+            set the height of shape "wall" to 20
             set the velocity of sprite "ball" to "100,-50"
             apply force "10,20" to sprite "ball"
             apply impulse "5,0" to sprite "ball"

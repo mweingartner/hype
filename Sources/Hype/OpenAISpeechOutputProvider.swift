@@ -2,6 +2,20 @@ import AVFoundation
 import Foundation
 import HypeCore
 
+@MainActor
+private final class SystemSpeechOutput {
+    static let shared = SystemSpeechOutput()
+
+    private let synthesizer = AVSpeechSynthesizer()
+
+    func speak(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let utterance = AVSpeechUtterance(string: trimmed)
+        synthesizer.speak(utterance)
+    }
+}
+
 actor OpenAISpeechOutputProvider: SpeechOutputProvider {
     static let shared = OpenAISpeechOutputProvider()
 
@@ -15,11 +29,24 @@ actor OpenAISpeechOutputProvider: SpeechOutputProvider {
         // Keep speech responsive and avoid accidentally voicing large tool/debug payloads.
         let spokenText = String(trimmed.prefix(1200))
         Task {
-            await self.generateAndPlay(text: spokenText, source: source)
+            _ = await self.generateAndPlay(text: spokenText, source: source)
         }
     }
 
-    private func generateAndPlay(text: String, source: String) async {
+    func speakScriptText(_ text: String, source: String) async {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let spokenText = String(trimmed.prefix(1200))
+        if UserDefaults.standard.bool(forKey: HypeAIConfiguration.speakAssistantResponsesKey),
+           await generateAndPlay(text: spokenText, source: source) {
+            return
+        }
+        await MainActor.run {
+            SystemSpeechOutput.shared.speak(spokenText)
+        }
+    }
+
+    private func generateAndPlay(text: String, source: String) async -> Bool {
         do {
             let apiKey = try KeychainStore.getSecret(account: KeychainStore.openAIAPIKeyAccount)
             let client = OpenAISpeechClient(apiKey: apiKey)
@@ -32,8 +59,10 @@ actor OpenAISpeechOutputProvider: SpeechOutputProvider {
             speechPlayer = player
             player.prepareToPlay()
             player.play()
+            return true
         } catch {
             HypeLogger.shared.warn("OpenAI speech output failed: \(error.localizedDescription)", source: source)
+            return false
         }
     }
 }

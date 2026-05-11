@@ -3962,25 +3962,18 @@ private func scriptWindowKey(for target: ScriptTarget?, partId: UUID?) -> String
     return "unkeyed:\(UUID().uuidString)"
 }
 
-/// Sprite areas execute user-authored scripts on their active
-/// `SceneSpec`, not on the legacy part-level script slot. Redirect
-/// generic "open this part's script" requests to the active scene so
-/// Cmd-click, runtime errors, and older callers show the same script
-/// that SpriteKit actually runs.
+/// Resolve the script editor target without changing script ownership.
+/// Sprite areas have two valid script slots: the container part script
+/// and the active scene script. Runtime errors that originate in the
+/// container must open the container script; explicit scene edit buttons
+/// pass `.scene(...)` when the scene script is intended.
 @MainActor
 private func effectiveScriptTarget(
     in document: HypeDocument,
     target: ScriptTarget?,
     partId: UUID?
 ) -> ScriptTarget? {
-    let initialTarget = target ?? partId.map { ScriptTarget.part($0) }
-    guard case .part(let id) = initialTarget,
-          let part = document.parts.first(where: { $0.id == id }),
-          part.partType == .spriteArea,
-          let sceneId = part.spriteAreaSpecModel?.activeSceneEntry?.id else {
-        return initialTarget
-    }
-    return .scene(partId: id, sceneId: sceneId)
+    scriptEditorResolvedTarget(in: document, target: target, partId: partId)
 }
 
 /// Opens the ScriptEditor in a movable, resizable NSWindow with light appearance.

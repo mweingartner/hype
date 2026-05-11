@@ -60,6 +60,10 @@ private struct RecordingSpeechOutputProvider: SpeechOutputProvider {
     func speakAIResponse(_ text: String, source: String) async {
         probe.record(text: text, source: source)
     }
+
+    func speakScriptText(_ text: String, source: String) async {
+        probe.record(text: text, source: source)
+    }
 }
 
 private func makeAIScriptDoc() -> (HypeDocument, UUID, UUID) {
@@ -126,6 +130,22 @@ struct HypeTalkAITests {
         """))
     }
 
+    @Test("parses speech commands and listen handlers")
+    func parseSpeechCommandsAndListenHandler() async {
+        #expect(parse("""
+        on mouseUp
+          say "hello"
+          set activateListener to true
+          activateListener false
+        end mouseUp
+
+        on listen spokenText
+          put spokenText into field "output"
+          pass listen
+        end listen
+        """))
+    }
+
     @Test("ask ai stores the generated text in it") func askAIStoresGeneratedTextInIt() async {
         let provider = RecordingAIProvider(generated: "Scene summary")
         let result = await runAIScript("""
@@ -156,6 +176,21 @@ struct HypeTalkAITests {
         #expect(outputText(from: result) == "Scene summary")
         #expect(speechProbe.texts == ["Scene summary"])
         #expect(speechProbe.sources == ["HypeTalk AI"])
+    }
+
+    @Test("say command speaks through the script speech provider")
+    func sayCommandSpeaksThroughScriptSpeechProvider() async {
+        let speechProbe = SpeechProbe()
+        let provider = RecordingAIProvider()
+        let result = await runAIScript("""
+        on mouseUp
+          say "this is a test"
+        end mouseUp
+        """, provider: provider, speechOutputProvider: RecordingSpeechOutputProvider(probe: speechProbe))
+
+        #expect(result.status == .completed)
+        #expect(speechProbe.texts == ["this is a test"])
+        #expect(speechProbe.sources == ["HypeTalk say"])
     }
 
     @Test("ask ai with model passes the requested model name") func askAIWithModelUsesRequestedModel() async {

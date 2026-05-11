@@ -395,6 +395,37 @@ public struct Interpreter: Sendable {
         try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
     }
 
+    private func isActivateListenerProperty(_ property: String) -> Bool {
+        switch property.lowercased().replacingOccurrences(of: "_", with: "") {
+        case "activatelistener", "speechlistener", "listeneractive":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func setSpeechListenerActive(
+        _ activeValue: Value,
+        context: ExecutionContext,
+        handler: Handler
+    ) async throws {
+        guard let runtime = context.runtimeProvider else {
+            throw ScriptError(
+                message: "Speech listener runtime is unavailable",
+                line: handler.line,
+                handler: handler.name
+            )
+        }
+        try await runtime.setSpeechListenerActive(
+            isTruthy(activeValue),
+            owner: RuntimeOwnerContext(
+                targetId: context.currentCardId,
+                currentCardId: context.currentCardId,
+                scriptContext: nil
+            )
+        )
+    }
+
     // MARK: - Statement execution
 
     private func executeStatement(
@@ -457,6 +488,11 @@ public struct Interpreter: Sendable {
 
         case .set(let property, let target, let toExpr):
             let value = try await evaluate(toExpr, env: &env, document: document, context: context)
+            if target == nil, isActivateListenerProperty(property) {
+                try await setSpeechListenerActive(value, context: context, handler: handler)
+                env.it = isTruthy(value) ? "true" : "false"
+                break
+            }
             if let targetExpr = target {
                 // Chart data-point reference set path:
                 //   set the color of data point N of [series N of] chart "X" to "#FF0000"
@@ -804,6 +840,16 @@ public struct Interpreter: Sendable {
             let promptText = try await evaluate(prompt, env: &env, document: document, context: context)
             let response = await context.dialogProvider.showAnswerAsync(prompt: promptText)
             env.it = response
+
+        case .say(let prompt):
+            let promptText = try await evaluate(prompt, env: &env, document: document, context: context)
+            await context.speechOutputProvider.speakScriptText(promptText, source: "HypeTalk say")
+            env.it = promptText
+
+        case .activateListener(let activeExpr):
+            let activeValue = try await evaluate(activeExpr, env: &env, document: document, context: context)
+            try await setSpeechListenerActive(activeValue, context: context, handler: handler)
+            env.it = isTruthy(activeValue) ? "true" : "false"
 
         case .visual(let effectExpr, let durationExpr):
             // Record the requested visual effect name (and optional
@@ -1409,6 +1455,50 @@ public struct Interpreter: Sendable {
                     let newNode = HypeNodeSpec(name: name, nodeType: .group, position: PointSpec(x: 0, y: 0))
                     if let parentName {
                         if !Self.addNodeToParent(node: newNode, parentName: parentName, nodes: &spec.nodes) {
+                            spec.nodes.append(newNode)
+                        }
+                    } else {
+                        spec.nodes.append(newNode)
+                    }
+                }
+            }
+
+        case .createShape(let nameExpr, let sceneExpr, let shapeTypeExpr):
+            let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
+            let shapeTypeName = shapeTypeExpr != nil
+                ? try await evaluate(shapeTypeExpr!, env: &env, document: document, context: context)
+                : "rect"
+            let shapeType = SpriteShapeType.tolerantValue(shapeTypeName, default: .rect)
+            let parentGroupName: String?
+            let partIndex: Int?
+            if let sExpr = sceneExpr {
+                let targetName = try await evaluate(sExpr, env: &env, document: document, context: context)
+                let areaIndex = resolveSpriteAreaPartIndex(
+                    named: targetName,
+                    document: document,
+                    currentCardId: context.currentCardId
+                )
+                if let ai = areaIndex {
+                    partIndex = ai
+                    parentGroupName = nil
+                } else {
+                    partIndex = resolveSpriteAreaPartIndex(document: document, currentCardId: context.currentCardId)
+                    parentGroupName = targetName
+                }
+            } else {
+                partIndex = resolveSpriteAreaPartIndex(document: document, currentCardId: context.currentCardId)
+                parentGroupName = nil
+            }
+            if let idx = partIndex {
+                _ = mutateActiveScene(partIndex: idx, document: &document) { spec in
+                    let newNode = HypeNodeSpec(
+                        name: name,
+                        nodeType: .shape,
+                        size: SizeSpec(width: 50, height: 50),
+                        shapeSpec: ShapeNodeSpec(shapeType: shapeType)
+                    )
+                    if let groupName = parentGroupName {
+                        if !Self.addNodeToParent(node: newNode, parentName: groupName, nodes: &spec.nodes) {
                             spec.nodes.append(newNode)
                         }
                     } else {
@@ -2410,6 +2500,8 @@ public struct Interpreter: Sendable {
                 return context.aiProvider.currentModel()
             case "aimodels", "availableaimodels", "ollamamodels":
                 return try await context.aiProvider.availableModels().joined(separator: "\n")
+            case "activatelistener", "speechlistener", "listeneractive":
+                return (await context.runtimeProvider?.isSpeechListenerActive()) == true ? "true" : "false"
             case "date":
                 let formatter = DateFormatter()
                 formatter.dateStyle = .medium
@@ -4426,6 +4518,18 @@ public struct Interpreter: Sendable {
         return nil
     }
 
+    private func effectiveNodeSize(_ node: HypeNodeSpec) -> SizeSpec {
+        if let size = node.size { return size }
+        if node.nodeType == .shape { return SizeSpec(width: 50, height: 50) }
+        return SizeSpec(width: 0, height: 0)
+    }
+
+    private func ensureNodeSize(_ node: inout HypeNodeSpec) {
+        if node.size == nil {
+            node.size = effectiveNodeSize(node)
+        }
+    }
+
     private func applyNodePropertySet(
         property: String,
         value: Value,
@@ -4437,6 +4541,22 @@ public struct Interpreter: Sendable {
             if comps.count >= 2 {
                 node.position = PointSpec(x: comps[0], y: comps[1])
             }
+        case "left", "left_pos":
+            ensureNodeSize(&node)
+            let size = effectiveNodeSize(node)
+            node.position.x = toNumber(value) + size.width / 2
+        case "top", "top_pos":
+            ensureNodeSize(&node)
+            let size = effectiveNodeSize(node)
+            node.position.y = toNumber(value) + size.height / 2
+        case "right":
+            ensureNodeSize(&node)
+            let size = effectiveNodeSize(node)
+            node.position.x = toNumber(value) - size.width / 2
+        case "bottom":
+            ensureNodeSize(&node)
+            let size = effectiveNodeSize(node)
+            node.position.y = toNumber(value) - size.height / 2
         case "rotation":
             node.rotation = toNumber(value)
         case "alpha":
@@ -4467,11 +4587,19 @@ public struct Interpreter: Sendable {
             // restoring the simple text path on SKLabelNode.
             node.textStyle = TextStyleFlags(string: value).rawString
         case "width":
-            if node.size == nil { node.size = SizeSpec(width: 50, height: 50) }
-            node.size?.width = toNumber(value)
+            let oldSize = effectiveNodeSize(node)
+            let left = node.position.x - oldSize.width / 2
+            ensureNodeSize(&node)
+            let newWidth = toNumber(value)
+            node.size?.width = newWidth
+            node.position.x = left + newWidth / 2
         case "height":
-            if node.size == nil { node.size = SizeSpec(width: 50, height: 50) }
-            node.size?.height = toNumber(value)
+            let oldSize = effectiveNodeSize(node)
+            let top = node.position.y - oldSize.height / 2
+            ensureNodeSize(&node)
+            let newHeight = toNumber(value)
+            node.size?.height = newHeight
+            node.position.y = top + newHeight / 2
         case "fillcolor", "fill":
             if node.shapeSpec == nil { node.shapeSpec = ShapeNodeSpec() }
             node.shapeSpec?.fillColor = value
@@ -4486,9 +4614,8 @@ public struct Interpreter: Sendable {
             node.shapeSpec?.cornerRadius = toNumber(value)
         case "shapetype":
             if node.shapeSpec == nil { node.shapeSpec = ShapeNodeSpec() }
-            if let st = SpriteShapeType(rawValue: value.lowercased()) {
-                node.shapeSpec?.shapeType = st
-            }
+            let fallback = node.shapeSpec?.shapeType ?? .rect
+            node.shapeSpec?.shapeType = SpriteShapeType.tolerantValue(value, default: fallback)
         case "size":
             let comps = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
             if comps.count >= 2 {
@@ -4615,6 +4742,14 @@ public struct Interpreter: Sendable {
         case "name":        return node.name
         case "loc", "location", "position":
             return "\(formatNumber(node.position.x)),\(formatNumber(node.position.y))"
+        case "left", "left_pos":
+            return formatNumber(node.position.x - effectiveNodeSize(node).width / 2)
+        case "top", "top_pos":
+            return formatNumber(node.position.y - effectiveNodeSize(node).height / 2)
+        case "right":
+            return formatNumber(node.position.x + effectiveNodeSize(node).width / 2)
+        case "bottom":
+            return formatNumber(node.position.y + effectiveNodeSize(node).height / 2)
         case "rotation":    return formatNumber(node.rotation)
         case "alpha":       return formatNumber(node.alpha)
         case "xscale":      return formatNumber(node.xScale)

@@ -649,16 +649,7 @@ public struct ShapeNodeSpec: Codable, Sendable {
 }
 
 extension SpriteShapeType {
-    /// Public tolerant decode. "square"/"box"/"rectangle" → .rect,
-    /// "round"/"disc" → .circle, "oval" → .ellipse, and every
-    /// polygon-ish name ("triangle", "star", "arrow", etc.) → .path
-    /// so the SceneBridge triangle renderer gets a chance at it.
-    public static func decodeTolerant<K: CodingKey>(
-        from container: KeyedDecodingContainer<K>,
-        forKey key: K,
-        default fallback: SpriteShapeType
-    ) -> SpriteShapeType {
-        guard let raw = try? container.decode(String.self, forKey: key) else { return fallback }
+    public static func tolerantValue(_ raw: String, default fallback: SpriteShapeType = .rect) -> SpriteShapeType {
         let n = raw.lowercased().replacingOccurrences(of: "_", with: "")
         switch n {
         case "rect", "rectangle", "square", "box": return .rect
@@ -669,6 +660,19 @@ extension SpriteShapeType {
             return .path
         default: return fallback
         }
+    }
+
+    /// Public tolerant decode. "square"/"box"/"rectangle" → .rect,
+    /// "round"/"disc" → .circle, "oval" → .ellipse, and every
+    /// polygon-ish name ("triangle", "star", "arrow", etc.) → .path
+    /// so the SceneBridge triangle renderer gets a chance at it.
+    public static func decodeTolerant<K: CodingKey>(
+        from container: KeyedDecodingContainer<K>,
+        forKey key: K,
+        default fallback: SpriteShapeType
+    ) -> SpriteShapeType {
+        guard let raw = try? container.decode(String.self, forKey: key) else { return fallback }
+        return tolerantValue(raw, default: fallback)
     }
 }
 

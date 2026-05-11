@@ -34,6 +34,7 @@ private func findCardCanvas(in view: NSView?) -> CardCanvasNSView? {
 
 struct MainContentView: View {
     @Binding var document: HypeDocumentWrapper
+    @Environment(\.undoManager) private var undoManager
     @State private var currentCardId: UUID?
     @State private var currentTool: ToolName = .browse
     @State private var selectedPartIds: Set<UUID> = []
@@ -62,6 +63,14 @@ struct MainContentView: View {
         return state
     }
 
+    private var trackedDocumentBinding: Binding<HypeDocumentWrapper> {
+        HypeDocumentMutationCoordinator.shared.trackedBinding(
+            $document,
+            undoManager: undoManager,
+            actionName: "Edit Stack"
+        )
+    }
+
     private var showInspector: Bool {
         // Hidden in runtime mode — the entire point of runtime mode
         // is to show the stack as the end-user experiences it,
@@ -81,6 +90,7 @@ struct MainContentView: View {
         mainContent
             .environment(\.hypeTheme, resolvedTheme)
             .onAppear {
+                HypeDocumentMutationCoordinator.shared.noteDocumentOpened(document.document)
                 currentCardId = document.document.sortedCards.first?.id
                 refreshRuntimeStatus()
                 if let cardId = currentCardId {
@@ -94,7 +104,7 @@ struct MainContentView: View {
                 guard let stackId = notification.userInfo?["stackId"] as? UUID,
                       stackId == document.document.stack.id,
                       let updated = notification.userInfo?["document"] as? HypeDocument else { return }
-                document.document = updated
+                applyDocument(updated, actionName: "Apply Runtime Changes")
             }
             .onReceive(NotificationCenter.default.publisher(for: .stackRuntimeStatusDidChange)) { notification in
                 guard let stackId = notification.userInfo?["stackId"] as? UUID,
@@ -102,7 +112,7 @@ struct MainContentView: View {
                 refreshRuntimeStatus()
             }
             .modifier(NavigationHandlers(
-                document: $document,
+                document: trackedDocumentBinding,
                 currentCardId: $currentCardId,
                 currentTool: $currentTool,
                 selectedPartIds: $selectedPartIds,
@@ -111,11 +121,11 @@ struct MainContentView: View {
                 showRepository: $showRepository
             ))
             .modifier(ArrangeHandlers(
-                document: $document,
+                document: trackedDocumentBinding,
                 selectedPartIds: $selectedPartIds
             ))
             .modifier(AlignmentHandlers(
-                document: $document,
+                document: trackedDocumentBinding,
                 selectedPartIds: $selectedPartIds
             ))
             // Publish the focused document binding so the global
@@ -126,7 +136,7 @@ struct MainContentView: View {
             // would always render disabled. See `HypeApp.swift` for
             // the FocusedValueKey declaration and the wrapper that
             // reads this value in the Settings scene.
-            .focusedSceneValue(\.hypeCurrentDocument, $document)
+            .focusedSceneValue(\.hypeCurrentDocument, trackedDocumentBinding)
     }
 
     private var mainContent: some View {
@@ -180,14 +190,14 @@ struct MainContentView: View {
                     Divider()
 
                     Button(action: {
-                        openSpriteRepositoryWindow(document: $document)
+                        openSpriteRepositoryWindow(document: trackedDocumentBinding)
                     }) {
                         Image(systemName: "tray.2")
                     }
                     .help("Sprite Repository")
 
                     Button(action: {
-                        openAIContextLibraryWindow(document: $document)
+                        openAIContextLibraryWindow(document: trackedDocumentBinding)
                     }) {
                         Image(systemName: "folder.badge.gearshape")
                     }
@@ -219,7 +229,7 @@ struct MainContentView: View {
             objectsPanelVisible.toggle()
         }
         .sheet(isPresented: $showNetworkPanel) {
-            NetworkPanelView(document: $document, runtimeStatus: runtimeStatus)
+            NetworkPanelView(document: trackedDocumentBinding, runtimeStatus: runtimeStatus)
         }
     }
 
@@ -229,7 +239,7 @@ struct MainContentView: View {
     private var canvasArea: some View {
         VStack(spacing: 0) {
             CardCanvasView(
-                document: $document,
+                document: trackedDocumentBinding,
                 currentCardId: currentCardId ?? document.document.sortedCards.first?.id ?? UUID(),
                 currentTool: currentTool,
                 selectedPartIds: $selectedPartIds,
@@ -281,12 +291,12 @@ struct MainContentView: View {
     @ViewBuilder
     private var sidePanels: some View {
         if showInspector {
-            PropertyInspector(document: $document, selectedPartIds: $selectedPartIds,
+            PropertyInspector(document: trackedDocumentBinding, selectedPartIds: $selectedPartIds,
                               currentTool: currentTool, currentCardId: currentCardId,
                               paintColor: $paintColor, pencilRadius: $pencilRadius)
         }
         if showAI {
-            AIChatPanel(document: $document, currentCardId: $currentCardId)
+            AIChatPanel(document: trackedDocumentBinding, currentCardId: $currentCardId)
         }
     }
 
@@ -357,7 +367,7 @@ struct MainContentView: View {
             currentCardId: currentCardId
         )
         if let modified = result.modifiedDocument {
-            document.document = modified
+            applyDocument(modified, actionName: "Run \(message)")
         }
     }
 
@@ -421,12 +431,14 @@ struct MainContentView: View {
             canvasHeight: ch
         )
 
-        for (partId, geom) in updates {
-            document.document.updatePart(id: partId) {
-                $0.left = geom.left
-                $0.top = geom.top
-                $0.width = geom.width
-                $0.height = geom.height
+        mutateDocument(actionName: "Resolve Layout Constraints") { document in
+            for (partId, geom) in updates {
+                document.updatePart(id: partId) {
+                    $0.left = geom.left
+                    $0.top = geom.top
+                    $0.width = geom.width
+                    $0.height = geom.height
+                }
             }
         }
     }
@@ -476,7 +488,8 @@ struct MainContentView: View {
     private func runtimeConfiguration() -> StackRuntimeConfiguration {
         StackRuntimeConfiguration(
             aiProvider: SelectedAIScriptingProvider(),
-            speechOutputProvider: OpenAISpeechOutputProvider.shared
+            speechOutputProvider: OpenAISpeechOutputProvider.shared,
+            speechListenerProvider: RuntimeSpeechListenerProvider.shared
         )
     }
 
@@ -490,6 +503,24 @@ struct MainContentView: View {
                 runtimeStatus = status
             }
         }
+    }
+
+    private func mutateDocument(actionName: String, _ mutation: (inout HypeDocument) -> Void) {
+        HypeDocumentMutationCoordinator.shared.mutate(
+            $document,
+            undoManager: undoManager,
+            actionName: actionName,
+            mutation
+        )
+    }
+
+    private func applyDocument(_ updated: HypeDocument, actionName: String) {
+        HypeDocumentMutationCoordinator.shared.applyDocument(
+            updated,
+            to: $document,
+            undoManager: undoManager,
+            actionName: actionName
+        )
     }
 }
 
@@ -763,7 +794,8 @@ private struct NavigationHandlers: ViewModifier {
             for: snapshot,
             configuration: StackRuntimeConfiguration(
                 aiProvider: SelectedAIScriptingProvider(),
-                speechOutputProvider: OpenAISpeechOutputProvider.shared
+                speechOutputProvider: OpenAISpeechOutputProvider.shared,
+                speechListenerProvider: RuntimeSpeechListenerProvider.shared
             )
         )
         let result = await runtime.dispatchAndWait(

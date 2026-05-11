@@ -122,6 +122,8 @@ public indirect enum Statement: Sendable {
     case ask(prompt: Expression)
     case askAI(prompt: Expression, model: Expression?, callback: Expression?)
     case answer(prompt: Expression)
+    case say(Expression)
+    case activateListener(Expression)
     case visual(effectName: Expression, duration: Expression?)
     case send(message: Expression, target: Expression)
     case expressionStatement(Expression)
@@ -169,6 +171,7 @@ public indirect enum Statement: Sendable {
     // SpriteKit commands
     case createSprite(name: Expression, scene: Expression?, asset: Expression?)
     case createGroup(name: Expression, parent: Expression?)
+    case createShape(name: Expression, scene: Expression?, shapeType: Expression?)
     case createSpriteScene(name: Expression, inArea: Expression?, width: Expression?, height: Expression?)
     case createSpriteArea(name: Expression, rect: Expression?)
     case setSpriteNodeProperty(property: String, node: Expression, value: Expression)

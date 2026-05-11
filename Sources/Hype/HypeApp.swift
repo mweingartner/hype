@@ -85,6 +85,7 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
         // Dispatch "quit" message to the current card of each open document.
         // This gives scripts a chance to run cleanup handlers before the app exits.
         NotificationCenter.default.post(name: .hypeQuit, object: nil)
+        HypeDocumentMutationCoordinator.shared.flushAllAutosaves()
 
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
             persistState(for: window)
@@ -94,6 +95,10 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
            let url = doc.fileURL {
             launchState.save(fileURL: url)
         }
+    }
+
+    func applicationWillResignActive(_ notification: Notification) {
+        HypeDocumentMutationCoordinator.shared.flushAllAutosaves()
     }
 
     deinit {
@@ -170,6 +175,7 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
     @objc
     private func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
+        HypeDocumentMutationCoordinator.shared.flushAllAutosaves()
         persistState(for: window)
     }
 }

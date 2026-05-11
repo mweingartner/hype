@@ -9,7 +9,10 @@ Hype is a native macOS authoring tool in the spirit of Apple's HyperCard
 driven by a HyperTalk-style scripting language called **HypeTalk** —
 and re-grounds it on a contemporary Apple-platforms stack: Swift 6,
 SwiftUI, SpriteKit, Core Graphics, AppKit, WKWebView, AVKit, Apple
-Charts, and a **local-LLM AI authoring loop** powered by Ollama.
+Charts, and a **dual-provider AI authoring loop** that supports both
+local **Ollama** models (the default — no network egress) and optional
+**OpenAI** models (frontier quality, image generation, speech I/O)
+through one unified tool-calling contract.
 
 This repository contains the full source for the desktop application,
 the core library, the HypeTalk language toolchain, and the AI
@@ -61,15 +64,19 @@ emitters in the same document, with one unified scripting model.
   sprites, physics bodies, joints, particle emitters, tile maps,
   cameras — and HypeTalk handlers route to scene nodes through the
   same message-passing chain as classic parts.
-- **Local AI authoring with tool-calling.** Hype embeds an Ollama
-  client that drives the document via 100+ structured tools
-  (`create_button`, `set_card_script`, `add_sprite_to_scene`,
-  `apply_scene_diff`, …). The model never types raw text into your
-  stack — every change goes through a validating tool surface with a
-  parser-level script gate, retry loop, and reference-resolution
-  pass. A 127-prompt benchmark suite is included; `granite4.1:30b`
-  currently leads at 98.4% raw / 99.999% effective accuracy after the
-  retry gate.
+- **AI authoring with tool-calling — Ollama OR OpenAI.** Hype drives the
+  document via 150+ structured tools (`create_button`, `set_card_script`,
+  `add_sprite_to_scene`, `apply_scene_diff`, `generate_image`, …) routed
+  through a single `HypeAIClient` contract with two concrete providers:
+  local Ollama (default, no network egress) and optional OpenAI
+  (frontier-model quality, image generation, speech). Every model output
+  goes through a validating tool surface with a parser-level script gate,
+  retry loop, reference-resolution pass, and a transaction layer that
+  previews each turn against a draft document so you can apply / cancel /
+  roll back before any mutation touches the live stack. A 127-prompt
+  benchmark suite is included; `granite4.1:30b` currently leads the
+  local-models leaderboard at 98.4% raw / 99.999% effective accuracy
+  after the retry gate.
 - **A real theme system.** Stacks, backgrounds, and cards each carry
   an optional theme name; the cascade resolver picks the effective
   theme per card. Seven built-in themes ship — System (follows
@@ -211,14 +218,37 @@ A practical hands-on tour is in
 
 ## AI authoring
 
-Hype's AI Chat panel runs entirely against a **local Ollama
-server**. There is no network egress for AI: the model, the prompts,
-the document state, and all tool calls stay on your machine.
+Hype's AI Chat panel supports **two providers** — local Ollama
+(default, no network egress) and **optional OpenAI**. Both share
+the same tool-calling contract through a single
+[`HypeAIClient`](Sources/HypeCore/AI/HypeAIClient.swift)
+abstraction. The provider is a preference: pick whichever you
+trust for the task at hand.
+
+| Provider | Where requests go | When to pick it |
+|---|---|---|
+| **Ollama** (default) | `localhost:11434` — local model on your machine | Stays offline; document state, prompts, and tool calls never leave the box; best with `granite4.1:30b` or similarly capable local models |
+| **OpenAI** (opt-in) | OpenAI Responses API (`/v1/responses`), Images (`/v1/images/generations`), Audio (`/v1/audio/speech` + transcriptions) | When you want frontier-model quality, image generation, or higher-quality speech I/O. Set `OPENAI_API_KEY` in Hype Preferences. |
+
+Switching providers is a one-line change in Preferences → AI;
+the system prompt (`HypeTalkGuide.llmContext`) and the tool
+schema list are identical, so a prompt that works on one
+provider almost always works on the other. An
+`AIProviderParityHarness` test suite verifies that the two
+clients exchange the same scenarios with the same tool-call
+results.
+
+Cloud AI is **opt-in twice**: once for the global provider, and
+once per-stack via `Stack.aiContextCloudSharingAllowed`, which
+gates whether the `AIContextLibrary` (rules, files, examples
+attached to the stack) is included in cloud requests. Local
+Ollama can use context unconditionally; OpenAI cannot until both
+flags are set.
 
 ### Tool-calling architecture
 
 The model never types HypeTalk into your document directly. Every
-change goes through a structured tool-call interface with **119
+change goes through a structured tool-call interface with **150+
 defined tools** (`Sources/HypeCore/AI/HypeTools.swift`,
 `HypeToolExecutor.swift`):
 
@@ -262,6 +292,81 @@ controls. Latest results
 
 Set the active model in Hype's preferences panel (or via
 `defaults write com.hype.app ollamaModel "granite4.1:30b"`).
+
+### Transactional AI edits (preview / apply / rollback)
+
+Every AI tool turn — across the main AI Chat panel, the Script
+Editor AI assistant, and the Sprite Repository AI assistant —
+runs through
+[`AIEditTransaction` / `AIEditTransactionRunner`](Sources/HypeCore/AI/AIEditTransaction.swift):
+
+1. The model emits tool calls.
+2. The runner executes them against a **draft copy** of the
+   document, not the live one.
+3. The resulting deltas (changed parts, cards, backgrounds,
+   sprite repository entries, paint layers, scripts) are captured
+   as an `AIEditDocumentDelta` plus a rollback snapshot of every
+   touched object's prior state.
+4. The user gets a preview summary and chooses **Apply** or
+   **Cancel**. Apply commits the draft and registers a single
+   undo step; cancel leaves the document bit-for-bit unchanged.
+5. The most-recently applied transaction can be **rolled back** —
+   not just undone via the responder chain, but explicitly
+   reverted at the model layer using the recorded snapshot.
+
+This is what lets you say "create a customer entry form on this
+card" or "make my game ball bounce" without trusting the model
+not to corrupt unrelated state — the failure mode of a bad turn
+is a discarded draft, not a half-mutated stack.
+
+### AI Context Library
+
+Each stack carries an `AIContextLibrary` of files, images, text
+notes, and folders that the AI sees on every prompt. Items are
+tagged by role — **rules**, **asset**, **styleGuide**,
+**example**, **projectMemory**, **reference** — so a long-running
+project can teach the model its own conventions without
+re-pasting them. Items can be **embedded** (bytes stored in the
+`.hype` file) or **referenced** (path on disk, included only when
+the file is reachable).
+
+Context is gated by both the provider preference and the per-stack
+`aiContextCloudSharingAllowed` flag, so private rules and customer
+artifacts never reach OpenAI by accident.
+
+### Image generation
+
+[`OpenAIImageGenerationClient`](Sources/HypeCore/AI/OpenAIImageGenerationClient.swift)
+adds a `generate_image` tool whose result lands directly in a
+new image part or `SpriteRepository` asset (via the standard
+transaction path, so it's previewable and rollback-able). The
+returned bytes are PNG; provenance is recorded on the asset so
+the inspector shows which model + prompt produced it.
+
+### Speech I/O
+
+Hype's HypeTalk grammar gained two speech surfaces:
+
+```
+-- Speak text aloud (uses macOS AVSpeechSynthesizer locally or
+-- the OpenAI `/v1/audio/speech` endpoint when the OpenAI
+-- provider is active and `speechProvider == "openai"`):
+say "Welcome to my stack"
+
+-- Toggle the speech listener; while active, transcribed phrases
+-- arrive at the `on listen` handler chain:
+set activateListener to true
+
+on listen spokenText
+  put spokenText into field "lastSpeech"
+  pass listen
+end listen
+```
+
+The `SpeechOutputProvider` and `SpeechListenerProvider`
+abstractions decouple HypeTalk from the underlying engine, so the
+same script runs against the system speech APIs or an OpenAI
+voice without script-level changes.
 
 ### Fine-tuning pipeline
 
@@ -377,25 +482,25 @@ Hype/
 │   │       ├── Themes/                  # Theme designer
 │   │       └── …
 │   └── HypeCore/                 # Library target — model, scripting, AI, rendering
-│       ├── Models/               # HypeDocument, Part, Stack, Card, SceneSpec, …
-│       ├── Script/               # Lexer, Parser, AST, Interpreter, MessageDispatcher
-│       ├── Rendering/            # Per-control CG renderers + GlassRenderer
-│       ├── SpriteKit/            # Scene bridge, physics, particles
-│       ├── AI/                   # Ollama client, tools, validator, fixer
+│       ├── Models/               # HypeDocument, Part, Stack, Card, SceneSpec, PartGrouping, CardPaintLayer, AIContextLibrary, …
+│       ├── Script/               # Lexer, Parser, AST, Interpreter, MessageDispatcher (`say`, `on listen`, `send to`)
+│       ├── Rendering/            # Per-control CG renderers + GlassRenderer + FieldTextLayout
+│       ├── SpriteKit/            # Scene bridge + native-card Button/Field/Shape/Image/Paint nodes
+│       ├── AI/                   # HypeAIClient (Ollama + OpenAI), tools, validator, fixer, EditTransaction, ContextLibrary, ProviderParityHarness, Image + Speech clients
 │       ├── Theme/                # HypeTheme, BuiltInThemes, ColorContrast
-│       ├── Runtime/              # Browse-mode StackRuntime actor
+│       ├── Runtime/              # Browse-mode StackRuntime actor, speech listener provider
 │       ├── Animation/            # `animate the X of Y over N` engine
 │       ├── Audio/                # Sound playback, NAOD note parser
 │       ├── Layout/               # Snap-to-grid, alignment, distribution
-│       ├── Tools/                # Mouse-action layer (paint, draw, select)
-│       ├── Sync/                 # Document undo/redo
-│       ├── Export/               # `.hype` ↔ JSON export
+│       ├── Tools/                # Mouse-action layer (paint, draw, select, group)
+│       ├── Sync/                 # SyncService — operation/change-set engine + checkpoints
+│       ├── Export/               # `.hype` ↔ JSON ↔ HTML (paint layers embedded as PNG)
 │       ├── Logging/              # HypeLogger
 │       ├── Navigation/           # Card history, go-back stack
-│       └── Controls/             # Visual-effect catalog, etc.
+│       └── Controls/             # Visual-effect catalog, PaintLayer, etc.
 ├── Tests/
-│   ├── HypeCoreTests/            # ~1,400 unit tests (Swift Testing)
-│   └── HypeTests/
+│   ├── HypeCoreTests/            # 1,556 unit tests (Swift Testing) — full suite ~85s
+│   └── HypeTests/                # SpriteKit / canvas / menu / Script Editor AI integration smokes
 └── scripts/
     ├── test.sh                   # Canonical `swift test` invocation
     └── ai-training/              # LoRA fine-tuning + eval pipeline

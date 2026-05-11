@@ -4,7 +4,7 @@ import HypeCore
 // MARK: - Script Target
 
 /// Identifies what object a script editor is editing.
-enum ScriptTarget {
+enum ScriptTarget: Equatable {
     case part(UUID)
     case card(UUID)
     case background(UUID)
@@ -37,6 +37,18 @@ enum ScriptTarget {
         case .hype: return "hype"
         }
     }
+}
+
+func scriptEditorResolvedTarget(
+    in document: HypeDocument,
+    target: ScriptTarget?,
+    partId: UUID?
+) -> ScriptTarget? {
+    target ?? partId.map { .part($0) }
+}
+
+func scriptEditorDisplayedScriptText(storedScript: String) -> String {
+    storedScript
 }
 
 // MARK: - Script Command Templates
@@ -132,6 +144,16 @@ private let scriptTemplates: [ScriptTemplate] = [
         code: "answer \"Hello, World!\""),
     ScriptTemplate(name: "ask (input dialog)", category: "Dialogs",
         code: "ask \"What is your name?\""),
+
+    // Speech
+    ScriptTemplate(name: "say text", category: "Speech",
+        code: "say \"this is a test of the speech support in Hype!\""),
+    ScriptTemplate(name: "activate listener", category: "Speech",
+        code: "set activateListener to true"),
+    ScriptTemplate(name: "deactivate listener", category: "Speech",
+        code: "set activateListener to false"),
+    ScriptTemplate(name: "on listen", category: "Speech",
+        code: "on listen spokenText\n  put spokenText into field \"lastSpeech\"\n  pass listen\nend listen"),
 
     // Object Commands
     ScriptTemplate(name: "set property", category: "Objects",
@@ -263,7 +285,13 @@ private let scriptTemplates: [ScriptTemplate] = [
 ]
 
 /// Grouped categories in display order.
-private let categoryOrder = ["Events", "SpriteKit", "Navigation", "Variables", "Control", "Dialogs", "Objects", "Commands", "Functions", "Operators", "AI"]
+private let categoryOrder = ["Events", "SpriteKit", "Navigation", "Variables", "Control", "Dialogs", "Speech", "Objects", "Commands", "Functions", "Operators", "AI"]
+
+func scriptEditorTemplateNames(for category: String) -> [String] {
+    scriptTemplates
+        .filter { $0.category == category }
+        .map(\.name)
+}
 
 // MARK: - Script Editor View
 
@@ -300,22 +328,7 @@ struct ScriptEditor: View {
     @State private var errorHighlightLine: Int? = nil
 
     private var resolvedTarget: ScriptTarget? {
-        let initialTarget: ScriptTarget?
-        if let t = target {
-            initialTarget = t
-        } else if let id = partId {
-            initialTarget = .part(id)
-        } else {
-            initialTarget = nil
-        }
-
-        guard case .part(let id) = initialTarget,
-              let part = document.document.parts.first(where: { $0.id == id }),
-              part.partType == .spriteArea,
-              let sceneId = part.spriteAreaSpecModel?.activeSceneEntry?.id else {
-            return initialTarget
-        }
-        return .scene(partId: id, sceneId: sceneId)
+        scriptEditorResolvedTarget(in: document.document, target: target, partId: partId)
     }
 
     private var partNames: [String] {
@@ -562,9 +575,7 @@ struct ScriptEditor: View {
         case .hype:
             scriptText = hypeAppScript
         }
-        if scriptText.isEmpty {
-            scriptText = defaultTemplate(for: resolvedTarget)
-        }
+        scriptText = scriptEditorDisplayedScriptText(storedScript: scriptText)
     }
 
     private func toggleComment() {

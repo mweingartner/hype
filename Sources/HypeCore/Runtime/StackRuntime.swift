@@ -192,6 +192,8 @@ public struct TCPConnectionSpec: Sendable {
 public protocol ScriptRuntimeProviding: Sendable {
     func sleep(seconds: TimeInterval) async throws
     func startAIRequest(prompt: String, model: String?, callbackMessage: String, owner: RuntimeOwnerContext) async throws -> UUID
+    func setSpeechListenerActive(_ active: Bool, owner: RuntimeOwnerContext) async throws
+    func isSpeechListenerActive() async -> Bool
     func startHTTPRequest(_ spec: OutboundHTTPRequestSpec, owner: RuntimeOwnerContext) async throws -> UUID
     func reply(to requestID: UUID, status: Int, headersText: String, body: String) async throws
     func startListener(_ spec: ListenerSpec, owner: RuntimeOwnerContext) async throws -> UUID
@@ -207,6 +209,7 @@ public struct StackRuntimeConfiguration: Sendable {
     public var drawingProvider: DrawingProvider
     public var aiProvider: any AIScriptingProvider
     public var speechOutputProvider: SpeechOutputProvider
+    public var speechListenerProvider: SpeechListenerProvider
     public var appScript: String
     public var approvalPrompter: any NetworkPermissionPrompting
     public var permissionStore: UserDefaultsNetworkPermissionStore
@@ -217,6 +220,7 @@ public struct StackRuntimeConfiguration: Sendable {
         drawingProvider: DrawingProvider = StubDrawingProvider(),
         aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
         speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
+        speechListenerProvider: SpeechListenerProvider = StubSpeechListenerProvider(),
         appScript: String = "",
         approvalPrompter: any NetworkPermissionPrompting = AllowAllNetworkPermissionPrompter(),
         permissionStore: UserDefaultsNetworkPermissionStore = UserDefaultsNetworkPermissionStore(),
@@ -226,6 +230,7 @@ public struct StackRuntimeConfiguration: Sendable {
         self.drawingProvider = drawingProvider
         self.aiProvider = aiProvider
         self.speechOutputProvider = speechOutputProvider
+        self.speechListenerProvider = speechListenerProvider
         self.appScript = appScript
         self.approvalPrompter = approvalPrompter
         self.permissionStore = permissionStore
@@ -340,6 +345,7 @@ public actor StackRuntime: ScriptRuntimeProviding {
     private var listeners: [UUID: ListenerState] = [:]
     private var connections: [UUID: ConnectionState] = [:]
     private var savedListenerRuntimeIDs: [UUID: UUID] = [:]
+    private var speechListenerActive = false
     #if canImport(Network)
     private var listenerBoxes: [UUID: ListenerBox] = [:]
     private var connectionBoxes: [UUID: ConnectionBox] = [:]
@@ -468,6 +474,10 @@ public actor StackRuntime: ScriptRuntimeProviding {
     }
 
     public func shutdown() async {
+        if speechListenerActive {
+            speechListenerActive = false
+            await configuration.speechListenerProvider.stopSpeechListener()
+        }
         let listenerIDs = Array(listeners.keys)
         for id in listenerIDs {
             await stopListener(id)
@@ -480,6 +490,28 @@ public actor StackRuntime: ScriptRuntimeProviding {
 
     public func sleep(seconds: TimeInterval) async throws {
         try await configuration.clock.sleep(seconds: seconds)
+    }
+
+    public func setSpeechListenerActive(_ active: Bool, owner: RuntimeOwnerContext) async throws {
+        if active {
+            speechListenerActive = true
+            let cardOwner = RuntimeOwnerContext(
+                targetId: owner.currentCardId,
+                currentCardId: owner.currentCardId,
+                scriptContext: nil
+            )
+            try await configuration.speechListenerProvider.startSpeechListener { transcript in
+                await self.enqueueSpeechListen(transcript, owner: cardOwner)
+            }
+        } else {
+            speechListenerActive = false
+            await configuration.speechListenerProvider.stopSpeechListener()
+        }
+        postStatusChange()
+    }
+
+    public func isSpeechListenerActive() async -> Bool {
+        speechListenerActive
     }
 
     public func startAIRequest(prompt: String, model: String?, callbackMessage: String, owner: RuntimeOwnerContext) async throws -> UUID {
@@ -842,6 +874,26 @@ public actor StackRuntime: ScriptRuntimeProviding {
             QueuedDispatch(
                 message: message,
                 params: params,
+                targetId: owner.targetId,
+                currentCardId: owner.currentCardId,
+                mouseX: 0,
+                mouseY: 0,
+                scriptContext: owner.scriptContext,
+                completion: nil
+            )
+        )
+        if !isProcessing {
+            await processQueue()
+        }
+    }
+
+    private func enqueueSpeechListen(_ transcript: String, owner: RuntimeOwnerContext) async {
+        let spokenText = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard speechListenerActive, !spokenText.isEmpty else { return }
+        queue.append(
+            QueuedDispatch(
+                message: "listen",
+                params: [spokenText],
                 targetId: owner.targetId,
                 currentCardId: owner.currentCardId,
                 mouseX: 0,

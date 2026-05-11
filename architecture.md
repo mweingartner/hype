@@ -405,6 +405,25 @@ The whole document is a single JSON blob written through SwiftUI's
 `init(from:)` decoder uses `decodeIfPresent` with defaults so newer fields
 load gracefully against older files.
 
+Interactive saves and undo now flow through
+`HypeDocumentMutationCoordinator` (`Sources/Hype/DocumentMutationCoordinator.swift`).
+`MainContentView` publishes a tracked `Binding<HypeDocumentWrapper>` to the
+canvas, inspector, detached authoring windows, settings bridge, AI panels, and
+menu handlers. Any persistent document mutation that reaches that binding is
+compared in the same sorted-JSON form used for file persistence, registered with
+the active `UndoManager`, written to a local recovery snapshot under
+Application Support, and scheduled for `NSDocument` autosave. App resign-active,
+window close, and terminate all flush pending autosaves. Runtime-only fields
+that are intentionally excluded from `HypeDocument.CodingKeys` (for example
+`scriptGlobals`) do not create persistent undo entries.
+
+Continuous interactions are coalesced before entering undo: canvas
+drag/resize mutations suppress per-frame registrations and commit one undo item
+on mouse-up, while animation tick mutations remain autosaved but do not flood
+the undo stack. AI transaction application and script/runtime side effects pass
+through the same binding path, so accepted multi-tool edits and HypeTalk
+document mutations participate in the same save/undo pipeline as manual edits.
+
 For stored-as-string sub-documents — `Part.sceneSpec` (a
 JSON-encoded `SpriteAreaSpec`), `Part.chartData` (a `ChartConfig`),
 `Part.mapAnnotationsJSON` — `JSONCodec` (Sources/HypeCore/Models/JSONCodec.swift)
@@ -1994,9 +2013,9 @@ unknowns:
 5. **AI authoring has formal transactions, but preview UX is still maturing.**
    `AIEditTransactionRunner` executes tool calls against a draft document,
    captures operation deltas, and supports explicit apply/rollback. Main chat AI
-   tool turns now use that transaction path; the remaining gap is richer
-   user-facing preview/apply controls and single-undo integration across every AI
-   surface.
+   tool turns now use that transaction path and document application flows
+   through the global autosave/undo coordinator; the remaining gap is richer
+   user-facing preview/apply controls across every AI surface.
 6. **OpenAI/Ollama parity has local coverage, but live provider drift remains.**
    `AIProviderParityHarness` verifies text tool-call contracts, image generation,
    and speech output with local fakes. Opt-in live provider tests and stack-level

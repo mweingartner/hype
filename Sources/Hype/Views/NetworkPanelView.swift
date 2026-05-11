@@ -356,7 +356,8 @@ struct NetworkPanelView: View {
         let snapshot = document.document
         let configuration = StackRuntimeConfiguration(
             aiProvider: SelectedAIScriptingProvider(),
-            speechOutputProvider: OpenAISpeechOutputProvider.shared
+            speechOutputProvider: OpenAISpeechOutputProvider.shared,
+            speechListenerProvider: RuntimeSpeechListenerProvider.shared
         )
         Task {
             let runtime = await StackRuntimeRegistry.shared.runtime(for: snapshot, configuration: configuration)

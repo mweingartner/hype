@@ -1,6 +1,7 @@
+import Foundation
 import Testing
 @testable import Hype
-import HypeCore
+@testable import HypeCore
 
 @MainActor
 @Suite("Script Editor AI")
@@ -18,6 +19,15 @@ struct ScriptEditorAITests {
     func voiceAutoSubmitDelayStaysInRequestedWindow() {
         #expect(AISpeechCapture.silenceAutoSubmitDelaySeconds >= 3)
         #expect(AISpeechCapture.silenceAutoSubmitDelaySeconds <= 4)
+    }
+
+    @Test("script editor exposes HypeTalk speech templates")
+    func scriptEditorExposesSpeechTemplates() {
+        let names = scriptEditorTemplateNames(for: "Speech")
+        #expect(names.contains("say text"))
+        #expect(names.contains("activate listener"))
+        #expect(names.contains("deactivate listener"))
+        #expect(names.contains("on listen"))
     }
 
     @Test("user prompt carries target, selection, current script, and request")
@@ -57,5 +67,28 @@ struct ScriptEditorAITests {
         }
         #expect(oversized.count == AIChatPromptHistory.maxEntries)
         #expect(oversized.first == "prompt 5")
+    }
+
+    @Test("script editor keeps sprite-area container and scene scripts distinct")
+    func scriptEditorKeepsSpriteAreaContainerAndSceneTargetsDistinct() {
+        var document = HypeDocument.newDocument(name: "Scripts")
+        let cardId = document.cards[0].id
+        let sceneId = UUID()
+        var spriteArea = Part(partType: .spriteArea, cardId: cardId, name: "game_area")
+        spriteArea.setSpriteAreaSpec(SpriteAreaSpec(
+            activeSceneID: sceneId,
+            scenes: [
+                SpriteAreaScene(
+                    id: sceneId,
+                    scene: SceneSpec(name: "main", size: SizeSpec(width: 640, height: 480))
+                )
+            ],
+            designSize: SizeSpec(width: 640, height: 480)
+        ))
+        document.addPart(spriteArea)
+
+        #expect(scriptEditorResolvedTarget(in: document, target: .part(spriteArea.id), partId: spriteArea.id) == .part(spriteArea.id))
+        #expect(scriptEditorResolvedTarget(in: document, target: .scene(partId: spriteArea.id, sceneId: sceneId), partId: spriteArea.id) == .scene(partId: spriteArea.id, sceneId: sceneId))
+        #expect(scriptEditorDisplayedScriptText(storedScript: "") == "")
     }
 }

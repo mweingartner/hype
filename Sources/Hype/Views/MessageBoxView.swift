@@ -72,7 +72,8 @@ struct MessageBoxView: View {
                     for: snapshot,
                     configuration: StackRuntimeConfiguration(
                         aiProvider: SelectedAIScriptingProvider(),
-                        speechOutputProvider: OpenAISpeechOutputProvider.shared
+                        speechOutputProvider: OpenAISpeechOutputProvider.shared,
+                        speechListenerProvider: RuntimeSpeechListenerProvider.shared
                     )
                 )
                 let liveDocument = await runtime.currentDocument()

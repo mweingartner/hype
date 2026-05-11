@@ -180,6 +180,7 @@ public struct Parser: Sendable {
         case .global:   return try parseGlobalStatement()
         case .ask:      return try parseAskStatement()
         case .answer:   return try parseAnswerStatement()
+        case .say:      return try parseSayStatement()
         case .visual:   return try parseVisualStatement()
         case .create:   return try parseCreateStatement()
         case .show:     return try parseShowStatement()
@@ -282,6 +283,8 @@ public struct Parser: Sendable {
                 let expr = try parseExpression()
                 skipNewlines()
                 return .expressionStatement(expr)
+            case "activatelistener":
+                return try parseActivateListenerStatement()
             default:
                 // Bare expression (function call, etc.)
                 let expr = try parseExpression()
@@ -634,6 +637,21 @@ public struct Parser: Sendable {
         return .answer(prompt: expr)
     }
 
+    private mutating func parseSayStatement() throws -> Statement {
+        _ = try expect(.say)
+        let expr = try parseExpression()
+        skipNewlines()
+        return .say(expr)
+    }
+
+    private mutating func parseActivateListenerStatement() throws -> Statement {
+        _ = advance()
+        _ = match(.to)
+        let expr = try parseExpression()
+        skipNewlines()
+        return .activateListener(expr)
+    }
+
     /// Parse: `visual [effect] <name> [<duration>]`
     ///
     /// The effect name is consumed as a **literal string**, not
@@ -731,6 +749,32 @@ public struct Parser: Sendable {
             }
             skipNewlines()
             return .createGroup(name: name, parent: parentExpr)
+        }
+
+        // "create shape "name" [in scene/group "target"] [with type rect]"
+        if current.type == .identifier && current.value.lowercased() == "shape" {
+            _ = advance()
+            let name = try parseExpression()
+            var sceneExpr: Expression? = nil
+            if current.type == .identifier && current.value.lowercased() == "in" {
+                _ = advance()
+                if current.type == .identifier && current.value.lowercased() == "group" { _ = advance() }
+                _ = match(.scene)
+                sceneExpr = try parseExpression()
+            }
+            var shapeTypeExpr: Expression? = nil
+            if current.type == .with {
+                _ = advance()
+                if current.type == .identifier && current.value.lowercased() == "type" { _ = advance() }
+                if current.type == .identifier {
+                    shapeTypeExpr = .literal(current.value)
+                    _ = advance()
+                } else {
+                    shapeTypeExpr = try parseExpression()
+                }
+            }
+            skipNewlines()
+            return .createShape(name: name, scene: sceneExpr, shapeType: shapeTypeExpr)
         }
 
         // "create sprite "name" [in scene/group "sceneName"] [with asset "assetName"]"
@@ -891,7 +935,7 @@ public struct Parser: Sendable {
             return .createJoint(name: name, type: typeExpr, nodeA: nodeA, nodeB: nodeB)
         }
 
-        throw ParseError.unexpected(current, expected: "card, background, sprite, scene, spritearea, tilemap, camera, or joint")
+        throw ParseError.unexpected(current, expected: "card, background, sprite, shape, scene, spritearea, tilemap, camera, or joint")
     }
 
     /// Parse: `constrain sprite "enemy" distance 50 to 200 from sprite "player"`
@@ -951,7 +995,14 @@ public struct Parser: Sendable {
     private mutating func parseSubtractStatement() throws -> Statement {
         _ = try expect(.subtract)
         let value = try parseExpression()
-        _ = try expect(.from)
+        if !match(.from) {
+            // The canonical HypeTalk form is "subtract 3 from x".
+            // AI-generated scripts and users sometimes mirror the
+            // "add 3 to x" shape as "subtract 3 to x"; accept it as
+            // the same mutating subtraction rather than surfacing a
+            // misleading parse error.
+            _ = try expect(.to)
+        }
         let target = try parseExpression()
         skipNewlines()
         return .subtractFrom(value: value, variable: target)

@@ -173,6 +173,7 @@ struct HypeTalkGuideTests {
             "mouseUp", "mouseDown", "mouseDragged", "mouseWithin",
             "openCard", "closeCard",
             "enterKey", "keyDown", "keyUp", "idle",
+            "listen",
             "openScene", "closeScene", "sceneDidLoad", "frameUpdate",
             "beginContact", "endContact", "actionFinished",
         ]
@@ -228,6 +229,16 @@ struct HypeTalkGuideTests {
         #expect(text.contains("visual effect"))
     }
 
+    @Test("guide documents speech commands and listener routing")
+    func guideDocumentsSpeechCommands() {
+        let text = HypeTalkGuide.llmContext
+        #expect(text.contains("say \"this is a test of the speech support in Hype!\""))
+        #expect(text.contains("set activateListener to true"))
+        #expect(text.contains("on listen spokenText"))
+        #expect(text.contains("pass listen"))
+        #expect(text.contains("OpenAI text-to-speech"))
+    }
+
     @Test("guide shows object reference forms with quoted names")
     func guideShowsObjectReferences() {
         let text = HypeTalkGuide.llmContext
@@ -245,6 +256,7 @@ struct HypeTalkGuideTests {
         let text = HypeTalkGuide.llmContext
         // Scene operations
         #expect(text.contains("create sprite"))
+        #expect(text.contains("create shape"))
         #expect(text.contains("remove sprite"))
         #expect(text.contains("pause scene"))
         #expect(text.contains("resume scene"))

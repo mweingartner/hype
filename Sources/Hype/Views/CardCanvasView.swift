@@ -180,6 +180,10 @@ struct CardCanvasView: NSViewRepresentable {
         /// edits made via the inspector never re-geocoded.
         var lastMapLocations: [UUID: String] = [:]
 
+        private var activeCanvasCoalescingKey: String {
+            "canvas-\(parent.currentCardId.uuidString)"
+        }
+
         init(parent: CardCanvasView) {
             self.parent = parent
         }
@@ -294,6 +298,26 @@ struct CardCanvasView: NSViewRepresentable {
         func resizeParts(ids: Set<UUID>, from oldBounds: PartBounds, to newBounds: PartBounds) {
             parent.document.document.resizeParts(ids: ids, from: oldBounds, to: newBounds)
             parent.selectedPartIds = parent.document.document.expandedGroupSelection(parent.selectedPartIds)
+        }
+
+        func beginCoalescedCanvasMutation(actionName: String) {
+            HypeDocumentMutationCoordinator.shared.beginCoalescedUndo(
+                key: activeCanvasCoalescingKey,
+                binding: parent.$document
+            )
+        }
+
+        func performContinuousCanvasMutation(_ mutation: () -> Void) {
+            HypeDocumentMutationCoordinator.shared.performWithoutUndo(mutation)
+        }
+
+        func endCoalescedCanvasMutation(actionName: String) {
+            HypeDocumentMutationCoordinator.shared.endCoalescedUndo(
+                key: activeCanvasCoalescingKey,
+                binding: parent.$document,
+                undoManager: nsView?.window?.undoManager,
+                actionName: actionName
+            )
         }
 
         /// Update a part's text content (used by inline field editor).
@@ -579,20 +603,22 @@ struct CardCanvasView: NSViewRepresentable {
         /// property-set handling but operates on the SwiftUI document
         /// binding directly.
         func applyAnimatedPropertyChange(partId: UUID, property: String, value: String) {
-            parent.document.document.updatePart(id: partId) { part in
-                switch property.lowercased() {
-                case "left":     part.left = Double(value) ?? part.left
-                case "top":      part.top = Double(value) ?? part.top
-                case "width":    part.width = Double(value) ?? part.width
-                case "height":   part.height = Double(value) ?? part.height
-                case "rotation": part.rotation = Double(value) ?? part.rotation
-                case "loc", "location":
-                    let comps = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
-                    if comps.count >= 2 {
-                        part.left = comps[0] - part.width / 2
-                        part.top = comps[1] - part.height / 2
+            HypeDocumentMutationCoordinator.shared.performWithoutUndo {
+                parent.document.document.updatePart(id: partId) { part in
+                    switch property.lowercased() {
+                    case "left":     part.left = Double(value) ?? part.left
+                    case "top":      part.top = Double(value) ?? part.top
+                    case "width":    part.width = Double(value) ?? part.width
+                    case "height":   part.height = Double(value) ?? part.height
+                    case "rotation": part.rotation = Double(value) ?? part.rotation
+                    case "loc", "location":
+                        let comps = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+                        if comps.count >= 2 {
+                            part.left = comps[0] - part.width / 2
+                            part.top = comps[1] - part.height / 2
+                        }
+                    default: break
                     }
-                default: break
                 }
             }
         }
@@ -839,6 +865,7 @@ struct CardCanvasView: NSViewRepresentable {
                 drawingProvider: drawingProvider,
                 aiProvider: aiProvider,
                 speechOutputProvider: OpenAISpeechOutputProvider.shared,
+                speechListenerProvider: RuntimeSpeechListenerProvider.shared,
                 appScript: appScript
             )
         }
@@ -2370,6 +2397,7 @@ class CardCanvasNSView: NSView {
             if resizeHandle != .none, let unit = singleResizableSelectionUnit() {
                 // Resize the selected unit. For groups, every member scales
                 // proportionally inside the group bounds.
+                coordinator?.beginCoalescedCanvasMutation(actionName: "Resize Objects")
                 let oldBounds = unit.bounds
                 let newBounds = resizedBounds(oldBounds, handle: resizeHandle, dx: dx, dy: dy)
                 let otherParts = allOtherParts(excluding: unit.ids)
@@ -2381,12 +2409,17 @@ class CardCanvasNSView: NSView {
                     canvasHeight: Double(bounds.height)
                 )
                 activeGuides = snap.guides
-                coordinator?.resizeParts(ids: unit.ids, from: oldBounds, to: newBounds)
+                if let coordinator {
+                    coordinator.performContinuousCanvasMutation {
+                        coordinator.resizeParts(ids: unit.ids, from: oldBounds, to: newBounds)
+                    }
+                }
             } else if expandedSelection.contains(partId) {
                 let units = currentSelectionUnits()
                 if units.count == 1, let unit = units.first {
                     // Move a single selection unit (one part or one group)
                     // with normal alignment snapping.
+                    coordinator?.beginCoalescedCanvasMutation(actionName: "Move Objects")
                     let otherParts = allOtherParts(excluding: unit.ids)
                     var proposedPart = proxyPart(for: unit.bounds)
                     proposedPart.left += dx
@@ -2398,16 +2431,30 @@ class CardCanvasNSView: NSView {
                         canvasHeight: Double(bounds.height)
                     )
                     activeGuides = snap.guides
-                    coordinator?.moveParts(ids: unit.ids, dx: dx + snap.dx, dy: dy + snap.dy)
+                    if let coordinator {
+                        coordinator.performContinuousCanvasMutation {
+                            coordinator.moveParts(ids: unit.ids, dx: dx + snap.dx, dy: dy + snap.dy)
+                        }
+                    }
                 } else {
                     // Move all selected units by the same delta. This keeps
                     // multi-select behavior stable and avoids one unit's snap
                     // pulling the others unexpectedly.
-                    coordinator?.moveParts(ids: expandedSelection, dx: dx, dy: dy)
+                    coordinator?.beginCoalescedCanvasMutation(actionName: "Move Objects")
+                    if let coordinator {
+                        coordinator.performContinuousCanvasMutation {
+                            coordinator.moveParts(ids: expandedSelection, dx: dx, dy: dy)
+                        }
+                    }
                     activeGuides = []
                 }
             } else {
-                coordinator?.movePart(id: partId, dx: dx, dy: dy)
+                coordinator?.beginCoalescedCanvasMutation(actionName: "Move Object")
+                if let coordinator {
+                    coordinator.performContinuousCanvasMutation {
+                        coordinator.movePart(id: partId, dx: dx, dy: dy)
+                    }
+                }
                 activeGuides = []
             }
             dragStart = point
@@ -2569,6 +2616,9 @@ class CardCanvasNSView: NSView {
         }
 
         if draggedPartId != nil {
+            coordinator?.endCoalescedCanvasMutation(
+                actionName: resizeHandle == .none ? "Move Objects" : "Resize Objects"
+            )
             draggedPartId = nil
             dragStart = nil
             resizeHandle = .none
