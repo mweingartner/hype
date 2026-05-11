@@ -5,8 +5,16 @@ import Foundation
 /// Protocol that the HTTP client and test stubs conform to.
 public protocol MeshyClient: Sendable {
     func createTextTo3DTask(_ request: MeshyTextTo3DRequest) async throws -> String
+    func createImageTo3DTask(_ request: MeshyImageTo3DRequest) async throws -> String
+    func createMultiImageTo3DTask(_ request: MeshyMultiImageTo3DRequest) async throws -> String
     func fetchTask(taskId: String) async throws -> MeshyTaskResponse
-    func cancelTask(taskId: String) async throws
+    /// Cancel a Meshy task.
+    ///
+    /// The `kind` parameter routes the DELETE to the correct versioned endpoint:
+    /// - `.textTo3D` → `/openapi/v2/text-to-3d/<id>`
+    /// - `.imageTo3D` → `/openapi/v1/image-to-3d/<id>`
+    /// - `.multiImageTo3D` → `/openapi/v1/multi-image-to-3d/<id>`
+    func cancelTask(taskId: String, kind: MeshyTaskKind) async throws
     func fetchBalance() async throws -> Int
     func downloadModel(from url: URL, allowedFormat: MeshyOutputFormat) async throws -> Data
 }
@@ -171,19 +179,124 @@ public actor MeshyAIClient: MeshyClient {
         return try decodeJSON(MeshyTaskResponse.self, from: data)
     }
 
-    /// DELETE `/openapi/v2/text-to-3d/<taskId>`. Tolerates 404 (task
-    /// already finished) by returning normally.
-    public func cancelTask(taskId: String) async throws {
-        let safePath = "/openapi/v2/text-to-3d/\(taskId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? taskId)"
-        let urlReq = authorizedRequest(path: safePath, method: "DELETE")
+    /// DELETE the appropriate Meshy endpoint based on `kind`. Tolerates 404
+    /// (task already finished) by returning normally.
+    ///
+    /// Endpoint routing:
+    /// - `.textTo3D` → `/openapi/v2/text-to-3d/<id>`
+    /// - `.imageTo3D` → `/openapi/v1/image-to-3d/<id>`
+    /// - `.multiImageTo3D` → `/openapi/v1/multi-image-to-3d/<id>`
+    public func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {
+        let encodedId = taskId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? taskId
+        let (basePath, logEndpoint): (String, String) = switch kind {
+        case .textTo3D:
+            ("/openapi/v2/text-to-3d/\(encodedId)", "/openapi/v2/text-to-3d/:id DELETE")
+        case .imageTo3D:
+            ("/openapi/v1/image-to-3d/\(encodedId)", "/openapi/v1/image-to-3d/:id DELETE")
+        case .multiImageTo3D:
+            ("/openapi/v1/multi-image-to-3d/\(encodedId)", "/openapi/v1/multi-image-to-3d/:id DELETE")
+        }
+        let urlReq = authorizedRequest(path: basePath, method: "DELETE")
 
-        let (data, response) = try await sessionData(for: urlReq, endpoint: "/openapi/v2/text-to-3d/:id DELETE")
+        let (data, response) = try await sessionData(for: urlReq, endpoint: logEndpoint)
         guard let http = response as? HTTPURLResponse else { throw MeshyError.invalidResponse }
         // 404 means the task already finished — not an error from our perspective.
         if http.statusCode == 404 { return }
         guard (200..<300).contains(http.statusCode) else {
             throw mapHTTPError(statusCode: http.statusCode, body: data)
         }
+    }
+
+    /// POST `/openapi/v1/image-to-3d` and return the task id.
+    ///
+    /// - Throws: `MeshyError.validationFailed` if `imageData` is not a data URI.
+    /// - Returns: The non-empty task id string.
+    public func createImageTo3DTask(_ request: MeshyImageTo3DRequest) async throws -> String {
+        // Pre-flight validation: image_data must be a data URI.
+        guard request.imageData.hasPrefix("data:image/") else {
+            throw MeshyError.validationFailed(field: "image_data", reason: "Image data must be a data URI.")
+        }
+
+        var urlReq = authorizedRequest(path: "/openapi/v1/image-to-3d", method: "POST")
+        urlReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlReq.httpBody = try JSONEncoder().encode(request)
+
+        // Log only the character count of the image data, never the bytes themselves.
+        logger.aiInput(
+            "POST /openapi/v1/image-to-3d model=\(request.aiModel.rawValue) image_data:\(request.imageData.count) chars",
+            source: "Meshy"
+        )
+
+        let (data, response) = try await sessionData(for: urlReq, endpoint: "/openapi/v1/image-to-3d")
+        guard let http = response as? HTTPURLResponse else { throw MeshyError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            throw mapHTTPError(statusCode: http.statusCode, body: data)
+        }
+        let decoded = try decodeJSON(MeshyCreateTaskResponse.self, from: data)
+        guard !decoded.result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw MeshyError.invalidResponse
+        }
+        logger.aiOutput("task_id=\(decoded.result)", source: "Meshy")
+        return decoded.result
+    }
+
+    /// POST `/openapi/v1/multi-image-to-3d` and return the task id.
+    ///
+    /// Enforces the 2..4 image constraint before sending.
+    /// - Throws: `MeshyError.validationFailed` for count violations or non-data-URI entries.
+    /// - Returns: The non-empty task id string.
+    public func createMultiImageTo3DTask(_ request: MeshyMultiImageTo3DRequest) async throws -> String {
+        // Pre-flight validation: 2..4 images.
+        guard (2...4).contains(request.imageData.count) else {
+            throw MeshyError.validationFailed(
+                field: "image_data",
+                reason: "Multi-image generation requires 2 to 4 images."
+            )
+        }
+        // Each entry must be a data URI.
+        for (idx, uri) in request.imageData.enumerated() {
+            guard uri.hasPrefix("data:image/") else {
+                throw MeshyError.validationFailed(
+                    field: "image_data[\(idx)]",
+                    reason: "Image \(idx + 1) must be a data URI."
+                )
+            }
+        }
+
+        // Defense-in-depth: combined encoded-body cap. 40 MB raw → ~53 MB
+        // base64-encoded → cap at 57 MB string length to be generous. The
+        // primary M2 enforcement lives in `Generate3DJob`, but any future
+        // call site that builds `MeshyMultiImageTo3DRequest` directly hits
+        // this gate too. (Security review Phase 2 Defect 2.)
+        let totalEncodedChars = request.imageData.map(\.count).reduce(0, +)
+        let combinedCap = 57 * 1024 * 1024
+        guard totalEncodedChars <= combinedCap else {
+            throw MeshyError.validationFailed(
+                field: "image_data",
+                reason: "Total image size exceeds the 40 MB combined limit."
+            )
+        }
+
+        var urlReq = authorizedRequest(path: "/openapi/v1/multi-image-to-3d", method: "POST")
+        urlReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlReq.httpBody = try JSONEncoder().encode(request)
+
+        logger.aiInput(
+            "POST /openapi/v1/multi-image-to-3d model=\(request.aiModel.rawValue) images=\(request.imageData.count)",
+            source: "Meshy"
+        )
+
+        let (data, response) = try await sessionData(for: urlReq, endpoint: "/openapi/v1/multi-image-to-3d")
+        guard let http = response as? HTTPURLResponse else { throw MeshyError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            throw mapHTTPError(statusCode: http.statusCode, body: data)
+        }
+        let decoded = try decodeJSON(MeshyCreateTaskResponse.self, from: data)
+        guard !decoded.result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw MeshyError.invalidResponse
+        }
+        logger.aiOutput("task_id=\(decoded.result)", source: "Meshy")
+        return decoded.result
     }
 
     /// GET `/openapi/v1/balance` and return the integer credit balance.

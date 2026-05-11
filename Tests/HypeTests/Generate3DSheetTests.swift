@@ -14,12 +14,14 @@ private actor LocalStubMeshyClient: MeshyClient {
     }
 
     func createTextTo3DTask(_ request: MeshyTextTo3DRequest) async throws -> String { "stub_task" }
+    func createImageTo3DTask(_ request: MeshyImageTo3DRequest) async throws -> String { "stub_image_task" }
+    func createMultiImageTo3DTask(_ request: MeshyMultiImageTo3DRequest) async throws -> String { "stub_multi_task" }
     func fetchTask(taskId: String) async throws -> MeshyTaskResponse {
         MeshyTaskResponse(id: taskId, status: .pending, progress: nil,
                           createdAt: nil, startedAt: nil, finishedAt: nil,
                           modelUrls: nil, taskError: nil, textureUrls: nil, preview: nil)
     }
-    func cancelTask(taskId: String) async throws {}
+    func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {}
     func fetchBalance() async throws -> Int { 100 }
     func downloadModel(from url: URL, allowedFormat: MeshyOutputFormat) async throws -> Data {
         glbData

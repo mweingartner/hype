@@ -16,34 +16,45 @@ public struct HypeToolExecutor: Sendable {
     public let webAssetPipeline: WebAssetImportPipeline?
     /// The generated-image client. Nil means OpenAI image generation is not configured.
     public let imageGenerationClient: (any HypeImageGenerating)?
+    /// Factory for building a `MeshyClient` on demand. Tests inject a stub via
+    /// this seam rather than mocking the Keychain directly. In production the
+    /// factory reads the Keychain fresh on each call so key rotation is respected.
+    /// `nil` means the Meshy AI tools will build a real `MeshyAIClient` directly.
+    public let meshyClientFactory: (@Sendable () throws -> MeshyClient)?
 
     // MARK: - Initializers
 
     /// Zero-arg initializer that keeps ALL existing call sites source-compatible.
-    /// Web-asset features are disabled when called this way.
+    /// Web-asset and Meshy features are disabled when called this way.
     public init() {
         self.webAssetSession = nil
         self.webAssetClient = nil
         self.webAssetPipeline = nil
         self.imageGenerationClient = nil
+        self.meshyClientFactory = nil
     }
 
-    /// Full initializer with web-asset dependencies wired in.
+    /// Full initializer with web-asset and Meshy dependencies wired in.
     ///
     /// - Parameters:
     ///   - webAssetSession: A `WebAssetSession` actor for candidate caching and soft-cap tracking.
     ///   - webAssetClient:  A `WebAssetSearchClient` for the active provider.
     ///   - webAssetPipeline: A `WebAssetImportPipeline` for download + validation.
+    ///   - imageGenerationClient: Optional OpenAI image generator.
+    ///   - meshyClientFactory: Optional factory for `MeshyClient`. Invoked after
+    ///     the gate check passes; must read the Keychain fresh on each call.
     public init(
         webAssetSession: WebAssetSession?,
         webAssetClient: (any WebAssetSearchClient)?,
         webAssetPipeline: WebAssetImportPipeline?,
-        imageGenerationClient: (any HypeImageGenerating)? = nil
+        imageGenerationClient: (any HypeImageGenerating)? = nil,
+        meshyClientFactory: (@Sendable () throws -> MeshyClient)? = nil
     ) {
         self.webAssetSession = webAssetSession
         self.webAssetClient = webAssetClient
         self.webAssetPipeline = webAssetPipeline
         self.imageGenerationClient = imageGenerationClient
+        self.meshyClientFactory = meshyClientFactory
     }
 
     /// Heuristic: does the given asset name contain a substring
@@ -1332,11 +1343,14 @@ public struct HypeToolExecutor: Sendable {
 
         case "create_scene3d":
             let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            // H2: sanitize AI-controlled name.
+            let scene3DRawName = arguments["name"] ?? "Scene3D"
+            let scene3DSafeName = sanitizeAssetName(scene3DRawName) ?? "Scene3D"
             var part = Part(
                 partType: .scene3D,
                 cardId: place.cardId,
                 backgroundId: place.backgroundId,
-                name: arguments["name"] ?? "Scene3D",
+                name: scene3DSafeName,
                 left: Double(arguments["left"] ?? "100") ?? 100,
                 top: Double(arguments["top"] ?? "100") ?? 100,
                 width: Double(arguments["width"] ?? "400") ?? 400,
@@ -2489,14 +2503,33 @@ public struct HypeToolExecutor: Sendable {
             return "Repository assets:\n\(descriptions.joined(separator: "\n"))"
 
         case "import_repository_asset":
-            let name = arguments["name"] ?? "asset"
+            // H2: sanitize AI-controlled asset name.
+            let importRawName = arguments["name"] ?? "asset"
+            let name = sanitizeAssetName(importRawName) ?? "asset"
             let filePath = arguments["file_path"] ?? ""
-            guard let data = try? Data(contentsOf: URL(fileURLWithPath: filePath)) else {
-                return "Could not read file at '\(filePath)'"
+            guard !filePath.isEmpty else {
+                return "import_repository_asset requires 'file_path'."
             }
+            // Phase 2 Defect 1: route AI-supplied paths through the same
+            // validation pipeline as the Meshy image tools — absolute path
+            // required, no '..' traversal, no system directories, symlink
+            // resolution, containment under home/temp/document dir, 10 MB
+            // cap, magic-byte MIME sniff (PNG/JPEG/WebP only). Error
+            // strings NEVER echo the raw filePath.
+            let resolvedData: Data
+            do {
+                let resolved = try MeshyImageInput.filePath(filePath)
+                    .resolve(in: document.spriteRepository)
+                resolvedData = resolved.data
+            } catch let error as MeshyError {
+                return "import_repository_asset: \(error.errorDescription ?? "invalid path")."
+            } catch {
+                return "import_repository_asset: invalid path."
+            }
+            let data = resolvedData
             #if canImport(AppKit)
             guard let image = NSImage(data: data) else {
-                return "Could not load image from '\(filePath)'"
+                return "import_repository_asset: image data could not be decoded."
             }
             let size = image.size
             var asset = SpriteAsset(name: name, data: data, width: Int(size.width), height: Int(size.height))
@@ -4843,6 +4876,32 @@ public struct HypeToolExecutor: Sendable {
                 return "Capture failed: \(error.localizedDescription)"
             }
 
+        // MARK: - Meshy 3D generation tools (Phase 2)
+
+        case "list_3d_models":
+            return executeListModel3DAssets(document: document)
+
+        case "generate_3d_model_from_text":
+            return await executeGenerate3DFromText(
+                arguments: arguments,
+                document: &document,
+                currentCardId: currentCardId
+            )
+
+        case "generate_3d_model_from_image":
+            return await executeGenerate3DFromImage(
+                arguments: arguments,
+                document: &document,
+                currentCardId: currentCardId
+            )
+
+        case "generate_3d_model_from_images":
+            return await executeGenerate3DFromImages(
+                arguments: arguments,
+                document: &document,
+                currentCardId: currentCardId
+            )
+
         default:
             return "Unknown tool: \(toolName)"
         }
@@ -5422,6 +5481,421 @@ public struct HypeToolExecutor: Sendable {
         lines.append("#   AI tool: set_part_property(part_name=\"\(p.name)\", property=\"<name>\", value=\"<new>\")")
         lines.append("#   HypeTalk: set the <name> of \(p.partType.rawValue) \"\(p.name)\" to <new>")
         return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Meshy 3D tool helpers (Phase 2)
+
+    /// List all `.model3D` assets in the repository.
+    ///
+    /// M3: Caps at 50 results; appends "… and N more" when exceeded.
+    /// Security: returns only metadata (name, id, size) — never bytes.
+    private func executeListModel3DAssets(document: HypeDocument) -> String {
+        let models = document.spriteRepository.assets
+            .filter { $0.kind == .model3D }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+        guard !models.isEmpty else {
+            return "(no 3D models in repository)"
+        }
+
+        let cap = 50
+        let shown = Array(models.prefix(cap))
+        var lines = shown.map { asset in
+            "name=\(asset.name) id=\(asset.id) size=\(asset.data.count)B"
+        }
+        if models.count > cap {
+            lines.append("… and \(models.count - cap) more — use the Sprite Repository to see all.")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Gate check + client construction shared by all three generators.
+    ///
+    /// - Returns: `(.some(client), nil)` when gate passes, or `(nil, .some(errorString))` on refusal.
+    /// - Note: Gate is checked BEFORE invoking `meshyClientFactory` (invariant §11.2 item 7).
+    private func meshyGateAndClient(document: HypeDocument) -> (client: MeshyClient?, error: String?) {
+        let keyIsSet = KeychainStore.hasSecret(account: KeychainStore.meshyAPIKeyAccount)
+        let gateStatus = Meshy3DGate.status(for: document, keyIsSet: keyIsSet)
+        switch gateStatus {
+        case .stackDisabled:
+            return (nil, "Meshy is not enabled for this stack. Enable it in Preferences → Meshy.ai.")
+        case .apiKeyMissing:
+            return (nil, "Set your Meshy API key in Preferences → Meshy.ai.")
+        case .ready:
+            break
+        }
+
+        // Gate passed — build the client.
+        do {
+            let client: MeshyClient = try meshyClientFactory?() ?? {
+                let key = try KeychainStore.getSecret(account: KeychainStore.meshyAPIKeyAccount)
+                return MeshyAIClient(apiKey: key)
+            }()
+            return (client, nil)
+        } catch {
+            return (nil, "Failed to read Meshy API key from keychain.")
+        }
+    }
+
+    /// Parse optional `place_on_card` arguments and create a `scene3D` part,
+    /// wiring `scene3DAssetRef` to the first imported asset.
+    ///
+    /// - Returns: A success description string for the created part, or `nil`
+    ///   when `place_on_card != "true"`.
+    private func placeScene3DPartIfRequested(
+        arguments: [String: String],
+        document: inout HypeDocument,
+        currentCardId: UUID,
+        primaryAsset: SpriteAsset
+    ) -> String? {
+        guard (arguments["place_on_card"] ?? "").lowercased() == "true" else {
+            return nil
+        }
+        let rawPartName = arguments["part_name"] ?? ""
+        guard let safePartName = sanitizeAssetName(rawPartName), !safePartName.isEmpty else {
+            return nil  // Caller validates part_name before calling us.
+        }
+
+        let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+        var part = Part(
+            partType: .scene3D,
+            cardId: place.cardId,
+            backgroundId: place.backgroundId,
+            name: safePartName,
+            left: Double(arguments["left"] ?? "100") ?? 100,
+            top: Double(arguments["top"] ?? "100") ?? 100,
+            width: Double(arguments["width"] ?? "400") ?? 400,
+            height: Double(arguments["height"] ?? "300") ?? 300
+        )
+        part.scene3DAssetRef = document.spriteRepository.assetRef(for: primaryAsset)
+        document.addPart(part)
+        let layer = place.backgroundId != nil ? " on background" : ""
+        return "Created scene3D part '\(safePartName)'\(layer) referencing '\(primaryAsset.name)'."
+    }
+
+    /// Generate a 3D model from a text prompt.
+    private func executeGenerate3DFromText(
+        arguments: [String: String],
+        document: inout HypeDocument,
+        currentCardId: UUID
+    ) async -> String {
+        // Step A: Gate check.
+        let (client, gateError) = meshyGateAndClient(document: document)
+        if let err = gateError { return err }
+        guard let client else { return "Internal error: no Meshy client." }
+
+        // Step B: Validate arguments.
+        let promptRaw = arguments["prompt"] ?? ""
+        let prompt = promptRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prompt.isEmpty else {
+            return "generate_3d_model_from_text requires 'prompt'."
+        }
+        guard prompt.count <= 600 else {
+            return "generate_3d_model_from_text: prompt must be ≤ 600 characters."
+        }
+
+        // Validate place_on_card / part_name constraint before starting generation.
+        let placeOnCard = (arguments["place_on_card"] ?? "").lowercased() == "true"
+        if placeOnCard {
+            let rawPartName = arguments["part_name"] ?? ""
+            guard sanitizeAssetName(rawPartName) != nil, !rawPartName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return "generate_3d_model_from_text requires 'part_name' when place_on_card='true'."
+            }
+        }
+
+        let artStyleRaw = (arguments["art_style"] ?? "realistic").lowercased()
+        let artStyle: MeshyArtStyle = artStyleRaw == "sculpture" ? .sculpture : .realistic
+        let aiModel: MeshyAIModel = parseAIModel(arguments["ai_model"])
+        let shouldRemesh = boolArgument(arguments["should_remesh"]) ?? aiModel.defaultRemesh
+        let alsoUSDZ = boolArgument(arguments["with_usdz"]) ?? false
+
+        // Step C: Progress reporter (D in plan).
+        let reporter = Meshy3DToolProgressReporter(
+            logger: .shared,
+            toolName: "generate_3d_model_from_text",
+            taskKindDescription: "text-to-3D"
+        )
+
+        // Step D: Run the job (E in plan).
+        let job = Generate3DJob(client: client)
+        let options = Generate3DJob.Options(
+            aiModel: aiModel,
+            shouldRemesh: shouldRemesh,
+            alsoUSDZ: alsoUSDZ,
+            alsoFBX: false,
+            hardTimeout: 300   // 5-min cap for AI tool path.
+        )
+        let existing = Set(document.spriteRepository.assets.map(\.name))
+        let assets: [SpriteAsset]
+        do {
+            assets = try await job.run(
+                kind: .text(prompt: prompt, artStyle: artStyle),
+                options: options,
+                existingAssetNames: existing,
+                onProgress: { state in reporter.report(state) }
+            )
+        } catch let error as MeshyError {
+            if case .timedOut = error {
+                return "Meshy generation timed out after 5 minutes. The Meshy task may still be running — check your dashboard. The Generate 3D sheet (Sprite Repository → Generate 3D) supports the full 30-minute wait."
+            }
+            return "Meshy generation failed: \(error.errorDescription ?? "unknown error")."
+        } catch is CancellationError {
+            return "Meshy generation cancelled."
+        } catch {
+            return "Meshy generation failed: \(error.localizedDescription)"
+        }
+
+        // Step E: Integration (F in plan).
+        for asset in assets {
+            document.spriteRepository.addAsset(asset)
+        }
+        guard let primary = assets.first else {
+            return "Meshy generation failed: no assets were imported."
+        }
+
+        var result = "Generated 3D model '\(primary.name)' and added to the Sprite Repository."
+        if let partResult = placeScene3DPartIfRequested(
+            arguments: arguments,
+            document: &document,
+            currentCardId: currentCardId,
+            primaryAsset: primary
+        ) {
+            result += " \(partResult)"
+        }
+        return result
+    }
+
+    /// Generate a 3D model from a single image.
+    private func executeGenerate3DFromImage(
+        arguments: [String: String],
+        document: inout HypeDocument,
+        currentCardId: UUID
+    ) async -> String {
+        // Step A: Gate check.
+        let (client, gateError) = meshyGateAndClient(document: document)
+        if let err = gateError { return err }
+        guard let client else { return "Internal error: no Meshy client." }
+
+        // Validate place_on_card / part_name before starting generation.
+        let placeOnCard = (arguments["place_on_card"] ?? "").lowercased() == "true"
+        if placeOnCard {
+            let rawPartName = arguments["part_name"] ?? ""
+            guard sanitizeAssetName(rawPartName) != nil, !rawPartName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return "generate_3d_model_from_image requires 'part_name' when place_on_card='true'."
+            }
+        }
+
+        // Step B: Parse image input — exactly one of the three sources must be set.
+        let imageInput: MeshyImageInput
+        if let pathArg = arguments["image_path"].flatMap({ $0.isEmpty ? nil : $0 }) {
+            imageInput = .filePath(pathArg)
+        } else if let nameArg = arguments["image_asset_name"].flatMap({ $0.isEmpty ? nil : $0 }) {
+            imageInput = .assetName(nameArg)
+        } else if let b64Arg = arguments["image_base64"].flatMap({ $0.isEmpty ? nil : $0 }) {
+            imageInput = .base64(b64Arg)
+        } else {
+            return "generate_3d_model_from_image requires one of: image_path, image_asset_name, or image_base64."
+        }
+
+        // Resolve and validate the image input.
+        let resolved: MeshyImageInput.Resolved
+        do {
+            resolved = try imageInput.resolve(in: document.spriteRepository)
+        } catch let error as MeshyError {
+            return "Image validation failed: \(error.errorDescription ?? "unknown error")."
+        } catch {
+            return "Image validation failed: \(error.localizedDescription)"
+        }
+
+        let aiModel: MeshyAIModel = parseAIModel(arguments["ai_model"])
+        let shouldRemesh = boolArgument(arguments["should_remesh"]) ?? aiModel.defaultRemesh
+        let alsoUSDZ = boolArgument(arguments["with_usdz"]) ?? false
+
+        let reporter = Meshy3DToolProgressReporter(
+            logger: .shared,
+            toolName: "generate_3d_model_from_image",
+            taskKindDescription: "image-to-3D"
+        )
+
+        let job = Generate3DJob(client: client)
+        let options = Generate3DJob.Options(
+            aiModel: aiModel,
+            shouldRemesh: shouldRemesh,
+            alsoUSDZ: alsoUSDZ,
+            alsoFBX: false,
+            hardTimeout: 300
+        )
+        let existing = Set(document.spriteRepository.assets.map(\.name))
+        let assets: [SpriteAsset]
+        do {
+            assets = try await job.run(
+                kind: .singleImage(image: resolved),
+                options: options,
+                existingAssetNames: existing,
+                onProgress: { state in reporter.report(state) }
+            )
+        } catch let error as MeshyError {
+            if case .timedOut = error {
+                return "Meshy generation timed out after 5 minutes. The Meshy task may still be running — check your dashboard. The Generate 3D sheet (Sprite Repository → Generate 3D) supports the full 30-minute wait."
+            }
+            return "Meshy generation failed: \(error.errorDescription ?? "unknown error")."
+        } catch is CancellationError {
+            return "Meshy generation cancelled."
+        } catch {
+            return "Meshy generation failed: \(error.localizedDescription)"
+        }
+
+        for asset in assets {
+            document.spriteRepository.addAsset(asset)
+        }
+        guard let primary = assets.first else {
+            return "Meshy generation failed: no assets were imported."
+        }
+
+        // H1: result string uses asset name only — never sourceDescriptor.
+        var result = "Generated 3D model '\(primary.name)' from image and added to the Sprite Repository."
+        if let partResult = placeScene3DPartIfRequested(
+            arguments: arguments,
+            document: &document,
+            currentCardId: currentCardId,
+            primaryAsset: primary
+        ) {
+            result += " \(partResult)"
+        }
+        return result
+    }
+
+    /// Generate a 3D model from 2–4 images.
+    private func executeGenerate3DFromImages(
+        arguments: [String: String],
+        document: inout HypeDocument,
+        currentCardId: UUID
+    ) async -> String {
+        // Step A: Gate check.
+        let (client, gateError) = meshyGateAndClient(document: document)
+        if let err = gateError { return err }
+        guard let client else { return "Internal error: no Meshy client." }
+
+        // Validate place_on_card / part_name before starting generation.
+        let placeOnCard = (arguments["place_on_card"] ?? "").lowercased() == "true"
+        if placeOnCard {
+            let rawPartName = arguments["part_name"] ?? ""
+            guard sanitizeAssetName(rawPartName) != nil, !rawPartName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return "generate_3d_model_from_images requires 'part_name' when place_on_card='true'."
+            }
+        }
+
+        // Step B: Parse comma-separated image refs.
+        let imagesArg = arguments["images"] ?? ""
+        guard !imagesArg.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "generate_3d_model_from_images requires 'images' — a comma-separated list of 2–4 refs (prefix each with 'asset:', 'path:', or 'base64:')."
+        }
+
+        // Split on commas. Each ref must have a prefix.
+        let rawRefs = imagesArg.split(separator: ",", omittingEmptySubsequences: true).map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard (2...4).contains(rawRefs.count) else {
+            return "generate_3d_model_from_images requires 2 to 4 image refs (got \(rawRefs.count))."
+        }
+
+        var inputs: [MeshyImageInput] = []
+        for ref in rawRefs {
+            if ref.hasPrefix("asset:") {
+                inputs.append(.assetName(String(ref.dropFirst("asset:".count))))
+            } else if ref.hasPrefix("path:") {
+                inputs.append(.filePath(String(ref.dropFirst("path:".count))))
+            } else if ref.hasPrefix("base64:") {
+                inputs.append(.base64(String(ref.dropFirst("base64:".count))))
+            } else {
+                return "Image ref '\(ref.prefix(40))' must be prefixed with 'asset:', 'path:', or 'base64:'."
+            }
+        }
+
+        // Resolve all inputs.
+        var resolvedImages: [MeshyImageInput.Resolved] = []
+        for input in inputs {
+            do {
+                let resolved = try input.resolve(in: document.spriteRepository)
+                resolvedImages.append(resolved)
+            } catch let error as MeshyError {
+                return "Image validation failed: \(error.errorDescription ?? "unknown error")."
+            } catch {
+                return "Image validation failed: \(error.localizedDescription)"
+            }
+        }
+
+        // M2: Combined 40 MB cap — checked again inside Generate3DJob but
+        // surfacing here gives a better error message.
+        let totalBytes = resolvedImages.map(\.data.count).reduce(0, +)
+        guard totalBytes <= 40 * 1024 * 1024 else {
+            return "Total image size (\(totalBytes / 1_048_576) MB) exceeds the 40 MB combined limit."
+        }
+
+        let aiModel: MeshyAIModel = parseAIModel(arguments["ai_model"])
+        let shouldRemesh = boolArgument(arguments["should_remesh"]) ?? aiModel.defaultRemesh
+        let alsoUSDZ = boolArgument(arguments["with_usdz"]) ?? false
+
+        let reporter = Meshy3DToolProgressReporter(
+            logger: .shared,
+            toolName: "generate_3d_model_from_images",
+            taskKindDescription: "multi-image-to-3D"
+        )
+
+        let job = Generate3DJob(client: client)
+        let options = Generate3DJob.Options(
+            aiModel: aiModel,
+            shouldRemesh: shouldRemesh,
+            alsoUSDZ: alsoUSDZ,
+            alsoFBX: false,
+            hardTimeout: 300
+        )
+        let existing = Set(document.spriteRepository.assets.map(\.name))
+        let assets: [SpriteAsset]
+        do {
+            assets = try await job.run(
+                kind: .multiImage(images: resolvedImages),
+                options: options,
+                existingAssetNames: existing,
+                onProgress: { state in reporter.report(state) }
+            )
+        } catch let error as MeshyError {
+            if case .timedOut = error {
+                return "Meshy generation timed out after 5 minutes. The Meshy task may still be running — check your dashboard. The Generate 3D sheet (Sprite Repository → Generate 3D) supports the full 30-minute wait."
+            }
+            return "Meshy generation failed: \(error.errorDescription ?? "unknown error")."
+        } catch is CancellationError {
+            return "Meshy generation cancelled."
+        } catch {
+            return "Meshy generation failed: \(error.localizedDescription)"
+        }
+
+        for asset in assets {
+            document.spriteRepository.addAsset(asset)
+        }
+        guard let primary = assets.first else {
+            return "Meshy generation failed: no assets were imported."
+        }
+
+        // H1: result string uses asset name only — never sourceDescriptors.
+        var result = "Generated 3D model '\(primary.name)' from \(resolvedImages.count) images and added to the Sprite Repository."
+        if let partResult = placeScene3DPartIfRequested(
+            arguments: arguments,
+            document: &document,
+            currentCardId: currentCardId,
+            primaryAsset: primary
+        ) {
+            result += " \(partResult)"
+        }
+        return result
+    }
+
+    /// Parse an `ai_model` argument string into a `MeshyAIModel`.
+    private func parseAIModel(_ raw: String?) -> MeshyAIModel {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return .meshy6
+        }
+        return MeshyAIModel(rawValue: trimmed) ?? .meshy6
     }
 
     // MARK: - STL Model Path Resolver

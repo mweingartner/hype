@@ -146,10 +146,50 @@ public struct MeshyTextTo3DRequest: Codable, Sendable, Equatable {
     }
 }
 
-/// POST response — Meshy returns just the task id wrapped in a `result` key.
-public struct MeshyCreateTaskResponse: Codable, Sendable, Equatable {
-    /// Task id, typically ~32 hex characters.
+/// Discriminates between Meshy task kinds so `cancelTask` can route to the
+/// correct v1 or v2 DELETE endpoint.
+///
+/// - `textTo3D`: `/openapi/v2/text-to-3d/<id>` (Phase 1 default)
+/// - `imageTo3D`: `/openapi/v1/image-to-3d/<id>`
+/// - `multiImageTo3D`: `/openapi/v1/multi-image-to-3d/<id>`
+public enum MeshyTaskKind: String, Sendable, Equatable {
+    case textTo3D
+    case imageTo3D
+    case multiImageTo3D
+}
+
+/// POST response — Meshy v2 returns `{ "result": "<id>" }`;
+/// Meshy v1 endpoints may return `{ "id": "<id>" }` instead.
+///
+/// The custom `init(from:)` tries `result` first, then falls back to `id`.
+/// This is forward-compatible and avoids a smoke-test requirement against
+/// the live API during development.
+public struct MeshyCreateTaskResponse: Sendable, Equatable {
+    /// Normalised task id — populated from `result` (v2) or `id` (v1).
     public let result: String
+
+    private enum CodingKeys: String, CodingKey { case result, id }
+}
+
+extension MeshyCreateTaskResponse: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let r = try c.decodeIfPresent(String.self, forKey: .result), !r.isEmpty {
+            self.result = r
+        } else if let r = try c.decodeIfPresent(String.self, forKey: .id), !r.isEmpty {
+            self.result = r
+        } else {
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: c.codingPath,
+                debugDescription: "Neither 'result' nor 'id' present in MeshyCreateTaskResponse"
+            ))
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(result, forKey: .result)
+    }
 }
 
 /// Map of format → download URL returned by GET when `status == .succeeded`.

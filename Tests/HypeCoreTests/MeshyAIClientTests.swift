@@ -230,7 +230,7 @@ struct MeshyAIClientTests {
             (Data(), response(statusCode: 404, url: req.url!))
         }
         // Should not throw.
-        try await client.cancelTask(taskId: "task_already_done")
+        try await client.cancelTask(taskId: "task_already_done", kind: .textTo3D)
     }
 
     // MARK: (l) Public init has NO baseURL parameter — compile-time check

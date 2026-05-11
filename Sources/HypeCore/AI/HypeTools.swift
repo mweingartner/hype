@@ -905,6 +905,93 @@ public struct HypeToolDefinitions {
             "asset_name": ("string", "Name of an asset already in the Sprite Repository", false),
             "on_background": ("string", "'true' to place on the background (shared across cards)", false),
         ]),
+        // ------------------------------------------------------------------
+        // Meshy 3D generation tools (Phase 2)
+        // ------------------------------------------------------------------
+
+        makeTool(name: "list_3d_models", description: """
+            List every 3D model asset (kind == .model3D) currently in the Sprite Repository. \
+            Returns one line per asset: name=<n> id=<uuid> size=<bytes>B. \
+            Returns "(no 3D models in repository)" when there are none. \
+            Use this before calling a generate_3d_model_* tool to avoid regenerating a model the user already has.
+            """, params: [:]),
+
+        makeTool(name: "generate_3d_model_from_text", description: """
+            Generate a 3D model from a text prompt using Meshy.ai and add it to the \
+            Sprite Repository as a model3D asset. Optionally also place a scene3D part \
+            on the current card or background referencing the new asset (when place_on_card='true').
+
+            Generation takes ~60–120 seconds; the tool blocks while the Meshy task runs. \
+            Progress is reported live via the AI log. The wait is capped at 5 minutes — \
+            if generation hasn't finished by then, the tool returns an error and the user \
+            can retry from the Generate 3D sheet.
+
+            Requires: (a) the stack has meshyEnabled; (b) the Meshy API key is in the Keychain.
+            """, params: [
+            "prompt":         ("string", "Plain-English description of the model (max 600 chars)", true),
+            "ai_model":       ("string", "meshy-6 (default) | meshy-5 | meshy-4 | latest", false),
+            "art_style":      ("string", "realistic (default) | sculpture", false),
+            "should_remesh":  ("string", "'true' / 'false'. Defaults to model default.", false),
+            "with_usdz":      ("string", "'true' to also download USDZ for AR/Quick Look", false),
+            "place_on_card":  ("string", "'true' to also create a scene3D part referencing the new asset", false),
+            "part_name":      ("string", "Name for the scene3D part (required when place_on_card='true')", false),
+            "left":           ("string", "X position for the scene3D part (default 100)", false),
+            "top":            ("string", "Y position (default 100)", false),
+            "width":          ("string", "Width in points (default 400)", false),
+            "height":         ("string", "Height in points (default 300)", false),
+            "on_background":  ("string", "'true' to place the scene3D part on the background", false),
+        ]),
+
+        makeTool(name: "generate_3d_model_from_image", description: """
+            Generate a 3D model from a single 2D image using Meshy.ai. Exactly one of \
+            image_path, image_asset_name, or image_base64 must be set.
+
+            image_asset_name is preferred — keeps bytes local. \
+            image_path must be an absolute path under the user's home or temp directory. \
+            image_base64 accepts raw base64 (with or without data: prefix), capped at 10 MB.
+
+            Allowed formats: PNG, JPEG, WebP. Cap: 10 MB. Generation: ~90–150 s; 5-min cap.
+            """, params: [
+            "image_path":        ("string", "Absolute path to a PNG/JPEG/WebP image on disk", false),
+            "image_asset_name":  ("string", "Name of an existing image asset in the Sprite Repository", false),
+            "image_base64":      ("string", "Raw base64 image bytes (or data: URI), max 10 MB", false),
+            "ai_model":          ("string", "meshy-6 (default) | meshy-5 | meshy-4 | latest", false),
+            "should_remesh":     ("string", "'true' / 'false'", false),
+            "with_usdz":         ("string", "'true' to also download USDZ", false),
+            "place_on_card":     ("string", "'true' to also create a scene3D part", false),
+            "part_name":         ("string", "Name for the scene3D part (required when place_on_card='true')", false),
+            "left":              ("string", "X position (default 100)", false),
+            "top":               ("string", "Y position (default 100)", false),
+            "width":             ("string", "Width (default 400)", false),
+            "height":            ("string", "Height (default 300)", false),
+            "on_background":     ("string", "'true' to place on background", false),
+        ]),
+
+        makeTool(name: "generate_3d_model_from_images", description: """
+            Generate a 3D model from 2–4 images of the same object from different angles \
+            (e.g. front / side / back). Multi-view input typically produces higher-fidelity \
+            reconstructions than single-image.
+
+            images is a comma-separated list of refs. Each ref must be prefixed with: \
+            asset:<name> (preferred), path:<absolute-path>, or base64:<base64-bytes>. Example: \
+            images='asset:robot-front,asset:robot-side,asset:robot-back'
+
+            Same image-format and security constraints as generate_3d_model_from_image apply \
+            to EACH image. Combined cap: 40 MB. Generation: ~150–300 s; 5-min cap.
+            """, params: [
+            "images":         ("string", "Comma-separated 2–4 image refs, each prefixed 'asset:', 'path:', or 'base64:'", true),
+            "ai_model":       ("string", "meshy-6 (default) | meshy-5 | meshy-4 | latest", false),
+            "should_remesh":  ("string", "'true' / 'false'", false),
+            "with_usdz":      ("string", "'true' to also download USDZ", false),
+            "place_on_card":  ("string", "'true' to also create a scene3D part", false),
+            "part_name":      ("string", "Name for the scene3D part (required when place_on_card='true')", false),
+            "left":           ("string", "X position (default 100)", false),
+            "top":            ("string", "Y position (default 100)", false),
+            "width":          ("string", "Width (default 400)", false),
+            "height":         ("string", "Height (default 300)", false),
+            "on_background":  ("string", "'true' to place on background", false),
+        ]),
+
         makeTool(name: "generate_image", description: """
             Generate an image through the configured OpenAI image model and place it as an image part on the current card or current background. \
             Use this when the user asks to add an image/picture/illustration to the card/background that looks like something.
@@ -1352,6 +1439,10 @@ public struct HypeToolDefinitions {
             "create_shape",
             "create_image",
             "generate_image",
+            "generate_3d_model_from_text",
+            "generate_3d_model_from_image",
+            "generate_3d_model_from_images",
+            "list_3d_models",
             "create_webpage",
             "create_video",
             "create_chart",
@@ -1487,6 +1578,10 @@ public struct HypeToolDefinitions {
             "create_shape",
             "create_image",
             "generate_image",
+            "generate_3d_model_from_text",
+            "generate_3d_model_from_image",
+            "generate_3d_model_from_images",
+            "list_3d_models",
             "create_webpage",
             "create_video",
             "create_chart",

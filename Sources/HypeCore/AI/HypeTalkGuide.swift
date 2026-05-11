@@ -610,6 +610,42 @@ public enum HypeTalkGuide {
               put "3D load failed: " & reason into field "status"
             end modelLoadFailed
 
+        **Generate a 3D model with Meshy.ai (AI tools — Phase 2):**
+            -- Requires meshyEnabled = true on the stack and a Meshy API key in settings.
+            -- List 3D models already in the Sprite Repository (read-only, no bytes returned):
+            list_3d_models()
+
+            -- Text-to-3D: generate from a text prompt.
+            generate_3d_model_from_text(
+                prompt: "a low-poly wooden barrel",
+                art_style: "realistic",   -- realistic | cartoon | low-poly | sculpture | pbr
+                ai_model: "meshy-6",      -- meshy-4 | meshy-5 | meshy-6 (default)
+                should_remesh: false,
+                also_usdz: false,
+                also_fbx: false,
+                place_on_card: false,     -- if true, also creates a scene3d part
+                part_name: "barrel"       -- required when place_on_card is true
+            )
+
+            -- Image-to-3D: generate from a Sprite Repository image asset by name.
+            generate_3d_model_from_image(
+                image_path: "asset:hero-sprite",   -- "asset:<name>" for repository
+                ai_model: "meshy-6"                -- other options same as above
+            )
+            -- Or from an absolute file path (must be inside ~/Desktop or ~/Downloads etc.):
+            generate_3d_model_from_image(image_path: "/Users/me/Desktop/photo.png")
+
+            -- Multi-image-to-3D: 2–4 images for higher-quality reconstruction.
+            generate_3d_model_from_images(
+                images: "asset:front,asset:side,asset:back",  -- comma-separated, 2..4
+                ai_model: "meshy-6"
+            )
+
+            -- All three generation tools return a result string describing the
+            -- imported asset name (e.g. "Generated: barrel.glb") on success,
+            -- or an error message on failure. Generation is blocking — the tool
+            -- waits up to 5 minutes for the Meshy task to complete.
+
         **Audio recorder — record, save to a chosen file, play back:**
             -- Pin the file path BEFORE starting (otherwise a temp file
             -- under FileManager.temporaryDirectory is auto-generated):

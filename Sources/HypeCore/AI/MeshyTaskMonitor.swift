@@ -46,6 +46,9 @@ public actor MeshyTaskMonitor {
 
     private let client: MeshyClient
     private let taskId: String
+    /// The kind of Meshy task being monitored — used to route `cancelTask`
+    /// to the correct v1 / v2 DELETE endpoint (security M5).
+    private let taskKind: MeshyTaskKind
     private let config: Config
     private let logger: HypeLogger
 
@@ -70,11 +73,13 @@ public actor MeshyTaskMonitor {
         prompt: String,
         aiModel: MeshyAIModel,
         requestedFormats: Set<MeshyOutputFormat>,
+        taskKind: MeshyTaskKind = .textTo3D,
         config: Config = Config(),
         logger: HypeLogger = .shared
     ) {
         self.client = client
         self.taskId = taskId
+        self.taskKind = taskKind
         self.prompt = prompt
         self.aiModel = aiModel
         // Always include .glb in the requested formats.
@@ -139,8 +144,9 @@ public actor MeshyTaskMonitor {
     public func cancel() async {
         guard !didFinish else { return }
         finish(with: .cancelled)
-        // Best-effort DELETE — don't propagate failure.
-        try? await client.cancelTask(taskId: taskId)
+        // Best-effort DELETE — routes to the correct endpoint via taskKind.
+        // Don't propagate failure.
+        try? await client.cancelTask(taskId: taskId, kind: taskKind)
     }
 
     // MARK: - Private

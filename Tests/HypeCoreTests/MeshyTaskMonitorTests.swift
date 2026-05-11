@@ -18,6 +18,14 @@ actor StubMeshyClient: MeshyClient {
         return "stub_task_id"
     }
 
+    func createImageTo3DTask(_ request: MeshyImageTo3DRequest) async throws -> String {
+        return "stub_image_task_id"
+    }
+
+    func createMultiImageTo3DTask(_ request: MeshyMultiImageTo3DRequest) async throws -> String {
+        return "stub_multi_task_id"
+    }
+
     func fetchTask(taskId: String) async throws -> MeshyTaskResponse {
         guard responseIndex < taskResponses.count else {
             // Return the last response indefinitely once exhausted.
@@ -27,7 +35,7 @@ actor StubMeshyClient: MeshyClient {
         return taskResponses[responseIndex]
     }
 
-    func cancelTask(taskId: String) async throws {
+    func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {
         cancelledTaskIds.append(taskId)
     }
 

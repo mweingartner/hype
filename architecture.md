@@ -84,6 +84,7 @@ hype-v2/
 │   │       ├── MapLocationGeocoder.swift  # Per-partId debounced MKLocalSearch dispatcher
 │   │       ├── Scene3DHostView.swift      # SCNView host for scene3D parts
 │   │       ├── AudioRecorderHostView.swift
+│   │       ├── Generate3DSheet.swift      # Meshy.ai 3-tab sheet (Text / Image / Multi-image → Phase 2)
 │   │       ├── PreferencesView.swift
 │   │       ├── MessageBoxView.swift       # HypeTalk REPL
 │   │       ├── Themes/
@@ -129,8 +130,8 @@ hype-v2/
 │       │   ├── AIContextLibrary.swift     # Safe stack-scoped context ingestion/search model
 │       │   ├── AIScriptingProvider.swift  # Async HypeTalk-facing Ollama abstraction
 │       │   ├── SpeechOutputProvider.swift # HypeCore speech-output protocol
-│       │   ├── HypeTools.swift            # 119 tool schemas (parts, scopes, themes, scenes)
-│       │   ├── HypeToolExecutor.swift     # Dispatch tool calls to model mutations (~5,400 LoC)
+│       │   ├── HypeTools.swift            # 123 tool schemas (parts, scopes, themes, scenes, 3D gen)
+│       │   ├── HypeToolExecutor.swift     # Dispatch tool calls to model mutations (Phase 2 adds 4 Meshy tools)
 │       │   ├── HypeTalkGuide.swift        # System-prompt grammar primer fed to the model
 │       │   ├── HypeTalkScriptValidator.swift # check_script syntax/semantics gate
 │       │   ├── HypeAIResponseRepair.swift # Tool-arg auto-repair for malformed model output
@@ -138,7 +139,16 @@ hype-v2/
 │       │   ├── SpriteKitRequestRouter.swift # Routes scene-authoring intents to the right surface
 │       │   ├── SceneAuthoringAssistant.swift # Schema-driven scene create/repair proposals
 │       │   ├── AIService.swift            # Cloud routing fallback
-│       │   └── StackGenerator.swift       # One-shot JSON-mode generator
+│       │   ├── StackGenerator.swift       # One-shot JSON-mode generator
+│       │   ├── MeshyModels.swift          # Meshy API value types (request/response/task/error)
+│       │   ├── MeshyAIClient.swift        # Meshy HTTP actor (text-to-3D, image-to-3D, multi-image-to-3D)
+│       │   ├── MeshyImageRequests.swift   # MeshyImageTo3DRequest / MeshyMultiImageTo3DRequest codables
+│       │   ├── MeshyImageInput.swift      # Image input resolver (filePath/assetName/base64) with strict validation
+│       │   ├── MeshyTaskMonitor.swift     # AsyncStream poller for Meshy task state (pending→succeeded/failed)
+│       │   ├── Meshy3DAssetImporter.swift # Downloads GLB/USDZ/FBX and builds SpriteAsset array
+│       │   ├── Meshy3DGate.swift          # Pre-flight guard (meshyEnabled + API key present)
+│       │   ├── Generate3DJob.swift        # Single-shot orchestrator used by sheet UI and AI tools
+│       │   └── Meshy3DToolProgressReporter.swift # Throttled aiOutput progress reporter (10s / 25% jump)
 │       ├── Rendering/              # Core Graphics part renderers
 │       │   ├── CardRenderer.swift         # Pipeline + dispatcher (theme-aware)
 │       │   ├── ButtonRenderer.swift       # All button styles (opaque/round/shadow/popup/check/toggle/link)

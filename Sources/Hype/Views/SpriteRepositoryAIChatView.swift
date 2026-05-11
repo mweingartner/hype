@@ -185,11 +185,19 @@ struct SpriteRepositoryAIChatView: View {
         let webAssetPipeline: WebAssetImportPipeline? = document.document.stack.webAssetsAllowed
             ? WebAssetImportPipeline()
             : nil
+        // Fresh-read factory: reads the Keychain on each invocation so key
+        // rotation is respected without restarting the chat session.
+        let meshyClientFactory: (@Sendable () throws -> MeshyClient)? = {
+            @Sendable in
+            let key = try KeychainStore.getSecret(account: KeychainStore.meshyAPIKeyAccount)
+            return MeshyAIClient(apiKey: key)
+        }
         let executor = HypeToolExecutor(
             webAssetSession: document.document.stack.webAssetsAllowed ? webAssetSession : nil,
             webAssetClient: webAssetClient,
             webAssetPipeline: webAssetPipeline,
-            imageGenerationClient: imageGenerationClient
+            imageGenerationClient: imageGenerationClient,
+            meshyClientFactory: meshyClientFactory
         )
         let aiContextToolsEnabled = !document.document.aiContextLibrary.items.isEmpty
             && (selectedAIProvider != .openAI || document.document.stack.aiContextCloudSharingAllowed)

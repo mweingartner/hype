@@ -1,19 +1,22 @@
 import SwiftUI
 import HypeCore
+#if canImport(AppKit)
+import AppKit
+import UniformTypeIdentifiers
+#endif
 
 // MARK: - Generate3DSheet
 
-/// A SwiftUI sheet for generating a 3D model from a text prompt using Meshy.ai.
+/// A SwiftUI sheet for generating a 3D model using Meshy.ai.
+///
+/// Phase 2 adds three tabs: Text / Image / Multi-image. All three tabs
+/// feed the same progress/import pipeline via `Generate3DJob`.
 ///
 /// Security invariants:
-/// - The sheet DOES NOT auto-submit on first paint. `generate()` is only
-///   invoked by an explicit `Button("Generate")` press (invariant 17).
-/// - The monitor is stored as `@State` and cancelled on `.onDisappear`.
-/// - Gate is re-checked at `generate()` call time as belt-and-suspenders.
-///
-/// UX invariant (OQ4): when the user cancels before the POST returns,
-/// a warning banner is shown: "Task may have been created on Meshy.
-/// Check your dashboard." Credits may have been spent.
+/// - The sheet DOES NOT auto-submit on first paint. Generate actions are only
+///   invoked by explicit `Button("Generate")` presses (invariant 17).
+/// - The monitor is cancelled on `.onDisappear`.
+/// - Gate is re-checked at generate-call time as belt-and-suspenders.
 struct Generate3DSheet: View {
     @Binding var document: HypeDocumentWrapper
     /// When set, the primary imported asset's ref is written into this part.
@@ -23,7 +26,21 @@ struct Generate3DSheet: View {
     /// Called when the sheet should be dismissed.
     var onDismiss: () -> Void
 
-    // MARK: - Form state
+    // MARK: - Input tab enum
+
+    enum InputTab: String, CaseIterable, Identifiable, Hashable {
+        case text, image, multiImage
+        var id: String { rawValue }
+        var displayName: String {
+            switch self {
+            case .text: return "Text"
+            case .image: return "Image"
+            case .multiImage: return "Multi-image"
+            }
+        }
+    }
+
+    // MARK: - Form state (Text tab)
 
     @State private var prompt: String = ""
     @State private var aiModel: MeshyAIModel = .meshy6
@@ -33,6 +50,22 @@ struct Generate3DSheet: View {
     @State private var alsoDownloadFBX: Bool = false
     @State private var polycount: Double = 30_000
     @State private var shouldRemesh: Bool = false
+
+    // MARK: - Tab state
+
+    @State private var activeTab: InputTab = .text
+
+    // MARK: - Image tab state
+
+    @State private var imageResolved: MeshyImageInput.Resolved? = nil
+    @State private var imagePreview: NSImage? = nil
+    @State private var imageValidationError: String? = nil
+
+    // MARK: - Multi-image tab state (4 slots)
+
+    @State private var multiImageResolved: [MeshyImageInput.Resolved?] = [nil, nil, nil, nil]
+    @State private var multiImagePreviews: [NSImage?] = [nil, nil, nil, nil]
+    @State private var multiImageValidationError: String? = nil
 
     // MARK: - Runtime state
 
@@ -62,7 +95,6 @@ struct Generate3DSheet: View {
                 Text("Generate 3D Model")
                     .font(.headline)
                 Spacer()
-                // Balance display
                 if let balance {
                     Text("\(balance) credits")
                         .font(.system(size: 11))
@@ -76,10 +108,27 @@ struct Generate3DSheet: View {
 
             Divider()
 
+            // Tab picker — only visible in .form phase
+            if case .form = phase {
+                Picker("", selection: $activeTab) {
+                    ForEach(InputTab.allCases) { tab in
+                        Text(tab.displayName).tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+            }
+
             // Main content
             switch phase {
             case .form:
-                formContent
+                switch activeTab {
+                case .text:       textFormContent
+                case .image:      imageFormContent
+                case .multiImage: multiImageFormContent
+                }
             case .submitting:
                 progressContent(label: "Submitting…", percent: 0)
             case .progress(let percent):
@@ -92,7 +141,7 @@ struct Generate3DSheet: View {
                 doneContent
             }
         }
-        .frame(width: 540, height: 480)
+        .frame(width: 540, height: 520)
         .onAppear {
             meshyKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.meshyAPIKeyAccount)
             Task { await refreshBalance() }
@@ -103,10 +152,10 @@ struct Generate3DSheet: View {
         }
     }
 
-    // MARK: - Form
+    // MARK: - Text Form
 
     @ViewBuilder
-    private var formContent: some View {
+    private var textFormContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 // Prompt
@@ -179,17 +228,258 @@ struct Generate3DSheet: View {
 
         Divider()
 
-        // Bottom buttons
         HStack {
             Button("Cancel") { onDismiss() }
             Spacer()
             Button("Generate") {
-                generateTask = Task { await generate() }
+                generateTask = Task { await generateText() }
             }
             .disabled(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !meshyKeyIsSet)
             .buttonStyle(.borderedProminent)
         }
         .padding()
+    }
+
+    // MARK: - Image Form
+
+    @ViewBuilder
+    private var imageFormContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Source Image")
+                    .font(.system(size: 11))
+
+                // Source row
+                imageSourceRow(
+                    resolved: $imageResolved,
+                    preview: $imagePreview,
+                    validationError: $imageValidationError
+                )
+
+                // Preview thumbnail
+                if let preview = imagePreview {
+                    HStack {
+                        Image(nsImage: preview)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 120, height: 120)
+                            .cornerRadius(6)
+                        Spacer()
+                    }
+                }
+
+                if let err = imageValidationError {
+                    Text(err)
+                        .font(.system(size: 11))
+                        .foregroundColor(.red)
+                }
+
+                // Model + Remesh shared row
+                sharedOptionsRow
+
+                // Additional formats
+                sharedFormatsSection
+
+                // Disclosure
+                Text("Source image is sent to api.meshy.ai over HTTPS along with your Meshy.ai credits.")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding()
+        }
+
+        Divider()
+
+        HStack {
+            Button("Cancel") { onDismiss() }
+            Spacer()
+            Button("Generate") {
+                generateTask = Task { await generateImage() }
+            }
+            .disabled(imageResolved == nil || !meshyKeyIsSet)
+            .buttonStyle(.borderedProminent)
+        }
+        .padding()
+    }
+
+    // MARK: - Multi-image Form
+
+    @ViewBuilder
+    private var multiImageFormContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Source Images (2–4 views of the same object)")
+                    .font(.system(size: 11))
+
+                // Four slots
+                HStack(spacing: 8) {
+                    ForEach(0..<4, id: \.self) { idx in
+                        multiImageSlot(index: idx)
+                    }
+                }
+
+                if let err = multiImageValidationError {
+                    Text(err)
+                        .font(.system(size: 11))
+                        .foregroundColor(.red)
+                }
+
+                // Model + Remesh shared row
+                sharedOptionsRow
+
+                // Additional formats
+                sharedFormatsSection
+
+                Text("All images should be the same object from different angles (front / side / back). Each image: max 10 MB, PNG/JPEG/WebP only.")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("Source images are sent to api.meshy.ai over HTTPS along with your Meshy.ai credits.")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding()
+        }
+
+        Divider()
+
+        HStack {
+            Button("Cancel") { onDismiss() }
+            Spacer()
+            Button("Generate") {
+                generateTask = Task { await generateMultiImage() }
+            }
+            .disabled(filledMultiImageCount < 2 || !meshyKeyIsSet)
+            .buttonStyle(.borderedProminent)
+        }
+        .padding()
+    }
+
+    // MARK: - Shared form subviews
+
+    @ViewBuilder
+    private var sharedOptionsRow: some View {
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("AI Model").font(.system(size: 11))
+                Picker("", selection: $aiModel) {
+                    ForEach(MeshyAIModel.allCases) { model in
+                        Text(model.displayName).tag(model)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .onChange(of: aiModel) { _, newModel in
+                    shouldRemesh = newModel.defaultRemesh
+                }
+            }
+
+            Toggle("Remesh geometry", isOn: $shouldRemesh)
+                .font(.system(size: 11))
+        }
+    }
+
+    @ViewBuilder
+    private var sharedFormatsSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Additional Formats").font(.system(size: 11))
+            Toggle("Also download USDZ (AR-ready)", isOn: $alsoDownloadUSDZ)
+                .font(.system(size: 11))
+        }
+    }
+
+    // MARK: - Image source row helper
+
+    @ViewBuilder
+    private func imageSourceRow(
+        resolved: Binding<MeshyImageInput.Resolved?>,
+        preview: Binding<NSImage?>,
+        validationError: Binding<String?>
+    ) -> some View {
+        HStack(spacing: 8) {
+            Menu("From Repository…") {
+                if imageRepositoryAssets.isEmpty {
+                    Text("(no image assets)").foregroundColor(.secondary)
+                } else {
+                    ForEach(imageRepositoryAssets, id: \.id) { asset in
+                        Button(asset.name) {
+                            resolveAndSet(
+                                .assetName(asset.name),
+                                resolved: resolved,
+                                preview: preview,
+                                error: validationError
+                            )
+                        }
+                    }
+                }
+            }
+            .controlSize(.small)
+
+            Button("From Clipboard") {
+                importFromClipboard(resolved: resolved, preview: preview, error: validationError)
+            }
+            .controlSize(.small)
+
+            Button("Choose File…") {
+                openImageFilePicker(resolved: resolved, preview: preview, error: validationError)
+            }
+            .controlSize(.small)
+
+            if resolved.wrappedValue != nil {
+                Button("Remove") {
+                    resolved.wrappedValue = nil
+                    preview.wrappedValue = nil
+                    validationError.wrappedValue = nil
+                }
+                .controlSize(.small)
+                .foregroundColor(.red)
+            }
+        }
+    }
+
+    // MARK: - Multi-image slot
+
+    @ViewBuilder
+    private func multiImageSlot(index: Int) -> some View {
+        VStack(spacing: 4) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color.secondary.opacity(0.3))
+                    .frame(width: 90, height: 90)
+
+                if let preview = multiImagePreviews[index] {
+                    Image(nsImage: preview)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 84, height: 84)
+                        .cornerRadius(4)
+                } else {
+                    VStack(spacing: 4) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 18))
+                            .foregroundColor(.secondary)
+                        Text("\(index + 1)")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .onTapGesture {
+                openMultiImageFilePicker(index: index)
+            }
+
+            if multiImageResolved[index] != nil {
+                Button("Remove") {
+                    multiImageResolved[index] = nil
+                    multiImagePreviews[index] = nil
+                }
+                .controlSize(.mini)
+                .foregroundColor(.red)
+            }
+        }
     }
 
     // MARK: - Progress
@@ -203,7 +493,6 @@ struct Generate3DSheet: View {
             Text(label)
                 .font(.system(size: 13))
 
-            // OQ4: show warning if there was an early cancel without a task id
             if earlyCancel {
                 Text("Task may have been created on Meshy. Check your dashboard.")
                     .font(.system(size: 11))
@@ -214,7 +503,6 @@ struct Generate3DSheet: View {
             Button("Cancel") {
                 generateTask?.cancel()
                 Task { await monitor?.cancel() }
-                // If in submitting phase, we might not have a task id yet.
                 if case .submitting = phase { earlyCancel = true }
                 phase = .form
             }
@@ -269,19 +557,34 @@ struct Generate3DSheet: View {
 
     // MARK: - Actions
 
-    private func generate() async {
-        // Belt-and-suspenders gate check (invariant 21).
-        guard Meshy3DGate.status(for: document.document, keyIsSet: meshyKeyIsSet) == .ready else {
+    private func generateText() async {
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPrompt.isEmpty else { return }
+        await runJob(kind: .text(prompt: trimmedPrompt, artStyle: artStyle))
+    }
+
+    private func generateImage() async {
+        guard let resolved = imageResolved else { return }
+        await runJob(kind: .singleImage(image: resolved))
+    }
+
+    private func generateMultiImage() async {
+        let resolvedImages = multiImageResolved.compactMap { $0 }
+        guard (2...4).contains(resolvedImages.count) else {
             await MainActor.run {
-                phase = .error(.validationFailed(field: "stack", reason: "Meshy is not enabled for this stack. Enable it in Preferences → Meshy.ai."))
+                multiImageValidationError = "Add 2 to 4 images before generating."
             }
             return
         }
+        await runJob(kind: .multiImage(images: resolvedImages))
+    }
 
-        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPrompt.isEmpty else {
+    /// Shared generation pipeline — replaces the old monolithic `generate()`.
+    private func runJob(kind: Generate3DJob.Kind) async {
+        // Belt-and-suspenders gate check.
+        guard Meshy3DGate.status(for: document.document, keyIsSet: meshyKeyIsSet) == .ready else {
             await MainActor.run {
-                phase = .error(.validationFailed(field: "prompt", reason: "Enter a prompt before generating."))
+                phase = .error(.validationFailed(field: "stack", reason: "Meshy is not enabled for this stack. Enable it in Preferences → Meshy.ai."))
             }
             return
         }
@@ -291,89 +594,52 @@ struct Generate3DSheet: View {
         do {
             let apiKey = try KeychainStore.getSecret(account: KeychainStore.meshyAPIKeyAccount)
             let client = MeshyAIClient(apiKey: apiKey)
-
-            var formats: Set<MeshyOutputFormat> = [.glb]
-            if alsoDownloadUSDZ { formats.insert(.usdz) }
-            if alsoDownloadFBX { formats.insert(.fbx) }
-
-            let request = MeshyTextTo3DRequest(
-                mode: .preview,
-                prompt: String(trimmedPrompt.prefix(600)),
-                artStyle: artStyle,
+            let job = Generate3DJob(client: client)
+            let options = Generate3DJob.Options(
                 aiModel: aiModel,
                 shouldRemesh: shouldRemesh,
-                moderation: true
+                alsoUSDZ: alsoDownloadUSDZ,
+                alsoFBX: alsoDownloadFBX,
+                hardTimeout: 1800   // 30 min for sheet UI
             )
-
-            let taskId = try await client.createTextTo3DTask(request)
-
-            let taskMonitor = MeshyTaskMonitor(
-                client: client,
-                taskId: taskId,
-                prompt: trimmedPrompt,
-                aiModel: aiModel,
-                requestedFormats: formats
-            )
-            await MainActor.run { monitor = taskMonitor }
-
-            for await state in await taskMonitor.progress() {
-                // Check for cooperative cancellation.
-                if Task.isCancelled { break }
-
-                switch state {
-                case .pending:
-                    await MainActor.run { phase = .progress(percent: 0) }
-                case .inProgress(let percent):
-                    await MainActor.run { phase = .progress(percent: percent) }
-                case .succeeded(let result):
-                    await MainActor.run { phase = .importing }
-                    await handleSuccess(result, client: client)
-                    return
-                case .failed(let error):
-                    await MainActor.run { phase = .error(error) }
-                    return
-                case .cancelled:
-                    await MainActor.run { phase = .form }
-                    return
+            let existing = Set(document.document.spriteRepository.assets.map(\.name))
+            let assets = try await job.run(
+                kind: kind,
+                options: options,
+                existingAssetNames: existing,
+                onProgress: { state in
+                    await MainActor.run {
+                        switch state {
+                        case .pending:
+                            phase = .progress(percent: 0)
+                        case .inProgress(let pct):
+                            phase = .progress(percent: pct)
+                        case .succeeded:
+                            phase = .importing
+                        case .failed(let err):
+                            phase = .error(err)
+                        case .cancelled:
+                            phase = .form
+                        }
+                    }
                 }
+            )
+            await MainActor.run {
+                for asset in assets {
+                    document.document.spriteRepository.addAsset(asset)
+                }
+                if let primary = assets.first {
+                    let ref = document.document.spriteRepository.assetRef(for: primary)
+                    onAssetImported?(ref)
+                }
+                phase = .done
             }
-
         } catch let error as MeshyError {
             await MainActor.run { phase = .error(error) }
         } catch KeychainStoreError.itemNotFound {
             await MainActor.run { phase = .error(.noAPIKey) }
         } catch {
             await MainActor.run { phase = .error(.networkError) }
-        }
-    }
-
-    @MainActor
-    private func handleSuccess(_ result: MeshyTaskResult, client: MeshyAIClient) async {
-        do {
-            let importer = Meshy3DAssetImporter(client: client)
-            let existingNames = Set(document.document.spriteRepository.assets.map(\.name))
-            let assets = try await importer.importTask(result: result, existingAssetNames: existingNames)
-
-            // Write via the document binding — triggers autosave and undo.
-            for asset in assets {
-                document.document.spriteRepository.addAsset(asset)
-            }
-
-            // Surface the primary GLB to the caller. When `targetPartId` is
-            // set, the caller's `onAssetImported` closure is the SOLE writer
-            // of `part.scene3DAssetRef` — we deliberately don't write here
-            // (security F-1: avoid double-mutation that produces two undo
-            // entries and racey observer notifications).
-            if let primary = assets.first {
-                let ref = document.document.spriteRepository.assetRef(for: primary)
-                onAssetImported?(ref)
-            }
-
-            phase = .done
-        } catch let error as MeshyError {
-            phase = .error(error)
-        } catch {
-            phase = .error(.networkError)
         }
     }
 
@@ -390,6 +656,135 @@ struct Generate3DSheet: View {
             }
         } catch {
             await MainActor.run { balanceLoading = false }
+        }
+    }
+
+    // MARK: - Image input helpers
+
+    /// Image-kinded assets available in the Sprite Repository for the picker.
+    private var imageRepositoryAssets: [SpriteAsset] {
+        document.document.spriteRepository.assets
+            .filter { [AssetKind.imageTexture, .spriteSheet, .tileSet].contains($0.kind) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// Count of filled multi-image slots.
+    private var filledMultiImageCount: Int {
+        multiImageResolved.compactMap { $0 }.count
+    }
+
+    /// Resolve a `MeshyImageInput` and write results into the provided bindings.
+    private func resolveAndSet(
+        _ input: MeshyImageInput,
+        resolved: Binding<MeshyImageInput.Resolved?>,
+        preview: Binding<NSImage?>,
+        error: Binding<String?>
+    ) {
+        do {
+            let result = try input.resolve(in: document.document.spriteRepository)
+            resolved.wrappedValue = result
+            preview.wrappedValue = NSImage(data: result.data)
+            error.wrappedValue = nil
+        } catch let meshyError as MeshyError {
+            error.wrappedValue = meshyError.errorDescription
+            resolved.wrappedValue = nil
+            preview.wrappedValue = nil
+        } catch {
+            self.imageValidationError = "Couldn't load image."
+            resolved.wrappedValue = nil
+            preview.wrappedValue = nil
+        }
+    }
+
+    /// Import an image from the system clipboard.
+    ///
+    /// Priority: PNG > TIFF > PDF. NEVER reads `UTType.fileURL` from the
+    /// pasteboard to avoid path-traversal via clipboard (OQ-B3).
+    private func importFromClipboard(
+        resolved: Binding<MeshyImageInput.Resolved?>,
+        preview: Binding<NSImage?>,
+        error: Binding<String?>
+    ) {
+        let pb = NSPasteboard.general
+
+        // Try PNG first (preferred — no conversion needed).
+        if let pngData = pb.data(forType: .png) {
+            resolveAndSet(.base64(pngData.base64EncodedString()), resolved: resolved, preview: preview, error: error)
+            return
+        }
+
+        // Try TIFF — convert to PNG via NSBitmapImageRep before resolving.
+        if let tiffData = pb.data(forType: .tiff),
+           let rep = NSBitmapImageRep(data: tiffData),
+           let pngData = rep.representation(using: .png, properties: [:]) {
+            resolveAndSet(.base64(pngData.base64EncodedString()), resolved: resolved, preview: preview, error: error)
+            return
+        }
+
+        // Try PDF — render first page to PNG.
+        if let pdfData = pb.data(forType: .pdf),
+           let pdfRep = NSPDFImageRep(data: pdfData) {
+            let size = pdfRep.size
+            guard size.width > 0 && size.height > 0 else {
+                error.wrappedValue = "Could not read image from clipboard."
+                return
+            }
+            let img = NSImage(size: size)
+            img.lockFocus()
+            pdfRep.draw()
+            // Capture the bitmap BEFORE releasing the focus lock — once the
+            // focus is unlocked the focused-view rect is no longer the
+            // image's drawing context. Single unlockFocus call paired with
+            // the lockFocus above. (Security review Phase 2 Defect 3.)
+            let rep2 = NSBitmapImageRep(focusedViewRect: NSRect(origin: .zero, size: size))
+            img.unlockFocus()
+            if let pngData = rep2?.representation(using: .png, properties: [:]) {
+                resolveAndSet(.base64(pngData.base64EncodedString()), resolved: resolved, preview: preview, error: error)
+                return
+            }
+        }
+
+        error.wrappedValue = "No supported image found in clipboard. Copy a PNG or JPEG image first."
+    }
+
+    /// Open a file picker for a single image (Image tab).
+    private func openImageFilePicker(
+        resolved: Binding<MeshyImageInput.Resolved?>,
+        preview: Binding<NSImage?>,
+        error: Binding<String?>
+    ) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType.png, UTType.jpeg, UTType.webP].compactMap { $0 }
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            resolveAndSet(.filePath(url.path), resolved: resolved, preview: preview, error: error)
+        }
+    }
+
+    /// Open a file picker for a multi-image slot.
+    private func openMultiImageFilePicker(index: Int) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType.png, UTType.jpeg, UTType.webP].compactMap { $0 }
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                let resolved = try MeshyImageInput.filePath(url.path).resolve(in: document.document.spriteRepository)
+                multiImageResolved[index] = resolved
+                multiImagePreviews[index] = NSImage(data: resolved.data)
+                multiImageValidationError = nil
+            } catch let err as MeshyError {
+                multiImageValidationError = err.errorDescription
+                multiImageResolved[index] = nil
+                multiImagePreviews[index] = nil
+            } catch {
+                multiImageValidationError = "Could not load image."
+                multiImageResolved[index] = nil
+                multiImagePreviews[index] = nil
+            }
         }
     }
 }
