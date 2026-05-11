@@ -65,6 +65,9 @@ public struct ExecutionContext: Sendable {
     public var aiProvider: any AIScriptingProvider
     public var speechOutputProvider: SpeechOutputProvider
     public var runtimeProvider: (any ScriptRuntimeProviding)?
+    /// Phase 3: Meshy scripting provider for `ask meshy` statements.
+    /// `nil` degrades gracefully — `ask meshy` sets `it = ""` and returns.
+    public var meshyProvider: (any MeshyScriptingProvider)?
     public var mouseX: Double
     public var mouseY: Double
     public var scriptContext: ScriptDispatchContext?
@@ -77,6 +80,7 @@ public struct ExecutionContext: Sendable {
                 aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
                 speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
                 runtimeProvider: (any ScriptRuntimeProviding)? = nil,
+                meshyProvider: (any MeshyScriptingProvider)? = nil,
                 mouseX: Double = 0, mouseY: Double = 0,
                 appScript: String = "",
                 nestedSendDepth: Int = 0) {
@@ -89,6 +93,7 @@ public struct ExecutionContext: Sendable {
         self.aiProvider = aiProvider
         self.speechOutputProvider = speechOutputProvider
         self.runtimeProvider = runtimeProvider
+        self.meshyProvider = meshyProvider
         self.mouseX = mouseX
         self.mouseY = mouseY
         self.scriptContext = nil
@@ -102,6 +107,7 @@ public struct ExecutionContext: Sendable {
                 aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
                 speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
                 runtimeProvider: (any ScriptRuntimeProviding)? = nil,
+                meshyProvider: (any MeshyScriptingProvider)? = nil,
                 mouseX: Double = 0, mouseY: Double = 0,
                 scriptContext: ScriptDispatchContext? = nil,
                 appScript: String = "",
@@ -115,6 +121,7 @@ public struct ExecutionContext: Sendable {
         self.aiProvider = aiProvider
         self.speechOutputProvider = speechOutputProvider
         self.runtimeProvider = runtimeProvider
+        self.meshyProvider = meshyProvider
         self.mouseX = mouseX
         self.mouseY = mouseY
         self.scriptContext = scriptContext
@@ -197,6 +204,8 @@ private struct Environment {
     var globals: [String: Value]
     var handlerParams: [Value] = []
     var it: Value = ""
+    /// Phase 3: `the result` — set by `ask meshy` on success. Mirrors `it`.
+    var result: Value = ""
     var globalNames: Set<String> = []
 
     mutating func getVariable(_ name: String) -> Value {
@@ -834,6 +843,49 @@ public struct Interpreter: Sendable {
                 env.it = requestID.uuidString
             } else {
                 env.it = try await generateAIResponse(prompt: promptText, model: modelName, context: context)
+            }
+
+        case .askMeshy(let promptExpr, let styleExpr, let modelExpr, let callbackExpr):
+            // Phase 3 — `ask meshy "<prompt>" [with style <s>] [with model <m>] [with message <msg>]`
+            //
+            // Sync form (no callback): blocks until generation completes; sets `it` + `result` to the
+            // new asset's name. Async form: fires `startMeshyRequest` and sets `it` to the request UUID.
+            // Gate refusal (no provider): degrades gracefully — sets `it = ""`.
+            //
+            // OQ-C1: both `env.it` and `env.result` are set, matching the `askAI` precedent.
+            let promptText = try await evaluate(promptExpr, env: &env, document: document, context: context)
+            let styleText = try await evaluateOptional(styleExpr, env: &env, document: document, context: context)
+            let modelText = try await evaluateOptional(modelExpr, env: &env, document: document, context: context)
+
+            if let callbackExpr, let runtime = context.runtimeProvider {
+                // Async form: hand off to the runtime, return the request UUID in `it`.
+                let callbackName = try await evaluate(callbackExpr, env: &env, document: document, context: context)
+                let requestID = try await runtime.startMeshyRequest(
+                    prompt: promptText,
+                    style: styleText,
+                    model: modelText,
+                    callbackMessage: callbackName,
+                    owner: RuntimeOwnerContext(
+                        targetId: context.targetId,
+                        currentCardId: context.currentCardId,
+                        scriptContext: context.scriptContext
+                    )
+                )
+                env.it = requestID.uuidString
+            } else if let provider = context.meshyProvider {
+                // Sync form: block until the provider generates the asset.
+                let assetName = try await provider.generateSync(
+                    prompt: promptText,
+                    style: styleText,
+                    model: modelText,
+                    document: document
+                )
+                env.it = assetName
+                env.result = assetName
+            } else {
+                // No provider — degrade gracefully.
+                env.it = ""
+                env.result = ""
             }
 
         case .answer(let prompt):
@@ -2391,7 +2443,7 @@ public struct Interpreter: Sendable {
 
         // Other (stubs — full implementation requires runtime context)
         case "target": return ""
-        case "result": return ""
+        case "result": return env.result
         case "param":
             let index = Int(toNumber(args.first ?? "1"))
             return env.handlerParam(at: index)
@@ -2607,6 +2659,9 @@ public struct Interpreter: Sendable {
                 return "0"
             case "size":
                 return "0"
+            // Phase 3 OQ-C1: `the result` returns the value set by `ask meshy` (and `ask ai`).
+            case "result":
+                return env.result
             case "brush", "pencilsize":
                 let v = env.getVariable("pencilsize")
                 return v.isEmpty ? "2" : v

@@ -7,13 +7,13 @@ import Testing
 /// A stub MeshyClient that tracks which create method was called and
 /// returns scripted task responses.
 private actor ScriptedMeshyClient: MeshyClient {
-    private var taskResponses: [MeshyTaskResponse]
+    private var taskFacts: [MeshyPolledFact]
     private var responseIndex = 0
     private(set) var lastCreatedKind: String? = nil
     private(set) var cancelledTaskIds: [String] = []
 
-    init(responses: [MeshyTaskResponse]) {
-        self.taskResponses = responses
+    init(responses: [MeshyPolledFact]) {
+        self.taskFacts = responses
     }
 
     func createTextTo3DTask(_ request: MeshyTextTo3DRequest) async throws -> String {
@@ -31,59 +31,60 @@ private actor ScriptedMeshyClient: MeshyClient {
         return "stub_multi_task"
     }
 
-    func fetchTask(taskId: String) async throws -> MeshyTaskResponse {
-        guard responseIndex < taskResponses.count else {
-            return taskResponses.last!
-        }
-        defer { responseIndex += 1 }
-        return taskResponses[responseIndex]
+    func createRiggingTask(_ request: MeshyRiggingRequest) async throws -> String {
+        lastCreatedKind = "rigging"
+        return "stub_rig_task"
     }
 
+    func createAnimationTask(_ request: MeshyAnimationRequest) async throws -> String {
+        lastCreatedKind = "animation"
+        return "stub_anim_task"
+    }
+
+    func fetchTaskFact(taskId: String, kind: MeshyTaskKind) async throws -> MeshyPolledFact {
+        guard responseIndex < taskFacts.count else {
+            return taskFacts.last!
+        }
+        defer { responseIndex += 1 }
+        return taskFacts[responseIndex]
+    }
+
+    /// Security (H1): all five kinds listed explicitly; no default.
     func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {
         cancelledTaskIds.append(taskId)
+        switch kind {
+        case .textTo3D:       break
+        case .imageTo3D:      break
+        case .multiImageTo3D: break
+        case .rigging:        break
+        case .animation:      break
+        }
     }
 
     func fetchBalance() async throws -> Int { 100 }
 
     func downloadModel(from url: URL, allowedFormat: MeshyOutputFormat) async throws -> Data {
-        // Return a minimal stub GLB
         Data(repeating: 0x47, count: 64)
     }
 }
 
 // MARK: - Helpers
 
-private func makeSuccessResponse(taskId: String = "stub_task") -> MeshyTaskResponse {
-    let urls = MeshyModelURLs(
-        glb: URL(string: "https://cdn.meshy.ai/model.glb")!,
-        fbx: nil, usdz: nil, obj: nil, mtl: nil
-    )
-    return MeshyTaskResponse(
-        id: taskId,
+private func makeSuccessResponse(taskId: String = "stub_task") -> MeshyPolledFact {
+    MeshyPolledFact(
+        taskId: taskId,
         status: .succeeded,
         progress: 100,
-        createdAt: nil, startedAt: nil, finishedAt: nil,
-        modelUrls: urls,
-        taskError: nil, textureUrls: nil, preview: nil
+        primaryModelUrl: URL(string: "https://cdn.meshy.ai/model.glb")!
     )
 }
 
-private func makeInProgressResponse(taskId: String = "stub_task", pct: Int) -> MeshyTaskResponse {
-    MeshyTaskResponse(
-        id: taskId, status: .inProgress, progress: pct,
-        createdAt: nil, startedAt: nil, finishedAt: nil,
-        modelUrls: nil, taskError: nil, textureUrls: nil, preview: nil
-    )
+private func makeInProgressResponse(taskId: String = "stub_task", pct: Int) -> MeshyPolledFact {
+    MeshyPolledFact(taskId: taskId, status: .inProgress, progress: pct)
 }
 
-private func makeFailedResponse(taskId: String = "stub_task") -> MeshyTaskResponse {
-    MeshyTaskResponse(
-        id: taskId, status: .failed, progress: nil,
-        createdAt: nil, startedAt: nil, finishedAt: nil,
-        modelUrls: nil,
-        taskError: MeshyErrorEnvelope(error: nil, message: "generation failed"),
-        textureUrls: nil, preview: nil
-    )
+private func makeFailedResponse(taskId: String = "stub_task") -> MeshyPolledFact {
+    MeshyPolledFact(taskId: taskId, status: .failed, errorMessage: "generation failed")
 }
 
 private func makePNGResolved(sourceDesc: String = "asset:test") -> MeshyImageInput.Resolved {
@@ -157,7 +158,7 @@ struct Generate3DJobTests {
 
     @Test("Generate3DJob progress callback receives inProgress and succeeded states")
     func progressCallbackReceivesStates() async throws {
-        let responses: [MeshyTaskResponse] = [
+        let responses: [MeshyPolledFact] = [
             makeInProgressResponse(pct: 50),
             makeSuccessResponse()
         ]
@@ -186,11 +187,7 @@ struct Generate3DJobTests {
     @Test("Generate3DJob hardTimeout option is plumbed through to monitor")
     func hardTimeoutPlumbed() async throws {
         // Use a very short timeout and a never-succeeding stub.
-        let neverSucceeds = MeshyTaskResponse(
-            id: "t", status: .inProgress, progress: 50,
-            createdAt: nil, startedAt: nil, finishedAt: nil,
-            modelUrls: nil, taskError: nil, textureUrls: nil, preview: nil
-        )
+        let neverSucceeds = MeshyPolledFact(taskId: "t", status: .inProgress, progress: 50)
         let stub = ScriptedMeshyClient(responses: [neverSucceeds])
         let job = Generate3DJob(client: stub, logger: HypeLogger(setupFileLogging: false))
         // Tiny timeout — should time out quickly.

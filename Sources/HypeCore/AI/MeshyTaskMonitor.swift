@@ -178,8 +178,8 @@ public actor MeshyTaskMonitor {
             }
 
             // Poll. Transient network blips are tolerated (try?) — they just skip an interval.
-            if let taskResp = try? await client.fetchTask(taskId: taskId) {
-                let newState = mapTaskResponse(taskResp)
+            if let fact = try? await client.fetchTaskFact(taskId: taskId, kind: taskKind) {
+                let newState = mapPolledFact(fact)
                 if currentState != newState {
                     currentState = newState
                     yield(newState)
@@ -202,29 +202,31 @@ public actor MeshyTaskMonitor {
         }
     }
 
-    private func mapTaskResponse(_ resp: MeshyTaskResponse) -> State {
-        switch resp.status {
+    private func mapPolledFact(_ fact: MeshyPolledFact) -> State {
+        switch fact.status {
         case .pending:
             return .pending
         case .inProgress:
-            return .inProgress(percent: resp.progress ?? 0)
+            return .inProgress(percent: fact.progress ?? 0)
         case .succeeded:
-            guard let urls = resp.modelUrls, let glbURL = urls.glb else {
-                return .failed(.taskFailed(taskId: resp.id, message: "Meshy returned no GLB URL"))
+            guard let primaryUrl = fact.primaryModelUrl else {
+                return .failed(.taskFailed(taskId: fact.taskId, message: "Meshy returned no model URL"))
             }
             let result = MeshyTaskResult(
-                taskId: resp.id,
-                modelURL: glbURL,
+                taskId: fact.taskId,
+                modelURL: primaryUrl,
                 format: .glb,
-                alsoUSDZ: requestedFormats.contains(.usdz) ? urls.usdz : nil,
-                alsoFBX: requestedFormats.contains(.fbx) ? urls.fbx : nil,
+                alsoUSDZ: requestedFormats.contains(.usdz) ? fact.usdzUrl : nil,
+                alsoFBX: requestedFormats.contains(.fbx) ? fact.fbxUrl : nil,
                 prompt: prompt,
-                aiModel: aiModel
+                aiModel: aiModel,
+                basicWalkUrl: fact.basicWalkUrl,
+                basicRunUrl: fact.basicRunUrl
             )
             return .succeeded(result)
         case .failed:
-            let message = resp.taskError?.message ?? resp.taskError?.error ?? "Generation failed"
-            return .failed(.taskFailed(taskId: resp.id, message: String(message.prefix(200))))
+            let message = fact.errorMessage ?? "Generation failed"
+            return .failed(.taskFailed(taskId: fact.taskId, message: String(message.prefix(200))))
         case .cancelled:
             return .cancelled
         }

@@ -192,6 +192,19 @@ public struct TCPConnectionSpec: Sendable {
 public protocol ScriptRuntimeProviding: Sendable {
     func sleep(seconds: TimeInterval) async throws
     func startAIRequest(prompt: String, model: String?, callbackMessage: String, owner: RuntimeOwnerContext) async throws -> UUID
+    /// Phase 3: kick off a Meshy text-to-3D generation asynchronously.
+    ///
+    /// Same async-callback pattern as `startAIRequest`. Returns a request UUID
+    /// immediately; when generation completes (or fails), dispatches
+    /// `callbackMessage` with parameters `(requestID, status, assetName)` where
+    /// `status` is one of `"completed"` | `"error"` | `"cancelled"`.
+    func startMeshyRequest(
+        prompt: String,
+        style: String?,
+        model: String?,
+        callbackMessage: String,
+        owner: RuntimeOwnerContext
+    ) async throws -> UUID
     func setSpeechListenerActive(_ active: Bool, owner: RuntimeOwnerContext) async throws
     func isSpeechListenerActive() async -> Bool
     func startHTTPRequest(_ spec: OutboundHTTPRequestSpec, owner: RuntimeOwnerContext) async throws -> UUID
@@ -208,6 +221,8 @@ public struct StackRuntimeConfiguration: Sendable {
     public var dialogProvider: DialogProvider
     public var drawingProvider: DrawingProvider
     public var aiProvider: any AIScriptingProvider
+    /// Phase 3: Meshy scripting provider for `ask meshy` async-callback generation.
+    public var meshyProvider: any MeshyScriptingProvider
     public var speechOutputProvider: SpeechOutputProvider
     public var speechListenerProvider: SpeechListenerProvider
     public var appScript: String
@@ -219,6 +234,7 @@ public struct StackRuntimeConfiguration: Sendable {
         dialogProvider: DialogProvider = StubDialogProvider(),
         drawingProvider: DrawingProvider = StubDrawingProvider(),
         aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
+        meshyProvider: any MeshyScriptingProvider = StubMeshyScriptingProvider(),
         speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
         speechListenerProvider: SpeechListenerProvider = StubSpeechListenerProvider(),
         appScript: String = "",
@@ -229,6 +245,7 @@ public struct StackRuntimeConfiguration: Sendable {
         self.dialogProvider = dialogProvider
         self.drawingProvider = drawingProvider
         self.aiProvider = aiProvider
+        self.meshyProvider = meshyProvider
         self.speechOutputProvider = speechOutputProvider
         self.speechListenerProvider = speechListenerProvider
         self.appScript = appScript
@@ -289,6 +306,7 @@ public actor StackRuntime: ScriptRuntimeProviding {
         case outboundHTTP
         case inboundHTTP
         case ai
+        case meshy  // Phase 3
     }
 
     private struct RequestState {
@@ -546,6 +564,73 @@ public actor StackRuntime: ScriptRuntimeProviding {
                     self.setRequestState(request)
                 }
                 await self.enqueueCallback(message: callbackMessage, owner: owner, params: [id.uuidString, "error"])
+            }
+        }
+        return id
+    }
+
+    /// Phase 3: start an async Meshy text-to-3D generation.
+    ///
+    /// Registers the request in `requests`, fires a child Task that calls
+    /// `configuration.meshyProvider.generateSync`, then enqueues the callback
+    /// with three parameters: `(requestID, status, assetName)`.
+    ///
+    /// **Security (OQ-C3):** `generateSync` is responsible for installing the
+    /// asset into the document via `HypeDocumentMutationCoordinator`. This method
+    /// does NOT perform a second mutation — exactly one mutation per generation.
+    public func startMeshyRequest(
+        prompt: String,
+        style: String?,
+        model: String?,
+        callbackMessage: String,
+        owner: RuntimeOwnerContext
+    ) async throws -> UUID {
+        let id = UUID()
+        requests[id] = RequestState(
+            id: id,
+            kind: .meshy,
+            state: "pending",
+            method: "MESHY",
+            url: "/openapi/v2/text-to-3d",
+            headers: [:],
+            body: "",
+            statusCode: nil,
+            error: nil
+        )
+        postStatusChange()
+
+        let meshyProvider = configuration.meshyProvider
+        let docSnapshot = document
+
+        Task {
+            do {
+                let assetName = try await meshyProvider.generateSync(
+                    prompt: prompt,
+                    style: style,
+                    model: model,
+                    document: docSnapshot
+                )
+                if var request = self.requests[id] {
+                    request.state = "completed"
+                    request.body = assetName
+                    self.setRequestState(request)
+                }
+                await self.enqueueCallback(
+                    message: callbackMessage,
+                    owner: owner,
+                    params: [id.uuidString, "completed", assetName]
+                )
+            } catch {
+                if var request = self.requests[id] {
+                    request.state = "error"
+                    request.error = error.localizedDescription
+                    self.setRequestState(request)
+                }
+                await self.enqueueCallback(
+                    message: callbackMessage,
+                    owner: owner,
+                    params: [id.uuidString, "error", ""]
+                )
             }
         }
         return id
@@ -812,6 +897,7 @@ public actor StackRuntime: ScriptRuntimeProviding {
                 dialogProvider: configuration.dialogProvider,
                 drawingProvider: configuration.drawingProvider,
                 aiProvider: configuration.aiProvider,
+                meshyProvider: configuration.meshyProvider,
                 speechOutputProvider: configuration.speechOutputProvider,
                 appScript: configuration.appScript,
                 mouseX: item.mouseX,

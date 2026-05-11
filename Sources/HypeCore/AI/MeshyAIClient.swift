@@ -3,17 +3,42 @@ import Foundation
 // MARK: - Protocol
 
 /// Protocol that the HTTP client and test stubs conform to.
+///
+/// **Phase 3 breaking change:** `fetchTask(taskId:)` is replaced by
+/// `fetchTaskFact(taskId:kind:)` which returns the kind-normalised
+/// `MeshyPolledFact` instead of a raw `MeshyTaskResponse`. All
+/// conformers (live client and every test stub) MUST implement the new
+/// signature. No `default:` in `cancelTask` switches — the compiler
+/// enforces updates when new `MeshyTaskKind` cases land.
 public protocol MeshyClient: Sendable {
     func createTextTo3DTask(_ request: MeshyTextTo3DRequest) async throws -> String
     func createImageTo3DTask(_ request: MeshyImageTo3DRequest) async throws -> String
     func createMultiImageTo3DTask(_ request: MeshyMultiImageTo3DRequest) async throws -> String
-    func fetchTask(taskId: String) async throws -> MeshyTaskResponse
+    /// Phase 3: create a rigging task.
+    func createRiggingTask(_ request: MeshyRiggingRequest) async throws -> String
+    /// Phase 3: create an animation task.
+    func createAnimationTask(_ request: MeshyAnimationRequest) async throws -> String
+    /// Phase 3: fetch task status, routed by kind, returning a normalised fact.
+    ///
+    /// Endpoint routing:
+    /// - `.textTo3D` → GET `/openapi/v2/text-to-3d/<id>`
+    /// - `.imageTo3D` → GET `/openapi/v1/image-to-3d/<id>`
+    /// - `.multiImageTo3D` → GET `/openapi/v1/multi-image-to-3d/<id>`
+    /// - `.rigging` → GET `/openapi/v1/rigging/<id>`
+    /// - `.animation` → GET `/openapi/v1/animations/<id>`
+    func fetchTaskFact(taskId: String, kind: MeshyTaskKind) async throws -> MeshyPolledFact
     /// Cancel a Meshy task.
     ///
-    /// The `kind` parameter routes the DELETE to the correct versioned endpoint:
+    /// **Security (H1):** all five kinds MUST be listed explicitly.
+    /// No `default:` or `@unknown default:` is permitted — the compiler
+    /// must force updates when new `MeshyTaskKind` cases land.
+    ///
+    /// Endpoint routing:
     /// - `.textTo3D` → `/openapi/v2/text-to-3d/<id>`
     /// - `.imageTo3D` → `/openapi/v1/image-to-3d/<id>`
     /// - `.multiImageTo3D` → `/openapi/v1/multi-image-to-3d/<id>`
+    /// - `.rigging` → `/openapi/v1/rigging/<id>`
+    /// - `.animation` → `/openapi/v1/animations/<id>`
     func cancelTask(taskId: String, kind: MeshyTaskKind) async throws
     func fetchBalance() async throws -> Int
     func downloadModel(from url: URL, allowedFormat: MeshyOutputFormat) async throws -> Data
@@ -165,27 +190,67 @@ public actor MeshyAIClient: MeshyClient {
         return decoded.result
     }
 
-    /// GET `/openapi/v2/text-to-3d/<taskId>` and return the task status.
-    public func fetchTask(taskId: String) async throws -> MeshyTaskResponse {
-        let safePath = "/openapi/v2/text-to-3d/\(taskId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? taskId)"
-        let urlReq = authorizedRequest(path: safePath, method: "GET")
+    /// Fetch the status of a Meshy task, routing to the correct endpoint by kind.
+    ///
+    /// Returns a `MeshyPolledFact` that normalises all five response shapes
+    /// into one type for `MeshyTaskMonitor` to consume.
+    ///
+    /// **Security (H3):** URL fields in the returned fact are sanitised via
+    /// `MeshyPolledFact.sanitizedMeshyURL` — non-Meshy URLs become `nil`.
+    public func fetchTaskFact(taskId: String, kind: MeshyTaskKind) async throws -> MeshyPolledFact {
+        let encodedId = taskId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? taskId
+        switch kind {
+        case .textTo3D:
+            let path = "/openapi/v2/text-to-3d/\(encodedId)"
+            let resp = try await fetchAndDecode(path: path, as: MeshyTaskResponse.self, endpoint: "/openapi/v2/text-to-3d/:id")
+            return MeshyPolledFact.fromTextOrImageTo3D(resp, kind: .textTo3D)
+        case .imageTo3D:
+            let path = "/openapi/v1/image-to-3d/\(encodedId)"
+            let resp = try await fetchAndDecode(path: path, as: MeshyTaskResponse.self, endpoint: "/openapi/v1/image-to-3d/:id")
+            return MeshyPolledFact.fromTextOrImageTo3D(resp, kind: .imageTo3D)
+        case .multiImageTo3D:
+            let path = "/openapi/v1/multi-image-to-3d/\(encodedId)"
+            let resp = try await fetchAndDecode(path: path, as: MeshyTaskResponse.self, endpoint: "/openapi/v1/multi-image-to-3d/:id")
+            return MeshyPolledFact.fromTextOrImageTo3D(resp, kind: .multiImageTo3D)
+        case .rigging:
+            let path = "/openapi/v1/rigging/\(encodedId)"
+            let resp = try await fetchAndDecode(path: path, as: MeshyRiggingTaskResponse.self, endpoint: "/openapi/v1/rigging/:id")
+            return MeshyPolledFact.fromRigging(resp)
+        case .animation:
+            let path = "/openapi/v1/animations/\(encodedId)"
+            let resp = try await fetchAndDecode(path: path, as: MeshyAnimationTaskResponse.self, endpoint: "/openapi/v1/animations/:id")
+            return MeshyPolledFact.fromAnimation(resp)
+        }
+    }
 
-        let (data, response) = try await sessionData(for: urlReq, endpoint: "/openapi/v2/text-to-3d/:id")
+    /// Generic GET + JSON decode helper used by `fetchTaskFact`.
+    private func fetchAndDecode<T: Decodable>(
+        path: String,
+        as type: T.Type,
+        endpoint: String
+    ) async throws -> T {
+        let urlReq = authorizedRequest(path: path, method: "GET")
+        let (data, response) = try await sessionData(for: urlReq, endpoint: endpoint)
         guard let http = response as? HTTPURLResponse else { throw MeshyError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
             throw mapHTTPError(statusCode: http.statusCode, body: data)
         }
-
-        return try decodeJSON(MeshyTaskResponse.self, from: data)
+        return try decodeJSON(type, from: data)
     }
 
     /// DELETE the appropriate Meshy endpoint based on `kind`. Tolerates 404
     /// (task already finished) by returning normally.
     ///
+    /// **Security (H1):** all five `MeshyTaskKind` cases are named explicitly.
+    /// This switch has NO `default:` so the compiler fails the build when a
+    /// new kind is added without updating this method.
+    ///
     /// Endpoint routing:
     /// - `.textTo3D` → `/openapi/v2/text-to-3d/<id>`
     /// - `.imageTo3D` → `/openapi/v1/image-to-3d/<id>`
     /// - `.multiImageTo3D` → `/openapi/v1/multi-image-to-3d/<id>`
+    /// - `.rigging` → `/openapi/v1/rigging/<id>`
+    /// - `.animation` → `/openapi/v1/animations/<id>`
     public func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {
         let encodedId = taskId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? taskId
         let (basePath, logEndpoint): (String, String) = switch kind {
@@ -195,6 +260,10 @@ public actor MeshyAIClient: MeshyClient {
             ("/openapi/v1/image-to-3d/\(encodedId)", "/openapi/v1/image-to-3d/:id DELETE")
         case .multiImageTo3D:
             ("/openapi/v1/multi-image-to-3d/\(encodedId)", "/openapi/v1/multi-image-to-3d/:id DELETE")
+        case .rigging:
+            ("/openapi/v1/rigging/\(encodedId)", "/openapi/v1/rigging/:id DELETE")
+        case .animation:
+            ("/openapi/v1/animations/\(encodedId)", "/openapi/v1/animations/:id DELETE")
         }
         let urlReq = authorizedRequest(path: basePath, method: "DELETE")
 
@@ -296,6 +365,89 @@ public actor MeshyAIClient: MeshyClient {
             throw MeshyError.invalidResponse
         }
         logger.aiOutput("task_id=\(decoded.result)", source: "Meshy")
+        return decoded.result
+    }
+
+    /// POST `/openapi/v1/rigging` and return the task id.
+    ///
+    /// - Throws: `MeshyError.validationFailed` if `inputTaskId` is empty or
+    ///   `heightMeters` is out of the supported range (0…100 m).
+    /// - Returns: The non-empty rigging task id string.
+    public func createRiggingTask(_ request: MeshyRiggingRequest) async throws -> String {
+        let trimmedId = request.inputTaskId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedId.isEmpty else {
+            throw MeshyError.validationFailed(field: "input_task_id", reason: "Input task id must not be empty.")
+        }
+        if let h = request.heightMeters {
+            guard h > 0 && h <= 100 else {
+                throw MeshyError.validationFailed(
+                    field: "height_meters",
+                    reason: "Character height must be between 0 and 100 m (got \(h))."
+                )
+            }
+        }
+
+        var urlReq = authorizedRequest(path: "/openapi/v1/rigging", method: "POST")
+        urlReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlReq.httpBody = try JSONEncoder().encode(request)
+
+        logger.aiInput(
+            "POST /openapi/v1/rigging input_task_id=\(trimmedId) height=\(request.heightMeters ?? 1.7)",
+            source: "Meshy"
+        )
+
+        let (data, response) = try await sessionData(for: urlReq, endpoint: "/openapi/v1/rigging")
+        guard let http = response as? HTTPURLResponse else { throw MeshyError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            throw mapHTTPError(statusCode: http.statusCode, body: data)
+        }
+        let decoded = try decodeJSON(MeshyCreateTaskResponse.self, from: data)
+        guard !decoded.result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw MeshyError.invalidResponse
+        }
+        logger.aiOutput("rigging task_id=\(decoded.result)", source: "Meshy")
+        return decoded.result
+    }
+
+    /// POST `/openapi/v1/animations` and return the task id.
+    ///
+    /// **Security (M1):** `actionId.value` is pre-validated in `MeshyActionId.init(_:)`
+    /// to be in 0…1000. This method adds a secondary guard for defense-in-depth.
+    ///
+    /// - Throws: `MeshyError.validationFailed` if `rigTaskId` is empty.
+    /// - Returns: The non-empty animation task id string.
+    public func createAnimationTask(_ request: MeshyAnimationRequest) async throws -> String {
+        let trimmedRig = request.rigTaskId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRig.isEmpty else {
+            throw MeshyError.validationFailed(field: "rig_task_id", reason: "Rig task id must not be empty.")
+        }
+        // Secondary defense-in-depth check (primary is in MeshyActionId.init).
+        guard request.actionId.value >= 0 && request.actionId.value <= 1000 else {
+            throw MeshyError.validationFailed(
+                field: "action_id",
+                reason: "Action id must be between 0 and 1000 (got \(request.actionId.value))."
+            )
+        }
+
+        var urlReq = authorizedRequest(path: "/openapi/v1/animations", method: "POST")
+        urlReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlReq.httpBody = try JSONEncoder().encode(request)
+
+        logger.aiInput(
+            "POST /openapi/v1/animations rig_task_id=\(trimmedRig) action_id=\(request.actionId.value)",
+            source: "Meshy"
+        )
+
+        let (data, response) = try await sessionData(for: urlReq, endpoint: "/openapi/v1/animations")
+        guard let http = response as? HTTPURLResponse else { throw MeshyError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            throw mapHTTPError(statusCode: http.statusCode, body: data)
+        }
+        let decoded = try decodeJSON(MeshyCreateTaskResponse.self, from: data)
+        guard !decoded.result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw MeshyError.invalidResponse
+        }
+        logger.aiOutput("animation task_id=\(decoded.result)", source: "Meshy")
         return decoded.result
     }
 

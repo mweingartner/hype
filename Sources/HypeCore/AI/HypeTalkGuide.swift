@@ -646,6 +646,41 @@ public enum HypeTalkGuide {
             -- or an error message on failure. Generation is blocking — the tool
             -- waits up to 5 minutes for the Meshy task to complete.
 
+        **Generate a 3D model with Meshy.ai (HypeTalk — Phase 3):**
+            -- `ask meshy` is the HypeTalk equivalent of the AI tool calls above.
+            -- Requires meshyEnabled = true on the stack and a Meshy API key in settings.
+
+            -- Synchronous form — blocks until the model is ready, puts the new
+            -- asset name into `it` and `the result`.
+            ask meshy "a low-poly wooden barrel"
+            put it into field "assetName"    -- e.g. "a-low-poly-wooden-barrel.glb"
+
+            -- Optional modifiers (order independent, may be combined):
+            ask meshy "a marble pillar" with style "sculpture"
+            ask meshy "a wooden crate" with model "meshy-5"
+            ask meshy "a spaceship" with style "realistic" with model "meshy-6"
+
+            -- Async callback form — puts the request UUID into `it` immediately,
+            -- then calls `<callbackMessage>` when the generation completes.
+            ask meshy "a golden crown" with message "modelReady"
+
+            on modelReady requestId, eventName, assetName
+              if eventName is "completed" then
+                put assetName into field "status"
+              else
+                put "Generation failed" into field "status"
+              end if
+            end modelReady
+
+            -- Notes:
+            -- Supported art styles (with style): realistic, sculpture (default: realistic).
+            -- Supported AI models (with model): meshy-4, meshy-5, meshy-6 (default: meshy-6).
+            -- The callback receives three parameters: requestId, eventName, assetName.
+            -- eventName is one of: completed, error.
+            -- assetName is the repository asset name on success, "" on error.
+            -- Gate refusals (no API key / meshy not enabled) set `it` and `the result`
+            --   to "" in the sync form, and deliver eventName="error" in the async form.
+
         **Audio recorder — record, save to a chosen file, play back:**
             -- Pin the file path BEFORE starting (otherwise a temp file
             -- under FileManager.temporaryDirectory is auto-generated):

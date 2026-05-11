@@ -9,18 +9,6 @@ private actor SuccessStubMeshyClient: MeshyClient {
     private(set) var wasCalled: Bool = false
     private(set) var lastCreatedKind: String? = nil
 
-    private func makeSuccessTaskResp(_ taskId: String) -> MeshyTaskResponse {
-        let urls = MeshyModelURLs(
-            glb: URL(string: "https://cdn.meshy.ai/model.glb")!,
-            fbx: nil, usdz: nil, obj: nil, mtl: nil
-        )
-        return MeshyTaskResponse(
-            id: taskId, status: .succeeded, progress: 100,
-            createdAt: nil, startedAt: nil, finishedAt: nil,
-            modelUrls: urls, taskError: nil, textureUrls: nil, preview: nil
-        )
-    }
-
     func createTextTo3DTask(_ request: MeshyTextTo3DRequest) async throws -> String {
         wasCalled = true; lastCreatedKind = "text"; return "stub_text"
     }
@@ -30,10 +18,30 @@ private actor SuccessStubMeshyClient: MeshyClient {
     func createMultiImageTo3DTask(_ request: MeshyMultiImageTo3DRequest) async throws -> String {
         wasCalled = true; lastCreatedKind = "multiImage"; return "stub_multi"
     }
-    func fetchTask(taskId: String) async throws -> MeshyTaskResponse {
-        makeSuccessTaskResp(taskId)
+    func createRiggingTask(_ request: MeshyRiggingRequest) async throws -> String {
+        wasCalled = true; lastCreatedKind = "rigging"; return "stub_rig"
     }
-    func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {}
+    func createAnimationTask(_ request: MeshyAnimationRequest) async throws -> String {
+        wasCalled = true; lastCreatedKind = "animation"; return "stub_anim"
+    }
+    func fetchTaskFact(taskId: String, kind: MeshyTaskKind) async throws -> MeshyPolledFact {
+        MeshyPolledFact(
+            taskId: taskId,
+            status: .succeeded,
+            progress: 100,
+            primaryModelUrl: URL(string: "https://cdn.meshy.ai/model.glb")!
+        )
+    }
+    /// Security (H1): all five kinds listed explicitly; no default.
+    func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {
+        switch kind {
+        case .textTo3D:       break
+        case .imageTo3D:      break
+        case .multiImageTo3D: break
+        case .rigging:        break
+        case .animation:      break
+        }
+    }
     func fetchBalance() async throws -> Int { 100 }
     func downloadModel(from url: URL, allowedFormat: MeshyOutputFormat) async throws -> Data {
         Data(repeating: 0x47, count: 64)  // Stub GLB bytes

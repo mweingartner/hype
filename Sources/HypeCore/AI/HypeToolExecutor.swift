@@ -5488,7 +5488,11 @@ public struct HypeToolExecutor: Sendable {
     /// List all `.model3D` assets in the repository.
     ///
     /// M3: Caps at 50 results; appends "… and N more" when exceeded.
-    /// Security: returns only metadata (name, id, size) — never bytes.
+    /// Security: returns only metadata (name, id, size, rigging flags) — never bytes.
+    ///
+    /// Phase 3 enrichment: each row now includes `is_rigged` and `action_id`
+    /// so AI tools can distinguish base models, rigged models, and animated
+    /// models without having to parse asset names heuristically.
     private func executeListModel3DAssets(document: HypeDocument) -> String {
         let models = document.spriteRepository.assets
             .filter { $0.kind == .model3D }
@@ -5501,7 +5505,11 @@ public struct HypeToolExecutor: Sendable {
         let cap = 50
         let shown = Array(models.prefix(cap))
         var lines = shown.map { asset in
-            "name=\(asset.name) id=\(asset.id) size=\(asset.data.count)B"
+            var row = "name=\(asset.name) id=\(asset.id) size=\(asset.data.count)B is_rigged=\(asset.isRigged)"
+            if let actionId = asset.animationActionId {
+                row += " action_id=\(actionId)"
+            }
+            return row
         }
         if models.count > cap {
             lines.append("… and \(models.count - cap) more — use the Sprite Repository to see all.")

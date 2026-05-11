@@ -603,6 +603,8 @@ public struct Parser: Sendable {
 
     private mutating func parseAskStatement() throws -> Statement {
         _ = try expect(.ask)
+
+        // Existing: `ask ai "<prompt>" [with model <m>] [with message <msg>]`
         if current.type == .ai {
             _ = advance()
             let prompt = try parseExpression()
@@ -625,6 +627,41 @@ public struct Parser: Sendable {
             skipNewlines()
             return .askAI(prompt: prompt, model: model, callback: callback)
         }
+
+        // Phase 3: `ask meshy "<prompt>" [with style <s>] [with model <m>] [with message <msg>]`
+        //
+        // Modifiers may appear in any order. The while loop accepts any number
+        // of `with <field> <value>` clauses until the next non-`with` token.
+        if current.type == .meshy {
+            _ = advance()
+            let prompt = try parseExpression()
+            var style: Expression? = nil
+            var model: Expression? = nil
+            var callback: Expression? = nil
+
+            while current.type == .with || current.type == .using {
+                _ = advance()
+                if current.type == .identifier && current.value.lowercased() == "style" {
+                    _ = advance()
+                    style = try parseExpression()
+                } else if current.type == .identifier && current.value.lowercased() == "model" {
+                    _ = advance()
+                    model = try parseExpression()
+                } else if current.type == .message
+                    || (current.type == .identifier && current.value.lowercased() == "message") {
+                    _ = advance()
+                    callback = try parseExpression()
+                } else {
+                    // Unrecognised modifier — bail; the outer parser will pick up the token.
+                    throw ParseError.unexpected(current, expected: "style, model, or message")
+                }
+            }
+
+            skipNewlines()
+            return .askMeshy(prompt: prompt, style: style, model: model, callback: callback)
+        }
+
+        // Existing fallback: plain `ask "<prompt>"`.
         let expr = try parseExpression()
         skipNewlines()
         return .ask(prompt: expr)

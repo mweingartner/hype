@@ -121,6 +121,17 @@ public indirect enum Statement: Sendable {
     case globalDecl([String])
     case ask(prompt: Expression)
     case askAI(prompt: Expression, model: Expression?, callback: Expression?)
+    /// `ask meshy "<prompt>" [with style <s>] [with model <m>] [with message <msg>]`
+    ///
+    /// All three modifiers are optional and may appear in any order.
+    /// The `style` resolves to `MeshyArtStyle` at evaluation time (default `.realistic`).
+    /// The `model` resolves to `MeshyAIModel` at evaluation time (default `.meshy6`).
+    case askMeshy(
+        prompt: Expression,
+        style: Expression?,
+        model: Expression?,
+        callback: Expression?
+    )
     case answer(prompt: Expression)
     case say(Expression)
     case activateListener(Expression)

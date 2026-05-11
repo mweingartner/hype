@@ -44,6 +44,11 @@ struct SpriteRepositoryView: View {
     /// probe on the main thread (security M4).
     @State private var meshyKeyIsSet: Bool = false
 
+    // MARK: - Rig & Animate state (Phase 3)
+    /// Source asset for the Rig & Animate sheet. Set to non-nil to trigger
+    /// the `.sheet(item:)` presentation of `RigAndAnimateCoordinator`.
+    @State private var rigAndAnimateSourceAsset: SpriteAsset? = nil
+
     // MARK: - Tileset classification state
     // Local state for the classify panel. Seeded from the selected
     // asset when focus changes, so the user can tweak values before
@@ -227,6 +232,18 @@ struct SpriteRepositoryView: View {
                     selectedAssetIds = [ref.id]
                 },
                 onDismiss: { showGenerate3DSheet = false }
+            )
+        }
+        .sheet(item: $rigAndAnimateSourceAsset) { asset in
+            RigAndAnimateCoordinator(
+                document: $document,
+                sourceAsset: asset,
+                onDismiss: { rigAndAnimateSourceAsset = nil },
+                onAssetsImported: { ids in
+                    if let first = ids.first {
+                        selectedAssetIds = [first]
+                    }
+                }
             )
         }
         .alert("Enable 3D generation for this stack?", isPresented: $showGenerate3DEnableConfirm) {
@@ -622,6 +639,45 @@ struct SpriteRepositoryView: View {
                             .foregroundColor(.red)
                     }
                     .buttonStyle(.plain)
+                }
+
+                // Rig & Animate / Animate actions (Phase 3)
+                // "Rig & Animate…" — only for unrigged Meshy-generated models.
+                // "Animate…"       — only for rigged models without a baked animation.
+                if asset.kind == .model3D {
+                    let hasMeshyTaskId = !(asset.provenance?.attribution.taskId ?? "").isEmpty
+                    let isMeshy = asset.provenance?.attribution.providerIdentifier == "meshy"
+
+                    if !asset.isRigged && hasMeshyTaskId && isMeshy {
+                        Button {
+                            rigAndAnimateSourceAsset = asset
+                        } label: {
+                            HStack {
+                                Image(systemName: "person.bust")
+                                Text("Rig & Animate\u{2026}")
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .help("Auto-rig this model with Meshy.ai, then optionally bake in an animation.")
+                    }
+
+                    if asset.isRigged && asset.animationActionId == nil {
+                        // The asset is a rigged base model (no animation baked in yet).
+                        // Only allow animating if it has a Meshy rigging task id.
+                        let hasRigTaskId = !(asset.provenance?.attribution.taskId ?? "").isEmpty
+                        if hasRigTaskId {
+                            Button {
+                                rigAndAnimateSourceAsset = asset
+                            } label: {
+                                HStack {
+                                    Image(systemName: "figure.run")
+                                    Text("Animate\u{2026}")
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .help("Apply a Meshy animation to this rigged model.")
+                        }
+                    }
                 }
 
                 // Transparent Background — same one-click chroma-key

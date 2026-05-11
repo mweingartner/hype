@@ -488,6 +488,7 @@ struct MainContentView: View {
     private func runtimeConfiguration() -> StackRuntimeConfiguration {
         StackRuntimeConfiguration(
             aiProvider: SelectedAIScriptingProvider(),
+            meshyProvider: LiveMeshyScriptingProvider(),
             speechOutputProvider: OpenAISpeechOutputProvider.shared,
             speechListenerProvider: RuntimeSpeechListenerProvider.shared
         )
@@ -794,6 +795,7 @@ private struct NavigationHandlers: ViewModifier {
             for: snapshot,
             configuration: StackRuntimeConfiguration(
                 aiProvider: SelectedAIScriptingProvider(),
+                meshyProvider: LiveMeshyScriptingProvider(),
                 speechOutputProvider: OpenAISpeechOutputProvider.shared,
                 speechListenerProvider: RuntimeSpeechListenerProvider.shared
             )

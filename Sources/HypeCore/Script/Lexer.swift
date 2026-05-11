@@ -44,6 +44,7 @@ public struct Lexer: Sendable {
         "joint": .joint, "constrain": .constrain,
         "play": .play, "beep": .beep, "wait": .wait, "animate": .animate, "animation": .animation,
         "ai": .ai,
+        "meshy": .meshy,
         "choose": .choose, "close": .close, "save": .save, "quit": .quit,
         "mark": .mark, "unmark": .unmark, "push": .push, "pop": .pop,
         "click": .click, "drag": .drag, "run": .run, "print": .print,

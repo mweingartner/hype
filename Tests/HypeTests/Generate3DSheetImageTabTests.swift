@@ -246,14 +246,26 @@ struct Generate3DSheetImageTabTests {
             func createTextTo3DTask(_ request: MeshyTextTo3DRequest) async throws -> String { "t" }
             func createImageTo3DTask(_ request: MeshyImageTo3DRequest) async throws -> String { "i" }
             func createMultiImageTo3DTask(_ request: MeshyMultiImageTo3DRequest) async throws -> String { "m" }
-            func fetchTask(taskId: String) async throws -> MeshyTaskResponse {
-                MeshyTaskResponse(id: taskId, status: .succeeded, progress: 100,
-                                  createdAt: nil, startedAt: nil, finishedAt: nil,
-                                  modelUrls: MeshyModelURLs(glb: URL(string: "https://cdn.meshy.ai/m.glb")!,
-                                                            fbx: nil, usdz: nil, obj: nil, mtl: nil),
-                                  taskError: nil, textureUrls: nil, preview: nil)
+            func createRiggingTask(_ request: MeshyRiggingRequest) async throws -> String { "r" }
+            func createAnimationTask(_ request: MeshyAnimationRequest) async throws -> String { "a" }
+            func fetchTaskFact(taskId: String, kind: MeshyTaskKind) async throws -> MeshyPolledFact {
+                MeshyPolledFact(
+                    taskId: taskId,
+                    status: .succeeded,
+                    progress: 100,
+                    primaryModelUrl: URL(string: "https://cdn.meshy.ai/m.glb")!
+                )
             }
-            func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {}
+            /// Security (H1): all five kinds listed explicitly; no default.
+            func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {
+                switch kind {
+                case .textTo3D:       break
+                case .imageTo3D:      break
+                case .multiImageTo3D: break
+                case .rigging:        break
+                case .animation:      break
+                }
+            }
             func fetchBalance() async throws -> Int { 100 }
             func downloadModel(from url: URL, allowedFormat: MeshyOutputFormat) async throws -> Data {
                 Data(repeating: 0x47, count: 64)

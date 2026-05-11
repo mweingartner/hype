@@ -61,6 +61,8 @@ public enum TokenType: String, Sendable {
 
     // AI (Phase 5 placeholder)
     case ai
+    // Meshy.ai (Phase 3)
+    case meshy
 }
 
 /// A single token produced by the HypeTalk lexer.

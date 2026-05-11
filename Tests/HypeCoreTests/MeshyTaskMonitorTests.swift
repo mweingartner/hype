@@ -5,13 +5,25 @@ import Testing
 // MARK: - Stub client
 
 /// A stub `MeshyClient` that returns scripted task responses in sequence.
+///
+/// Phase 3: `fetchTask(taskId:)` is replaced by `fetchTaskFact(taskId:kind:)`.
+/// `cancelTask` lists all five `MeshyTaskKind` cases explicitly (H1).
 actor StubMeshyClient: MeshyClient {
-    private var taskResponses: [MeshyTaskResponse]
+    private var taskResponses: [MeshyPolledFact]
     private var responseIndex = 0
     private(set) var cancelledTaskIds: [String] = []
+    private(set) var cancelledKinds: [MeshyTaskKind] = []
 
-    init(responses: [MeshyTaskResponse]) {
+    init(responses: [MeshyPolledFact]) {
         self.taskResponses = responses
+    }
+
+    /// Convenience: construct from legacy `MeshyTaskResponse` values so older
+    /// test helpers that call `makeTask(status:)` continue to compile.
+    init(legacyResponses: [MeshyTaskResponse]) {
+        self.taskResponses = legacyResponses.map { resp in
+            MeshyPolledFact.fromTextOrImageTo3D(resp, kind: .textTo3D)
+        }
     }
 
     func createTextTo3DTask(_ request: MeshyTextTo3DRequest) async throws -> String {
@@ -26,17 +38,33 @@ actor StubMeshyClient: MeshyClient {
         return "stub_multi_task_id"
     }
 
-    func fetchTask(taskId: String) async throws -> MeshyTaskResponse {
+    func createRiggingTask(_ request: MeshyRiggingRequest) async throws -> String {
+        return "stub_rigging_task_id"
+    }
+
+    func createAnimationTask(_ request: MeshyAnimationRequest) async throws -> String {
+        return "stub_animation_task_id"
+    }
+
+    func fetchTaskFact(taskId: String, kind: MeshyTaskKind) async throws -> MeshyPolledFact {
         guard responseIndex < taskResponses.count else {
-            // Return the last response indefinitely once exhausted.
             return taskResponses.last!
         }
         defer { responseIndex += 1 }
         return taskResponses[responseIndex]
     }
 
+    /// **Security (H1):** all five kinds listed explicitly; no `default:`.
     func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {
         cancelledTaskIds.append(taskId)
+        cancelledKinds.append(kind)
+        switch kind {
+        case .textTo3D:     break
+        case .imageTo3D:    break
+        case .multiImageTo3D: break
+        case .rigging:      break
+        case .animation:    break
+        }
     }
 
     func fetchBalance() async throws -> Int { return 100 }
@@ -48,18 +76,24 @@ actor StubMeshyClient: MeshyClient {
 
 // MARK: - Helpers
 
-private func makeTask(taskId: String = "t1", status: MeshyTaskStatus, progress: Int? = nil) -> MeshyTaskResponse {
-    let urls = status == .succeeded ? MeshyModelURLs(
-        glb: URL(string: "https://cdn.meshy.ai/model.glb")!,
-        fbx: nil, usdz: nil, obj: nil, mtl: nil
-    ) : nil
-    return MeshyTaskResponse(
-        id: taskId,
+/// Build a `MeshyPolledFact` for use in monitor tests.
+private func makeTask(taskId: String = "t1", status: MeshyTaskStatus, progress: Int? = nil) -> MeshyPolledFact {
+    let glbUrl = status == .succeeded ? URL(string: "https://cdn.meshy.ai/model.glb")! : nil
+    return MeshyPolledFact(
+        taskId: taskId,
         status: status,
         progress: progress,
-        createdAt: nil, startedAt: nil, finishedAt: nil,
-        modelUrls: urls,
-        taskError: nil, textureUrls: nil, preview: nil
+        primaryModelUrl: glbUrl,
+        errorMessage: nil
+    )
+}
+
+/// Build a `MeshyPolledFact` with a task error, for failure tests.
+private func makeFailedTask(taskId: String = "t_fail", message: String) -> MeshyPolledFact {
+    MeshyPolledFact(
+        taskId: taskId,
+        status: .failed,
+        errorMessage: message
     )
 }
 
@@ -72,7 +106,7 @@ struct MeshyTaskMonitorTests {
 
     @Test("pending→inProgress(50)→inProgress(100)→succeeded emits all states")
     func happyPath() async throws {
-        let responses: [MeshyTaskResponse] = [
+        let responses: [MeshyPolledFact] = [
             makeTask(status: .pending),
             makeTask(status: .inProgress, progress: 50),
             makeTask(status: .inProgress, progress: 100),
@@ -106,16 +140,8 @@ struct MeshyTaskMonitorTests {
 
     @Test("pending→failed emits .failed(.taskFailed)")
     func failedTask() async throws {
-        let failedResp = MeshyTaskResponse(
-            id: "t_fail",
-            status: .failed,
-            progress: nil,
-            createdAt: nil, startedAt: nil, finishedAt: nil,
-            modelUrls: nil,
-            taskError: MeshyErrorEnvelope(error: nil, message: "Out of credits"),
-            textureUrls: nil, preview: nil
-        )
-        let stub = StubMeshyClient(responses: [makeTask(status: .pending), failedResp])
+        let failedFact = makeFailedTask(taskId: "t_fail", message: "Out of credits")
+        let stub = StubMeshyClient(responses: [makeTask(status: .pending), failedFact])
         let config = MeshyTaskMonitor.Config(pollInterval: 0.01, hardTimeout: 30)
         let monitor = MeshyTaskMonitor(
             client: stub, taskId: "t_fail", prompt: "barrel",
@@ -141,7 +167,8 @@ struct MeshyTaskMonitorTests {
     @Test("cancel() during pending emits .cancelled")
     func cancelDuringPending() async throws {
         // Return pending forever until cancelled.
-        let stub = StubMeshyClient(responses: Array(repeating: makeTask(status: .pending), count: 100))
+        let pendingFact = makeTask(status: .pending)
+        let stub = StubMeshyClient(responses: Array(repeating: pendingFact, count: 100))
         let config = MeshyTaskMonitor.Config(pollInterval: 0.01, hardTimeout: 30)
         let monitor = MeshyTaskMonitor(
             client: stub, taskId: "t_cancel", prompt: "barrel",
@@ -177,7 +204,7 @@ struct MeshyTaskMonitorTests {
 
     @Test("cancel() during inProgress emits .cancelled")
     func cancelDuringInProgress() async throws {
-        let stub = StubMeshyClient(responses: Array(repeating: makeTask(status: .inProgress, progress: 30), count: 100))
+        let stub = StubMeshyClient(responses: Array(repeating: makeTask(taskId: "t_cancel2", status: .inProgress, progress: 30), count: 100))
         let config = MeshyTaskMonitor.Config(pollInterval: 0.01, hardTimeout: 30)
         let monitor = MeshyTaskMonitor(
             client: stub, taskId: "t_cancel2", prompt: "barrel",
@@ -206,7 +233,7 @@ struct MeshyTaskMonitorTests {
 
     @Test("cancel() after succeeded is a no-op")
     func cancelAfterSucceeded() async throws {
-        let stub = StubMeshyClient(responses: [makeTask(status: .succeeded)])
+        let stub = StubMeshyClient(responses: [makeTask(taskId: "t_done", status: .succeeded)])
         let config = MeshyTaskMonitor.Config(pollInterval: 0.01, hardTimeout: 30)
         let monitor = MeshyTaskMonitor(
             client: stub, taskId: "t_done", prompt: "barrel",
@@ -228,7 +255,7 @@ struct MeshyTaskMonitorTests {
     @Test("hard timeout fires .failed(.timedOut)")
     func hardTimeoutFires() async throws {
         // Return pending forever.
-        let stub = StubMeshyClient(responses: Array(repeating: makeTask(status: .pending), count: 1000))
+        let stub = StubMeshyClient(responses: Array(repeating: makeTask(taskId: "t_timeout", status: .pending), count: 1000))
         // Very short timeout so the test finishes quickly.
         let config = MeshyTaskMonitor.Config(pollInterval: 0.01, hardTimeout: 0.05)
         let monitor = MeshyTaskMonitor(

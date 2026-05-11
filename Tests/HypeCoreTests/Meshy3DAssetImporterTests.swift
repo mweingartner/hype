@@ -25,12 +25,21 @@ actor ImporterStubClient: MeshyClient {
     func createTextTo3DTask(_ request: MeshyTextTo3DRequest) async throws -> String { "stub_id" }
     func createImageTo3DTask(_ request: MeshyImageTo3DRequest) async throws -> String { "stub_image_id" }
     func createMultiImageTo3DTask(_ request: MeshyMultiImageTo3DRequest) async throws -> String { "stub_multi_id" }
-    func fetchTask(taskId: String) async throws -> MeshyTaskResponse {
-        MeshyTaskResponse(id: taskId, status: .pending, progress: nil, createdAt: nil,
-                          startedAt: nil, finishedAt: nil, modelUrls: nil, taskError: nil,
-                          textureUrls: nil, preview: nil)
+    func createRiggingTask(_ request: MeshyRiggingRequest) async throws -> String { "stub_rig_id" }
+    func createAnimationTask(_ request: MeshyAnimationRequest) async throws -> String { "stub_anim_id" }
+    func fetchTaskFact(taskId: String, kind: MeshyTaskKind) async throws -> MeshyPolledFact {
+        MeshyPolledFact(taskId: taskId, status: .pending)
     }
-    func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {}
+    /// Security (H1): all five kinds listed explicitly; no default.
+    func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {
+        switch kind {
+        case .textTo3D:       break
+        case .imageTo3D:      break
+        case .multiImageTo3D: break
+        case .rigging:        break
+        case .animation:      break
+        }
+    }
     func fetchBalance() async throws -> Int { 100 }
 
     func downloadModel(from url: URL, allowedFormat: MeshyOutputFormat) async throws -> Data {

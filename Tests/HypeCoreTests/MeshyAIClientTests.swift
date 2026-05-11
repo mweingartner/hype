@@ -93,17 +93,17 @@ struct MeshyAIClientTests {
 
     // MARK: (b) GET task with 200 returns decoded response
 
-    @Test("GET task with 200 returns decoded MeshyTaskResponse")
+    @Test("GET task (textTo3D) with 200 returns normalised MeshyPolledFact")
     func getTaskDecodes() async throws {
         let json = """
         {"id":"task_001","status":"IN_PROGRESS","progress":45}
         """.data(using: .utf8)!
 
         let client = makeMockClient { req in (json, response(statusCode: 200, url: req.url!)) }
-        let taskResp = try await client.fetchTask(taskId: "task_001")
-        #expect(taskResp.id == "task_001")
-        #expect(taskResp.status == .inProgress)
-        #expect(taskResp.progress == 45)
+        let fact = try await client.fetchTaskFact(taskId: "task_001", kind: .textTo3D)
+        #expect(fact.taskId == "task_001")
+        #expect(fact.status == .inProgress)
+        #expect(fact.progress == 45)
     }
 
     // MARK: (c) GET task with 401 throws .requestFailed(401, _)
@@ -115,7 +115,7 @@ struct MeshyAIClientTests {
             return (body, response(statusCode: 401, url: req.url!))
         }
         do {
-            _ = try await client.fetchTask(taskId: "task_x")
+            _ = try await client.fetchTaskFact(taskId: "task_x", kind: .textTo3D)
             Issue.record("Expected throw")
         } catch MeshyError.requestFailed(let code, _) {
             #expect(code == 401)
@@ -131,7 +131,7 @@ struct MeshyAIClientTests {
             return (body, response(statusCode: 429, url: req.url!))
         }
         do {
-            _ = try await client.fetchTask(taskId: "task_x")
+            _ = try await client.fetchTaskFact(taskId: "task_x", kind: .textTo3D)
             Issue.record("Expected throw")
         } catch MeshyError.rateLimited {
             // Expected.
@@ -147,7 +147,7 @@ struct MeshyAIClientTests {
             return (body, response(statusCode: 402, url: req.url!))
         }
         do {
-            _ = try await client.fetchTask(taskId: "task_x")
+            _ = try await client.fetchTaskFact(taskId: "task_x", kind: .textTo3D)
             Issue.record("Expected throw")
         } catch MeshyError.insufficientCredits {
             // Expected.

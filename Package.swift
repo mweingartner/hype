@@ -16,7 +16,10 @@ let package = Package(
         ),
         .target(
             name: "HypeCore",
-            path: "Sources/HypeCore"
+            path: "Sources/HypeCore",
+            resources: [
+                .process("Resources/MeshyAnimationCatalog.json"),
+            ]
         ),
         .testTarget(
             name: "HypeCoreTests",

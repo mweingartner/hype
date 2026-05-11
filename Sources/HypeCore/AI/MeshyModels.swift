@@ -146,16 +146,22 @@ public struct MeshyTextTo3DRequest: Codable, Sendable, Equatable {
     }
 }
 
-/// Discriminates between Meshy task kinds so `cancelTask` can route to the
-/// correct v1 or v2 DELETE endpoint.
+/// Discriminates between Meshy task kinds so `cancelTask` and `fetchTaskFact`
+/// can route to the correct v1 or v2 endpoint.
 ///
 /// - `textTo3D`: `/openapi/v2/text-to-3d/<id>` (Phase 1 default)
 /// - `imageTo3D`: `/openapi/v1/image-to-3d/<id>`
 /// - `multiImageTo3D`: `/openapi/v1/multi-image-to-3d/<id>`
+/// - `rigging`: `/openapi/v1/rigging/<id>` (Phase 3)
+/// - `animation`: `/openapi/v1/animations/<id>` (Phase 3)
 public enum MeshyTaskKind: String, Sendable, Equatable {
     case textTo3D
     case imageTo3D
     case multiImageTo3D
+    /// Phase 3: rigging task.
+    case rigging
+    /// Phase 3: animation task.
+    case animation
 }
 
 /// POST response — Meshy v2 returns `{ "result": "<id>" }`;
@@ -278,6 +284,11 @@ public struct MeshyTaskResult: Sendable, Equatable {
     /// The original prompt the user submitted.
     public let prompt: String
     public let aiModel: MeshyAIModel
+    /// Phase 3: basic walking animation GLB URL when the task is a rigging
+    /// task with `alsoBasicWalk == true`. Nil otherwise.
+    public let basicWalkUrl: URL?
+    /// Phase 3: basic running animation GLB URL when applicable.
+    public let basicRunUrl: URL?
 
     public init(
         taskId: String,
@@ -286,7 +297,9 @@ public struct MeshyTaskResult: Sendable, Equatable {
         alsoUSDZ: URL? = nil,
         alsoFBX: URL? = nil,
         prompt: String,
-        aiModel: MeshyAIModel
+        aiModel: MeshyAIModel,
+        basicWalkUrl: URL? = nil,
+        basicRunUrl: URL? = nil
     ) {
         self.taskId = taskId
         self.modelURL = modelURL
@@ -295,5 +308,150 @@ public struct MeshyTaskResult: Sendable, Equatable {
         self.alsoFBX = alsoFBX
         self.prompt = prompt
         self.aiModel = aiModel
+        self.basicWalkUrl = basicWalkUrl
+        self.basicRunUrl = basicRunUrl
+    }
+}
+
+// MARK: - MeshyPolledFact
+
+/// Internal homogenised fact yielded by `MeshyClient.fetchTaskFact`.
+///
+/// Squashes the kind-specific wire responses (text/image/multi-image-3D,
+/// rigging, animation) into one normalised view. `MeshyTaskMonitor`
+/// consumes only this type; the wire types stay isolated to the client's
+/// HTTP boundary.
+///
+/// - `primaryModelUrl` is the GLB URL appropriate for this kind:
+///   - text/image/multi-image: `model_urls.glb`
+///   - rigging: `rigged_character_glb_url`
+///   - animation: `result.animation_glb_url`
+/// - `usdzUrl` / `fbxUrl` are populated for text/image/multi-image tasks
+///   when Meshy delivers them; always `nil` for rigging/animation.
+/// - `basicWalkUrl` / `basicRunUrl` are populated ONLY for rigging tasks.
+public struct MeshyPolledFact: Sendable, Equatable {
+    public let taskId: String
+    public let status: MeshyTaskStatus
+    public let progress: Int?
+    public let primaryModelUrl: URL?
+    public let usdzUrl: URL?
+    public let fbxUrl: URL?
+    /// Rigging only: basic walking animation GLB bundled with the rig.
+    public let basicWalkUrl: URL?
+    /// Rigging only: basic running animation GLB bundled with the rig.
+    public let basicRunUrl: URL?
+    public let errorMessage: String?
+
+    public init(
+        taskId: String,
+        status: MeshyTaskStatus,
+        progress: Int? = nil,
+        primaryModelUrl: URL? = nil,
+        usdzUrl: URL? = nil,
+        fbxUrl: URL? = nil,
+        basicWalkUrl: URL? = nil,
+        basicRunUrl: URL? = nil,
+        errorMessage: String? = nil
+    ) {
+        self.taskId = taskId
+        self.status = status
+        self.progress = progress
+        self.primaryModelUrl = primaryModelUrl
+        self.usdzUrl = usdzUrl
+        self.fbxUrl = fbxUrl
+        self.basicWalkUrl = basicWalkUrl
+        self.basicRunUrl = basicRunUrl
+        self.errorMessage = errorMessage
+    }
+
+    // MARK: - Factories
+
+    /// Construct a fact from a text-to-3D, image-to-3D, or multi-image-to-3D
+    /// wire response. `kind` is recorded for logging purposes only.
+    public static func fromTextOrImageTo3D(
+        _ resp: MeshyTaskResponse,
+        kind: MeshyTaskKind
+    ) -> MeshyPolledFact {
+        _ = kind  // logged at call site; not stored in the fact
+        let errorMsg = resp.taskError?.message ?? resp.taskError?.error
+        return MeshyPolledFact(
+            taskId: resp.id,
+            status: resp.status,
+            progress: resp.progress,
+            primaryModelUrl: resp.modelUrls?.glb,
+            usdzUrl: resp.modelUrls?.usdz,
+            fbxUrl: resp.modelUrls?.fbx,
+            basicWalkUrl: nil,
+            basicRunUrl: nil,
+            errorMessage: errorMsg.map { String($0.prefix(200)) }
+        )
+    }
+
+    /// Construct a fact from a rigging task wire response.
+    ///
+    /// **Security (H3):** every URL is passed through `sanitizedMeshyURL`.
+    /// A URL that fails the host check becomes `nil` in the fact rather
+    /// than propagating an untrusted URL to the downloader.
+    public static func fromRigging(_ resp: MeshyRiggingTaskResponse) -> MeshyPolledFact {
+        let errorMsg = resp.taskError?.message ?? resp.taskError?.error
+        let glbUrl = sanitizedMeshyURL(resp.riggedCharacterGlbUrl)
+        let walkUrl = sanitizedMeshyURL(resp.basicAnimations?.walking?.glb)
+        let runUrl = sanitizedMeshyURL(resp.basicAnimations?.running?.glb)
+
+        return MeshyPolledFact(
+            taskId: resp.id,
+            status: resp.status,
+            progress: resp.progress,
+            primaryModelUrl: glbUrl,
+            usdzUrl: nil,
+            fbxUrl: sanitizedMeshyURL(resp.riggedCharacterFbxUrl),
+            basicWalkUrl: walkUrl,
+            basicRunUrl: runUrl,
+            errorMessage: errorMsg.map { String($0.prefix(200)) }
+        )
+    }
+
+    /// Construct a fact from an animation task wire response.
+    ///
+    /// **Security (H3):** every URL is passed through `sanitizedMeshyURL`.
+    public static func fromAnimation(_ resp: MeshyAnimationTaskResponse) -> MeshyPolledFact {
+        let errorMsg = resp.taskError?.message ?? resp.taskError?.error
+        let glbUrl = sanitizedMeshyURL(resp.result?.animationGlbUrl)
+
+        return MeshyPolledFact(
+            taskId: resp.id,
+            status: resp.status,
+            progress: resp.progress,
+            primaryModelUrl: glbUrl,
+            usdzUrl: nil,
+            fbxUrl: sanitizedMeshyURL(resp.result?.animationFbxUrl),
+            basicWalkUrl: nil,
+            basicRunUrl: nil,
+            errorMessage: errorMsg.map { String($0.prefix(200)) }
+        )
+    }
+
+    // MARK: - H3 URL sanitizer
+
+    /// Rejects any URL that is not HTTPS and hosted on `meshy.ai` or a
+    /// subdomain. Returns `nil` for non-conforming URLs.
+    ///
+    /// This provides defense-in-depth at the fact-construction boundary.
+    /// Even if a future Meshy response accidentally includes a non-Meshy
+    /// URL, it becomes `nil` here before ever reaching the downloader.
+    private static func sanitizedMeshyURL(_ url: URL?) -> URL? {
+        guard let url,
+              url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased(),
+              host == "meshy.ai" || host.hasSuffix(".meshy.ai")
+        else {
+            if let url {
+                // Log the drop without emitting the raw URL value.
+                let host = url.host ?? "(no host)"
+                _ = host  // available for breakpoints; not logged to prevent URL leakage
+            }
+            return nil
+        }
+        return url
     }
 }

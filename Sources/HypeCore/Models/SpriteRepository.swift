@@ -38,6 +38,12 @@ public struct AssetAttribution: Codable, Sendable, Equatable {
     public var downloadURL: String
     public var providerName: String
     public var providerIdentifier: String
+    /// When non-empty, this is the Meshy.ai task id whose output produced
+    /// this asset. Used by the rigging flow to chain `input_task_id`
+    /// without re-uploading the model.
+    ///
+    /// Default empty string. Old documents without this field decode as `""`.
+    public var taskId: String
 
     public init(
         creator: String = "",
@@ -45,7 +51,8 @@ public struct AssetAttribution: Codable, Sendable, Equatable {
         sourceURL: String = "",
         downloadURL: String = "",
         providerName: String = "",
-        providerIdentifier: String = ""
+        providerIdentifier: String = "",
+        taskId: String = ""
     ) {
         self.creator = creator
         self.title = title
@@ -53,6 +60,25 @@ public struct AssetAttribution: Codable, Sendable, Equatable {
         self.downloadURL = downloadURL
         self.providerName = providerName
         self.providerIdentifier = providerIdentifier
+        self.taskId = taskId
+    }
+
+    // MARK: - Backward-compatible decoding
+
+    private enum CodingKeys: String, CodingKey {
+        case creator, title, sourceURL, downloadURL, providerName, providerIdentifier, taskId
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        creator             = try c.decodeIfPresent(String.self, forKey: .creator)             ?? ""
+        title               = try c.decodeIfPresent(String.self, forKey: .title)               ?? ""
+        sourceURL           = try c.decodeIfPresent(String.self, forKey: .sourceURL)           ?? ""
+        downloadURL         = try c.decodeIfPresent(String.self, forKey: .downloadURL)         ?? ""
+        providerName        = try c.decodeIfPresent(String.self, forKey: .providerName)        ?? ""
+        providerIdentifier  = try c.decodeIfPresent(String.self, forKey: .providerIdentifier)  ?? ""
+        // Phase 3: new field — absent in pre-Phase-3 documents; defaults to "".
+        taskId              = try c.decodeIfPresent(String.self, forKey: .taskId)              ?? ""
     }
 }
 
@@ -215,6 +241,26 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
     /// the web-asset feature was introduced (backward-compatible decode).
     public var provenance: AssetProvenance?
 
+    // MARK: - Rigging / animation metadata (Phase 3)
+
+    /// True when this 3D model has been auto-rigged by Meshy's rigging
+    /// pipeline. Only meaningful when `kind == .model3D`.
+    ///
+    /// Default `false`. Pre-Phase-3 documents decode with `false`.
+    public var isRigged: Bool
+
+    /// When set, identifies the Meshy animation action id baked into
+    /// this asset. Only meaningful when `kind == .model3D && isRigged`.
+    ///
+    /// `nil` on:
+    ///   - Non-rigged models.
+    ///   - Rigged models without a baked custom animation.
+    ///   - Basic walk/run clips (those carry tag "meshy-basic-walking" /
+    ///     "meshy-basic-running" instead of a numeric action id).
+    ///
+    /// Default `nil`. Pre-Phase-3 documents decode with `nil`.
+    public var animationActionId: Int?
+
     public init(
         id: UUID = UUID(),
         name: String = "",
@@ -230,7 +276,9 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
         tileHeight: Int = 0,
         tileColumns: Int = 0,
         tileRows: Int = 0,
-        provenance: AssetProvenance? = nil
+        provenance: AssetProvenance? = nil,
+        isRigged: Bool = false,
+        animationActionId: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -247,6 +295,8 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
         self.tileColumns = tileColumns
         self.tileRows = tileRows
         self.provenance = provenance
+        self.isRigged = isRigged
+        self.animationActionId = animationActionId
     }
 
     // MARK: - Backward-compatible decoding
@@ -255,6 +305,8 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
         case id, name, kind, mimeType, data, width, height, tags, slices, animationClips
         case tileWidth, tileHeight, tileColumns, tileRows
         case provenance
+        // Phase 3 fields
+        case isRigged, animationActionId
     }
 
     public init(from decoder: Decoder) throws {
@@ -278,6 +330,20 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
         tileRows = try container.decodeIfPresent(Int.self, forKey: .tileRows) ?? 0
         // Provenance: nil for all pre-web-asset documents (backward-compatible).
         provenance = try container.decodeIfPresent(AssetProvenance.self, forKey: .provenance)
+
+        // Phase 3: rigging / animation metadata. Old documents without
+        // these fields decode with safe defaults (false / nil).
+        let decodedIsRigged = try container.decodeIfPresent(Bool.self, forKey: .isRigged) ?? false
+        let decodedActionId = try container.decodeIfPresent(Int.self, forKey: .animationActionId)
+
+        // Decode-time invariant: if animationActionId is set, isRigged must be true.
+        // Guards against hand-edited documents with inconsistent flags.
+        if decodedActionId != nil && !decodedIsRigged {
+            isRigged = true
+        } else {
+            isRigged = decodedIsRigged
+        }
+        animationActionId = decodedActionId
 
         // Security (M1): enforce a 50 MB cap on model3D assets at decode time.
         // A malicious .hype file could embed a very large model3D asset — this

@@ -128,15 +128,22 @@ public struct Meshy3DAssetImporter: Sendable {
     ///   - suggestedName: Preferred file name; will be deduplicated.
     ///   - existingNames: Names already in use (for dedup loop).
     ///   - provenance: Metadata about the generation origin.
+    ///   - isRigged: Phase 3 — true for rigged and animated assets.
+    ///   - animationActionId: Phase 3 — the Meshy action id, when applicable.
+    ///   - extraTags: Phase 3 — additional tags appended to the base set.
     /// - Returns: A `SpriteAsset` with `kind == .model3D`.
     public static func buildAsset(
         from data: Data,
         format: MeshyOutputFormat,
         suggestedName: String,
         existingNames: Set<String>,
-        provenance: AssetProvenance
+        provenance: AssetProvenance,
+        isRigged: Bool = false,
+        animationActionId: Int? = nil,
+        extraTags: [String] = []
     ) -> SpriteAsset {
         let uniqueName = deduplicate(name: suggestedName, against: existingNames)
+        let baseTags = ["meshy", "ai-generated", format.rawValue, "format:\(format.rawValue)"]
         return SpriteAsset(
             id: UUID(),
             name: uniqueName,
@@ -145,15 +152,154 @@ public struct Meshy3DAssetImporter: Sendable {
             data: data,
             width: 0,   // Not pixel data.
             height: 0,
-            tags: ["meshy", "ai-generated", format.rawValue, "format:\(format.rawValue)"],
+            tags: baseTags + extraTags,
             slices: [],
             animationClips: [],
             tileWidth: 0,
             tileHeight: 0,
             tileColumns: 0,
             tileRows: 0,
-            provenance: provenance
+            provenance: provenance,
+            isRigged: isRigged,
+            animationActionId: animationActionId
         )
+    }
+
+    // MARK: - Phase 3: Rigging import
+
+    /// Download the rigged GLB and optional basic walk/run clips, then build
+    /// `SpriteAsset` values for each successfully downloaded resource.
+    ///
+    /// - Parameters:
+    ///   - result: The completed rigging task result.
+    ///   - sourceAssetName: Display name of the source asset (used to derive
+    ///     names for the new assets, e.g. "hero" → "hero-rigged.glb").
+    ///   - existingAssetNames: Names already in the repository (for dedup).
+    ///   - sourcePrompt: Prompt / description for provenance (usually the
+    ///     source asset's provenance.searchQuery).
+    ///   - options: Name-derivation options.
+    /// - Returns: An array of `SpriteAsset` values with `isRigged = true`.
+    ///   First is always the primary rigged GLB; subsequent entries are
+    ///   optional basic walk/run clips.
+    /// - Throws: `MeshyError` if the primary GLB download fails.
+    public func importRiggingTask(
+        result: MeshyTaskResult,
+        sourceAssetName: String,
+        existingAssetNames: Set<String>,
+        sourcePrompt: String = "",
+        options: DefaultOptions = DefaultOptions()
+    ) async throws -> [SpriteAsset] {
+        var assets: [SpriteAsset] = []
+        var usedNames: Set<String> = existingAssetNames
+
+        let provenance = makeRigProvenance(result: result, sourcePrompt: sourcePrompt)
+        let baseName = sourceAssetName.isEmpty ? "model" : sourceAssetName
+
+        // Primary rigged GLB.
+        let glbData = try await client.downloadModel(from: result.modelURL, allowedFormat: .glb)
+        let riggedAsset = Self.buildAsset(
+            from: glbData,
+            format: .glb,
+            suggestedName: "\(baseName)-rigged.glb",
+            existingNames: usedNames,
+            provenance: provenance,
+            isRigged: true,
+            animationActionId: nil,
+            extraTags: ["meshy-rigged"]
+        )
+        assets.append(riggedAsset)
+        usedNames.insert(riggedAsset.name)
+
+        // Optional basic walking clip.
+        if let walkURL = result.basicWalkUrl {
+            if let walkData = try? await client.downloadModel(from: walkURL, allowedFormat: .glb) {
+                let walkAsset = Self.buildAsset(
+                    from: walkData,
+                    format: .glb,
+                    suggestedName: "\(baseName)-walking.glb",
+                    existingNames: usedNames,
+                    provenance: provenance,
+                    isRigged: true,
+                    animationActionId: nil,
+                    extraTags: ["meshy-rigged", "meshy-basic-walking"]
+                )
+                assets.append(walkAsset)
+                usedNames.insert(walkAsset.name)
+            } else {
+                logger.info("Basic walking animation download failed for task \(result.taskId) — omitting", source: "Meshy")
+            }
+        }
+
+        // Optional basic running clip.
+        if let runURL = result.basicRunUrl {
+            if let runData = try? await client.downloadModel(from: runURL, allowedFormat: .glb) {
+                let runAsset = Self.buildAsset(
+                    from: runData,
+                    format: .glb,
+                    suggestedName: "\(baseName)-running.glb",
+                    existingNames: usedNames,
+                    provenance: provenance,
+                    isRigged: true,
+                    animationActionId: nil,
+                    extraTags: ["meshy-rigged", "meshy-basic-running"]
+                )
+                assets.append(runAsset)
+                usedNames.insert(runAsset.name)
+            } else {
+                logger.info("Basic running animation download failed for task \(result.taskId) — omitting", source: "Meshy")
+            }
+        }
+
+        logger.info("Imported \(assets.count) rigged asset(s) from task \(result.taskId)", source: "Meshy")
+        return assets
+    }
+
+    // MARK: - Phase 3: Animation import
+
+    /// Download the animated GLB and build a `SpriteAsset` with
+    /// `isRigged = true` and `animationActionId = actionId.value`.
+    ///
+    /// - Parameters:
+    ///   - result: The completed animation task result.
+    ///   - sourceAssetName: Display name of the source asset.
+    ///   - actionId: The Meshy action id that was applied.
+    ///   - actionName: Display-friendly name of the action (used for naming).
+    ///   - existingAssetNames: Names already in the repository (for dedup).
+    ///   - sourcePrompt: Prompt / description for provenance.
+    ///   - options: Name-derivation options.
+    /// - Returns: A single `SpriteAsset` with `isRigged = true` and
+    ///   `animationActionId` set.
+    /// - Throws: `MeshyError` if the GLB download fails.
+    public func importAnimationTask(
+        result: MeshyTaskResult,
+        sourceAssetName: String,
+        actionId: MeshyActionId,
+        actionName: String,
+        existingAssetNames: Set<String>,
+        sourcePrompt: String = "",
+        options: DefaultOptions = DefaultOptions()
+    ) async throws -> SpriteAsset {
+        let provenance = makeRigProvenance(result: result, sourcePrompt: sourcePrompt)
+        let baseName = sourceAssetName.isEmpty ? "model" : sourceAssetName
+        // Derive a file-system-safe action name.
+        let safeAction = actionName.lowercased()
+            .replacingOccurrences(of: " ", with: "-")
+            .filter { $0.isLetter || $0.isNumber || $0 == "-" }
+
+        let glbData = try await client.downloadModel(from: result.modelURL, allowedFormat: .glb)
+        let asset = Self.buildAsset(
+            from: glbData,
+            format: .glb,
+            suggestedName: "\(baseName)-\(safeAction).glb",
+            existingNames: existingAssetNames,
+            provenance: provenance,
+            isRigged: true,
+            animationActionId: actionId.value,
+            extraTags: ["meshy-rigged", "meshy-animation", "action:\(actionId.value)"]
+        )
+
+        logger.info("Imported animated asset (action \(actionId.value)) from task \(result.taskId)", source: "Meshy")
+        return asset
     }
 
     // MARK: - Private helpers
@@ -174,7 +320,32 @@ public struct Meshy3DAssetImporter: Sendable {
                 sourceURL: "",
                 downloadURL: result.modelURL.absoluteString,
                 providerName: "Meshy.ai",
-                providerIdentifier: "meshy"
+                providerIdentifier: "meshy",
+                taskId: result.taskId   // Phase 3: enables rigging chaining
+            ),
+            importedAt: Date()
+        )
+    }
+
+    /// Build a provenance record for a rigging or animation task result.
+    private func makeRigProvenance(result: MeshyTaskResult, sourcePrompt: String) -> AssetProvenance {
+        AssetProvenance(
+            origin: .aiGenerated,
+            searchQuery: sourcePrompt,
+            license: AssetLicense(
+                name: "Meshy.ai",
+                identifier: "meshy",
+                url: "https://docs.meshy.ai",
+                isShareable: false
+            ),
+            attribution: AssetAttribution(
+                creator: "AI",
+                title: sourcePrompt,
+                sourceURL: "",
+                downloadURL: result.modelURL.absoluteString,
+                providerName: "Meshy.ai",
+                providerIdentifier: "meshy",
+                taskId: result.taskId
             ),
             importedAt: Date()
         )
