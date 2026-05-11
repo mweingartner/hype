@@ -12,6 +12,11 @@ public struct Part: Identifiable, Codable, Sendable {
     // Identity
     public var name: String
     public var sortKey: String
+    /// Optional flat authoring group membership. Parts with the same
+    /// groupId are selected, moved, resized, and arranged as one unit
+    /// in edit mode while still rendering and scripting as independent
+    /// Hype parts. Nil means the part is not grouped.
+    public var groupId: UUID?
 
     // Geometry
     public var left: Double
@@ -363,6 +368,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.backgroundId = backgroundId
         self.name = name
         self.sortKey = sortKey
+        self.groupId = nil
         self.left = left
         self.top = top
         self.width = width
@@ -477,6 +483,9 @@ public struct Part: Identifiable, Codable, Sendable {
         backgroundId = try container.decodeIfPresent(UUID.self, forKey: .backgroundId)
         name = try container.decode(String.self, forKey: .name)
         sortKey = try container.decode(String.self, forKey: .sortKey)
+        // Grouping was added after the initial Part schema. Missing
+        // values mean "not grouped" for older .hype documents.
+        groupId = try container.decodeIfPresent(UUID.self, forKey: .groupId)
         left = try container.decode(Double.self, forKey: .left)
         top = try container.decode(Double.self, forKey: .top)
         width = try container.decode(Double.self, forKey: .width)

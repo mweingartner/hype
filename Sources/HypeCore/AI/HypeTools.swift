@@ -534,6 +534,19 @@ public struct HypeToolDefinitions {
             "name": ("string", "Asset name", true),
             "file_path": ("string", "Absolute path to PNG/JPG image file", true),
         ]),
+        makeTool(name: "generate_sprite_asset", description: """
+            Generate a new sprite image asset through the configured OpenAI image model and add it to the Sprite Repository. \
+            Use this when the user asks to create, add, draw, or generate a sprite/library/repository asset that looks like something. \
+            Do not call this tool unless the user has provided the desired sprite asset name; if the name is missing, ask a follow-up question first.
+            """, params: [
+            "asset_name": ("string", "Required sprite asset name chosen by the user. Ask for it before calling this tool if the user did not provide one.", true),
+            "prompt": ("string", "Detailed visual description of the sprite image to generate", true),
+            "generation_size": ("string", "OpenAI generation size: 1024x1024, 1536x1024, or 1024x1536. Defaults to 1024x1024.", false),
+            "quality": ("string", "Image quality: low, medium, or high. Defaults to the model default.", false),
+            "background": ("string", "transparent, opaque, or auto. Defaults to transparent for sprite assets.", false),
+            "kind": ("string", "Repository kind: imageTexture, spriteSheet, or tileSet. Defaults to imageTexture unless the name implies tileset.", false),
+            "model": ("string", "Optional OpenAI image model override. Normally omit.", false),
+        ]),
 
         // Part modification
         makeTool(name: "set_part_property", description: """
@@ -892,6 +905,23 @@ public struct HypeToolDefinitions {
             "asset_name": ("string", "Name of an asset already in the Sprite Repository", false),
             "on_background": ("string", "'true' to place on the background (shared across cards)", false),
         ]),
+        makeTool(name: "generate_image", description: """
+            Generate an image through the configured OpenAI image model and place it as an image part on the current card or current background. \
+            Use this when the user asks to add an image/picture/illustration to the card/background that looks like something.
+            """, params: [
+            "name": ("string", "Image part name", true),
+            "prompt": ("string", "Detailed visual description of the image to generate", true),
+            "left": ("string", "X position in points. Defaults to 100.", false),
+            "top": ("string", "Y position in points. Defaults to 100.", false),
+            "width": ("string", "Displayed width in points. Defaults from image aspect ratio.", false),
+            "height": ("string", "Displayed height in points. Defaults from image aspect ratio.", false),
+            "generation_size": ("string", "OpenAI generation size: 1024x1024, 1536x1024, or 1024x1536. Defaults from requested display aspect.", false),
+            "quality": ("string", "Image quality: low, medium, or high. Defaults to the model default.", false),
+            "background": ("string", "transparent, opaque, or auto. Optional OpenAI image background mode.", false),
+            "transparent_background": ("string", "Set to true only when you want Hype's chroma-key transparentBackground renderer enabled.", false),
+            "on_background": ("string", "'true' to place on the background (shared across cards)", false),
+            "model": ("string", "Optional OpenAI image model override. Normally omit.", false),
+        ]),
 
         // ------------------------------------------------------------------
         // Scene-node setters. set_node_property handles any writable
@@ -989,32 +1019,37 @@ public struct HypeToolDefinitions {
         // ------------------------------------------------------------------
 
         makeTool(name: "set_stack_property", description: """
-            Set a stack-level property: width, height, name, defaultFont. `width` and `height` \
+            Set a stack-level property: width, height, name, defaultFont, theme. `width` and `height` \
             control the canvas size in points. `defaultFont` applies to new parts. \
             `webAssetsAllowed` toggles the stack's AI web-asset search permission. \
+            `aiContextCloudSharingAllowed` controls whether attached AI Context Library snippets \
+            may be sent to cloud model providers for this stack. \
+            `theme` accepts any theme name from `list_themes`; empty value resets to the fallback theme. \
             Use this instead of set_part_property — the stack is not a part.
             """, params: [
-            "property": ("string", "Property name: width, height, name, defaultFont, webAssetsAllowed", true),
+            "property": ("string", "Property name: width, height, name, defaultFont, webAssetsAllowed, aiContextCloudSharingAllowed, theme", true),
             "value": ("string", "New value (numeric for width/height, string for name/defaultFont)", true),
         ]),
 
         makeTool(name: "set_card_property", description: """
             Set one property on a card. Use the current card when card_name is omitted. \
-            Supported properties: name, marked, sortKey, backgroundName. \
+            Supported properties: name, marked, sortKey, backgroundName, theme. \
+            `theme` accepts any theme name from `list_themes`; empty value clears the card override. \
             Prefer set_card_script when changing the card's script.
             """, params: [
-            "card_name": ("string", "Card name (defaults to current card)", false),
-            "property": ("string", "Property name: name, marked, sortKey, backgroundName", true),
+            "card_name": ("string", "Card name (defaults to current card; accepts 'this card' / 'current card')", false),
+            "property": ("string", "Property name: name, marked, sortKey, backgroundName, theme", true),
             "value": ("string", "New value", true),
         ]),
 
         makeTool(name: "set_background_property", description: """
             Set one property on a background. Uses the current card's background when \
-            background_name is omitted. Supported properties: name, sortKey. \
+            background_name is omitted. Supported properties: name, sortKey, theme. \
+            `theme` accepts any theme name from `list_themes`; empty value clears the background override. \
             Prefer set_background_script when changing the background's script.
             """, params: [
-            "background_name": ("string", "Background name (defaults to current background)", false),
-            "property": ("string", "Property name: name, sortKey", true),
+            "background_name": ("string", "Background name (defaults to current background; accepts 'this background' / 'current background')", false),
+            "property": ("string", "Property name: name, sortKey, theme", true),
             "value": ("string", "New value", true),
         ]),
 
@@ -1097,7 +1132,8 @@ public struct HypeToolDefinitions {
         // ------------------------------------------------------------------
 
         makeTool(name: "get_stack_property", description: """
-            Read a stack-level property: name, width, height, defaultFont, script, theme. \
+            Read a stack-level property: name, width, height, defaultFont, script, theme, \
+            webAssetsAllowed, aiContextCount, aiContextSummary, aiContextCloudSharingAllowed. \
             Use this instead of get_stack_info when you only need one field.
             """, params: [
             "property": ("string", "Property name to read", true),
@@ -1108,7 +1144,7 @@ public struct HypeToolDefinitions {
             `effectiveTheme` walks the cascade card→background→stack and returns the resolved name. \
             Use the current card when card_name is omitted.
             """, params: [
-            "card_name": ("string", "Card name (defaults to current card)", false),
+            "card_name": ("string", "Card name (defaults to current card; accepts 'this card' / 'current card')", false),
             "property": ("string", "Property name to read", true),
         ]),
 
@@ -1118,7 +1154,7 @@ public struct HypeToolDefinitions {
             Setting `theme` to empty string clears the override and lets the cascade fall through. \
             Use the current card when card_name is omitted.
             """, params: [
-            "card_name": ("string", "Card name (defaults to current card)", false),
+            "card_name": ("string", "Card name (defaults to current card; accepts 'this card' / 'current card')", false),
             "property": ("string", "Property name to set", true),
             "value": ("string", "New value", true),
         ]),
@@ -1126,7 +1162,7 @@ public struct HypeToolDefinitions {
         makeTool(name: "get_background_property", description: """
             Read a background-level property: name, script, theme, cardCount.
             """, params: [
-            "background_name": ("string", "Background name", true),
+            "background_name": ("string", "Background name (accepts 'this background' / 'current background')", true),
             "property": ("string", "Property name to read", true),
         ]),
 
@@ -1134,7 +1170,7 @@ public struct HypeToolDefinitions {
             Set a background-level property: name, script, theme. \
             `theme` accepts any theme name from `list_themes`; empty value clears the override.
             """, params: [
-            "background_name": ("string", "Background name", true),
+            "background_name": ("string", "Background name (accepts 'this background' / 'current background')", true),
             "property": ("string", "Property name to set", true),
             "value": ("string", "New value", true),
         ]),
@@ -1190,6 +1226,54 @@ public struct HypeToolDefinitions {
             "theme_name": ("string", "User theme to modify", true),
             "property": ("string", "Field name to update", true),
             "value": ("string", "New value", true),
+        ]),
+
+        // AI Context Library. These tools expose only user-curated context
+        // already attached to the stack; they do not grant arbitrary file-system
+        // access.
+        makeTool(name: "list_ai_context", description: """
+            List the files, images, notes, and directories the user attached to this \
+            stack's AI Context Library. Use this before building a complex stack from \
+            supplied rules or assets. Returns opaque item IDs, roles, paths, MIME types, \
+            and short summaries.
+            """, params: [
+            "role": ("string", "Optional role filter: rules, asset, styleGuide, example, projectMemory, reference, unknown", false),
+        ]),
+        makeTool(name: "search_ai_context", description: """
+            Search the stack's AI Context Library. Use this instead of broad file tools \
+            whenever the user says to use attached files, images, folders, rules, examples, \
+            or assets. Returns matching item IDs and snippets.
+            """, params: [
+            "query": ("string", "Search query, e.g. 'player controls', 'game rules', 'enemy sprite'", true),
+            "role": ("string", "Optional role filter: rules, asset, styleGuide, example, projectMemory, reference, unknown", false),
+            "limit": ("string", "Maximum results, 1-20. Default 8.", false),
+        ]),
+        makeTool(name: "read_ai_context_item", description: """
+            Read a single AI Context Library item by item_id. Text items return bounded \
+            content chunks. Image items return metadata and summary only; use \
+            import_context_asset to copy image bytes into the Sprite Repository.
+            """, params: [
+            "item_id": ("string", "Opaque item ID returned by list_ai_context or search_ai_context", true),
+            "max_chars": ("string", "Maximum text characters to return, 1000-20000. Default 12000.", false),
+        ]),
+        makeTool(name: "import_context_asset", description: """
+            Import an image asset from the AI Context Library into the Sprite Repository. \
+            Use this before placing an attached image on a card/background or using it as \
+            a SpriteKit sprite. The asset_name is the repository display name.
+            """, params: [
+            "item_id": ("string", "Opaque item ID for an image context item", true),
+            "asset_name": ("string", "Sprite Repository asset name. Use short ASCII names like 'player' or 'enemy_ship'.", true),
+            "kind": ("string", "Optional asset kind: imageTexture, spriteSheet, tileSet", false),
+        ]),
+        makeTool(name: "write_ai_context_note", description: """
+            Write a durable text note into the current stack's AI Context Library. Use this \
+            to remember project decisions, implementation state, TODOs, object naming \
+            conventions, known bugs, or user preferences across multiple AI build sessions. \
+            Keep notes concise and factual; do not store secrets or API keys.
+            """, params: [
+            "title": ("string", "Short note title, e.g. 'RPG build state' or 'Current TODOs'", true),
+            "text": ("string", "Project-memory note body. Maximum 20,000 characters; keep it concise.", true),
+            "role": ("string", "Optional role: projectMemory (default), rules, styleGuide, example, reference, unknown", false),
         ]),
 
         // Web access
@@ -1267,6 +1351,7 @@ public struct HypeToolDefinitions {
             "create_label",
             "create_shape",
             "create_image",
+            "generate_image",
             "create_webpage",
             "create_video",
             "create_chart",
@@ -1289,6 +1374,8 @@ public struct HypeToolDefinitions {
             "delete_part",
             "get_card_parts",
             "get_background_parts",
+            "list_repository_assets",
+            "generate_sprite_asset",
             "get_part_property",
             "list_all_properties",
             "set_part_property",
@@ -1308,6 +1395,7 @@ public struct HypeToolDefinitions {
             // Chart helpers and script validation
             "get_chart_data_points",
             "set_chart_data_point_color",
+            "write_ai_context_note",
             "check_script",
             // Narrow current-card remediation for prior bad form output
             "repair_form_controls",
@@ -1398,6 +1486,7 @@ public struct HypeToolDefinitions {
             "create_label",
             "create_shape",
             "create_image",
+            "generate_image",
             "create_webpage",
             "create_video",
             "create_chart",
@@ -1454,9 +1543,26 @@ public struct HypeToolDefinitions {
             // Repository + validation (already in the prior allowlist)
             "list_repository_assets",
             "import_repository_asset",
+            "generate_sprite_asset",
+            "write_ai_context_note",
             "check_script",
             // Visual capture — available on all authoring surfaces
             "capture_card_image",
+        ])
+        return allowed.contains($0.function.name)
+    }
+
+    /// Tool surface used by the Sprite Repository chat panel.
+    ///
+    /// This is intentionally repository-only so a sprite-library prompt
+    /// cannot mutate card layout or scripts through the wrong surface.
+    public static let spriteRepositoryAuthoringTools: [OllamaTool] = allTools.filter {
+        let allowed = Set([
+            "list_repository_assets",
+            "import_repository_asset",
+            "generate_sprite_asset",
+            "classify_asset_as_tileset",
+            "write_ai_context_note",
         ])
         return allowed.contains($0.function.name)
     }
@@ -1520,6 +1626,28 @@ public struct HypeToolDefinitions {
     public static func withWebAssetTools(_ base: [OllamaTool], enabled: Bool) -> [OllamaTool] {
         guard enabled else { return base }
         return base + webAssetTools
+    }
+
+    /// Narrow AI Context Library read/import tools. Kept separate so the chat
+    /// layer can withhold existing stack context from cloud models until the
+    /// user explicitly opts this stack into cloud context sharing. The
+    /// write-only project-memory note tool is also listed here for enabled
+    /// context surfaces, but may be present in base authoring surfaces because
+    /// it does not expose existing context contents.
+    public static let aiContextTools: [OllamaTool] = allTools.filter {
+        Set([
+            "list_ai_context",
+            "search_ai_context",
+            "read_ai_context_item",
+            "import_context_asset",
+            "write_ai_context_note",
+        ]).contains($0.function.name)
+    }
+
+    public static func withAIContextTools(_ base: [OllamaTool], enabled: Bool) -> [OllamaTool] {
+        guard enabled else { return base }
+        let existing = Set(base.map { $0.function.name })
+        return base + aiContextTools.filter { !existing.contains($0.function.name) }
     }
 
     // MARK: - Tool builder

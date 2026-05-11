@@ -14,6 +14,8 @@ public struct HypeToolExecutor: Sendable {
     public let webAssetClient: (any WebAssetSearchClient)?
     /// The download + validation pipeline.
     public let webAssetPipeline: WebAssetImportPipeline?
+    /// The generated-image client. Nil means OpenAI image generation is not configured.
+    public let imageGenerationClient: (any HypeImageGenerating)?
 
     // MARK: - Initializers
 
@@ -23,6 +25,7 @@ public struct HypeToolExecutor: Sendable {
         self.webAssetSession = nil
         self.webAssetClient = nil
         self.webAssetPipeline = nil
+        self.imageGenerationClient = nil
     }
 
     /// Full initializer with web-asset dependencies wired in.
@@ -34,11 +37,13 @@ public struct HypeToolExecutor: Sendable {
     public init(
         webAssetSession: WebAssetSession?,
         webAssetClient: (any WebAssetSearchClient)?,
-        webAssetPipeline: WebAssetImportPipeline?
+        webAssetPipeline: WebAssetImportPipeline?,
+        imageGenerationClient: (any HypeImageGenerating)? = nil
     ) {
         self.webAssetSession = webAssetSession
         self.webAssetClient = webAssetClient
         self.webAssetPipeline = webAssetPipeline
+        self.imageGenerationClient = imageGenerationClient
     }
 
     /// Heuristic: does the given asset name contain a substring
@@ -78,6 +83,92 @@ public struct HypeToolExecutor: Sendable {
         case "true", "yes", "1", "on": return true
         case "false", "no", "0", "off": return false
         default: return nil
+        }
+    }
+
+    private func aiContextRole(_ raw: String?) -> AIContextRole? {
+        guard let normalized = raw?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: ""),
+              !normalized.isEmpty else {
+            return nil
+        }
+        switch normalized {
+        case "rules", "rule": return .rules
+        case "asset", "assets", "image", "images", "sprite", "sprites": return .asset
+        case "styleguide", "style", "brand", "theme": return .styleGuide
+        case "example", "examples": return .example
+        case "projectmemory", "memory", "memories", "projectnote", "projectnotes", "note", "notes": return .projectMemory
+        case "reference", "references", "doc", "docs": return .reference
+        case "unknown": return .unknown
+        default: return nil
+        }
+    }
+
+    private func generatedImageDimensions(_ data: Data) -> (width: Int, height: Int) {
+        #if canImport(AppKit)
+        guard let image = NSImage(data: data) else { return (0, 0) }
+        return (max(0, Int(image.size.width.rounded())), max(0, Int(image.size.height.rounded())))
+        #else
+        return (0, 0)
+        #endif
+    }
+
+    private func generatedPartSize(arguments: [String: String], pixelWidth: Int, pixelHeight: Int) -> (width: Double, height: Double) {
+        let requestedWidth = Double(arguments["width"] ?? "")
+        let requestedHeight = Double(arguments["height"] ?? "")
+        if let requestedWidth, let requestedHeight {
+            return (requestedWidth, requestedHeight)
+        }
+
+        let defaultLongEdge = 320.0
+        let aspect = pixelWidth > 0 && pixelHeight > 0
+            ? Double(pixelWidth) / max(Double(pixelHeight), 1)
+            : 1.0
+        if let requestedWidth {
+            return (requestedWidth, max(1, requestedWidth / aspect))
+        }
+        if let requestedHeight {
+            return (max(1, requestedHeight * aspect), requestedHeight)
+        }
+        if aspect >= 1 {
+            return (defaultLongEdge, max(1, defaultLongEdge / aspect))
+        }
+        return (max(1, defaultLongEdge * aspect), defaultLongEdge)
+    }
+
+    private func generationSizeArgument(arguments: [String: String], partWidth: Double, partHeight: Double) -> String {
+        if let explicit = HypeAIConfiguration.normalized(arguments["generation_size"]) {
+            return explicit
+        }
+        let aspect = partWidth / max(partHeight, 1)
+        if aspect > 1.2 {
+            return "1536x1024"
+        }
+        if aspect < 0.83 {
+            return "1024x1536"
+        }
+        return "1024x1024"
+    }
+
+    private func imageAssetKind(from raw: String?, fallbackName: String) -> AssetKind {
+        let normalized = raw?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+        switch normalized {
+        case "spritesheet", "sheet":
+            return .spriteSheet
+        case "tileset", "tilemap", "tiles":
+            return .tileSet
+        case "imagetexture", "image", "texture", "sprite":
+            return .imageTexture
+        default:
+            return Self.filenameLooksLikeTileset(fallbackName) ? .tileSet : .imageTexture
         }
     }
 
@@ -671,8 +762,17 @@ public struct HypeToolExecutor: Sendable {
         in document: HypeDocument
     ) -> Int? {
         let trimmed = cardName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
+        let lower = trimmed.lowercased()
+        if trimmed.isEmpty
+            || lower == "this"
+            || lower == "this card"
+            || lower == "current"
+            || lower == "current card" {
             return document.cards.firstIndex(where: { $0.id == currentCardId })
+        }
+        if let num = Int(trimmed), num >= 1, num <= document.sortedCards.count {
+            let cardId = document.sortedCards[num - 1].id
+            return document.cards.firstIndex(where: { $0.id == cardId })
         }
         return document.cards.firstIndex(where: { $0.name.lowercased() == trimmed.lowercased() })
     }
@@ -683,7 +783,14 @@ public struct HypeToolExecutor: Sendable {
         in document: HypeDocument
     ) -> Int? {
         let trimmed = backgroundName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
+        let lower = trimmed.lowercased()
+        if trimmed.isEmpty
+            || lower == "this"
+            || lower == "this background"
+            || lower == "this bg"
+            || lower == "current"
+            || lower == "current background"
+            || lower == "current bg" {
             guard let card = document.cards.first(where: { $0.id == currentCardId }) else { return nil }
             return document.backgrounds.firstIndex(where: { $0.id == card.backgroundId })
         }
@@ -1878,6 +1985,12 @@ public struct HypeToolExecutor: Sendable {
                 return document.stack.defaultFont
             case "webassetsallowed", "web_assets_allowed":
                 return String(document.stack.webAssetsAllowed)
+            case "aicontextcount", "ai_context_count", "contextcount", "context_count":
+                return String(document.aiContextLibrary.itemCount)
+            case "aicontextsummary", "ai_context_summary", "contextsummary", "context_summary":
+                return document.aiContextLibrary.promptSummary(maxItems: 20)
+            case "aicontextcloudsharingallowed", "ai_context_cloud_sharing_allowed", "contextcloudsharingallowed":
+                return String(document.stack.aiContextCloudSharingAllowed)
             case "cardcount", "card_count":
                 return String(document.cards.count)
             case "backgroundcount", "background_count":
@@ -1887,7 +2000,7 @@ public struct HypeToolExecutor: Sendable {
             case "theme":
                 return document.stack.themeName
             default:
-                return "Unknown stack property '\(property)'. Valid: id, name, width, height, defaultFont, webAssetsAllowed, cardCount, backgroundCount, script, theme"
+                return "Unknown stack property '\(property)'. Valid: id, name, width, height, defaultFont, webAssetsAllowed, aiContextCount, aiContextSummary, aiContextCloudSharingAllowed, cardCount, backgroundCount, script, theme"
             }
 
         case "get_card_property":
@@ -2406,6 +2519,65 @@ public struct HypeToolExecutor: Sendable {
             document.spriteRepository.addAsset(asset)
             return "Imported '\(name)' into Sprite Repository (dimensions unknown without AppKit)"
             #endif
+
+        case "generate_sprite_asset":
+            guard let generator = imageGenerationClient else {
+                return "OpenAI image generation is not configured. Add an OpenAI API key in Preferences, then try again."
+            }
+            let prompt = arguments["prompt"] ?? ""
+            guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return "generate_sprite_asset requires 'prompt'."
+            }
+            let rawName = arguments["asset_name"] ?? ""
+            guard !rawName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return "generate_sprite_asset requires 'asset_name'. Ask the user what to name the sprite asset before calling this tool."
+            }
+            guard let cleanedName = sanitizeAssetName(rawName) else {
+                return "asset_name '\(rawName)' is invalid — use 1-128 characters, letters / digits / _ / - / . / space only"
+            }
+
+            do {
+                let background = HypeAIConfiguration.normalized(arguments["background"]) ?? "transparent"
+                let generated = try await generator.generateImage(
+                    prompt: prompt,
+                    model: HypeAIConfiguration.normalized(arguments["model"]),
+                    size: HypeAIConfiguration.normalized(arguments["generation_size"]) ?? "1024x1024",
+                    quality: HypeAIConfiguration.normalized(arguments["quality"]),
+                    background: background
+                )
+                let dimensions = generatedImageDimensions(generated.data)
+                let kind = imageAssetKind(from: arguments["kind"], fallbackName: cleanedName)
+                let asset = SpriteAsset(
+                    name: cleanedName,
+                    kind: kind,
+                    mimeType: generated.mimeType,
+                    data: generated.data,
+                    width: dimensions.width,
+                    height: dimensions.height,
+                    tags: ["ai-generated"],
+                    provenance: AssetProvenance(
+                        origin: .aiGenerated,
+                        searchQuery: prompt,
+                        license: AssetLicense(
+                            name: "OpenAI generated",
+                            identifier: "openai-generated",
+                            isShareable: false
+                        ),
+                        attribution: AssetAttribution(
+                            creator: "OpenAI",
+                            title: cleanedName,
+                            providerName: "OpenAI",
+                            providerIdentifier: "openai"
+                        )
+                    )
+                )
+                document.spriteRepository.addAsset(asset)
+                let sizeText = dimensions.width > 0 ? " (\(dimensions.width)x\(dimensions.height) px)" : ""
+                let promptNote = generated.revisedPrompt.map { " Revised prompt: \($0)" } ?? ""
+                return "Generated sprite asset '\(cleanedName)'\(sizeText) in the Sprite Repository.\(promptNote)"
+            } catch {
+                return "OpenAI image generation failed: \(error.localizedDescription)"
+            }
 
         case "capture_scene_snapshot":
             let areaName = arguments["sprite_area_name"] ?? ""
@@ -3486,6 +3658,52 @@ public struct HypeToolExecutor: Sendable {
             let layer = place.backgroundId != nil ? " on background" : ""
             return "Created image '\(part.name)'\(layer)\(source)"
 
+        case "generate_image":
+            guard let generator = imageGenerationClient else {
+                return "OpenAI image generation is not configured. Add an OpenAI API key in Preferences, then try again."
+            }
+            let prompt = arguments["prompt"] ?? ""
+            guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return "generate_image requires 'prompt'."
+            }
+            let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            let seedWidth = Double(arguments["width"] ?? "320") ?? 320
+            let seedHeight = Double(arguments["height"] ?? "320") ?? 320
+            let generationSize = generationSizeArgument(arguments: arguments, partWidth: seedWidth, partHeight: seedHeight)
+
+            do {
+                let generated = try await generator.generateImage(
+                    prompt: prompt,
+                    model: HypeAIConfiguration.normalized(arguments["model"]),
+                    size: generationSize,
+                    quality: HypeAIConfiguration.normalized(arguments["quality"]),
+                    background: HypeAIConfiguration.normalized(arguments["background"])
+                )
+                let dimensions = generatedImageDimensions(generated.data)
+                let partSize = generatedPartSize(arguments: arguments, pixelWidth: dimensions.width, pixelHeight: dimensions.height)
+                var part = Part(
+                    partType: .image,
+                    cardId: place.cardId,
+                    backgroundId: place.backgroundId,
+                    name: arguments["name"] ?? "Generated Image",
+                    left: Double(arguments["left"] ?? "100") ?? 100,
+                    top: Double(arguments["top"] ?? "100") ?? 100,
+                    width: partSize.width,
+                    height: partSize.height
+                )
+                part.imageData = generated.data
+                if let transparentBackground = boolArgument(arguments["transparent_background"]) {
+                    part.transparentBackground = transparentBackground
+                }
+                document.addPart(part)
+                let layer = place.backgroundId != nil ? "background" : "current card"
+                let sizeText = dimensions.width > 0 ? " (\(dimensions.width)x\(dimensions.height) px)" : ""
+                let promptNote = generated.revisedPrompt.map { " Revised prompt: \($0)" } ?? ""
+                return "Generated image part '\(part.name)' on the \(layer)\(sizeText).\(promptNote)"
+            } catch {
+                return "OpenAI image generation failed: \(error.localizedDescription)"
+            }
+
         // MARK: - Scene-node setters
 
         case "set_node_property":
@@ -3846,8 +4064,13 @@ public struct HypeToolExecutor: Sendable {
                 document.stack.defaultFont = value
             case "webassetsallowed", "web_assets_allowed":
                 document.stack.webAssetsAllowed = (value.lowercased() == "true")
+            case "aicontextcloudsharingallowed", "ai_context_cloud_sharing_allowed", "contextcloudsharingallowed":
+                document.stack.aiContextCloudSharingAllowed = (value.lowercased() == "true")
+            case "theme", "themename", "theme_name":
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                document.stack.themeName = trimmed.isEmpty ? BuiltInThemes.fallbackName : trimmed
             default:
-                return "Unknown stack property '\(property)'. Valid: width, height, name, defaultFont, webAssetsAllowed"
+                return "Unknown stack property '\(property)'. Valid: width, height, name, defaultFont, webAssetsAllowed, aiContextCloudSharingAllowed, theme"
             }
             return "Set \(property) of stack to \(value)"
 
@@ -4443,6 +4666,141 @@ public struct HypeToolExecutor: Sendable {
                 return "Cannot edit built-in theme '\(trimmedName)'. Use create_theme to clone it first."
             }
             return "Theme '\(trimmedName)' not found"
+
+        // MARK: - AI Context Library
+
+        case "list_ai_context":
+            let role = aiContextRole(arguments["role"])
+            let items = role.map { wanted in document.aiContextLibrary.items.filter { $0.role == wanted } } ?? document.aiContextLibrary.items
+            guard !items.isEmpty else {
+                return document.aiContextLibrary.items.isEmpty
+                    ? "AI Context Library is empty. Ask the user to add files, images, folders, or notes first."
+                    : "No AI context items match role '\(arguments["role"] ?? "")'."
+            }
+            var lines: [String] = []
+            lines.append("AI Context Library: \(document.aiContextLibrary.sourceCount) source(s), \(document.aiContextLibrary.itemCount) item(s)")
+            for item in items.prefix(80) {
+                let dims = item.width.map { " \($0)x\(item.height ?? 0)" } ?? ""
+                let summary = item.textSummary.isEmpty ? "" : " — \(item.textSummary.prefix(180))"
+                lines.append("\(item.id.uuidString) [\(item.role.rawValue)] \(item.mimeType)\(dims) \"\(item.relativePath)\" (\(item.byteCount) bytes)\(summary)")
+            }
+            if items.count > 80 {
+                lines.append("... \(items.count - 80) more item(s); use search_ai_context to narrow.")
+            }
+            return lines.joined(separator: "\n")
+
+        case "search_ai_context":
+            let query = arguments["query"] ?? ""
+            guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return "search_ai_context requires 'query'."
+            }
+            let role = aiContextRole(arguments["role"])
+            let limit = min(max(Int(arguments["limit"] ?? "") ?? 8, 1), 20)
+            let results = document.aiContextLibrary.search(query: query, role: role, limit: limit)
+            guard !results.isEmpty else {
+                return "No AI context matches '\(query)'."
+            }
+            return results.map { result in
+                let item = result.item
+                return "\(item.id.uuidString) [\(item.role.rawValue)] \(item.mimeType) \"\(item.relativePath)\" score=\(result.score)\n  \(result.snippet)"
+            }.joined(separator: "\n")
+
+        case "read_ai_context_item":
+            guard let itemId = UUID(uuidString: arguments["item_id"] ?? ""),
+                  let item = document.aiContextLibrary.item(id: itemId) else {
+                return "AI context item not found."
+            }
+            let maxChars = min(max(Int(arguments["max_chars"] ?? "") ?? 12_000, 1_000), 20_000)
+            if item.isText {
+                var content = item.textChunks.map(\.text).joined()
+                if content.count > maxChars {
+                    content = String(content.prefix(maxChars)) + "\n...(truncated)"
+                }
+                return """
+                AI context item \(item.id.uuidString)
+                Path: \(item.relativePath)
+                Role: \(item.role.rawValue)
+                MIME: \(item.mimeType)
+                Summary: \(item.textSummary)
+
+                \(content)
+                """
+            }
+            let dimensions = item.width.map { "\($0)x\(item.height ?? 0)" } ?? "unknown"
+            return """
+            AI context item \(item.id.uuidString)
+            Path: \(item.relativePath)
+            Role: \(item.role.rawValue)
+            MIME: \(item.mimeType)
+            Dimensions: \(dimensions)
+            Bytes: \(item.byteCount)
+            Summary: \(item.textSummary)
+            Use import_context_asset to copy this image into the Sprite Repository before placing it on a card or in a SpriteKit scene.
+            """
+
+        case "import_context_asset":
+            guard let itemId = UUID(uuidString: arguments["item_id"] ?? ""),
+                  let item = document.aiContextLibrary.item(id: itemId) else {
+                return "AI context item not found."
+            }
+            guard item.isImage, let data = item.data else {
+                return "import_context_asset requires an image context item."
+            }
+            let rawName = arguments["asset_name"] ?? item.name
+            guard let cleanedName = sanitizeAssetName(rawName) else {
+                return "asset_name '\(rawName)' is invalid — use 1-128 characters, letters / digits / _ / - / . / space only"
+            }
+            let asset = SpriteAsset(
+                name: cleanedName,
+                kind: imageAssetKind(from: arguments["kind"], fallbackName: cleanedName),
+                mimeType: item.mimeType,
+                data: data,
+                width: item.width ?? 0,
+                height: item.height ?? 0,
+                tags: ["ai-context"],
+                provenance: AssetProvenance(
+                    origin: .aiContext,
+                    searchQuery: item.relativePath,
+                    license: AssetLicense(name: "User supplied", identifier: "user-supplied", isShareable: false),
+                    attribution: AssetAttribution(
+                        creator: "User",
+                        title: item.name,
+                        sourceURL: item.relativePath,
+                        providerName: "AI Context Library",
+                        providerIdentifier: "ai-context"
+                    )
+                )
+            )
+            document.spriteRepository.addAsset(asset)
+            let dims = asset.width > 0 ? " (\(asset.width)x\(asset.height) px)" : ""
+            return "Imported AI context asset '\(item.relativePath)' as Sprite Repository asset '\(cleanedName)'\(dims)."
+
+        case "write_ai_context_note":
+            let rawTitle = arguments["title"] ?? "Project Memory"
+            let title = String(rawTitle.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))
+            let rawText = arguments["text"] ?? ""
+            let text = String(rawText.trimmingCharacters(in: .whitespacesAndNewlines).prefix(20_000))
+            guard !text.isEmpty else {
+                return "write_ai_context_note requires non-empty text."
+            }
+            let rawRole = arguments["role"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let role: AIContextRole
+            if let rawRole, !rawRole.isEmpty {
+                guard let parsedRole = aiContextRole(rawRole) else {
+                    return "Unknown AI context role '\(rawRole)'. Use projectMemory, rules, asset, styleGuide, example, reference, or unknown."
+                }
+                role = parsedRole
+            } else {
+                role = .projectMemory
+            }
+            let note = AIContextIngestor.makeTextNote(
+                title: title.isEmpty ? "Project Memory" : title,
+                text: text,
+                role: role
+            )
+            document.aiContextLibrary.addSource(note.0, items: note.1)
+            let itemId = note.1.first?.id.uuidString ?? ""
+            return "Wrote AI context note '\(note.0.name)' as \(role.rawValue) memory item \(itemId)."
 
         // MARK: - Visual capture
         case "capture_card_image":

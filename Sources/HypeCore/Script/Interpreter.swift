@@ -63,17 +63,23 @@ public struct ExecutionContext: Sendable {
     public var dialogProvider: DialogProvider
     public var drawingProvider: DrawingProvider
     public var aiProvider: any AIScriptingProvider
+    public var speechOutputProvider: SpeechOutputProvider
     public var runtimeProvider: (any ScriptRuntimeProviding)?
     public var mouseX: Double
     public var mouseY: Double
     public var scriptContext: ScriptDispatchContext?
+    public var appScript: String
+    public var nestedSendDepth: Int
 
     public init(targetId: UUID, currentCardId: UUID, document: HypeDocument, instructionLimit: Int = 1_000_000,
                 dialogProvider: DialogProvider = StubDialogProvider(),
                 drawingProvider: DrawingProvider = StubDrawingProvider(),
                 aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
+                speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
                 runtimeProvider: (any ScriptRuntimeProviding)? = nil,
-                mouseX: Double = 0, mouseY: Double = 0) {
+                mouseX: Double = 0, mouseY: Double = 0,
+                appScript: String = "",
+                nestedSendDepth: Int = 0) {
         self.targetId = targetId
         self.currentCardId = currentCardId
         self.document = document
@@ -81,19 +87,25 @@ public struct ExecutionContext: Sendable {
         self.dialogProvider = dialogProvider
         self.drawingProvider = drawingProvider
         self.aiProvider = aiProvider
+        self.speechOutputProvider = speechOutputProvider
         self.runtimeProvider = runtimeProvider
         self.mouseX = mouseX
         self.mouseY = mouseY
         self.scriptContext = nil
+        self.appScript = appScript
+        self.nestedSendDepth = nestedSendDepth
     }
 
     public init(targetId: UUID, currentCardId: UUID, document: HypeDocument, instructionLimit: Int = 1_000_000,
                 dialogProvider: DialogProvider = StubDialogProvider(),
                 drawingProvider: DrawingProvider = StubDrawingProvider(),
                 aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
+                speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
                 runtimeProvider: (any ScriptRuntimeProviding)? = nil,
                 mouseX: Double = 0, mouseY: Double = 0,
-                scriptContext: ScriptDispatchContext? = nil) {
+                scriptContext: ScriptDispatchContext? = nil,
+                appScript: String = "",
+                nestedSendDepth: Int = 0) {
         self.targetId = targetId
         self.currentCardId = currentCardId
         self.document = document
@@ -101,10 +113,13 @@ public struct ExecutionContext: Sendable {
         self.dialogProvider = dialogProvider
         self.drawingProvider = drawingProvider
         self.aiProvider = aiProvider
+        self.speechOutputProvider = speechOutputProvider
         self.runtimeProvider = runtimeProvider
         self.mouseX = mouseX
         self.mouseY = mouseY
         self.scriptContext = scriptContext
+        self.appScript = appScript
+        self.nestedSendDepth = nestedSendDepth
     }
 }
 
@@ -180,6 +195,7 @@ public struct ScriptError: Error, Sendable {
 private struct Environment {
     var locals: [String: Value] = [:]
     var globals: [String: Value]
+    var handlerParams: [Value] = []
     var it: Value = ""
     var globalNames: Set<String> = []
 
@@ -198,6 +214,15 @@ private struct Environment {
         } else {
             locals[key] = value
         }
+    }
+
+    func handlerParam(at oneBasedIndex: Int) -> Value {
+        guard oneBasedIndex > 0, oneBasedIndex <= handlerParams.count else { return "" }
+        return handlerParams[oneBasedIndex - 1]
+    }
+
+    var joinedHandlerParams: Value {
+        handlerParams.joined(separator: "\r")
     }
 }
 
@@ -242,7 +267,7 @@ public struct Interpreter: Sendable {
         // reset to empty on every dispatch and never accumulate.
         // HypeTalk globals live for the stack session (until the
         // stack closes), matching classic HyperCard semantics.
-        var env = Environment(globals: document.scriptGlobals)
+        var env = Environment(globals: document.scriptGlobals, handlerParams: params)
         var instructionCount = 0
         var navigationTarget: UUID? = nil
         var visualEffect: String? = nil
@@ -516,15 +541,11 @@ public struct Interpreter: Sendable {
                     //   `set the marked of card "X" to true`
                     //   `set the name of card "X" to "intro"`
                     let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
-                    let cardIndex: Int?
-                    if let ci = document.cards.firstIndex(where: { $0.name.lowercased() == ident.lowercased() }) {
-                        cardIndex = ci
-                    } else if let num = Int(ident), num >= 1, num <= document.sortedCards.count {
-                        let cardId = document.sortedCards[num - 1].id
-                        cardIndex = document.cards.firstIndex(where: { $0.id == cardId })
-                    } else {
-                        cardIndex = nil
-                    }
+                    let cardIndex = cardIndex(
+                        forIdentifier: ident,
+                        document: document,
+                        currentCardId: context.currentCardId
+                    )
                     if let ci = cardIndex {
                         switch property.lowercased() {
                         case "background":
@@ -553,9 +574,11 @@ public struct Interpreter: Sendable {
                     //   `set the name of background "menu" to "main_menu"`
                     //   `set the script of background "menu" to "..."`
                     let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
-                    let bgIndex = document.backgrounds.firstIndex {
-                        $0.name.lowercased() == ident.lowercased()
-                    }
+                    let bgIndex = backgroundIndex(
+                        forIdentifier: ident,
+                        document: document,
+                        currentCardId: context.currentCardId
+                    )
                     if let bi = bgIndex {
                         switch property.lowercased() {
                         case "theme", "themename", "theme_name":
@@ -576,6 +599,8 @@ public struct Interpreter: Sendable {
                         document.stack.name = value
                     case "defaultfont", "default_font", "textfont", "font":
                         document.stack.defaultFont = value
+                    case "aicontextcloudsharingallowed", "ai_context_cloud_sharing_allowed", "contextcloudsharingallowed":
+                        document.stack.aiContextCloudSharingAllowed = value.lowercased() == "true"
                     case "theme", "themename", "theme_name":
                         // Empty / `the empty` resets to the built-in
                         // fallback so the cascade always terminates.
@@ -772,7 +797,7 @@ public struct Interpreter: Sendable {
                 )
                 env.it = requestID.uuidString
             } else {
-                env.it = try await context.aiProvider.generate(prompt: promptText, model: modelName)
+                env.it = try await generateAIResponse(prompt: promptText, model: modelName, context: context)
             }
 
         case .answer(let prompt):
@@ -923,10 +948,64 @@ public struct Interpreter: Sendable {
         case .openStack:
             break // Complex — stub
 
-        case .send(let message, let target):
-            let targetValue = try await evaluate(target, env: &env, document: document, context: context)
-            if let targetID = UUID(uuidString: targetValue), let runtime = context.runtimeProvider {
-                try await runtime.send(message, toConnection: targetID)
+        case .send(let messageExpr, let targetExpr):
+            guard context.nestedSendDepth < 32 else {
+                throw ScriptError(message: "Nested send depth exceeded", line: handler.line, handler: handler.name)
+            }
+            let message = try await evaluate(messageExpr, env: &env, document: document, context: context)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !message.isEmpty else {
+                throw ScriptError(message: "Cannot send an empty message", line: handler.line, handler: handler.name)
+            }
+            guard let targetID = try await resolveSendTarget(
+                targetExpr,
+                env: &env,
+                document: document,
+                context: context
+            ) else {
+                throw ScriptError(message: "Cannot resolve send target", line: handler.line, handler: handler.name)
+            }
+
+            document.scriptGlobals = env.globals
+            let result = await MessageDispatcher().dispatchAsync(
+                message: message,
+                params: [],
+                targetId: targetID,
+                document: document,
+                currentCardId: context.currentCardId,
+                dialogProvider: context.dialogProvider,
+                drawingProvider: context.drawingProvider,
+                aiProvider: context.aiProvider,
+                speechOutputProvider: context.speechOutputProvider,
+                appScript: context.appScript,
+                mouseX: context.mouseX,
+                mouseY: context.mouseY,
+                scriptContext: context.scriptContext,
+                runtimeProvider: context.runtimeProvider,
+                nestedSendDepth: context.nestedSendDepth + 1
+            )
+            if let modifiedDocument = result.modifiedDocument {
+                document = modifiedDocument
+                env.globals = modifiedDocument.scriptGlobals
+            }
+            if let resultNavigationTarget = result.navigationTarget {
+                navigationTarget = resultNavigationTarget
+            }
+            if let visualEffect = result.visualEffect {
+                env.locals["_visualEffect"] = visualEffect
+            }
+            if let visualEffectDuration = result.visualEffectDuration {
+                env.locals["_visualEffectDuration"] = String(visualEffectDuration)
+            }
+            if result.showAllCards {
+                throw ControlSignal.showAllCards
+            }
+            if result.status == .error {
+                throw result.error ?? ScriptError(
+                    message: "Send failed",
+                    line: handler.line,
+                    handler: handler.name
+                )
             }
 
         case .playSound(let soundExpr, let notesExpr, let tempoExpr):
@@ -1855,6 +1934,7 @@ public struct Interpreter: Sendable {
             // `env.globalNames` / `env.locals` lookups).
             case "mouseloc", "mouseh", "mousev",
                  "date", "time", "ticks", "seconds",
+                 "paramcount", "params",
                  "hoveredsprite", "spriteundermouse", "hoveredspritename":
                 if !env.locals.keys.contains(name.lowercased())
                     && !env.globalNames.contains(name.lowercased()) {
@@ -1946,7 +2026,7 @@ public struct Interpreter: Sendable {
             for arg in args {
                 evaluatedArgs.append(try await evaluate(arg, env: &env, document: document, context: context))
             }
-            return try await evaluateBuiltIn(name, args: evaluatedArgs, context: context)
+            return try await evaluateBuiltIn(name, args: evaluatedArgs, env: &env, context: context)
 
         case .propertyAccess(let property, let target):
             return try await evaluateProperty(property, target: target, env: &env, document: document, context: context)
@@ -2099,11 +2179,22 @@ public struct Interpreter: Sendable {
         }
     }
 
+    private func generateAIResponse(
+        prompt: String,
+        model: String?,
+        context: ExecutionContext
+    ) async throws -> Value {
+        let response = try await context.aiProvider.generate(prompt: prompt, model: model)
+        await context.speechOutputProvider.speakAIResponse(response, source: "HypeTalk AI")
+        return response
+    }
+
     // MARK: - Built-in functions
 
     private func evaluateBuiltIn(
         _ name: String,
         args: [Value],
+        env: inout Environment,
         context: ExecutionContext
     ) async throws -> Value {
         switch name.lowercased() {
@@ -2170,9 +2261,9 @@ public struct Interpreter: Sendable {
         case "ollama":
             switch args.count {
             case 1:
-                return try await context.aiProvider.generate(prompt: args[0], model: nil)
+                return try await generateAIResponse(prompt: args[0], model: nil, context: context)
             case 2:
-                return try await context.aiProvider.generate(prompt: args[1], model: args[0])
+                return try await generateAIResponse(prompt: args[1], model: args[0], context: context)
             default:
                 return ""
             }
@@ -2211,9 +2302,13 @@ public struct Interpreter: Sendable {
         // Other (stubs — full implementation requires runtime context)
         case "target": return ""
         case "result": return ""
-        case "param": return args.first ?? ""
-        case "paramcount": return "0"
-        case "params": return ""
+        case "param":
+            let index = Int(toNumber(args.first ?? "1"))
+            return env.handlerParam(at: index)
+        case "paramcount":
+            return String(env.handlerParams.count)
+        case "params":
+            return env.joinedHandlerParams
 
         // Sum and average
         case "sum":
@@ -2327,6 +2422,10 @@ public struct Interpreter: Sendable {
                 return String(Int(Date().timeIntervalSince1970 * 60))
             case "seconds":
                 return String(Int(Date().timeIntervalSince1970))
+            case "paramcount":
+                return String(env.handlerParams.count)
+            case "params":
+                return env.joinedHandlerParams
             case "mouseloc", "the mouseloc":
                 return "\(formatNumber(context.mouseX)),\(formatNumber(context.mouseY))"
             case "hoveredsprite", "spriteundermouse", "hoveredspritename":
@@ -2454,6 +2553,10 @@ public struct Interpreter: Sendable {
         if lower == "numberofpoints" || lower == "number_of_points" {
             return try await numberOfPointsProperty(targetExpr, env: &env, document: document, context: context)
         }
+        if let chunkType = chunkCountProperty(lower) {
+            let value = try await evaluate(targetExpr, env: &env, document: document, context: context)
+            return String(countChunks(chunkType, in: value))
+        }
 
         // Chart data-point reference property get — delegated to a
         // leaf helper for the same stack-frame reason. evaluateProperty
@@ -2476,10 +2579,13 @@ public struct Interpreter: Sendable {
         let targetVal = try await evaluate(targetExpr, env: &env, document: document, context: context)
 
         // Stack-level properties: `the defaultFont of stack`, `the name of stack`, etc.
-        if targetVal.lowercased() == "stack" || (targetExpr is Expression && {
-            if case .objectRef(let ref) = targetExpr, ref.objectType == "stack" { return true }
-            return false
-        }()) {
+        let isStackObjectReference: Bool
+        if case .objectRef(let ref) = targetExpr, ref.objectType == "stack" {
+            isStackObjectReference = true
+        } else {
+            isStackObjectReference = false
+        }
+        if targetVal.lowercased() == "stack" || isStackObjectReference {
             switch lower {
             case "name":        return document.stack.name
             case "defaultfont", "default_font", "textfont", "font":
@@ -2487,6 +2593,12 @@ public struct Interpreter: Sendable {
             case "width":       return String(document.stack.width)
             case "height":      return String(document.stack.height)
             case "script":      return document.stack.script
+            case "aicontextcount", "ai_context_count", "contextcount", "context_count":
+                return String(document.aiContextLibrary.itemCount)
+            case "aicontextsummary", "ai_context_summary", "contextsummary", "context_summary":
+                return document.aiContextLibrary.promptSummary(maxItems: 20)
+            case "aicontextcloudsharingallowed", "ai_context_cloud_sharing_allowed", "contextcloudsharingallowed":
+                return String(document.stack.aiContextCloudSharingAllowed)
             // Theme is non-optional on the stack — always returns a name.
             case "theme", "themename", "theme_name":
                 return document.stack.themeName
@@ -2568,14 +2680,11 @@ public struct Interpreter: Sendable {
         // returns the resolved theme's name.
         if case .objectRef(let ref) = targetExpr, ref.objectType == "card" {
             let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
-            let card: Card?
-            if let c = document.cards.first(where: { $0.name.lowercased() == ident.lowercased() }) {
-                card = c
-            } else if let num = Int(ident), num >= 1, num <= document.sortedCards.count {
-                card = document.sortedCards[num - 1]
-            } else {
-                card = nil
-            }
+            let card = cardIndex(
+                forIdentifier: ident,
+                document: document,
+                currentCardId: context.currentCardId
+            ).map { document.cards[$0] }
             switch lower {
             case "background":
                 if let card = card,
@@ -2604,7 +2713,11 @@ public struct Interpreter: Sendable {
         // `the theme of background "menu"`, `the script of background X`, etc.
         if case .objectRef(let ref) = targetExpr, ref.objectType == "background" {
             let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
-            let bg = document.backgrounds.first { $0.name.lowercased() == ident.lowercased() }
+            let bg = backgroundIndex(
+                forIdentifier: ident,
+                document: document,
+                currentCardId: context.currentCardId
+            ).map { document.backgrounds[$0] }
             switch lower {
             case "theme", "themename", "theme_name":
                 return bg?.themeName ?? ""
@@ -2989,7 +3102,7 @@ public struct Interpreter: Sendable {
             parts = source.split(separator: ",", omittingEmptySubsequences: false)
                 .map { $0.trimmingCharacters(in: .whitespaces) }
         case .line:
-            parts = source.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            parts = splitLines(source)
         }
 
         /// Helper that evaluates a chunk-index expression to an
@@ -3052,17 +3165,108 @@ public struct Interpreter: Sendable {
         }
     }
 
+    private func chunkCountProperty(_ property: String) -> ChunkType? {
+        switch property {
+        case "numberofwords", "number_of_words":
+            return .word
+        case "numberofchars", "numberofcharacters", "number_of_chars", "number_of_characters":
+            return .char
+        case "numberofitems", "number_of_items":
+            return .item
+        case "numberoflines", "number_of_lines":
+            return .line
+        default:
+            return nil
+        }
+    }
+
+    private func countChunks(_ chunkType: ChunkType, in source: Value) -> Int {
+        switch chunkType {
+        case .word:
+            return source.split(separator: " ", omittingEmptySubsequences: true).count
+        case .char, .character:
+            return source.count
+        case .item:
+            return source.split(separator: ",", omittingEmptySubsequences: false).count
+        case .line:
+            return splitLines(source).count
+        }
+    }
+
+    private func splitLines(_ source: Value) -> [String] {
+        guard !source.isEmpty else { return [] }
+        return source
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+    }
+
     // MARK: - Object reference resolution
+
+    private func isCurrentCardIdentifier(_ identifier: Value) -> Bool {
+        let lower = identifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return lower == "this" || lower == "this card" || lower == "current" || lower == "current card"
+    }
+
+    private func isCurrentBackgroundIdentifier(_ identifier: Value) -> Bool {
+        let lower = identifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return lower == "this" || lower == "this background" || lower == "this bg"
+            || lower == "current" || lower == "current background" || lower == "current bg"
+    }
+
+    private func cardIndex(
+        forIdentifier identifier: Value,
+        document: HypeDocument,
+        currentCardId: UUID
+    ) -> Int? {
+        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isCurrentCardIdentifier(trimmed) {
+            return document.cards.firstIndex(where: { $0.id == currentCardId })
+        }
+        if let ci = document.cards.firstIndex(where: { $0.name.lowercased() == trimmed.lowercased() }) {
+            return ci
+        }
+        if let num = Int(trimmed), num >= 1, num <= document.sortedCards.count {
+            let cardId = document.sortedCards[num - 1].id
+            return document.cards.firstIndex(where: { $0.id == cardId })
+        }
+        return nil
+    }
+
+    private func backgroundIndex(
+        forIdentifier identifier: Value,
+        document: HypeDocument,
+        currentCardId: UUID
+    ) -> Int? {
+        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isCurrentBackgroundIdentifier(trimmed) {
+            guard let card = document.cards.first(where: { $0.id == currentCardId }) else { return nil }
+            return document.backgrounds.firstIndex(where: { $0.id == card.backgroundId })
+        }
+        return document.backgrounds.firstIndex {
+            $0.name.lowercased() == trimmed.lowercased()
+        }
+    }
 
     private func resolveObjectRef(_ objectType: String, identifier: Value, document: HypeDocument, context: ExecutionContext) -> Value {
         switch objectType {
         case "card":
+            if isCurrentCardIdentifier(identifier) {
+                return context.currentCardId.uuidString
+            }
             if let card = document.cards.first(where: { $0.name.lowercased() == identifier.lowercased() }) {
                 return card.id.uuidString
             }
             if let idx = Int(identifier), idx >= 1, idx <= document.sortedCards.count {
                 return document.sortedCards[idx - 1].id.uuidString
             }
+        case "background", "bg":
+            if let idx = backgroundIndex(forIdentifier: identifier, document: document, currentCardId: context.currentCardId) {
+                return document.backgrounds[idx].id.uuidString
+            }
+        case "stack":
+            return document.stack.id.uuidString
         case "field", "fld":
             if let part = document.parts.first(where: { $0.partType == .field && $0.name.lowercased() == identifier.lowercased() }) {
                 return part.id.uuidString
@@ -3136,6 +3340,43 @@ public struct Interpreter: Sendable {
             break
         }
         return ""
+    }
+
+    private func resolveSendTarget(
+        _ target: Expression,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async throws -> UUID? {
+        switch target {
+        case .me:
+            return context.targetId
+        case .objectRef(let ref):
+            let identifier = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+            let resolved = resolveObjectRef(
+                ref.objectType,
+                identifier: identifier,
+                document: document,
+                context: context
+            )
+            return UUID(uuidString: resolved)
+        default:
+            let value = try await evaluate(target, env: &env, document: document, context: context)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let id = UUID(uuidString: value) {
+                return id
+            }
+            switch value.lowercased() {
+            case "stack", "this stack", "current stack":
+                return document.stack.id
+            case "card", "this card", "current card":
+                return context.currentCardId
+            case "background", "bg", "this background", "this bg", "current background", "current bg":
+                return document.cards.first(where: { $0.id == context.currentCardId })?.backgroundId
+            default:
+                return nil
+            }
+        }
     }
 
     // MARK: - Navigation resolution

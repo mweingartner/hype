@@ -6,8 +6,14 @@ public struct HypeDocument: Codable, Sendable {
     public var backgrounds: [Background]
     public var cards: [Card]
     public var parts: [Part]
+    public var paintLayers: [CardPaintLayer]
     public var constraints: [LayoutConstraint]
     public var spriteRepository: SpriteRepository
+    /// Stack-scoped, user-curated files/images/directories/notes that the AI can
+    /// search through narrow context tools. Stored in the document so whole-stack
+    /// build context travels with the stack instead of relying on arbitrary file
+    /// system access.
+    public var aiContextLibrary: AIContextLibrary
     public var aiPromptHistory: [String]
     public var defaultBackgroundId: UUID?
 
@@ -45,8 +51,10 @@ public struct HypeDocument: Codable, Sendable {
         backgrounds: [Background] = [],
         cards: [Card] = [],
         parts: [Part] = [],
+        paintLayers: [CardPaintLayer] = [],
         constraints: [LayoutConstraint] = [],
         spriteRepository: SpriteRepository = SpriteRepository(),
+        aiContextLibrary: AIContextLibrary = AIContextLibrary(),
         aiPromptHistory: [String] = [],
         scriptGlobals: [String: String] = [:],
         defaultBackgroundId: UUID? = nil,
@@ -56,8 +64,10 @@ public struct HypeDocument: Codable, Sendable {
         self.backgrounds = backgrounds
         self.cards = cards
         self.parts = parts
+        self.paintLayers = paintLayers
         self.constraints = constraints
         self.spriteRepository = spriteRepository
+        self.aiContextLibrary = aiContextLibrary
         self.aiPromptHistory = aiPromptHistory
         self.scriptGlobals = scriptGlobals
         self.defaultBackgroundId = defaultBackgroundId
@@ -66,7 +76,7 @@ public struct HypeDocument: Codable, Sendable {
 
     // Custom decoder for backward compatibility.
     enum CodingKeys: String, CodingKey {
-        case stack, backgrounds, cards, parts, constraints, spriteRepository, aiPromptHistory, defaultBackgroundId
+        case stack, backgrounds, cards, parts, paintLayers, constraints, spriteRepository, aiContextLibrary, aiPromptHistory, defaultBackgroundId
         case themes
         // `scriptGlobals` is NOT in the coding keys — session-only.
     }
@@ -87,8 +97,10 @@ public struct HypeDocument: Codable, Sendable {
             return true
         }
         parts = filteredParts
+        paintLayers = try container.decodeIfPresent([CardPaintLayer].self, forKey: .paintLayers) ?? []
         constraints = try container.decodeIfPresent([LayoutConstraint].self, forKey: .constraints) ?? []
         spriteRepository = try container.decodeIfPresent(SpriteRepository.self, forKey: .spriteRepository) ?? SpriteRepository()
+        aiContextLibrary = try container.decodeIfPresent(AIContextLibrary.self, forKey: .aiContextLibrary) ?? AIContextLibrary()
         aiPromptHistory = try container.decodeIfPresent([String].self, forKey: .aiPromptHistory) ?? []
         defaultBackgroundId = try container.decodeIfPresent(UUID.self, forKey: .defaultBackgroundId)
         // Backward-compatible: pre-theme documents have no themes array.
@@ -147,6 +159,29 @@ public struct HypeDocument: Codable, Sendable {
         let cardParts = partsForCard(cardId)
         guard let card = cards.first(where: { $0.id == cardId }) else { return cardParts }
         return cardParts + partsForBackground(card.backgroundId)
+    }
+
+    /// Get the persisted paint layer snapshot for a card, if any.
+    public func paintLayer(forCardId cardId: UUID) -> CardPaintLayer? {
+        paintLayers.first { $0.cardId == cardId }
+    }
+
+    /// Store or replace a card paint layer snapshot.
+    public mutating func setPaintLayer(_ layer: CardPaintLayer) {
+        if layer.isEmpty {
+            removePaintLayer(forCardId: layer.cardId)
+            return
+        }
+        if let index = paintLayers.firstIndex(where: { $0.cardId == layer.cardId }) {
+            paintLayers[index] = layer
+        } else {
+            paintLayers.append(layer)
+        }
+    }
+
+    /// Remove a persisted paint layer from the document.
+    public mutating func removePaintLayer(forCardId cardId: UUID) {
+        paintLayers.removeAll { $0.cardId == cardId }
     }
 
     /// Get the background for a card.

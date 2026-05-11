@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 @testable import HypeCore
 
 @Suite("WebPageController Tests")
@@ -58,7 +59,19 @@ struct WebPageControllerTests {
 struct VisualEffectTests {
     @Test func parseEffectName() {
         #expect(VisualEffect.fromName("dissolve") == .dissolve)
+        #expect(VisualEffect.fromName("fade") == .fade)
+        #expect(VisualEffect.fromName("cross fade") == .crossFade)
         #expect(VisualEffect.fromName("wipe left") == .wipeLeft)
+        #expect(VisualEffect.fromName("wipe-right") == .wipeRight)
+        #expect(VisualEffect.fromName("iris open") == .irisOpen)
+        #expect(VisualEffect.fromName("iris_close") == .irisClose)
+        #expect(VisualEffect.fromName("scroll up") == .scrollUp)
+        #expect(VisualEffect.fromName("push down") == .pushDown)
+        #expect(VisualEffect.fromName("move in right") == .moveInRight)
+        #expect(VisualEffect.fromName("reveal left") == .revealLeft)
+        #expect(VisualEffect.fromName("flip horizontal") == .flipHorizontal)
+        #expect(VisualEffect.fromName("flipVertical") == .flipVertical)
+        #expect(VisualEffect.fromName("cut") == .none)
         #expect(VisualEffect.fromName("unknown") == .none)
     }
 }
@@ -93,5 +106,34 @@ struct PaintLayerTests {
         let layer = PaintLayer(width: 200, height: 200)
         layer.drawThickLine(x0: 10, y0: 10, x1: 190, y1: 190, radius: 3, color: .blue)
         #expect(!layer.isEmpty)
+    }
+
+    @Test func snapshotRoundTripsPaintData() {
+        let cardId = UUID()
+        let layer = PaintLayer(width: 20, height: 15)
+        layer.plot(x: 5, y: 6, color: .black)
+
+        let snapshot = layer.snapshot(cardId: cardId)
+        let restored = PaintLayer(snapshot: snapshot)
+
+        #expect(snapshot.cardId == cardId)
+        #expect(snapshot.width == 20)
+        #expect(snapshot.height == 15)
+        #expect(!snapshot.isEmpty)
+        #expect(restored.rawRGBAData == layer.rawRGBAData)
+    }
+
+    @Test func documentPersistsPaintLayerSnapshots() throws {
+        var document = HypeDocument.newDocument(name: "Painted")
+        let cardId = document.cards[0].id
+        let layer = PaintLayer(width: 10, height: 10)
+        layer.plot(x: 1, y: 1, color: .red)
+        document.setPaintLayer(layer.snapshot(cardId: cardId))
+
+        let data = try JSONEncoder().encode(document)
+        let decoded = try JSONDecoder().decode(HypeDocument.self, from: data)
+
+        #expect(decoded.paintLayer(forCardId: cardId) != nil)
+        #expect(decoded.paintLayers.count == 1)
     }
 }

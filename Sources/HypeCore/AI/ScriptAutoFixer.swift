@@ -20,14 +20,6 @@ import Foundation
 ///
 /// What this DOES NOT fix
 /// ----------------------
-/// - **`else if x then ...` chains** — these are a parse error
-///   (HypeTalk has no `else if`); the *correct* rewrite is a
-///   nested `if` inside the `else` branch. That's not safe to
-///   do mechanically without changing the script's semantics
-///   when an `end if` is missing or misplaced. The host gate
-///   refuses these and the model retries with the canonical
-///   nested form documented in the HypeTalkGuide.
-///
 /// - **JS-flavored signals** (`function(`, `addEventListener`,
 ///   `let`, `var`, `=>`, etc.) — these indicate the model is
 ///   writing the wrong language entirely. The host gate refuses
@@ -164,13 +156,10 @@ public enum ScriptAutoFixer {
     // MARK: - 2. `elseif` → `else if`
 
     /// Convert single-token `elseif` (Visual Basic / older BASIC
-    /// dialects) into the two-token form HypeTalk's lexer
-    /// recognizes. NOT to be confused with the (forbidden) `else if`
-    /// chain — splitting `elseif` produces `else if`, which is then
-    /// caught by the parser's existing "no `else if`" error if the
-    /// surrounding shape is wrong. So this fix is strictly an
-    /// alphabet-level repair; it does NOT introduce a syntactic
-    /// pattern the parser couldn't already see.
+    /// dialects) into the two-token `else if` ladder form HypeTalk's
+    /// lexer and parser recognize. This is intentionally an
+    /// alphabet-level repair; malformed surrounding block structure
+    /// is still left for the parser to reject.
     static func splitJoinedElseIf(_ script: String) -> String {
         // Word-boundary regex: `\belseif\b` → `else if`. Case-insensitive.
         guard let regex = try? NSRegularExpression(

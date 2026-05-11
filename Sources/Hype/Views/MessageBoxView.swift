@@ -70,7 +70,10 @@ struct MessageBoxView: View {
             Task {
                 let runtime = await StackRuntimeRegistry.shared.runtime(
                     for: snapshot,
-                    configuration: StackRuntimeConfiguration(aiProvider: SelectedAIScriptingProvider())
+                    configuration: StackRuntimeConfiguration(
+                        aiProvider: SelectedAIScriptingProvider(),
+                        speechOutputProvider: OpenAISpeechOutputProvider.shared
+                    )
                 )
                 let liveDocument = await runtime.currentDocument()
                 let context = ExecutionContext(
@@ -78,6 +81,7 @@ struct MessageBoxView: View {
                     currentCardId: cardId,
                     document: liveDocument,
                     aiProvider: SelectedAIScriptingProvider(),
+                    speechOutputProvider: OpenAISpeechOutputProvider.shared,
                     runtimeProvider: runtime
                 )
                 let interpreter = Interpreter()

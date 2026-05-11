@@ -1,4 +1,42 @@
 import Foundation
+
+/// Persisted RGBA bitmap for a card's paint layer.
+///
+/// `PaintLayer` is AppKit-backed and lives in the canvas/runtime layer. This
+/// value type is the document-safe snapshot that can be encoded into `.hype`
+/// files and exported.
+public struct CardPaintLayer: Codable, Sendable, Equatable {
+    public var cardId: UUID
+    public var width: Int
+    public var height: Int
+    public var rgbaData: Data
+
+    public init(cardId: UUID, width: Int, height: Int, rgbaData: Data) {
+        self.cardId = cardId
+        self.width = max(1, width)
+        self.height = max(1, height)
+        self.rgbaData = rgbaData
+    }
+
+    public var byteCount: Int {
+        width * height * 4
+    }
+
+    public var normalizedRGBAData: Data {
+        guard rgbaData.count != byteCount else { return rgbaData }
+        var data = Data(count: byteCount)
+        let copyCount = min(byteCount, rgbaData.count)
+        if copyCount > 0 {
+            data.replaceSubrange(0..<copyCount, with: rgbaData.prefix(copyCount))
+        }
+        return data
+    }
+
+    public var isEmpty: Bool {
+        normalizedRGBAData.allSatisfy { $0 == 0 }
+    }
+}
+
 #if canImport(AppKit)
 import AppKit
 
@@ -12,6 +50,19 @@ public final class PaintLayer: @unchecked Sendable {
         self.width = width
         self.height = height
         self.imageData = Data(count: width * height * 4) // RGBA
+    }
+
+    public convenience init(snapshot: CardPaintLayer) {
+        self.init(width: snapshot.width, height: snapshot.height)
+        self.imageData = snapshot.normalizedRGBAData
+    }
+
+    public func snapshot(cardId: UUID) -> CardPaintLayer {
+        CardPaintLayer(cardId: cardId, width: width, height: height, rgbaData: imageData)
+    }
+
+    public var rawRGBAData: Data {
+        imageData
     }
 
     /// Draw a pixel at (x, y) with the given color.
@@ -46,18 +97,7 @@ public final class PaintLayer: @unchecked Sendable {
 
     /// Render the paint layer onto a CGContext (handles flipped coordinate system).
     public func render(into ctx: CGContext) {
-        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-              let provider = CGDataProvider(data: imageData as CFData),
-              let cgImage = CGImage(
-                width: width, height: height,
-                bitsPerComponent: 8, bitsPerPixel: 32,
-                bytesPerRow: width * 4,
-                space: colorSpace,
-                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-                provider: provider,
-                decode: nil, shouldInterpolate: false,
-                intent: .defaultIntent
-              ) else { return }
+        guard let cgImage = makeCGImage() else { return }
 
         // The view is flipped (isFlipped = true, top-left origin) but CGContext.draw
         // uses bottom-left origin. Flip locally to render correctly.
@@ -258,6 +298,32 @@ public final class PaintLayer: @unchecked Sendable {
     /// Check if the layer is entirely empty.
     public var isEmpty: Bool {
         imageData.allSatisfy { $0 == 0 }
+    }
+
+    public func pngData() -> Data? {
+        guard let cgImage = makeCGImage() else { return nil }
+        let representation = NSBitmapImageRep(cgImage: cgImage)
+        return representation.representation(using: .png, properties: [:])
+    }
+
+    private func makeCGImage() -> CGImage? {
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let provider = CGDataProvider(data: imageData as CFData) else {
+            return nil
+        }
+        return CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        )
     }
 }
 #endif

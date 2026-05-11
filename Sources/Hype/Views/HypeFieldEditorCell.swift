@@ -1,51 +1,66 @@
 import AppKit
+import HypeCore
 
 /// Custom NSTextFieldCell whose text drawing rect matches
-/// `FieldRenderer.draw` byte-for-byte, so the inline editor
+/// `FieldRenderer.draw`, so the inline editor
 /// overlay puts characters at the same screen position as the
 /// static rendering.
 ///
 /// **Why this exists**
 ///
-/// The static path renders field text via `NSString.draw(in:)`
-/// inside `rect.insetBy(dx: padding, dy: padding)` (4 or 8 for
-/// wideMargins). NSTextField's default cell instead uses an
-/// intrinsic ~2pt edge inset PLUS a 5pt `lineFragmentPadding` in
-/// its underlying text container, AND it vertically centers
-/// single-line text. Together those produce a 2-6pt jump in both
-/// axes when the user taps a field — characters slide right and
-/// up (or down) at the moment editing begins, and slide back when
-/// editing ends.
+/// The static path renders field text through `FieldTextLayout`.
+/// NSTextField's default cell instead uses an intrinsic ~2pt edge
+/// inset plus a 5pt `lineFragmentPadding` in its underlying text
+/// container. Together those produce a visible jump when the user
+/// taps a field: characters slide right or vertically snap.
 ///
 /// This cell forces:
-/// - drawingRect / titleRect = `rect.insetBy(dx: padding, dy: padding)`
-/// - the field-editor's frame to match (so the live cursor sits
-///   in the same place the static text drew)
-/// - `wraps = true`, `usesSingleLineMode = false` to disable the
-///   vertical-centering shortcut and keep text top-aligned (which
-///   is what FieldRenderer does)
+/// - drawingRect / titleRect = the shared static-renderer text rect
+/// - the field-editor's frame to match that text rect, so the live
+///   cursor sits where the static text drew
+/// - zero `lineFragmentPadding`, so AppKit does not add a second
+///   horizontal inset on top of Hype's field margins
 final class HypeFieldEditorCell: NSTextFieldCell {
 
-    /// Symmetric inset matching `FieldRenderer.draw`'s
-    /// `rect.insetBy(dx: padding, dy: padding)`. Defaults to 4
-    /// (the renderer's value when `wideMargins` is false).
+    /// Symmetric inset matching `FieldTextLayout.padding`.
     var hypePadding: CGFloat = 4
 
+    /// Extra leading inset for styles with an inline glyph, currently
+    /// the search field magnifying glass.
+    var leadingTextInset: CGFloat = 0
+
     /// When the field has the `scrolling` style, FieldRenderer
-    /// reserves 16pt on the right edge for the scrollbar track
-    /// (see `FieldRenderer.swift` line 62). Mirror that here so
+    /// reserves 16pt on the right edge for the scrollbar track.
+    /// Mirror that here so
     /// the editor's text wraps at the same column the static
     /// rendering does.
     var rightScrollbarReserve: CGFloat = 0
 
-    private func paddedRect(_ rect: NSRect) -> NSRect {
-        let inset = NSRect(
-            x: rect.minX + hypePadding,
+    private func contentRect(_ rect: NSRect) -> NSRect {
+        NSRect(
+            x: rect.minX + hypePadding + leadingTextInset,
             y: rect.minY + hypePadding,
-            width: max(0, rect.width - hypePadding * 2 - rightScrollbarReserve),
+            width: max(0, rect.width - hypePadding * 2 - leadingTextInset - rightScrollbarReserve),
             height: max(0, rect.height - hypePadding * 2)
         )
-        return inset
+    }
+
+    private func currentAttributedStringForMeasurement() -> NSAttributedString {
+        if attributedStringValue.length > 0 {
+            return attributedStringValue
+        }
+
+        let font = font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let text = stringValue.isEmpty ? " " : stringValue
+        return NSAttributedString(string: text, attributes: [.font: font])
+    }
+
+    private func fieldTextRect(_ rect: NSRect) -> NSRect {
+        FieldTextLayout.verticallyCenteredTextRect(
+            in: contentRect(rect),
+            attributedString: currentAttributedStringForMeasurement(),
+            fallbackFont: font
+        )
     }
 
     // MARK: - Layout overrides
@@ -54,11 +69,11 @@ final class HypeFieldEditorCell: NSTextFieldCell {
         // The default implementation adds its own intrinsic ~2pt
         // inset on top of whatever we return; bypass by skipping
         // super entirely.
-        paddedRect(rect)
+        fieldTextRect(rect)
     }
 
     override func titleRect(forBounds rect: NSRect) -> NSRect {
-        paddedRect(rect)
+        fieldTextRect(rect)
     }
 
     // MARK: - Field-editor placement
@@ -71,7 +86,7 @@ final class HypeFieldEditorCell: NSTextFieldCell {
         event: NSEvent?
     ) {
         super.edit(
-            withFrame: paddedRect(rect),
+            withFrame: fieldTextRect(rect),
             in: controlView,
             editor: textObj,
             delegate: delegate,
@@ -89,7 +104,7 @@ final class HypeFieldEditorCell: NSTextFieldCell {
         length selLength: Int
     ) {
         super.select(
-            withFrame: paddedRect(rect),
+            withFrame: fieldTextRect(rect),
             in: controlView,
             editor: textObj,
             delegate: delegate,
@@ -101,9 +116,8 @@ final class HypeFieldEditorCell: NSTextFieldCell {
 
     /// Force the field editor (an NSTextView when AppKit grants
     /// one) to use a zero `lineFragmentPadding` so the live cursor
-    /// sits flush with `paddedRect.minX` — matching how
-    /// `NSString.draw` lays out the static text. Without this
-    /// step there's a 5pt left-edge offset on the live cursor.
+    /// sits flush with the shared `FieldTextLayout` rect. Without
+    /// this step there's a 5pt left-edge offset on the live cursor.
     private func configureFieldEditor(_ textObj: NSText) {
         guard let textView = textObj as? NSTextView,
               let container = textView.textContainer
@@ -118,6 +132,6 @@ final class HypeFieldEditorCell: NSTextFieldCell {
         withFrame cellFrame: NSRect,
         in controlView: NSView
     ) {
-        super.drawInterior(withFrame: paddedRect(cellFrame), in: controlView)
+        super.drawInterior(withFrame: fieldTextRect(cellFrame), in: controlView)
     }
 }

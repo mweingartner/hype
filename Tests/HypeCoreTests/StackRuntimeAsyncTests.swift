@@ -32,6 +32,18 @@ private struct FixedAIProvider: AIScriptingProvider {
     func generate(prompt: String, model: String?) async throws -> String { generated }
 }
 
+private actor RuntimeSpeechRecorder: SpeechOutputProvider {
+    private(set) var spoken: [(text: String, source: String)] = []
+
+    func speakAIResponse(_ text: String, source: String) async {
+        spoken.append((text, source))
+    }
+
+    func texts() -> [String] {
+        spoken.map(\.text)
+    }
+}
+
 #if canImport(Network)
 private final class LoopbackHTTPServer: @unchecked Sendable {
     private let listener: NWListener
@@ -155,10 +167,12 @@ private func makeRuntimeDocument(
 
 private func runtimeConfiguration(
     aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
+    speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
     clock: RuntimeClock = SystemRuntimeClock()
 ) -> StackRuntimeConfiguration {
     StackRuntimeConfiguration(
         aiProvider: aiProvider,
+        speechOutputProvider: speechOutputProvider,
         permissionStore: UserDefaultsNetworkPermissionStore(defaults: UserDefaults(suiteName: "StackRuntimeAsyncTests.\(UUID().uuidString)")!),
         clock: clock
     )
@@ -239,6 +253,7 @@ struct StackRuntimeAsyncTests {
     @Test("ask ai with message enqueues a callback that can read the request body")
     func askAICallback() async {
         let provider = FixedAIProvider(generated: "mission briefing")
+        let speechRecorder = RuntimeSpeechRecorder()
         let (doc, cardId, buttonId, fieldID) = makeRuntimeDocument(buttonScript: """
         on mouseUp
           ask ai "Write a mission briefing" with message "aiFinished"
@@ -253,19 +268,22 @@ struct StackRuntimeAsyncTests {
 
         let runtime = await StackRuntimeRegistry.shared.runtime(
             for: doc,
-            configuration: runtimeConfiguration(aiProvider: provider)
+            configuration: runtimeConfiguration(aiProvider: provider, speechOutputProvider: speechRecorder)
         )
         _ = await runtime.dispatchAndWait("mouseUp", params: [], targetId: buttonId, currentCardId: cardId)
 
         let completed = await waitUntil {
             let updated = await runtime.currentDocument()
+            let spokenTexts = await speechRecorder.texts()
             return outputText(from: updated, fieldID: fieldID) == "mission briefing"
+                && spokenTexts == ["mission briefing"]
         }
 
         let updated = await runtime.currentDocument()
         await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
         #expect(completed)
         #expect(outputText(from: updated, fieldID: fieldID) == "mission briefing")
+        #expect(await speechRecorder.texts() == ["mission briefing"])
     }
 
     #if canImport(Network)

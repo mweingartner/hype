@@ -451,7 +451,8 @@ public actor SceneAuthoringAssistant {
             <statements>
         end <handlerName>
     Common handlers: mouseUp, mouseDown, openCard, closeCard, idle, \
-    keyDown, keyUp, beginContact, endContact.
+    openScene, closeScene, sceneDidLoad, frameUpdate, keyDown, keyUp, \
+    beginContact, endContact.
 
     Statement forms are English-like:
         put "Hello" into field "greeting"
@@ -462,7 +463,8 @@ public actor SceneAuthoringAssistant {
         repeat with i from 1 to 10 ... end repeat
 
     Variables do NOT require declaration — just use them. Use `global name` \
-    inside a handler to share across handlers.
+    inside a handler, or a top-level `global a, b` prelude before handlers, \
+    to share across handlers.
 
     FORBIDDEN TOKENS (if any of these appear in a script field, Hype will reject the whole script):
         var x = 1            — no `var` / `let` / `const` keyword

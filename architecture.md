@@ -1,6 +1,6 @@
 # Hype Architecture
 
-> A snapshot of the current implementation as of 2026-05-08.
+> A snapshot of the current implementation as of 2026-05-10.
 
 Hype is a modern, macOS-native re-imagining of HyperCard. It preserves the
 HyperCard mental model — **stacks** of **cards** built on shared **backgrounds**,
@@ -9,7 +9,8 @@ charts, sprite areas), all driven by a HyperTalk-style scripting language
 called **HypeTalk** — and re-grounds it on a contemporary Apple-platforms
 stack: Swift 6, SwiftUI, SpriteKit, Core Graphics, AppKit, WKWebView,
 AVKit, Apple Charts, and a provider-selectable AI authoring loop that can use
-local Ollama models or OpenAI-hosted models.
+local Ollama models or OpenAI-hosted models, plus OpenAI image generation for
+card/background artwork and Sprite Repository assets.
 
 The single most important architectural decision is the introduction of
 **SpriteKit as the underlying interaction and rendering substrate** for cards.
@@ -43,6 +44,7 @@ hype-v2/
 ├── Sources/
 │   ├── Hype/                       # Executable target — UI / AppKit / SpriteKit host
 │   │   ├── HypeApp.swift           # @main, DocumentGroup, menu commands
+│   │   ├── OpenAISpeechOutputProvider.swift # App-side speech playback adapter
 │   │   ├── Resources/
 │   │   ├── SpriteKit/              # SKScene/SKNode bridge layer
 │   │   │   ├── HypeSKScene.swift          # Per-sprite-area interactive scene
@@ -55,8 +57,8 @@ hype-v2/
 │   │   │   └── ImagePartNode.swift        # SKSpriteNode rendering of an image Part
 │   │   └── Views/                  # SwiftUI / NSViewRepresentable UI
 │   │       ├── MainContentView.swift      # Main split view, state plumbing
-│   │       ├── CardCanvasView.swift       # NSViewRepresentable + CardCanvasNSView (~3,800 LoC)
-│   │       ├── PropertyInspector.swift    # Per-part property pane (~3,800 LoC, multi-select aware)
+│   │       ├── CardCanvasView.swift       # NSViewRepresentable + CardCanvasNSView (~4,400 LoC)
+│   │       ├── PropertyInspector.swift    # Per-part property pane (~4,300 LoC, multi-select aware)
 │   │       ├── ObjectsToolPanel.swift     # Left-edge tool palette + Run/Edit toggle
 │   │       ├── ScriptEditor.swift         # HypeTalk script editor window
 │   │       ├── SpriteSceneSetupGuide.swift # Guided SpriteKit scene setup flow
@@ -65,9 +67,11 @@ hype-v2/
 │   │       ├── CompletionPopup.swift      # Code completion list
 │   │       ├── AIChatPanel.swift          # Provider-backed tool-calling chat (primary AI UI)
 │   │       ├── AIChatInputView.swift      # NSTextView-backed dynamic-height prompt input
+│   │       ├── AIContextLibraryView.swift # Stack-scoped files/images/notes/folders for AI context
 │   │       ├── AIPanel.swift              # Simple Q&A side panel
 │   │       ├── NetworkPanelView.swift     # Stack network policy + live runtime monitor
 │   │       ├── SpriteRepositoryView.swift # Sprite asset browser window (multi-select, Transparent Background)
+│   │       ├── SpriteRepositoryAIChatView.swift # Repository-scoped AI chat for generated sprite assets
 │   │       ├── ChartHostView.swift        # Apple Charts host
 │   │       ├── ProgressViewHostView.swift # SwiftUI hosts for the framework progress / gauge controls
 │   │       ├── GaugeHostView.swift
@@ -87,15 +91,16 @@ hype-v2/
 │   │       │   ├── ThemeColorWell.swift                 # NSColorPanel-backed color picker
 │   │       │   └── ThemePicker.swift                    # Picker bound to BuiltInThemes + stack themes
 │   │       ├── ToolName.swift             # Tool palette catalog
-│   │       └── GoMenuCommands.swift       # Menu items (Go, Objects, Arrange, Tools, AI, View, Window)
+│   │       └── GoMenuCommands.swift       # Menu items (Go, Objects, Arrange, Tools, AI + View/Window additions)
 │   └── HypeCore/                   # Library target — model, scripting, AI, rendering
 │       ├── Models/                 # Document model (all value types)
 │       │   ├── HypeDocument.swift         # Root aggregate (themes array, scriptGlobals)
-│       │   ├── HypeStack.swift            # Enums: PartType (18 cases), ButtonStyle, ShapeType …
+│       │   ├── HypeStack.swift            # Enums: PartType (24 cases + unknown), ButtonStyle, ShapeType …
 │       │   ├── Stack.swift                # Stack metadata + script + themeName
 │       │   ├── Background.swift           # Background metadata + script + themeName
 │       │   ├── Card.swift                 # Card metadata + script + themeName
 │       │   ├── Part.swift                 # The "everything part" struct (60+ fields)
+│       │   ├── PartGrouping.swift         # Flat groupId-based authoring groups
 │       │   ├── TextStyleFlags.swift       # Bold/italic/underline/strikethrough parser/emitter
 │       │   ├── JSONCodec.swift            # Shared JSONEncoder/Decoder for stored-as-string fields
 │       │   ├── ChartModel.swift           # Chart config / series / data points
@@ -108,7 +113,7 @@ hype-v2/
 │       │   ├── MultiSelectionEditing.swift # Common-value + apply-value across selections
 │       │   └── SceneDiff.swift            # Incremental scene patch operations
 │       ├── Script/                 # HypeTalk
-│       │   ├── Token.swift                # 60+ token types (including `animate`)
+│       │   ├── Token.swift                # 100+ token types (including `animate`)
 │       │   ├── Lexer.swift                # Hand-written tokenizer
 │       │   ├── AST.swift                  # Statement / Expression nodes
 │       │   ├── Parser.swift               # Recursive descent parser (~1,800 LoC)
@@ -118,11 +123,14 @@ hype-v2/
 │       ├── AI/                     # Provider-backed AI, tool-calling, speech
 │       │   ├── OllamaToolClient.swift     # /api/chat, /api/generate, /api/tags, structured JSON
 │       │   ├── OpenAIResponsesClient.swift # /v1/responses text/tool/schema bridge
+│       │   ├── OpenAIImageGenerationClient.swift # /v1/images/generations image bytes for parts/assets
 │       │   ├── OpenAISpeechClient.swift   # /v1/audio transcriptions + speech
 │       │   ├── HypeAIClient.swift         # Provider-neutral client/config factory
+│       │   ├── AIContextLibrary.swift     # Safe stack-scoped context ingestion/search model
 │       │   ├── AIScriptingProvider.swift  # Async HypeTalk-facing Ollama abstraction
-│       │   ├── HypeTools.swift            # ~60 tool schemas (parts, scopes, themes, scenes)
-│       │   ├── HypeToolExecutor.swift     # Dispatch tool calls to model mutations (~5,000 LoC)
+│       │   ├── SpeechOutputProvider.swift # HypeCore speech-output protocol
+│       │   ├── HypeTools.swift            # 119 tool schemas (parts, scopes, themes, scenes)
+│       │   ├── HypeToolExecutor.swift     # Dispatch tool calls to model mutations (~5,400 LoC)
 │       │   ├── HypeTalkGuide.swift        # System-prompt grammar primer fed to the model
 │       │   ├── HypeTalkScriptValidator.swift # check_script syntax/semantics gate
 │       │   ├── HypeAIResponseRepair.swift # Tool-arg auto-repair for malformed model output
@@ -135,6 +143,7 @@ hype-v2/
 │       │   ├── CardRenderer.swift         # Pipeline + dispatcher (theme-aware)
 │       │   ├── ButtonRenderer.swift       # All button styles (opaque/round/shadow/popup/check/toggle/link)
 │       │   ├── FieldRenderer.swift        # Field text + style; routes through TextStyleFlags
+│       │   ├── FieldTextLayout.swift      # Shared static/edit field text insets + vertical centering
 │       │   ├── ShapeRenderer.swift
 │       │   ├── ImageRenderer.swift        # Calls ImageChromaKey for transparentBackground
 │       │   ├── ImageChromaKey.swift       # Dominant-corner alpha mask + makeTransparentPNG
@@ -185,7 +194,7 @@ hype-v2/
 │       ├── Runtime/
 │       │   └── StackRuntime.swift         # Browse-mode live session, async jobs, listeners
 │       ├── Sync/
-│       │   └── SyncService.swift          # Future CloudKit hook
+│       │   └── SyncService.swift          # Transport-neutral live-sync engine
 │       └── Export/
 │           └── DocumentExporter.swift     # JSON / single-file HTML export
 ├── Tests/HypeCoreTests/            # Model, script, async runtime, AI, export
@@ -193,10 +202,13 @@ hype-v2/
 ```
 
 The package defines two targets: **HypeCore** (model + scripting + AI + Core
-Graphics rendering — fully testable, no AppKit/SpriteKit dependencies) and
-**Hype** (the macOS executable — SwiftUI, NSView, AppKit, SpriteKit, AVKit,
-WKWebView). The hard split lets the model layer remain pure-Swift and
-unit-testable, while UI- and SpriteKit-specific code lives in the executable.
+Graphics/AppKit rendering helpers — fully testable without launching the app)
+and **Hype** (the macOS executable — SwiftUI, NSView, AppKit, SpriteKit, AVKit,
+WKWebView). The hard split keeps the document model and script runtime as
+value-oriented Swift while the executable owns windows, menus, live AppKit
+hosts, and SpriteKit scenes. HypeCore conditionally imports AppKit for macOS
+rendering/audio/image utilities, but it does not own SwiftUI windows or live
+SpriteKit nodes.
 
 ### 1.2 The big picture in one diagram
 
@@ -224,7 +236,8 @@ unit-testable, while UI- and SpriteKit-specific code lives in the executable.
 ┌──────────────────────────────────────────────────────────────────────────┐
 │  HypeCore                                                                │
 │    Model    : HypeDocument(stack, backgrounds, cards, parts, sprites,    │
-│                            constraints, aiPromptHistory, networkManifest)│
+│                            constraints, aiContextLibrary,                │
+│                            aiPromptHistory, networkManifest)             │
 │    Runtime  : StackRuntimeRegistry → StackRuntime                         │
 │               (live document session, FIFO event queue, async jobs,      │
 │                listeners, connections, runtime status snapshots)         │
@@ -270,8 +283,11 @@ public struct HypeDocument: Codable, Sendable {
     public var backgrounds: [Background]
     public var cards: [Card]
     public var parts: [Part]
+    public var paintLayers: [CardPaintLayer]      // per-card paint snapshots
     public var constraints: [LayoutConstraint]
     public var spriteRepository: SpriteRepository
+    public var themes: [HypeTheme]                // user-edited theme registry
+    public var aiContextLibrary: AIContextLibrary // rules / assets / examples sent to AI
     public var aiPromptHistory: [String]
 }
 ```
@@ -302,6 +318,7 @@ HypeDocument
   ├── Cards[]          (sortKey, name, marked, backgroundId, script)
   ├── Parts[]          (cardId? or backgroundId?, see §2.3)
   ├── Constraints[]    (LayoutConstraint, see §6.4)
+  ├── AIContextLibrary (stack-scoped AI files/images/notes/folders)
   └── SpriteRepository (see §4)
 ```
 
@@ -320,16 +337,20 @@ public enum PartType: String, Codable, Sendable {
     // Framework-backed controls (Apple frameworks hosted as NSView/SwiftUI overlays)
     case calendar, pdf, map, colorWell, audioRecorder, scene3D
     // Form controls (AppKit-feel)
-    case stepper, slider, segmented, progressView, gauge, divider
+    case stepper, slider, toggle, segmented
+    // Apple-controls catalog / legacy compatibility cases
+    case progressView, gauge, link, menu, searchField, divider
     // Forward-compat sentinel for partType strings written by future versions
     case unknown
 }
 ```
 
 Several legacy values (`toggle`, `link`, `menu`, `searchField`) used to be
-distinct kinds; they now migrate at decode time to `button` (with `.toggle`,
-`.link`, `.popup` style) or `field` (with `.search` style) and never appear in
-a live document. The migration is one-way and lives in `Part.init(from:)`.
+distinct kinds and still exist in the enum so old documents decode; they now
+migrate at `Part.init(from:)` time to `button` (with `.toggle`, `.link`,
+`.popup` style) or `field` (with `.search` style). New authoring paths should
+create those canonical button/field forms rather than writing the legacy
+part-type cases.
 
 ### 2.3 Part: the "everything" struct
 
@@ -339,7 +360,7 @@ given `partType`. The fields fall into bands:
 
 | Band             | Fields (representative)                                                  |
 |------------------|--------------------------------------------------------------------------|
-| identity         | `id`, `name`, `sortKey`, `cardId?`, `backgroundId?`                      |
+| identity         | `id`, `name`, `sortKey`, `cardId?`, `backgroundId?`, `groupId?`          |
 | geometry         | `left`, `top`, `width`, `height`, `rotation`                             |
 | state            | `visible`, `enabled`, `hilite`, `autoHilite`                             |
 | text (any part)  | `textContent`, `textFont`, `textSize`, `textStyle`, `textAlign`, `fontColor` |
@@ -398,8 +419,12 @@ allocation cost from per-call to one-time-per-app-launch.
 two side outputs: pretty-printed sorted JSON (for inspection / diff) and a
 single-file HTML rendering of every card as absolutely-positioned `<div>`s.
 
-A placeholder `SyncService` actor exists for future CloudKit collaboration
-but does not yet implement live sync.
+`SyncService` is a transport-neutral live-sync engine with peer sessions,
+operation/change-set publishing, checkpoints, and deterministic conflict
+reporting. The current transport is an in-process collaboration hub for local
+loopback and regression coverage; CloudKit, Multipeer, or a custom server can
+be attached at the transport boundary later without changing document mutation
+contracts.
 
 ### 2.5 Sprite-area registries and network manifest
 
@@ -715,18 +740,21 @@ height keeps coordinate handling local — no scattered Y-flip arithmetic.
 ### 3.6 Hosting sprite areas in the canvas
 
 The integration point on the AppKit side is `CardCanvasNSView`
-(CardCanvasView.swift:367, ~2,300 LoC). This is the layer-backed NSView
+(CardCanvasView.swift:856, ~4,400 LoC). This is the layer-backed NSView
 that draws the card via Core Graphics and overlays NSViews for native
-controls. Sprite areas are tracked in four parallel dictionaries:
+controls. Sprite areas are tracked in parallel dictionaries:
 
 ```swift
 var spriteViews:        [UUID: SKView]
 var spriteScenes:       [UUID: HypeSKScene]
 var spriteBridges:      [UUID: SceneBridge]
 var loadedSceneSpecs:   [UUID: String]   // last applied spec, JSON-equality cached
+var loadedActiveSceneIDs: [UUID: UUID]    // active scene ID for lifecycle close/open
 ```
 
-`updateSpriteViews()` (CardCanvasView.swift:1749) is called from `draw()`.
+`updateSpriteViews()` (CardCanvasView.swift:3530) is called from `draw()`.
+It considers both visible card parts and visible parts on the current card's
+background, so embedded scenes owned by either layer follow the same lifecycle.
 For each visible `spriteArea` part it:
 
 1. Lazily creates a `PassthroughSKView` and a `HypeSKScene` if none exist.
@@ -737,14 +765,18 @@ For each visible `spriteArea` part it:
 3. If changed, it tries `applyLiveUpdates(...)` first (for
    property-only edits) and falls back to `rebuildSpriteScene(...)` if
    structural changes are detected.
-4. Dispatches `closeScene` to any sprite areas that disappeared.
+4. Dispatches `closeScene` to any sprite areas that disappeared or became
+   inactive because the current card/background changed.
 
-`rebuildSpriteScene()` (CardCanvasView.swift:1840) parses the JSON, creates
+`rebuildSpriteScene()` (CardCanvasView.swift:3725) parses the JSON, creates
 or reuses a `SceneBridge` and `HypeSKScene`, configures debug overlays,
 stores references **before** calling `presentScene()` (critical: the bridge
 must be reachable from `didMove(to:)` callbacks), applies the active scene
 spec, and then schedules `sceneDidLoad` / `openScene` on the browse-mode
 runtime queue so lifecycle delivery is serialized with the rest of HypeTalk.
+The dispatch context starts at the scene script, then passes through the
+sprite-area part, card, background, stack, and app; a scene script can handle
+`on sceneDidLoad` directly or `pass sceneDidLoad` to the owning sprite area.
 
 In **edit mode**, sprite-area SKViews are not created at all — `draw()`
 falls through to `SpriteAreaRenderer` which paints a teal dashed rectangle
@@ -763,7 +795,8 @@ HyperCard-style visual effects. It:
    `NSImage`.
 2. Briefly mutates state to the destination card and renders the same way.
 3. Constructs an `SKTransition` matching the requested effect (`dissolve`,
-   `wipeLeft/Right/Up/Down`, `irisOpen/Close`, `scrollLeft/Right`).
+   `fade`, `crossFade`, `wipe*`, `iris*`, `scroll*`, `push*`,
+   `moveIn*`, `reveal*`, `doorway`, `flipHorizontal`, `flipVertical`).
 4. Calls `cardSKView.presentScene(targetScene, transition: skTransition)`,
    which performs the actual animation entirely on the GPU.
 5. After the animation completes, the SKView is hidden and the canvas
@@ -773,7 +806,7 @@ This is why the card-level SKView exists at all: SpriteKit's transition
 system gives Hype zero-cost, GPU-accelerated card transitions that would
 otherwise require a custom Metal shader stack.
 
-### 3.8 Native part nodes (forward-looking)
+### 3.8 Native part nodes (now wired into the live rendering path)
 
 `CardPartNode` (Sources/Hype/SpriteKit/CardPartNode.swift) is a small
 protocol describing an `SKNode` that wraps a Hype `Part`:
@@ -785,19 +818,34 @@ protocol CardPartNode: AnyObject {
 }
 ```
 
-`ShapePartNode` (Sources/Hype/SpriteKit/ShapePartNode.swift) is a concrete
-`SKShapeNode` subclass that builds a CGPath from a shape part's
-geometry, handles fill/stroke colors and corner radius, and supports the
-freeform path type. `ImagePartNode` is the equivalent `SKSpriteNode`
-wrapper for image parts, including the `invertOnClick` hilite via
-`colorBlendFactor`.
+Concrete implementations now exist for every classic part type and live
+inside `CardSKScene.nativeLayer`, taking over the Core Graphics rendering
+path that previously drew them through `CardRenderer`. The migration is
+opt-in via a feature flag on `CardSKScene` so the legacy CG pass remains
+available as a fallback while the SK-native path matures.
 
-These types are not yet wired into the live rendering path — Core Graphics
-still draws shapes and images today. They are the hooks for a future phase
-in which **all** part types render directly into `CardSKScene.nativeLayer`,
-giving every part type access to physics, actions, and the SKView GPU
-pipeline. The `nativeLayer` reservation in `CardSKScene` exists exactly for
-that migration.
+| Part type | Concrete node                                                          |
+|-----------|------------------------------------------------------------------------|
+| button    | `ButtonPartNode` (Sources/Hype/SpriteKit/ButtonPartNode.swift) — `SKShapeNode` background + `SKLabelNode` label, honors `buttonStyle`, theme tokens, hilite |
+| field     | `FieldPartNode` (Sources/Hype/SpriteKit/FieldPartNode.swift) — `SKShapeNode` frame + `SKLabelNode`/attributed text, routes through `FieldTextLayout` |
+| shape     | `ShapePartNode` (Sources/Hype/SpriteKit/ShapePartNode.swift) — `SKShapeNode` building a CGPath from `shapeType` + `pathData` |
+| image     | `ImagePartNode` (Sources/Hype/SpriteKit/ImagePartNode.swift) — `SKSpriteNode` with `invertOnClick` via `colorBlendFactor` |
+| paint     | `PaintLayerNode` (Sources/Hype/SpriteKit/PaintLayerNode.swift) — `SKSpriteNode` whose texture is the per-card `PaintLayer` RGBA bitmap |
+
+The benefits the original architecture promised are now delivered: every
+part type has access to `SKAction`-driven animation, physics, and the SKView
+GPU pipeline; card transitions can use the same SpriteKit scene that hosts
+the parts; and the `nativeLayer` slot in `CardSKScene` finally has its full
+set of occupants. The CG renderer remains as the fallback / edit-mode
+placeholder surface.
+
+`FieldTextLayout` (Sources/HypeCore/Rendering/FieldTextLayout.swift)
+extracts field-text positioning, padding, and color resolution into a
+single helper that both the legacy `FieldRenderer` (CG path) and
+`FieldPartNode` (SK path) call. The two paths cannot drift in pixel
+alignment because they share the inset math, leading/trailing inset
+overrides for `.search` / `.scrolling` styles, the wide-margins toggle,
+and the contrast-aware color picker.
 
 ### 3.9 Embedded scene containment: `SpriteAreaNode`
 
@@ -859,8 +907,8 @@ public struct SpriteRepository: Codable, Sendable {
 }
 ```
 
-`AssetProvenance` records the import path: `userImport`, `webSearch`, or
-`aiGenerated`. Web-search imports also persist license + creator + source URL
+`AssetProvenance` records the import path: `userImport`, `webSearch`,
+`aiGenerated`, or `aiContext`. Web-search imports also persist license + creator + source URL
 so the inspector can show an attribution block and the stack-script
 attribution synchronizer can keep an `-- Attributions --` block in the stack
 script up to date as web assets are added or removed.
@@ -870,7 +918,32 @@ the slicing tools record per-tile dimensions and grid extents, and
 `createTileMap` reads those directly so authors don't have to repeat the
 tile geometry on every reference.
 
-### 4.2 Stable references via `AssetRef`
+### 4.2 AI Context Library
+
+`AIContextLibrary` (Sources/HypeCore/AI/AIContextLibrary.swift) is the
+user-curated context channel for AI stack creation. It snapshots selected
+files, folders, images, and freeform notes into `HypeDocument` so complex
+instructions and asset packs travel with the stack without exposing arbitrary
+filesystem tools to the model.
+
+The ingestion path is deliberately narrow:
+
+- supported text and image extensions only
+- hidden/package descendants and symlinks skipped for directories
+- per-file and per-directory caps enforced before reading
+- text chunked into bounded snippets for search/read tools
+- image bytes embedded as context items and importable into the Sprite
+  Repository via `import_context_asset`
+- AI-authored project-memory notes written through `write_ai_context_note`
+  so decisions, TODOs, naming conventions, and known issues persist with
+  the stack across build sessions
+
+Cloud sharing is gated by `Stack.aiContextCloudSharingAllowed`. Local Ollama
+models can use context tools directly; OpenAI models only see context summaries
+and context tool schemas after the current stack is explicitly opted in from
+Preferences or script/tool property setters.
+
+### 4.3 Stable references via `AssetRef`
 
 `AssetRef` (Sources/HypeCore/Models/AssetRef.swift) is what scene specs
 actually carry. It is intentionally small:
@@ -897,7 +970,7 @@ under the asset ID. This means:
   travel with the asset, so reusing an animation across cards just means
   pointing another node spec at the same `AssetRef`.
 
-### 4.3 The repository UI
+### 4.4 The repository UI
 
 `SpriteRepositoryView` (Sources/Hype/Views/SpriteRepositoryView.swift) is
 the SwiftUI window that browses, imports, slices, and tags the repository.
@@ -906,8 +979,11 @@ multi-select, slicing into frame rects, tile-set classification (auto-detect
 + manual W×H), animation-clip authoring (FPS, loops), per-asset rename,
 duplicate, delete, and attribution view (for web-search imports). It is the
 surface that the AI's `list_repository_assets`, `import_repository_asset`,
-and `web_asset_search` tools mirror — keeping human and AI workflows on the
-same data.
+`generate_sprite_asset`, and `web_asset_search` tools mirror — keeping human
+and AI workflows on the same data. The right side of the repository window also
+hosts `SpriteRepositoryAIChatView`, a repository-scoped chat surface that can
+ask for the required sprite asset name and then call `generate_sprite_asset`
+without exposing card, background, or script mutation tools.
 
 A **Transparent Background** action — available in both the single-asset
 detail panel and the multi-selection panel — runs the same dominant-corner
@@ -927,7 +1003,7 @@ user re-selected.
 
 ## 5. HypeTalk: the Scripting Language
 
-HypeTalk is the largest single subsystem in HypeCore — over 8,000 lines
+HypeTalk is the largest single subsystem in HypeCore — about 8,400 lines
 across lexer, parser, AST, interpreter, dispatcher, and highlighter. The
 goal is to feel like HyperCard's HyperTalk while addressing modern part
 types, the SpriteKit scene graph, the asset repository, and a 60-fps
@@ -941,7 +1017,7 @@ script source string
         ▼
 ┌────────────┐    ┌────────────┐    ┌─────┐    ┌────────────────┐
 │   Lexer    │───▶│   Parser   │───▶│ AST │───▶│   Interpreter  │
-│ (231 LoC)  │    │ (1.5k LoC) │    │     │    │   (2.4k LoC)   │
+│ (251 LoC)  │    │ (2.5k LoC) │    │     │    │   (4.7k LoC)   │
 └────────────┘    └────────────┘    └─────┘    └────────────────┘
                                                        │
                                                        ▼
@@ -955,13 +1031,18 @@ script source string
 ```
 
 - **Lexer** (Sources/HypeCore/Script/Lexer.swift) is hand-written,
-  case-insensitive, recognizes ~60 token types, handles `--` line comments,
+  case-insensitive, recognizes 100+ token types, handles `--` line comments,
   `\` line continuations, and both straight and Unicode smart quotes.
 - **Parser** (Sources/HypeCore/Script/Parser.swift) is recursive descent.
-  It splits source into top-level `on name … end name` handlers, then
-  parses statement-by-statement with a switch on the leading token. Object
-  references like `card 3`, `field "Name"`, `button 2 of background "BG1"`
-  are first-class grammar.
+  It accepts an optional top-level `global a, b, c` prelude before handler
+  blocks and injects those names into every handler body. That is the only
+  supported top-level statement form; executable top-level commands are still
+  rejected so runtime execution remains handler-driven. After that prelude it
+  splits source into top-level `on name … end name` or `function name … end
+  name` blocks, then parses statement-by-statement with a switch on the
+  leading token. Object references like `card 3`, `field "Name"`, `button 2
+  of background "BG1"`, and scope references like `this stack` / `current
+  card` are first-class grammar.
 - **AST** (Sources/HypeCore/Script/AST.swift) defines `Expression` and
   `Statement` enums. Expressions cover literals, variables, `it`, `me`,
   `this`, `empty`, binary and unary operators, function calls, property
@@ -974,10 +1055,11 @@ script source string
   commands (create sprite/scene/tilemap/camera/joint/constraint/physics
   field, `apply force`, `apply impulse`, `set tile`, `pause scene`,
   `resume scene`, `open scene`). The grammar now also includes explicit
-  suspending and network-aware forms: `await <expression>`, `wait until`,
+  suspending, dispatch, and network-aware forms: `await <expression>`, `wait until`,
   `request …`, `reply to request …`, `listen for http …`, `listen for tcp …`,
-  `connect to host …`, `send … to connection …`, `close connection …`,
-  and `stop listener …`.
+  `connect to host …`, `send "<message>" to <target>`, `send … to connection …`,
+  `close connection …`, and `stop listener …`. The plain `send` form is
+  HypeTalk message dispatch; the `to connection` form is TCP I/O.
 
   Property animation is a first-class statement:
   `animate the loc of button "ball" to "400,300" over 0.5`,
@@ -1045,6 +1127,12 @@ the handler ends with `pass <message>`, dispatch continues up the chain;
 otherwise it returns the `ExecutionResult`. The app-level "Hype" script still
 lives at a sentinel UUID (`00000000-0000-0000-0000-000000000001`) persisted in
 `UserDefaults`.
+
+Scripts can enter the same dispatch path explicitly with `send "<message>" to
+<target>`, such as `send "doCamp" to this stack`, `send "refresh" to this
+card`, `send "cleanup" to this background`, or `send "flash" to button "OK"`.
+The networking form is intentionally distinct: `send "<data>" to connection
+connId` writes to a TCP connection and does not invoke object handlers.
 
 The important change over the earlier architecture is that **SpriteKit targets
 are no longer collapsed to only the sprite-area part**. `HypeNodeSpec.script`
@@ -1199,6 +1287,13 @@ surface that owns a behaviour. Syntax highlighting goes through a separate
 (keyword/command/objectType/constant/string/number/comment/operator)
 land on exact character ranges. A `CompletionPopup` table view offers
 arrow-key-navigated, Enter-to-insert completions.
+The right-side Script Editor AI panel submits requests with the canonical
+`HypeTalkGuide.llmContext` in the system prompt, supports microphone input with
+~3.5 seconds of silence before auto-submit, and tracks the in-flight model task
+so the visible Stop button can cancel the current request. Its prompt input uses
+the same zero-inset `AIChatInputView` as the main AI panel: it starts as a
+single line, expands to show the full composed prompt, collapses after Submit,
+and uses Up/Down arrow recall against the document-scoped prompt history.
 
 A `MessageBoxView` REPL (Sources/Hype/Views/MessageBoxView.swift) lets the
 user evaluate HypeTalk expressions interactively against the live runtime
@@ -1252,6 +1347,12 @@ update. In browse mode, `MainContentView` also listens for
 notifications so the SwiftUI shell can stay synchronized with the live runtime
 actor rather than assuming scripts are mutating only local view state.
 
+Menu ownership stays in the SwiftUI `Commands` layer. `GoMenuCommands` defines
+Hype's Go, Objects, Arrange, Tools, AI, and Window additions, and augments the
+system View menu with a command group instead of declaring a second top-level
+`View` menu. Tests pin that contract so future menu additions do not reintroduce
+the duplicate-menu regression.
+
 ### 6.2 The render pipeline
 
 `CardRenderer` (Sources/HypeCore/Rendering/CardRenderer.swift) is a pure
@@ -1274,7 +1375,10 @@ sibling files:
   ~236 LoC) implements all button styles: standard, default, opaque,
   transparent, rectangle, roundRect, shadow, oval, toggle, popup,
   checkBox.
-- `FieldRenderer` paints field backgrounds and text.
+- `FieldRenderer` paints field backgrounds and text. Both static rendering and
+  browse-mode inline editing share `FieldTextLayout`, so text insets, search /
+  scrolling reserves, alignment, foreground contrast, and vertical centering
+  match pixel-for-pixel.
 - `ShapeRenderer` paints rectangles, round-rects, ovals, lines, and
   freeform `CGPath`s with fill / stroke / corner radius.
 - `ImageRenderer` blits embedded `NSImage`s with hilite (invert-on-click)
@@ -1290,12 +1394,23 @@ sibling files:
 its native overlay:
 
 ```swift
-var webViews:    [UUID: WKWebView]
-var videoPlayers: [UUID: AVPlayerView]
-var chartViews:  [UUID: NSView]      // wrapping NSHostingView<ChartHostView>
-var spriteViews: [UUID: SKView]      // wrapping HypeSKScene
-var paintLayers: [UUID: PaintLayer]  // per-card bitmap surfaces
-var activeFieldEditor: NSTextField?  // single inline editor at a time
+var webViews:            [UUID: WKWebView]
+var videoPlayers:        [UUID: AVPlayerView]
+var chartViews:          [UUID: NSView]       // NSHostingView<ChartHostView>
+var calendarViews:       [UUID: CalendarHostNSView]
+var pdfViews:            [UUID: PDFHostNSView]
+var mapViews:            [UUID: MapHostNSView]
+var colorWellViews:      [UUID: ColorWellHostNSView]
+var stepperViews:        [UUID: StepperHostNSView]
+var sliderViews:         [UUID: SliderHostNSView]
+var segmentedViews:      [UUID: SegmentedHostNSView]
+var audioRecorderViews:  [UUID: AudioRecorderHostNSView]
+var scene3DViews:        [UUID: Scene3DHostNSView]
+var progressViewHosts:   [UUID: ProgressViewHostNSView]
+var gaugeHosts:          [UUID: GaugeHostNSView]
+var spriteViews:         [UUID: SKView]       // HypeSKScene
+var paintLayers:         [UUID: PaintLayer]   // per-card runtime cache, mirrored to document snapshots
+var activeFieldEditor:   NSTextField?         // single inline editor at a time
 ```
 
 On every layout pass, each visible part of an overlay-eligible type has
@@ -1369,6 +1484,11 @@ catalogs the supported transition effects, which the `HypeTalk visual`
 command queues up to apply on the next `go` statement. The execution path
 is described in §3.7 above: rasterize current and target cards →
 `SKTransition` → `cardSKView.presentScene(_:transition:)`.
+Effect names are normalized through a fixed enum, not dynamic selector lookup:
+scripts can use human forms such as `visual effect wipe left`,
+`visual effect flip horizontal`, `visual effect move in right`, or
+`visual effect none`. Durations are clamped before scheduling timers so a
+malformed script cannot create a negative or unbounded transition delay.
 
 ### 6.7 Themes
 
@@ -1473,12 +1593,24 @@ both the geocoder and the `MapHostNSView` rendering path: it memoizes
 successful (query → coordinate) pairs and records recent failures (60s TTL)
 so we don't hammer Apple after a not-found.
 
-### 6.10 Multi-selection authoring
+### 6.10 Multi-selection and grouping authoring
 
 The canvas, inspector, and sprite scene host all support multi-selection
 edits. `selectedPartIds: Set<UUID>` is the single source of truth on the
 canvas side. Cmd+click toggles a part in/out of the selection; Shift+click
 is the parallel modifier (matches macOS Finder convention).
+
+Card/background object grouping is persisted as flat `Part.groupId`
+membership. Hype does not create a separate wrapper part for a group: children
+keep their own type, style, script, and draw order, but the authoring layer
+normalizes selection through `HypeDocument.expandedGroupSelection(_:)` and
+`selectionUnits(for:)`. A click on any grouped member selects the whole group;
+marquee selection expands to full groups; arrow nudging, drag movement,
+Arrange > Bring/Send, alignment, and distribution operate on selection units.
+Resize handles are drawn around the group bounds and scale each child
+proportionally inside that bounding box. Grouping is restricted to parts on the
+same card or the same background layer so a card object and a background object
+cannot accidentally become one edit unit.
 
 The inspector renders one of three panels keyed off
 `selectedPartIds.count`:
@@ -1502,7 +1634,7 @@ text / fontSize / textStyle on label nodes, and so on.
 
 ## 7. AI Authoring, Scripting, and Speech
 
-Hype's AI integration is now split across three deliberate surfaces:
+Hype's AI integration is now split across five deliberate surfaces:
 
 - **authoring chat** (`AIChatPanel`) for structured tool-calling edits
 - **schema-driven scene authoring** for SpriteKit create/repair flows
@@ -1536,11 +1668,27 @@ adapts the same Hype message/tool/schema types onto OpenAI's Responses API:
 - tool results keep their `call_id` pairing so multi-step OpenAI tool loops
   can continue without a provider-specific executor path
 
+`OpenAIImageGenerationClient`
+(Sources/HypeCore/AI/OpenAIImageGenerationClient.swift) is the image-only
+OpenAI client:
+
+- `/v1/images/generations` creates base64 image bytes from text prompts
+- generated bytes are stored only as `Part.imageData` or `SpriteAsset.data`
+- request/response console logs include prompts, model, size, MIME type, and
+  byte counts, but never log API keys or generated base64 image payloads
+
 `OpenAISpeechClient` (Sources/HypeCore/AI/OpenAISpeechClient.swift) covers
 the speech side:
 
 - `/v1/audio/transcriptions` for OpenAI-backed voice input
 - `/v1/audio/speech` for optional assistant reply playback
+- `AISpeechCapture` applies the same voice-request completion behavior across
+  AI surfaces: partial Apple Speech transcripts and metered OpenAI recordings
+  auto-finalize after roughly 3.5 seconds of user silence
+- `SpeechOutputProvider` is the HypeCore injection point for spoken AI
+  responses; the app target supplies `OpenAISpeechOutputProvider` so AI
+  Assistant replies and HypeTalk `ask ai` / `ollama(...)` responses can be
+  spoken without putting AVFoundation playback into the interpreter
 
 Preferences store the selected AI provider/model and speech provider/model in
 `UserDefaults`, while OpenAI and Pexels API keys stay in Keychain.
@@ -1556,7 +1704,7 @@ directly into typed Swift structs.
 
 ### 7.2 Tool surface: `HypeTools`
 
-`HypeTools` (Sources/HypeCore/AI/HypeTools.swift) declares ~60 tool
+`HypeTools` (Sources/HypeCore/AI/HypeTools.swift) declares 119 tool
 schemas in one place using a small `makeTool(...)` builder that turns a
 `[String: (type, description, required)]` parameter map into a complete
 schema struct. The categories:
@@ -1567,15 +1715,16 @@ schema struct. The categories:
 | Scope properties (read)   | `get_stack_property`, `get_card_property`, `get_background_property` |
 | Scope properties (write)  | `set_stack_property`, `set_card_property`, `set_background_property` |
 | Scope scripts             | `get_stack_script`, `set_stack_script`, `get_card_script`, `set_card_script`, `get_background_script`, `set_background_script` |
-| Part creation             | `create_button`, `create_field`, `create_shape`, `create_webpage`, `create_video`, `create_chart`, `create_image`, `create_calendar`, `create_pdf`, `create_map`, `create_color_well`, `create_stepper`, `create_slider`, `create_segmented`, `create_progressview`, `create_gauge`, `create_divider`, `create_audio_recorder`, `create_scene3d` |
+| Part creation             | `create_button`, `create_field`, `create_label`, `create_shape`, `create_webpage`, `create_video`, `create_chart`, `create_image`, `generate_image`, `create_calendar`, `create_pdf`, `create_map`, `create_color_well`, `create_stepper`, `create_slider`, `create_segmented`, `create_progressview`, `create_gauge`, `create_divider`, `create_audio_recorder`, `create_scene3d` |
 | Part modification         | `set_part_property` (canonical write surface, accepts ~250 property names + aliases incl. `helpText`, `fontColor`, `textStyle`, `rotation`, `imageFilter`), `delete_part`, `repair_form_controls` |
 | Part introspection        | `get_part_property`, `list_all_properties` (full property dump w/ defaults), `get_card_parts`, `get_background_parts`, `capture_card_image` |
 | Themes                    | `list_themes`, `get_theme`, `create_or_update_theme`, `delete_theme`, `apply_theme` |
 | Charts                    | `set_chart_data_point_color`, `get_chart_data_points` |
 | Maps                      | `add_map_annotation`, `clear_map_annotations` |
 | Images                    | `set_image_filter` |
-| Sprite areas / scenes     | `create_sprite_area`, `get_scene_spec`, `apply_scene_diff`, `add_sprite_to_scene`, `add_label_to_scene`, `add_shape_to_scene`, `add_emitter_to_scene`, `add_audio_to_scene`, `create_tilemap`, `create_camera`, `set_node_property`, `set_node_script`, `set_scene_script`, `set_physics_body` |
-| Asset repository          | `list_repository_assets`, `import_repository_asset`, `web_asset_search`, `web_asset_import` |
+| Sprite areas / scenes     | `create_sprite_area`, `get_scene_spec`, `apply_scene_diff`, `add_sprite_to_scene`, `add_label_to_scene`, `add_shape_to_scene`, `add_emitter_to_scene`, `add_audio_to_scene`, `add_video_to_scene`, `add_group_to_scene`, `create_tilemap`, `classify_asset_as_tileset`, `set_tile`, `fill_tilemap`, `get_tilemap_info`, `create_camera`, `add_joint_to_scene`, `add_constraint_to_scene`, `add_physics_field_to_scene`, `capture_scene_snapshot`, `get_scene_diagnostics`, `list_scene_nodes`, `list_scene_joints`, `list_scene_constraints`, `get_scene_script`, `get_node_script`, `get_node_property`, `set_node_property`, `set_node_script`, `set_scene_script`, `set_physics_body` |
+| Asset repository          | `list_repository_assets`, `import_repository_asset`, `generate_sprite_asset`, `web_asset_search`, `web_asset_import` |
+| AI Context Library        | `list_ai_context`, `search_ai_context`, `read_ai_context_item`, `import_context_asset`, `write_ai_context_note` |
 | Script gating             | `check_script` (REQUIRED before storing any HypeTalk; runs the validator) |
 
 The surface is **dual mode**: it has both read tools (for the model to
@@ -1608,13 +1757,15 @@ scene edit.
 
 ### 7.4 Executor and authoring loop
 
-`HypeToolExecutor` (Sources/HypeCore/AI/HypeToolExecutor.swift, ~5,000 LoC)
+`HypeToolExecutor` (Sources/HypeCore/AI/HypeToolExecutor.swift, ~5,400 LoC)
 remains the structural mutation engine. It is still a large `switch` over tool
 name taking `document: inout HypeDocument`, but its responsibilities are now
 more sharply defined:
 
 - create or mutate stack parts and scenes
 - resolve repository assets by stable identity
+- generate OpenAI-backed image parts and AI-generated repository assets when
+  configured with an image generation client
 - apply `SceneDiff` patches to the active scene inside a `SpriteAreaSpec`
 - return diagnostics and navigation signals back to the UI
 - emit `formatAllProperties(_:)` dumps for `list_all_properties` so the
@@ -1652,19 +1803,20 @@ loops:
 3. an undoable apply step that commits the accepted proposal to the document
 
 The panel maintains a bounded conversation window, embeds repository and scene
-context into the system prompt, and keeps past prompts on
-`HypeDocument.aiPromptHistory` for recall. The result is an AI authoring
-surface that is still conversational, but much more deterministic for the
-SpriteKit-heavy parts of the app.
+context into the system prompt, exposes the stack's `AIContextLibrary` through
+safe context tools, and keeps past prompts on `HypeDocument.aiPromptHistory`
+for recall. The result is an AI authoring surface that is still
+conversational, but much more deterministic for the SpriteKit-heavy parts of
+the app and for whole-stack builds driven by user-supplied design material.
 
 `HypeTalkGuide` (`Sources/HypeCore/AI/HypeTalkGuide.swift`) is the system-
 prompt grammar primer fed into every chat turn. It documents the property
 surface, message hierarchy, common patterns, and gotchas — including the
-`exitField` / `closeField` semantics, the `helpText` / `tooltip` aliases,
-the `textStyle` / `fontColor` set/get, and the `animate` command form. The
-guide is updated whenever a new property or grammar form lands so the model
-sees a faithful description of the live surface rather than its training-time
-prior.
+`exitField` / `closeField` semantics, `send "<message>" to <target>`,
+top-level `global` preludes, the `helpText` / `tooltip` aliases, the
+`textStyle` / `fontColor` set/get, and the `animate` command form. The guide
+is updated whenever a new property or grammar form lands so the model sees a
+faithful description of the live surface rather than its training-time prior.
 
 ### 7.5 AI from HypeTalk
 
@@ -1735,7 +1887,8 @@ HypeTalk message hierarchy:
 - `openCard` / `closeCard` — every navigation
 - `openScene` / `closeScene` — when a sprite area becomes active /
   inactive
-- `sceneDidLoad` — once per scene rebuild
+- `sceneDidLoad` — once per scene rebuild, dispatched before `openScene`
+  through the scene → sprite area → card → background → stack chain
 - `mouseDown` / `mouseUp` / `mouseDragged` — both for classic parts and
   for sprite-area nodes
 - `mouseWithin` / `frameUpdate` — SpriteKit-driven interaction / frame hooks
@@ -1771,9 +1924,12 @@ surface.
 
 ### 8.4 Testing
 
-The `HypeCoreTests` target now contains **149 suites and 1,451 tests**, all
-running without an attached UI because `HypeCore` has no AppKit / SpriteKit
-dependencies. The full suite executes in ~85 seconds. Coverage spans:
+The combined SwiftPM test suite currently runs **165 suites and 1,540 tests**
+in about 80-90 seconds on the local machine. Most tests live in
+`HypeCoreTests` and run without launching the app because they exercise the
+model, parser, interpreter, renderer helpers, and tool executor directly;
+`HypeTests` covers app-facing seams that need AppKit, SpriteKit, or an
+`NSWindow`. Coverage spans:
 
 - **Model & persistence** — Codable round-trip, forward-compat decoding for
   every value-typed field added since v1, JSON shape stability tests.
@@ -1788,25 +1944,68 @@ dependencies. The full suite executes in ~85 seconds. Coverage spans:
 - **AI authoring loop** — tool-call dispatch, `check_script` gating,
   `ScriptAutoFixer` regression suite, end-to-end multi-turn dispatch
   (`EndToEndAIDispatchTests`), tool-arg repair (`HypeAIResponseRepairTests`),
-  scene-authoring schema validation.
+  scene-authoring schema validation, OpenAI Responses/Image client encoding,
+  and AI Context Library tool execution.
 - **Specific surfaces** — animate command (`AnimateCommandTests`), GIF
   decoder + animator, chart data points, calendar / PDF / map, color well,
   every form control, sprite slicing, tile-set classification, theme
-  resolution, multi-selection editing, text styling (TextStyleFlags +
-  rendered ink-budget regression), and the new `helpText` Codable +
-  HypeTalk + AI surfaces.
+  resolution, multi-selection editing, grouping, top-level `global` preludes,
+  explicit `send "<message>" to <target>` dispatch, `sceneDidLoad`
+  lifecycle delivery, text styling (TextStyleFlags + rendered ink-budget
+  regression), and the new `helpText` Codable + HypeTalk + AI surfaces.
 - **Renderer ink-budget regressions** — pixel-level checks that bold draws
   more ink than plain, that transparent-background actually masks alpha,
   etc. These catch silent drawing regressions that wouldn't surface in
   Codable-only tests.
 
 A separate `HypeTests` target holds app-facing smoke coverage for SpriteKit
-bridge behavior, the canvas hover-help registration path, and related UI
-integration seams that need an `NSWindow` to exercise.
+bridge behavior, native card-node reconciliation, the canvas hover-help
+registration path, grouped-object keyboard movement, card transition handoff,
+menu composition, field-editor layout parity, and Script Editor AI prompt
+behavior. Provider parity and AI transaction coverage live in `HypeCoreTests`
+so they can run without live OpenAI/Ollama credentials.
 
 ---
 
-## 9. Where SpriteKit Sits in the Stack — Summary
+## 9. Current Feature Gaps / Architectural Runway
+
+These are intentional or still-open gaps in the architecture as built, not
+unknowns:
+
+1. **Live sync has a local engine, but no external transport.** `SyncService`
+   now publishes operation/change-set updates between peers, maintains
+   checkpoints, and reports deterministic conflicts. The remaining gap is
+   plugging in the selected external transport and exposing collaboration UI.
+2. **Card rendering is still hybrid, but basic native nodes exist.** Sprite
+   areas, transitions, shapes, images, buttons, fields, and paint layers now have
+   SpriteKit-native card-scene nodes and reconciliation tests. Editing overlays
+   and platform-heavy parts still use AppKit/Core Graphics until each path can
+   preserve selection, text editing, accessibility, and scripting parity.
+3. **Paint layers now persist, but paint tooling is still basic.** `PaintLayer`
+   supports drawing and script adapters inside `CardCanvasNSView`; the document
+   stores per-card `CardPaintLayer` snapshots and HTML export embeds them as
+   PNG data. The remaining gap is richer paint-layer management such as import,
+   layer ordering, and external image export controls.
+4. **Some legacy HyperTalk commands are recognized no-ops.** Commands such as
+   `doMenu`, `print`, `run`, `copy template`, and some selection/find surfaces
+   remain intentionally stubbed or compatibility-only. Classic handler parameter
+   access (`the paramCount`, `the params`, `param N`) is implemented; users may
+   still expect fuller classic HyperCard behavior later.
+5. **AI authoring has formal transactions, but preview UX is still maturing.**
+   `AIEditTransactionRunner` executes tool calls against a draft document,
+   captures operation deltas, and supports explicit apply/rollback. Main chat AI
+   tool turns now use that transaction path; the remaining gap is richer
+   user-facing preview/apply controls and single-undo integration across every AI
+   surface.
+6. **OpenAI/Ollama parity has local coverage, but live provider drift remains.**
+   `AIProviderParityHarness` verifies text tool-call contracts, image generation,
+   and speech output with local fakes. Opt-in live provider tests and stack-level
+   smoke recordings should keep expanding because model/tool behavior remains
+   the least deterministic part of the system.
+
+---
+
+## 10. Where SpriteKit Sits in the Stack — Summary
 
 The user's framing — *"SpriteKit as the underlying layer for interaction
 across a stack"* — maps onto the implementation as follows:

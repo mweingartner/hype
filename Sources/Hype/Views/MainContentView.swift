@@ -186,6 +186,13 @@ struct MainContentView: View {
                     }
                     .help("Sprite Repository")
 
+                    Button(action: {
+                        openAIContextLibraryWindow(document: $document)
+                    }) {
+                        Image(systemName: "folder.badge.gearshape")
+                    }
+                    .help("AI Context Library")
+
                     Button(action: { showAI.toggle() }) {
                         Image(systemName: "sparkles")
                             .foregroundColor(showAI ? .accentColor : .primary)
@@ -467,7 +474,10 @@ struct MainContentView: View {
     }
 
     private func runtimeConfiguration() -> StackRuntimeConfiguration {
-        StackRuntimeConfiguration(aiProvider: SelectedAIScriptingProvider())
+        StackRuntimeConfiguration(
+            aiProvider: SelectedAIScriptingProvider(),
+            speechOutputProvider: OpenAISpeechOutputProvider.shared
+        )
     }
 
     private func refreshRuntimeStatus() {
@@ -504,6 +514,9 @@ private struct ThemeDesignerHandler: ViewModifier {
                 // surfaces the existing window rather than spawning
                 // a duplicate. See `ThemeDesignerWindowController`.
                 openThemeDesignerWindow(document: $document)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openAIContextLibrary)) { _ in
+                openAIContextLibraryWindow(document: $document)
             }
     }
 }
@@ -551,7 +564,7 @@ private struct NavigationHandlers: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: .editPartProperties)) { notification in
                 if let partId = notification.object as? UUID {
-                    selectedPartIds = [partId]
+                    selectedPartIds = document.document.expandedGroupSelection([partId])
                     currentTool = .select
                 }
             }
@@ -613,17 +626,7 @@ private struct NavigationHandlers: ViewModifier {
                 openScriptErrorEditor(notification: notification)
             }
             .onReceive(NotificationCenter.default.publisher(for: .openPartScriptEditor)) { notification in
-                // Cmd+click in browse mode: open the script editor
-                // for the clicked part (or the card if empty space).
-                // Reuses the existing openScriptEditorWindow which
-                // already handles dedup, resize persistence, and
-                // error highlighting.
-                let info = notification.userInfo ?? [:]
-                if let partId = info["partId"] as? UUID {
-                    openScriptEditorWindow(document: $document, partId: partId, target: .part(partId))
-                } else if let cardId = info["cardId"] as? UUID {
-                    openScriptEditorWindow(document: $document, target: .card(cardId))
-                }
+                openPartScriptEditor(notification: notification)
             }
             .onReceive(NotificationCenter.default.publisher(for: .showConsole)) { _ in
                 openConsoleWindow()
@@ -648,6 +651,19 @@ private struct NavigationHandlers: ViewModifier {
             initialErrorLine: line,
             initialErrorMessage: message
         )
+    }
+
+    private func openPartScriptEditor(notification: Notification) {
+        // Cmd+click in browse mode: open the script editor for the
+        // clicked part, or the current card when clicking empty space.
+        let info = notification.userInfo ?? [:]
+        if let partId = info["partId"] as? UUID {
+            let target: ScriptTarget = .part(partId)
+            openScriptEditorWindow(document: $document, partId: partId, target: target)
+        } else if let cardId = info["cardId"] as? UUID {
+            let target: ScriptTarget = .card(cardId)
+            openScriptEditorWindow(document: $document, target: target)
+        }
     }
 
     private func resolvedScriptTarget(from info: [AnyHashable: Any]) -> ScriptTarget? {
@@ -745,7 +761,10 @@ private struct NavigationHandlers: ViewModifier {
         let snapshot = document.document
         let runtime = await StackRuntimeRegistry.shared.runtime(
             for: snapshot,
-            configuration: StackRuntimeConfiguration(aiProvider: SelectedAIScriptingProvider())
+            configuration: StackRuntimeConfiguration(
+                aiProvider: SelectedAIScriptingProvider(),
+                speechOutputProvider: OpenAISpeechOutputProvider.shared
+            )
         )
         let result = await runtime.dispatchAndWait(
             message,
@@ -897,17 +916,30 @@ private struct ArrangeHandlers: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .onReceive(NotificationCenter.default.publisher(for: .groupSelection)) { _ in
+                if let groupId = document.document.groupParts(ids: selectedPartIds) {
+                    selectedPartIds = document.document.expandedGroupSelection(
+                        Set(document.document.parts.filter { $0.groupId == groupId }.map(\.id))
+                    )
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .ungroupSelection)) { _ in
+                let affected = document.document.ungroupParts(ids: selectedPartIds)
+                if !affected.isEmpty {
+                    selectedPartIds = affected
+                }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .bringForward)) { _ in
-                if let id = selectedPartIds.first { document.document.bringForward(id: id) }
+                document.document.bringForward(ids: selectedPartIds)
             }
             .onReceive(NotificationCenter.default.publisher(for: .sendBackward)) { _ in
-                if let id = selectedPartIds.first { document.document.sendBackward(id: id) }
+                document.document.sendBackward(ids: selectedPartIds)
             }
             .onReceive(NotificationCenter.default.publisher(for: .bringToFront)) { _ in
-                if let id = selectedPartIds.first { document.document.bringToFront(id: id) }
+                document.document.bringToFront(ids: selectedPartIds)
             }
             .onReceive(NotificationCenter.default.publisher(for: .sendToBack)) { _ in
-                if let id = selectedPartIds.first { document.document.sendToBack(id: id) }
+                document.document.sendToBack(ids: selectedPartIds)
             }
     }
 }
@@ -950,48 +982,60 @@ private struct AlignmentHandlers: ViewModifier {
     }
 
     private func alignSelectedParts(_ alignment: AlignmentType) {
-        let ids = selectedPartIds
-        guard ids.count >= 2 else { return }
-        let parts = document.document.parts.filter { ids.contains($0.id) }
-        guard parts.count >= 2 else { return }
+        let units = document.document.selectionUnits(for: selectedPartIds)
+        guard units.count >= 2 else { return }
 
         switch alignment {
         case .left:
-            let minLeft = parts.map(\.left).min()!
-            for id in ids { document.document.updatePart(id: id) { $0.left = minLeft } }
+            let minLeft = units.map(\.bounds.left).min()!
+            for unit in units {
+                document.document.moveParts(ids: unit.ids, dx: minLeft - unit.bounds.left, dy: 0)
+            }
         case .right:
-            let maxRight = parts.map { $0.left + $0.width }.max()!
-            for id in ids { document.document.updatePart(id: id) { $0.left = maxRight - $0.width } }
+            let maxRight = units.map(\.bounds.right).max()!
+            for unit in units {
+                document.document.moveParts(ids: unit.ids, dx: maxRight - unit.bounds.right, dy: 0)
+            }
         case .top:
-            let minTop = parts.map(\.top).min()!
-            for id in ids { document.document.updatePart(id: id) { $0.top = minTop } }
+            let minTop = units.map(\.bounds.top).min()!
+            for unit in units {
+                document.document.moveParts(ids: unit.ids, dx: 0, dy: minTop - unit.bounds.top)
+            }
         case .bottom:
-            let maxBottom = parts.map { $0.top + $0.height }.max()!
-            for id in ids { document.document.updatePart(id: id) { $0.top = maxBottom - $0.height } }
+            let maxBottom = units.map(\.bounds.bottom).max()!
+            for unit in units {
+                document.document.moveParts(ids: unit.ids, dx: 0, dy: maxBottom - unit.bounds.bottom)
+            }
         case .hCenter:
-            let avgCenterX = parts.map { $0.left + $0.width / 2 }.reduce(0, +) / Double(parts.count)
-            for id in ids { document.document.updatePart(id: id) { $0.left = avgCenterX - $0.width / 2 } }
+            let avgCenterX = units.map(\.bounds.centerX).reduce(0, +) / Double(units.count)
+            for unit in units {
+                document.document.moveParts(ids: unit.ids, dx: avgCenterX - unit.bounds.centerX, dy: 0)
+            }
         case .vCenter:
-            let avgCenterY = parts.map { $0.top + $0.height / 2 }.reduce(0, +) / Double(parts.count)
-            for id in ids { document.document.updatePart(id: id) { $0.top = avgCenterY - $0.height / 2 } }
+            let avgCenterY = units.map(\.bounds.centerY).reduce(0, +) / Double(units.count)
+            for unit in units {
+                document.document.moveParts(ids: unit.ids, dx: 0, dy: avgCenterY - unit.bounds.centerY)
+            }
         case .distributeH:
-            let sorted = parts.sorted { $0.left < $1.left }
+            let sorted = units.sorted { $0.bounds.left < $1.bounds.left }
             guard sorted.count >= 3 else { return }
-            let totalSpan = sorted.last!.left - sorted.first!.left
+            let totalSpan = sorted.last!.bounds.left - sorted.first!.bounds.left
             let step = totalSpan / Double(sorted.count - 1)
-            for (i, part) in sorted.enumerated() {
+            for (i, unit) in sorted.enumerated() {
                 if i > 0 && i < sorted.count - 1 {
-                    document.document.updatePart(id: part.id) { $0.left = sorted.first!.left + step * Double(i) }
+                    let targetLeft = sorted.first!.bounds.left + step * Double(i)
+                    document.document.moveParts(ids: unit.ids, dx: targetLeft - unit.bounds.left, dy: 0)
                 }
             }
         case .distributeV:
-            let sorted = parts.sorted { $0.top < $1.top }
+            let sorted = units.sorted { $0.bounds.top < $1.bounds.top }
             guard sorted.count >= 3 else { return }
-            let totalSpan = sorted.last!.top - sorted.first!.top
+            let totalSpan = sorted.last!.bounds.top - sorted.first!.bounds.top
             let step = totalSpan / Double(sorted.count - 1)
-            for (i, part) in sorted.enumerated() {
+            for (i, unit) in sorted.enumerated() {
                 if i > 0 && i < sorted.count - 1 {
-                    document.document.updatePart(id: part.id) { $0.top = sorted.first!.top + step * Double(i) }
+                    let targetTop = sorted.first!.bounds.top + step * Double(i)
+                    document.document.moveParts(ids: unit.ids, dx: 0, dy: targetTop - unit.bounds.top)
                 }
             }
         }

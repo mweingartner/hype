@@ -368,7 +368,8 @@ public struct HypeTalkScriptValidator: Sendable {
             failures += checkStatements(body, context: context)
         case .expressionStatement(let expr):
             failures += checkExpression(expr, context: context)
-        case .send(_, let target):
+        case .send(let message, let target):
+            failures += checkExpression(message, context: context)
             failures += checkExpression(target, context: context)
         case .animateProperty(_, let target, let toValue, let duration):
             failures += checkExpression(target, context: context)
@@ -569,4 +570,3 @@ public struct HypeTalkScriptValidator: Sendable {
         return re
     }()
 }
-

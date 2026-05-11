@@ -147,23 +147,34 @@ struct SpriteRepositoryView: View {
             }
             .frame(minWidth: 250)
 
-            // Right: detail panel
-            if selectedAssetIds.count == 1,
-               let assetId = selectedAssetIds.first,
-               let asset = document.document.spriteRepository.asset(byId: assetId) {
-                assetDetailPanel(asset)
-                    .frame(minWidth: 220)
-            } else if selectedAssetIds.count > 1 {
-                multiSelectionPanel
-                    .frame(minWidth: 220)
-            } else {
-                VStack {
-                    Spacer()
-                    Text("Select an asset").foregroundColor(.secondary)
-                    Spacer()
+            // Right: detail panel + repository-scoped AI chat.
+            VStack(spacing: 0) {
+                Group {
+                    if selectedAssetIds.count == 1,
+                       let assetId = selectedAssetIds.first,
+                       let asset = document.document.spriteRepository.asset(byId: assetId) {
+                        assetDetailPanel(asset)
+                    } else if selectedAssetIds.count > 1 {
+                        multiSelectionPanel
+                    } else {
+                        VStack {
+                            Spacer()
+                            Text("Select an asset").foregroundColor(.secondary)
+                            Spacer()
+                        }
+                    }
                 }
-                .frame(minWidth: 220)
+                .frame(minWidth: 260, maxHeight: .infinity)
+
+                Divider()
+
+                SpriteRepositoryAIChatView(
+                    document: $document,
+                    selectedAssetIds: $selectedAssetIds
+                )
+                .frame(minWidth: 260, minHeight: 240, idealHeight: 280, maxHeight: 340)
             }
+            .frame(minWidth: 300)
         }
         .frame(minWidth: 550, minHeight: 350)
         // Repository window surface — themed so the whole window

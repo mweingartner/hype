@@ -7,6 +7,25 @@ private final class AIProbe: @unchecked Sendable {
     var models: [String?] = []
 }
 
+private final class SpeechProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var entries: [(text: String, source: String)] = []
+
+    func record(text: String, source: String) {
+        lock.withLock {
+            entries.append((text, source))
+        }
+    }
+
+    var texts: [String] {
+        lock.withLock { entries.map(\.text) }
+    }
+
+    var sources: [String] {
+        lock.withLock { entries.map(\.source) }
+    }
+}
+
 private struct RecordingAIProvider: AIScriptingProvider {
     let current: String
     let available: [String]
@@ -35,6 +54,14 @@ private struct RecordingAIProvider: AIScriptingProvider {
     }
 }
 
+private struct RecordingSpeechOutputProvider: SpeechOutputProvider {
+    let probe: SpeechProbe
+
+    func speakAIResponse(_ text: String, source: String) async {
+        probe.record(text: text, source: source)
+    }
+}
+
 private func makeAIScriptDoc() -> (HypeDocument, UUID, UUID) {
     var doc = HypeDocument.newDocument()
     let cardId = doc.cards[0].id
@@ -51,7 +78,8 @@ private func makeAIScriptDoc() -> (HypeDocument, UUID, UUID) {
 
 private func runAIScript(
     _ script: String,
-    provider: any AIScriptingProvider
+    provider: any AIScriptingProvider,
+    speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider()
 ) async -> ExecutionResult {
     var (doc, cardId, buttonId) = makeAIScriptDoc()
     doc.updatePart(id: buttonId) { $0.script = script }
@@ -63,7 +91,8 @@ private func runAIScript(
             targetId: buttonId,
             document: doc,
             currentCardId: cardId,
-            aiProvider: provider
+            aiProvider: provider,
+            speechOutputProvider: speechOutputProvider
         )
     }
 }
@@ -112,6 +141,23 @@ struct HypeTalkAITests {
         #expect(provider.probe.models == [nil])
     }
 
+    @Test("ask ai speaks the generated response through the speech output provider")
+    func askAISpeaksGeneratedResponse() async {
+        let speechProbe = SpeechProbe()
+        let provider = RecordingAIProvider(generated: "Scene summary")
+        let result = await runAIScript("""
+        on mouseUp
+          ask ai "Summarize this scene"
+          put it into field "output"
+        end mouseUp
+        """, provider: provider, speechOutputProvider: RecordingSpeechOutputProvider(probe: speechProbe))
+
+        #expect(result.status == .completed)
+        #expect(outputText(from: result) == "Scene summary")
+        #expect(speechProbe.texts == ["Scene summary"])
+        #expect(speechProbe.sources == ["HypeTalk AI"])
+    }
+
     @Test("ask ai with model passes the requested model name") func askAIWithModelUsesRequestedModel() async {
         let provider = RecordingAIProvider(generated: "Boss encounter")
         let result = await runAIScript("""
@@ -139,6 +185,22 @@ struct HypeTalkAITests {
         #expect(outputText(from: result) == "Quest accepted")
         #expect(provider.probe.prompts == ["Write a quest acceptance line"])
         #expect(provider.probe.models == ["mistral-small"])
+    }
+
+    @Test("ollama function speaks the generated response through the speech output provider")
+    func ollamaFunctionSpeaksGeneratedResponse() async {
+        let speechProbe = SpeechProbe()
+        let provider = RecordingAIProvider(generated: "Quest accepted")
+        let result = await runAIScript("""
+        on mouseUp
+          put ollama("mistral-small", "Write a quest acceptance line") into field "output"
+        end mouseUp
+        """, provider: provider, speechOutputProvider: RecordingSpeechOutputProvider(probe: speechProbe))
+
+        #expect(result.status == .completed)
+        #expect(outputText(from: result) == "Quest accepted")
+        #expect(speechProbe.texts == ["Quest accepted"])
+        #expect(speechProbe.sources == ["HypeTalk AI"])
     }
 
     @Test("the aiModel returns the configured current model") func aiModelPropertyReturnsCurrentModel() async {

@@ -25,6 +25,12 @@ public struct Stack: Identifiable, Codable, Sendable {
     /// Toggle in Preferences → Web Asset Search → Current Stack.
     public var webAssetsAllowed: Bool
 
+    /// Whether stack-scoped AI Context Library snippets may be sent to cloud
+    /// model providers such as OpenAI. Local Ollama models can use context
+    /// without this flag; cloud use is opt-in because attached files may contain
+    /// private project rules, source text, or customer assets.
+    public var aiContextCloudSharingAllowed: Bool
+
     /// The stack-level theme name. NEVER nil — the cascade
     /// (card → background → stack) needs a guaranteed terminating
     /// reference, so newly-created stacks default to
@@ -38,6 +44,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         case id, name, width, height, createdAt, modifiedAt, script
         case defaultFont, networkManifest
         case webAssetsAllowed
+        case aiContextCloudSharingAllowed
         case themeName
     }
 
@@ -52,6 +59,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         defaultFont: String = "Apple Braille",
         networkManifest: StackNetworkManifest = StackNetworkManifest(),
         webAssetsAllowed: Bool = false,
+        aiContextCloudSharingAllowed: Bool = false,
         themeName: String = "System"
     ) {
         self.id = id
@@ -64,6 +72,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         self.defaultFont = defaultFont
         self.networkManifest = networkManifest
         self.webAssetsAllowed = webAssetsAllowed
+        self.aiContextCloudSharingAllowed = aiContextCloudSharingAllowed
         self.themeName = themeName
     }
 
@@ -80,6 +89,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         networkManifest = try c.decodeIfPresent(StackNetworkManifest.self, forKey: .networkManifest) ?? StackNetworkManifest()
         // Backward-compatible: pre-v2 stacks have no webAssetsAllowed field.
         webAssetsAllowed = try c.decodeIfPresent(Bool.self, forKey: .webAssetsAllowed) ?? false
+        aiContextCloudSharingAllowed = try c.decodeIfPresent(Bool.self, forKey: .aiContextCloudSharingAllowed) ?? false
         // Backward-compatible: pre-theme stacks default to "System".
         themeName = try c.decodeIfPresent(String.self, forKey: .themeName) ?? "System"
     }

@@ -73,13 +73,46 @@ public struct Parser: Sendable {
     /// Parse the full script into handler declarations.
     public mutating func parse() throws -> Script {
         var handlers: [Handler] = []
+        var topLevelGlobalNames: [String] = []
         skipNewlines()
         while current.type != .eof {
+            if current.type == .global {
+                let statement = try parseGlobalStatement()
+                if case .globalDecl(let names) = statement {
+                    topLevelGlobalNames.append(contentsOf: names)
+                }
+                skipNewlines()
+                continue
+            }
             let handler = try parseHandler()
             handlers.append(handler)
             skipNewlines()
         }
+        if !topLevelGlobalNames.isEmpty {
+            let globals = stableUnique(topLevelGlobalNames)
+            handlers = handlers.map { handler in
+                Handler(
+                    name: handler.name,
+                    handlerType: handler.handlerType,
+                    params: handler.params,
+                    body: [.globalDecl(globals)] + handler.body,
+                    line: handler.line
+                )
+            }
+        }
         return Script(handlers: handlers)
+    }
+
+    private func stableUnique(_ names: [String]) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for name in names {
+            let key = name.lowercased()
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            result.append(name)
+        }
+        return result
     }
 
     // MARK: - Handler
@@ -425,8 +458,13 @@ public struct Parser: Sendable {
             let thenStmt = try parseStatement()
             var elseBlock: [Statement]? = nil
             if current.type == .else {
-                _ = advance()
-                let elseStmt = try parseStatement()
+                let elseToken = advance()
+                let elseStmt: Statement
+                if current.type == .if && current.line == elseToken.line {
+                    elseStmt = try parseIfStatement()
+                } else {
+                    elseStmt = try parseStatement()
+                }
                 elseBlock = [elseStmt]
             }
             return .ifThenElse(condition: condition, thenBlock: [thenStmt], elseBlock: elseBlock)
@@ -443,7 +481,12 @@ public struct Parser: Sendable {
 
         var elseBlock: [Statement]? = nil
         if current.type == .else {
-            _ = advance()
+            let elseToken = advance()
+            if current.type == .if && current.line == elseToken.line {
+                let elseIfStatement = try parseIfStatement()
+                skipNewlines()
+                return .ifThenElse(condition: condition, thenBlock: thenBlock, elseBlock: [elseIfStatement])
+            }
             skipNewlines()
             var elseStmts: [Statement] = []
             while current.type != .end && current.type != .eof {
@@ -463,12 +506,15 @@ public struct Parser: Sendable {
     private mutating func parseRepeatStatement() throws -> Statement {
         _ = try expect(.repeat)
 
-        // `repeat with i = from to to`
+        // `repeat with i = 1 to 10` or `repeat with i from 1 to 10`
         if current.type == .with {
             _ = advance()
             let varName = advance().value
-            _ = try expect(.eq)
+            if !match(.eq) {
+                _ = try expect(.from)
+            }
             let fromExpr = try parseExpression()
+            _ = match(.down)
             _ = try expect(.to)
             let toExpr = try parseExpression()
             skipNewlines()
@@ -1380,11 +1426,15 @@ public struct Parser: Sendable {
     private mutating func parseSendStatement() throws -> Statement {
         _ = try expect(.send)
         let data = try parseExpression()
-        _ = match(.to)
-        _ = match(.connection)
+        _ = try expect(.to)
+        if match(.connection) {
+            let connection = try parseExpression()
+            skipNewlines()
+            return .sendToConnection(data: data, connection: connection)
+        }
         let connection = try parseExpression()
         skipNewlines()
-        return .sendToConnection(data: data, connection: connection)
+        return .send(message: data, target: connection)
     }
 
     private mutating func parseStartStatement() throws -> Statement {
@@ -1853,6 +1903,9 @@ public struct Parser: Sendable {
 
         case .this:
             _ = advance()
+            if let scopedRef = parseCurrentScopeReference(scopeWord: "this") {
+                return scopedRef
+            }
             return .this
 
         case .empty:
@@ -1895,6 +1948,13 @@ public struct Parser: Sendable {
             // tokenized as identifiers so we only accept the
             // single-token form here ("colorwell" or "color_well").
             return try parseObjectReference()
+
+        case .identifier where current.value.lowercased() == "current":
+            _ = advance()
+            if let scopedRef = parseCurrentScopeReference(scopeWord: "current") {
+                return scopedRef
+            }
+            return .variable("current")
 
         case .identifier where current.value.lowercased() == "data":
             // Possible compound data-point reference:
@@ -2054,6 +2114,26 @@ public struct Parser: Sendable {
                     pos = checkpoint
                 }
 
+                // Chunk counts: `the number of lines in x`,
+                // `the number of items of field "list"`, etc.
+                if let chunkType = chunkTypeFromToken(current.type) {
+                    let cp = pos
+                    _ = advance()
+                    let linkOK = current.type == .of ||
+                        (current.type == .identifier && current.value.lowercased() == "in")
+                    if linkOK {
+                        _ = advance()
+                        let source = try parsePrimary()
+                        switch chunkType {
+                        case .word: return .propertyAccess("numberOfWords", source)
+                        case .char, .character: return .propertyAccess("numberOfChars", source)
+                        case .item: return .propertyAccess("numberOfItems", source)
+                        case .line: return .propertyAccess("numberOfLines", source)
+                        }
+                    }
+                    pos = cp
+                }
+
                 // Compound collection names: `bg fields`, `bg buttons`,
                 // `card fields`, `card buttons`. The singular keyword
                 // tokens (.background, .card, .field, .button) would
@@ -2117,6 +2197,10 @@ public struct Parser: Sendable {
         case .down:
             let tok = advance()
             return .literal(tok.value)
+
+        case .return:
+            let tok = advance()
+            return .variable(tok.value)
 
         case .from, .by, .times,
              .choose, .close, .save, .quit, .mark, .unmark, .push, .pop,
@@ -2235,6 +2319,22 @@ public struct Parser: Sendable {
         return .objectRef(ObjectRefExpr(objectType: objType, identifier: ident))
     }
 
+    private mutating func parseCurrentScopeReference(scopeWord: String) -> Expression? {
+        switch current.type {
+        case .card:
+            _ = advance()
+            return .objectRef(ObjectRefExpr(objectType: "card", identifier: .literal(scopeWord)))
+        case .background:
+            _ = advance()
+            return .objectRef(ObjectRefExpr(objectType: "background", identifier: .literal(scopeWord)))
+        case .stack:
+            _ = advance()
+            return .objectRef(ObjectRefExpr(objectType: "stack", identifier: .literal("stack")))
+        default:
+            return nil
+        }
+    }
+
     /// Parse the remainder of a compound data-point reference after
     /// `data point` / `point` has already been consumed.
     ///
@@ -2346,7 +2446,7 @@ public struct Parser: Sendable {
     private static let unaryPrefixBuiltins: Set<String> = [
         "random", "abs", "round", "trunc", "sqrt",
         "sin", "cos", "tan", "atan", "exp", "ln", "log2",
-        "chartonum", "numtochar", "length", "value", "ollama",
+        "chartonum", "numtochar", "length", "value", "ollama", "param",
     ]
 
     /// Can the given token type start a *primary* expression?

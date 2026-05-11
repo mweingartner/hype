@@ -48,4 +48,15 @@ final class SpriteAreaNode: SKNode {
             contentNode.addChild(skNode)
         }
     }
+
+    func updateFromPart(_ part: Part, repository: SpriteRepository) {
+        position = CGPoint(x: part.left, y: -part.top)
+        isHidden = !part.visible
+        guard let spec = part.activeSceneSpec else {
+            contentNode.removeAllChildren()
+            bridge.registry.clear()
+            return
+        }
+        applySpec(spec, repository: repository)
+    }
 }

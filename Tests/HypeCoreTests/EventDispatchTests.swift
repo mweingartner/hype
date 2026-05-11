@@ -549,6 +549,113 @@ struct EventDispatchTests {
         #expect(result.modifiedDocument?.parts.first(where: { $0.name == "log" })?.textContent == "node>group>scene>part>card>bg>stack")
     }
 
+    @Test("sceneDidLoad dispatch reaches scene scripts and can pass to spriteArea scripts with global preludes")
+    func sceneDidLoadDispatchesThroughSceneContextWithGlobalPrelude() async {
+        var (doc, cardId) = makeDocWithOneCard()
+        let sceneId = UUID()
+        let scene = SceneSpec(
+            name: "maze_scene",
+            size: SizeSpec(width: 800, height: 600),
+            script: """
+            on sceneDidLoad
+              put "scene>" after field "log"
+              pass sceneDidLoad
+            end sceneDidLoad
+            """
+        )
+        var spriteArea = Part(
+            partType: .spriteArea,
+            cardId: cardId,
+            name: "maze_area",
+            left: 0,
+            top: 0,
+            width: 800,
+            height: 600
+        )
+        spriteArea.script = """
+        global sceneLoads
+
+        on sceneDidLoad
+          add 1 to sceneLoads
+          put "part" after field "log"
+        end sceneDidLoad
+        """
+        spriteArea.setSpriteAreaSpec(
+            SpriteAreaSpec(
+                activeSceneID: sceneId,
+                scenes: [SpriteAreaScene(id: sceneId, scene: scene)],
+                designSize: SizeSpec(width: 800, height: 600)
+            )
+        )
+        doc.addPart(spriteArea)
+
+        let context = ScriptDispatchContext(
+            hierarchyPrefix: [sceneId, spriteArea.id],
+            objectScripts: [sceneId: scene.script],
+            objectDescriptions: [sceneId: "scene \"maze_scene\""]
+        )
+
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
+            message: "sceneDidLoad",
+            params: [],
+            targetId: sceneId,
+            document: doc,
+            currentCardId: cardId,
+            scriptContext: context
+        ) }
+
+        #expect(result.status == .completed)
+        #expect(result.modifiedDocument?.parts.first(where: { $0.name == "log" })?.textContent == "scene>part")
+        #expect(result.modifiedDocument?.scriptGlobals["sceneloads"] == "1")
+    }
+
+    @Test("top-level global prelude preserves state across spriteArea scene lifecycle handlers")
+    func spriteAreaGlobalPreludePersistsAcrossLifecycleHandlers() async {
+        var (doc, cardId) = makeDocWithOneCard()
+        var spriteArea = Part(
+            partType: .spriteArea,
+            cardId: cardId,
+            name: "game",
+            left: 0,
+            top: 0,
+            width: 400,
+            height: 300
+        )
+        spriteArea.script = """
+        global score
+
+        on openScene
+          put 1 into score
+        end openScene
+
+        on keyDown
+          add 1 to score
+        end keyDown
+        """
+        doc.addPart(spriteArea)
+
+        let dispatcher = MessageDispatcher()
+        let opened = await runOnLargeStack { [doc, cardId, spriteArea] in dispatcher.dispatch(
+            message: "openScene",
+            params: [],
+            targetId: spriteArea.id,
+            document: doc,
+            currentCardId: cardId
+        ) }
+        let openedDocument = opened.modifiedDocument ?? doc
+        let keyDown = await runOnLargeStack { [openedDocument, cardId, spriteArea] in dispatcher.dispatch(
+            message: "keyDown",
+            params: [],
+            targetId: spriteArea.id,
+            document: openedDocument,
+            currentCardId: cardId
+        ) }
+
+        #expect(opened.status == .completed)
+        #expect(keyDown.status == .completed)
+        #expect(keyDown.modifiedDocument?.scriptGlobals["score"] == "2")
+    }
+
     // MARK: - Hierarchy completeness spot-check
 
     @Test("every level of the hierarchy can handle a lifecycle event") func everyHierarchyLevelCanHandle() async {

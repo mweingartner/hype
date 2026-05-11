@@ -194,8 +194,9 @@ struct HypeApp: App {
             // Pages, Keynote, and Xcode: standard menus (File, Edit,
             // View) come first, then app-specific menus (Go,
             // Objects, Arrange, Tools, AI), with Window and Help
-            // last. Window is added by SwiftUI; Help is added by
-            // the system.
+            // last. SwiftUI supplies View/Window/Help, so Hype
+            // inserts additions with CommandGroup rather than
+            // declaring duplicate top-level menus.
             EditMenuCommands()
             ViewMenuCommands()
             GoMenuCommands()

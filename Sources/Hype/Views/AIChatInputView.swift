@@ -176,6 +176,54 @@ struct AIChatInputView: NSViewRepresentable {
     }
 }
 
+enum AIChatPromptHistoryDirection {
+    case up
+    case down
+}
+
+enum AIChatPromptHistory {
+    static let maxEntries = 100
+
+    static func appending(_ prompt: String, to history: [String]) -> [String] {
+        let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return history }
+        var updated = history
+        if updated.last != text {
+            updated.append(text)
+        }
+        if updated.count > maxEntries {
+            updated.removeFirst(updated.count - maxEntries)
+        }
+        return updated
+    }
+
+    static func recall(
+        direction: AIChatPromptHistoryDirection,
+        from history: [String],
+        index: inout Int
+    ) -> String? {
+        guard !history.isEmpty else { return nil }
+
+        switch direction {
+        case .up:
+            if index < 0 {
+                index = history.count - 1
+            } else if index > 0 {
+                index -= 1
+            }
+            return history[index]
+        case .down:
+            if index >= 0 && index < history.count - 1 {
+                index += 1
+                return history[index]
+            } else {
+                index = -1
+                return ""
+            }
+        }
+    }
+}
+
 /// NSTextView subclass that intercepts Enter (no shift) and
 /// Up / Down arrow presses for the chat input's send + history
 /// behavior, leaving every other key as native NSTextView input.

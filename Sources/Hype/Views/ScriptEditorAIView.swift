@@ -10,8 +10,12 @@ struct ScriptEditorAIView: View {
     @Environment(\.hypeTheme) private var hypeTheme
     @StateObject private var speechCapture = AISpeechCapture()
     @State private var prompt = ""
+    @State private var promptContentHeight: CGFloat = 18
     @State private var messages: [ScriptAIMessage] = []
     @State private var isProcessing = false
+    @State private var activeRequestTask: Task<Void, Never>?
+    @State private var historyIndex: Int = -1
+    @FocusState private var isPromptFocused: Bool
 
     private struct ScriptAIMessage: Identifiable, Equatable {
         let id = UUID()
@@ -88,16 +92,44 @@ struct ScriptEditorAIView: View {
                 .padding(.bottom, 6)
             }
 
-            VStack(spacing: 6) {
-                TextEditor(text: $prompt)
-                    .font(.system(size: 12))
-                    .frame(minHeight: 64, maxHeight: 96)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                    )
+            HStack(alignment: .bottom, spacing: 6) {
+                ZStack(alignment: .topLeading) {
+                    if prompt.isEmpty {
+                        Text("Ask Script AI for HypeTalk help...")
+                            .foregroundColor(.secondary)
+                            .font(.system(size: 12))
+                            .padding(8)
+                            .allowsHitTesting(false)
+                    }
 
-                HStack {
+                    AIChatInputView(
+                        text: $prompt,
+                        contentHeight: $promptContentHeight,
+                        isEnabled: !isProcessing,
+                        onSubmit: { sendPrompt() },
+                        onHistoryUp: { recallHistory(direction: .up) },
+                        onHistoryDown: { recallHistory(direction: .down) }
+                    )
+                    .padding(8)
+                    .focused($isPromptFocused)
+                }
+                .frame(height: min(max(promptContentHeight + 16, 32), 320))
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.secondary.opacity(0.3))
+                )
+
+                HStack(spacing: 4) {
+                    if isProcessing {
+                        Button("Stop") { haltCurrentTask() }
+                            .foregroundColor(.red)
+                            .help("Stop the current model request")
+                    } else {
+                        Button("Submit") { sendPrompt() }
+                            .disabled(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .help("Submit to Script AI (Return)")
+                    }
+
                     Button {
                         speechCapture.toggle()
                     } label: {
@@ -106,25 +138,35 @@ struct ScriptEditorAIView: View {
                     }
                     .buttonStyle(.borderless)
                     .help(speechCapture.isTranscribing ? "Transcribing..." : "Voice prompt")
-
-                    Spacer()
-
-                    Button("Ask") { sendPrompt() }
-                        .disabled(isProcessing || prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
+                .padding(.bottom, 6)
             }
             .padding(8)
+            .onAppear {
+                isPromptFocused = true
+            }
             .onChange(of: speechCapture.transcript) { _, newValue in
                 if speechCapture.isListening {
                     prompt = newValue
                 }
             }
             .onReceive(speechCapture.transcriptDidFinalize) { finalText in
+                let cleaned = finalText
+                    .lowercased()
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let cancelPhrases = ["cancel operation", "cancel the operation", "stop", "halt"]
+                if isProcessing && cancelPhrases.contains(where: { cleaned.contains($0) }) {
+                    haltCurrentTask()
+                    prompt = ""
+                    return
+                }
+                guard !cleaned.isEmpty else { return }
                 prompt = finalText
                 sendPrompt()
             }
             .onDisappear {
                 speechCapture.stop()
+                haltCurrentTask(appendStoppedMessage: false)
             }
         }
         .background(hypeTheme.inspectorBackground.swiftUIColor)
@@ -141,56 +183,77 @@ struct ScriptEditorAIView: View {
         let request = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !request.isEmpty, !isProcessing else { return }
 
+        document.document.aiPromptHistory = AIChatPromptHistory.appending(
+            request,
+            to: document.document.aiPromptHistory
+        )
+        historyIndex = -1
+
         messages.append(ScriptAIMessage(role: "user", content: request))
         prompt = ""
         isProcessing = true
 
-        Task {
+        activeRequestTask = Task {
             do {
                 let client = try HypeAIConfiguration.makeClient()
                 let answer = try await client.generate(
                     prompt: userPrompt(for: request),
                     model: nil,
-                    system: systemPrompt
+                    system: ScriptEditorAIPrompts.systemPrompt
                 )
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     messages.append(ScriptAIMessage(role: "assistant", content: answer))
-                    isProcessing = false
+                    finishProcessing()
                 }
             } catch {
+                guard !Task.isCancelled, !(error is CancellationError) else {
+                    await MainActor.run { finishProcessing() }
+                    return
+                }
                 await MainActor.run {
                     messages.append(ScriptAIMessage(role: "assistant", content: "Error: \(error.localizedDescription)"))
-                    isProcessing = false
+                    finishProcessing()
                 }
             }
         }
     }
 
-    private var systemPrompt: String {
-        """
-        You are Hype's Script Editor AI. Help write and revise HypeTalk only.
-        HypeTalk is not JavaScript, Swift, Python, or Lua.
-        If the user asks for code, return only the complete HypeTalk script or snippet, with no Markdown fence.
-        If the user asks a question, answer concisely and include HypeTalk examples only when useful.
+    private func haltCurrentTask(appendStoppedMessage: Bool = true) {
+        guard isProcessing || activeRequestTask != nil else { return }
+        activeRequestTask?.cancel()
+        activeRequestTask = nil
+        isProcessing = false
+        isPromptFocused = true
+        speechCapture.stop()
+        if appendStoppedMessage {
+            messages.append(ScriptAIMessage(role: "assistant", content: "Stopped."))
+        }
+    }
 
-        \(HypeTalkGuide.llmContext)
-        """
+    private func finishProcessing() {
+        isProcessing = false
+        activeRequestTask = nil
+        isPromptFocused = true
+    }
+
+    private func recallHistory(direction: AIChatPromptHistoryDirection) {
+        if let recalled = AIChatPromptHistory.recall(
+            direction: direction,
+            from: document.document.aiPromptHistory,
+            index: &historyIndex
+        ) {
+            prompt = recalled
+        }
     }
 
     private func userPrompt(for request: String) -> String {
-        """
-        TARGET:
-        \(targetDescription)
-
-        SELECTED TEXT:
-        \(selectedText.isEmpty ? "(none)" : selectedText)
-
-        CURRENT SCRIPT:
-        \(scriptText.isEmpty ? "(empty)" : scriptText)
-
-        USER REQUEST:
-        \(request)
-        """
+        ScriptEditorAIPrompts.userPrompt(
+            request: request,
+            targetDescription: targetDescription,
+            selectedText: selectedText,
+            scriptText: scriptText
+        )
     }
 
     private var selectedText: String {
@@ -259,5 +322,39 @@ struct ScriptEditorAIView: View {
             body = String(body[..<closeRange.lowerBound])
         }
         return body.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+enum ScriptEditorAIPrompts {
+    static var systemPrompt: String {
+        """
+        You are Hype's Script Editor AI. Help write and revise HypeTalk only.
+        HypeTalk is not JavaScript, Swift, Python, or Lua.
+        If the user asks for code, return only the complete HypeTalk script or snippet, with no Markdown fence.
+        If the user asks a question, answer concisely and include HypeTalk examples only when useful.
+
+        \(HypeTalkGuide.llmContext)
+        """
+    }
+
+    static func userPrompt(
+        request: String,
+        targetDescription: String,
+        selectedText: String,
+        scriptText: String
+    ) -> String {
+        """
+        TARGET:
+        \(targetDescription)
+
+        SELECTED TEXT:
+        \(selectedText.isEmpty ? "(none)" : selectedText)
+
+        CURRENT SCRIPT:
+        \(scriptText.isEmpty ? "(empty)" : scriptText)
+
+        USER REQUEST:
+        \(request)
+        """
     }
 }

@@ -15,8 +15,9 @@ public enum FieldRenderer {
         // glass alpha + sheen still applies cleanly.
         let useGlass = GlassRenderer.shouldUseGlass(for: theme)
 
-        let fillColor = (NSColor(hexString: part.fillColor) ?? .white).cgColor
-        let strokeColor = (NSColor(hexString: part.strokeColor) ?? .black).cgColor
+        let palette = FieldTextLayout.palette(for: part, theme: theme)
+        let fillColor = palette.fill.cgColor
+        let strokeColor = palette.stroke.cgColor
         let strokeWidth = max(0, CGFloat(part.strokeWidth))
 
         func strokeFieldRect(_ targetRect: CGRect) {
@@ -62,8 +63,9 @@ public enum FieldRenderer {
             ctx.fill(rect)
             strokeFieldRect(rect)
             // Scrollbar track
-            let scrollRect = CGRect(x: rect.maxX - 16, y: rect.minY, width: 16, height: rect.height)
-            ctx.setFillColor(NSColor.controlColor.cgColor)
+            let trackWidth = FieldTextLayout.scrollingTrailingInset
+            let scrollRect = CGRect(x: rect.maxX - trackWidth, y: rect.minY, width: trackWidth, height: rect.height)
+            ctx.setFillColor(palette.scrollbarTrack.cgColor)
             ctx.fill(scrollRect)
             strokeFieldRect(scrollRect)
         case .secure:
@@ -78,17 +80,17 @@ public enum FieldRenderer {
             let radius = min(rect.height / 2, 12)
             let pillPath = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
             ctx.addPath(pillPath)
-            ctx.setFillColor(NSColor.textBackgroundColor.cgColor)
+            ctx.setFillColor(fillColor)
             ctx.fillPath()
             ctx.addPath(pillPath)
-            ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+            ctx.setStrokeColor(strokeColor)
             ctx.setLineWidth(1)
             ctx.strokePath()
             // Magnifying glass — circle + diagonal handle.
             let iconSize: CGFloat = 12
             let iconCenter = CGPoint(x: rect.minX + 8 + iconSize / 2,
                                      y: rect.midY)
-            ctx.setStrokeColor(NSColor.secondaryLabelColor.cgColor)
+            ctx.setStrokeColor(palette.searchIcon.cgColor)
             ctx.setLineWidth(1.4)
             let circleRadius = iconSize / 2 - 1
             ctx.strokeEllipse(in: CGRect(x: iconCenter.x - circleRadius,
@@ -111,37 +113,11 @@ public enum FieldRenderer {
 
         // Draw text content
         if !part.textContent.isEmpty {
-            let padding: CGFloat = part.wideMargins ? 8 : 4
-            // Leading inset for the search-field magnifying-glass
-            // icon so text doesn't overlap the icon.
-            let leadingIconInset: CGFloat = part.fieldStyle == .search ? 24 : 0
-            let textRect = CGRect(
-                x: rect.minX + padding + leadingIconInset,
-                y: rect.minY + padding,
-                width: rect.width - padding * 2 - leadingIconInset,
-                height: rect.height - padding * 2
-            )
-            let maxWidth = textRect.width - (part.fieldStyle == .scrolling ? 16 : 0)
-
             let nsFont = NSFont(name: part.textFont, size: CGFloat(part.textSize)) ?? NSFont.systemFont(ofSize: CGFloat(part.textSize))
             let alignment: NSTextAlignment = part.textAlign == .center ? .center : part.textAlign == .right ? .right : .left
             let paragraphStyle = NSMutableParagraphStyle()
             paragraphStyle.alignment = alignment
             paragraphStyle.lineBreakMode = part.dontWrap ? .byClipping : .byWordWrapping
-
-            // Pick the text color: explicit `part.fontColor`
-            // overrides everything (the user's choice wins). Else
-            // fall back to a contrast-aware pick from the actual
-            // fillColor's luminance, NOT system appearance — which
-            // is what fixed the dark-mode "white text on white
-            // fill" bug.
-            let textColor: NSColor = {
-                if !part.fontColor.isEmpty,
-                   let parsed = NSColor(hexString: part.fontColor) {
-                    return parsed
-                }
-                return ColorContrast.readableTextColor(forFillHex: part.fillColor)
-            }()
 
             // Apply textStyle traits (bold / italic) to the font and
             // emit underline / strikethrough as attributed-string
@@ -158,7 +134,7 @@ public enum FieldRenderer {
             }
             var attrs: [NSAttributedString.Key: Any] = [
                 .font: styledFont,
-                .foregroundColor: textColor,
+                .foregroundColor: palette.text,
                 .paragraphStyle: paragraphStyle,
             ]
             if flags.underline {
@@ -178,8 +154,15 @@ public enum FieldRenderer {
 
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
-            let drawRect = NSRect(x: textRect.minX, y: textRect.minY, width: maxWidth, height: textRect.height)
-            (displayText as NSString).draw(in: drawRect, withAttributes: attrs)
+            let attributedText = NSAttributedString(string: displayText, attributes: attrs)
+            let drawRect = FieldTextLayout.verticallyCenteredTextRect(
+                in: rect,
+                wideMargins: part.wideMargins,
+                fieldStyle: part.fieldStyle,
+                attributedString: attributedText,
+                fallbackFont: styledFont
+            )
+            attributedText.draw(in: drawRect)
             NSGraphicsContext.restoreGraphicsState()
         }
 

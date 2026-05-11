@@ -52,13 +52,13 @@ struct HypeTalkGuideTests {
         //     so the model stops generating dead code that pretends
         //     to work
         //   - control-flow expansion: single-line if/then/else,
-        //     repeat for / down to / until, the explicit
-        //     "no else if" rule with the canonical nested form
+        //     else-if ladders, repeat for / down to / until, and
+        //     the canonical nested-if form
         //   - chunk expansion: ranges, ordinals, plural keywords,
         //     and the explicit READ-ONLY rule with the splice-and-
         //     write-back idiom
         //   - ~20 additional AVOID bullets covering the most common
-        //     model hallucinations (else if, starts with / ends with,
+        //     model hallucinations (elseif, starts with / ends with,
         //     chunk writes, do "...", the result, send to button,
         //     named colors, comparing me to a string, "yes" being
         //     falsy, etc.)
@@ -126,6 +126,7 @@ struct HypeTalkGuideTests {
             "## Variables and data",
             "## Object references",
             "## Properties",
+            "## AI Context Library",
             "## Chunks",
             "## Control flow",
             "## Navigation",
@@ -251,6 +252,25 @@ struct HypeTalkGuideTests {
         #expect(text.contains("velocity"))
         #expect(text.contains("apply force"))
         #expect(text.contains("apply impulse"))
+    }
+
+    @Test("guide documents AI context scripting and tool surface")
+    func guideDocumentsAIContextSurface() {
+        let text = HypeTalkGuide.llmContext
+        for token in [
+            "aiContextCount",
+            "aiContextSummary",
+            "aiContextCloudSharingAllowed",
+            "list_ai_context",
+            "search_ai_context",
+            "read_ai_context_item",
+            "import_context_asset",
+            "write_ai_context_note",
+            "projectMemory",
+        ] {
+            #expect(text.contains(token), "guide is missing AI context token '\(token)'")
+        }
+        #expect(text.lowercased().contains("untrusted source material"))
     }
 
     @Test("guide documents point and color wire formats")

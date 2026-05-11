@@ -123,7 +123,7 @@ public indirect enum Statement: Sendable {
     case askAI(prompt: Expression, model: Expression?, callback: Expression?)
     case answer(prompt: Expression)
     case visual(effectName: Expression, duration: Expression?)
-    case send(message: String, target: Expression)
+    case send(message: Expression, target: Expression)
     case expressionStatement(Expression)
     case doBlock(Expression)
     // Animation

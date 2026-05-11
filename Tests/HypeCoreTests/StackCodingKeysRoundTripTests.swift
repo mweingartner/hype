@@ -3,8 +3,8 @@ import Foundation
 @testable import HypeCore
 
 /// Tests for `Stack` backward-compatibility and round-trip Codable behavior.
-/// Verifies that pre-v2 `.hype` JSON without `webAssetsAllowed` defaults to `false`,
-/// and that all 10 fields (9 pre-existing + `webAssetsAllowed`) round-trip correctly.
+/// Verifies that pre-v2 `.hype` JSON without newer opt-in flags defaults safely,
+/// and that added stack fields round-trip correctly.
 @Suite("Stack — CodingKeys round-trip and backward compatibility")
 struct StackCodingKeysRoundTripTests {
 
@@ -30,6 +30,7 @@ struct StackCodingKeysRoundTripTests {
         decoder.dateDecodingStrategy = .iso8601
         let stack = try decoder.decode(Stack.self, from: data)
         #expect(stack.webAssetsAllowed == false)
+        #expect(stack.aiContextCloudSharingAllowed == false)
         #expect(stack.name == "My Stack")
     }
 
@@ -55,6 +56,7 @@ struct StackCodingKeysRoundTripTests {
         let stack = try decoder.decode(Stack.self, from: data)
         // null decodeIfPresent → nil → ?? false
         #expect(stack.webAssetsAllowed == false)
+        #expect(stack.aiContextCloudSharingAllowed == false)
     }
 
     // MARK: - All 9 pre-existing fields decode correctly
@@ -87,6 +89,7 @@ struct StackCodingKeysRoundTripTests {
         #expect(stack.defaultFont == "Helvetica")
         // webAssetsAllowed defaults to false when absent
         #expect(stack.webAssetsAllowed == false)
+        #expect(stack.aiContextCloudSharingAllowed == false)
     }
 
     // MARK: - Full round-trip with webAssetsAllowed = true
@@ -103,7 +106,8 @@ struct StackCodingKeysRoundTripTests {
             script: "-- comment",
             defaultFont: "Menlo",
             networkManifest: StackNetworkManifest(),
-            webAssetsAllowed: true
+            webAssetsAllowed: true,
+            aiContextCloudSharingAllowed: true
         )
 
         let encoder = JSONEncoder()
@@ -121,17 +125,20 @@ struct StackCodingKeysRoundTripTests {
         #expect(decoded.script == "-- comment")
         #expect(decoded.defaultFont == "Menlo")
         #expect(decoded.webAssetsAllowed == true)
+        #expect(decoded.aiContextCloudSharingAllowed == true)
     }
 
     @Test("Stack with webAssetsAllowed=false round-trips through JSON")
     func stackWithWebAssetsDisabledRoundTrips() throws {
         let original = Stack(
             name: "No Web Assets",
-            webAssetsAllowed: false
+            webAssetsAllowed: false,
+            aiContextCloudSharingAllowed: false
         )
         let encoded = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(Stack.self, from: encoded)
         #expect(decoded.webAssetsAllowed == false)
+        #expect(decoded.aiContextCloudSharingAllowed == false)
     }
 
     // MARK: - Default init
@@ -140,6 +147,7 @@ struct StackCodingKeysRoundTripTests {
     func defaultInitWebAssetsAllowedFalse() {
         let stack = Stack()
         #expect(stack.webAssetsAllowed == false)
+        #expect(stack.aiContextCloudSharingAllowed == false)
     }
 
     @Test("Stack default init sets all other fields to expected defaults")
@@ -170,5 +178,6 @@ struct StackCodingKeysRoundTripTests {
         #expect(stack.script == "")
         #expect(stack.defaultFont == "Apple Braille")
         #expect(stack.webAssetsAllowed == false)
+        #expect(stack.aiContextCloudSharingAllowed == false)
     }
 }

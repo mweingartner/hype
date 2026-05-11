@@ -7,6 +7,7 @@ struct PreferencesView: View {
     @AppStorage("ollamaModel") private var ollamaModel = "llama3.2"
     @AppStorage(HypeAIConfiguration.providerKey) private var aiProviderRaw = HypeAIProvider.ollama.rawValue
     @AppStorage(HypeAIConfiguration.openAIModelKey) private var openAIModel = HypeAIConfiguration.defaultOpenAIModel
+    @AppStorage(HypeAIConfiguration.openAIImageModelKey) private var openAIImageModel = HypeAIConfiguration.defaultOpenAIImageModel
     @AppStorage(HypeAIConfiguration.speechInputProviderKey) private var speechInputProviderRaw = HypeSpeechInputProvider.apple.rawValue
     @AppStorage(HypeAIConfiguration.openAITranscriptionModelKey) private var openAITranscriptionModel = HypeAIConfiguration.defaultOpenAITranscriptionModel
     @AppStorage(HypeAIConfiguration.openAITTSModelKey) private var openAITTSModel = HypeAIConfiguration.defaultOpenAITTSModel
@@ -127,6 +128,17 @@ struct PreferencesView: View {
                             .foregroundColor(openAITestStatus.hasPrefix("OK") ? .green : .red)
                     }
                 }
+
+                Picker("Image Model", selection: $openAIImageModel) {
+                    ForEach(HypeAIConfiguration.openAIImageModels, id: \.self) { model in
+                        Text(model).tag(model)
+                    }
+                }
+
+                Text("Used when the AI generates images for cards, backgrounds, or Sprite Repository assets. This works even when Ollama is the selected chat provider.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Section("Speech") {
@@ -143,22 +155,27 @@ struct PreferencesView: View {
                 }
                 .disabled(speechInputProviderRaw != HypeSpeechInputProvider.openAI.rawValue)
 
-                Toggle("Speak assistant responses with OpenAI", isOn: $speakAssistantResponses)
-                    .disabled(aiProviderRaw != HypeAIProvider.openAI.rawValue)
+                Toggle("Speak AI responses with OpenAI", isOn: $speakAssistantResponses)
+                    .disabled(!openAIKeyIsSet)
+
+                Text("Speaks AI Assistant replies and HypeTalk `ask ai` / `ollama(...)` responses. This uses OpenAI speech even when Ollama is the selected text provider.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Picker("Speech Model", selection: $openAITTSModel) {
                     ForEach(HypeAIConfiguration.openAITTSModels, id: \.self) { model in
                         Text(model).tag(model)
                     }
                 }
-                .disabled(!speakAssistantResponses)
+                .disabled(!speakAssistantResponses || !openAIKeyIsSet)
 
                 Picker("Voice", selection: $openAIVoice) {
                     ForEach(HypeAIConfiguration.openAIVoices, id: \.self) { voice in
                         Text(voice.capitalized).tag(voice)
                     }
                 }
-                .disabled(!speakAssistantResponses)
+                .disabled(!speakAssistantResponses || !openAIKeyIsSet)
             }
 
             // MARK: - Web Asset Search section
@@ -226,9 +243,24 @@ struct PreferencesView: View {
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            Section("AI Context Library") {
+                Toggle("Allow Current Stack Context with OpenAI", isOn: currentStackAIContextCloudSharingBinding)
+                    .disabled(document == nil)
+                    .help("Allow attached AI Context Library text and asset metadata to be sent to OpenAI for this stack.")
+
+                Text("Local Ollama models can use attached context without this setting. Cloud models only receive stack-attached files, notes, image metadata, and text snippets when this is enabled for the current stack.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("Current stack context: \(document?.document.aiContextLibrary.itemCount ?? 0) item(s), \(document?.document.aiContextLibrary.sourceCount ?? 0) source(s).")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 560, height: 760)
+        .frame(width: 560, height: 820)
         // Settings surface — tint with the inspector-background
         // token so the Preferences scene picks up theme swaps.
         .background(hypeTheme.inspectorBackground.swiftUIColor)
@@ -258,6 +290,19 @@ struct PreferencesView: View {
             set: { newValue in
                 // Mutate via the binding — the host keeps `document` current.
                 document?.document.stack.webAssetsAllowed = newValue
+            }
+        )
+    }
+
+    /// Stack-level cloud context sharing gate. The attached context library is
+    /// document data, so cloud model access is deliberately opt-in per stack.
+    private var currentStackAIContextCloudSharingBinding: Binding<Bool> {
+        Binding(
+            get: {
+                document?.document.stack.aiContextCloudSharingAllowed ?? false
+            },
+            set: { newValue in
+                document?.document.stack.aiContextCloudSharingAllowed = newValue
             }
         )
     }

@@ -96,10 +96,13 @@ struct ParserCoverageTests {
     @Test func parsePutInto() { #expect(parse("on t\n  put \"x\" into y\nend t")) }
     @Test func parseSetProperty() { #expect(parse("on t\n  set the name of button 1 to \"x\"\nend t")) }
     @Test func parseIfThenElse() { #expect(parse("on t\n  if x > 1 then\n    put 1 into y\n  else\n    put 2 into y\n  end if\nend t")) }
+    @Test func parseElseIfChain() { #expect(parse("on t\n  if x = 1 then\n    put 1 into y\n  else if x = 2 then\n    put 2 into y\n  else\n    put 3 into y\n  end if\nend t")) }
     @Test func parseSingleLineIf() { #expect(parse("on t\n  if x then put 1 into y\nend t")) }
     @Test func parseRepeatCount() { #expect(parse("on t\n  repeat 5\n    put 1 into x\n  end repeat\nend t")) }
     @Test func parseRepeatWhile() { #expect(parse("on t\n  repeat while x < 10\n    add 1 to x\n  end repeat\nend t")) }
     @Test func parseRepeatWith() { #expect(parse("on t\n  repeat with i = 1 to 10\n    put i into x\n  end repeat\nend t")) }
+    @Test func parseRepeatWithFromAndChunkCount() { #expect(parse("on t\n  repeat with i from 1 to the number of lines in inventory\n    put line i of inventory into itemName\n  end repeat\nend t")) }
+    @Test func parseReturnConstantInExpression() { #expect(parse("on t\n  put \"a\" & return & \"b\" into field \"output\"\nend t")) }
     @Test func parseGoNext() { #expect(parse("on t\n  go next\nend t")) }
     @Test func parseGoPrevious() { #expect(parse("on t\n  go previous\nend t")) }
     @Test func parseAskAnswer() { #expect(parse("on t\n  ask \"name?\"\n  answer \"hello\"\nend t")) }
@@ -915,6 +918,23 @@ struct ConditionalTests {
         """, on: &doc, cardId: cardId, targetId: btnId)
         #expect(fieldText(result, name: "output") == "medium")
     }
+
+    @Test func elseIfChainExecutesWithSingleEndIf() async {
+        var (doc, cardId, btnId) = makeTestDoc()
+        let result = await runScript("""
+        on mouseUp
+          put 2 into x
+          if x = 1 then
+            put "one" into field "output"
+          else if x = 2 then
+            put "two" into field "output"
+          else
+            put "other" into field "output"
+          end if
+        end mouseUp
+        """, on: &doc, cardId: cardId, targetId: btnId)
+        #expect(fieldText(result, name: "output") == "two")
+    }
 }
 
 // MARK: - 8. Repeat
@@ -962,6 +982,38 @@ struct RepeatTests {
         end mouseUp
         """, on: &doc, cardId: cardId, targetId: btnId)
         #expect(fieldText(result, name: "output") == "15")
+    }
+
+    @Test func modelGeneratedNestedLogicWithLineCountsAndLoops() async {
+        var (doc, cardId, btnId) = makeTestDoc()
+        let result = await runScript("""
+        on mouseUp
+          put "Torch" & linefeed & "Rope" & linefeed & "Map" into invDump
+          put "" into outcome
+          repeat with i from 1 to the number of lines in invDump
+            put line i of invDump into itemName
+            if itemName is "Torch" then
+              put "light" after outcome
+            else if itemName is "Rope" then
+              if outcome contains "light" then
+                put ",climb" after outcome
+              else
+                put ",tie" after outcome
+              end if
+            else
+              put ",other" after outcome
+            end if
+          end repeat
+
+          put 0 into safety
+          repeat while safety < 3
+            add 1 to safety
+          end repeat
+          put outcome & ":" & safety into field "output"
+        end mouseUp
+        """, on: &doc, cardId: cardId, targetId: btnId)
+        #expect(result.status == .completed)
+        #expect(fieldText(result, name: "output") == "light,climb,other:3")
     }
 
     @Test func exitRepeat() async {

@@ -21,31 +21,32 @@ final class ShapePartNode: SKShapeNode, CardPartNode {
 
     func updateFromPart(_ part: Part) {
         let size = CGSize(width: part.width, height: part.height)
+        let rect = CGRect(x: 0, y: -size.height, width: size.width, height: size.height)
 
         switch part.shapeType {
         case .rectangle:
-            self.path = CGPath(rect: CGRect(origin: .zero, size: size), transform: nil)
+            self.path = CGPath(rect: rect, transform: nil)
 
         case .roundRect:
             let r = min(CGFloat(part.cornerRadius), size.width / 2, size.height / 2)
             self.path = CGPath(
-                roundedRect: CGRect(origin: .zero, size: size),
+                roundedRect: rect,
                 cornerWidth: r,
                 cornerHeight: r,
                 transform: nil
             )
 
         case .oval:
-            self.path = CGPath(ellipseIn: CGRect(origin: .zero, size: size), transform: nil)
+            self.path = CGPath(ellipseIn: rect, transform: nil)
 
         case .line:
             if part.pathData.count >= 2 {
                 let mPath = CGMutablePath()
                 let origin = part.pathData[0]
-                mPath.move(to: CGPoint(x: origin.x - part.left, y: origin.y - part.top))
+                mPath.move(to: CGPoint(x: origin.x - part.left, y: -(origin.y - part.top)))
                 for i in 1..<part.pathData.count {
                     let pt = part.pathData[i]
-                    mPath.addLine(to: CGPoint(x: pt.x - part.left, y: pt.y - part.top))
+                    mPath.addLine(to: CGPoint(x: pt.x - part.left, y: -(pt.y - part.top)))
                 }
                 self.path = mPath
             }
@@ -54,10 +55,10 @@ final class ShapePartNode: SKShapeNode, CardPartNode {
             if part.pathData.count >= 2 {
                 let mPath = CGMutablePath()
                 let origin = part.pathData[0]
-                mPath.move(to: CGPoint(x: origin.x - part.left, y: origin.y - part.top))
+                mPath.move(to: CGPoint(x: origin.x - part.left, y: -(origin.y - part.top)))
                 for i in 1..<part.pathData.count {
                     let pt = part.pathData[i]
-                    mPath.addLine(to: CGPoint(x: pt.x - part.left, y: pt.y - part.top))
+                    mPath.addLine(to: CGPoint(x: pt.x - part.left, y: -(pt.y - part.top)))
                 }
                 mPath.closeSubpath()
                 self.path = mPath

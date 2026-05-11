@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 @testable import HypeCore
 
 @Suite("AIService Tests")
@@ -85,6 +86,62 @@ struct SyncServiceTests {
         let imported = try await service.importShared(data: data)
         #expect(imported.stack.name == "SyncTest")
     }
+
+    @Test func livePeersConvergeThroughOperations() async {
+        let room = UUID().uuidString
+        let peerA = SyncService(peer: SyncPeer(id: "peer-a", displayName: "A"))
+        let peerB = SyncService(peer: SyncPeer(id: "peer-b", displayName: "B"))
+        var doc = HypeDocument.newDocument(name: "Live Sync")
+        let cardId = doc.cards[0].id
+        let part = Part(partType: .button, cardId: cardId, name: "Shared", left: 10, top: 20, width: 120, height: 40)
+        doc.addPart(part)
+
+        _ = await peerA.connectToRoom(roomId: room, initialDocument: doc)
+        let initialB = await peerB.connectToRoom(roomId: room)
+        #expect(initialB.document?.parts.first?.name == "Shared")
+
+        var edited = part
+        edited.left = 200
+        let op = await peerA.makeUpsertPartOperation(edited)
+        let publish = await peerA.publish(op)
+
+        #expect(publish.accepted)
+        #expect(publish.revision == 1)
+
+        let pulled = await peerB.pull()
+        let syncedPart = pulled?.document?.parts.first(where: { $0.id == part.id })
+        #expect(syncedPart?.left == 200)
+    }
+
+    @Test func staleSameEntityEditReportsConflict() async {
+        let room = UUID().uuidString
+        let peerA = SyncService(peer: SyncPeer(id: "peer-a-conflict", displayName: "A"))
+        let peerB = SyncService(peer: SyncPeer(id: "peer-b-conflict", displayName: "B"))
+        var doc = HypeDocument.newDocument(name: "Conflict")
+        let cardId = doc.cards[0].id
+        var part = Part(partType: .field, cardId: cardId, name: "Shared Field")
+        part.textContent = "original"
+        doc.addPart(part)
+
+        _ = await peerA.connectToRoom(roomId: room, initialDocument: doc)
+        _ = await peerB.connectToRoom(roomId: room)
+
+        var aEdit = part
+        aEdit.textContent = "A"
+        let aOperation = await peerA.makeUpsertPartOperation(aEdit)
+        let aResult = await peerA.publish(aOperation)
+        #expect(aResult.accepted)
+
+        var bEdit = part
+        bEdit.textContent = "B"
+        let bOperation = await peerB.makeUpsertPartOperation(bEdit)
+        let bResult = await peerB.publish(bOperation)
+
+        #expect(!bResult.accepted)
+        #expect(bResult.conflicts.count == 1)
+        #expect(bResult.conflicts[0].entityKey == "part:\(part.id.uuidString)")
+        #expect(bResult.document?.parts.first(where: { $0.id == part.id })?.textContent == "A")
+    }
 }
 
 @Suite("ExtensionManager Tests")
@@ -132,6 +189,20 @@ struct DocumentExporterTests {
         #expect(html.contains("<title>HTML Test</title>"))
         #expect(html.contains("Click"))
         #expect(html.contains("class=\"part button\""))
+    }
+
+    @Test func exportHTMLIncludesPaintLayer() {
+        let exporter = DocumentExporter()
+        var doc = HypeDocument.newDocument(name: "Paint Export")
+        let cardId = doc.cards[0].id
+        let paintLayer = PaintLayer(width: 8, height: 8)
+        paintLayer.plot(x: 2, y: 2, color: .black)
+        doc.setPaintLayer(paintLayer.snapshot(cardId: cardId))
+
+        let html = exporter.exportHTML(document: doc)
+
+        #expect(html.contains("class=\"paint-layer\""))
+        #expect(html.contains("data:image/png;base64,"))
     }
 
     @Test func htmlEscapesSpecialChars() {

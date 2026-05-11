@@ -71,11 +71,13 @@ public struct MessageDispatcher: Sendable {
         dialogProvider: DialogProvider = StubDialogProvider(),
         drawingProvider: DrawingProvider = StubDrawingProvider(),
         aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
+        speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
         runtimeProvider: (any ScriptRuntimeProviding)? = nil,
         appScript: String = "",
         mouseX: Double = 0,
         mouseY: Double = 0,
-        scriptContext: ScriptDispatchContext? = nil
+        scriptContext: ScriptDispatchContext? = nil,
+        nestedSendDepth: Int = 0
     ) -> ExecutionResult {
         _DispatchSyncGate.semaphore.wait()
         defer { _DispatchSyncGate.semaphore.signal() }
@@ -91,11 +93,13 @@ public struct MessageDispatcher: Sendable {
                 dialogProvider: dialogProvider,
                 drawingProvider: drawingProvider,
                 aiProvider: aiProvider,
+                speechOutputProvider: speechOutputProvider,
                 appScript: appScript,
                 mouseX: mouseX,
                 mouseY: mouseY,
                 scriptContext: scriptContext,
-                runtimeProvider: runtimeProvider
+                runtimeProvider: runtimeProvider,
+                nestedSendDepth: nestedSendDepth
             )
             semaphore.signal()
         }
@@ -126,11 +130,13 @@ public struct MessageDispatcher: Sendable {
         dialogProvider: DialogProvider = StubDialogProvider(),
         drawingProvider: DrawingProvider = StubDrawingProvider(),
         aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
+        speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
         appScript: String = "",
         mouseX: Double = 0,
         mouseY: Double = 0,
         scriptContext: ScriptDispatchContext? = nil,
-        runtimeProvider: (any ScriptRuntimeProviding)? = nil
+        runtimeProvider: (any ScriptRuntimeProviding)? = nil,
+        nestedSendDepth: Int = 0
     ) async -> ExecutionResult {
         let chain = buildHierarchy(
             targetId: targetId,
@@ -224,10 +230,13 @@ public struct MessageDispatcher: Sendable {
                 dialogProvider: dialogProvider,
                 drawingProvider: drawingProvider,
                 aiProvider: aiProvider,
+                speechOutputProvider: speechOutputProvider,
                 runtimeProvider: runtimeProvider,
                 mouseX: mouseX,
                 mouseY: mouseY,
-                scriptContext: scriptContext
+                scriptContext: scriptContext,
+                appScript: appScript,
+                nestedSendDepth: nestedSendDepth
             )
             let interpreter = Interpreter()
             var result = await interpreter.executeAsync(handler: handler, params: params, context: context)

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// Export formats for Hype documents.
 public enum ExportFormat: String, Sendable, CaseIterable {
@@ -30,6 +33,7 @@ public struct DocumentExporter: Sendable {
                 .card { background: white; width: \(document.stack.width)px; height: \(document.stack.height)px;
                         margin: 20px auto; position: relative; box-shadow: 0 2px 10px rgba(0,0,0,0.2); border-radius: 4px; }
                 .part { position: absolute; }
+                .paint-layer { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
                 .button { display: flex; align-items: center; justify-content: center; border: 1px solid #ccc;
                           border-radius: 6px; background: #f8f8f8; cursor: pointer; font-size: 14px; }
                 .field { border: 1px solid #ccc; padding: 4px; font-size: 14px; overflow: auto; background: white; }
@@ -42,7 +46,7 @@ public struct DocumentExporter: Sendable {
         """
 
         for (i, card) in document.sortedCards.enumerated() {
-            let cardParts = document.partsForCard(card.id)
+            let cardParts = document.effectivePartsForCard(card.id)
             let cardName = card.name.isEmpty ? "Card \(i + 1)" : card.name
             html += "<h3 style=\"text-align:center;color:#666\">\(escapeHTML(cardName))</h3>\n"
             html += "<div class=\"card\">\n"
@@ -54,6 +58,7 @@ public struct DocumentExporter: Sendable {
                 html += "  <div class=\"part \(cssClass)\" style=\"\(style)\">\(escapeHTML(content))</div>\n"
             }
 
+            html += paintLayerHTML(document.paintLayer(forCardId: card.id))
             html += "</div>\n"
         }
 
@@ -66,5 +71,15 @@ public struct DocumentExporter: Sendable {
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
             .replacingOccurrences(of: "\"", with: "&quot;")
+    }
+
+    private func paintLayerHTML(_ layer: CardPaintLayer?) -> String {
+        guard let layer, !layer.isEmpty else { return "" }
+        #if canImport(AppKit)
+        guard let pngData = PaintLayer(snapshot: layer).pngData() else { return "" }
+        return "  <img class=\"paint-layer\" alt=\"Paint layer\" src=\"data:image/png;base64,\(pngData.base64EncodedString())\" />\n"
+        #else
+        return ""
+        #endif
     }
 }

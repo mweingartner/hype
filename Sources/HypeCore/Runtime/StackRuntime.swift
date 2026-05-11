@@ -206,6 +206,7 @@ public struct StackRuntimeConfiguration: Sendable {
     public var dialogProvider: DialogProvider
     public var drawingProvider: DrawingProvider
     public var aiProvider: any AIScriptingProvider
+    public var speechOutputProvider: SpeechOutputProvider
     public var appScript: String
     public var approvalPrompter: any NetworkPermissionPrompting
     public var permissionStore: UserDefaultsNetworkPermissionStore
@@ -215,6 +216,7 @@ public struct StackRuntimeConfiguration: Sendable {
         dialogProvider: DialogProvider = StubDialogProvider(),
         drawingProvider: DrawingProvider = StubDrawingProvider(),
         aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
+        speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
         appScript: String = "",
         approvalPrompter: any NetworkPermissionPrompting = AllowAllNetworkPermissionPrompter(),
         permissionStore: UserDefaultsNetworkPermissionStore = UserDefaultsNetworkPermissionStore(),
@@ -223,6 +225,7 @@ public struct StackRuntimeConfiguration: Sendable {
         self.dialogProvider = dialogProvider
         self.drawingProvider = drawingProvider
         self.aiProvider = aiProvider
+        self.speechOutputProvider = speechOutputProvider
         self.appScript = appScript
         self.approvalPrompter = approvalPrompter
         self.permissionStore = permissionStore
@@ -493,9 +496,11 @@ public actor StackRuntime: ScriptRuntimeProviding {
             error: nil
         )
         postStatusChange()
+        let speechOutputProvider = configuration.speechOutputProvider
         Task {
             do {
                 let response = try await self.configuration.aiProvider.generate(prompt: prompt, model: model)
+                await speechOutputProvider.speakAIResponse(response, source: "HypeTalk AI")
                 if var request = self.requests[id] {
                     request.state = "completed"
                     request.body = response
@@ -775,6 +780,7 @@ public actor StackRuntime: ScriptRuntimeProviding {
                 dialogProvider: configuration.dialogProvider,
                 drawingProvider: configuration.drawingProvider,
                 aiProvider: configuration.aiProvider,
+                speechOutputProvider: configuration.speechOutputProvider,
                 appScript: configuration.appScript,
                 mouseX: item.mouseX,
                 mouseY: item.mouseY,

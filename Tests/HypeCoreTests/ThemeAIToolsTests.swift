@@ -202,6 +202,20 @@ struct ThemeAIToolsTests {
                 "expected 'Modern Dark' in result, got: \(result)")
     }
 
+    @Test("set_stack_property theme writes the stack themeName")
+    func setStackPropertyTheme() async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let executor = HypeToolExecutor()
+        let result = await executor.execute(
+            toolName: "set_stack_property",
+            arguments: ["property": "theme", "value": "Sunset"],
+            document: &doc,
+            currentCardId: doc.cards[0].id
+        )
+        #expect(result.contains("theme"))
+        #expect(doc.stack.themeName == "Sunset")
+    }
+
     @Test("set_card_property theme writes to the card's themeName")
     func setCardPropertyTheme() async {
         var doc = HypeDocument.newDocument(name: "Test")
@@ -213,6 +227,25 @@ struct ThemeAIToolsTests {
             currentCardId: doc.cards[0].id
         )
         #expect(doc.cards[0].themeName == "Neon")
+    }
+
+    @Test("AI card property tools accept this/current card aliases")
+    func cardPropertyThemeAcceptsCurrentCardAliases() async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "set_card_property",
+            arguments: ["card_name": "this card", "property": "theme", "value": "Neon"],
+            document: &doc,
+            currentCardId: doc.cards[0].id
+        )
+        let result = await executor.execute(
+            toolName: "get_card_property",
+            arguments: ["card_name": "current card", "property": "theme"],
+            document: &doc,
+            currentCardId: doc.cards[0].id
+        )
+        #expect(result == "Neon")
     }
 
     @Test("set_card_property theme with empty value clears the override")
@@ -243,5 +276,24 @@ struct ThemeAIToolsTests {
         )
         #expect(result.contains("Modern Dark"),
                 "effectiveTheme should resolve through background to 'Modern Dark', got: \(result)")
+    }
+
+    @Test("AI background property tools accept this/current background aliases")
+    func backgroundPropertyThemeAcceptsCurrentBackgroundAliases() async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "set_background_property",
+            arguments: ["background_name": "this background", "property": "theme", "value": "Modern Dark"],
+            document: &doc,
+            currentCardId: doc.cards[0].id
+        )
+        let result = await executor.execute(
+            toolName: "get_background_property",
+            arguments: ["background_name": "current background", "property": "theme"],
+            document: &doc,
+            currentCardId: doc.cards[0].id
+        )
+        #expect(result == "Modern Dark")
     }
 }

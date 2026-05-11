@@ -91,6 +91,61 @@ struct ParserTests {
         #expect(script.handlers[0].body.count == 1)
     }
 
+    @Test func parsesSceneDidLoadHandler() throws {
+        var lexer = Lexer(source: """
+        on sceneDidLoad
+          put "loaded" into status
+        end sceneDidLoad
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        #expect(script.handlers[0].name == "sceneDidLoad")
+        #expect(script.handlers[0].handlerType == .message)
+    }
+
+    @Test func topLevelGlobalPreludeAppliesToEveryHandler() throws {
+        var lexer = Lexer(source: """
+        global moveDir, score
+        global px
+
+        on openScene
+          put 1 into score
+        end openScene
+
+        on keyDown
+          add 1 to score
+        end keyDown
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 2)
+        for handler in script.handlers {
+            guard case .globalDecl(let names) = handler.body.first else {
+                Issue.record("Expected top-level global prelude to be injected into \(handler.name)")
+                continue
+            }
+            #expect(names == ["moveDir", "score", "px"])
+        }
+    }
+
+    @Test func topLevelExecutableStatementsAreStillRejected() throws {
+        var lexer = Lexer(source: """
+        put 1 into score
+
+        on openScene
+          put score into field "status"
+        end openScene
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        #expect(throws: ParseError.self) {
+            try parser.parse()
+        }
+    }
+
     @Test func parsesPutStatement() throws {
         var lexer = Lexer(source: """
         on test
@@ -172,6 +227,56 @@ struct ParserTests {
         #expect(script.handlers[0].params[0] == "name")
         #expect(script.handlers[0].params[1] == "greeting")
     }
+
+    @Test func parsesSendToStackAsMessageDispatch() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          send "doCamp" to this stack
+        end mouseUp
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        guard case .send(let message, let target) = script.handlers[0].body[0] else {
+            Issue.record("Expected send message statement")
+            return
+        }
+        guard case .literal(let messageName) = message else {
+            Issue.record("Expected literal message")
+            return
+        }
+        #expect(messageName == "doCamp")
+        guard case .objectRef(let ref) = target else {
+            Issue.record("Expected stack object reference")
+            return
+        }
+        #expect(ref.objectType == "stack")
+    }
+
+    @Test func parsesExplicitSendToConnectionAsNetworkDispatch() throws {
+        var lexer = Lexer(source: """
+        on sendPing
+          send "ping" to connection connId
+        end sendPing
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        guard case .sendToConnection(let data, let connection) = script.handlers[0].body[0] else {
+            Issue.record("Expected sendToConnection statement")
+            return
+        }
+        guard case .literal(let payload) = data else {
+            Issue.record("Expected literal payload")
+            return
+        }
+        #expect(payload == "ping")
+        guard case .variable(let variableName) = connection else {
+            Issue.record("Expected connection variable")
+            return
+        }
+        #expect(variableName == "connId")
+    }
 }
 
 // MARK: - Interpreter Tests
@@ -212,6 +317,18 @@ struct InterpreterTests {
         """)
         #expect(result.status == .completed)
         #expect(result.returnValue == "hello world")
+    }
+
+    @Test func exposesClassicHandlerParameterAccessors() {
+        let result = executeScript("""
+        on test firstName, lastName
+          put the paramCount & ":" & param 1 & ":" & param(2) & ":" & the params into summary
+          return summary
+        end test
+        """, params: ["Ada", "Lovelace"])
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "2:Ada:Lovelace:Ada\rLovelace")
     }
 
     @Test func handlesIfThen() {
@@ -453,6 +570,149 @@ struct MessageDispatcherTests {
         let outputField = result.modifiedDocument?.parts.first(where: { $0.name == "output" })
         #expect(outputField?.textContent == "stack caught it")
     }
+
+    @Test func sendToThisStackInvokesStackHandler() async {
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+
+        var field = Part(partType: .field, cardId: cardId, name: "output")
+        doc.addPart(field)
+
+        var btn = Part(partType: .button, cardId: cardId, name: "Camp")
+        btn.script = """
+        on mouseUp
+          send "doCamp" to this stack
+        end mouseUp
+        """
+        doc.addPart(btn)
+
+        doc.stack.script = """
+        on doCamp
+          put "camped" into field "output"
+        end doCamp
+        """
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, cardId, btn] in dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: btn.id,
+            document: doc,
+            currentCardId: cardId
+        ) }
+        #expect(result.status == .completed)
+        let outputField = result.modifiedDocument?.parts.first(where: { $0.name == "output" })
+        #expect(outputField?.textContent == "camped")
+    }
+
+    @Test func sendToThisCardInvokesCardHandler() async {
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+
+        var field = Part(partType: .field, cardId: cardId, name: "output")
+        doc.addPart(field)
+
+        var btn = Part(partType: .button, cardId: cardId, name: "Source")
+        btn.script = """
+        on mouseUp
+          send "doCard" to this card
+        end mouseUp
+        """
+        doc.addPart(btn)
+
+        if let idx = doc.cards.firstIndex(where: { $0.id == cardId }) {
+            doc.cards[idx].script = """
+            on doCard
+              put "card handled" into field "output"
+            end doCard
+            """
+        }
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, cardId, btn] in dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: btn.id,
+            document: doc,
+            currentCardId: cardId
+        ) }
+        #expect(result.status == .completed)
+        let outputField = result.modifiedDocument?.parts.first(where: { $0.name == "output" })
+        #expect(outputField?.textContent == "card handled")
+    }
+
+    @Test func sendToThisBackgroundInvokesBackgroundHandler() async {
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        let bgId = doc.cards[0].backgroundId
+
+        var field = Part(partType: .field, cardId: cardId, name: "output")
+        doc.addPart(field)
+
+        var btn = Part(partType: .button, cardId: cardId, name: "Source")
+        btn.script = """
+        on mouseUp
+          send "doBackground" to this background
+        end mouseUp
+        """
+        doc.addPart(btn)
+
+        if let idx = doc.backgrounds.firstIndex(where: { $0.id == bgId }) {
+            doc.backgrounds[idx].script = """
+            on doBackground
+              put "background handled" into field "output"
+            end doBackground
+            """
+        }
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, cardId, btn] in dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: btn.id,
+            document: doc,
+            currentCardId: cardId
+        ) }
+        #expect(result.status == .completed)
+        let outputField = result.modifiedDocument?.parts.first(where: { $0.name == "output" })
+        #expect(outputField?.textContent == "background handled")
+    }
+
+    @Test func sendToNamedButtonInvokesThatButtonHandler() async {
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+
+        var field = Part(partType: .field, cardId: cardId, name: "output")
+        doc.addPart(field)
+
+        var source = Part(partType: .button, cardId: cardId, name: "Source")
+        source.script = """
+        on mouseUp
+          send "doTarget" to button "Target"
+        end mouseUp
+        """
+        doc.addPart(source)
+
+        var target = Part(partType: .button, cardId: cardId, name: "Target")
+        target.script = """
+        on doTarget
+          put "target handled" into field "output"
+        end doTarget
+        """
+        doc.addPart(target)
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, cardId, source] in dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: source.id,
+            document: doc,
+            currentCardId: cardId
+        ) }
+        #expect(result.status == .completed)
+        let outputField = result.modifiedDocument?.parts.first(where: { $0.name == "output" })
+        #expect(outputField?.textContent == "target handled")
+    }
 }
 
 @Suite("Go Navigation Integration", .serialized)
@@ -505,6 +765,69 @@ struct GoNavigationTests {
 
         #expect(result.status == .completed)
         #expect(result.navigationTarget == card2.id, "go next should navigate to card 2, got \(String(describing: result.navigationTarget))")
+    }
+
+    @Test func visualEffectIsCarriedWithNavigation() async {
+        var doc = HypeDocument.newDocument(name: "Transition Test")
+        let _ = doc.addCard()
+        let sorted = doc.sortedCards
+        let card1 = sorted[0]
+        let card2 = sorted[1]
+
+        var btn = Part(partType: .button, cardId: card1.id, name: "Next")
+        btn.script = """
+        on mouseUp
+          visual effect wipe left 1.5
+          go next
+        end mouseUp
+        """
+        doc.addPart(btn)
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, btn] in dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: btn.id,
+            document: doc,
+            currentCardId: card1.id
+        ) }
+
+        #expect(result.status == .completed)
+        #expect(result.navigationTarget == card2.id)
+        #expect(result.visualEffect == "wipe left")
+        #expect(result.visualEffectDuration == 1.5)
+    }
+
+    @Test func visualEffectSurvivesPassAfterNavigation() async {
+        var doc = HypeDocument.newDocument(name: "Transition Pass Test")
+        let _ = doc.addCard()
+        let sorted = doc.sortedCards
+        let card1 = sorted[0]
+        let card2 = sorted[1]
+
+        var btn = Part(partType: .button, cardId: card1.id, name: "Next")
+        btn.script = """
+        on mouseUp
+          visual effect flip horizontal 0.25
+          go next
+          pass mouseUp
+        end mouseUp
+        """
+        doc.addPart(btn)
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, btn] in dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: btn.id,
+            document: doc,
+            currentCardId: card1.id
+        ) }
+
+        #expect(result.status == .completed)
+        #expect(result.navigationTarget == card2.id)
+        #expect(result.visualEffect == "flip horizontal")
+        #expect(result.visualEffectDuration == 0.25)
     }
 }
 

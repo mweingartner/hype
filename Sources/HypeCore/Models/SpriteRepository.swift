@@ -7,6 +7,7 @@ public enum AssetOrigin: String, Codable, Sendable {
     case userImport      // From local disk, drag-drop, Finder.
     case webSearch       // Downloaded via the AI web-asset pipeline.
     case aiGenerated     // Reserved; unused in v1.
+    case aiContext       // Imported from the stack's AI Context Library.
 }
 
 /// License information for an asset, sourced from the provider's metadata.

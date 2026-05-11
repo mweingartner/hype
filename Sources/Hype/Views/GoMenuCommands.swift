@@ -98,6 +98,11 @@ struct ObjectsMenuCommands: Commands {
 struct ArrangeMenuCommands: Commands {
     var body: some Commands {
         CommandMenu("Arrange") {
+            Button("Group") { NotificationCenter.default.post(name: .groupSelection, object: nil) }
+                .keyboardShortcut("g", modifiers: [.command, .option])
+            Button("Ungroup") { NotificationCenter.default.post(name: .ungroupSelection, object: nil) }
+                .keyboardShortcut("g", modifiers: [.command, .option, .shift])
+            Divider()
             Button("Bring Forward") { NotificationCenter.default.post(name: .bringForward, object: nil) }
                 .keyboardShortcut("+", modifiers: .command)
             Button("Send Backward") { NotificationCenter.default.post(name: .sendBackward, object: nil) }
@@ -148,18 +153,20 @@ struct ToolsMenuCommands: Commands {
     }
 }
 
-// MARK: - View menu (mode + panel + window-visibility toggles)
+// MARK: - View menu additions (mode + panel + window-visibility toggles)
 
-/// New "View" menu consolidating every "show/hide a piece of UI"
-/// command. Previously these were scattered across Tools (mode +
-/// objects panel), AI (AI assistant), and Window (console). Putting
-/// them in one place makes the toggle surface obvious.
+/// Adds Hype's "show/hide a piece of UI" commands to the existing
+/// system View menu. SwiftUI/DocumentGroup already creates a View
+/// menu, so this must use `CommandGroup` rather than `CommandMenu` to
+/// avoid a duplicate top-level View menu.
 struct ViewMenuCommands: Commands {
     @AppStorage("hypeRuntimeMode") private var isRuntimeMode: Bool = false
     @AppStorage("hypeObjectsPanelVisible") private var objectsPanelVisible: Bool = true
 
     var body: some Commands {
-        CommandMenu("View") {
+        CommandGroup(after: .toolbar) {
+            Divider()
+
             Button(isRuntimeMode ? "Switch to Edit Mode" : "Switch to Runtime Mode") {
                 NotificationCenter.default.post(name: .toggleRuntimeMode, object: nil)
             }
@@ -216,6 +223,8 @@ extension Notification.Name {
     static let sendBackward = Notification.Name("sendBackward")
     static let bringToFront = Notification.Name("bringToFront")
     static let sendToBack = Notification.Name("sendToBack")
+    static let groupSelection = Notification.Name("groupSelection")
+    static let ungroupSelection = Notification.Name("ungroupSelection")
     static let toggleAI = Notification.Name("toggleAI")
     static let alignLeft = Notification.Name("alignLeft")
     static let alignRight = Notification.Name("alignRight")
@@ -227,6 +236,7 @@ extension Notification.Name {
     static let distributeV = Notification.Name("distributeV")
     static let showAllCards = Notification.Name("showAllCards")
     static let openSpriteRepository = Notification.Name("openSpriteRepository")
+    static let openAIContextLibrary = Notification.Name("openAIContextLibrary")
     static let toggleRuntimeMode = Notification.Name("toggleRuntimeMode")
     static let toggleObjectsPanel = Notification.Name("toggleObjectsPanel")
     static let haltAIChat = Notification.Name("haltAIChat")
@@ -316,6 +326,10 @@ struct WindowMenuCommands: Commands {
                 NotificationCenter.default.post(name: .openSpriteRepository, object: nil)
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
+            Button("AI Context Library") {
+                NotificationCenter.default.post(name: .openAIContextLibrary, object: nil)
+            }
+            .keyboardShortcut("k", modifiers: [.command, .shift])
             Button("Theme Designer") {
                 NotificationCenter.default.post(name: .openThemeDesigner, object: nil)
             }

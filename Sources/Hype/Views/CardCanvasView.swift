@@ -46,14 +46,17 @@ final class AppKitDialogProvider: DialogProvider, @unchecked Sendable {
 /// Drawing provider that draws to a PaintLayer from script commands.
 final class PaintLayerDrawingProvider: DrawingProvider, @unchecked Sendable {
     private let paintLayer: PaintLayer
+    private let onChange: () -> Void
 
-    init(paintLayer: PaintLayer) {
+    init(paintLayer: PaintLayer, onChange: @escaping () -> Void = {}) {
         self.paintLayer = paintLayer
+        self.onChange = onChange
     }
 
     func drawLine(from: (Int, Int), to: (Int, Int), radius: Int, colorHex: String) {
         let color = nsColorFromHex(colorHex)
         paintLayer.drawThickLine(x0: from.0, y0: from.1, x1: to.0, y1: to.1, radius: radius, color: color)
+        onChange()
     }
 }
 
@@ -181,10 +184,18 @@ struct CardCanvasView: NSViewRepresentable {
             self.parent = parent
         }
 
+        func setPaintLayer(_ layer: CardPaintLayer) {
+            parent.document.document.setPaintLayer(layer)
+        }
+
+        func removePaintLayer(cardId: UUID) {
+            parent.document.document.removePaintLayer(forCardId: cardId)
+        }
+
         /// Clear selection and select a single part (or none).
         func selectPart(_ id: UUID?) {
             if let id = id {
-                parent.selectedPartIds = [id]
+                parent.selectedPartIds = parent.document.document.expandedGroupSelection([id])
             } else {
                 parent.selectedPartIds = []
             }
@@ -192,17 +203,17 @@ struct CardCanvasView: NSViewRepresentable {
 
         /// Add a part to the existing selection.
         func addToSelection(_ id: UUID) {
-            parent.selectedPartIds.insert(id)
+            parent.selectedPartIds.formUnion(parent.document.document.expandedGroupSelection([id]))
         }
 
         /// Remove a part from the existing selection.
         func removeFromSelection(_ id: UUID) {
-            parent.selectedPartIds.remove(id)
+            parent.selectedPartIds.subtract(parent.document.document.expandedGroupSelection([id]))
         }
 
         /// Set the full selection to a specific set of IDs.
         func selectParts(_ ids: Set<UUID>) {
-            parent.selectedPartIds = ids
+            parent.selectedPartIds = parent.document.document.expandedGroupSelection(ids)
         }
 
         func addPart(_ part: Part) {
@@ -231,6 +242,11 @@ struct CardCanvasView: NSViewRepresentable {
                 part.left += dx
                 part.top += dy
             }
+        }
+
+        func moveParts(ids: Set<UUID>, dx: Double, dy: Double) {
+            parent.document.document.moveParts(ids: ids, dx: dx, dy: dy)
+            parent.selectedPartIds = parent.document.document.expandedGroupSelection(parent.selectedPartIds)
         }
 
         func resizePart(id: UUID, handle: CardCanvasNSView.ResizeHandle, dx: Double, dy: Double) {
@@ -273,6 +289,11 @@ struct CardCanvasView: NSViewRepresentable {
                     break
                 }
             }
+        }
+
+        func resizeParts(ids: Set<UUID>, from oldBounds: PartBounds, to newBounds: PartBounds) {
+            parent.document.document.resizeParts(ids: ids, from: oldBounds, to: newBounds)
+            parent.selectedPartIds = parent.document.document.expandedGroupSelection(parent.selectedPartIds)
         }
 
         /// Update a part's text content (used by inline field editor).
@@ -582,7 +603,11 @@ struct CardCanvasView: NSViewRepresentable {
 
         private var drawingProvider: DrawingProvider {
             if let view = nsView {
-                return PaintLayerDrawingProvider(paintLayer: view.paintLayerForCurrentCard())
+                return PaintLayerDrawingProvider(paintLayer: view.paintLayerForCurrentCard()) { [weak view] in
+                    Task { @MainActor in
+                        view?.persistPaintLayerForCurrentCard()
+                    }
+                }
             }
             return StubDrawingProvider()
         }
@@ -695,18 +720,26 @@ struct CardCanvasView: NSViewRepresentable {
                     if let effectName = result.visualEffect, !effectName.isEmpty {
                         let effect = HypeCore.VisualEffect.fromName(effectName)
                         if effect != .none {
-                            let dur = result.visualEffectDuration ?? CardCanvasNSView.defaultTransitionDuration
-                            nsView?.performCardTransition(to: navTarget, effect: effect, duration: dur)
-                            // Post the navigation after the transition
-                            // duration so the CGContext redraw happens
-                            // AFTER the SK animation finishes.
-                            DispatchQueue.main.asyncAfter(deadline: .now() + dur) {
-                                NotificationCenter.default.post(
-                                    name: .navigateToCard,
-                                    object: navTarget
-                                )
+                            let didStart = nsView?.performCardTransition(
+                                to: navTarget,
+                                effect: effect,
+                                duration: result.visualEffectDuration
+                            ) ?? false
+                            if didStart {
+                                let dur = CardCanvasNSView.normalizedTransitionDuration(result.visualEffectDuration)
+                                // Post the navigation after the SpriteKit
+                                // transition has actually had a priming
+                                // frame and then completed, so CGContext
+                                // redraw resumes on the destination card
+                                // rather than cutting the animation short.
+                                DispatchQueue.main.asyncAfter(deadline: .now() + CardCanvasNSView.navigationDelay(forTransitionDuration: dur)) {
+                                    NotificationCenter.default.post(
+                                        name: .navigateToCard,
+                                        object: navTarget
+                                    )
+                                }
+                                return
                             }
-                            return
                         }
                     }
                     // No visual effect (or .none) — navigate immediately
@@ -805,6 +838,7 @@ struct CardCanvasView: NSViewRepresentable {
                 dialogProvider: dialogProvider,
                 drawingProvider: drawingProvider,
                 aiProvider: aiProvider,
+                speechOutputProvider: OpenAISpeechOutputProvider.shared,
                 appScript: appScript
             )
         }
@@ -835,6 +869,19 @@ private class PassthroughSKView: SKView {
 }
 
 class CardCanvasNSView: NSView {
+    struct ToolTipDescriptor: Equatable {
+        let partId: UUID
+        let rect: NSRect
+    }
+
+    private enum CursorDescriptor: Hashable {
+        case arrow
+        case pointingHand
+        case crosshair
+        case eraser(radius: Int)
+        case spray(radius: Int, colorToken: String)
+    }
+
     var document: HypeDocument = HypeDocument()
     var currentCardId: UUID = UUID()
     var currentTool: ToolName = .browse
@@ -913,6 +960,10 @@ class CardCanvasNSView: NSView {
     /// during browse mode only. Edit mode disables them so they
     /// don't confuse authors who are clicking parts to select them.
     private var toolTipTagToPartId: [NSView.ToolTipTag: UUID] = [:]
+    private var registeredToolTipDescriptors: [ToolTipDescriptor] = []
+    private var mouseMovedTrackingArea: NSTrackingArea?
+    private var activeCursorDescriptor: CursorDescriptor?
+    private var cursorCache: [CursorDescriptor: NSCursor] = [:]
 
     // Active SKViews for spriteArea parts (keyed by part ID)
     private var spriteViews: [UUID: SKView] = [:]
@@ -1067,7 +1118,7 @@ class CardCanvasNSView: NSView {
         // Delete or Backspace: delete all selected parts
         if event.keyCode == 51 || event.keyCode == 117 {
             if !selectedPartIds.isEmpty {
-                for id in selectedPartIds {
+                for id in document.expandedGroupSelection(selectedPartIds) {
                     coordinator?.deletePart(id: id)
                 }
                 needsDisplay = true
@@ -1104,16 +1155,16 @@ class CardCanvasNSView: NSView {
         let nudge: Double = event.modifierFlags.contains(.shift) ? 5 : 1
         switch event.keyCode {
         case 123: // Left arrow
-            for id in selectedPartIds { coordinator?.movePart(id: id, dx: -nudge, dy: 0) }
+            coordinator?.moveParts(ids: selectedPartIds, dx: -nudge, dy: 0)
             needsDisplay = true; return
         case 124: // Right arrow
-            for id in selectedPartIds { coordinator?.movePart(id: id, dx: nudge, dy: 0) }
+            coordinator?.moveParts(ids: selectedPartIds, dx: nudge, dy: 0)
             needsDisplay = true; return
         case 125: // Down arrow
-            for id in selectedPartIds { coordinator?.movePart(id: id, dx: 0, dy: nudge) }
+            coordinator?.moveParts(ids: selectedPartIds, dx: 0, dy: nudge)
             needsDisplay = true; return
         case 126: // Up arrow
-            for id in selectedPartIds { coordinator?.movePart(id: id, dx: 0, dy: -nudge) }
+            coordinator?.moveParts(ids: selectedPartIds, dx: 0, dy: -nudge)
             needsDisplay = true; return
         default: break
         }
@@ -1211,11 +1262,10 @@ class CardCanvasNSView: NSView {
             paintLayer.render(into: ctx)
         }
 
-        // Draw selection overlay for all selected parts
-        for selectedId in selectedPartIds {
-            if let part = document.parts.first(where: { $0.id == selectedId }) {
-                drawSelectionOverlay(ctx: ctx, part: part)
-            }
+        // Draw selection overlay for each selectable unit. Grouped
+        // parts get one bounding box so they feel like one object.
+        for unit in document.selectionUnits(for: selectedPartIds) {
+            drawSelectionOverlay(ctx: ctx, bounds: unit.bounds)
         }
 
         // Draw alignment guides
@@ -1315,9 +1365,16 @@ class CardCanvasNSView: NSView {
     }
 
     private func drawSelectionOverlay(ctx: CGContext, part: Part) {
+        drawSelectionOverlay(
+            ctx: ctx,
+            bounds: PartBounds(left: part.left, top: part.top, width: part.width, height: part.height)
+        )
+    }
+
+    private func drawSelectionOverlay(ctx: CGContext, bounds: PartBounds) {
         let theme = resolvedTheme
         let strokeNS = theme.selectionStroke.nsColor
-        let rect = CGRect(x: part.left - 1, y: part.top - 1, width: part.width + 2, height: part.height + 2)
+        let rect = CGRect(x: bounds.left - 1, y: bounds.top - 1, width: bounds.width + 2, height: bounds.height + 2)
         ctx.setStrokeColor(strokeNS.cgColor)
         ctx.setLineWidth(1)
         ctx.setLineDash(phase: 0, lengths: [4, 4])
@@ -1464,15 +1521,10 @@ class CardCanvasNSView: NSView {
         // Dispatch openField lifecycle message
         coordinator?.dispatchMessage("openField", to: part.id)
 
-        // Create the text field overlay, matching the part's position and style exactly.
-        //
-        // The frame is the FULL part rect; the custom cell
-        // (`HypeFieldEditorCell`) handles the inner padding so the
-        // editor's text rect matches `FieldRenderer`'s
-        // `rect.insetBy(dx: padding, dy: padding)` exactly. Without
-        // the custom cell, characters jumped 2-6pt when entering
-        // edit mode (NSTextField's default ~2pt cell inset + 5pt
-        // lineFragmentPadding + vertical centering).
+        // Create the text field overlay at the full part rect. The
+        // custom cell handles Hype's padding, search/scrolling
+        // insets, and vertical centering through FieldTextLayout so
+        // edit mode and static rendering stay visually aligned.
         let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
         let textField = NSTextField(frame: frame)
 
@@ -1480,34 +1532,33 @@ class CardCanvasNSView: NSView {
         // properties (font, alignment, etc.) — those flow onto the
         // current cell, and replacing the cell after would lose them.
         let cell = HypeFieldEditorCell(textCell: "")
-        cell.hypePadding = part.wideMargins ? 8 : 4
-        cell.rightScrollbarReserve = part.fieldStyle == .scrolling ? 16 : 0
-        // Top-align (no vertical centering). NSTextField centers
-        // single-line text vertically when `wraps == false`; we set
-        // wraps=true so the layout matches FieldRenderer regardless
-        // of `dontWrap` (we control wrap behavior via lineBreakMode
-        // separately).
+        cell.hypePadding = FieldTextLayout.padding(wideMargins: part.wideMargins)
+        cell.leadingTextInset = FieldTextLayout.leadingInset(fieldStyle: part.fieldStyle)
+        cell.rightScrollbarReserve = FieldTextLayout.trailingInset(fieldStyle: part.fieldStyle)
+        // Keep AppKit out of single-line shortcut layout; Hype's
+        // shared layout decides the vertical placement.
         cell.wraps = true
         cell.isScrollable = true
         cell.lineBreakMode = part.dontWrap ? .byClipping : .byWordWrapping
         cell.usesSingleLineMode = false
         textField.cell = cell
 
+        let palette = FieldTextLayout.palette(for: part, theme: resolvedTheme)
         textField.stringValue = part.textContent
         textField.font = NSFont(name: part.textFont, size: CGFloat(part.textSize)) ?? NSFont.systemFont(ofSize: CGFloat(part.textSize))
-        textField.textColor = .black
+        textField.textColor = palette.text
         textField.isBordered = false
         textField.drawsBackground = part.fieldStyle != .transparent
-        textField.backgroundColor = nsColorFromHex(part.fillColor)
+        textField.backgroundColor = palette.fill
         textField.focusRingType = .exterior
         textField.isEditable = true
         textField.isSelectable = true
         textField.delegate = self
         textField.alignment = part.textAlign == .center ? .center : part.textAlign == .right ? .right : .left
         textField.wantsLayer = true
-        textField.layer?.borderColor = nsColorFromHex(part.strokeColor).cgColor
+        textField.layer?.borderColor = palette.stroke.cgColor
         textField.layer?.borderWidth = max(0, CGFloat(part.strokeWidth))
-        textField.layer?.backgroundColor = (part.fieldStyle == .transparent ? NSColor.clear : nsColorFromHex(part.fillColor)).cgColor
+        textField.layer?.backgroundColor = (part.fieldStyle == .transparent ? NSColor.clear : palette.fill).cgColor
         textField.layer?.zPosition = 1000  // Ensure it's above all canvas drawing
 
         addSubview(textField, positioned: .above, relativeTo: nil)
@@ -1575,45 +1626,120 @@ class CardCanvasNSView: NSView {
     // MARK: - Cursor
 
     func updateCursor() {
+        guard mouseLocationInSelfIfCanvasOwnsCursor() != nil else {
+            activeCursorDescriptor = nil
+            return
+        }
+        applyCursor(cursorDescriptorForCurrentTool())
+    }
+
+    private func updateCursor(at point: CGPoint) {
+        guard bounds.contains(point) else {
+            activeCursorDescriptor = nil
+            return
+        }
+        applyCursor(cursorDescriptorForCurrentTool())
+    }
+
+    private func cursorDescriptorForCurrentTool() -> CursorDescriptor {
         let toolState = ToolState(currentTool: currentTool.rawValue)
         switch toolState.category {
         case .browse:
-            NSCursor.pointingHand.set()
+            return .pointingHand
         case .edit:
             if currentTool == .select {
-                NSCursor.arrow.set()
+                return .arrow
             } else {
-                NSCursor.crosshair.set()
+                return .crosshair
             }
         case .paint:
             switch currentTool {
             case .eraser:
-                // Circle cursor matching eraser size
-                let size = CGFloat(eraserRadius * 2)
-                let image = NSImage(size: NSSize(width: size, height: size))
-                image.lockFocus()
-                NSColor.gray.withAlphaComponent(0.5).setStroke()
-                NSBezierPath(ovalIn: NSRect(x: 0.5, y: 0.5, width: size - 1, height: size - 1)).stroke()
-                image.unlockFocus()
-                NSCursor(image: image, hotSpot: NSPoint(x: size / 2, y: size / 2)).set()
+                return .eraser(radius: eraserRadius)
             case .spray:
-                // Circle cursor matching spray radius, tinted with paint color
-                let size = CGFloat(sprayRadius * 2)
-                let image = NSImage(size: NSSize(width: size, height: size))
-                image.lockFocus()
-                paintColor.withAlphaComponent(0.4).setStroke()
-                let path = NSBezierPath(ovalIn: NSRect(x: 0.5, y: 0.5, width: size - 1, height: size - 1))
-                path.lineWidth = 1.5
-                path.stroke()
-                // Center dot showing color
-                paintColor.setFill()
-                NSBezierPath(ovalIn: NSRect(x: size/2 - 2, y: size/2 - 2, width: 4, height: 4)).fill()
-                image.unlockFocus()
-                NSCursor(image: image, hotSpot: NSPoint(x: size / 2, y: size / 2)).set()
+                return .spray(radius: sprayRadius, colorToken: paintColorCursorToken)
             default:
-                NSCursor.crosshair.set()
+                return .crosshair
             }
         }
+    }
+
+    private var paintColorCursorToken: String {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        if let rgb = paintColor.usingColorSpace(.deviceRGB) {
+            rgb.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+            return String(format: "%.3f:%.3f:%.3f:%.3f", red, green, blue, alpha)
+        }
+        return paintColor.description
+    }
+
+    private func applyCursor(_ descriptor: CursorDescriptor) {
+        guard activeCursorDescriptor != descriptor else { return }
+        cursor(for: descriptor).set()
+        activeCursorDescriptor = descriptor
+    }
+
+    private func cursor(for descriptor: CursorDescriptor) -> NSCursor {
+        if let cached = cursorCache[descriptor] { return cached }
+
+        let cursor: NSCursor
+        switch descriptor {
+        case .arrow:
+            cursor = .arrow
+        case .pointingHand:
+            cursor = .pointingHand
+        case .crosshair:
+            cursor = .crosshair
+        case .eraser(let radius):
+            cursor = makeEraserCursor(radius: radius)
+        case .spray(let radius, _):
+            cursor = makeSprayCursor(radius: radius)
+        }
+
+        cursorCache[descriptor] = cursor
+        return cursor
+    }
+
+    private func makeEraserCursor(radius: Int) -> NSCursor {
+        let size = CGFloat(max(1, radius) * 2)
+        let image = NSImage(size: NSSize(width: size, height: size))
+        image.lockFocus()
+        NSColor.gray.withAlphaComponent(0.5).setStroke()
+        NSBezierPath(ovalIn: NSRect(x: 0.5, y: 0.5, width: size - 1, height: size - 1)).stroke()
+        image.unlockFocus()
+        return NSCursor(image: image, hotSpot: NSPoint(x: size / 2, y: size / 2))
+    }
+
+    private func makeSprayCursor(radius: Int) -> NSCursor {
+        let size = CGFloat(max(1, radius) * 2)
+        let image = NSImage(size: NSSize(width: size, height: size))
+        image.lockFocus()
+        paintColor.withAlphaComponent(0.4).setStroke()
+        let path = NSBezierPath(ovalIn: NSRect(x: 0.5, y: 0.5, width: size - 1, height: size - 1))
+        path.lineWidth = 1.5
+        path.stroke()
+        paintColor.setFill()
+        NSBezierPath(ovalIn: NSRect(x: size / 2 - 2, y: size / 2 - 2, width: 4, height: 4)).fill()
+        image.unlockFocus()
+        return NSCursor(image: image, hotSpot: NSPoint(x: size / 2, y: size / 2))
+    }
+
+    private func mouseLocationInSelfIfCanvasOwnsCursor() -> CGPoint? {
+        guard let window else { return nil }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        guard bounds.contains(point) else { return nil }
+
+        // If a hosted AppKit/WebKit/SpriteKit subview is under the mouse,
+        // let that native control own its cursor instead of forcing the
+        // canvas cursor during unrelated SwiftUI updates.
+        if let hitView = hitTest(point), hitView !== self {
+            return nil
+        }
+
+        return point
     }
 
     // MARK: - Idle Timer
@@ -1679,6 +1805,23 @@ class CardCanvasNSView: NSView {
 
     /// Default transition duration when none is specified in the script.
     static let defaultTransitionDuration: TimeInterval = 1.0
+    static let transitionPrimingDelay: TimeInterval = 0.05
+    static let transitionCleanupPadding: TimeInterval = 0.10
+    static let maximumTransitionDuration: TimeInterval = 10.0
+
+    static func normalizedTransitionDuration(_ duration: TimeInterval?) -> TimeInterval {
+        let requested = duration ?? defaultTransitionDuration
+        guard requested.isFinite else { return defaultTransitionDuration }
+        return min(max(requested, 0), maximumTransitionDuration)
+    }
+
+    static func navigationDelay(forTransitionDuration duration: TimeInterval) -> TimeInterval {
+        transitionPrimingDelay + duration
+    }
+
+    static func cleanupDelay(forTransitionDuration duration: TimeInterval) -> TimeInterval {
+        navigationDelay(forTransitionDuration: duration) + transitionCleanupPadding
+    }
 
     /// Hide all embedded NSView subviews (web views, video
     /// players, chart hosting views, and sprite area SKViews)
@@ -1718,23 +1861,24 @@ class CardCanvasNSView: NSView {
     ///
     /// `duration` overrides the default transition length (1.0s) when the
     /// user writes `visual effect dissolve 2` in a script.
-    func performCardTransition(to newCardId: UUID, effect: HypeCore.VisualEffect, duration: TimeInterval? = nil) {
+    @discardableResult
+    func performCardTransition(to newCardId: UUID, effect: HypeCore.VisualEffect, duration: TimeInterval? = nil) -> Bool {
         guard effect != .none else {
             HypeLogger.shared.debug("Transition skipped: effect is .none", source: "Transition")
-            return
+            return false
         }
         ensureCardSKView()
         guard let skView = cardSKView else {
             HypeLogger.shared.error("Transition failed: cardSKView is nil", source: "Transition")
-            return
+            return false
         }
         let size = bounds.size
         guard size.width > 0, size.height > 0 else {
             HypeLogger.shared.error("Transition failed: bounds are zero", source: "Transition")
-            return
+            return false
         }
 
-        let dur = duration ?? Self.defaultTransitionDuration
+        let dur = Self.normalizedTransitionDuration(duration)
         HypeLogger.shared.info("Starting \(effect) transition, duration=\(dur)s, size=\(Int(size.width))×\(Int(size.height))", source: "Transition")
 
         isTransitioning = true
@@ -1744,7 +1888,8 @@ class CardCanvasNSView: NSView {
         // CGContext-drawn content (buttons, fields, shapes, text),
         // not the NSView overlays. The texture is a complete-enough
         // representation of the card for the transition.
-        let currentImage = renderer.renderToImage(document: document, cardId: currentCardId, size: size)
+        let currentNativePartIds = CardSKScene.nativeRenderablePartIds(document: document, cardId: currentCardId)
+        let currentImage = renderer.renderToImage(document: document, cardId: currentCardId, size: size, nativePartIds: currentNativePartIds)
         HypeLogger.shared.debug("Current card rendered: \(Int(currentImage.size.width))×\(Int(currentImage.size.height))", source: "Transition")
 
         // Hide all embedded NSView subviews (charts, sprite
@@ -1764,20 +1909,23 @@ class CardCanvasNSView: NSView {
 
         let currentScene = CardSKScene(cardSize: size)
         currentScene.updateCardTexture(currentImage)
+        currentScene.updateNativeContent(document: document, cardId: currentCardId)
         skView.presentScene(currentScene)
         HypeLogger.shared.debug("Presented currentScene, skView.scene=\(skView.scene != nil)", source: "Transition")
 
         // Pre-render the new card texture
-        let newImage = renderer.renderToImage(document: document, cardId: newCardId, size: size)
+        let newNativePartIds = CardSKScene.nativeRenderablePartIds(document: document, cardId: newCardId)
+        let newImage = renderer.renderToImage(document: document, cardId: newCardId, size: size, nativePartIds: newNativePartIds)
         HypeLogger.shared.debug("New card rendered: \(Int(newImage.size.width))×\(Int(newImage.size.height))", source: "Transition")
 
         let newScene = CardSKScene(cardSize: size)
         newScene.updateCardTexture(newImage)
+        newScene.updateNativeContent(document: document, cardId: newCardId)
         let transition = Self.skTransition(for: effect, duration: dur)
 
         // Delay the transition presentation so currentScene renders at least one frame
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak skView] in
-            guard let self = self, let skView = skView else {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.transitionPrimingDelay) { [weak skView] in
+            guard let skView = skView else {
                 HypeLogger.shared.error("Transition delayed block: weak refs gone", source: "Transition")
                 return
             }
@@ -1786,36 +1934,61 @@ class CardCanvasNSView: NSView {
         }
 
         // Cleanup after transition
-        DispatchQueue.main.asyncAfter(deadline: .now() + dur + 0.2) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.cleanupDelay(forTransitionDuration: dur)) { [weak self] in
             HypeLogger.shared.info("Transition complete — hiding SKView, resuming draw()", source: "Transition")
             self?.isTransitioning = false
             self?.cardSKView?.isHidden = true
             self?.cardScene = nil
             self?.needsDisplay = true
         }
+        return true
     }
 
     /// Convert a HyperCard-style VisualEffect into an SKTransition.
-    private static func skTransition(for effect: HypeCore.VisualEffect, duration: TimeInterval) -> SKTransition {
+    static func skTransition(for effect: HypeCore.VisualEffect, duration: TimeInterval) -> SKTransition {
         switch effect {
-        case .dissolve:
+        case .dissolve, .crossFade:
             return SKTransition.crossFade(withDuration: duration)
+        case .fade:
+            return SKTransition.fade(withDuration: duration)
         case .wipeLeft:
-            return SKTransition.push(with: .left, duration: duration)
+            return SKTransition.reveal(with: .left, duration: duration)
         case .wipeRight:
-            return SKTransition.push(with: .right, duration: duration)
+            return SKTransition.reveal(with: .right, duration: duration)
         case .wipeUp:
-            return SKTransition.push(with: .up, duration: duration)
+            return SKTransition.reveal(with: .up, duration: duration)
         case .wipeDown:
+            return SKTransition.reveal(with: .down, duration: duration)
+        case .irisOpen, .irisClose, .doorway:
+            return SKTransition.doorway(withDuration: duration)
+        case .scrollLeft, .pushLeft:
+            return SKTransition.push(with: .left, duration: duration)
+        case .scrollRight, .pushRight:
+            return SKTransition.push(with: .right, duration: duration)
+        case .scrollUp, .pushUp:
+            return SKTransition.push(with: .up, duration: duration)
+        case .scrollDown, .pushDown:
             return SKTransition.push(with: .down, duration: duration)
-        case .irisOpen:
-            return SKTransition.doorway(withDuration: duration)
-        case .irisClose:
-            return SKTransition.doorway(withDuration: duration)
-        case .scrollLeft:
+        case .moveInLeft:
             return SKTransition.moveIn(with: .left, duration: duration)
-        case .scrollRight:
+        case .moveInRight:
             return SKTransition.moveIn(with: .right, duration: duration)
+        case .moveInUp:
+            return SKTransition.moveIn(with: .up, duration: duration)
+        case .moveInDown:
+            return SKTransition.moveIn(with: .down, duration: duration)
+        case .revealLeft:
+            return SKTransition.reveal(with: .left, duration: duration)
+        case .revealRight:
+            return SKTransition.reveal(with: .right, duration: duration)
+        case .revealUp:
+            return SKTransition.reveal(with: .up, duration: duration)
+        case .revealDown:
+            return SKTransition.reveal(with: .down, duration: duration)
+        case .flipHorizontal:
+            return SKTransition.flipHorizontal(withDuration: duration)
+        case .flipVertical:
+            return SKTransition.flipVertical(withDuration: duration)
         case .none:
             return SKTransition.crossFade(withDuration: 0)
         }
@@ -1827,6 +2000,14 @@ class CardCanvasNSView: NSView {
             stopIdleTimer()
             mouseStillDownTimer?.invalidate()
             mouseStillDownTimer = nil
+            if let mouseMovedTrackingArea {
+                removeTrackingArea(mouseMovedTrackingArea)
+                self.mouseMovedTrackingArea = nil
+            }
+            removeAllToolTips()
+            toolTipTagToPartId.removeAll()
+            registeredToolTipDescriptors.removeAll()
+            activeCursorDescriptor = nil
             // Remove frame change observer
             NotificationCenter.default.removeObserver(self, name: NSView.frameDidChangeNotification, object: self)
         } else {
@@ -1855,31 +2036,44 @@ class CardCanvasNSView: NSView {
     }
 
     override func resetCursorRects() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        let cursor: NSCursor
-        switch toolState.category {
-        case .browse: cursor = .pointingHand
-        case .edit: cursor = currentTool == .select ? .arrow : .crosshair
-        case .paint: cursor = .crosshair
-        }
-        addCursorRect(bounds, cursor: cursor)
+        addCursorRect(bounds, cursor: cursor(for: cursorDescriptorForCurrentTool()))
     }
 
     // MARK: - Tracking areas for mouseMoved
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        for area in trackingAreas { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(
-            rect: bounds,
-            options: [.mouseMoved, .activeInKeyWindow, .mouseEnteredAndExited],
-            owner: self
-        ))
+        if let mouseMovedTrackingArea {
+            removeTrackingArea(mouseMovedTrackingArea)
+        }
+
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .activeInKeyWindow, .mouseEnteredAndExited, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        mouseMovedTrackingArea = trackingArea
         startIdleTimer()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        activeCursorDescriptor = nil
+        updateCursor(at: flippedPoint(for: event))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        activeCursorDescriptor = nil
+        if let oldId = hoveredPartId {
+            hoveredPartId = nil
+            coordinator?.dispatchMessage("mouseLeave", to: oldId)
+        }
     }
 
     override func mouseMoved(with event: NSEvent) {
         let point = flippedPoint(for: event)
+        updateCursor(at: point)
         let hitPart = renderer.partAtPoint(point, document: document, cardId: currentCardId)
         let newHoverId = hitPart?.id
 
@@ -1928,15 +2122,19 @@ class CardCanvasNSView: NSView {
                 let pl = paintLayerForCurrentCard()
                 pl.drawCircle(cx: x, cy: y, radius: pencilRadius, color: paintColor)
                 lastPencilPoint = point
+                persistPaintLayerForCurrentCard()
             case .spray:
                 let pl = paintLayerForCurrentCard()
                 pl.spray(cx: x, cy: y, radius: sprayRadius, density: max(10, sprayRadius * 2), color: paintColor)
+                persistPaintLayerForCurrentCard()
             case .eraser:
                 let pl = paintLayerForCurrentCard()
                 pl.erase(cx: x, cy: y, radius: eraserRadius)
+                persistPaintLayerForCurrentCard()
             case .bucket:
                 let pl = paintLayerForCurrentCard()
                 pl.floodFill(x: x, y: y, color: paintColor)
+                persistPaintLayerForCurrentCard()
             case .line, .rect, .oval, .text:
                 // These use drag -- just record start point
                 break
@@ -2015,13 +2213,15 @@ class CardCanvasNSView: NSView {
 
         // Handle select tool directly for cleaner click-vs-marquee logic
         if currentTool == .select {
-            // Check resize handle first (single selection only)
-            if selectedPartIds.count == 1 {
+            // Check resize handle first. A grouped selection counts
+            // as one resizable unit even though selectedPartIds
+            // contains every member.
+            if let unit = singleResizableSelectionUnit() {
                 let handle = hitTestResizeHandle(point)
                 if handle != .none {
                     resizeHandle = handle
                     dragStart = point
-                    draggedPartId = selectedPartIds.first
+                    draggedPartId = unit.ids.first
                     return
                 }
             }
@@ -2166,13 +2366,14 @@ class CardCanvasNSView: NSView {
         if let partId = draggedPartId, let start = dragStart {
             let dx = Double(point.x - start.x)
             let dy = Double(point.y - start.y)
-            if resizeHandle != .none {
-                // Resize the part using the handle, with size-matching snap
-                let otherParts = allOtherParts(excluding: partId)
-                var proposedPart = document.parts.first(where: { $0.id == partId })!
-                // Apply raw resize to get proposed dimensions
-                proposedPart.width += dx
-                proposedPart.height += dy
+            let expandedSelection = document.expandedGroupSelection(selectedPartIds)
+            if resizeHandle != .none, let unit = singleResizableSelectionUnit() {
+                // Resize the selected unit. For groups, every member scales
+                // proportionally inside the group bounds.
+                let oldBounds = unit.bounds
+                let newBounds = resizedBounds(oldBounds, handle: resizeHandle, dx: dx, dy: dy)
+                let otherParts = allOtherParts(excluding: unit.ids)
+                let proposedPart = proxyPart(for: newBounds)
                 let snap = alignmentEngine.computeResizeSnap(
                     resizingPart: proposedPart,
                     otherParts: otherParts,
@@ -2180,27 +2381,34 @@ class CardCanvasNSView: NSView {
                     canvasHeight: Double(bounds.height)
                 )
                 activeGuides = snap.guides
-                coordinator?.resizePart(id: partId, handle: resizeHandle, dx: dx, dy: dy)
-            } else if selectedPartIds.count > 1 && selectedPartIds.contains(partId) {
-                // Move ALL selected parts by the same delta
-                for id in selectedPartIds {
-                    coordinator?.movePart(id: id, dx: dx, dy: dy)
+                coordinator?.resizeParts(ids: unit.ids, from: oldBounds, to: newBounds)
+            } else if expandedSelection.contains(partId) {
+                let units = currentSelectionUnits()
+                if units.count == 1, let unit = units.first {
+                    // Move a single selection unit (one part or one group)
+                    // with normal alignment snapping.
+                    let otherParts = allOtherParts(excluding: unit.ids)
+                    var proposedPart = proxyPart(for: unit.bounds)
+                    proposedPart.left += dx
+                    proposedPart.top += dy
+                    let snap = alignmentEngine.computeMoveSnap(
+                        movingPart: proposedPart,
+                        otherParts: otherParts,
+                        canvasWidth: Double(bounds.width),
+                        canvasHeight: Double(bounds.height)
+                    )
+                    activeGuides = snap.guides
+                    coordinator?.moveParts(ids: unit.ids, dx: dx + snap.dx, dy: dy + snap.dy)
+                } else {
+                    // Move all selected units by the same delta. This keeps
+                    // multi-select behavior stable and avoids one unit's snap
+                    // pulling the others unexpectedly.
+                    coordinator?.moveParts(ids: expandedSelection, dx: dx, dy: dy)
+                    activeGuides = []
                 }
-                activeGuides = []
             } else {
-                // Move the part with alignment snapping
-                let otherParts = allOtherParts(excluding: partId)
-                var proposedPart = document.parts.first(where: { $0.id == partId })!
-                proposedPart.left += dx
-                proposedPart.top += dy
-                let snap = alignmentEngine.computeMoveSnap(
-                    movingPart: proposedPart,
-                    otherParts: otherParts,
-                    canvasWidth: Double(bounds.width),
-                    canvasHeight: Double(bounds.height)
-                )
-                activeGuides = snap.guides
-                coordinator?.movePart(id: partId, dx: dx + snap.dx, dy: dy + snap.dy)
+                coordinator?.movePart(id: partId, dx: dx, dy: dy)
+                activeGuides = []
             }
             dragStart = point
             needsDisplay = true
@@ -2303,6 +2511,10 @@ class CardCanvasNSView: NSView {
                 case .pencil:
                     // Pencil draws to PaintLayer bitmap — no Part created
                     lastPencilPoint = nil
+                    persistPaintLayerForCurrentCard()
+
+                case .spray, .eraser, .bucket:
+                    persistPaintLayerForCurrentCard()
 
                 case .text:
                     // Create a transparent field at the click location
@@ -2825,33 +3037,69 @@ class CardCanvasNSView: NSView {
     /// the click-to-select interaction. Called from `draw(_:)`
     /// after layout is settled.
     ///
-    /// The naive "remove all + re-add every part" approach is
-    /// fast enough for typical card sizes (low tens of parts) and
-    /// keeps the tooltip rects in lock-step with part geometry —
-    /// move a part, resize it, change its `helpText`, the bubble
-    /// follows on the next redraw. NSView's tracking infrastructure
-    /// uses an internal lookup table; the cost is dominated by
-    /// allocating Swift NSValues for the rects, which is trivial.
+    /// Tooltip registration is intentionally stable. Removing and
+    /// re-adding the same tooltip rects on every draw resets AppKit's
+    /// hover timers and makes bubbles feel intermittent during card
+    /// navigation. We rebuild only when the set of tooltip-owning
+    /// parts or their geometry changes.
     ///
     /// Z-order note: when two parts overlap, NSView resolves the
     /// hover to the most recently registered tooltip rect. We add
-    /// in document order (back to front) so the front-most part
-    /// wins, which matches what the user sees and clicks.
+    /// background parts first, then card parts, each in document
+    /// order, so the same topmost part wins as `CardRenderer`.
     private func updatePartToolTips() {
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let nextDescriptors = Self.toolTipDescriptors(
+            in: document,
+            currentCardId: currentCardId,
+            isBrowseMode: toolState.category == .browse
+        )
+
+        guard nextDescriptors != registeredToolTipDescriptors else { return }
+
         removeAllToolTips()
         toolTipTagToPartId.removeAll()
+        registeredToolTipDescriptors = nextDescriptors
 
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        guard toolState.category == .browse else { return }
-
-        for part in document.effectivePartsForCard(currentCardId) where part.visible && !part.helpText.isEmpty {
-            let rect = NSRect(
-                x: part.left, y: part.top,
-                width: part.width, height: part.height
-            )
-            let tag = addToolTip(rect, owner: self, userData: nil)
-            toolTipTagToPartId[tag] = part.id
+        for descriptor in nextDescriptors {
+            let tag = addToolTip(descriptor.rect, owner: self, userData: nil)
+            toolTipTagToPartId[tag] = descriptor.partId
         }
+    }
+
+    static func toolTipDescriptors(
+        in document: HypeDocument,
+        currentCardId: UUID,
+        isBrowseMode: Bool
+    ) -> [ToolTipDescriptor] {
+        guard isBrowseMode else { return [] }
+
+        return tooltipRegistrationParts(in: document, currentCardId: currentCardId)
+            .compactMap { part in
+                guard part.visible,
+                      !part.helpText.isEmpty,
+                      part.width > 0,
+                      part.height > 0
+                else { return nil }
+
+                return ToolTipDescriptor(
+                    partId: part.id,
+                    rect: NSRect(
+                        x: part.left,
+                        y: part.top,
+                        width: part.width,
+                        height: part.height
+                    )
+                )
+            }
+    }
+
+    static func tooltipRegistrationParts(in document: HypeDocument, currentCardId: UUID) -> [Part] {
+        let cardParts = document.partsForCard(currentCardId)
+        guard let card = document.cards.first(where: { $0.id == currentCardId }) else {
+            return cardParts
+        }
+        return document.partsForBackground(card.backgroundId) + cardParts
     }
 
     /// `NSToolTipOwner`-style callback. NSView calls this when the
@@ -3644,14 +3892,12 @@ class CardCanvasNSView: NSView {
 
     /// Check if a point hits a resize handle on the selected part.
     private func hitTestResizeHandle(_ point: CGPoint) -> ResizeHandle {
-        guard selectedPartIds.count == 1,
-              let selectedId = selectedPartIds.first,
-              let part = document.parts.first(where: { $0.id == selectedId }) else {
+        guard let unit = singleResizableSelectionUnit() else {
             return .none
         }
 
         let handleSize: CGFloat = 10 // slightly larger hit area than visual
-        let rect = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+        let rect = CGRect(x: unit.bounds.left, y: unit.bounds.top, width: unit.bounds.width, height: unit.bounds.height)
 
         let handles: [(ResizeHandle, CGPoint)] = [
             (.topLeft,      CGPoint(x: rect.minX, y: rect.minY)),
@@ -3700,12 +3946,17 @@ class CardCanvasNSView: NSView {
         if editingBackground {
             return bgParts.filter { $0.visible }
         } else {
-            return (cardParts + bgParts).filter { $0.visible }
+            return cardParts.filter { $0.visible }
         }
     }
 
     /// Get all parts on the current card/background except the one being manipulated.
     private func allOtherParts(excluding partId: UUID) -> [Part] {
+        allOtherParts(excluding: [partId])
+    }
+
+    /// Get all parts on the current card/background except the parts being manipulated.
+    private func allOtherParts(excluding excludedIds: Set<UUID>) -> [Part] {
         let cardParts = document.partsForCard(currentCardId)
         let bgParts: [Part]
         if let card = document.cards.first(where: { $0.id == currentCardId }) {
@@ -3713,7 +3964,67 @@ class CardCanvasNSView: NSView {
         } else {
             bgParts = []
         }
-        return (cardParts + bgParts).filter { $0.id != partId }
+        return (cardParts + bgParts).filter { !excludedIds.contains($0.id) }
+    }
+
+    private func currentSelectionUnits() -> [PartSelectionUnit] {
+        document.selectionUnits(for: selectedPartIds)
+    }
+
+    private func singleResizableSelectionUnit() -> PartSelectionUnit? {
+        let units = currentSelectionUnits()
+        return units.count == 1 ? units[0] : nil
+    }
+
+    private func resizedBounds(_ bounds: PartBounds, handle: ResizeHandle, dx: Double, dy: Double) -> PartBounds {
+        let minSize: Double = 10
+        var left = bounds.left
+        var top = bounds.top
+        var width = bounds.width
+        var height = bounds.height
+
+        switch handle {
+        case .topLeft:
+            let newW = max(minSize, width - dx)
+            let newH = max(minSize, height - dy)
+            left += width - newW
+            top += height - newH
+            width = newW
+            height = newH
+        case .topCenter:
+            let newH = max(minSize, height - dy)
+            top += height - newH
+            height = newH
+        case .topRight:
+            width = max(minSize, width + dx)
+            let newH = max(minSize, height - dy)
+            top += height - newH
+            height = newH
+        case .rightCenter:
+            width = max(minSize, width + dx)
+        case .bottomRight:
+            width = max(minSize, width + dx)
+            height = max(minSize, height + dy)
+        case .bottomCenter:
+            height = max(minSize, height + dy)
+        case .bottomLeft:
+            let newW = max(minSize, width - dx)
+            left += width - newW
+            width = newW
+            height = max(minSize, height + dy)
+        case .leftCenter:
+            let newW = max(minSize, width - dx)
+            left += width - newW
+            width = newW
+        case .none:
+            break
+        }
+
+        return PartBounds(left: left, top: top, width: width, height: height)
+    }
+
+    private func proxyPart(for bounds: PartBounds) -> Part {
+        Part(partType: .shape, cardId: currentCardId, left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height)
     }
 
     /// Get or create the paint layer for the current card.
@@ -3721,9 +4032,27 @@ class CardCanvasNSView: NSView {
         if let existing = paintLayers[currentCardId] {
             return existing
         }
-        let layer = PaintLayer(width: max(1, Int(bounds.width)), height: max(1, Int(bounds.height)))
+        let layer: PaintLayer
+        if let persisted = document.paintLayer(forCardId: currentCardId) {
+            layer = PaintLayer(snapshot: persisted)
+        } else {
+            layer = PaintLayer(width: max(1, Int(bounds.width)), height: max(1, Int(bounds.height)))
+        }
         paintLayers[currentCardId] = layer
         return layer
+    }
+
+    @MainActor
+    func persistPaintLayerForCurrentCard() {
+        guard let layer = paintLayers[currentCardId] else { return }
+        let snapshot = layer.snapshot(cardId: currentCardId)
+        if snapshot.isEmpty {
+            document.removePaintLayer(forCardId: currentCardId)
+            coordinator?.removePaintLayer(cardId: currentCardId)
+        } else {
+            document.setPaintLayer(snapshot)
+            coordinator?.setPaintLayer(snapshot)
+        }
     }
 
     // MARK: - Constraint Helpers

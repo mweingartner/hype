@@ -120,6 +120,39 @@ struct CheckScriptToolTests {
         #expect(result.hasPrefix("OK:"))
     }
 
+    @Test("model-style nested logic with else-if, line counts, and loops passes")
+    func modelStyleNestedLogicPasses() async {
+        var (doc, cardId) = makeDoc()
+        let executor = HypeToolExecutor()
+        let script = """
+            on mouseUp
+              put "Torch" & linefeed & "Rope" & linefeed & "Map" into invDump
+              put "" into outcome
+              repeat with i from 1 to the number of lines in invDump
+                put line i of invDump into itemName
+                if itemName is "Torch" then
+                  put "light" after outcome
+                else if itemName is "Rope" then
+                  if outcome contains "light" then
+                    put ",climb" after outcome
+                  else
+                    put ",tie" after outcome
+                  end if
+                else
+                  put ",other" after outcome
+                end if
+              end repeat
+            end mouseUp
+            """
+        let result = await executor.execute(
+            toolName: "check_script",
+            arguments: ["script": script],
+            document: &doc,
+            currentCardId: cardId
+        )
+        #expect(result.hasPrefix("OK:"))
+    }
+
     @Test("the loc of me and set the rotation of me parse")
     func meReferencePasses() async {
         var (doc, cardId) = makeDoc()

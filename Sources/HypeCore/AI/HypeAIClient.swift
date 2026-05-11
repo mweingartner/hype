@@ -63,6 +63,7 @@ public extension HypeAIClient {
 public enum HypeAIConfiguration {
     public static let providerKey = "hype.ai.provider"
     public static let openAIModelKey = "hype.openai.model"
+    public static let openAIImageModelKey = "hype.openai.imageModel"
     public static let openAITranscriptionModelKey = "hype.openai.transcriptionModel"
     public static let openAITTSModelKey = "hype.openai.ttsModel"
     public static let openAIVoiceKey = "hype.openai.voice"
@@ -70,6 +71,7 @@ public enum HypeAIConfiguration {
     public static let speakAssistantResponsesKey = "hype.openai.speech.speakAssistantResponses"
 
     public static let defaultOpenAIModel = "gpt-5.2"
+    public static let defaultOpenAIImageModel = "gpt-image-1.5"
     public static let defaultOpenAITranscriptionModel = "gpt-4o-mini-transcribe"
     public static let defaultOpenAITTSModel = "gpt-4o-mini-tts"
     public static let defaultOpenAIVoice = "coral"
@@ -86,6 +88,12 @@ public enum HypeAIConfiguration {
         "gpt-4.1-nano",
         "gpt-4o",
         "gpt-4o-mini"
+    ]
+
+    public static let openAIImageModels = [
+        "gpt-image-1.5",
+        "gpt-image-1",
+        "gpt-image-1-mini"
     ]
 
     public static let openAITranscriptionModels = [
@@ -127,6 +135,10 @@ public enum HypeAIConfiguration {
         normalized(defaults.string(forKey: openAIModelKey)) ?? defaultOpenAIModel
     }
 
+    public static func openAIImageModel(defaults: UserDefaults = .standard) -> String {
+        normalized(defaults.string(forKey: openAIImageModelKey)) ?? defaultOpenAIImageModel
+    }
+
     public static func openAITranscriptionModel(defaults: UserDefaults = .standard) -> String {
         normalized(defaults.string(forKey: openAITranscriptionModelKey)) ?? defaultOpenAITranscriptionModel
     }
@@ -154,6 +166,14 @@ public enum HypeAIConfiguration {
                 model: openAIModel(defaults: defaults)
             )
         }
+    }
+
+    public static func makeImageGenerationClient(defaults: UserDefaults = .standard) throws -> any HypeImageGenerating {
+        let apiKey = try KeychainStore.getSecret(account: KeychainStore.openAIAPIKeyAccount)
+        return OpenAIImageGenerationClient(
+            apiKey: apiKey,
+            model: openAIImageModel(defaults: defaults)
+        )
     }
 
     static func normalized(_ value: String?) -> String? {

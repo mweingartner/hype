@@ -23,6 +23,9 @@ import HypeCore
 /// support — both should produce a graceful UI state, not a crash.
 @MainActor
 final class AISpeechCapture: ObservableObject {
+    static let silenceAutoSubmitDelaySeconds: TimeInterval = 3.5
+    private static let openAISpeechPowerThreshold: Float = -45
+    private static let openAIMeterSampleIntervalNanoseconds: UInt64 = 200_000_000
 
     enum State: Equatable {
         case idle
@@ -46,6 +49,10 @@ final class AISpeechCapture: ObservableObject {
     private var recognitionTask: SFSpeechRecognitionTask?
     private var openAIRecorder: AVAudioRecorder?
     private var openAIRecordingURL: URL?
+    private var silenceFinalizeTask: Task<Void, Never>?
+    private var openAIMeterTask: Task<Void, Never>?
+    private var openAIHasDetectedSpeech = false
+    private var lastOpenAISpeechDate: Date?
     private var captureProvider: HypeSpeechInputProvider?
     private let recognizer: SFSpeechRecognizer? = SFSpeechRecognizer(locale: Locale.current)
         ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
@@ -102,6 +109,7 @@ final class AISpeechCapture: ObservableObject {
     }
 
     func stop() {
+        cancelSilenceAutomation()
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
         recognitionRequest?.endAudio()
@@ -110,6 +118,8 @@ final class AISpeechCapture: ObservableObject {
         recognitionRequest = nil
         openAIRecorder?.stop()
         openAIRecorder = nil
+        openAIHasDetectedSpeech = false
+        lastOpenAISpeechDate = nil
         if let url = openAIRecordingURL {
             try? FileManager.default.removeItem(at: url)
         }
@@ -119,6 +129,7 @@ final class AISpeechCapture: ObservableObject {
     }
 
     func stopAndFinalizeIfNeeded() async {
+        cancelSilenceAutomation()
         guard captureProvider == .openAI else {
             stop()
             return
@@ -202,11 +213,13 @@ final class AISpeechCapture: ObservableObject {
                 AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
             ]
             let recorder = try AVAudioRecorder(url: url, settings: settings)
+            recorder.isMeteringEnabled = true
             recorder.prepareToRecord()
             recorder.record()
             openAIRecorder = recorder
             openAIRecordingURL = url
             state = .listening
+            startOpenAISilenceMonitor()
         } catch {
             state = .error(error.localizedDescription)
         }
@@ -249,8 +262,9 @@ final class AISpeechCapture: ObservableObject {
                 if let result {
                     self.transcript = result.bestTranscription.formattedString
                     if result.isFinal {
-                        self.transcriptDidFinalize.send(self.transcript)
-                        self.stop()
+                        self.finalizeAppleTranscript(self.transcript)
+                    } else {
+                        self.scheduleAppleSilenceFinalize(for: self.transcript)
                     }
                 }
                 if error != nil {
@@ -261,5 +275,66 @@ final class AISpeechCapture: ObservableObject {
 
         audioEngine.prepare()
         try audioEngine.start()
+    }
+
+    private func scheduleAppleSilenceFinalize(for text: String) {
+        let finalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard captureProvider == .apple, isListening, !finalizedText.isEmpty else { return }
+
+        silenceFinalizeTask?.cancel()
+        silenceFinalizeTask = Task { [weak self] in
+            let delay = UInt64(Self.silenceAutoSubmitDelaySeconds * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
+            self?.finalizeAppleTranscript(finalizedText)
+        }
+    }
+
+    private func finalizeAppleTranscript(_ text: String) {
+        let finalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard captureProvider == .apple, !finalizedText.isEmpty else { return }
+        transcript = finalizedText
+        transcriptDidFinalize.send(finalizedText)
+        stop()
+    }
+
+    private func startOpenAISilenceMonitor() {
+        openAIHasDetectedSpeech = false
+        lastOpenAISpeechDate = nil
+        openAIMeterTask?.cancel()
+        openAIMeterTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: Self.openAIMeterSampleIntervalNanoseconds)
+                guard !Task.isCancelled else { return }
+                await self?.sampleOpenAIMeterForSilence()
+            }
+        }
+    }
+
+    private func sampleOpenAIMeterForSilence() async {
+        guard captureProvider == .openAI,
+              state == .listening,
+              let recorder = openAIRecorder else { return }
+
+        recorder.updateMeters()
+        let power = recorder.averagePower(forChannel: 0)
+        if power > Self.openAISpeechPowerThreshold {
+            openAIHasDetectedSpeech = true
+            lastOpenAISpeechDate = Date()
+            return
+        }
+
+        guard openAIHasDetectedSpeech,
+              let lastOpenAISpeechDate,
+              Date().timeIntervalSince(lastOpenAISpeechDate) >= Self.silenceAutoSubmitDelaySeconds else { return }
+
+        await stopAndFinalizeIfNeeded()
+    }
+
+    private func cancelSilenceAutomation() {
+        silenceFinalizeTask?.cancel()
+        silenceFinalizeTask = nil
+        openAIMeterTask?.cancel()
+        openAIMeterTask = nil
     }
 }
