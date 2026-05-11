@@ -45,6 +45,8 @@ public struct Lexer: Sendable {
         "play": .play, "beep": .beep, "wait": .wait, "animate": .animate, "animation": .animation,
         "ai": .ai,
         "meshy": .meshy,
+        "remesh": .remesh,
+        "retexture": .retexture,
         "choose": .choose, "close": .close, "save": .save, "quit": .quit,
         "mark": .mark, "unmark": .unmark, "push": .push, "pop": .pop,
         "click": .click, "drag": .drag, "run": .run, "print": .print,

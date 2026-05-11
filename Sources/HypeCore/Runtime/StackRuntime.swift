@@ -205,6 +205,23 @@ public protocol ScriptRuntimeProviding: Sendable {
         callbackMessage: String,
         owner: RuntimeOwnerContext
     ) async throws -> UUID
+    /// Phase 4: kick off a Meshy remesh asynchronously. Same async-callback
+    /// pattern as `startMeshyRequest`. Returns request UUID; callback fires with
+    /// `(requestID, status, assetName)`.
+    func startRemeshRequest(
+        sourceAssetName: String,
+        targetPolycount: Int,
+        callbackMessage: String,
+        owner: RuntimeOwnerContext
+    ) async throws -> UUID
+    /// Phase 4: kick off a Meshy retexture asynchronously. Same async-callback
+    /// pattern. Returns request UUID; callback fires with `(requestID, status, assetName)`.
+    func startRetextureRequest(
+        sourceAssetName: String,
+        stylePrompt: String,
+        callbackMessage: String,
+        owner: RuntimeOwnerContext
+    ) async throws -> UUID
     func setSpeechListenerActive(_ active: Bool, owner: RuntimeOwnerContext) async throws
     func isSpeechListenerActive() async -> Bool
     func startHTTPRequest(_ spec: OutboundHTTPRequestSpec, owner: RuntimeOwnerContext) async throws -> UUID
@@ -306,7 +323,9 @@ public actor StackRuntime: ScriptRuntimeProviding {
         case outboundHTTP
         case inboundHTTP
         case ai
-        case meshy  // Phase 3
+        case meshy      // Phase 3
+        case remesh     // Phase 4
+        case retexture  // Phase 4
     }
 
     private struct RequestState {
@@ -608,6 +627,131 @@ public actor StackRuntime: ScriptRuntimeProviding {
                     prompt: prompt,
                     style: style,
                     model: model,
+                    document: docSnapshot
+                )
+                if var request = self.requests[id] {
+                    request.state = "completed"
+                    request.body = assetName
+                    self.setRequestState(request)
+                }
+                await self.enqueueCallback(
+                    message: callbackMessage,
+                    owner: owner,
+                    params: [id.uuidString, "completed", assetName]
+                )
+            } catch {
+                if var request = self.requests[id] {
+                    request.state = "error"
+                    request.error = error.localizedDescription
+                    self.setRequestState(request)
+                }
+                await self.enqueueCallback(
+                    message: callbackMessage,
+                    owner: owner,
+                    params: [id.uuidString, "error", ""]
+                )
+            }
+        }
+        return id
+    }
+
+    /// Kick off a Meshy remesh asynchronously. Returns a request UUID immediately;
+    /// when remesh completes (or fails), dispatches `callbackMessage` with
+    /// parameters `(requestID, status, assetName)`.
+    ///
+    /// **Security (C8):** `remeshSync` is responsible for installing the asset
+    /// via `HypeDocumentMutationCoordinator`. This method does NOT perform a
+    /// second mutation — exactly one mutation per generation.
+    public func startRemeshRequest(
+        sourceAssetName: String,
+        targetPolycount: Int,
+        callbackMessage: String,
+        owner: RuntimeOwnerContext
+    ) async throws -> UUID {
+        let id = UUID()
+        requests[id] = RequestState(
+            id: id,
+            kind: .remesh,
+            state: "pending",
+            method: "POST",
+            url: "/openapi/v1/remesh",
+            headers: [:],
+            body: "",
+            statusCode: nil,
+            error: nil
+        )
+        postStatusChange()
+
+        let meshyProvider = configuration.meshyProvider
+        let docSnapshot = document
+
+        Task {
+            do {
+                let assetName = try await meshyProvider.remeshSync(
+                    sourceAssetName: sourceAssetName,
+                    targetPolycount: targetPolycount,
+                    document: docSnapshot
+                )
+                if var request = self.requests[id] {
+                    request.state = "completed"
+                    request.body = assetName
+                    self.setRequestState(request)
+                }
+                await self.enqueueCallback(
+                    message: callbackMessage,
+                    owner: owner,
+                    params: [id.uuidString, "completed", assetName]
+                )
+            } catch {
+                if var request = self.requests[id] {
+                    request.state = "error"
+                    request.error = error.localizedDescription
+                    self.setRequestState(request)
+                }
+                await self.enqueueCallback(
+                    message: callbackMessage,
+                    owner: owner,
+                    params: [id.uuidString, "error", ""]
+                )
+            }
+        }
+        return id
+    }
+
+    /// Kick off a Meshy retexture asynchronously. Returns a request UUID immediately;
+    /// when retexture completes (or fails), dispatches `callbackMessage` with
+    /// parameters `(requestID, status, assetName)`.
+    ///
+    /// **Security (C8):** `retextureSync` is responsible for installing the asset.
+    /// This method does NOT perform a second mutation.
+    public func startRetextureRequest(
+        sourceAssetName: String,
+        stylePrompt: String,
+        callbackMessage: String,
+        owner: RuntimeOwnerContext
+    ) async throws -> UUID {
+        let id = UUID()
+        requests[id] = RequestState(
+            id: id,
+            kind: .retexture,
+            state: "pending",
+            method: "POST",
+            url: "/openapi/v1/retexture",
+            headers: [:],
+            body: "",
+            statusCode: nil,
+            error: nil
+        )
+        postStatusChange()
+
+        let meshyProvider = configuration.meshyProvider
+        let docSnapshot = document
+
+        Task {
+            do {
+                let assetName = try await meshyProvider.retextureSync(
+                    sourceAssetName: sourceAssetName,
+                    stylePrompt: stylePrompt,
                     document: docSnapshot
                 )
                 if var request = self.requests[id] {

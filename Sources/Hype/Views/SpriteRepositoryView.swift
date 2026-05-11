@@ -49,6 +49,10 @@ struct SpriteRepositoryView: View {
     /// the `.sheet(item:)` presentation of `RigAndAnimateCoordinator`.
     @State private var rigAndAnimateSourceAsset: SpriteAsset? = nil
 
+    // MARK: - Remesh & Retexture state (Phase 4)
+    /// Selection driving `RemeshAndRetextureCoordinator`. Non-nil opens the sheet.
+    @State private var remeshOrRetextureSource: RemeshOrRetextureSelection? = nil
+
     // MARK: - Tileset classification state
     // Local state for the classify panel. Seeded from the selected
     // asset when focus changes, so the user can tweak values before
@@ -58,6 +62,16 @@ struct SpriteRepositoryView: View {
     @State private var tilesetCols: Int = 0
     @State private var tilesetRows: Int = 0
     @State private var tilesetEditingAssetId: UUID? = nil
+
+    // MARK: - Remesh / Retexture selection type
+
+    /// Small wrapper that is `Identifiable` so it can drive `.sheet(item:)`.
+    private struct RemeshOrRetextureSelection: Identifiable {
+        /// The asset id is stable and unique — use it as the selection id.
+        var id: UUID { asset.id }
+        let asset: SpriteAsset
+        let mode: RemeshAndRetextureCoordinator.Mode
+    }
 
     private var filteredAssets: [SpriteAsset] {
         if searchText.isEmpty { return document.document.spriteRepository.assets }
@@ -243,6 +257,18 @@ struct SpriteRepositoryView: View {
                     if let first = ids.first {
                         selectedAssetIds = [first]
                     }
+                }
+            )
+        }
+        // Phase 4: Remesh / Retexture coordinator sheet.
+        .sheet(item: $remeshOrRetextureSource) { selection in
+            RemeshAndRetextureCoordinator(
+                document: $document,
+                sourceAsset: selection.asset,
+                mode: selection.mode,
+                onDismiss: { remeshOrRetextureSource = nil },
+                onAssetImported: { id in
+                    selectedAssetIds = [id]
                 }
             )
         }
@@ -678,6 +704,41 @@ struct SpriteRepositoryView: View {
                             .help("Apply a Meshy animation to this rigged model.")
                         }
                     }
+
+                    // Phase 4: Remesh, Retexture, and Open in AR.
+                    // Remesh / Retexture: only for Meshy-generated models with a task id.
+                    if hasMeshyTaskId && isMeshy {
+                        Button {
+                            remeshOrRetextureSource = RemeshOrRetextureSelection(
+                                asset: asset,
+                                mode: .remesh
+                            )
+                        } label: {
+                            HStack {
+                                Image(systemName: "cylinder.split.1x2")
+                                Text("Remesh\u{2026}")
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .help("Create a lower-poly (or re-topologized) version of this model using Meshy.ai.")
+
+                        Button {
+                            remeshOrRetextureSource = RemeshOrRetextureSelection(
+                                asset: asset,
+                                mode: .retexture
+                            )
+                        } label: {
+                            HStack {
+                                Image(systemName: "paintbrush.pointed")
+                                Text("Retexture\u{2026}")
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .help("Apply a new texture to this model via a text prompt, using Meshy.ai.")
+                    }
+
+                    // Open in AR: available for any model3D on macOS 13+.
+                    OpenInARButton(asset: asset)
                 }
 
                 // Transparent Background — same one-click chroma-key

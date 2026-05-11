@@ -41,6 +41,16 @@ private actor ScriptedMeshyClient: MeshyClient {
         return "stub_anim_task"
     }
 
+    func createRemeshTask(_ request: MeshyRemeshRequest) async throws -> String {
+        lastCreatedKind = "remesh"
+        return "stub_remesh_task"
+    }
+
+    func createRetextureTask(_ request: MeshyRetextureRequest) async throws -> String {
+        lastCreatedKind = "retexture"
+        return "stub_retexture_task"
+    }
+
     func fetchTaskFact(taskId: String, kind: MeshyTaskKind) async throws -> MeshyPolledFact {
         guard responseIndex < taskFacts.count else {
             return taskFacts.last!
@@ -49,7 +59,7 @@ private actor ScriptedMeshyClient: MeshyClient {
         return taskFacts[responseIndex]
     }
 
-    /// Security (H1): all five kinds listed explicitly; no default.
+    /// Security (H1): all seven kinds listed explicitly; no default.
     func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {
         cancelledTaskIds.append(taskId)
         switch kind {
@@ -58,6 +68,8 @@ private actor ScriptedMeshyClient: MeshyClient {
         case .multiImageTo3D: break
         case .rigging:        break
         case .animation:      break
+        case .remesh:         break
+        case .retexture:      break
         }
     }
 

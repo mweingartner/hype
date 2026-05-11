@@ -27,10 +27,12 @@ actor ImporterStubClient: MeshyClient {
     func createMultiImageTo3DTask(_ request: MeshyMultiImageTo3DRequest) async throws -> String { "stub_multi_id" }
     func createRiggingTask(_ request: MeshyRiggingRequest) async throws -> String { "stub_rig_id" }
     func createAnimationTask(_ request: MeshyAnimationRequest) async throws -> String { "stub_anim_id" }
+    func createRemeshTask(_ request: MeshyRemeshRequest) async throws -> String { "stub_remesh_id" }
+    func createRetextureTask(_ request: MeshyRetextureRequest) async throws -> String { "stub_retex_id" }
     func fetchTaskFact(taskId: String, kind: MeshyTaskKind) async throws -> MeshyPolledFact {
         MeshyPolledFact(taskId: taskId, status: .pending)
     }
-    /// Security (H1): all five kinds listed explicitly; no default.
+    /// Security (H1): all seven kinds listed explicitly; no default.
     func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {
         switch kind {
         case .textTo3D:       break
@@ -38,6 +40,8 @@ actor ImporterStubClient: MeshyClient {
         case .multiImageTo3D: break
         case .rigging:        break
         case .animation:      break
+        case .remesh:         break
+        case .retexture:      break
         }
     }
     func fetchBalance() async throws -> Int { 100 }

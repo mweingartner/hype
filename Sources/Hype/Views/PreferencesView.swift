@@ -203,6 +203,34 @@ struct PreferencesView: View {
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                // Phase 4: Webhook documentation disclosure group (C18/C19).
+                // Read-only — no persisted state. The listener recipe itself
+                // is configured per-stack in HypeTalk, not here.
+                DisclosureGroup("Webhook notifications (advanced)") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Meshy can POST a webhook to a URL of your choice when a generation finishes. Hype's `listen for http on <port> \u{201c}messageName\u{201d}` HypeTalk command can receive these \u{2014} but the URL must be reachable from the public internet, which requires a tunnel (ngrok, Cloudflare Tunnel, Tailscale Funnel).")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text("In your message handler, use `meshy_parse_webhook(body)` to extract task_id, status, and the GLB URL from the request body. Meshy does NOT sign webhook payloads \u{2014} keep your tunnel URL private.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text("Configure the webhook callback URL in your Meshy dashboard, not here.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+
+                        Button("Open Meshy Dashboard\u{2026}") {
+                            NSWorkspace.shared.open(URL(string: "https://app.meshy.ai/api-keys")!)
+                        }
+                        .font(.system(size: 11))
+                    }
+                    .padding(.top, 4)
+                }
+                .font(.system(size: 11))
             }
 
             Section("Speech") {

@@ -131,4 +131,44 @@ struct MeshyAIClientFetchTaskKindRoutingTests {
         #expect(path.contains("/v1/animations/anim_001"),
                 ".animation must route to /openapi/v1/animations/<id>, got: \(path)")
     }
+
+    // MARK: (e) Phase 4: .remesh → /openapi/v1/remesh/<id>
+
+    @Test("fetchTaskFact(.remesh) requests /openapi/v1/remesh/<id>")
+    func fetchRemeshRoutesCorrectly() async throws {
+        nonisolated(unsafe) var capturedURL: URL?
+
+        let body = #"{"id":"remesh_001","status":"SUCCEEDED","progress":100}"#.data(using: .utf8)!
+
+        let client = makeMockClient { req in
+            capturedURL = req.url
+            return (body, response200(url: req.url!))
+        }
+
+        _ = try await client.fetchTaskFact(taskId: "remesh_001", kind: .remesh)
+
+        let path = capturedURL?.path ?? ""
+        #expect(path.contains("/v1/remesh/remesh_001"),
+                ".remesh must route to /openapi/v1/remesh/<id>, got: \(path)")
+    }
+
+    // MARK: (f) Phase 4: .retexture → /openapi/v1/retexture/<id>
+
+    @Test("fetchTaskFact(.retexture) requests /openapi/v1/retexture/<id>")
+    func fetchRetextureRoutesCorrectly() async throws {
+        nonisolated(unsafe) var capturedURL: URL?
+
+        let body = #"{"id":"retex_001","status":"SUCCEEDED","progress":100}"#.data(using: .utf8)!
+
+        let client = makeMockClient { req in
+            capturedURL = req.url
+            return (body, response200(url: req.url!))
+        }
+
+        _ = try await client.fetchTaskFact(taskId: "retex_001", kind: .retexture)
+
+        let path = capturedURL?.path ?? ""
+        #expect(path.contains("/v1/retexture/retex_001"),
+                ".retexture must route to /openapi/v1/retexture/<id>, got: \(path)")
+    }
 }

@@ -11,6 +11,8 @@ private actor TransactionStubMeshyClient: MeshyClient {
     func createMultiImageTo3DTask(_ request: MeshyMultiImageTo3DRequest) async throws -> String { "stub_multi" }
     func createRiggingTask(_ request: MeshyRiggingRequest) async throws -> String { "stub_rig" }
     func createAnimationTask(_ request: MeshyAnimationRequest) async throws -> String { "stub_anim" }
+    func createRemeshTask(_ request: MeshyRemeshRequest) async throws -> String { "stub_remesh" }
+    func createRetextureTask(_ request: MeshyRetextureRequest) async throws -> String { "stub_retex" }
     func fetchTaskFact(taskId: String, kind: MeshyTaskKind) async throws -> MeshyPolledFact {
         MeshyPolledFact(
             taskId: taskId,
@@ -19,7 +21,7 @@ private actor TransactionStubMeshyClient: MeshyClient {
             primaryModelUrl: URL(string: "https://cdn.meshy.ai/model.glb")!
         )
     }
-    /// Security (H1): all five kinds listed explicitly; no default.
+    /// Security (H1): all seven kinds listed explicitly; no default.
     func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {
         switch kind {
         case .textTo3D:       break
@@ -27,6 +29,8 @@ private actor TransactionStubMeshyClient: MeshyClient {
         case .multiImageTo3D: break
         case .rigging:        break
         case .animation:      break
+        case .remesh:         break
+        case .retexture:      break
         }
     }
     func fetchBalance() async throws -> Int { 100 }

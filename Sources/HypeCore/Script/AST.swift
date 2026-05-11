@@ -132,6 +132,27 @@ public indirect enum Statement: Sendable {
         model: Expression?,
         callback: Expression?
     )
+    /// `remesh asset "<name>" to <polycount> [with message <msg>]`
+    ///
+    /// Remesh an existing Meshy-generated model3D asset to a new polycount.
+    /// Synchronous form sets `it` + `the result` to the new asset name.
+    /// Async form (with message) sets `it` to the request UUID.
+    case remeshAsset(
+        sourceName: Expression,
+        targetPolycount: Expression,
+        callback: Expression?
+    )
+
+    /// `retexture asset "<name>" with prompt "<text>" [with message <msg>]`
+    ///
+    /// Apply a new texture to an existing Meshy-generated model3D asset.
+    /// Same sync/async contract as `remeshAsset`.
+    case retextureAsset(
+        sourceName: Expression,
+        stylePrompt: Expression,
+        callback: Expression?
+    )
+
     case answer(prompt: Expression)
     case say(Expression)
     case activateListener(Expression)

@@ -248,6 +248,8 @@ struct Generate3DSheetImageTabTests {
             func createMultiImageTo3DTask(_ request: MeshyMultiImageTo3DRequest) async throws -> String { "m" }
             func createRiggingTask(_ request: MeshyRiggingRequest) async throws -> String { "r" }
             func createAnimationTask(_ request: MeshyAnimationRequest) async throws -> String { "a" }
+            func createRemeshTask(_ request: MeshyRemeshRequest) async throws -> String { "re" }
+            func createRetextureTask(_ request: MeshyRetextureRequest) async throws -> String { "rx" }
             func fetchTaskFact(taskId: String, kind: MeshyTaskKind) async throws -> MeshyPolledFact {
                 MeshyPolledFact(
                     taskId: taskId,
@@ -256,7 +258,7 @@ struct Generate3DSheetImageTabTests {
                     primaryModelUrl: URL(string: "https://cdn.meshy.ai/m.glb")!
                 )
             }
-            /// Security (H1): all five kinds listed explicitly; no default.
+            /// Security (H1): all seven kinds listed explicitly; no default.
             func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {
                 switch kind {
                 case .textTo3D:       break
@@ -264,6 +266,8 @@ struct Generate3DSheetImageTabTests {
                 case .multiImageTo3D: break
                 case .rigging:        break
                 case .animation:      break
+                case .remesh:         break
+                case .retexture:      break
                 }
             }
             func fetchBalance() async throws -> Int { 100 }

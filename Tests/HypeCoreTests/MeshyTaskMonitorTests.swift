@@ -54,16 +54,21 @@ actor StubMeshyClient: MeshyClient {
         return taskResponses[responseIndex]
     }
 
-    /// **Security (H1):** all five kinds listed explicitly; no `default:`.
+    func createRemeshTask(_ request: MeshyRemeshRequest) async throws -> String { "stub_remesh_id" }
+    func createRetextureTask(_ request: MeshyRetextureRequest) async throws -> String { "stub_retex_id" }
+
+    /// **Security (H1):** all seven kinds listed explicitly; no `default:`.
     func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {
         cancelledTaskIds.append(taskId)
         cancelledKinds.append(kind)
         switch kind {
-        case .textTo3D:     break
-        case .imageTo3D:    break
+        case .textTo3D:       break
+        case .imageTo3D:      break
         case .multiImageTo3D: break
-        case .rigging:      break
-        case .animation:    break
+        case .rigging:        break
+        case .animation:      break
+        case .remesh:         break
+        case .retexture:      break
         }
     }
 

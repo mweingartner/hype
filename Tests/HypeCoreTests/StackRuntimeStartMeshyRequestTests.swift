@@ -9,10 +9,22 @@ private struct SuccessMeshyProvider: MeshyScriptingProvider {
     func generateSync(prompt: String, style: String?, model: String?, document: HypeDocument) async throws -> String {
         return assetName
     }
+    func remeshSync(sourceAssetName: String, targetPolycount: Int, document: HypeDocument) async throws -> String {
+        return assetName
+    }
+    func retextureSync(sourceAssetName: String, stylePrompt: String, document: HypeDocument) async throws -> String {
+        return assetName
+    }
 }
 
 private struct FailingMeshyProvider: MeshyScriptingProvider {
     func generateSync(prompt: String, style: String?, model: String?, document: HypeDocument) async throws -> String {
+        throw MeshyError.networkError
+    }
+    func remeshSync(sourceAssetName: String, targetPolycount: Int, document: HypeDocument) async throws -> String {
+        throw MeshyError.networkError
+    }
+    func retextureSync(sourceAssetName: String, stylePrompt: String, document: HypeDocument) async throws -> String {
         throw MeshyError.networkError
     }
 }
@@ -154,6 +166,14 @@ struct StackRuntimeStartMeshyRequestTests {
             func generateSync(prompt: String, style: String?, model: String?, document: HypeDocument) async throws -> String {
                 try await Task.sleep(nanoseconds: 500_000_000) // 500ms
                 return "slow-model.glb"
+            }
+            func remeshSync(sourceAssetName: String, targetPolycount: Int, document: HypeDocument) async throws -> String {
+                try await Task.sleep(nanoseconds: 500_000_000)
+                return "slow-remesh.glb"
+            }
+            func retextureSync(sourceAssetName: String, stylePrompt: String, document: HypeDocument) async throws -> String {
+                try await Task.sleep(nanoseconds: 500_000_000)
+                return "slow-retex.glb"
             }
         }
 

@@ -44,6 +44,38 @@ public protocol MeshyScriptingProvider: Sendable {
         model: String?,
         document: HypeDocument
     ) async throws -> String
+
+    /// Phase 4: synchronous remesh of an existing repository asset.
+    ///
+    /// Throws `MeshyError.unsupportedSource` if the asset has no Meshy task id.
+    /// Same gate / Keychain / mutation-coordinator structure as `generateSync`.
+    ///
+    /// - Parameters:
+    ///   - sourceAssetName: Name of the source `model3D` asset in the repository.
+    ///   - targetPolycount: Target polygon count, validated to 100…300_000.
+    ///   - document: The live `HypeDocument`.
+    /// - Returns: The new asset's name.
+    func remeshSync(
+        sourceAssetName: String,
+        targetPolycount: Int,
+        document: HypeDocument
+    ) async throws -> String
+
+    /// Phase 4: synchronous retexture of an existing repository asset.
+    ///
+    /// Throws `MeshyError.unsupportedSource` if the asset has no Meshy task id.
+    /// Throws `MeshyError.validationFailed` if `stylePrompt` is empty.
+    ///
+    /// - Parameters:
+    ///   - sourceAssetName: Name of the source `model3D` asset in the repository.
+    ///   - stylePrompt: Texture description (max 600 chars; truncated silently).
+    ///   - document: The live `HypeDocument`.
+    /// - Returns: The new asset's name.
+    func retextureSync(
+        sourceAssetName: String,
+        stylePrompt: String,
+        document: HypeDocument
+    ) async throws -> String
 }
 
 // MARK: - StubMeshyScriptingProvider
@@ -65,6 +97,22 @@ public struct StubMeshyScriptingProvider: MeshyScriptingProvider {
         prompt: String,
         style: String?,
         model: String?,
+        document: HypeDocument
+    ) async throws -> String {
+        return stubbedName
+    }
+
+    public func remeshSync(
+        sourceAssetName: String,
+        targetPolycount: Int,
+        document: HypeDocument
+    ) async throws -> String {
+        return stubbedName
+    }
+
+    public func retextureSync(
+        sourceAssetName: String,
+        stylePrompt: String,
         document: HypeDocument
     ) async throws -> String {
         return stubbedName

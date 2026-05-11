@@ -111,4 +111,179 @@ public struct LiveMeshyScriptingProvider: MeshyScriptingProvider {
 
         return primary.name
     }
+
+    /// Remesh an existing repository asset and install the result into the live document.
+    ///
+    /// **Security (C9):** Keychain reads are wrapped in `Task.detached(priority: .userInitiated)`.
+    /// **Security (C8):** exactly one mutation — this method installs; StackRuntime must not re-mutate.
+    ///
+    /// - Throws: `MeshyError.unsupportedSource` if the source has no Meshy task id.
+    /// - Returns: The new asset's name.
+    public func remeshSync(
+        sourceAssetName: String,
+        targetPolycount: Int,
+        document: HypeDocument
+    ) async throws -> String {
+
+        // Step 1: Gate check (Keychain read off main thread — security C9).
+        let keyIsSet = await Task.detached(priority: .userInitiated) {
+            KeychainStore.hasSecret(account: KeychainStore.meshyAPIKeyAccount)
+        }.value
+
+        let gate = Meshy3DGate.status(for: document, keyIsSet: keyIsSet)
+        switch gate {
+        case .stackDisabled:
+            throw MeshyError.validationFailed(
+                field: "meshy",
+                reason: "Meshy is not enabled for this stack."
+            )
+        case .apiKeyMissing:
+            throw MeshyError.noAPIKey
+        case .ready:
+            break
+        }
+
+        // Step 2: Find source asset and validate it has a Meshy task id.
+        guard let sourceAsset = document.spriteRepository.assets.first(where: { $0.name == sourceAssetName }) else {
+            throw MeshyError.unsupportedSource(operation: "remesh", assetName: sourceAssetName)
+        }
+        let sourceTaskId = sourceAsset.provenance?.attribution.taskId ?? ""
+        guard !sourceTaskId.isEmpty,
+              sourceAsset.provenance?.attribution.providerIdentifier == "meshy" else {
+            throw MeshyError.unsupportedSource(operation: "remesh", assetName: sourceAssetName)
+        }
+        let sourcePrompt = sourceAsset.provenance?.searchQuery ?? ""
+
+        // Step 3: Fetch API key (Keychain read off main thread — security C9).
+        let apiKey = try await Task.detached(priority: .userInitiated) {
+            try KeychainStore.getSecret(account: KeychainStore.meshyAPIKeyAccount)
+        }.value
+
+        // Step 4: Run the remesh flow.
+        let client = MeshyAIClient(apiKey: apiKey)
+        let flow = RemeshAndRetextureFlow(client: client)
+        let options = RemeshAndRetextureFlow.RemeshOptions(
+            targetPolycount: targetPolycount,
+            hardTimeout: 1800
+        )
+        let existingNames = Set(document.spriteRepository.assets.map(\.name))
+        let asset = try await flow.runRemesh(
+            sourceTaskId: sourceTaskId,
+            sourceAssetName: sourceAssetName,
+            sourcePrompt: sourcePrompt,
+            options: options,
+            existingAssetNames: existingNames
+        )
+
+        // Step 5: Install asset into the live document via the runtime's notification channel.
+        // Security (C8): exactly one mutation — this IS the mutation; StackRuntime must not re-mutate.
+        var modifiedDocument = document
+        modifiedDocument.spriteRepository.addAsset(asset)
+        let stackId = document.stack.id
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .stackRuntimeDocumentDidChange,
+                object: nil,
+                userInfo: [
+                    "stackId": stackId,
+                    "document": modifiedDocument,
+                ]
+            )
+        }
+
+        return asset.name
+    }
+
+    /// Retexture an existing repository asset and install the result into the live document.
+    ///
+    /// **Security (C9):** Keychain reads are wrapped in `Task.detached(priority: .userInitiated)`.
+    /// **Security (C8):** exactly one mutation — this method installs; StackRuntime must not re-mutate.
+    ///
+    /// - Throws: `MeshyError.unsupportedSource` if the source has no Meshy task id.
+    /// - Throws: `MeshyError.validationFailed` if `stylePrompt` is empty.
+    /// - Returns: The new asset's name.
+    public func retextureSync(
+        sourceAssetName: String,
+        stylePrompt: String,
+        document: HypeDocument
+    ) async throws -> String {
+
+        // Fail-fast empty-prompt guard (Phase 4 M1). The eventual
+        // client-layer check at `createRetextureTask` catches this too,
+        // but only after two Keychain reads and a gate check have run.
+        // Synchronous reject before any async work avoids that latency.
+        let trimmedPrompt = stylePrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPrompt.isEmpty else {
+            throw MeshyError.validationFailed(
+                field: "style_prompt",
+                reason: "Style prompt must not be empty."
+            )
+        }
+
+        // Step 1: Gate check (Keychain read off main thread — security C9).
+        let keyIsSet = await Task.detached(priority: .userInitiated) {
+            KeychainStore.hasSecret(account: KeychainStore.meshyAPIKeyAccount)
+        }.value
+
+        let gate = Meshy3DGate.status(for: document, keyIsSet: keyIsSet)
+        switch gate {
+        case .stackDisabled:
+            throw MeshyError.validationFailed(
+                field: "meshy",
+                reason: "Meshy is not enabled for this stack."
+            )
+        case .apiKeyMissing:
+            throw MeshyError.noAPIKey
+        case .ready:
+            break
+        }
+
+        // Step 2: Find source asset and validate it has a Meshy task id.
+        guard let sourceAsset = document.spriteRepository.assets.first(where: { $0.name == sourceAssetName }) else {
+            throw MeshyError.unsupportedSource(operation: "retexture", assetName: sourceAssetName)
+        }
+        let sourceTaskId = sourceAsset.provenance?.attribution.taskId ?? ""
+        guard !sourceTaskId.isEmpty,
+              sourceAsset.provenance?.attribution.providerIdentifier == "meshy" else {
+            throw MeshyError.unsupportedSource(operation: "retexture", assetName: sourceAssetName)
+        }
+        let sourcePrompt = sourceAsset.provenance?.searchQuery ?? ""
+
+        // Step 3: Fetch API key (Keychain read off main thread — security C9).
+        let apiKey = try await Task.detached(priority: .userInitiated) {
+            try KeychainStore.getSecret(account: KeychainStore.meshyAPIKeyAccount)
+        }.value
+
+        // Step 4: Run the retexture flow.
+        let client = MeshyAIClient(apiKey: apiKey)
+        let flow = RemeshAndRetextureFlow(client: client)
+        let options = RemeshAndRetextureFlow.RetextureOptions(hardTimeout: 1800)
+        let existingNames = Set(document.spriteRepository.assets.map(\.name))
+        let asset = try await flow.runRetexture(
+            sourceTaskId: sourceTaskId,
+            sourceAssetName: sourceAssetName,
+            sourcePrompt: sourcePrompt,
+            newStylePrompt: stylePrompt,
+            options: options,
+            existingAssetNames: existingNames
+        )
+
+        // Step 5: Install asset into the live document via the runtime's notification channel.
+        // Security (C8): exactly one mutation — this IS the mutation; StackRuntime must not re-mutate.
+        var modifiedDocument = document
+        modifiedDocument.spriteRepository.addAsset(asset)
+        let stackId = document.stack.id
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .stackRuntimeDocumentDidChange,
+                object: nil,
+                userInfo: [
+                    "stackId": stackId,
+                    "document": modifiedDocument,
+                ]
+            )
+        }
+
+        return asset.name
+    }
 }

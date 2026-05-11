@@ -302,6 +302,101 @@ public struct Meshy3DAssetImporter: Sendable {
         return asset
     }
 
+    // MARK: - Phase 4: Remesh import
+
+    /// Download the remeshed GLB and build a `SpriteAsset` whose
+    /// `provenance.attribution.parentTaskId` points to the source task.
+    ///
+    /// **Security (C7):** the returned asset has `providerIdentifier == "meshy"`,
+    /// `taskId == result.taskId` (new remesh task), `parentTaskId == sourceTaskId`,
+    /// and `origin == .aiGenerated`.
+    ///
+    /// - Parameters:
+    ///   - result: The completed remesh task result.
+    ///   - sourceAssetName: Source asset's display name (for derived naming).
+    ///   - sourceTaskId: Source asset's Meshy task id (for `parentTaskId`).
+    ///   - sourcePrompt: Source asset's `provenance.searchQuery` (inherited).
+    ///   - existingAssetNames: For dedup.
+    ///   - options: Name-derivation options.
+    /// - Returns: A `model3D` asset with `parentTaskId` set.
+    /// - Throws: `MeshyError` if GLB download fails.
+    public func importRemeshTask(
+        result: MeshyTaskResult,
+        sourceAssetName: String,
+        sourceTaskId: String,
+        sourcePrompt: String,
+        existingAssetNames: Set<String>,
+        options: DefaultOptions = DefaultOptions()
+    ) async throws -> SpriteAsset {
+        let provenance = makeRemeshProvenance(result: result, sourceTaskId: sourceTaskId, sourcePrompt: sourcePrompt)
+        let baseName = sourceAssetName.isEmpty ? "model" : sourceAssetName
+
+        let glbData = try await client.downloadModel(from: result.modelURL, allowedFormat: .glb)
+        let asset = Self.buildAsset(
+            from: glbData,
+            format: .glb,
+            suggestedName: "\(baseName)-remesh.glb",
+            existingNames: existingAssetNames,
+            provenance: provenance,
+            isRigged: false,
+            animationActionId: nil,
+            extraTags: ["meshy-remesh"]
+        )
+
+        logger.info("Imported remeshed asset from task \(result.taskId) (source: \(sourceTaskId))", source: "Meshy")
+        return asset
+    }
+
+    // MARK: - Phase 4: Retexture import
+
+    /// Download the retextured GLB and build a `SpriteAsset` whose
+    /// `provenance.attribution.parentTaskId` points to the source task.
+    ///
+    /// **Security (C7):** same provenance contract as `importRemeshTask`.
+    ///
+    /// - Parameters:
+    ///   - result: The completed retexture task result.
+    ///   - sourceAssetName: Source asset's display name.
+    ///   - sourceTaskId: Source asset's Meshy task id (for `parentTaskId`).
+    ///   - sourcePrompt: Source asset's `provenance.searchQuery`.
+    ///   - newStylePrompt: The retexture style prompt (included in searchQuery).
+    ///   - existingAssetNames: For dedup.
+    ///   - options: Name-derivation options.
+    /// - Returns: A `model3D` asset with `parentTaskId` set.
+    /// - Throws: `MeshyError` if GLB download fails.
+    public func importRetextureTask(
+        result: MeshyTaskResult,
+        sourceAssetName: String,
+        sourceTaskId: String,
+        sourcePrompt: String,
+        newStylePrompt: String,
+        existingAssetNames: Set<String>,
+        options: DefaultOptions = DefaultOptions()
+    ) async throws -> SpriteAsset {
+        let provenance = makeRetextureProvenance(
+            result: result,
+            sourceTaskId: sourceTaskId,
+            sourcePrompt: sourcePrompt,
+            newStylePrompt: newStylePrompt
+        )
+        let baseName = sourceAssetName.isEmpty ? "model" : sourceAssetName
+
+        let glbData = try await client.downloadModel(from: result.modelURL, allowedFormat: .glb)
+        let asset = Self.buildAsset(
+            from: glbData,
+            format: .glb,
+            suggestedName: "\(baseName)-retex.glb",
+            existingNames: existingAssetNames,
+            provenance: provenance,
+            isRigged: false,
+            animationActionId: nil,
+            extraTags: ["meshy-retexture"]
+        )
+
+        logger.info("Imported retextured asset from task \(result.taskId) (source: \(sourceTaskId))", source: "Meshy")
+        return asset
+    }
+
     // MARK: - Private helpers
 
     private func makeProvenance(result: MeshyTaskResult) -> AssetProvenance {
@@ -346,6 +441,71 @@ public struct Meshy3DAssetImporter: Sendable {
                 providerName: "Meshy.ai",
                 providerIdentifier: "meshy",
                 taskId: result.taskId
+            ),
+            importedAt: Date()
+        )
+    }
+
+    /// Build a provenance record for a remesh task result.
+    ///
+    /// **Security (C7):** `parentTaskId` is always set to `sourceTaskId`,
+    /// `providerIdentifier` is always "meshy", `origin` is always `.aiGenerated`.
+    private func makeRemeshProvenance(
+        result: MeshyTaskResult,
+        sourceTaskId: String,
+        sourcePrompt: String
+    ) -> AssetProvenance {
+        AssetProvenance(
+            origin: .aiGenerated,
+            searchQuery: sourcePrompt,
+            license: AssetLicense(
+                name: "Meshy.ai",
+                identifier: "meshy",
+                url: "https://docs.meshy.ai",
+                isShareable: false
+            ),
+            attribution: AssetAttribution(
+                creator: "AI",
+                title: sourcePrompt,
+                sourceURL: "",
+                downloadURL: result.modelURL.absoluteString,
+                providerName: "Meshy.ai",
+                providerIdentifier: "meshy",
+                taskId: result.taskId,
+                parentTaskId: sourceTaskId
+            ),
+            importedAt: Date()
+        )
+    }
+
+    /// Build a provenance record for a retexture task result.
+    ///
+    /// **Security (C7):** `parentTaskId` is always set to `sourceTaskId`.
+    private func makeRetextureProvenance(
+        result: MeshyTaskResult,
+        sourceTaskId: String,
+        sourcePrompt: String,
+        newStylePrompt: String
+    ) -> AssetProvenance {
+        let combinedQuery = "\(sourcePrompt) — retextured: \(newStylePrompt)"
+        return AssetProvenance(
+            origin: .aiGenerated,
+            searchQuery: combinedQuery,
+            license: AssetLicense(
+                name: "Meshy.ai",
+                identifier: "meshy",
+                url: "https://docs.meshy.ai",
+                isShareable: false
+            ),
+            attribution: AssetAttribution(
+                creator: "AI",
+                title: combinedQuery,
+                sourceURL: "",
+                downloadURL: result.modelURL.absoluteString,
+                providerName: "Meshy.ai",
+                providerIdentifier: "meshy",
+                taskId: result.taskId,
+                parentTaskId: sourceTaskId
             ),
             importedAt: Date()
         )

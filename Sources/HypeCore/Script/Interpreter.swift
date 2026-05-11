@@ -888,6 +888,75 @@ public struct Interpreter: Sendable {
                 env.result = ""
             }
 
+        case .remeshAsset(let sourceNameExpr, let polycountExpr, let callbackExpr):
+            // Phase 4 — `remesh asset "<name>" to <polycount> [with message <msg>]`
+            //
+            // Sync form (no callback): blocks until remesh completes; sets `it` + `result` to
+            // the new asset's name. Async form: fires `startRemeshRequest` and sets `it` to the
+            // request UUID. Gate refusal degrades gracefully — sets `it = ""`.
+            let sourceNameText = try await evaluate(sourceNameExpr, env: &env, document: document, context: context)
+            let polycountText = try await evaluate(polycountExpr, env: &env, document: document, context: context)
+            let targetPolycount = Int(polycountText.trimmingCharacters(in: .whitespaces)) ?? 30_000
+
+            if let callbackExpr, let runtime = context.runtimeProvider {
+                let callbackName = try await evaluate(callbackExpr, env: &env, document: document, context: context)
+                let requestID = try await runtime.startRemeshRequest(
+                    sourceAssetName: sourceNameText,
+                    targetPolycount: targetPolycount,
+                    callbackMessage: callbackName,
+                    owner: RuntimeOwnerContext(
+                        targetId: context.targetId,
+                        currentCardId: context.currentCardId,
+                        scriptContext: context.scriptContext
+                    )
+                )
+                env.it = requestID.uuidString
+            } else if let provider = context.meshyProvider {
+                let assetName = try await provider.remeshSync(
+                    sourceAssetName: sourceNameText,
+                    targetPolycount: targetPolycount,
+                    document: document
+                )
+                env.it = assetName
+                env.result = assetName
+            } else {
+                env.it = ""
+                env.result = ""
+            }
+
+        case .retextureAsset(let sourceNameExpr, let stylePromptExpr, let callbackExpr):
+            // Phase 4 — `retexture asset "<name>" with prompt "<text>" [with message <msg>]`
+            //
+            // Same sync/async contract as `remeshAsset`.
+            let sourceNameText = try await evaluate(sourceNameExpr, env: &env, document: document, context: context)
+            let stylePromptText = try await evaluate(stylePromptExpr, env: &env, document: document, context: context)
+
+            if let callbackExpr, let runtime = context.runtimeProvider {
+                let callbackName = try await evaluate(callbackExpr, env: &env, document: document, context: context)
+                let requestID = try await runtime.startRetextureRequest(
+                    sourceAssetName: sourceNameText,
+                    stylePrompt: stylePromptText,
+                    callbackMessage: callbackName,
+                    owner: RuntimeOwnerContext(
+                        targetId: context.targetId,
+                        currentCardId: context.currentCardId,
+                        scriptContext: context.scriptContext
+                    )
+                )
+                env.it = requestID.uuidString
+            } else if let provider = context.meshyProvider {
+                let assetName = try await provider.retextureSync(
+                    sourceAssetName: sourceNameText,
+                    stylePrompt: stylePromptText,
+                    document: document
+                )
+                env.it = assetName
+                env.result = assetName
+            } else {
+                env.it = ""
+                env.result = ""
+            }
+
         case .answer(let prompt):
             let promptText = try await evaluate(prompt, env: &env, document: document, context: context)
             let response = await context.dialogProvider.showAnswerAsync(prompt: promptText)
@@ -2528,6 +2597,14 @@ public struct Interpreter: Sendable {
             return ""
         case "stacks":
             return "Hype"
+
+        // Phase 4: Meshy webhook payload parser built-in.
+        // Usage: meshy_parse_webhook(the body)
+        // Returns "task_id,status,glb_url" or "" on parse failure.
+        // No HMAC verification (acknowledged design decision — C18).
+        case "meshy_parse_webhook":
+            let body = args.first ?? ""
+            return MeshyWebhookPayload.parse(jsonBody: body)?.toCSV() ?? ""
 
         default:
             return ""

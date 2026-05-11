@@ -45,6 +45,13 @@ public struct AssetAttribution: Codable, Sendable, Equatable {
     /// Default empty string. Old documents without this field decode as `""`.
     public var taskId: String
 
+    /// Phase 4: when this asset was produced by a remesh or retexture
+    /// operation, this is the Meshy task id of the SOURCE asset.
+    /// Enables ancestry tracking and "regenerate from source" workflows.
+    ///
+    /// Default empty string. Old documents decode with `""`. (C17)
+    public var parentTaskId: String
+
     public init(
         creator: String = "",
         title: String = "",
@@ -52,7 +59,8 @@ public struct AssetAttribution: Codable, Sendable, Equatable {
         downloadURL: String = "",
         providerName: String = "",
         providerIdentifier: String = "",
-        taskId: String = ""
+        taskId: String = "",
+        parentTaskId: String = ""
     ) {
         self.creator = creator
         self.title = title
@@ -61,12 +69,13 @@ public struct AssetAttribution: Codable, Sendable, Equatable {
         self.providerName = providerName
         self.providerIdentifier = providerIdentifier
         self.taskId = taskId
+        self.parentTaskId = parentTaskId
     }
 
     // MARK: - Backward-compatible decoding
 
     private enum CodingKeys: String, CodingKey {
-        case creator, title, sourceURL, downloadURL, providerName, providerIdentifier, taskId
+        case creator, title, sourceURL, downloadURL, providerName, providerIdentifier, taskId, parentTaskId
     }
 
     public init(from decoder: Decoder) throws {
@@ -79,6 +88,8 @@ public struct AssetAttribution: Codable, Sendable, Equatable {
         providerIdentifier  = try c.decodeIfPresent(String.self, forKey: .providerIdentifier)  ?? ""
         // Phase 3: new field — absent in pre-Phase-3 documents; defaults to "".
         taskId              = try c.decodeIfPresent(String.self, forKey: .taskId)              ?? ""
+        // Phase 4: new field — absent in pre-Phase-4 documents; defaults to "". (C17)
+        parentTaskId        = try c.decodeIfPresent(String.self, forKey: .parentTaskId)        ?? ""
     }
 }
 

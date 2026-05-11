@@ -63,6 +63,10 @@ public enum TokenType: String, Sendable {
     case ai
     // Meshy.ai (Phase 3)
     case meshy
+    // Phase 4 — remesh and retexture transformation keywords.
+    // Unconditionally reserved per C15 (simpler; names unlikely to collide).
+    case remesh
+    case retexture
 }
 
 /// A single token produced by the HypeTalk lexer.

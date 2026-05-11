@@ -154,6 +154,12 @@ public struct MeshyTextTo3DRequest: Codable, Sendable, Equatable {
 /// - `multiImageTo3D`: `/openapi/v1/multi-image-to-3d/<id>`
 /// - `rigging`: `/openapi/v1/rigging/<id>` (Phase 3)
 /// - `animation`: `/openapi/v1/animations/<id>` (Phase 3)
+/// - `remesh`: `/openapi/v1/remesh/<id>` (Phase 4)
+/// - `retexture`: `/openapi/v1/retexture/<id>` (Phase 4)
+///
+/// **Security (C1/C14):** All switches on this enum MUST enumerate ALL cases
+/// explicitly. No `default:` or `@unknown default:` is permitted — the
+/// compiler must force updates when new cases are added.
 public enum MeshyTaskKind: String, Sendable, Equatable {
     case textTo3D
     case imageTo3D
@@ -162,6 +168,10 @@ public enum MeshyTaskKind: String, Sendable, Equatable {
     case rigging
     /// Phase 3: animation task.
     case animation
+    /// Phase 4: remesh task.
+    case remesh
+    /// Phase 4: retexture task.
+    case retexture
 }
 
 /// POST response — Meshy v2 returns `{ "result": "<id>" }`;
@@ -431,6 +441,46 @@ public struct MeshyPolledFact: Sendable, Equatable {
         )
     }
 
+    /// Construct a fact from a remesh task wire response.
+    ///
+    /// **Security (C4):** every URL is passed through `sanitizedMeshyURL`.
+    /// A URL that fails the host check becomes `nil` in the fact rather
+    /// than propagating an untrusted URL to the downloader.
+    public static func fromRemesh(_ resp: MeshyRemeshTaskResponse) -> MeshyPolledFact {
+        let errorMsg = resp.taskError?.message ?? resp.taskError?.error
+        return MeshyPolledFact(
+            taskId: resp.id,
+            status: resp.status,
+            progress: resp.progress,
+            primaryModelUrl: sanitizedMeshyURL(resp.modelUrls?.glb),
+            usdzUrl: sanitizedMeshyURL(resp.modelUrls?.usdz),
+            fbxUrl: sanitizedMeshyURL(resp.modelUrls?.fbx),
+            basicWalkUrl: nil,
+            basicRunUrl: nil,
+            errorMessage: errorMsg.map { String($0.prefix(200)) }
+        )
+    }
+
+    /// Construct a fact from a retexture task wire response.
+    ///
+    /// **Security (C4):** every URL is passed through `sanitizedMeshyURL`.
+    /// A URL that fails the host check becomes `nil` in the fact rather
+    /// than propagating an untrusted URL to the downloader.
+    public static func fromRetexture(_ resp: MeshyRetextureTaskResponse) -> MeshyPolledFact {
+        let errorMsg = resp.taskError?.message ?? resp.taskError?.error
+        return MeshyPolledFact(
+            taskId: resp.id,
+            status: resp.status,
+            progress: resp.progress,
+            primaryModelUrl: sanitizedMeshyURL(resp.modelUrls?.glb),
+            usdzUrl: sanitizedMeshyURL(resp.modelUrls?.usdz),
+            fbxUrl: sanitizedMeshyURL(resp.modelUrls?.fbx),
+            basicWalkUrl: nil,
+            basicRunUrl: nil,
+            errorMessage: errorMsg.map { String($0.prefix(200)) }
+        )
+    }
+
     // MARK: - H3 URL sanitizer
 
     /// Rejects any URL that is not HTTPS and hosted on `meshy.ai` or a
@@ -439,7 +489,11 @@ public struct MeshyPolledFact: Sendable, Equatable {
     /// This provides defense-in-depth at the fact-construction boundary.
     /// Even if a future Meshy response accidentally includes a non-Meshy
     /// URL, it becomes `nil` here before ever reaching the downloader.
-    private static func sanitizedMeshyURL(_ url: URL?) -> URL? {
+    ///
+    /// Visibility promoted from `private` to `internal` in Phase 4 so that
+    /// `MeshyWebhookPayload` can apply the same host check to webhook URLs
+    /// without duplicating the logic.
+    internal static func sanitizedMeshyURL(_ url: URL?) -> URL? {
         guard let url,
               url.scheme?.lowercased() == "https",
               let host = url.host?.lowercased(),

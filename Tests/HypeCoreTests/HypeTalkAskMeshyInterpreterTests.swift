@@ -16,6 +16,12 @@ private struct SuccessfulMeshyProvider: MeshyScriptingProvider {
     ) async throws -> String {
         return assetName
     }
+    func remeshSync(sourceAssetName: String, targetPolycount: Int, document: HypeDocument) async throws -> String {
+        return assetName
+    }
+    func retextureSync(sourceAssetName: String, stylePrompt: String, document: HypeDocument) async throws -> String {
+        return assetName
+    }
 }
 
 /// Stub provider that always throws a gate refusal error.
@@ -24,6 +30,12 @@ private struct RefusingMeshyProvider: MeshyScriptingProvider {
         prompt: String, style: String?, model: String?,
         document: HypeDocument
     ) async throws -> String {
+        throw MeshyError.noAPIKey
+    }
+    func remeshSync(sourceAssetName: String, targetPolycount: Int, document: HypeDocument) async throws -> String {
+        throw MeshyError.noAPIKey
+    }
+    func retextureSync(sourceAssetName: String, stylePrompt: String, document: HypeDocument) async throws -> String {
         throw MeshyError.noAPIKey
     }
 }
@@ -166,6 +178,12 @@ struct HypeTalkAskMeshyInterpreterTests {
             let onCall: @Sendable (String, String?, String?) -> Void
             func generateSync(prompt: String, style: String?, model: String?, document: HypeDocument) async throws -> String {
                 onCall(prompt, style, model)
+                return "asset.glb"
+            }
+            func remeshSync(sourceAssetName: String, targetPolycount: Int, document: HypeDocument) async throws -> String {
+                return "asset.glb"
+            }
+            func retextureSync(sourceAssetName: String, stylePrompt: String, document: HypeDocument) async throws -> String {
                 return "asset.glb"
             }
         }

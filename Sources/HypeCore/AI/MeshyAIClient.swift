@@ -18,6 +18,10 @@ public protocol MeshyClient: Sendable {
     func createRiggingTask(_ request: MeshyRiggingRequest) async throws -> String
     /// Phase 3: create an animation task.
     func createAnimationTask(_ request: MeshyAnimationRequest) async throws -> String
+    /// Phase 4: create a remesh task.
+    func createRemeshTask(_ request: MeshyRemeshRequest) async throws -> String
+    /// Phase 4: create a retexture task.
+    func createRetextureTask(_ request: MeshyRetextureRequest) async throws -> String
     /// Phase 3: fetch task status, routed by kind, returning a normalised fact.
     ///
     /// Endpoint routing:
@@ -220,6 +224,14 @@ public actor MeshyAIClient: MeshyClient {
             let path = "/openapi/v1/animations/\(encodedId)"
             let resp = try await fetchAndDecode(path: path, as: MeshyAnimationTaskResponse.self, endpoint: "/openapi/v1/animations/:id")
             return MeshyPolledFact.fromAnimation(resp)
+        case .remesh:
+            let path = "/openapi/v1/remesh/\(encodedId)"
+            let resp = try await fetchAndDecode(path: path, as: MeshyRemeshTaskResponse.self, endpoint: "/openapi/v1/remesh/:id")
+            return MeshyPolledFact.fromRemesh(resp)
+        case .retexture:
+            let path = "/openapi/v1/retexture/\(encodedId)"
+            let resp = try await fetchAndDecode(path: path, as: MeshyRetextureTaskResponse.self, endpoint: "/openapi/v1/retexture/:id")
+            return MeshyPolledFact.fromRetexture(resp)
         }
     }
 
@@ -241,7 +253,7 @@ public actor MeshyAIClient: MeshyClient {
     /// DELETE the appropriate Meshy endpoint based on `kind`. Tolerates 404
     /// (task already finished) by returning normally.
     ///
-    /// **Security (H1):** all five `MeshyTaskKind` cases are named explicitly.
+    /// **Security (C1/H1):** all seven `MeshyTaskKind` cases are named explicitly.
     /// This switch has NO `default:` so the compiler fails the build when a
     /// new kind is added without updating this method.
     ///
@@ -251,6 +263,8 @@ public actor MeshyAIClient: MeshyClient {
     /// - `.multiImageTo3D` → `/openapi/v1/multi-image-to-3d/<id>`
     /// - `.rigging` → `/openapi/v1/rigging/<id>`
     /// - `.animation` → `/openapi/v1/animations/<id>`
+    /// - `.remesh` → `/openapi/v1/remesh/<id>`
+    /// - `.retexture` → `/openapi/v1/retexture/<id>`
     public func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {
         let encodedId = taskId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? taskId
         let (basePath, logEndpoint): (String, String) = switch kind {
@@ -264,6 +278,10 @@ public actor MeshyAIClient: MeshyClient {
             ("/openapi/v1/rigging/\(encodedId)", "/openapi/v1/rigging/:id DELETE")
         case .animation:
             ("/openapi/v1/animations/\(encodedId)", "/openapi/v1/animations/:id DELETE")
+        case .remesh:
+            ("/openapi/v1/remesh/\(encodedId)", "/openapi/v1/remesh/:id DELETE")
+        case .retexture:
+            ("/openapi/v1/retexture/\(encodedId)", "/openapi/v1/retexture/:id DELETE")
         }
         let urlReq = authorizedRequest(path: basePath, method: "DELETE")
 
@@ -448,6 +466,90 @@ public actor MeshyAIClient: MeshyClient {
             throw MeshyError.invalidResponse
         }
         logger.aiOutput("animation task_id=\(decoded.result)", source: "Meshy")
+        return decoded.result
+    }
+
+    /// POST `/openapi/v1/remesh` and return the task id.
+    ///
+    /// **Security (C5):** validates `targetPolycount` is in 100…300_000.
+    /// **Security (C2):** `MeshyRemeshRequest` never encodes `model_url`.
+    ///
+    /// - Throws: `MeshyError.validationFailed` if `inputTaskId` is empty or
+    ///   `targetPolycount` is outside 100…300_000.
+    /// - Returns: The non-empty remesh task id string.
+    public func createRemeshTask(_ request: MeshyRemeshRequest) async throws -> String {
+        let trimmedId = request.inputTaskId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedId.isEmpty else {
+            throw MeshyError.validationFailed(field: "input_task_id", reason: "Input task id must not be empty.")
+        }
+        guard (100...300_000).contains(request.targetPolycount) else {
+            throw MeshyError.validationFailed(
+                field: "target_polycount",
+                reason: "Target polycount must be between 100 and 300,000 (got \(request.targetPolycount))."
+            )
+        }
+
+        var urlReq = authorizedRequest(path: "/openapi/v1/remesh", method: "POST")
+        urlReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlReq.httpBody = try JSONEncoder().encode(request)
+
+        logger.aiInput(
+            "POST /openapi/v1/remesh input_task_id=\(trimmedId) target_polycount=\(request.targetPolycount)",
+            source: "Meshy"
+        )
+
+        let (data, response) = try await sessionData(for: urlReq, endpoint: "/openapi/v1/remesh")
+        guard let http = response as? HTTPURLResponse else { throw MeshyError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            throw mapHTTPError(statusCode: http.statusCode, body: data)
+        }
+        let decoded = try decodeJSON(MeshyCreateTaskResponse.self, from: data)
+        guard !decoded.result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw MeshyError.invalidResponse
+        }
+        logger.aiOutput("remesh task_id=\(decoded.result)", source: "Meshy")
+        return decoded.result
+    }
+
+    /// POST `/openapi/v1/retexture` and return the task id.
+    ///
+    /// **Security (C6):** validates `textStylePrompt` is not empty; truncation
+    /// to 600 chars is applied in `MeshyRetextureRequest.init`.
+    /// **Security (C3):** `MeshyRetextureRequest` never encodes `model_url` or
+    /// `image_style_url`.
+    ///
+    /// - Throws: `MeshyError.validationFailed` if `inputTaskId` or
+    ///   `textStylePrompt` is empty.
+    /// - Returns: The non-empty retexture task id string.
+    public func createRetextureTask(_ request: MeshyRetextureRequest) async throws -> String {
+        let trimmedId = request.inputTaskId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedId.isEmpty else {
+            throw MeshyError.validationFailed(field: "input_task_id", reason: "Input task id must not be empty.")
+        }
+        let trimmedPrompt = request.textStylePrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPrompt.isEmpty else {
+            throw MeshyError.validationFailed(field: "text_style_prompt", reason: "Style prompt must not be empty.")
+        }
+
+        var urlReq = authorizedRequest(path: "/openapi/v1/retexture", method: "POST")
+        urlReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlReq.httpBody = try JSONEncoder().encode(request)
+
+        logger.aiInput(
+            "POST /openapi/v1/retexture input_task_id=\(trimmedId) prompt:\(trimmedPrompt.prefix(80))",
+            source: "Meshy"
+        )
+
+        let (data, response) = try await sessionData(for: urlReq, endpoint: "/openapi/v1/retexture")
+        guard let http = response as? HTTPURLResponse else { throw MeshyError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            throw mapHTTPError(statusCode: http.statusCode, body: data)
+        }
+        let decoded = try decodeJSON(MeshyCreateTaskResponse.self, from: data)
+        guard !decoded.result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw MeshyError.invalidResponse
+        }
+        logger.aiOutput("retexture task_id=\(decoded.result)", source: "Meshy")
         return decoded.result
     }
 

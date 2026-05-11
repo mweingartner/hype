@@ -231,7 +231,9 @@ public struct Parser: Sendable {
         case .play:     return try parsePlayStatement()
         case .beep:     return try parseBeepStatement()
         case .wait:     return try parseWaitStatement()
-        case .animate:  return try parseAnimateStatement()
+        case .animate:   return try parseAnimateStatement()
+        case .remesh:    return try parseRemeshAssetStatement()
+        case .retexture: return try parseRetextureAssetStatement()
         case .identifier:
             // Check for SpriteKit commands and aliases
             switch current.value.lowercased() {
@@ -665,6 +667,75 @@ public struct Parser: Sendable {
         let expr = try parseExpression()
         skipNewlines()
         return .ask(prompt: expr)
+    }
+
+    /// Parse `remesh asset "<name>" to <polycount> [with message <msg>]`
+    ///
+    /// Phase 4 grammar. `remesh` is consumed by the caller via the switch case.
+    /// `asset` must follow as an identifier keyword, then the name expression,
+    /// then `to`, then the polycount expression, then an optional
+    /// `with message <callbackName>` modifier.
+    private mutating func parseRemeshAssetStatement() throws -> Statement {
+        _ = try expect(.remesh)
+        // Expect the `asset` identifier keyword.
+        guard current.type == .identifier && current.value.lowercased() == "asset" else {
+            throw ParseError.unexpected(current, expected: "asset")
+        }
+        _ = advance()
+        let nameExpr = try parseExpression()
+        // Expect `to`.
+        guard current.type == .to else {
+            throw ParseError.unexpected(current, expected: "to")
+        }
+        _ = advance()
+        let polyExpr = try parseExpression()
+        var callback: Expression? = nil
+        if current.type == .with || current.type == .using {
+            _ = advance()
+            if current.type == .message
+                || (current.type == .identifier && current.value.lowercased() == "message") {
+                _ = advance()
+                callback = try parseExpression()
+            } else {
+                throw ParseError.unexpected(current, expected: "message")
+            }
+        }
+        skipNewlines()
+        return .remeshAsset(sourceName: nameExpr, targetPolycount: polyExpr, callback: callback)
+    }
+
+    /// Parse `retexture asset "<name>" with prompt "<text>" [with message <msg>]`
+    ///
+    /// Phase 4 grammar. `retexture` is consumed by the caller.
+    /// Modifiers `with prompt` and `with message` may appear in either order.
+    private mutating func parseRetextureAssetStatement() throws -> Statement {
+        _ = try expect(.retexture)
+        // Expect the `asset` identifier keyword.
+        guard current.type == .identifier && current.value.lowercased() == "asset" else {
+            throw ParseError.unexpected(current, expected: "asset")
+        }
+        _ = advance()
+        let nameExpr = try parseExpression()
+        var stylePrompt: Expression? = nil
+        var callback: Expression? = nil
+        while current.type == .with || current.type == .using {
+            _ = advance()
+            let lex = current.value.lowercased()
+            guard current.type == .identifier || current.type == .message else {
+                throw ParseError.unexpected(current, expected: "prompt or message")
+            }
+            _ = advance()
+            switch lex {
+            case "prompt":  stylePrompt = try parseExpression()
+            case "message": callback = try parseExpression()
+            default: throw ParseError.unexpected(current, expected: "prompt or message")
+            }
+        }
+        guard let prompt = stylePrompt else {
+            throw ParseError.unexpected(current, expected: "with prompt <text>")
+        }
+        skipNewlines()
+        return .retextureAsset(sourceName: nameExpr, stylePrompt: prompt, callback: callback)
     }
 
     private mutating func parseAnswerStatement() throws -> Statement {

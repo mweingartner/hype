@@ -34,6 +34,8 @@ private actor RigAnimStubMeshyClient: MeshyClient {
     func createTextTo3DTask(_ r: MeshyTextTo3DRequest) async throws -> String { "t3d" }
     func createImageTo3DTask(_ r: MeshyImageTo3DRequest) async throws -> String { "i3d" }
     func createMultiImageTo3DTask(_ r: MeshyMultiImageTo3DRequest) async throws -> String { "mi3d" }
+    func createRemeshTask(_ r: MeshyRemeshRequest) async throws -> String { "remesh_stub" }
+    func createRetextureTask(_ r: MeshyRetextureRequest) async throws -> String { "retex_stub" }
 
     func createRiggingTask(_ r: MeshyRiggingRequest) async throws -> String {
         createdRiggingTaskIds.append(riggingTaskId)
@@ -55,20 +57,22 @@ private actor RigAnimStubMeshyClient: MeshyClient {
             let fact = animationFacts[min(animationIndex, animationFacts.count - 1)]
             animationIndex += 1
             return fact
-        case .textTo3D, .imageTo3D, .multiImageTo3D:
+        case .textTo3D, .imageTo3D, .multiImageTo3D, .remesh, .retexture:
             return MeshyPolledFact(taskId: taskId, status: .succeeded)
         }
     }
 
-    /// H1: all five kinds explicit, no default:.
+    /// H1: all seven kinds explicit, no default:.
     func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {
         cancelledTaskIds.append(taskId)
         switch kind {
-        case .textTo3D:      break
-        case .imageTo3D:     break
+        case .textTo3D:       break
+        case .imageTo3D:      break
         case .multiImageTo3D: break
-        case .rigging:       break
-        case .animation:     break
+        case .rigging:        break
+        case .animation:      break
+        case .remesh:         break
+        case .retexture:      break
         }
     }
 

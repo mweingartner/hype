@@ -65,13 +65,15 @@ struct AssetAttributionTaskIdCodableTests {
             func createMultiImageTo3DTask(_ r: MeshyMultiImageTo3DRequest) async throws -> String { "mi" }
             func createRiggingTask(_ r: MeshyRiggingRequest) async throws -> String { "rg" }
             func createAnimationTask(_ r: MeshyAnimationRequest) async throws -> String { "an" }
+            func createRemeshTask(_ r: MeshyRemeshRequest) async throws -> String { "rm" }
+            func createRetextureTask(_ r: MeshyRetextureRequest) async throws -> String { "rx" }
             func fetchTaskFact(taskId: String, kind: MeshyTaskKind) async throws -> MeshyPolledFact {
                 MeshyPolledFact(taskId: taskId, status: .succeeded)
             }
             func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {
                 switch kind {
                 case .textTo3D: break; case .imageTo3D: break; case .multiImageTo3D: break
-                case .rigging: break; case .animation: break
+                case .rigging: break; case .animation: break; case .remesh: break; case .retexture: break
                 }
             }
             func fetchBalance() async throws -> Int { 0 }
