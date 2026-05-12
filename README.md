@@ -47,9 +47,20 @@ emitters in the same document, with one unified scripting model.
   (WKWebView), charts (Apple Charts), maps (MapKit), PDFs (PDFKit),
   calendars (EventKit-aware), color wells, steppers, sliders,
   segmented controls, gauges, progress views, dividers, audio
-  recorders (AVFoundation), 3D scene viewers (SceneKit + STL/USDZ
-  conversion), and full SpriteKit sprite areas — all editable in the
-  same property inspector with the same multi-selection bulk editor.
+  recorders (AVFoundation), 3D scene viewers (SceneKit — USDZ native,
+  GLB/FBX via ModelIO, STL via built-in converter), and full SpriteKit
+  sprite areas — all editable in the same property inspector with the
+  same multi-selection bulk editor.
+- **Meshy.ai 3D model generation.** Generate 3D models from text
+  prompts, reference images, or multi-image captures directly inside
+  Hype. Models land in the Sprite Repository as self-contained `model3D`
+  assets (GLB bytes embedded in the `.hype` file). From there: auto-rig
+  with a Mixamo-compatible skeleton, pick an animation from a bundled
+  ~3,000-entry catalog, remesh to a target polygon count, retexture with
+  a text prompt, or open in AR Quick Look. HypeTalk integrates via
+  `ask meshy "<prompt>"` (statement or expression), `remesh asset`,
+  `retexture asset`, and `set the model of scene3d "X" to "<asset>"`.
+  Feature requires a Meshy API key (Keychain) and is per-stack opt-in.
 - **HypeTalk: a real, modern HyperTalk descendant.** A native lexer +
   recursive-descent parser + tree-walking interpreter, with operators
   (`is in`, `is within`, `is a number`, `there is a button "X"`),
@@ -65,8 +76,9 @@ emitters in the same document, with one unified scripting model.
   cameras — and HypeTalk handlers route to scene nodes through the
   same message-passing chain as classic parts.
 - **AI authoring with tool-calling — Ollama OR OpenAI.** Hype drives the
-  document via 150+ structured tools (`create_button`, `set_card_script`,
-  `add_sprite_to_scene`, `apply_scene_diff`, `generate_image`, …) routed
+  document via 125+ structured tools (`create_button`, `set_card_script`,
+  `add_sprite_to_scene`, `apply_scene_diff`, `generate_image`,
+  `generate_3d_model_from_text`, …) routed
   through a single `HypeAIClient` contract with two concrete providers:
   local Ollama (default, no network egress) and optional OpenAI
   (frontier-model quality, image generation, speech). Every model output
@@ -92,11 +104,11 @@ emitters in the same document, with one unified scripting model.
   types — diffs are readable, undo/redo is trivial, and the file
   format is forward-compatible (unknown part types decode to a
   filtered-out sentinel, not a crash).
-- **Tested.** ~1,400 unit tests under Swift Testing, all passing
+- **Tested.** 1,909 tests in 214 suites under Swift Testing, all passing
   under the parallel runner in roughly 80 seconds. Coverage spans
   parser, interpreter, tool-call routing, scene serialization,
   rendering geometry (per-pixel sampling), theme cascade, async
-  runtime, and AI evaluation.
+  runtime, AI evaluation, and Meshy 3D generation pipeline.
 
 ---
 
@@ -122,7 +134,9 @@ uniformly across them.
 `calendar` (EventKit-aware), `pdf` (PDFKit, multi-page nav),
 `map` (MapKit, geocoding via async `mapLocation`),
 `audioRecorder` (AVFoundation, m4a/caf, live duration tick),
-`scene3D` (SceneKit, STL/USDZ/OBJ/SCN/DAE).
+`scene3D` (SceneKit — USDZ/USD/SCN/DAE/OBJ natively; GLB/PLY/ABC via
+MDLAsset on macOS 13+; FBX via MDLAsset on macOS 13+; STL via built-in
+converter; asset binding via `Part.scene3DAssetRef` + Sprite Repository).
 
 **SpriteKit:**
 `spriteArea` — a live `SKScene` host. Inside it: sprite, label,
@@ -155,6 +169,33 @@ on beginContact otherName
     set the text of label "score" to "Score: " & score
   end if
 end beginContact
+
+-- 3D model generation (requires Meshy API key + meshyEnabled)
+on mouseUp
+  -- statement form (synchronous, result in `it`)
+  ask meshy "a rusted iron barrel" with style "realistic"
+  set the model of scene3d "Viewer" to it
+
+  -- expression form
+  put ask meshy "crystal sword" with model "meshy-6" into x
+  set the model of scene3d "Weapon" to x
+
+  -- async callback form
+  ask meshy "ancient stone pillar" with message "modelReady"
+end mouseUp
+
+on modelReady assetName
+  set the model of scene3d "Prop" to assetName
+end modelReady
+
+-- Remesh and retexture existing assets
+on btnRemesh
+  remesh asset "barrel" to 2000
+end btnRemesh
+
+on btnRetexture
+  retexture asset "barrel" with prompt "mossy stone, weathered"
+end btnRetexture
 ```
 
 **Implementation surface (in `Sources/HypeCore/Script/`):**
@@ -214,6 +255,14 @@ SpriteKit as a peer to the classic flat-card model.
 A practical hands-on tour is in
 [`SpriteKit-Tutorial.md`](SpriteKit-Tutorial.md).
 
+**Sprite Repository and 3D assets.** The `SpriteRepository` is not limited to
+2D assets. `model3D` assets (GLB, USDZ, FBX byte blobs) are first-class
+repository residents — indigo cube icon in the grid, embedded in the `.hype`
+file alongside sprites. Inspector actions for model3D assets: Generate 3D,
+Rig & Animate, Animate, Remesh, Retexture, Open in AR. Bind a model3D asset
+to a `scene3D` part via the Property Inspector "From Repository…" dropdown or
+HypeTalk's `set the model of scene3d "X" to "<asset-name>"` smart resolver.
+
 ---
 
 ## AI authoring
@@ -248,7 +297,7 @@ flags are set.
 ### Tool-calling architecture
 
 The model never types HypeTalk into your document directly. Every
-change goes through a structured tool-call interface with **150+
+change goes through a structured tool-call interface with **125+
 defined tools** (`Sources/HypeCore/AI/HypeTools.swift`,
 `HypeToolExecutor.swift`):
 
@@ -258,7 +307,13 @@ add_sprite_to_scene / add_label_to_scene / add_emitter_to_scene / …
 set_part_property / set_card_property / set_background_script / set_stack_script / set_scene_script
 get_card_parts / get_part_property / list_scene_nodes / …
 check_script / list_all_properties / capture_card_image / …
+generate_3d_model_from_text / generate_3d_model_from_image / generate_3d_model_from_images
+list_3d_models / remesh_3d_model / retexture_3d_model
 ```
+
+The six Meshy tools are available in both the main canvas AI Chat and the Sprite
+Repository AI Chat. Gate enforcement (meshyEnabled + API key) happens at executor
+level regardless of which surface issues the call.
 
 Every script-storage tool routes the draft through:
 
@@ -420,6 +475,12 @@ themes live on `HypeDocument.themes` and travel with the file.
   ollama pull qwen3.6:35b      # ~23 GB — strong alternative
   ollama pull granite4.1:8b    # ~5 GB — small + fast (ship after fine-tune)
   ```
+- *(optional, for 3D model generation)* A Meshy.ai API key. Enter it
+  in Preferences → AI → Meshy API Key; it is stored in Keychain.
+  Additionally enable 3D generation per-stack via the Stack Inspector
+  (`Stack.meshyEnabled`). GLB→USDZ conversion and AR Quick Look
+  require macOS 13+ (the app minimum is macOS 15, so this is always
+  satisfied in practice).
 
 ### Build the app
 
@@ -448,7 +509,7 @@ swift run Hype
 ### Run the test suite
 
 ```bash
-scripts/test.sh                    # 1,400+ tests, ~80 seconds
+scripts/test.sh                    # 1,909 tests in 214 suites, ~80 seconds
 scripts/test.sh --filter HypeTalk  # subset by Suite or Test name
 scripts/test.sh --no-parallel      # serial runner — fallback for debugging
 ```
@@ -499,7 +560,7 @@ Hype/
 │       ├── Navigation/           # Card history, go-back stack
 │       └── Controls/             # Visual-effect catalog, PaintLayer, etc.
 ├── Tests/
-│   ├── HypeCoreTests/            # 1,556 unit tests (Swift Testing) — full suite ~85s
+│   ├── HypeCoreTests/            # 1,900+ unit tests (Swift Testing) — full suite ~80s
 │   └── HypeTests/                # SpriteKit / canvas / menu / Script Editor AI integration smokes
 └── scripts/
     ├── test.sh                   # Canonical `swift test` invocation
@@ -564,8 +625,15 @@ Recent milestones:
 - AI eval suite expanded to 127 prompts across 10 categories;
   `granite4.1:30b` reaches 98.4% raw / 99.999% effective.
 - Test suite parallel-runner deadlock fixed (cooperative-thread
-  starvation in the sync→async dispatch bridge); 1,400+ tests run
-  in ~80 s.
+  starvation in the sync→async dispatch bridge); 1,909 tests in
+  214 suites run in ~80 s.
+- **Meshy.ai 3D model generation (Phases 1–5).** Text-to-3D,
+  image-to-3D, multi-image-to-3D, auto-rigging, animation picker,
+  remesh, retexture, AR Quick Look, 6 AI tools, HypeTalk `ask meshy`
+  grammar (statement + expression), `set the model of scene3d` smart
+  resolver, and full security pipeline (hostname allowlist, NoRedirect
+  delegate, 50 MB caps, MIME sniff, strict image-path validation,
+  Keychain off-main-thread reads).
 
 ---
 

@@ -1,6 +1,6 @@
 # Hype Architecture
 
-> A snapshot of the current implementation as of 2026-05-10.
+> A snapshot of the current implementation as of 2026-05-11.
 
 Hype is a modern, macOS-native re-imagining of HyperCard. It preserves the
 HyperCard mental model — **stacks** of **cards** built on shared **backgrounds**,
@@ -887,6 +887,61 @@ the card's `spriteLayer` rather than as separate `SKView`s. Today the
 shipping path uses one `SKView` per sprite area; `SpriteAreaNode` is
 infrastructure for the alternative single-`SKView` consolidation.
 
+### 3.10 SceneKit substrate: `scene3D` parts and 3D model rendering
+
+`scene3D` is a first-class `PartType` peer of `spriteArea`. Where `spriteArea`
+hosts a live `SKScene`, `scene3D` hosts an `SCNView` that loads and renders
+a 3D model asset. The two part types share the same property-inspector,
+scripting, asset-ref, and Sprite Repository discipline.
+
+**`Scene3DHostNSView`** (`Sources/Hype/Views/Scene3DHostView.swift`) is the
+AppKit-hosted `SCNView` overlay. One instance is created per visible `scene3D`
+part and tracked in `CardCanvasNSView.scene3DViews: [UUID: Scene3DHostNSView]`.
+On part update, the host checks whether `scene3DAssetRef` has changed: if so,
+it resolves the asset bytes from `SpriteRepository`, writes them to a UUID-named
+temp file under `URL.temporaryDirectory/hype-scene3d/` (directory created with
+`0o700` permissions), and calls `Scene3DAssetLoader.load(from:)` on a
+background queue. The fallback path reads `scene3DURL` directly for legacy
+file-path bindings.
+
+**`Scene3DAssetLoader`** (`Sources/HypeCore/Rendering/Scene3DAssetLoader.swift`)
+is the centralised extension→strategy table:
+
+| Extension | Strategy |
+|-----------|----------|
+| `.usdz`, `.usd`, `.scn`, `.dae`, `.obj` | `SCNScene(url:)` — SceneKit native |
+| `.glb`, `.ply`, `.abc` | `MDLAsset(url:)` → `SCNScene(mdlAsset:)` — macOS 13+ |
+| `.fbx` | `MDLAsset(url:)` — macOS 13+ only; higher attack surface (Autodesk SDK) |
+| `.stl` | `STLConverter.convert(stlPath:)` → OBJ → `SCNScene(url:)` |
+
+All methods are synchronous and throw structured `LoadError` on failure; they
+never call `fatalError`. Callers are responsible for invoking off main thread.
+
+**`Part.scene3DAssetRef: AssetRef?`** (Phase 1) is the preferred binding path.
+When non-nil, the host materialises bytes from `SpriteRepository` into a temp
+file and feeds the file URL to the loader. `scene3DURL` remains as the legacy
+file-path path; when both are present, `scene3DAssetRef` takes precedence.
+
+**`Scene3DAssetConverter`** (`Sources/HypeCore/Rendering/Scene3DAssetConverter.swift`,
+Phase 4) converts GLB to USDZ via `MDLAsset` for AR Quick Look consumption.
+Gated on `#available(macOS 13, *)`.
+
+**`ARQuickLookPresenter`** (`Sources/Hype/AR/ARQuickLookPresenter.swift`, Phase 4)
+stages a USDZ in `~/Library/Caches/com.hype.app/ar-quicklook/` (created with
+`0o700` permissions) and presents it via `QLPreviewPanel.shared()`. GLB assets
+are first converted by `Scene3DAssetConverter`; non-USDZ assets that cannot
+be converted surface `ARQuickLookError.unsupportedAssetKind`. The "Open in AR"
+button in `SpriteRepositoryView` is hidden on macOS < 13.
+
+**Architectural symmetry with SpriteKit.** `scene3D` parts are model-driven:
+`Part.scene3DAssetRef` is the asset-ref discipline (UUID, not raw path), and
+mutations flow through the same `@Binding`-based document model as every other
+part type. The Sprite Repository and Property Inspector ("From Repository…"
+dropdown) are the authoring surfaces — no separate 3D asset management UI.
+HypeTalk addresses `scene3D` parts by name and can set `the model` of any part
+through the smart resolver (see §5.7), keeping the scripting surface consistent
+with 2D image binding.
+
 ---
 
 ## 4. The Sprite Repository
@@ -907,9 +962,15 @@ all referenced art with zero external dependencies.
 ```swift
 public enum AssetKind: String, Codable, Sendable {
     case imageTexture, spriteSheet, tileSet, audioClip, videoClip,
-         particlePreset, placeholderAsset
+         particlePreset, placeholderAsset, model3D
 }
+```
 
+`AssetKind` has a custom `init(from:)`: unknown raw values (from future versions of
+the format) map to `.imageTexture` for forward-compat — the same strategy as
+`PartType.init(from:)` (Phase 1 design decision).
+
+```swift
 public struct SpriteAsset: Identifiable, Codable, Sendable {
     public var id: UUID
     public var name: String
@@ -925,6 +986,9 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
     public var tileWidth, tileHeight, tileColumns, tileRows: Int
     // Origin / license tracking (set when the AI imports from web search)
     public var provenance: AssetProvenance?
+    // 3D model metadata (kind == .model3D, Phase 3)
+    public var isRigged: Bool
+    public var animationActionId: Int?  // Meshy animation catalog entry
 }
 
 public struct SpriteRepository: Codable, Sendable {
@@ -940,7 +1004,18 @@ public struct SpriteRepository: Codable, Sendable {
 `aiGenerated`, or `aiContext`. Web-search imports also persist license + creator + source URL
 so the inspector can show an attribution block and the stack-script
 attribution synchronizer can keep an `-- Attributions --` block in the stack
-script up to date as web assets are added or removed.
+script up to date as web assets are added or removed. For Meshy-generated
+models, `AssetProvenance.attribution` additionally carries `taskId: String`
+(the Meshy task that produced this asset) and `parentTaskId: String` (the
+source task when this asset was derived via remesh, retexture, or rigging),
+enabling chain-of-derivation tracking (Phase 3 / Phase 4).
+
+**50 MB decode cap on `model3D` assets.** `SpriteAsset.init(from:)` enforces a
+50 MB cap on `kind == .model3D` data at decode time (Phase 1 Security M1). A
+malicious `.hype` document embedding a gigantic GLB/USDZ blob would otherwise
+exhaust memory silently during `JSONDecoder` inflate; the cap surfaces an
+explicit `DecodingError` instead and keeps ordinary valid models well within
+the limit.
 
 `tileSet` is a refinement of sprite sheet for SpriteKit `SKTileMapNode` use:
 the slicing tools record per-tile dimensions and grid extents, and
@@ -1027,6 +1102,40 @@ with `.id(asset.data.count)` so SwiftUI gives the view a fresh identity when
 the bytes change — without that, the cached NSImage decode lingered after a
 chroma-key edit and the preview kept showing pre-transparent pixels until the
 user re-selected.
+
+### 4.5 Model3D assets in the repository
+
+`model3D` assets live alongside 2D sprites in the same repository. Their bytes
+(GLB, USDZ, FBX, etc.) are embedded directly in the `.hype` file, so stacks
+remain fully self-contained. There is no separate asset cache or sidecar file.
+
+**Grid rendering.** `SpriteRepositoryView` renders `model3D` assets with a
+`cube.transparent` SF Symbol placeholder icon in indigo. A rendered preview
+thumbnail is not feasible without loading SceneKit; the icon is the intentional
+fallback.
+
+**Inspector action buttons.** The asset detail panel gates Meshy-specific
+operations behind `provenance.attribution.providerIdentifier == "meshy"` and,
+where applicable, a non-empty `taskId`. The full button surface is:
+
+| Button | Gate |
+|--------|------|
+| Generate 3D… | any `model3D` asset (re-trigger generation) |
+| Rig & Animate… | `isMeshy && hasMeshyTaskId && !asset.isRigged` |
+| Animate… | `asset.isRigged && asset.animationActionId == nil && hasRigTaskId` |
+| Remesh… | `isMeshy && hasMeshyTaskId` |
+| Retexture… | `isMeshy && hasMeshyTaskId` |
+| Open in AR | any `model3D` asset; button is hidden on macOS < 13 |
+
+**Binding to `scene3D` parts.** Model3D assets are bound to `scene3D` parts via
+`Part.scene3DAssetRef` (an `AssetRef?`). The preferred authoring paths are the
+Property Inspector "From Repository…" dropdown and the HypeTalk command
+`set the model of scene3d "X" to "<asset-name>"` (see §5.7). When
+`scene3DAssetRef` is set, `Scene3DHostNSView` materialises asset bytes from
+`SpriteRepository` into a UUID-named temp file under
+`URL.temporaryDirectory/hype-scene3d/` (directory created with `0o700`
+permissions if absent) and feeds the resulting file URL to `Scene3DAssetLoader`.
+The legacy `scene3DURL` string remains as a fallback for file-path bindings.
 
 ---
 
@@ -1345,6 +1454,50 @@ shorten the path from a part to its script:
 Both paths converge on the shared `openScriptEditorWindow(...)` helper,
 which dedups windows by target ID, persists size/position, and supports
 error-line highlighting when navigating from a runtime error.
+
+### 5.7 3D model commands (Meshy)
+
+These grammar forms were added in Phases 3–5 of the Meshy integration.
+
+**`ask meshy`** — text-to-3D generation.
+
+- *Statement form (synchronous, sets `it` / `the result`):*
+  `ask meshy "<prompt>"`
+- *Statement form (asynchronous callback):*
+  `ask meshy "<prompt>" with message "handlerName"`
+- *Expression form (usable in `put … into`):*
+  `put ask meshy "barrel" into x`
+
+Both statement and expression forms accept optional order-independent modifiers:
+- `with style "realistic"` or `with style "sculpture"` — maps to `artStyle` on
+  the Meshy API.
+- `with model "meshy-6"` (or `"meshy-5"`, etc.) — selects the Meshy generation
+  model.
+
+The expression evaluates to the new asset's name as a `String` (the
+`SpriteAsset.name` assigned by `Meshy3DAssetImporter`). The synchronous
+statement form blocks via `await` internally; it is equivalent to
+`put await (ask meshy …) into it`.
+
+**Warning:** do NOT use `ask meshy` as a boolean condition — each evaluation
+fires a billable Meshy generation call. The expression is not memoized.
+
+**`set the model of scene3d "X" to "<value>"`** — smart resolver.
+
+- If `<value>` matches a `model3D` asset name in the Sprite Repository, binds
+  via `Part.scene3DAssetRef` (asset-ref discipline).
+- Otherwise, falls back to the file-path resolver (sets `scene3DURL` directly).
+  On the file-path branch, `scene3DAssetRef` is explicitly cleared.
+- The `put <expr> into the model of scene3d "X"` form applies the same
+  smart-resolve rules and is fully equivalent to the `set` form (Phase 5
+  Finding 3 fix).
+
+**`remesh asset "X" to <polycount>`** — triggers a Meshy remesh operation on
+the named model3D asset and imports the result as a new repository asset.
+Optional `with message "handlerName"` for async callback.
+
+**`retexture asset "X" with prompt "<text>"`** — triggers a Meshy retexture
+operation on the named model3D asset. Optional `with message "handlerName"`.
 
 ---
 
@@ -1733,7 +1886,7 @@ directly into typed Swift structs.
 
 ### 7.2 Tool surface: `HypeTools`
 
-`HypeTools` (Sources/HypeCore/AI/HypeTools.swift) declares 119 tool
+`HypeTools` (Sources/HypeCore/AI/HypeTools.swift) declares 125 tool
 schemas in one place using a small `makeTool(...)` builder that turns a
 `[String: (type, description, required)]` parameter map into a complete
 schema struct. The categories:
@@ -1754,6 +1907,7 @@ schema struct. The categories:
 | Sprite areas / scenes     | `create_sprite_area`, `get_scene_spec`, `apply_scene_diff`, `add_sprite_to_scene`, `add_label_to_scene`, `add_shape_to_scene`, `add_emitter_to_scene`, `add_audio_to_scene`, `add_video_to_scene`, `add_group_to_scene`, `create_tilemap`, `classify_asset_as_tileset`, `set_tile`, `fill_tilemap`, `get_tilemap_info`, `create_camera`, `add_joint_to_scene`, `add_constraint_to_scene`, `add_physics_field_to_scene`, `capture_scene_snapshot`, `get_scene_diagnostics`, `list_scene_nodes`, `list_scene_joints`, `list_scene_constraints`, `get_scene_script`, `get_node_script`, `get_node_property`, `set_node_property`, `set_node_script`, `set_scene_script`, `set_physics_body` |
 | Asset repository          | `list_repository_assets`, `import_repository_asset`, `generate_sprite_asset`, `web_asset_search`, `web_asset_import` |
 | AI Context Library        | `list_ai_context`, `search_ai_context`, `read_ai_context_item`, `import_context_asset`, `write_ai_context_note` |
+| 3D model generation (Meshy) | `generate_3d_model_from_text`, `generate_3d_model_from_image`, `generate_3d_model_from_images`, `list_3d_models`, `remesh_3d_model`, `retexture_3d_model` |
 | Script gating             | `check_script` (REQUIRED before storing any HypeTalk; runs the validator) |
 
 The surface is **dual mode**: it has both read tools (for the model to
@@ -1880,6 +2034,58 @@ prompts a model for a complete stack as a single JSON payload (no tool
 calls, no loop) and reconstructs a `HypeDocument` from the parsed
 response — used for "bootstrap a new stack from a paragraph" scenarios.
 
+### 7.7 Meshy.ai 3D model generation
+
+Hype integrates with Meshy.ai's hosted 3D generation API across five delivery
+phases:
+
+| Phase | What shipped |
+|-------|-------------|
+| **1** | Text-to-3D (Generate3DSheet, text tab), Preferences API-key entry, per-stack `Stack.meshyEnabled` flag, `AssetKind.model3D`, `Part.scene3DAssetRef`, `Scene3DAssetLoader` |
+| **2** | Image-to-3D + multi-image-to-3D tabs in `Generate3DSheet`; 4 new AI tools (`generate_3d_model_from_text`, `generate_3d_model_from_image`, `generate_3d_model_from_images`, `list_3d_models`); `AIEditTransaction` integration for AI-triggered generation |
+| **3** | Rigging via Meshy `/openapi/v1/rigging`; animation picker with a bundled ~3,000-entry catalog (no bulk fetch); `isRigged` + `animationActionId` on `SpriteAsset`; HypeTalk `ask meshy` statement grammar |
+| **4** | Remesh, retexture (Meshy API); `Scene3DAssetConverter` (GLB→USDZ); `ARQuickLookPresenter`; webhook payload decoder (documented, no auto-listener — see §9); `remesh_3d_model` + `retexture_3d_model` AI tools |
+| **5** | HypeTalk `ask meshy` expression form; `set the model of scene3d "X" to <asset>` smart resolver; `put <expr> into the model of scene3d "X"` |
+
+**Core actors and orchestrators.**
+
+- `MeshyAIClient` (Sources/HypeCore/AI/MeshyAIClient.swift) — `actor` pinned
+  to `api.meshy.ai`. The public initialiser takes no `baseURL` parameter;
+  the hostname is not configurable.
+- `MeshyTaskMonitor` (Sources/HypeCore/AI/MeshyTaskMonitor.swift) — `actor`
+  that polls task state every 3 seconds with a 30-minute hard timeout.
+  `cancel()` is idempotent.
+- `Generate3DJob` (Sources/HypeCore/AI/Generate3DJob.swift) — single-shot
+  orchestrator shared by the `Generate3DSheet` UI and the AI tool executor.
+  Calls `MeshyAIClient`, feeds the task to `MeshyTaskMonitor`, and on
+  success calls `Meshy3DAssetImporter`.
+- `Meshy3DAssetImporter` (Sources/HypeCore/AI/Meshy3DAssetImporter.swift) —
+  downloads model bytes, builds a `SpriteAsset` with `kind == .model3D` and
+  `provenance.type == .aiGenerated`, and adds it to `SpriteRepository`.
+- `Meshy3DGate` (Sources/HypeCore/AI/Meshy3DGate.swift) — pre-flight guard
+  that checks `Stack.meshyEnabled` and that a Meshy API key is present in
+  Keychain before allowing any generation call.
+
+**Security pipeline.**
+
+- Hostname allowlist: all outbound requests must resolve to `*.meshy.ai`.
+- `MeshyNoRedirectDelegate` — `URLSessionTaskDelegate` that blocks HTTP
+  redirects so a `Location:` header from an untrusted response cannot
+  redirect the download to an attacker-controlled host.
+- `sanitizedMeshyURL` — filters all wire URLs returned by the Meshy API
+  through a hostname check before any fetch.
+- 50 MB download cap on model bytes; 50 MB decode cap enforced by
+  `SpriteAsset.init(from:)` at document-load time.
+- MIME type check is authoritative over the caller-supplied claim.
+- `MeshyImageInput` strict validation: `resolvingSymlinksInPath` +
+  blocked-prefix allowlist + containment check before reading any local image.
+- Meshy API key is read from Keychain off main thread.
+
+**AI tool surface.** The Sprite Repository AI chat (`SpriteRepositoryAIChatView`)
+includes all six Meshy tools in its allowlist. Gate enforcement still happens at
+executor level (`Meshy3DGate`), so the chat surface cannot bypass the opt-in
+check even if the tool schema is visible.
+
 ---
 
 ## 8. Cross-Cutting Concerns
@@ -1953,7 +2159,7 @@ surface.
 
 ### 8.4 Testing
 
-The combined SwiftPM test suite currently runs **165 suites and 1,540 tests**
+The combined SwiftPM test suite currently runs **214 suites and 1,909 tests**
 in about 80-90 seconds on the local machine. Most tests live in
 `HypeCoreTests` and run without launching the app because they exercise the
 model, parser, interpreter, renderer helpers, and tool executor directly;
@@ -2031,10 +2237,33 @@ unknowns:
    and speech output with local fakes. Opt-in live provider tests and stack-level
    smoke recordings should keep expanding because model/tool behavior remains
    the least deterministic part of the system.
+7. **Meshy webhook auto-listener is deferred.** The Meshy API supports a webhook
+   callback URL so long-running generation tasks can push their result rather
+   than requiring polling. A `MeshyWebhookDecoder` is implemented and tested,
+   but a public-reachable listener (required by Meshy's cloud infrastructure)
+   cannot be started automatically on a residential Mac without a user-managed
+   reverse tunnel. The current polling approach via `MeshyTaskMonitor` covers
+   the common case without requiring network configuration.
+8. **AR Quick Look is macOS 13+ gated.** `ARQuickLookPresenter` and
+   `Scene3DAssetConverter` both gate on `#available(macOS 13, *)`. The "Open in
+   AR" button in `SpriteRepositoryView` is hidden on older OS versions. The app
+   minimum deployment target is macOS 15, so this gap only matters for anyone
+   back-porting the code.
+9. **Animation catalog is bundled JSON; no live refresh.** The ~3,000-entry
+   Meshy animation catalog used in the Rig & Animate picker is a static
+   bundled JSON file. Meshy does not publish a public pagination endpoint for
+   the full catalog; if they add animations or retire old ones, the bundle
+   must be manually updated.
+10. **Meshy generation requires explicit per-stack opt-in.** `Stack.meshyEnabled`
+    must be set to `true` (via Preferences) and a Meshy API key must be present
+    in Keychain before any `Generate3DSheet`, HypeTalk `ask meshy`, or AI tool
+    call can proceed. Both flags are off by default. This is intentional — it
+    prevents accidental billable API calls on stacks authored before the Meshy
+    integration shipped.
 
 ---
 
-## 10. Where SpriteKit Sits in the Stack — Summary
+## 10. Where SpriteKit and SceneKit Sit in the Stack — Summary
 
 The user's framing — *"SpriteKit as the underlying layer for interaction
 across a stack"* — maps onto the implementation as follows:
@@ -2094,12 +2323,28 @@ across a stack"* — maps onto the implementation as follows:
    SpriteKit interaction model). The `nativeLayer` slot in `CardSKScene`
    is reserved for that migration.
 
+9. **SceneKit complements SpriteKit for 3D content.** `scene3D` parts are
+   first-class peers of `spriteArea`: both are `PartType` cases, both are
+   tracked in `CardCanvasNSView` as native overlays, and both participate in
+   the same property inspector, asset-ref discipline, and scripting model.
+   `model3D` assets sit alongside 2D sprites in the same `SpriteRepository`,
+   embedded as bytes in the `.hype` file. The authoring and binding patterns
+   (`AssetRef`, "From Repository…" dropdown, HypeTalk `set the model`) mirror
+   the 2D sprite workflow exactly.
+
+10. **Meshy.ai is the on-demand 3D asset pipeline; everything else is local.**
+    Generation, rigging, remesh, and retexture require a Meshy API key and
+    network egress to `api.meshy.ai`. Rendering (SceneKit), binding
+    (`scene3DAssetRef`), scripting (`ask meshy` result handling, `set the
+    model`), and AR Quick Look staging are all local and offline.
+
 The net result: Hype is a HyperCard whose card runtime is a real-time
-2D scene graph. Buttons and fields still feel like HyperCard
-buttons and fields, the message hierarchy still works the way it did
-in 1987, and a HypeTalk script can still say `go to next card`. But
-behind that surface, the same script can also create a sprite, attach a
+2D scene graph — and now also a 3D scene viewer. Buttons and fields still
+feel like HyperCard buttons and fields, the message hierarchy still works
+the way it did in 1987, and a HypeTalk script can still say `go to next card`.
+But behind that surface, the same script can also create a sprite, attach a
 physics body, listen for collisions, run a tile-map of an entire game
-level, await an Ollama model, call an HTTP service, expose a local listener,
-and let an authoring assistant edit the scene by calling `apply_scene_diff` —
+level, generate a 3D model from a text prompt, bind it to a scene3D part, await
+an Ollama model, call an HTTP service, expose a local listener, and let an
+authoring assistant edit the scene by calling `apply_scene_diff` —
 all without ever leaving the stack.
