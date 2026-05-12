@@ -381,8 +381,12 @@ struct PreferencesView: View {
                 document?.document.stack.webAssetsAllowed ?? false
             },
             set: { newValue in
-                // Mutate via the binding — the host keeps `document` current.
-                document?.document.stack.webAssetsAllowed = newValue
+                // Copy-modify-reassign — see `currentStackMeshyEnabledBinding`
+                // for the rationale (optional-chain mutation through `@Binding`
+                // is unreliable for value-typed wrappers).
+                guard var wrapper = document else { return }
+                wrapper.document.stack.webAssetsAllowed = newValue
+                document = wrapper
             }
         )
     }
@@ -395,7 +399,9 @@ struct PreferencesView: View {
                 document?.document.stack.aiContextCloudSharingAllowed ?? false
             },
             set: { newValue in
-                document?.document.stack.aiContextCloudSharingAllowed = newValue
+                guard var wrapper = document else { return }
+                wrapper.document.stack.aiContextCloudSharingAllowed = newValue
+                document = wrapper
             }
         )
     }
@@ -552,10 +558,20 @@ struct PreferencesView: View {
     // MARK: - Meshy.ai Bindings and Actions
 
     /// Binding for `stack.meshyEnabled` — mirrors `currentStackWebAssetsBinding`.
+    ///
+    /// Uses copy-modify-reassign rather than `document?.document.stack.meshyEnabled = $0`.
+    /// The chained-optional form is unreliable through `@Binding` to a value-typed
+    /// wrapper: Swift's modify-accessor sometimes mutates a temporary copy instead of
+    /// re-invoking the binding's setter. Reassigning the whole wrapper guarantees the
+    /// write flows back through the focused-scene binding to the document scene.
     private var currentStackMeshyEnabledBinding: Binding<Bool> {
         Binding(
             get: { document?.document.stack.meshyEnabled ?? false },
-            set: { document?.document.stack.meshyEnabled = $0 }
+            set: { newValue in
+                guard var wrapper = document else { return }
+                wrapper.document.stack.meshyEnabled = newValue
+                document = wrapper
+            }
         )
     }
 
