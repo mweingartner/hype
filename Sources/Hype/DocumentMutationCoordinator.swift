@@ -88,6 +88,15 @@ final class HypeDocumentMutationCoordinator {
     private var pendingAutosaves: [UUID: Task<Void, Never>] = [:]
     private var coalescedUndoStarts: [String: HypeDocument] = [:]
 
+    /// The currently-active document binding, used as a fallback for the
+    /// Preferences scene. SwiftUI's `@FocusedValue(\.hypeCurrentDocument)`
+    /// returns nil when the Preferences window itself becomes the focused
+    /// scene (the document scene loses focus), which would leave per-stack
+    /// toggles ("Enable for Current Stack", etc.) permanently disabled.
+    /// `MainContentView` writes this on appear/becomeMain so Preferences
+    /// can resolve the active document even when its own scene is in front.
+    var activeDocumentBinding: Binding<HypeDocumentWrapper>?
+
     init(
         recoveryStore: HypeRecoveryStore = HypeRecoveryStore(),
         autosaveDelayNanoseconds: UInt64 = 700_000_000,

@@ -137,6 +137,18 @@ struct MainContentView: View {
             // the FocusedValueKey declaration and the wrapper that
             // reads this value in the Settings scene.
             .focusedSceneValue(\.hypeCurrentDocument, trackedDocumentBinding)
+            // Also register with the mutation coordinator as the
+            // currently-active document. `@FocusedValue` returns nil
+            // once Preferences itself becomes the focused scene, so
+            // the Preferences pane falls back to this registry to
+            // resolve the "last-edited" document and keep its
+            // per-stack toggles live.
+            .onAppear {
+                HypeDocumentMutationCoordinator.shared.activeDocumentBinding = trackedDocumentBinding
+            }
+            .onDisappear {
+                HypeDocumentMutationCoordinator.shared.activeDocumentBinding = nil
+            }
     }
 
     private var mainContent: some View {

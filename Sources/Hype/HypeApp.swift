@@ -260,15 +260,29 @@ struct PreferencesSceneWrapper: View {
         // Bridge `Binding<HypeDocumentWrapper>?` (focused value) into
         // the `Binding<HypeDocumentWrapper?>` that `PreferencesView`
         // expects. The set closure writes back through the focused
-        // binding when one is present — Finding 13's re-resolve-at-
-        // write-time guarantee falls out naturally because
-        // `@FocusedValue` re-evaluates with the current focus on
-        // every render.
+        // binding when one is present.
+        //
+        // Fallback: when Preferences becomes the focused scene
+        // (typical the moment the user opens it via Cmd-,), the
+        // document scene loses focus and `@FocusedValue` returns nil
+        // — making per-stack toggles permanently disabled. We fall
+        // back to `HypeDocumentMutationCoordinator.activeDocumentBinding`
+        // which `MainContentView` keeps current on appear/disappear,
+        // so the toggle stays live across the focus transition.
         let bridged = Binding<HypeDocumentWrapper?>(
-            get: { focusedDocument?.wrappedValue },
+            get: {
+                if let focused = focusedDocument {
+                    return focused.wrappedValue
+                }
+                return HypeDocumentMutationCoordinator.shared.activeDocumentBinding?.wrappedValue
+            },
             set: { newValue in
-                guard let newValue, let focusedDocument else { return }
-                focusedDocument.wrappedValue = newValue
+                guard let newValue else { return }
+                if let focused = focusedDocument {
+                    focused.wrappedValue = newValue
+                } else if let fallback = HypeDocumentMutationCoordinator.shared.activeDocumentBinding {
+                    fallback.wrappedValue = newValue
+                }
             }
         )
         PreferencesView(document: bridged)
