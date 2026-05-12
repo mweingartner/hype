@@ -4,15 +4,19 @@ import Foundation
 
 /// POST `/openapi/v1/image-to-3d` request body.
 ///
-/// Meshy accepts either `image_url` (a publicly-fetchable URL) OR
-/// `image_data` (a `data:<mime>;base64,<bytes>` URI). Phase 2 ALWAYS
-/// uses `image_data` so the source image bytes never leave the user's
-/// machine except as a single direct POST to api.meshy.ai. This means
-/// `image_url` is intentionally absent from the Swift struct — the
-/// codec cannot emit it.
+/// Meshy's image-to-3D endpoint requires `image_url` (either an HTTPS URL
+/// OR a `data:<mime>;base64,<bytes>` URI) or `input_task_id`. There is
+/// no `image_data` field — Meshy returns a 400 if you send one. Hype
+/// ALWAYS sends a data URI so source-image bytes go directly to
+/// api.meshy.ai with no intermediate public URL. `input_task_id` is
+/// intentionally absent from this struct — the codec cannot emit it.
+///
+/// The Swift property is still named `imageData` for compatibility with
+/// existing call sites; the JSON `CodingKey` maps it to `image_url`.
 public struct MeshyImageTo3DRequest: Codable, Sendable, Equatable {
-    /// `"data:image/<png|jpeg|webp>;base64,<...>"` — the sniffed MIME
-    /// type drives the prefix, not a caller-supplied claim.
+    /// `"data:image/<jpeg|png>;base64,<...>"` — the sniffed MIME type
+    /// drives the prefix, not a caller-supplied claim. Meshy supports
+    /// `.jpg`, `.jpeg`, `.png` for this endpoint.
     public var imageData: String
     public var aiModel: MeshyAIModel
     public var shouldRemesh: Bool
@@ -22,7 +26,7 @@ public struct MeshyImageTo3DRequest: Codable, Sendable, Equatable {
     public var enablePbr: Bool?
 
     private enum CodingKeys: String, CodingKey {
-        case imageData       = "image_data"
+        case imageData       = "image_url"
         case aiModel         = "ai_model"
         case shouldRemesh    = "should_remesh"
         case targetPolycount = "target_polycount"
@@ -49,14 +53,17 @@ public struct MeshyImageTo3DRequest: Codable, Sendable, Equatable {
 
 /// POST `/openapi/v1/multi-image-to-3d` request body.
 ///
-/// Same `image_data` discipline as `MeshyImageTo3DRequest`, but accepts
-/// an array of 2..4 data URIs. The first image is treated by Meshy as the
-/// canonical front view; subsequent images are alternate views.
+/// Meshy's multi-image endpoint expects an `image_urls` array (plural).
+/// Each entry may be an HTTPS URL or a `data:<mime>;base64,<bytes>` URI.
+/// Hype always sends data URIs. The first image is treated by Meshy as
+/// the canonical front view; subsequent images are alternate views.
 ///
+/// The Swift property is still named `imageData` for compatibility with
+/// existing call sites; the JSON `CodingKey` maps it to `image_urls`.
 /// The codec does NOT enforce the array-length constraint — `MeshyAIClient.
 /// createMultiImageTo3DTask` does, before encoding.
 public struct MeshyMultiImageTo3DRequest: Codable, Sendable, Equatable {
-    /// 2..4 entries, each a `"data:image/<mime>;base64,<...>"` URI.
+    /// 2..4 entries, each a `"data:image/<jpeg|png>;base64,<...>"` URI.
     public var imageData: [String]
     public var aiModel: MeshyAIModel
     public var shouldRemesh: Bool
@@ -66,7 +73,7 @@ public struct MeshyMultiImageTo3DRequest: Codable, Sendable, Equatable {
     public var enablePbr: Bool?
 
     private enum CodingKeys: String, CodingKey {
-        case imageData       = "image_data"
+        case imageData       = "image_urls"
         case aiModel         = "ai_model"
         case shouldRemesh    = "should_remesh"
         case targetPolycount = "target_polycount"

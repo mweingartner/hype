@@ -288,7 +288,7 @@ struct Generate3DSheetImageTabTests {
             )
             Issue.record("Expected validationFailed for combined size > 40 MB")
         } catch MeshyError.validationFailed(let field, _) {
-            #expect(field == "image_data")
+            #expect(field == "image_urls")
         }
     }
 
@@ -296,17 +296,17 @@ struct Generate3DSheetImageTabTests {
 
     /// `MeshyMultiImageTo3DRequest` count validation (2..4) is enforced by
     /// `MeshyAIClient.createMultiImageTo3DTask`. This test verifies the request
-    /// model encodes the `image_data` array correctly so the client can count it.
+    /// model encodes the `image_urls` array correctly so the client can count it.
     ///
     /// The end-to-end count validation (rejects 1 image, rejects 5 images)
     /// is covered by `MeshyAIClientImageTaskTests` tests (d) and (e).
-    @Test("MeshyMultiImageTo3DRequest encodes image_data array with correct count")
+    @Test("MeshyMultiImageTo3DRequest encodes image_urls array with correct count")
     func multiImageRequestEncodesCorrectCount() throws {
         let uris = ["data:image/png;base64,aaa", "data:image/png;base64,bbb"]
         let request = MeshyMultiImageTo3DRequest(imageData: uris)
         let data = try JSONEncoder().encode(request)
         let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-        let encodedArray = json["image_data"] as? [String]
+        let encodedArray = json["image_urls"] as? [String]
         #expect(encodedArray?.count == 2)
         #expect(encodedArray?[0] == uris[0])
         #expect(encodedArray?[1] == uris[1])

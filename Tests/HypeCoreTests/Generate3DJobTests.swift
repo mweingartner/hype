@@ -258,7 +258,7 @@ struct Generate3DJobTests {
             )
             Issue.record("Expected validationFailed for combined size")
         } catch MeshyError.validationFailed(let field, _) {
-            #expect(field == "image_data")
+            #expect(field == "image_urls")
         }
     }
 

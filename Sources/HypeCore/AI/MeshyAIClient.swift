@@ -299,9 +299,10 @@ public actor MeshyAIClient: MeshyClient {
     /// - Throws: `MeshyError.validationFailed` if `imageData` is not a data URI.
     /// - Returns: The non-empty task id string.
     public func createImageTo3DTask(_ request: MeshyImageTo3DRequest) async throws -> String {
-        // Pre-flight validation: image_data must be a data URI.
+        // Pre-flight validation: image_url must be a data URI (or a public
+        // HTTPS URL, which Phase 2 doesn't currently send).
         guard request.imageData.hasPrefix("data:image/") else {
-            throw MeshyError.validationFailed(field: "image_data", reason: "Image data must be a data URI.")
+            throw MeshyError.validationFailed(field: "image_url", reason: "Image must be a data URI.")
         }
 
         var urlReq = authorizedRequest(path: "/openapi/v1/image-to-3d", method: "POST")
@@ -310,7 +311,7 @@ public actor MeshyAIClient: MeshyClient {
 
         // Log only the character count of the image data, never the bytes themselves.
         logger.aiInput(
-            "POST /openapi/v1/image-to-3d model=\(request.aiModel.rawValue) image_data:\(request.imageData.count) chars",
+            "POST /openapi/v1/image-to-3d model=\(request.aiModel.rawValue) image_url:\(request.imageData.count) chars",
             source: "Meshy"
         )
 
@@ -336,7 +337,7 @@ public actor MeshyAIClient: MeshyClient {
         // Pre-flight validation: 2..4 images.
         guard (2...4).contains(request.imageData.count) else {
             throw MeshyError.validationFailed(
-                field: "image_data",
+                field: "image_urls",
                 reason: "Multi-image generation requires 2 to 4 images."
             )
         }
@@ -344,7 +345,7 @@ public actor MeshyAIClient: MeshyClient {
         for (idx, uri) in request.imageData.enumerated() {
             guard uri.hasPrefix("data:image/") else {
                 throw MeshyError.validationFailed(
-                    field: "image_data[\(idx)]",
+                    field: "image_urls[\(idx)]",
                     reason: "Image \(idx + 1) must be a data URI."
                 )
             }
@@ -359,7 +360,7 @@ public actor MeshyAIClient: MeshyClient {
         let combinedCap = 57 * 1024 * 1024
         guard totalEncodedChars <= combinedCap else {
             throw MeshyError.validationFailed(
-                field: "image_data",
+                field: "image_urls",
                 reason: "Total image size exceeds the 40 MB combined limit."
             )
         }

@@ -119,7 +119,7 @@ struct MeshyAIClientImageTaskTests {
             _ = try await client.createMultiImageTo3DTask(request)
             Issue.record("Expected validationFailed")
         } catch MeshyError.validationFailed(let field, _) {
-            #expect(field == "image_data")
+            #expect(field == "image_urls")
         }
     }
 
@@ -134,7 +134,7 @@ struct MeshyAIClientImageTaskTests {
             _ = try await client.createMultiImageTo3DTask(request)
             Issue.record("Expected validationFailed")
         } catch MeshyError.validationFailed(let field, _) {
-            #expect(field == "image_data")
+            #expect(field == "image_urls")
         }
     }
 
@@ -152,14 +152,14 @@ struct MeshyAIClientImageTaskTests {
             _ = try await client.createMultiImageTo3DTask(request)
             Issue.record("Expected validationFailed for combined cap")
         } catch MeshyError.validationFailed(let field, let reason) {
-            #expect(field == "image_data")
+            #expect(field == "image_urls")
             #expect(reason.contains("40 MB") || reason.contains("limit"))
         }
     }
 
     // MARK: (f) image data URI is reflected verbatim in the request body
 
-    @Test("createImageTo3DTask encodes image_data verbatim in request body")
+    @Test("createImageTo3DTask encodes image_url verbatim in request body")
     func imageDataVerbatimInBody() async throws {
         let specificURI = "data:image/png;base64,VGVzdERhdGE="
         nonisolated(unsafe) var capturedBody: [String: Any]?
@@ -189,7 +189,11 @@ struct MeshyAIClientImageTaskTests {
 
         let request = MeshyImageTo3DRequest(imageData: specificURI)
         _ = try await client.createImageTo3DTask(request)
-        #expect(capturedBody?["image_data"] as? String == specificURI)
+        // Wire field must be `image_url` (NOT `image_data`) per Meshy v1
+        // image-to-3D spec; sending `image_data` returns "Either image_url
+        // or input_task_id must be provided".
+        #expect(capturedBody?["image_url"] as? String == specificURI)
+        #expect(capturedBody?["image_data"] == nil, "image_data must NOT appear on the wire")
     }
 
     // MARK: (g) createImageTo3DTask with non-data-URI throws validationFailed
@@ -202,7 +206,7 @@ struct MeshyAIClientImageTaskTests {
             _ = try await client.createImageTo3DTask(request)
             Issue.record("Expected validationFailed")
         } catch MeshyError.validationFailed(let field, _) {
-            #expect(field == "image_data")
+            #expect(field == "image_url")
         }
     }
 

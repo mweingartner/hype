@@ -192,7 +192,7 @@ public struct Generate3DJob: Sendable {
             let totalBytes = images.map(\.data.count).reduce(0, +)
             guard totalBytes <= 40 * 1024 * 1024 else {
                 throw MeshyError.validationFailed(
-                    field: "image_data",
+                    field: "image_urls",
                     reason: "Total image size exceeds the 40 MB combined limit."
                 )
             }

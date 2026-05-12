@@ -20,15 +20,19 @@ struct MeshyImageRequestsCodableTests {
         )
         let data = try encoder.encode(req)
         let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-        #expect(json["image_data"] as? String == uri)
+        // Meshy's image-to-3D endpoint expects `image_url` (NOT `image_data`).
+        // The endpoint returns "Either image_url or input_task_id must be provided"
+        // if the wrong key is used. Data URIs are accepted as `image_url` values.
+        #expect(json["image_url"] as? String == uri)
+        #expect(json["image_data"] == nil, "image_data must NOT appear in the encoded body")
         #expect(json["ai_model"] as? String == "meshy-6")
         #expect(json["should_remesh"] as? Bool == false)
         #expect(json["moderation"] as? Bool == true)
     }
 
-    // MARK: (b) MeshyMultiImageTo3DRequest encodes image_data as array
+    // MARK: (b) MeshyMultiImageTo3DRequest encodes image_urls as array
 
-    @Test("MeshyMultiImageTo3DRequest encodes image_data as array")
+    @Test("MeshyMultiImageTo3DRequest encodes image_urls as array")
     func multiImageRequestEncodesArray() throws {
         let uris = ["data:image/png;base64,aaa", "data:image/jpeg;base64,bbb"]
         let req = MeshyMultiImageTo3DRequest(
@@ -39,10 +43,12 @@ struct MeshyImageRequestsCodableTests {
         )
         let data = try encoder.encode(req)
         let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-        let imageDataArray = json["image_data"] as? [String]
-        #expect(imageDataArray?.count == 2)
-        #expect(imageDataArray?[0] == uris[0])
-        #expect(imageDataArray?[1] == uris[1])
+        // Plural `image_urls` field for the multi-image endpoint.
+        let imageUrlsArray = json["image_urls"] as? [String]
+        #expect(imageUrlsArray?.count == 2)
+        #expect(imageUrlsArray?[0] == uris[0])
+        #expect(imageUrlsArray?[1] == uris[1])
+        #expect(json["image_data"] == nil, "image_data must NOT appear in the encoded body")
         #expect(json["should_remesh"] as? Bool == true)
     }
 
