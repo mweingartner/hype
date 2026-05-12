@@ -323,10 +323,17 @@ struct SpriteRepositoryAIChatView: View {
         RULES:
         - Only work on Sprite Repository assets. Do not create card parts, backgrounds, cards, scripts, or SpriteKit scene nodes from this panel.
         - If the user asks to generate/create/add/draw a sprite, library asset, repository asset, icon, texture, sprite sheet, or tileset, use generate_sprite_asset.
+        - If the user asks to generate/create/add a 3D model, mesh, object, character, prop, vehicle, or any three-dimensional asset, use generate_3d_model_from_text. The result is stored in the Sprite Repository with kind=model3D alongside 2D assets. Provide a short, descriptive asset_name (e.g. "wooden-barrel", "space-fighter").
+        - If the user provides one image as reference for a 3D model, use generate_3d_model_from_image. For multiple images, use generate_3d_model_from_images.
+        - If the user asks to lower the polygon count, simplify, or remesh an existing 3D model, use remesh_3d_model with the asset name and a target polycount (e.g. 5000).
+        - If the user asks to restyle, retexture, change the surface, or apply a new material to an existing 3D model, use retexture_3d_model with a style_prompt describing the new surface.
+        - Use list_3d_models to inspect existing model3D assets when needed (or list_repository_assets for all assets).
+        - Before calling generate_3d_model_from_text, the user must have provided the desired asset name. If no name is provided, ask exactly one concise follow-up question for the name.
         - Before calling generate_sprite_asset, the user must have provided the desired sprite asset name. If no name is provided, ask exactly one concise follow-up question for the name.
         - Use list_repository_assets to inspect existing assets when needed.
         - If the user asks for a tileset or sprite sheet, set kind to tileSet or spriteSheet and describe grid details in the prompt.
         - OpenAI image generation is a tool. The chat model can be Ollama or OpenAI, but generated image bytes come from OpenAI and require an API key in Preferences.
+        - 3D model generation uses Meshy.ai and requires a Meshy API key in Preferences. Generation may take up to 5 minutes.
         \(contextRule)
 
         CURRENT REPOSITORY:

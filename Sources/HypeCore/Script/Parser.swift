@@ -2375,6 +2375,37 @@ public struct Parser: Sendable {
             let tok = advance()
             return .literal(tok.value)
 
+        case .ask:
+            // Expression form: `ask meshy "<prompt>" [with style <s>]`
+            //
+            // Recognized ONLY when `.ask` is immediately followed by `.meshy`
+            // (both tokens must be present). The sync-only expression form
+            // omits the `with message` callback clause — async generation
+            // stays in the statement form. If the next token is NOT `.meshy`,
+            // the `.ask` token is treated as an unresolvable keyword and a
+            // parse error is thrown so the caller can surface it cleanly.
+            if pos + 1 < tokens.count && tokens[pos + 1].type == .meshy {
+                _ = advance()  // ask
+                _ = advance()  // meshy
+                let prompt = try parseExpression()
+                var style: Expression? = nil
+                if current.type == .with || current.type == .using {
+                    let savedPos = pos
+                    _ = advance()  // with / using
+                    if current.type == .identifier && current.value.lowercased() == "style" {
+                        _ = advance()
+                        style = try parseExpression()
+                    } else {
+                        // Not a `with style` clause — rewind so the caller
+                        // sees the `with` token and can handle it (e.g. the
+                        // outer put/get statement may have its own `with`).
+                        pos = savedPos
+                    }
+                }
+                return .askMeshy(prompt: prompt, style: style)
+            }
+            throw ParseError.unexpected(current, expected: "expression")
+
         default:
             throw ParseError.unexpected(current, expected: "expression")
         }

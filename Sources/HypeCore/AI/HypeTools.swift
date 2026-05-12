@@ -1713,6 +1713,15 @@ public struct HypeToolDefinitions {
             "generate_sprite_asset",
             "classify_asset_as_tileset",
             "write_ai_context_note",
+            // Phase 3/4: 3D model generation and transformation tools.
+            // Meshy-generated model3D assets are repository assets (kind=model3D)
+            // so they are fully within the "only work on Sprite Repository assets" rule.
+            "generate_3d_model_from_text",
+            "generate_3d_model_from_image",
+            "generate_3d_model_from_images",
+            "list_3d_models",
+            "remesh_3d_model",
+            "retexture_3d_model",
         ])
         return allowed.contains($0.function.name)
     }

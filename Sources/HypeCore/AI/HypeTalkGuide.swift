@@ -610,6 +610,35 @@ public enum HypeTalkGuide {
               put "3D load failed: " & reason into field "status"
             end modelLoadFailed
 
+        **Bind a Sprite Repository model3D asset to a scene3D part (Phase 5):**
+            -- `set the model of scene3d "X" to "<asset-name>"` is the canonical
+            -- way to connect a model3D asset from the Sprite Repository to a scene3D
+            -- part by name. The interpreter first checks the Sprite Repository for a
+            -- model3D asset with that exact name; if found it binds via scene3DAssetRef
+            -- (the preferred rendering path). If NOT found it falls back to file-path
+            -- resolution (same as `set the object of ...`).
+            set the model of scene3d "Viewer" to "wooden-barrel"
+
+            -- Read back the currently-bound name:
+            put the model of scene3d "Viewer" into boundName
+            -- boundName is the asset name when bound via repository, or the URL/path
+            -- when bound via the file-path fallback.
+
+            -- Container form: same smart resolver, put-into syntax.
+            put "wooden-barrel" into the model of scene3d "Viewer"
+
+            -- The `object` property also accepts asset names with the same
+            -- smart-resolver logic (asset lookup first, file path fallback):
+            set the object of scene3d "Viewer" to "wooden-barrel"
+
+            -- End-to-end example — generate a model and immediately display it:
+            on mouseUp
+              -- 1. Generate a 3D model; asset name lands in `the result`.
+              put ask meshy "a wooden barrel, low poly" into newModel
+              -- 2. Bind the new asset to the scene3D viewer:
+              set the model of scene3d "Viewer" to newModel
+            end mouseUp
+
         **Generate a 3D model with Meshy.ai (AI tools — Phase 2):**
             -- Requires meshyEnabled = true on the stack and a Meshy API key in settings.
             -- List 3D models already in the Sprite Repository (read-only, no bytes returned):
@@ -654,6 +683,20 @@ public enum HypeTalkGuide {
             -- asset name into `it` and `the result`.
             ask meshy "a low-poly wooden barrel"
             put it into field "assetName"    -- e.g. "a-low-poly-wooden-barrel.glb"
+
+            -- Expression form (Phase 5): `ask meshy` may appear inside `put X into Y`.
+            -- Returns the new asset name as a string (same sync behavior, no callback).
+            -- Gate refusal or error returns "".
+            put ask meshy "a wooden barrel, low poly" into newModel
+            -- newModel now holds the asset name, e.g. "a-wooden-barrel-low-poly.glb"
+
+            -- IMPORTANT: do NOT use `ask meshy` as a boolean condition or inside a
+            -- repeat-while loop. Each evaluation fires a real (billable) Meshy
+            -- generation call. Always capture the result into a variable first,
+            -- then test the variable:
+            --   put ask meshy "barrel" into x
+            --   if x is not "" then ...
+            --   --                       NOT  if ask meshy "barrel" then ...
 
             -- Optional modifiers (order independent, may be combined):
             ask meshy "a marble pillar" with style "sculpture"

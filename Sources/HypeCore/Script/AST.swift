@@ -53,6 +53,12 @@ public indirect enum Expression: Sendable {
     case isNotA(Expression, String)               // x is not a number
     case thereIsA(String, Expression)             // there is a button "OK"
     case thereIsNo(String, Expression)            // there is no button "OK"
+    /// `ask meshy "<prompt>" [with style <s>]` used as an expression.
+    ///
+    /// Synchronous-only expression form — no `with message` callback.
+    /// Evaluates to the new asset name on success, `""` on gate refusal or
+    /// error (same degradation contract as the statement form).
+    case askMeshy(prompt: Expression, style: Expression?)
 }
 
 /// Binary operators.

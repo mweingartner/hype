@@ -487,6 +487,29 @@ public struct Interpreter: Sendable {
                 }
                 env.it = value
 
+            case .propertyAccess(let property, let targetExpr):
+                // `put X into the <property> of <part-ref>`
+                //
+                // Handles `put "asset-name" into the model of scene3d "Viewer"` by
+                // routing through the same smart resolver as `set the model of scene3d
+                // "Viewer" to "asset-name"`. Only the `.into` preposition is supported
+                // for property container writes; `.after` / `.before` fall through to
+                // `it` since there is no sensible concatenation semantic for a model ref.
+                if prep == .into, case .objectRef(let ref) = targetExpr {
+                    let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+                    if let partIndex = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
+                        applyPartPropertySet(
+                            partIndex: partIndex,
+                            property: property,
+                            value: value,
+                            env: &env,
+                            document: &document,
+                            context: context
+                        )
+                    }
+                }
+                env.it = value
+
             default:
                 // Unknown target — store in `it`
                 env.it = value
@@ -2359,6 +2382,36 @@ public struct Interpreter: Sendable {
             let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
             let found = document.parts.contains { $0.name.lowercased() == name.lowercased() }
             return found ? "false" : "true"
+
+        case .askMeshy(let promptExpr, let styleExpr):
+            // Expression form: `ask meshy "<prompt>" [with style <s>]`
+            //
+            // Synchronous-only — the async callback form is handled exclusively
+            // by Statement.askMeshy. Security gate and off-main-thread Keychain
+            // reads are the provider's responsibility, matching the existing
+            // Statement.askMeshy sync path (Phase 3 M3 pattern).
+            //
+            // Returns the new asset name on success; "" on gate refusal, missing
+            // provider, or any provider error. This matches the sync Statement
+            // form's degradation contract so callers can always do:
+            //   put ask meshy "barrel" into newModel
+            //   if newModel is not empty then ...
+            let promptText = try await evaluate(promptExpr, env: &env, document: document, context: context)
+            let styleText = try await evaluateOptional(styleExpr, env: &env, document: document, context: context)
+            guard let provider = context.meshyProvider else {
+                return ""
+            }
+            do {
+                let assetName = try await provider.generateSync(
+                    prompt: promptText,
+                    style: styleText,
+                    model: nil,
+                    document: document
+                )
+                return assetName
+            } catch {
+                return ""
+            }
         }
     }
 
@@ -3132,8 +3185,18 @@ public struct Interpreter: Sendable {
         case "imagefilter", "image_filter", "filter": return part.imageFilter
         case "imagefilterintensity", "image_filter_intensity", "filterintensity", "filter_intensity": return formatNumber(part.imageFilterIntensity)
         case "object":
-            // Return the author-visible source path when set; fall back to
-            // the resolved scene3DURL so older documents still read correctly.
+            // If an asset ref is bound, return its name. Otherwise return
+            // the author-visible source path or the resolved URL.
+            if let assetRef = part.scene3DAssetRef, !assetRef.name.isEmpty {
+                return assetRef.name
+            }
+            return part.scene3DSourceURL.isEmpty ? part.scene3DURL : part.scene3DSourceURL
+        case "model":
+            // Canonical getter — returns the asset name when bound via
+            // scene3DAssetRef, or the source URL path otherwise.
+            if let assetRef = part.scene3DAssetRef, !assetRef.name.isEmpty {
+                return assetRef.name
+            }
             return part.scene3DSourceURL.isEmpty ? part.scene3DURL : part.scene3DSourceURL
         case "modelurl", "model_url", "sceneurl", "scene_url": return part.scene3DURL
         case "allowscameracontrol", "allows_camera_control", "cameracontrol": return part.scene3DAllowsCameraControl ? "true" : "false"
@@ -4199,12 +4262,51 @@ public struct Interpreter: Sendable {
         case "imagefilterintensity", "image_filter_intensity", "filterintensity", "filter_intensity":
             document.parts[partIndex].imageFilterIntensity = max(0, min(1, toNumber(value)))
         case "object":
-            // Store the author-visible source path, then resolve to the
-            // working URL (converting STL → OBJ via cache if needed).
-            document.parts[partIndex].scene3DSourceURL = value
-            document.parts[partIndex].scene3DURL = resolveScene3DPath(
-                value, partId: document.parts[partIndex].id, context: context
-            )
+            // `object` accepts both file paths and model3D asset names.
+            // Try the Sprite Repository first: if there is a model3D asset
+            // with this exact name, bind via asset ref (preferred path).
+            // Otherwise fall through to the file-path resolver.
+            //
+            // Security Finding 3: ALWAYS clear `scene3DAssetRef` on the
+            // file-path branch so a previously-bound asset can't shadow
+            // the new file path through the getter precedence rule.
+            if let asset = document.spriteRepository.asset(byName: value),
+               asset.kind == .model3D {
+                document.parts[partIndex].scene3DAssetRef = document.spriteRepository.assetRef(for: asset)
+                document.parts[partIndex].scene3DSourceURL = ""
+                document.parts[partIndex].scene3DURL = ""
+            } else {
+                // Store the author-visible source path, then resolve to the
+                // working URL (converting STL → OBJ via cache if needed).
+                document.parts[partIndex].scene3DAssetRef = nil
+                document.parts[partIndex].scene3DSourceURL = value
+                document.parts[partIndex].scene3DURL = resolveScene3DPath(
+                    value, partId: document.parts[partIndex].id, context: context
+                )
+            }
+        case "model":
+            // `model` is the canonical asset-name setter for scene3D parts.
+            //
+            // 1. Looks up the value as a model3D asset name in the Sprite Repository.
+            //    If found: binds via scene3DAssetRef and clears URL fields so the
+            //    asset-ref rendering path wins in Scene3DHostNSView.apply.
+            // 2. If NOT found: falls back to the file-path resolver (same as `object`),
+            //    so `set the model of scene3d "X" to "/path/to/cube.usdz"` still works.
+            //
+            // Same Finding-3 clearing rule applies: the file-path branch nils
+            // out scene3DAssetRef to keep document state internally consistent.
+            if let asset = document.spriteRepository.asset(byName: value),
+               asset.kind == .model3D {
+                document.parts[partIndex].scene3DAssetRef = document.spriteRepository.assetRef(for: asset)
+                document.parts[partIndex].scene3DSourceURL = ""
+                document.parts[partIndex].scene3DURL = ""
+            } else {
+                document.parts[partIndex].scene3DAssetRef = nil
+                document.parts[partIndex].scene3DSourceURL = value
+                document.parts[partIndex].scene3DURL = resolveScene3DPath(
+                    value, partId: document.parts[partIndex].id, context: context
+                )
+            }
         case "modelurl", "model_url", "sceneurl", "scene_url":
             // Legacy alias: route through the resolver so STL files auto-
             // convert whether the author uses `object` or `modelURL`.
