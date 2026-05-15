@@ -29,6 +29,12 @@ private final class MeshyMockProtocol: URLProtocol {
 
 // MARK: - Helper
 
+private func minimalGLBBytes() -> Data {
+    var data = Data([0x67, 0x6C, 0x54, 0x46, 0x02, 0x00, 0x00, 0x00])
+    data.append(contentsOf: [0x0C, 0x00, 0x00, 0x00])
+    return data
+}
+
 private func makeMockClient(
     apiKey: String = "msy_test",
     baseURL: URL = URL(string: "http://localhost:9999")!,
@@ -196,8 +202,7 @@ struct MeshyAIClientTests {
 
     @Test("downloadModel accepts cdn.meshy.ai subdomain")
     func downloadAcceptsMeshySubdomain() async throws {
-        // Minimal GLB magic bytes + enough padding.
-        let glbBytes = Data(repeating: 0x42, count: 16)
+        let glbBytes = minimalGLBBytes()
         let client = makeMockClient { req in
             let hdrs = ["Content-Type": "model/gltf-binary"]
             return (glbBytes, response(statusCode: 200, headers: hdrs, url: req.url!))
@@ -212,14 +217,14 @@ struct MeshyAIClientTests {
 
     @Test("downloadModel accepts application/octet-stream for GLB")
     func downloadAcceptsOctetStreamForGLB() async throws {
-        let glbBytes = Data(repeating: 0x42, count: 16)
+        let glbBytes = minimalGLBBytes()
         let client = makeMockClient { req in
             let hdrs = ["Content-Type": "application/octet-stream"]
             return (glbBytes, response(statusCode: 200, headers: hdrs, url: req.url!))
         }
         let url = URL(string: "https://assets.meshy.ai/model.glb")!
         let data = try await client.downloadModel(from: url, allowedFormat: .glb)
-        #expect(data.count == 16)
+        #expect(data.count == glbBytes.count)
     }
 
     // MARK: (k) cancelTask tolerates 404
@@ -263,7 +268,7 @@ struct MeshyAIClientTests {
         // Mock returns a 302 with Location header pointing to a non-meshy host.
         // If the delegate isn't wired correctly, URLSession would follow the
         // redirect and return whatever the second request returns.
-        let glbBytes = Data(repeating: 0x42, count: 16)
+        let glbBytes = minimalGLBBytes()
         MeshyMockProtocol.handler = { req in
             let url = req.url!
             if url.host?.hasSuffix("meshy.ai") == true {
@@ -350,6 +355,23 @@ struct MeshyAIClientTests {
             Issue.record("Expected unsupportedContentType throw")
         } catch MeshyError.unsupportedContentType(let ct) {
             #expect(ct == "text/html")
+        } catch {
+            Issue.record("Wrong error type: \(error)")
+        }
+    }
+
+    @Test("downloadModel rejects GLB bytes with invalid magic")
+    func downloadRejectsInvalidGLBSignature() async throws {
+        let client = makeMockClient { req in
+            let hdrs = ["Content-Type": "model/gltf-binary"]
+            return (Data(repeating: 0x42, count: 16), response(statusCode: 200, headers: hdrs, url: req.url!))
+        }
+        let url = URL(string: "https://assets.meshy.ai/model.glb")!
+        do {
+            _ = try await client.downloadModel(from: url, allowedFormat: .glb)
+            Issue.record("Expected signature rejection")
+        } catch MeshyError.modelDownloadFailed(let message) {
+            #expect(message.contains("signature"))
         } catch {
             Issue.record("Wrong error type: \(error)")
         }

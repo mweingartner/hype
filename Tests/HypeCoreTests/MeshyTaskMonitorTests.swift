@@ -79,6 +79,34 @@ actor StubMeshyClient: MeshyClient {
     }
 }
 
+actor ThrowingPollMeshyClient: MeshyClient {
+    let error: Error
+    private(set) var fetchCount = 0
+
+    init(error: Error) {
+        self.error = error
+    }
+
+    func createTextTo3DTask(_ request: MeshyTextTo3DRequest) async throws -> String { "stub_task_id" }
+    func createImageTo3DTask(_ request: MeshyImageTo3DRequest) async throws -> String { "stub_image_task_id" }
+    func createMultiImageTo3DTask(_ request: MeshyMultiImageTo3DRequest) async throws -> String { "stub_multi_task_id" }
+    func createRiggingTask(_ request: MeshyRiggingRequest) async throws -> String { "stub_rigging_task_id" }
+    func createAnimationTask(_ request: MeshyAnimationRequest) async throws -> String { "stub_animation_task_id" }
+    func createRemeshTask(_ request: MeshyRemeshRequest) async throws -> String { "stub_remesh_id" }
+    func createRetextureTask(_ request: MeshyRetextureRequest) async throws -> String { "stub_retex_id" }
+
+    func fetchTaskFact(taskId: String, kind: MeshyTaskKind) async throws -> MeshyPolledFact {
+        fetchCount += 1
+        throw error
+    }
+
+    func cancelTask(taskId: String, kind: MeshyTaskKind) async throws {}
+    func fetchBalance() async throws -> Int { 100 }
+    func downloadModel(from url: URL, allowedFormat: MeshyOutputFormat) async throws -> Data {
+        Data(repeating: 0x42, count: 64)
+    }
+}
+
 // MARK: - Helpers
 
 /// Build a `MeshyPolledFact` for use in monitor tests.
@@ -139,6 +167,60 @@ struct MeshyTaskMonitorTests {
 
         let hasInProgress = states.contains { if case .inProgress = $0 { return true }; return false }
         #expect(hasInProgress, "Stream must include .inProgress states")
+    }
+
+    @Test("non-retryable poll errors fail immediately")
+    func nonRetryablePollErrorFailsImmediately() async throws {
+        let stub = ThrowingPollMeshyClient(error: MeshyError.requestFailed(statusCode: 401, message: "bad key"))
+        let monitor = MeshyTaskMonitor(
+            client: stub,
+            taskId: "t_auth",
+            prompt: "barrel",
+            aiModel: .meshy6,
+            requestedFormats: [.glb],
+            config: MeshyTaskMonitor.Config(pollInterval: 0.01, hardTimeout: 30, maxTransientPollFailures: 5),
+            logger: HypeLogger(setupFileLogging: false)
+        )
+
+        var terminal: MeshyTaskMonitor.State?
+        for await state in await monitor.progress() {
+            terminal = state
+        }
+
+        if case .failed(.requestFailed(let code, _)) = terminal {
+            #expect(code == 401)
+        } else {
+            Issue.record("Expected auth failure, got \(String(describing: terminal))")
+        }
+        let count = await stub.fetchCount
+        #expect(count == 1)
+    }
+
+    @Test("retryable poll errors are capped")
+    func retryablePollErrorsAreCapped() async throws {
+        let stub = ThrowingPollMeshyClient(error: MeshyError.networkError)
+        let monitor = MeshyTaskMonitor(
+            client: stub,
+            taskId: "t_network",
+            prompt: "barrel",
+            aiModel: .meshy6,
+            requestedFormats: [.glb],
+            config: MeshyTaskMonitor.Config(pollInterval: 0.01, hardTimeout: 30, maxTransientPollFailures: 1),
+            logger: HypeLogger(setupFileLogging: false)
+        )
+
+        var terminal: MeshyTaskMonitor.State?
+        for await state in await monitor.progress() {
+            terminal = state
+        }
+
+        if case .failed(.networkError) = terminal {
+            // expected
+        } else {
+            Issue.record("Expected network failure after retry cap, got \(String(describing: terminal))")
+        }
+        let count = await stub.fetchCount
+        #expect(count == 2)
     }
 
     // MARK: (b) pending → failed

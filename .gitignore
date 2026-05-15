@@ -5,3 +5,14 @@ DerivedData/
 .DS_Store
 build/
 .claude/
+
+# Codex agent metadata (per-machine, not source).
+.codex/
+
+# Build output produced by script/build_and_run.sh.
+# The .app bundle is rebuilt on demand; only the source belongs in VCS.
+dist/
+
+# Python bytecode caches under the AI-training pipeline.
+**/__pycache__/
+*.pyc

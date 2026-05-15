@@ -252,6 +252,92 @@ struct MeshyToolExecutorTests {
         #expect(!parts[0].name.contains("\""))
     }
 
+    @Test("create_scene3d binds model3D asset by model_asset_name")
+    func createScene3DBindsRepositoryModel() async throws {
+        var doc = makeDocument()
+        let cardId = makeCardId(in: doc)
+        var model = SpriteAsset(name: "barrel.glb", data: Data(repeating: 0x42, count: 64))
+        model.kind = .model3D
+        doc.spriteRepository.addAsset(model)
+
+        let executor = HypeToolExecutor()
+        let result = await executor.execute(
+            toolName: "create_scene3d",
+            arguments: [
+                "name": "viewer",
+                "left": "0",
+                "top": "0",
+                "width": "400",
+                "height": "300",
+                "model_asset_name": "barrel.glb"
+            ],
+            document: &doc,
+            currentCardId: cardId
+        )
+
+        let part = try #require(doc.parts.first { $0.name == "viewer" })
+        #expect(result.contains("barrel.glb"))
+        #expect(part.scene3DAssetRef?.name == "barrel.glb")
+        #expect(part.scene3DURL.isEmpty)
+    }
+
+    @Test("set/get_part_property model binds and introspects model3D asset")
+    func setPartPropertyModelBindsAssetAndReadsBack() async throws {
+        var doc = makeDocument()
+        let cardId = makeCardId(in: doc)
+        var model = SpriteAsset(name: "ship.glb", data: Data(repeating: 0x42, count: 64))
+        model.kind = .model3D
+        doc.spriteRepository.addAsset(model)
+        doc.addPart(Part(partType: .scene3D, cardId: cardId, name: "viewer"))
+
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "set_part_property",
+            arguments: ["part_name": "viewer", "property": "model", "value": "ship.glb"],
+            document: &doc,
+            currentCardId: cardId
+        )
+        let modelValue = await executor.execute(
+            toolName: "get_part_property",
+            arguments: ["part_name": "viewer", "property": "model"],
+            document: &doc,
+            currentCardId: cardId
+        )
+        let sourceValue = await executor.execute(
+            toolName: "get_part_property",
+            arguments: ["part_name": "viewer", "property": "modelSource"],
+            document: &doc,
+            currentCardId: cardId
+        )
+
+        let part = try #require(doc.parts.first { $0.name == "viewer" })
+        #expect(part.scene3DAssetRef?.name == "ship.glb")
+        #expect(modelValue == "ship.glb")
+        #expect(sourceValue == "repository")
+    }
+
+    @Test("bind_3d_model_to_scene3d binds existing model without generation")
+    func bind3DModelToolBindsExistingAsset() async throws {
+        var doc = makeDocument()
+        let cardId = makeCardId(in: doc)
+        var model = SpriteAsset(name: "creature.glb", data: Data(repeating: 0x42, count: 64))
+        model.kind = .model3D
+        doc.spriteRepository.addAsset(model)
+        doc.addPart(Part(partType: .scene3D, cardId: cardId, name: "viewer"))
+
+        let executor = HypeToolExecutor()
+        let result = await executor.execute(
+            toolName: "bind_3d_model_to_scene3d",
+            arguments: ["scene3d_part_name": "viewer", "model_asset_name": "creature.glb"],
+            document: &doc,
+            currentCardId: cardId
+        )
+
+        let part = try #require(doc.parts.first { $0.name == "viewer" })
+        #expect(result.contains("Bound model3D asset"))
+        #expect(part.scene3DAssetRef?.name == "creature.glb")
+    }
+
     // MARK: (h) H2: import_repository_asset sanitizes name
 
     @Test("import_repository_asset sanitizes AI-controlled name (H2)")

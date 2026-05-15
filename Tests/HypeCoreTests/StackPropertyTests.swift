@@ -76,4 +76,22 @@ struct StackPropertyTests {
         #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
         #expect(result.modifiedDocument?.stack.defaultFont == "Menlo")
     }
+
+    @Test func stackRuntimeModeAndWebAssetFlagsAreScriptable() async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        doc.cards[0].script = """
+        on openCard
+          set the runtimeMode of stack to true
+          set the webAssetsAllowed of stack to true
+        end openCard
+        """
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
+            message: "openCard", params: [], targetId: cardId,
+            document: doc, currentCardId: cardId
+        ) }
+        #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
+        #expect(result.modifiedDocument?.stack.runtimeModeEnabled == true)
+        #expect(result.modifiedDocument?.stack.webAssetsAllowed == true)
+    }
 }

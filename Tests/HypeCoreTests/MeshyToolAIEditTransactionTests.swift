@@ -74,13 +74,13 @@ private func makeRunner(meshyEnabled: Bool = false) -> AIEditTransactionRunner {
 @Suite("AIEditTransactionRunner — 3D model tool integration")
 struct MeshyToolAIEditTransactionTests {
 
-    // MARK: (a) delta.spriteRepositoryChanged is false on gate refusal
+    // MARK: (a) Meshy generation is deferred until apply
 
-    /// When `generate_3d_model_from_text` is refused by the gate
-    /// (`meshyEnabled == false`), the preview draft must NOT mutate the
-    /// sprite repository.
-    @Test("preview: gate refusal yields delta.spriteRepositoryChanged == false")
-    func gateRefusalNoRepositoryChange() async {
+    /// Preview must not call Meshy or mutate the Sprite Repository. Meshy
+    /// generation is an external, billable side effect, so it is represented as
+    /// a deferred operation until apply.
+    @Test("preview: Meshy generation is deferred and does not change repository")
+    func previewDefersMeshyGenerationNoRepositoryChange() async {
         let document = makeDocument(meshyEnabled: false)
         let cardId = document.sortedCards.first?.id ?? UUID()
         let runner = makeRunner(meshyEnabled: false)
@@ -98,13 +98,36 @@ struct MeshyToolAIEditTransactionTests {
             providerName: "Test"
         )
 
-        // Gate was refused — no repository mutation should have occurred.
         #expect(transaction.delta.spriteRepositoryChanged == false)
-        // The original document is unchanged.
         #expect(document.spriteRepository.assets.isEmpty)
-        // Preview document should also have no model assets.
         let previewModels = transaction.previewDocument.spriteRepository.assets.filter { $0.kind == .model3D }
         #expect(previewModels.isEmpty)
+        #expect(transaction.operations.first?.phase == .deferredExternalApply)
+        #expect(transaction.operations.first?.result.contains("Deferred external operation") == true)
+    }
+
+    @Test("sync apply refuses transactions with deferred Meshy operations")
+    func syncApplyRefusesDeferredExternalOperations() async {
+        var document = makeDocument(meshyEnabled: false)
+        let cardId = document.sortedCards.first?.id ?? UUID()
+        let runner = makeRunner(meshyEnabled: false)
+        let call = OllamaToolCall(function: OllamaToolCallFunction(
+            name: "generate_3d_model_from_text",
+            arguments: ["prompt": "a barrel"]
+        ))
+
+        var transaction = await runner.preview(
+            toolCalls: [call],
+            document: document,
+            currentCardId: cardId,
+            prompt: "Generate a 3D barrel",
+            providerName: "Test"
+        )
+        runner.apply(&transaction, to: &document)
+
+        #expect(transaction.state == .failed)
+        #expect(document.spriteRepository.assets.isEmpty)
+        #expect(transaction.diagnostics.contains { $0.contains("async apply") })
     }
 
     // MARK: (b) rollback restores repository asset count

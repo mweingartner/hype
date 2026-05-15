@@ -238,4 +238,48 @@ struct Scene3DTests {
         // "object" wins over "model_url".
         #expect(part?.scene3DSourceURL == "/tmp/preferred.usdz")
     }
+
+    @Test("repository GLB resolves to same-task USDZ companion for rendering")
+    func glbResolvesToTaskCompanionUSDZ() throws {
+        let taskId = "task_123"
+        var glb = SpriteAsset(name: "wooden-barrel.glb", kind: .model3D, mimeType: "model/gltf-binary")
+        glb.provenance = AssetProvenance(
+            origin: .aiGenerated,
+            attribution: AssetAttribution(providerIdentifier: "meshy", taskId: taskId)
+        )
+        var usdz = SpriteAsset(name: "other-name.usdz", kind: .model3D, mimeType: "model/vnd.usdz+zip")
+        usdz.provenance = AssetProvenance(
+            origin: .aiGenerated,
+            attribution: AssetAttribution(providerIdentifier: "meshy", taskId: taskId)
+        )
+        let repo = SpriteRepository(assets: [glb, usdz])
+        let ref = repo.assetRef(for: glb)
+
+        let resolved = try #require(Scene3DRepositoryAssetResolver.resolvedAsset(for: ref, in: repo))
+        #expect(resolved.selectedAsset.id == glb.id)
+        #expect(resolved.renderAsset.id == usdz.id)
+        #expect(resolved.usesCompanionAsset)
+    }
+
+    @Test("repository GLB resolves to same-base USDZ companion for rendering")
+    func glbResolvesToSameBaseUSDZ() throws {
+        let glb = SpriteAsset(name: "space-fighter.glb", kind: .model3D, mimeType: "model/gltf-binary")
+        let usdz = SpriteAsset(name: "space-fighter.usdz", kind: .model3D, mimeType: "model/vnd.usdz+zip")
+        let repo = SpriteRepository(assets: [glb, usdz])
+        let resolved = try #require(Scene3DRepositoryAssetResolver.resolvedAsset(for: repo.assetRef(for: glb), in: repo))
+
+        #expect(resolved.renderAsset.id == usdz.id)
+        #expect(resolved.usesCompanionAsset)
+    }
+
+    @Test("repository GLB without USDZ companion is marked as companion-required")
+    func glbWithoutCompanionRequiresUSDZ() throws {
+        let glb = SpriteAsset(name: "solo.glb", kind: .model3D, mimeType: "model/gltf-binary")
+        let repo = SpriteRepository(assets: [glb])
+        let resolved = try #require(Scene3DRepositoryAssetResolver.resolvedAsset(for: repo.assetRef(for: glb), in: repo))
+
+        #expect(resolved.renderAsset.id == glb.id)
+        #expect(!resolved.usesCompanionAsset)
+        #expect(Scene3DRepositoryAssetResolver.requiresCompanionForSceneKit(glb))
+    }
 }

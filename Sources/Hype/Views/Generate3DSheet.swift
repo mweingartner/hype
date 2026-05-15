@@ -46,10 +46,14 @@ struct Generate3DSheet: View {
     @State private var aiModel: MeshyAIModel = .meshy6
     @State private var artStyle: MeshyArtStyle = .realistic
     @State private var primaryFormat: MeshyOutputFormat = .glb
-    @State private var alsoDownloadUSDZ: Bool = false
+    @State private var assetName: String = ""
+    @State private var alsoDownloadUSDZ: Bool = true
     @State private var alsoDownloadFBX: Bool = false
     @State private var polycount: Double = 30_000
     @State private var shouldRemesh: Bool = false
+    @State private var textQuality: Generate3DJob.TextQuality = .preview
+    @State private var topology: String = "triangle"
+    @State private var enablePBR: Bool = false
 
     // MARK: - Tab state
 
@@ -176,6 +180,8 @@ struct Generate3DSheet: View {
                         .foregroundColor(prompt.count > 550 ? .orange : .secondary)
                 }
 
+                assetNameField
+
                 // Model + Art Style row
                 HStack(spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -203,6 +209,38 @@ struct Generate3DSheet: View {
                         .pickerStyle(.menu)
                     }
                 }
+
+                // Quality + geometry controls
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Quality").font(.system(size: 11))
+                        Picker("", selection: $textQuality) {
+                            ForEach(Generate3DJob.TextQuality.allCases) { quality in
+                                Text(quality.displayName).tag(quality)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Topology").font(.system(size: 11))
+                        Picker("", selection: $topology) {
+                            Text("Triangle").tag("triangle")
+                            Text("Quad").tag("quad")
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                    }
+                }
+
+                HStack {
+                    Text("Target polygons: \(Int(polycount))")
+                        .font(.system(size: 11))
+                    Slider(value: $polycount, in: 100...300_000, step: 100)
+                }
+                Toggle("Request PBR textures where supported", isOn: $enablePBR)
+                    .font(.system(size: 11))
 
                 // Additional formats
                 VStack(alignment: .leading, spacing: 4) {
@@ -274,6 +312,8 @@ struct Generate3DSheet: View {
                         .foregroundColor(.red)
                 }
 
+                assetNameField
+
                 // Model + Remesh shared row
                 sharedOptionsRow
 
@@ -325,13 +365,15 @@ struct Generate3DSheet: View {
                         .foregroundColor(.red)
                 }
 
+                assetNameField
+
                 // Model + Remesh shared row
                 sharedOptionsRow
 
                 // Additional formats
                 sharedFormatsSection
 
-                Text("All images should be the same object from different angles (front / side / back). Each image: max 10 MB, PNG/JPEG/WebP only.")
+                Text("All images should be the same object from different angles (front / side / back). Each image: max 10 MB, PNG/JPEG only.")
                     .font(.system(size: 9))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -379,6 +421,22 @@ struct Generate3DSheet: View {
 
             Toggle("Remesh geometry", isOn: $shouldRemesh)
                 .font(.system(size: 11))
+
+            Toggle("Request PBR textures where supported", isOn: $enablePBR)
+                .font(.system(size: 11))
+        }
+    }
+
+    @ViewBuilder
+    private var assetNameField: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Repository asset name")
+                .font(.system(size: 11))
+            TextField("Optional, e.g. wooden-barrel", text: $assetName)
+                .textFieldStyle(.roundedBorder)
+            Text("If provided, Hype uses this as the base name and adds .glb/.usdz/.fbx as needed.")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
         }
     }
 
@@ -387,6 +445,8 @@ struct Generate3DSheet: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Additional Formats").font(.system(size: 11))
             Toggle("Also download USDZ (AR-ready)", isOn: $alsoDownloadUSDZ)
+                .font(.system(size: 11))
+            Toggle("Also download FBX", isOn: $alsoDownloadFBX)
                 .font(.system(size: 11))
         }
     }
@@ -545,7 +605,7 @@ struct Generate3DSheet: View {
             Text("3D model generated and added to the repository.")
                 .multilineTextAlignment(.center)
                 .font(.system(size: 13))
-            Text("Save the document to keep the generated model.")
+            Text("The generated model is embedded in this stack and autosaved.")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
             Spacer()
@@ -600,6 +660,11 @@ struct Generate3DSheet: View {
                 shouldRemesh: shouldRemesh,
                 alsoUSDZ: alsoDownloadUSDZ,
                 alsoFBX: alsoDownloadFBX,
+                textQuality: textQuality,
+                targetPolycount: Int(polycount),
+                topology: topology,
+                enablePbr: enablePBR,
+                assetName: assetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : assetName,
                 hardTimeout: 1800   // 30 min for sheet UI
             )
             let existing = Set(document.document.spriteRepository.assets.map(\.name))
@@ -633,6 +698,7 @@ struct Generate3DSheet: View {
                     onAssetImported?(ref)
                 }
                 phase = .done
+                HypeDocumentMutationCoordinator.shared.flushAllAutosaves()
             }
         } catch let error as MeshyError {
             await MainActor.run { phase = .error(error) }

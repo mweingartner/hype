@@ -12,7 +12,6 @@ import ModelIO
 /// | Extension            | Strategy       |
 /// |----------------------|----------------|
 /// | `.usdz`, `.usd`, `.scn`, `.dae`, `.obj` | `SCNScene(url:)` — SceneKit native |
-/// | `.glb`               | `MDLAsset(url:)` → `SCNScene(mdlAsset:)` (macOS 13+) |
 /// | `.fbx` (macOS 13+)   | `MDLAsset(url:)` → `SCNScene(mdlAsset:)` (experimental; higher attack surface than GLB/USDZ — see OQ2 in the security addendum) |
 /// | `.stl`               | `STLConverter.convert(stlPath:)` → OBJ → `SCNScene(url:)` |
 /// | `.ply`, `.abc`       | `MDLAsset(url:)` → `SCNScene(mdlAsset:)` (macOS 13+) |
@@ -24,6 +23,9 @@ import ModelIO
 /// Security invariants:
 /// - Parsing happens off-main-thread (caller's responsibility).
 /// - Nil results from `SCNScene(url:)` surface as `LoadError`, not fatal.
+/// - GLB is intentionally not listed here. SceneKit/ModelIO do not load GLB
+///   reliably on current macOS; repository-bound GLB assets render through a
+///   same-task/same-name USDZ companion resolved before this loader is called.
 /// - FBX support gated on `#available(macOS 13, *)` — higher attack
 ///   surface (Autodesk SDK underlies ModelIO FBX); document this path.
 public struct Scene3DAssetLoader: Sendable {
@@ -55,7 +57,7 @@ public struct Scene3DAssetLoader: Sendable {
 
     /// Recognised file extensions, in lowercase.
     public static let supportedExtensions: [String] = [
-        "usdz", "usd", "scn", "dae", "obj", "stl", "ply", "abc", "glb", "fbx"
+        "usdz", "usd", "scn", "dae", "obj", "stl", "ply", "abc", "fbx"
     ]
 
     // MARK: - Init
@@ -101,7 +103,7 @@ public struct Scene3DAssetLoader: Sendable {
         switch lower {
         case "usdz", "usd", "scn", "dae", "obj":
             return .sceneKit
-        case "glb", "ply", "abc", "fbx":
+        case "ply", "abc", "fbx":
             return .modelIO
         case "stl":
             return .stlConvert

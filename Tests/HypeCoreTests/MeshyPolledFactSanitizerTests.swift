@@ -9,6 +9,33 @@ import Testing
 @Suite("MeshyPolledFact — URL sanitizer (security H3)")
 struct MeshyPolledFactSanitizerTests {
 
+    @Test("fromTextOrImageTo3D sanitizes model_urls host")
+    func textImageFactorySanitizesModelUrls() throws {
+        let resp = MeshyTaskResponse(
+            id: "txt_001",
+            status: .succeeded,
+            progress: 100,
+            createdAt: nil,
+            startedAt: nil,
+            finishedAt: nil,
+            modelUrls: MeshyModelURLs(
+                glb: URL(string: "https://evil.example.com/model.glb")!,
+                fbx: URL(string: "https://assets.meshy.ai/model.fbx")!,
+                usdz: URL(string: "http://assets.meshy.ai/model.usdz")!,
+                obj: nil,
+                mtl: nil
+            ),
+            taskError: nil,
+            textureUrls: nil,
+            preview: nil
+        )
+        let fact = MeshyPolledFact.fromTextOrImageTo3D(resp, kind: .textTo3D)
+
+        #expect(fact.primaryModelUrl == nil)
+        #expect(fact.fbxUrl?.host == "assets.meshy.ai")
+        #expect(fact.usdzUrl == nil)
+    }
+
     // MARK: - fromRigging
 
     @Test("fromRigging accepts valid https://assets.meshy.ai GLB URL")

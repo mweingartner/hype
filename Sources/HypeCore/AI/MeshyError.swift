@@ -93,8 +93,12 @@ public enum MeshyError: Error, LocalizedError, Sendable, Equatable {
             return "Generation failed: \(String(message.prefix(200)))."
         case .taskCancelled:
             return "Cancelled."
-        case .timedOut:
-            return "Generation timed out after 30 minutes."
+        case .timedOut(_, let seconds):
+            if seconds >= 60 {
+                let minutes = max(1, Int((Double(seconds) / 60.0).rounded()))
+                return "Generation timed out after \(minutes) minutes."
+            }
+            return "Generation timed out after \(seconds) seconds."
         case .modelDownloadFailed(let msg):
             return "Couldn't download the generated model. \(String(msg.prefix(200)))."
         case .modelTooLarge(let bytes, let cap):

@@ -159,6 +159,44 @@ struct TileMapTests {
         #expect(reloaded.isTileSet == true)
     }
 
+    @Test("classify_asset_as_tileset treats generated single tile art as one tile")
+    func classifyGeneratedSingleTileArtAsOneTile() async {
+        var doc = HypeDocument.newDocument(name: "Tile Test")
+        let asset = SpriteAsset(
+            name: "maze_tile_wall",
+            kind: .imageTexture,
+            width: 1024,
+            height: 1024,
+            tags: ["ai-generated"],
+            provenance: AssetProvenance(
+                origin: .aiGenerated,
+                searchQuery: "Top-down maze wall tile for a Pac-Man style maze, seamless 32x32 tile appearance"
+            )
+        )
+        doc.spriteRepository.addAsset(asset)
+        let cardId = doc.cards[0].id
+        let executor = HypeToolExecutor()
+
+        let result = await executor.execute(
+            toolName: "classify_asset_as_tileset",
+            arguments: [
+                "asset_name": "maze_tile_wall",
+                "tile_width": "32",
+                "tile_height": "32",
+            ],
+            document: &doc,
+            currentCardId: cardId
+        )
+
+        #expect(result.contains("AI-generated single tile"))
+        let reloaded = doc.spriteRepository.asset(byName: "maze_tile_wall")!
+        #expect(reloaded.kind == .tileSet)
+        #expect(reloaded.tileWidth == 32)
+        #expect(reloaded.tileHeight == 32)
+        #expect(reloaded.tileColumns == 1)
+        #expect(reloaded.tileRows == 1)
+    }
+
     @Test("classify_asset_as_tileset honors explicit tile_columns and tile_rows")
     func classifyAssetExplicitGrid() async {
         var doc = HypeDocument.newDocument(name: "Tile Test")
@@ -259,6 +297,119 @@ struct TileMapTests {
         #expect(tmSpec.tileWidth == 32)
         #expect(tmSpec.tileHeight == 32)
         #expect(tmSpec.tileSetAssetRef?.name == "grass")
+    }
+
+    @Test("create_tilemap tool expands scene design size to fit the map grid")
+    func createTilemapExpandsSceneSizeToMap() async {
+        var doc = HypeDocument.newDocument(name: "Tile Test")
+        let cardId = doc.cards[0].id
+        doc.spriteRepository.addAsset(SpriteAsset(
+            name: "maze_tiles",
+            kind: .tileSet,
+            width: 1024,
+            height: 1024,
+            tileWidth: 32,
+            tileHeight: 32,
+            tileColumns: 32,
+            tileRows: 32
+        ))
+        var area = Part(
+            partType: .spriteArea,
+            cardId: cardId,
+            name: "pacmanArea",
+            left: 0,
+            top: 0,
+            width: 608,
+            height: 449
+        )
+        area.setSpriteAreaSpec(
+            SpriteAreaSpec(defaultSceneNamed: "main", fallbackSize: SizeSpec(width: 608, height: 449))
+        )
+        doc.addPart(area)
+
+        let result = await HypeToolExecutor().execute(
+            toolName: "create_tilemap",
+            arguments: [
+                "sprite_area_name": "pacmanArea",
+                "tilemap_name": "maze",
+                "columns": "24",
+                "rows": "17",
+                "tileset_asset": "maze_tiles",
+            ],
+            document: &doc,
+            currentCardId: cardId
+        )
+
+        let areaPart = doc.parts.first { $0.name == "pacmanArea" }!
+        let areaSpec = areaPart.spriteAreaSpecModel!
+        #expect(result.contains("expanded scene"))
+        #expect(areaSpec.designSize.width == 768)
+        #expect(areaSpec.designSize.height == 544)
+        #expect(areaSpec.activeScene?.size.width == 768)
+        #expect(areaSpec.activeScene?.size.height == 544)
+    }
+
+    @Test("add_sprite_to_scene defaults oversized generated assets to game-sized sprites")
+    func addSpriteDefaultsGeneratedAssetToGameSize() async {
+        var doc = HypeDocument.newDocument(name: "Tile Test")
+        let cardId = doc.cards[0].id
+        doc.spriteRepository.addAsset(SpriteAsset(
+            name: "power_pellet",
+            kind: .imageTexture,
+            mimeType: "image/png",
+            data: Data([0x89, 0x50, 0x4E, 0x47]),
+            width: 1024,
+            height: 1024
+        ))
+        var area = Part(partType: .spriteArea, cardId: cardId, name: "game", left: 0, top: 0, width: 800, height: 600)
+        area.setSpriteAreaSpec(SpriteAreaSpec(defaultSceneNamed: "main", fallbackSize: SizeSpec(width: 800, height: 600)))
+        doc.addPart(area)
+
+        _ = await HypeToolExecutor().execute(
+            toolName: "add_sprite_to_scene",
+            arguments: [
+                "sprite_area_name": "game",
+                "sprite_name": "powerPellet1",
+                "asset_name": "power_pellet",
+                "x": "64",
+                "y": "96",
+            ],
+            document: &doc,
+            currentCardId: cardId
+        )
+
+        let areaPart = doc.parts.first { $0.name == "game" }!
+        let node = areaPart.activeSceneSpec?.node(named: "powerPellet1")
+        #expect(node?.size?.width == 64)
+        #expect(node?.size?.height == 64)
+    }
+
+    @Test("set_node_property accepts loc alias used by AI game authoring")
+    func setNodePropertyAcceptsLocAlias() async {
+        var doc = HypeDocument.newDocument(name: "Tile Test")
+        let cardId = doc.cards[0].id
+        var area = Part(partType: .spriteArea, cardId: cardId, name: "game", left: 0, top: 0, width: 800, height: 600)
+        var scene = SceneSpec(name: "main", size: SizeSpec(width: 800, height: 600))
+        scene.nodes.append(HypeNodeSpec(name: "player", nodeType: .sprite))
+        area.setSpriteAreaSpec(SpriteAreaSpec(scene: scene, fallbackSize: scene.size))
+        doc.addPart(area)
+
+        _ = await HypeToolExecutor().execute(
+            toolName: "set_node_property",
+            arguments: [
+                "sprite_area_name": "game",
+                "node_name": "player",
+                "property": "loc",
+                "value": "96,480",
+            ],
+            document: &doc,
+            currentCardId: cardId
+        )
+
+        let areaPart = doc.parts.first { $0.name == "game" }!
+        let player = areaPart.activeSceneSpec?.node(named: "player")
+        #expect(player?.position.x == 96)
+        #expect(player?.position.y == 480)
     }
 
     @Test("create_tilemap tool reports unclassified tileset as a warning")
@@ -569,6 +720,51 @@ struct TileMapTests {
         let field = modified.parts.first { $0.name == "log" }!
         #expect(field.textContent == "3",
                 "set tile 2,1 to 3 then reading it back should return \"3\", got '\(field.textContent)'")
+    }
+
+    @Test("HypeTalk create tilemap expands scene design size to fit the map grid")
+    func hypetalkCreateTilemapExpandsSceneSizeToMap() {
+        var doc = HypeDocument.newDocument(name: "Tile Test")
+        let cardId = doc.cards[0].id
+        doc.spriteRepository.addAsset(SpriteAsset(
+            name: "maze_tiles",
+            kind: .tileSet,
+            width: 1024,
+            height: 1024,
+            tileWidth: 32,
+            tileHeight: 32,
+            tileColumns: 32,
+            tileRows: 32
+        ))
+        var area = Part(partType: .spriteArea, cardId: cardId, name: "game",
+                        left: 0, top: 0, width: 608, height: 449)
+        area.setSpriteAreaSpec(
+            SpriteAreaSpec(defaultSceneNamed: "main", fallbackSize: SizeSpec(width: 608, height: 449))
+        )
+        doc.addPart(area)
+        let idx = doc.cards.firstIndex { $0.id == cardId }!
+        doc.cards[idx].script = """
+            on openCard
+              create tilemap "maze" columns 24 rows 17 with tileset "maze_tiles"
+            end openCard
+            """
+
+        let result = MessageDispatcher().dispatch(
+            message: "openCard",
+            params: [],
+            targetId: cardId,
+            document: doc,
+            currentCardId: cardId
+        )
+
+        #expect(result.status == .completed)
+        let modified = result.modifiedDocument ?? doc
+        let areaPart = modified.parts.first { $0.name == "game" }!
+        let areaSpec = areaPart.spriteAreaSpecModel!
+        #expect(areaSpec.designSize.width == 768)
+        #expect(areaSpec.designSize.height == 544)
+        #expect(areaSpec.activeScene?.size.width == 768)
+        #expect(areaSpec.activeScene?.size.height == 544)
     }
 
     @Test("HypeTalk `fill tilemap \"X\" with N` paints every cell")

@@ -629,6 +629,9 @@ public actor MeshyAIClient: MeshyClient {
             guard data.count <= Self.maxModelBytes else {
                 throw MeshyError.modelTooLarge(bytes: data.count, capBytes: Self.maxModelBytes)
             }
+            guard Self.modelBytes(data, match: allowedFormat) else {
+                throw MeshyError.modelDownloadFailed("downloaded bytes do not match \(allowedFormat.rawValue) signature")
+            }
 
             logger.info(
                 "Downloaded model \(data.count) bytes format=\(allowedFormat.rawValue)",
@@ -715,6 +718,33 @@ public actor MeshyAIClient: MeshyClient {
             return ["model/vnd.usdz+zip", "application/zip", "application/octet-stream"]
         case .fbx:
             return ["model/fbx", "application/octet-stream"]
+        }
+    }
+
+    /// Lightweight magic-byte validation before Hype stores downloaded 3D
+    /// bytes as document assets. This complements MIME checks, which Meshy/CDN
+    /// may legitimately serve as application/octet-stream.
+    private static func modelBytes(_ data: Data, match format: MeshyOutputFormat) -> Bool {
+        switch format {
+        case .glb:
+            guard data.count >= 12 else { return false }
+            return data[0] == 0x67 && data[1] == 0x6C && data[2] == 0x54 && data[3] == 0x46
+        case .usdz:
+            guard data.count >= 4 else { return false }
+            return data[0] == 0x50 && data[1] == 0x4B &&
+                ((data[2] == 0x03 && data[3] == 0x04) ||
+                 (data[2] == 0x05 && data[3] == 0x06) ||
+                 (data[2] == 0x07 && data[3] == 0x08))
+        case .fbx:
+            guard !data.isEmpty else { return false }
+            let binaryPrefix = Data("Kaydara FBX Binary  \u{00}".utf8)
+            if data.count >= binaryPrefix.count && data.prefix(binaryPrefix.count) == binaryPrefix {
+                return true
+            }
+            if let prefix = String(data: data.prefix(128), encoding: .utf8) {
+                return prefix.contains("FBX") || prefix.contains("; FBX")
+            }
+            return false
         }
     }
 

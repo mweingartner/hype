@@ -192,4 +192,18 @@ struct Meshy3DAssetImporterTests {
         #expect(assets.count == 1)
         #expect(assets[0].mimeType == "model/gltf-binary")
     }
+
+    @Test("importTask honors caller-supplied asset base name")
+    func importUsesSuggestedBaseName() async throws {
+        let stub = ImporterStubClient(glbData: Data(repeating: 0x47, count: 64))
+        let importer = Meshy3DAssetImporter(client: stub, logger: HypeLogger(setupFileLogging: false))
+        let assets = try await importer.importTask(
+            result: makeResult(prompt: "ignored prompt"),
+            existingAssetNames: ["custom-barrel.glb"],
+            options: .init(suggestedBaseName: "custom-barrel.glb")
+        )
+
+        #expect(assets.count == 1)
+        #expect(assets[0].name == "custom-barrel 2.glb")
+    }
 }

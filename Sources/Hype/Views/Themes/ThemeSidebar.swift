@@ -29,6 +29,7 @@ struct ThemeSidebar: View {
     /// drafts colliding. Synced to `theme.name` whenever a fresh row
     /// is rendered for a theme that isn't currently being edited.
     @State private var renameDrafts: [UUID: String] = [:]
+    @State private var renameTasks: [UUID: Task<Void, Never>] = [:]
     @State private var duplicatePopoverShown: Bool = false
     @State private var duplicateSourceName: String = ""
 
@@ -77,6 +78,9 @@ struct ThemeSidebar: View {
         // here ensures the list area picks up the same surface
         // color.
         .background(hypeTheme.inspectorBackground.swiftUIColor)
+        .onDisappear {
+            commitPendingRenames()
+        }
     }
 
     // MARK: - Rows
@@ -104,13 +108,18 @@ struct ThemeSidebar: View {
     private func renameBinding(for theme: HypeTheme) -> Binding<String> {
         Binding(
             get: { renameDrafts[theme.id] ?? theme.name },
-            set: { renameDrafts[theme.id] = $0 }
+            set: { newValue in
+                renameDrafts[theme.id] = newValue
+                scheduleRenameCommit(themeId: theme.id)
+            }
         )
     }
 
     /// Apply the local draft to the document. Reverts the draft if
     /// the model rejects the new name (collision).
-    private func commitRename(themeId: UUID) {
+    private func commitRename(themeId: UUID, showAlert: Bool = true, dropRejectedDraft: Bool = true) {
+        renameTasks[themeId]?.cancel()
+        renameTasks[themeId] = nil
         guard let draft = renameDrafts[themeId] else { return }
         let trimmed = draft.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else {
@@ -122,14 +131,41 @@ struct ThemeSidebar: View {
             // Collision — revert the draft so the user sees the
             // original name reappear. NSAlert gives them a hint about
             // why the rename was rejected.
-            let alert = NSAlert()
-            alert.messageText = "Rename Failed"
-            alert.informativeText = "A theme named \"\(trimmed)\" already exists. Theme names must be unique."
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
-            _ = alert.runModal()
+            if showAlert {
+                let alert = NSAlert()
+                alert.messageText = "Rename Failed"
+                alert.informativeText = "A theme named \"\(trimmed)\" already exists. Theme names must be unique."
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                _ = alert.runModal()
+            }
+            if dropRejectedDraft {
+                renameDrafts.removeValue(forKey: themeId)
+            }
+            return
         }
         renameDrafts.removeValue(forKey: themeId)
+    }
+
+    private func scheduleRenameCommit(themeId: UUID) {
+        renameTasks[themeId]?.cancel()
+        renameTasks[themeId] = Task {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                commitRename(themeId: themeId, showAlert: false, dropRejectedDraft: false)
+            }
+        }
+    }
+
+    private func commitPendingRenames() {
+        for task in renameTasks.values {
+            task.cancel()
+        }
+        renameTasks.removeAll()
+        for themeId in Array(renameDrafts.keys) {
+            commitRename(themeId: themeId, showAlert: false, dropRejectedDraft: true)
+        }
     }
 
     // MARK: - Footer toolbar

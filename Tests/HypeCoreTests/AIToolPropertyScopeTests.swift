@@ -43,6 +43,34 @@ struct AIToolPropertyScopeTests {
         #expect(doc.stack.webAssetsAllowed)
     }
 
+    @Test("set_stack_property toggles runtime mode")
+    func setStackPropertyRuntimeMode() async {
+        var doc = HypeDocument.newDocument(name: "Props")
+        let executor = HypeToolExecutor()
+        let result = await executor.execute(
+            toolName: "set_stack_property",
+            arguments: ["property": "runtimeMode", "value": "true"],
+            document: &doc,
+            currentCardId: doc.cards[0].id
+        )
+        #expect(result.contains("runtimeMode"))
+        #expect(doc.stack.runtimeModeEnabled)
+    }
+
+    @Test("get_stack_property reads runtime mode")
+    func getStackPropertyRuntimeMode() async {
+        var doc = HypeDocument.newDocument(name: "Props")
+        doc.stack.runtimeModeEnabled = true
+        let executor = HypeToolExecutor()
+        let result = await executor.execute(
+            toolName: "get_stack_property",
+            arguments: ["property": "runtimeMode"],
+            document: &doc,
+            currentCardId: doc.cards[0].id
+        )
+        #expect(result == "true")
+    }
+
     @Test("get_card_property returns the current card background name")
     func getCardPropertyBackgroundName() async {
         var doc = HypeDocument.newDocument(name: "Props")

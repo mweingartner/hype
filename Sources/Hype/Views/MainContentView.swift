@@ -46,12 +46,6 @@ struct MainContentView: View {
     @State private var showNetworkPanel: Bool = false
     @State private var runtimeStatus = RuntimeStatusSnapshot(requests: [], listeners: [], connections: [])
 
-    /// Runtime vs Edit mode. Persisted across launches so a stack
-    /// distributed in runtime mode reopens in runtime mode. Toggled
-    /// via the Tools menu (⇧⌘E) or the Run/Edit buttons in
-    /// `ObjectsToolPanel`.
-    @AppStorage("hypeRuntimeMode") private var isRuntimeMode: Bool = false
-
     /// Whether the slide-out objects panel is open. Toggled via the
     /// Tools menu (⇧⌘O) or the toolbar button. Persisted so users
     /// who prefer the canvas-without-chrome layout keep it.
@@ -76,6 +70,10 @@ struct MainContentView: View {
         // is to show the stack as the end-user experiences it,
         // without authoring chrome.
         !isRuntimeMode
+    }
+
+    private var isRuntimeMode: Bool {
+        document.document.stack.runtimeModeEnabled
     }
 
     /// Resolve the currently-active theme through the cascade so
@@ -162,7 +160,8 @@ struct MainContentView: View {
             if objectsPanelVisible {
                 ObjectsToolPanel(
                     currentTool: $currentTool,
-                    selectedPartIds: $selectedPartIds
+                    selectedPartIds: $selectedPartIds,
+                    isRuntimeMode: isRuntimeMode
                 )
             }
 
@@ -229,13 +228,7 @@ struct MainContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleRuntimeMode)) { _ in
-            isRuntimeMode.toggle()
-            // Entering runtime mode: clear authoring side-effects.
-            if isRuntimeMode {
-                currentTool = .browse
-                selectedPartIds = []
-                editingBackground = false
-            }
+            setRuntimeMode(!isRuntimeMode)
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleObjectsPanel)) { _ in
             objectsPanelVisible.toggle()
@@ -525,6 +518,19 @@ struct MainContentView: View {
             actionName: actionName,
             mutation
         )
+    }
+
+    private func setRuntimeMode(_ enabled: Bool) {
+        guard document.document.stack.runtimeModeEnabled != enabled else { return }
+        mutateDocument(actionName: enabled ? "Switch to Runtime Mode" : "Switch to Edit Mode") { document in
+            document.stack.runtimeModeEnabled = enabled
+        }
+        // Entering runtime mode: clear authoring side-effects.
+        if enabled {
+            currentTool = .browse
+            selectedPartIds = []
+            editingBackground = false
+        }
     }
 
     private func applyDocument(_ updated: HypeDocument, actionName: String) {

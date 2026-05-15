@@ -17,12 +17,23 @@ public struct Meshy3DAssetImporter: Sendable {
 
     public struct DefaultOptions: Sendable {
         /// When true, the asset name is derived from the first 3–4 words
-        /// of the prompt (sanitised). When false, the caller must supply
-        /// a name via another path.
+        /// of the prompt (sanitised). Ignored when `suggestedBaseName` is set.
         public var nameFromPrompt: Bool = true
         public var maxPromptWordsForName: Int = 4
+        /// Optional caller-supplied repository display name without a format
+        /// extension. If the caller includes .glb/.usdz/.fbx, it is stripped
+        /// before per-format extensions are added.
+        public var suggestedBaseName: String?
 
-        public init() {}
+        public init(
+            nameFromPrompt: Bool = true,
+            maxPromptWordsForName: Int = 4,
+            suggestedBaseName: String? = nil
+        ) {
+            self.nameFromPrompt = nameFromPrompt
+            self.maxPromptWordsForName = maxPromptWordsForName
+            self.suggestedBaseName = suggestedBaseName
+        }
     }
 
     // MARK: - Private state
@@ -64,7 +75,7 @@ public struct Meshy3DAssetImporter: Sendable {
 
         // Always download the primary GLB.
         let glbData = try await client.downloadModel(from: result.modelURL, allowedFormat: .glb)
-        let baseName = derivedName(from: result.prompt, wordLimit: options.maxPromptWordsForName)
+        let baseName = baseAssetName(from: result, options: options)
         let provenance = makeProvenance(result: result)
 
         let glbAsset = Self.buildAsset(
@@ -544,6 +555,35 @@ public struct Meshy3DAssetImporter: Sendable {
         // Strip trailing hyphen.
         while result.hasSuffix("-") { result.removeLast() }
         return result.isEmpty ? "mesh" : result
+    }
+
+    private func baseAssetName(from result: MeshyTaskResult, options: DefaultOptions) -> String {
+        if let suggested = options.suggestedBaseName,
+           let normalized = normalizedSuggestedBaseName(suggested) {
+            return normalized
+        }
+        if options.nameFromPrompt {
+            return derivedName(from: result.prompt, wordLimit: options.maxPromptWordsForName)
+        }
+        return "mesh"
+    }
+
+    private func normalizedSuggestedBaseName(_ raw: String) -> String? {
+        var cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ext = (cleaned as NSString).pathExtension.lowercased()
+        if ["glb", "usdz", "fbx"].contains(ext) {
+            cleaned = (cleaned as NSString).deletingPathExtension
+        }
+
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-. ")
+        cleaned = String(cleaned.unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(scalar) : Character("_")
+        })
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.isEmpty || cleaned == "." || cleaned == ".." || cleaned.count > 128 {
+            return nil
+        }
+        return cleaned
     }
 
     /// Deduplicates `name` against `existingNames` by appending " 2", " 3", …

@@ -12,11 +12,13 @@ struct Scene3DAssetLoaderTests {
 
     @Test("supportedExtensions includes all required formats")
     func supportedExtensionsComplete() {
-        let expected = ["usdz", "usd", "scn", "dae", "obj", "stl", "ply", "abc", "glb", "fbx"]
+        let expected = ["usdz", "usd", "scn", "dae", "obj", "stl", "ply", "abc", "fbx"]
         for ext in expected {
             #expect(Scene3DAssetLoader.supportedExtensions.contains(ext),
                     "\(ext) must be in supportedExtensions")
         }
+        #expect(!Scene3DAssetLoader.supportedExtensions.contains("glb"),
+                "GLB is stored in the repository but rendered through a USDZ companion")
     }
 
     // MARK: (b) strategy table correctness
@@ -26,9 +28,9 @@ struct Scene3DAssetLoaderTests {
         #expect(Scene3DAssetLoader.strategy(forExtension: "fbx") == .modelIO)
     }
 
-    @Test("strategy(forExtension: glb) returns .modelIO")
-    func glbStrategyIsModelIO() {
-        #expect(Scene3DAssetLoader.strategy(forExtension: "glb") == .modelIO)
+    @Test("strategy(forExtension: glb) returns nil")
+    func glbStrategyIsNil() {
+        #expect(Scene3DAssetLoader.strategy(forExtension: "glb") == nil)
     }
 
     @Test("strategy(forExtension: usdz) returns .sceneKit")

@@ -77,6 +77,21 @@ public struct HypeToolExecutor: Sendable {
         return keywords.contains { lower.contains($0) }
     }
 
+    private static func shouldDefaultGeneratedAssetToSingleTile(_ asset: SpriteAsset) -> Bool {
+        let generated = asset.provenance?.origin == .aiGenerated
+            || asset.tags.contains { $0.caseInsensitiveCompare("ai-generated") == .orderedSame }
+        guard generated else { return false }
+
+        let descriptor = "\(asset.name) \(asset.provenance?.searchQuery ?? "")".lowercased()
+        let sheetIndicators = [
+            "sprite sheet", "spritesheet",
+            "tile sheet", "tilesheet",
+            "tile set", "tileset",
+            "atlas", "grid of", "grid with"
+        ]
+        return !sheetIndicators.contains { descriptor.contains($0) }
+    }
+
     /// Determine whether to place on card or background based on arguments.
     private func placement(arguments: [String: String], currentCardId: UUID, document: HypeDocument) -> (cardId: UUID?, backgroundId: UUID?) {
         let onBg = (arguments["on_background"] ?? "").lowercased() == "true"
@@ -95,6 +110,12 @@ public struct HypeToolExecutor: Sendable {
         case "false", "no", "0", "off": return false
         default: return nil
         }
+    }
+
+    private func intArgument(_ value: String?) -> Int? {
+        guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return nil }
+        return Int(raw)
     }
 
     private func aiContextRole(_ raw: String?) -> AIContextRole? {
@@ -717,7 +738,14 @@ public struct HypeToolExecutor: Sendable {
             if !p.audioOutputPath.isEmpty { props.append("outputPath=\(p.audioOutputPath)") }
             props.append("format=\(p.audioFormat)")
         case .scene3D:
+            if let ref = p.scene3DAssetRef {
+                props.append("model=\(ref.name)")
+                props.append("modelSource=repository")
+            }
             if !p.scene3DURL.isEmpty { props.append("modelURL=\(p.scene3DURL)") }
+            if p.scene3DAssetRef == nil && !Scene3DModelBindingResolver.displayModel(for: p).isEmpty {
+                props.append("object=\(Scene3DModelBindingResolver.displayModel(for: p))")
+            }
             if !p.scene3DAllowsCameraControl { props.append("allowsCameraControl=false") }
             if !p.scene3DAutoLighting { props.append("autoLighting=false") }
             if !p.scene3DBackground.isEmpty { props.append("background=\(p.scene3DBackground)") }
@@ -1356,13 +1384,23 @@ public struct HypeToolExecutor: Sendable {
                 width: Double(arguments["width"] ?? "400") ?? 400,
                 height: Double(arguments["height"] ?? "300") ?? 300
             )
-            // `object` takes precedence over the legacy `model_url` alias.
-            let rawModelPath = arguments["object"] ?? arguments["model_url"] ?? ""
-            if !rawModelPath.isEmpty {
-                // Store the author-visible source path.
-                part.scene3DSourceURL = rawModelPath
-                // Resolve to the working URL (STL → OBJ if needed).
-                part.scene3DURL = Self.resolveModelPath(rawModelPath)
+            // Repository model binding is preferred. `object` / `model` may be
+            // either a model3D asset name or a legacy path/URL. Explicit
+            // `model_url` stays path-only for backwards compatibility.
+            let rawModel = arguments["model_asset_name"] ?? arguments["model"] ?? arguments["object"] ?? ""
+            if !rawModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                _ = Scene3DModelBindingResolver.bindModelOrObject(
+                    value: rawModel,
+                    to: &part,
+                    repository: document.spriteRepository,
+                    resolvePath: Self.resolveModelPath
+                )
+            } else if let rawModelPath = arguments["model_url"], !rawModelPath.isEmpty {
+                _ = Scene3DModelBindingResolver.bindPath(
+                    value: rawModelPath,
+                    to: &part,
+                    resolvePath: Self.resolveModelPath
+                )
             }
             if let camera = arguments["allows_camera_control"] {
                 part.scene3DAllowsCameraControl = (camera.lowercased() == "true")
@@ -1381,7 +1419,10 @@ public struct HypeToolExecutor: Sendable {
             }
             document.addPart(part)
             let layer = place.backgroundId != nil ? " on background" : ""
-            return "Created scene3D '\(part.name)'\(layer)"
+            let modelDesc = Scene3DModelBindingResolver.displayModel(for: part)
+            return modelDesc.isEmpty
+                ? "Created scene3D '\(part.name)'\(layer)"
+                : "Created scene3D '\(part.name)'\(layer) using model '\(modelDesc)'"
 
         case "create_audio_recorder":
             let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
@@ -1632,12 +1673,19 @@ public struct HypeToolExecutor: Sendable {
                 case "outputpath", "output_path", "filepath", "file_path": document.parts[index].audioOutputPath = value
                 case "format": document.parts[index].audioFormat = value
                 // Scene3D
-                case "object":
-                    document.parts[index].scene3DSourceURL = value
-                    document.parts[index].scene3DURL = Self.resolveModelPath(value)
+                case "object", "model":
+                    _ = Scene3DModelBindingResolver.bindModelOrObject(
+                        value: value,
+                        to: &document.parts[index],
+                        repository: document.spriteRepository,
+                        resolvePath: Self.resolveModelPath
+                    )
                 case "modelurl", "model_url", "sceneurl", "scene_url":
-                    document.parts[index].scene3DSourceURL = value
-                    document.parts[index].scene3DURL = Self.resolveModelPath(value)
+                    _ = Scene3DModelBindingResolver.bindPath(
+                        value: value,
+                        to: &document.parts[index],
+                        resolvePath: Self.resolveModelPath
+                    )
                 case "allowscameracontrol", "allows_camera_control", "cameracontrol": document.parts[index].scene3DAllowsCameraControl = (value.lowercased() == "true")
                 case "autolighting", "auto_lighting", "defaultlighting": document.parts[index].scene3DAutoLighting = (value.lowercased() == "true")
                 case "antialiasing", "anti_aliasing": document.parts[index].scene3DAntialiasing = value
@@ -1999,6 +2047,8 @@ public struct HypeToolExecutor: Sendable {
                 return document.stack.defaultFont
             case "webassetsallowed", "web_assets_allowed":
                 return String(document.stack.webAssetsAllowed)
+            case "runtimemode", "runtime_mode", "runtimemodeenabled", "runtime_mode_enabled":
+                return String(document.stack.runtimeModeEnabled)
             case "aicontextcount", "ai_context_count", "contextcount", "context_count":
                 return String(document.aiContextLibrary.itemCount)
             case "aicontextsummary", "ai_context_summary", "contextsummary", "context_summary":
@@ -2014,7 +2064,7 @@ public struct HypeToolExecutor: Sendable {
             case "theme":
                 return document.stack.themeName
             default:
-                return "Unknown stack property '\(property)'. Valid: id, name, width, height, defaultFont, webAssetsAllowed, aiContextCount, aiContextSummary, aiContextCloudSharingAllowed, cardCount, backgroundCount, script, theme"
+                return "Unknown stack property '\(property)'. Valid: id, name, width, height, defaultFont, webAssetsAllowed, runtimeMode, aiContextCount, aiContextSummary, aiContextCloudSharingAllowed, cardCount, backgroundCount, script, theme"
             }
 
         case "get_card_property":
@@ -2156,6 +2206,67 @@ public struct HypeToolExecutor: Sendable {
             document.addPart(newPart)
             return "Created sprite area '\(name)' with scene '\(sceneName)' at (\(Int(left)),\(Int(top))) \(Int(width))x\(Int(height))"
 
+        case "create_sprite_game_template":
+            let rawGameType = arguments["game_type"] ?? "pacman"
+            let gameType: String
+            do {
+                gameType = try SpriteGameTemplateBuilder.normalizedGameType(rawGameType)
+            } catch {
+                return error.localizedDescription
+            }
+            guard gameType == "pacman" else {
+                return "Unsupported sprite game template '\(rawGameType)'"
+            }
+
+            let rawAreaName = arguments["sprite_area_name"] ?? "pacmanArea"
+            guard let areaName = sanitizeAssetName(rawAreaName) else {
+                return "sprite_area_name '\(rawAreaName)' is invalid — use 1-128 characters, letters / digits / _ / - / . / space only"
+            }
+
+            let partIdx: Int
+            let createdArea: Bool
+            if let existing = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) {
+                partIdx = existing
+                createdArea = false
+            } else {
+                let sceneSize = SpriteGameTemplateBuilder.defaultPacmanSceneSize
+                let stackWidth = Double(document.stack.width)
+                let stackHeight = Double(document.stack.height)
+                let left = Double(arguments["left"] ?? "") ?? max(0, (stackWidth - sceneSize.width) / 2)
+                let top = Double(arguments["top"] ?? "") ?? max(0, (stackHeight - sceneSize.height) / 2)
+                let width = Double(arguments["width"] ?? "") ?? min(sceneSize.width, stackWidth)
+                let height = Double(arguments["height"] ?? "") ?? min(sceneSize.height, stackHeight)
+                let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+                var part = Part(
+                    partType: .spriteArea,
+                    cardId: place.cardId,
+                    backgroundId: place.backgroundId,
+                    name: areaName,
+                    left: left,
+                    top: top,
+                    width: width,
+                    height: height
+                )
+                part.setSpriteAreaSpec(
+                    SpriteAreaSpec(defaultSceneNamed: "main", fallbackSize: sceneSize)
+                )
+                document.addPart(part)
+                partIdx = document.parts.count - 1
+                createdArea = true
+            }
+
+            do {
+                let result = try SpriteGameTemplateBuilder.applyPacmanTemplate(
+                    to: &document,
+                    partIndex: partIdx,
+                    spriteAreaName: document.parts[partIdx].name
+                )
+                let action = createdArea ? "Created" : "Rebuilt"
+                return "\(action) Pac-Man-style game in sprite area '\(result.spriteAreaName)': \(result.assetNames.count) embedded assets, \(result.wallColliderCount) wall colliders, \(result.pelletCount) pellets, \(result.powerPelletCount) power pellets, and scene-level WASD / collision logic."
+            } catch {
+                return "create_sprite_game_template failed: \(error.localizedDescription)"
+            }
+
         case "get_scene_spec":
             let areaName = arguments["sprite_area_name"] ?? ""
             guard let partIndex = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
@@ -2254,6 +2365,9 @@ public struct HypeToolExecutor: Sendable {
             // Look up asset in repository
             if let an = assetName, let asset = document.spriteRepository.asset(byName: an) {
                 newNode.assetRef = document.spriteRepository.assetRef(for: asset)
+                if newNode.size == nil {
+                    newNode.size = defaultSpriteNodeSize(for: asset)
+                }
             }
             _ = modifyActiveScene(partIndex: partIdx, document: &document) { $0.nodes.append(newNode) }
             return "Added sprite '\(spriteName)' to scene in '\(areaName)' at (\(Int(x)),\(Int(y)))"
@@ -2297,9 +2411,33 @@ public struct HypeToolExecutor: Sendable {
             }
             var tmNode = HypeNodeSpec(name: tilemapName, nodeType: .tileMap, position: PointSpec(x: 0, y: 0))
             tmNode.tileMapSpec = tmSpec
-            _ = modifyActiveScene(partIndex: partIdx, document: &document) { $0.nodes.append(tmNode) }
+            var expandedScene = false
+            _ = modifyActiveScene(partIndex: partIdx, document: &document) { scene in
+                scene.nodes.append(tmNode)
+                expandedScene = expandSceneToFitTileMap(&scene, tileMap: tmSpec, at: tmNode.position)
+            }
             let effectiveTileSize = Int(tmSpec.tileWidth)
-            return "Created tile map '\(tilemapName)' (\(cols)x\(rows) cells, \(effectiveTileSize)x\(effectiveTileSize)px tiles) in '\(areaName)'\(tilesetInfo)"
+            let expandNote = expandedScene ? ", expanded scene to \(Int(Double(cols) * tmSpec.tileWidth))x\(Int(Double(rows) * tmSpec.tileHeight)) so map coordinates are visible" : ""
+            return "Created tile map '\(tilemapName)' (\(cols)x\(rows) cells, \(effectiveTileSize)x\(effectiveTileSize)px tiles) in '\(areaName)'\(tilesetInfo)\(expandNote)"
+
+        case "create_basic_tileset_asset":
+            let rawName = arguments["asset_name"] ?? "hype_arcade_maze_tiles"
+            guard let cleanedName = sanitizeAssetName(rawName) else {
+                return "asset_name '\(rawName)' is invalid — use 1-128 characters, letters / digits / _ / - / . / space only"
+            }
+            let style = arguments["style"] ?? "neon"
+            let tileSize = max(8, min(Int(arguments["tile_size"] ?? "32") ?? 32, 128))
+            do {
+                let asset = try SpriteGameTemplateBuilder.createBasicMazeTilesetAsset(
+                    name: cleanedName,
+                    style: style,
+                    tileSize: tileSize
+                )
+                let stored = SpriteGameTemplateBuilder.upsertAsset(asset, in: &document.spriteRepository)
+                return "Created deterministic tileset asset '\(stored.name)' (\(stored.tileColumns)x\(stored.tileRows) tiles, \(stored.tileWidth)x\(stored.tileHeight)px each) in the Sprite Repository."
+            } catch {
+                return "create_basic_tileset_asset failed: \(error.localizedDescription)"
+            }
 
         case "classify_asset_as_tileset":
             // Mark an existing repository asset as a tile set and
@@ -2309,8 +2447,8 @@ public struct HypeToolExecutor: Sendable {
             let assetName = arguments["asset_name"] ?? ""
             let tileW = Int(arguments["tile_width"] ?? "0") ?? 0
             let tileH = Int(arguments["tile_height"] ?? "0") ?? 0
-            let explicitCols = Int(arguments["tile_columns"] ?? "0")
-            let explicitRows = Int(arguments["tile_rows"] ?? "0")
+            let explicitCols = Int(arguments["tile_columns"] ?? "")
+            let explicitRows = Int(arguments["tile_rows"] ?? "")
             guard tileW > 0, tileH > 0 else {
                 return "classify_asset_as_tileset: tile_width and tile_height are required and must be > 0"
             }
@@ -2324,12 +2462,27 @@ public struct HypeToolExecutor: Sendable {
                 return "Asset '\(assetName)' has no image dimensions — can't classify as tileset"
             }
             // Auto-derive columns/rows from image dimensions when
-            // not supplied. If the image is a non-integer multiple
-            // of the tile size we still round down so partial
-            // trailing tiles are dropped rather than crashing the
-            // renderer.
-            let cols = explicitCols ?? 0 > 0 ? explicitCols! : max(1, asset.width / tileW)
-            let rows = explicitRows ?? 0 > 0 ? explicitRows! : max(1, asset.height / tileH)
+            // not supplied. AI image generation often returns a
+            // 1024px single image for prompts like "maze wall tile";
+            // treating that as a 32x32 sprite sheet crops tile 0
+            // from the top-left corner and usually produces an
+            // invisible black tile. Unless the prompt/name clearly
+            // describes a sheet or grid, classify generated images
+            // as a 1x1 tile set and let SceneBridge scale the whole
+            // image down to the requested tile size.
+            let defaultToSingleTile = explicitCols == nil
+                && explicitRows == nil
+                && Self.shouldDefaultGeneratedAssetToSingleTile(asset)
+            let cols = {
+                if let explicitCols, explicitCols > 0 { return explicitCols }
+                if defaultToSingleTile { return 1 }
+                return max(1, asset.width / tileW)
+            }()
+            let rows = {
+                if let explicitRows, explicitRows > 0 { return explicitRows }
+                if defaultToSingleTile { return 1 }
+                return max(1, asset.height / tileH)
+            }()
             document.spriteRepository.updateAsset(id: asset.id) { mut in
                 mut.kind = .tileSet
                 mut.tileWidth = tileW
@@ -2337,7 +2490,8 @@ public struct HypeToolExecutor: Sendable {
                 mut.tileColumns = cols
                 mut.tileRows = rows
             }
-            return "Classified '\(assetName)' as tileset: \(cols)x\(rows) grid of \(tileW)x\(tileH)px tiles (\(cols * rows) total)"
+            let singleTileNote = defaultToSingleTile ? " (AI-generated single tile: the full image will render as tile 0)" : ""
+            return "Classified '\(assetName)' as tileset: \(cols)x\(rows) grid of \(tileW)x\(tileH)px tiles (\(cols * rows) total)\(singleTileNote)"
 
         case "set_tile":
             // Structured per-cell tile setter. Complements HypeTalk's
@@ -2514,7 +2668,7 @@ public struct HypeToolExecutor: Sendable {
             // validation pipeline as the Meshy image tools — absolute path
             // required, no '..' traversal, no system directories, symlink
             // resolution, containment under home/temp/document dir, 10 MB
-            // cap, magic-byte MIME sniff (PNG/JPEG/WebP only). Error
+            // cap, magic-byte MIME sniff (PNG/JPEG only). Error
             // strings NEVER echo the raw filePath.
             let resolvedData: Data
             do {
@@ -2902,9 +3056,13 @@ public struct HypeToolExecutor: Sendable {
             case "outputpath", "output_path", "filepath", "file_path": return part.audioOutputPath
             case "format": return part.audioFormat
             // Scene3D
-            case "object":
-                return part.scene3DSourceURL.isEmpty ? part.scene3DURL : part.scene3DSourceURL
+            case "object", "model":
+                return Scene3DModelBindingResolver.displayModel(for: part)
+            case "modelasset", "model_asset", "asset", "assetname", "asset_name":
+                return part.scene3DAssetRef?.name ?? ""
             case "modelurl", "model_url", "sceneurl", "scene_url": return part.scene3DURL
+            case "modelsource", "model_source":
+                return part.scene3DAssetRef == nil ? "path" : "repository"
             case "allowscameracontrol", "allows_camera_control", "cameracontrol": return String(part.scene3DAllowsCameraControl)
             case "autolighting", "auto_lighting", "defaultlighting": return String(part.scene3DAutoLighting)
             case "antialiasing", "anti_aliasing": return part.scene3DAntialiasing
@@ -4099,11 +4257,13 @@ public struct HypeToolExecutor: Sendable {
                 document.stack.webAssetsAllowed = (value.lowercased() == "true")
             case "aicontextcloudsharingallowed", "ai_context_cloud_sharing_allowed", "contextcloudsharingallowed":
                 document.stack.aiContextCloudSharingAllowed = (value.lowercased() == "true")
+            case "runtimemode", "runtime_mode", "runtimemodeenabled", "runtime_mode_enabled":
+                document.stack.runtimeModeEnabled = (value.lowercased() == "true")
             case "theme", "themename", "theme_name":
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 document.stack.themeName = trimmed.isEmpty ? BuiltInThemes.fallbackName : trimmed
             default:
-                return "Unknown stack property '\(property)'. Valid: width, height, name, defaultFont, webAssetsAllowed, aiContextCloudSharingAllowed, theme"
+                return "Unknown stack property '\(property)'. Valid: width, height, name, defaultFont, webAssetsAllowed, runtimeMode, aiContextCloudSharingAllowed, theme"
             }
             return "Set \(property) of stack to \(value)"
 
@@ -4881,6 +5041,13 @@ public struct HypeToolExecutor: Sendable {
         case "list_3d_models":
             return executeListModel3DAssets(document: document)
 
+        case "bind_3d_model_to_scene3d":
+            return executeBindModel3DToScene3D(
+                arguments: arguments,
+                document: &document,
+                currentCardId: currentCardId
+            )
+
         case "generate_3d_model_from_text":
             return await executeGenerate3DFromText(
                 arguments: arguments,
@@ -5052,75 +5219,118 @@ public struct HypeToolExecutor: Sendable {
         }
     }
 
+    /// AI-generated sprite assets often arrive as 1024px images. In a game
+    /// scene, using that natural texture size makes sprites appear missing
+    /// because they cover or extend beyond the viewport. Default to a
+    /// manageable game-sprite size when the tool caller omits dimensions.
+    private func defaultSpriteNodeSize(for asset: SpriteAsset) -> SizeSpec? {
+        guard asset.width > 0, asset.height > 0 else { return nil }
+        let maxDisplaySide = 64.0
+        let width = Double(asset.width)
+        let height = Double(asset.height)
+        let longest = max(width, height)
+        guard longest > maxDisplaySide else {
+            return SizeSpec(width: width, height: height)
+        }
+        let scale = maxDisplaySide / longest
+        return SizeSpec(width: max(1, width * scale), height: max(1, height * scale))
+    }
+
+    /// A tile map's cell grid is world content. When an AI creates a map larger
+    /// than the current scene design size, keep later sprite coordinates inside
+    /// the same world instead of clipping them out of the rendered scene.
+    @discardableResult
+    private func expandSceneToFitTileMap(
+        _ scene: inout SceneSpec,
+        tileMap: TileMapSpec,
+        at position: PointSpec
+    ) -> Bool {
+        let mapWidth = max(0, Double(tileMap.columns)) * max(1, tileMap.tileWidth)
+        let mapHeight = max(0, Double(tileMap.rows)) * max(1, tileMap.tileHeight)
+        let requiredWidth = max(scene.size.width, position.x + mapWidth)
+        let requiredHeight = max(scene.size.height, position.y + mapHeight)
+        guard requiredWidth > scene.size.width || requiredHeight > scene.size.height else {
+            return false
+        }
+        scene.size = SizeSpec(width: requiredWidth, height: requiredHeight)
+        return true
+    }
+
     /// Apply a single dotted-key property write to a HypeNodeSpec.
     /// Mirrors SceneDiff.applyProperties (lines 144-242) for shared paths
     /// and extends it with emitter/audio/video/camera fields that
     /// SceneDiff doesn't cover. Unknown keys silently no-op.
     private func applyNodeProperty(_ node: inout HypeNodeSpec, property: String, value: String) {
-        switch property {
-        case "position.x":
+        let key = property
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "_", with: "")
+            .lowercased()
+        switch key {
+        case "loc", "location", "position":
+            let comps = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            if comps.count >= 2 {
+                node.position = PointSpec(x: comps[0], y: comps[1])
+            }
+        case "position.x", "x":
             if let v = Double(value) { node.position.x = v }
-        case "position.y":
+        case "position.y", "y":
             if let v = Double(value) { node.position.y = v }
-        case "size.width":
+        case "size.width", "width":
             if let v = Double(value) {
                 if node.size == nil { node.size = SizeSpec() }
                 node.size?.width = v
             }
-        case "size.height":
+        case "size.height", "height":
             if let v = Double(value) {
                 if node.size == nil { node.size = SizeSpec() }
                 node.size?.height = v
             }
+        case "size":
+            let comps = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+            if comps.count >= 2 {
+                node.size = SizeSpec(width: comps[0], height: comps[1])
+            }
         case "rotation":
             if let v = Double(value) { node.rotation = v }
-        case "xScale":
+        case "xscale":
             if let v = Double(value) { node.xScale = v }
-        case "yScale":
+        case "yscale":
             if let v = Double(value) { node.yScale = v }
         case "alpha":
             if let v = Double(value) { node.alpha = v }
-        case "isHidden":
+        case "ishidden", "hidden":
             node.isHidden = (value.lowercased() == "true")
-        case "zPosition":
+        case "zposition":
             if let v = Double(value) { node.zPosition = v }
         case "name":
             node.name = value
         case "text":
             node.text = value
-        case "fontName":
+        case "fontname":
             node.fontName = value
-        case "fontSize":
+        case "fontsize":
             if let v = Double(value) { node.fontSize = v }
-        case "fontColor":
+        case "fontcolor":
             node.fontColor = value
-        case "textStyle", "textstyle", "text_style":
-            // Normalize through TextStyleFlags so the stored
-            // rawString is canonical ("bold, italic"). Empty /
-            // "plain" both clear the styling — `applyLabelTextStyle`
-            // treats `isPlain` as the signal to reset
-            // `attributedText = nil` and revert the SKLabelNode to
-            // the plain text/fontName/fontColor path. Accepts the
-            // camelCase canonical form, the lowercased alias, and
-            // the snake_case alias the AI tends to emit.
+        case "textstyle":
             node.textStyle = TextStyleFlags(string: value).rawString
         case "script":
             node.script = value
-        case "shape.shapeType":
+        case "shape.shapetype":
             if node.shapeSpec == nil { node.shapeSpec = ShapeNodeSpec() }
             if let shapeType = SpriteShapeType(rawValue: value) {
                 node.shapeSpec?.shapeType = shapeType
             }
-        case "shape.fillColor":
+        case "shape.fillcolor":
             if node.shapeSpec == nil { node.shapeSpec = ShapeNodeSpec() }
             node.shapeSpec?.fillColor = value
-        case "shape.strokeColor":
+        case "shape.strokecolor":
             if node.shapeSpec == nil { node.shapeSpec = ShapeNodeSpec() }
             node.shapeSpec?.strokeColor = value
-        case "shape.lineWidth":
+        case "shape.linewidth":
             if node.shapeSpec == nil { node.shapeSpec = ShapeNodeSpec() }
             if let v = Double(value) { node.shapeSpec?.lineWidth = v }
-        case "shape.cornerRadius":
+        case "shape.cornerradius":
             if node.shapeSpec == nil { node.shapeSpec = ShapeNodeSpec() }
             if let v = Double(value) { node.shapeSpec?.cornerRadius = v }
         case "physics.enabled":
@@ -5129,12 +5339,12 @@ public struct HypeToolExecutor: Sendable {
             } else {
                 node.physicsBody = nil
             }
-        case "physics.bodyType":
+        case "physics.bodytype":
             if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
             if let bodyType = PhysicsBodyType(rawValue: value) {
                 node.physicsBody?.bodyType = bodyType
             }
-        case "physics.isDynamic":
+        case "physics.isdynamic":
             if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
             node.physicsBody?.isDynamic = (value.lowercased() == "true")
         case "physics.restitution":
@@ -5146,46 +5356,46 @@ public struct HypeToolExecutor: Sendable {
         case "physics.mass":
             if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
             if let v = Double(value) { node.physicsBody?.mass = v }
-        case "physics.affectedByGravity":
+        case "physics.affectedbygravity":
             if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
             node.physicsBody?.affectedByGravity = (value.lowercased() == "true")
-        case "physics.allowsRotation":
+        case "physics.allowsrotation":
             if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
             node.physicsBody?.allowsRotation = (value.lowercased() == "true")
-        case "physics.linearDamping":
+        case "physics.lineardamping":
             if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
             node.physicsBody?.linearDamping = Double(value)
-        case "physics.angularDamping":
+        case "physics.angulardamping":
             if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
             node.physicsBody?.angularDamping = Double(value)
-        case "physics.velocityX":
+        case "physics.velocityx":
             if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
             node.physicsBody?.velocityX = Double(value)
-        case "physics.velocityY":
+        case "physics.velocityy":
             if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
             node.physicsBody?.velocityY = Double(value)
-        case "physics.angularVelocity":
+        case "physics.angularvelocity":
             if node.physicsBody == nil { node.physicsBody = PhysicsBodySpec() }
             node.physicsBody?.angularVelocity = Double(value)
-        case "emitter.birthRate":
+        case "emitter.birthrate":
             if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
             if let v = Double(value) { node.emitterSpec?.particleBirthRate = v }
-        case "emitter.lifetime", "emitter.particleLifetime":
+        case "emitter.lifetime", "emitter.particlelifetime":
             if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
             if let v = Double(value) { node.emitterSpec?.particleLifetime = v }
         case "emitter.speed":
             if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
             if let v = Double(value) { node.emitterSpec?.particleSpeed = v }
-        case "emitter.emissionAngle":
+        case "emitter.emissionangle":
             if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
             if let v = Double(value) { node.emitterSpec?.emissionAngle = v }
-        case "emitter.particleColor":
+        case "emitter.particlecolor":
             if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
             node.emitterSpec?.particleColor = value
-        case "emitter.particleScale":
+        case "emitter.particlescale":
             if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
             if let v = Double(value) { node.emitterSpec?.particleScale = v }
-        case "emitter.particleAlpha":
+        case "emitter.particlealpha":
             if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
             if let v = Double(value) { node.emitterSpec?.particleAlpha = v }
         case "audio.loop":
@@ -5455,7 +5665,10 @@ public struct HypeToolExecutor: Sendable {
             row("outputPath", "\"\(p.audioOutputPath)\"", "\"\" (auto temp)")
             row("format", p.audioFormat, "m4a")
         case .scene3D:
-            row("object", "\"\(p.scene3DSourceURL.isEmpty ? p.scene3DURL : p.scene3DSourceURL)\"", "\"\"")
+            row("object", "\"\(Scene3DModelBindingResolver.displayModel(for: p))\"", "\"\"")
+            row("model", "\"\(Scene3DModelBindingResolver.displayModel(for: p))\"", "\"\"")
+            row("modelAsset", "\"\(p.scene3DAssetRef?.name ?? "")\"", "\"\"")
+            row("modelSource", p.scene3DAssetRef == nil ? "path" : "repository", "path")
             row("modelURL", "\"\(p.scene3DURL)\"", "\"\" (resolved cache path)")
             row("allowsCameraControl", String(p.scene3DAllowsCameraControl), "true")
             row("autoLighting", String(p.scene3DAutoLighting), "true")
@@ -5529,6 +5742,44 @@ public struct HypeToolExecutor: Sendable {
             lines.append("… and \(models.count - cap) more — use the Sprite Repository to see all.")
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// Bind an existing Sprite Repository model3D asset into an existing
+    /// scene3D part. This gives AI a direct, non-generative path for
+    /// "put that model into this 3D viewer" requests.
+    private func executeBindModel3DToScene3D(
+        arguments: [String: String],
+        document: inout HypeDocument,
+        currentCardId: UUID
+    ) -> String {
+        let partName = (arguments["scene3d_part_name"] ?? arguments["part_name"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let assetName = (arguments["model_asset_name"] ?? arguments["asset_name"] ?? arguments["model"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !partName.isEmpty else {
+            return "bind_3d_model_to_scene3d requires 'scene3d_part_name'."
+        }
+        guard !assetName.isEmpty else {
+            return "bind_3d_model_to_scene3d requires 'model_asset_name'."
+        }
+        guard let index = scopedPartIndex(named: partName, currentCardId: currentCardId, in: document) else {
+            return "Scene3D part '\(partName)' not found."
+        }
+        guard document.parts[index].partType == .scene3D else {
+            return "Part '\(partName)' is a \(document.parts[index].partType.rawValue), not a scene3D part."
+        }
+        guard let asset = document.spriteRepository.asset(byName: assetName) else {
+            return "3D model asset '\(assetName)' not found in the Sprite Repository."
+        }
+        guard asset.kind == .model3D else {
+            return "Asset '\(assetName)' is \(asset.kind.rawValue), not model3D."
+        }
+
+        document.parts[index].scene3DAssetRef = document.spriteRepository.assetRef(for: asset)
+        document.parts[index].scene3DSourceURL = ""
+        document.parts[index].scene3DURL = ""
+        return "Bound model3D asset '\(asset.name)' to scene3D part '\(document.parts[index].name)'."
     }
 
     /// Gate check + client construction shared by all three generators.
@@ -5629,7 +5880,8 @@ public struct HypeToolExecutor: Sendable {
         let artStyle: MeshyArtStyle = artStyleRaw == "sculpture" ? .sculpture : .realistic
         let aiModel: MeshyAIModel = parseAIModel(arguments["ai_model"])
         let shouldRemesh = boolArgument(arguments["should_remesh"]) ?? aiModel.defaultRemesh
-        let alsoUSDZ = boolArgument(arguments["with_usdz"]) ?? false
+        let (assetName, assetNameError) = optional3DAssetName(arguments: arguments, toolName: "generate_3d_model_from_text")
+        if let assetNameError { return assetNameError }
 
         // Step C: Progress reporter (D in plan).
         let reporter = Meshy3DToolProgressReporter(
@@ -5640,11 +5892,11 @@ public struct HypeToolExecutor: Sendable {
 
         // Step D: Run the job (E in plan).
         let job = Generate3DJob(client: client)
-        let options = Generate3DJob.Options(
+        let options = generate3DOptions(
+            arguments: arguments,
             aiModel: aiModel,
             shouldRemesh: shouldRemesh,
-            alsoUSDZ: alsoUSDZ,
-            alsoFBX: false,
+            assetName: assetName,
             hardTimeout: 300   // 5-min cap for AI tool path.
         )
         let existing = Set(document.spriteRepository.assets.map(\.name))
@@ -5731,7 +5983,8 @@ public struct HypeToolExecutor: Sendable {
 
         let aiModel: MeshyAIModel = parseAIModel(arguments["ai_model"])
         let shouldRemesh = boolArgument(arguments["should_remesh"]) ?? aiModel.defaultRemesh
-        let alsoUSDZ = boolArgument(arguments["with_usdz"]) ?? false
+        let (assetName, assetNameError) = optional3DAssetName(arguments: arguments, toolName: "generate_3d_model_from_image")
+        if let assetNameError { return assetNameError }
 
         let reporter = Meshy3DToolProgressReporter(
             logger: .shared,
@@ -5740,11 +5993,11 @@ public struct HypeToolExecutor: Sendable {
         )
 
         let job = Generate3DJob(client: client)
-        let options = Generate3DJob.Options(
+        let options = generate3DOptions(
+            arguments: arguments,
             aiModel: aiModel,
             shouldRemesh: shouldRemesh,
-            alsoUSDZ: alsoUSDZ,
-            alsoFBX: false,
+            assetName: assetName,
             hardTimeout: 300
         )
         let existing = Set(document.spriteRepository.assets.map(\.name))
@@ -5856,7 +6109,8 @@ public struct HypeToolExecutor: Sendable {
 
         let aiModel: MeshyAIModel = parseAIModel(arguments["ai_model"])
         let shouldRemesh = boolArgument(arguments["should_remesh"]) ?? aiModel.defaultRemesh
-        let alsoUSDZ = boolArgument(arguments["with_usdz"]) ?? false
+        let (assetName, assetNameError) = optional3DAssetName(arguments: arguments, toolName: "generate_3d_model_from_images")
+        if let assetNameError { return assetNameError }
 
         let reporter = Meshy3DToolProgressReporter(
             logger: .shared,
@@ -5865,11 +6119,11 @@ public struct HypeToolExecutor: Sendable {
         )
 
         let job = Generate3DJob(client: client)
-        let options = Generate3DJob.Options(
+        let options = generate3DOptions(
+            arguments: arguments,
             aiModel: aiModel,
             shouldRemesh: shouldRemesh,
-            alsoUSDZ: alsoUSDZ,
-            alsoFBX: false,
+            assetName: assetName,
             hardTimeout: 300
         )
         let existing = Set(document.spriteRepository.assets.map(\.name))
@@ -6117,6 +6371,54 @@ public struct HypeToolExecutor: Sendable {
             return .meshy6
         }
         return MeshyAIModel(rawValue: trimmed) ?? .meshy6
+    }
+
+    private func generate3DOptions(
+        arguments: [String: String],
+        aiModel: MeshyAIModel,
+        shouldRemesh: Bool,
+        assetName: String? = nil,
+        hardTimeout: TimeInterval
+    ) -> Generate3DJob.Options {
+        let qualityRaw = (arguments["quality"] ?? "preview")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let quality: Generate3DJob.TextQuality = ["refine", "refined", "high", "final"].contains(qualityRaw)
+            ? .refined
+            : .preview
+        let topologyRaw = arguments["topology"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let topology = topologyRaw == "quad" ? "quad" : (topologyRaw == "triangle" ? "triangle" : nil)
+        let symmetryRaw = arguments["symmetry_mode"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let symmetryMode = ["off", "auto", "on"].contains(symmetryRaw ?? "") ? symmetryRaw : nil
+
+        return Generate3DJob.Options(
+            aiModel: aiModel,
+            shouldRemesh: shouldRemesh,
+            alsoUSDZ: boolArgument(arguments["with_usdz"] ?? arguments["also_usdz"]) ?? true,
+            alsoFBX: boolArgument(arguments["with_fbx"] ?? arguments["also_fbx"]) ?? false,
+            textQuality: quality,
+            targetPolycount: intArgument(arguments["target_polycount"]),
+            topology: topology,
+            symmetryMode: symmetryMode,
+            enablePbr: boolArgument(arguments["enable_pbr"]),
+            assetName: assetName,
+            hardTimeout: hardTimeout
+        )
+    }
+
+    private func optional3DAssetName(arguments: [String: String], toolName: String) -> (String?, String?) {
+        guard let raw = arguments["asset_name"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else {
+            return (nil, nil)
+        }
+        guard let safe = sanitizeAssetName(raw) else {
+            return (nil, "\(toolName): asset_name is invalid — use 1-128 ASCII letters / digits / _ / - / . / space.")
+        }
+        return (safe, nil)
     }
 
     // MARK: - STL Model Path Resolver

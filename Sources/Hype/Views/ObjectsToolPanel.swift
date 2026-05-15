@@ -40,9 +40,7 @@ import SwiftUI
 struct ObjectsToolPanel: View {
     @Binding var currentTool: ToolName
     @Binding var selectedPartIds: Set<UUID>
-
-    /// Persisted across launches and across all windows.
-    @AppStorage("hypeRuntimeMode") private var isRuntimeMode: Bool = false
+    let isRuntimeMode: Bool
 
     // MARK: - Tool grouping
 

@@ -212,7 +212,7 @@ struct RigAndAnimateCoordinator: View {
             Text("Assets added to the Sprite Repository.")
                 .font(.system(size: 13))
                 .multilineTextAlignment(.center)
-            Text("Save the document to keep the imported models.")
+            Text("The imported models are embedded in this stack and autosaved.")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
             Spacer()
@@ -370,6 +370,7 @@ struct RigAndAnimateCoordinator: View {
         for asset in riggingResult.assets {
             document.document.spriteRepository.addAsset(asset)
         }
+        HypeDocumentMutationCoordinator.shared.flushAllAutosaves()
         onAssetsImported?(riggingResult.assets.map(\.id))
 
         // Step 7: Store rig context and move to the picking phase.
@@ -458,6 +459,7 @@ struct RigAndAnimateCoordinator: View {
                 }
             )
             document.document.spriteRepository.addAsset(animatedAsset)
+            HypeDocumentMutationCoordinator.shared.flushAllAutosaves()
             onAssetsImported?([animatedAsset.id])
             phase = .done
 

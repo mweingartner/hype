@@ -421,9 +421,10 @@ Interactive saves and undo now flow through
 canvas, inspector, detached authoring windows, settings bridge, AI panels, and
 menu handlers. Any persistent document mutation that reaches that binding is
 compared in the same sorted-JSON form used for file persistence, registered with
-the active `UndoManager`, written to a local recovery snapshot under
-Application Support, and scheduled for `NSDocument` autosave. App resign-active,
-window close, and terminate all flush pending autosaves. Runtime-only fields
+the active `UndoManager`, written immediately to a local recovery snapshot under
+Application Support, and scheduled for debounced `NSDocument` autosave. App
+resign-active, window close, and terminate all flush pending autosaves.
+Runtime-only fields
 that are intentionally excluded from `HypeDocument.CodingKeys` (for example
 `scriptGlobals`) do not create persistent undo entries.
 
@@ -433,6 +434,10 @@ on mouse-up, while animation tick mutations remain autosaved but do not flood
 the undo stack. AI transaction application and script/runtime side effects pass
 through the same binding path, so accepted multi-tool edits and HypeTalk
 document mutations participate in the same save/undo pipeline as manual edits.
+Stack-authored mode flags that affect portability, including
+`Stack.runtimeModeEnabled`, live in the stack model rather than `UserDefaults`;
+purely local window geometry, selected AI provider, and API keys remain local
+app preferences or Keychain entries.
 
 For stored-as-string sub-documents — `Part.sceneSpec` (a
 JSON-encoded `SpriteAreaSpec`), `Part.chartData` (a `ChartConfig`),
@@ -1904,8 +1909,8 @@ schema struct. The categories:
 | Charts                    | `set_chart_data_point_color`, `get_chart_data_points` |
 | Maps                      | `add_map_annotation`, `clear_map_annotations` |
 | Images                    | `set_image_filter` |
-| Sprite areas / scenes     | `create_sprite_area`, `get_scene_spec`, `apply_scene_diff`, `add_sprite_to_scene`, `add_label_to_scene`, `add_shape_to_scene`, `add_emitter_to_scene`, `add_audio_to_scene`, `add_video_to_scene`, `add_group_to_scene`, `create_tilemap`, `classify_asset_as_tileset`, `set_tile`, `fill_tilemap`, `get_tilemap_info`, `create_camera`, `add_joint_to_scene`, `add_constraint_to_scene`, `add_physics_field_to_scene`, `capture_scene_snapshot`, `get_scene_diagnostics`, `list_scene_nodes`, `list_scene_joints`, `list_scene_constraints`, `get_scene_script`, `get_node_script`, `get_node_property`, `set_node_property`, `set_node_script`, `set_scene_script`, `set_physics_body` |
-| Asset repository          | `list_repository_assets`, `import_repository_asset`, `generate_sprite_asset`, `web_asset_search`, `web_asset_import` |
+| Sprite areas / scenes     | `create_sprite_area`, `create_sprite_game_template`, `get_scene_spec`, `apply_scene_diff`, `add_sprite_to_scene`, `add_label_to_scene`, `add_shape_to_scene`, `add_emitter_to_scene`, `add_audio_to_scene`, `add_video_to_scene`, `add_group_to_scene`, `create_tilemap`, `create_basic_tileset_asset`, `classify_asset_as_tileset`, `set_tile`, `fill_tilemap`, `get_tilemap_info`, `create_camera`, `add_joint_to_scene`, `add_constraint_to_scene`, `add_physics_field_to_scene`, `capture_scene_snapshot`, `get_scene_diagnostics`, `list_scene_nodes`, `list_scene_joints`, `list_scene_constraints`, `get_scene_script`, `get_node_script`, `get_node_property`, `set_node_property`, `set_node_script`, `set_scene_script`, `set_physics_body` |
+| Asset repository          | `list_repository_assets`, `import_repository_asset`, `generate_sprite_asset`, `create_basic_tileset_asset`, `web_asset_search`, `web_asset_import` |
 | AI Context Library        | `list_ai_context`, `search_ai_context`, `read_ai_context_item`, `import_context_asset`, `write_ai_context_note` |
 | 3D model generation (Meshy) | `generate_3d_model_from_text`, `generate_3d_model_from_image`, `generate_3d_model_from_images`, `list_3d_models`, `remesh_3d_model`, `retexture_3d_model` |
 | Script gating             | `check_script` (REQUIRED before storing any HypeTalk; runs the validator) |
@@ -1920,6 +1925,16 @@ updates. The important policy change is that the filesystem/web tools are no
 longer part of the default in-app authoring loop. They still exist as optional
 capabilities for explicit future use, but normal authoring is narrowed to
 repository-aware stack, card, part, and scene operations.
+
+For complex sprite-area game requests, Hype now also exposes a deterministic
+template path. `create_sprite_game_template` builds the initial Pac-Man /
+maze-chase scaffold in one bounded mutation: local embedded PNG assets,
+classified maze tileset, tile map, static wall colliders, player/ghost sprites,
+pellets, power pellets, and parser-tested scene HypeTalk. `create_basic_tileset_asset`
+is the smaller reusable primitive for local maze/wall tilesets when a full
+game scaffold is not needed. These tools avoid sending the model through dozens
+of low-level tile/image/script calls and prevent it from asking the user to
+provide basic tile sheets that Hype can synthesize itself.
 
 ### 7.3 Structured scene authoring
 

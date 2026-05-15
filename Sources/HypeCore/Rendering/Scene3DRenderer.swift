@@ -91,6 +91,9 @@ public enum Scene3DRenderer {
     }
 
     private static func filenameCaption(for part: Part) -> String {
+        if let ref = part.scene3DAssetRef, !ref.name.isEmpty {
+            return ref.name
+        }
         guard !part.scene3DURL.isEmpty else { return "(no model loaded)" }
         if let url = URL(string: part.scene3DURL) {
             return url.lastPathComponent

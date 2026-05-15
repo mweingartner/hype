@@ -1322,6 +1322,7 @@ struct AIChatPanel: View {
                 - For data-entry forms, input forms, customer/contact/login forms, headers, labels, and text fields: use ordinary card/background controls. Use create_label for labels/headers and create_field(style=rectangle, stroke_color=#000000, stroke_width=1) for user input fields. Do NOT create a Sprite Area or scene labels unless the user explicitly asks for SpriteKit, sprites, physics, a game, or a scene.
                 - To add a generated picture/illustration/image to the current card or background, use generate_image. Use create_image only for an existing file path or existing repository asset.
                 - To create a generated sprite/library/repository asset, use generate_sprite_asset. If the user did not provide the desired sprite asset name, ask for the name before calling the tool.
+                - For Pac-Man, maze-chase, or similar SpriteKit arcade-game requests, call create_sprite_game_template first. Do NOT ask the user to provide a basic tileset or manually stitch a sheet; use create_basic_tileset_asset for simple deterministic tilesets and customize after the scaffold exists.
                 \(aiContextPromptRules)
                 - When the user says "background", set on_background to "true" in create tools.
                 - If the user asks to create, set, attach, install, replace, or update a script on the stack, card, background, button, field, sprite area, scene, or node, use the appropriate setter tool. Do not answer with bare HypeTalk unless the user explicitly asks only to write or explain code.
@@ -1357,6 +1358,7 @@ struct AIChatPanel: View {
                 - For data-entry forms, input forms, customer/contact/login forms, headers, labels, and text fields: use ordinary card/background controls. Use create_label for labels/headers and create_field(style=rectangle, stroke_color=#000000, stroke_width=1) for user input fields. Do NOT create a Sprite Area or scene labels unless the user explicitly asks for SpriteKit, sprites, physics, a game, or a scene.
                 - To add a generated picture/illustration/image to the current card or background, use generate_image. Use create_image only for an existing file path or existing repository asset.
                 - To create a generated sprite/library/repository asset, use generate_sprite_asset. If the user did not provide the desired sprite asset name, ask for the name before calling the tool.
+                - For Pac-Man, maze-chase, or similar SpriteKit arcade-game requests, call create_sprite_game_template first. Do NOT ask the user to provide a basic tileset or manually stitch a sheet; use create_basic_tileset_asset for simple deterministic tilesets and customize after the scaffold exists.
                 \(aiContextPromptRules)
                 - For SpriteKit requests involving bouncing, gravity, collisions, or objects staying inside a sprite area, prefer native scene nodes, physics bodies, restitution, and velocity. Do NOT solve those with `on idle` or `on frameUpdate` scripts unless the user explicitly asks for custom scripting.
                 \(spriteKitPromptRules)
@@ -1582,7 +1584,7 @@ struct AIChatPanel: View {
                             providerName: client.providerName
                         )
                         var doc = document.document
-                        transactionRunner.apply(&transaction, to: &doc)
+                        await transactionRunner.apply(&transaction, to: &doc, currentCardId: activeCardId)
                         document.document = doc
                         if transaction.delta.hasChanges {
                             lastAITransaction = transaction
@@ -1719,7 +1721,7 @@ struct AIChatPanel: View {
                         providerName: client.providerName
                     )
                     var doc = document.document
-                    transactionRunner.apply(&transaction, to: &doc)
+                    await transactionRunner.apply(&transaction, to: &doc, currentCardId: activeCardId)
                     document.document = doc
                     if transaction.delta.hasChanges {
                         lastAITransaction = transaction

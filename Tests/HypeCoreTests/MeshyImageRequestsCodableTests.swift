@@ -16,6 +16,7 @@ struct MeshyImageRequestsCodableTests {
             imageData: uri,
             aiModel: .meshy6,
             shouldRemesh: false,
+            targetPolycount: 30000,
             moderation: true
         )
         let data = try encoder.encode(req)
@@ -27,6 +28,7 @@ struct MeshyImageRequestsCodableTests {
         #expect(json["image_data"] == nil, "image_data must NOT appear in the encoded body")
         #expect(json["ai_model"] as? String == "meshy-6")
         #expect(json["should_remesh"] as? Bool == false)
+        #expect(json["target_polycount"] as? Int == 30000)
         #expect(json["moderation"] as? Bool == true)
     }
 
@@ -39,7 +41,9 @@ struct MeshyImageRequestsCodableTests {
             imageData: uris,
             aiModel: .meshy5,
             shouldRemesh: true,
-            moderation: true
+            moderation: true,
+            enablePbr: true,
+            targetFormats: ["glb", "fbx"]
         )
         let data = try encoder.encode(req)
         let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
@@ -50,6 +54,8 @@ struct MeshyImageRequestsCodableTests {
         #expect(imageUrlsArray?[1] == uris[1])
         #expect(json["image_data"] == nil, "image_data must NOT appear in the encoded body")
         #expect(json["should_remesh"] as? Bool == true)
+        #expect(json["enable_pbr"] as? Bool == true)
+        #expect(json["target_formats"] as? [String] == ["glb", "fbx"])
     }
 
     // MARK: (c) Both encode moderation: true by default

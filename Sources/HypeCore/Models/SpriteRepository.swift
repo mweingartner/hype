@@ -389,9 +389,15 @@ public struct SpriteRepository: Codable, Sendable {
         assets.first { $0.id == id }
     }
 
-    /// Find an asset by name (first match).
+    /// Find an asset by name.
+    ///
+    /// If a document has duplicate asset names, prefer the newest matching
+    /// asset. AI authoring flows often regenerate an asset with the same name;
+    /// resolving to the latest match avoids stale tiles or sprites being used
+    /// after a repair pass.
     public func asset(byName name: String) -> SpriteAsset? {
-        assets.first { $0.name == name }
+        let needle = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return assets.reversed().first { $0.name.lowercased() == needle }
     }
 
     /// Create an AssetRef pointing to the given asset.

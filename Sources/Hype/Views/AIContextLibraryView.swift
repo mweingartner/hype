@@ -300,6 +300,7 @@ private struct AIContextNoteSheet: View {
                 Button("Add") {
                     let result = AIContextIngestor.makeTextNote(title: title, text: text, role: role)
                     document.document.aiContextLibrary.addSource(result.0, items: result.1)
+                    HypeDocumentMutationCoordinator.shared.flushAllAutosaves()
                     isPresented = false
                 }
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -323,7 +324,7 @@ enum AIContextImportController {
             for url in panel.urls {
                 do {
                     let result = try AIContextIngestor.ingestFile(url: url)
-                    document.wrappedValue.document.aiContextLibrary.addSource(result.0, items: result.1)
+                    add(result, to: document)
                 } catch {
                     HypeLogger.shared.warn("AI context import skipped \(url.lastPathComponent)", source: "AI Context")
                 }
@@ -341,11 +342,21 @@ enum AIContextImportController {
             guard response == .OK, let url = panel.urls.first else { return }
             do {
                 let result = try AIContextIngestor.ingestDirectory(url: url)
-                document.wrappedValue.document.aiContextLibrary.addSource(result.0, items: result.1)
+                add(result, to: document)
             } catch {
                 HypeLogger.shared.warn("AI context folder import failed for \(url.lastPathComponent)", source: "AI Context")
             }
         }
+    }
+
+    private static func add(
+        _ result: (AIContextSource, [AIContextItem]),
+        to document: Binding<HypeDocumentWrapper>
+    ) {
+        var wrapper = document.wrappedValue
+        wrapper.document.aiContextLibrary.addSource(result.0, items: result.1)
+        document.wrappedValue = wrapper
+        HypeDocumentMutationCoordinator.shared.flushAllAutosaves()
     }
 }
 

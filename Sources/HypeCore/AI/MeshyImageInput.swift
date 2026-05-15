@@ -13,9 +13,10 @@ import Foundation
 ///     not `.model3D`, not `.audioClip`.
 ///   - Base64 inputs are length-capped at ~14 MB encoded (≈10 MB raw),
 ///     then MIME-sniffed.
-///   - All resolved bytes are sniffed for magic bytes (PNG / JPEG / WebP)
-///     and rejected if they don't match an allowed format. The Meshy
-///     `image_data` data URI prefix is set from the sniff result, NOT
+///   - All resolved bytes are sniffed for magic bytes (PNG / JPEG; WebP is
+///     recognised but rejected because Meshy's image-to-3D endpoints do not
+///     document WebP support) and rejected if they don't match an allowed
+///     format. The Meshy `image_data` data URI prefix is set from the sniff result, NOT
 ///     from any user-supplied MIME claim.
 ///
 /// 10 MB per-image cap enforced in every code path.
@@ -41,10 +42,10 @@ public enum MeshyImageInput: Sendable, Equatable {
     /// The result of resolving a `MeshyImageInput` to canonical
     /// image bytes ready for transport to Meshy.
     public struct Resolved: Sendable, Equatable {
-        /// Raw image bytes (PNG / JPEG / WebP).
+        /// Raw image bytes (PNG / JPEG).
         public let data: Data
         /// MIME type determined by magic-byte sniff — one of
-        /// `"image/png"`, `"image/jpeg"`, or `"image/webp"`.
+        /// `"image/png"` or `"image/jpeg"`.
         public let mimeType: String
         /// Source-descriptor string used for tagging the resulting
         /// model3D asset's provenance.
@@ -71,7 +72,7 @@ public enum MeshyImageInput: Sendable, Equatable {
 
     /// Allowed MIME types (matched by magic-byte sniff).
     public static let allowedMimeTypes: Set<String> = [
-        "image/png", "image/jpeg", "image/webp"
+        "image/png", "image/jpeg"
     ]
 
     /// Blocked path prefixes — any resolved (symlink-followed) path
@@ -197,8 +198,11 @@ public enum MeshyImageInput: Sendable, Equatable {
         }
 
         // MIME sniff — authoritative over extension or any claim.
-        guard let mimeType = Self.sniffMimeType(data) else {
-            throw MeshyError.validationFailed(field: "image_path", reason: "Unsupported image format. Allowed: PNG, JPEG, WebP.")
+        guard
+            let mimeType = Self.sniffMimeType(data),
+            Self.allowedMimeTypes.contains(mimeType)
+        else {
+            throw MeshyError.validationFailed(field: "image_path", reason: "Unsupported image format. Allowed: PNG or JPEG.")
         }
 
         // Security H1: sourceDescriptor for filePath inputs is "file" only —
@@ -235,10 +239,13 @@ public enum MeshyImageInput: Sendable, Equatable {
         }
 
         // MIME sniff — trust bytes over the stored mimeType field.
-        guard let mimeType = Self.sniffMimeType(asset.data) else {
+        guard
+            let mimeType = Self.sniffMimeType(asset.data),
+            Self.allowedMimeTypes.contains(mimeType)
+        else {
             throw MeshyError.validationFailed(
                 field: "image_asset_name",
-                reason: "Unsupported image format. Allowed: PNG, JPEG, WebP."
+                reason: "Unsupported image format. Allowed: PNG or JPEG."
             )
         }
 
@@ -283,8 +290,11 @@ public enum MeshyImageInput: Sendable, Equatable {
         }
 
         // MIME sniff — authoritative over any claimed type in the data URI prefix.
-        guard let mimeType = Self.sniffMimeType(data) else {
-            throw MeshyError.validationFailed(field: "image_base64", reason: "Unsupported image format. Allowed: PNG, JPEG, WebP.")
+        guard
+            let mimeType = Self.sniffMimeType(data),
+            Self.allowedMimeTypes.contains(mimeType)
+        else {
+            throw MeshyError.validationFailed(field: "image_base64", reason: "Unsupported image format. Allowed: PNG or JPEG.")
         }
 
         let sizeDesc = "\(data.count / 1024)KB"

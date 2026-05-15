@@ -23,6 +23,7 @@ struct MeshyModelsCodableTests {
             symmetryMode: "auto",
             moderation: true,
             enablePbr: nil,
+            targetFormats: ["glb", "usdz"],
             previewTaskId: nil
         )
         let data = try encoder.encode(req)
@@ -36,6 +37,7 @@ struct MeshyModelsCodableTests {
         #expect(json["target_polycount"] as? Int == 30000)
         #expect(json["symmetry_mode"] as? String == "auto")
         #expect(json["moderation"] as? Bool == true)
+        #expect(json["target_formats"] as? [String] == ["glb", "usdz"])
     }
 
     // MARK: (b) MeshyTaskResponse decodes various status bodies

@@ -24,6 +24,7 @@ public struct MeshyImageTo3DRequest: Codable, Sendable, Equatable {
     /// Always `true` in Phase 2 for content safety.
     public var moderation: Bool
     public var enablePbr: Bool?
+    public var targetFormats: [String]?
 
     private enum CodingKeys: String, CodingKey {
         case imageData       = "image_url"
@@ -32,6 +33,7 @@ public struct MeshyImageTo3DRequest: Codable, Sendable, Equatable {
         case targetPolycount = "target_polycount"
         case moderation
         case enablePbr       = "enable_pbr"
+        case targetFormats   = "target_formats"
     }
 
     public init(
@@ -40,7 +42,8 @@ public struct MeshyImageTo3DRequest: Codable, Sendable, Equatable {
         shouldRemesh: Bool = false,
         targetPolycount: Int? = nil,
         moderation: Bool = true,
-        enablePbr: Bool? = nil
+        enablePbr: Bool? = nil,
+        targetFormats: [String]? = nil
     ) {
         self.imageData = imageData
         self.aiModel = aiModel
@@ -48,6 +51,7 @@ public struct MeshyImageTo3DRequest: Codable, Sendable, Equatable {
         self.targetPolycount = targetPolycount
         self.moderation = moderation
         self.enablePbr = enablePbr
+        self.targetFormats = targetFormats
     }
 }
 
@@ -71,6 +75,7 @@ public struct MeshyMultiImageTo3DRequest: Codable, Sendable, Equatable {
     /// Always `true` in Phase 2 for content safety.
     public var moderation: Bool
     public var enablePbr: Bool?
+    public var targetFormats: [String]?
 
     private enum CodingKeys: String, CodingKey {
         case imageData       = "image_urls"
@@ -79,6 +84,7 @@ public struct MeshyMultiImageTo3DRequest: Codable, Sendable, Equatable {
         case targetPolycount = "target_polycount"
         case moderation
         case enablePbr       = "enable_pbr"
+        case targetFormats   = "target_formats"
     }
 
     public init(
@@ -87,7 +93,8 @@ public struct MeshyMultiImageTo3DRequest: Codable, Sendable, Equatable {
         shouldRemesh: Bool = false,
         targetPolycount: Int? = nil,
         moderation: Bool = true,
-        enablePbr: Bool? = nil
+        enablePbr: Bool? = nil,
+        targetFormats: [String]? = nil
     ) {
         self.imageData = imageData
         self.aiModel = aiModel
@@ -95,5 +102,6 @@ public struct MeshyMultiImageTo3DRequest: Codable, Sendable, Equatable {
         self.targetPolycount = targetPolycount
         self.moderation = moderation
         self.enablePbr = enablePbr
+        self.targetFormats = targetFormats
     }
 }

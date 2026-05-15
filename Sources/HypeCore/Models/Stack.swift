@@ -43,6 +43,13 @@ public struct Stack: Identifiable, Codable, Sendable {
     /// `webAssetsAllowed`).
     public var meshyEnabled: Bool
 
+    /// Whether this stack should open in end-user runtime mode.
+    ///
+    /// This is stack data, not an application preference: a stack distributed
+    /// as a runnable experience should carry that mode with the `.hype` file
+    /// instead of inheriting whatever the last local editor window used.
+    public var runtimeModeEnabled: Bool
+
     /// The stack-level theme name. NEVER nil — the cascade
     /// (card → background → stack) needs a guaranteed terminating
     /// reference, so newly-created stacks default to
@@ -58,6 +65,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         case webAssetsAllowed
         case aiContextCloudSharingAllowed
         case meshyEnabled
+        case runtimeModeEnabled
         case themeName
     }
 
@@ -74,6 +82,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         webAssetsAllowed: Bool = false,
         aiContextCloudSharingAllowed: Bool = false,
         meshyEnabled: Bool = false,
+        runtimeModeEnabled: Bool = false,
         themeName: String = "System"
     ) {
         self.id = id
@@ -88,6 +97,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         self.webAssetsAllowed = webAssetsAllowed
         self.aiContextCloudSharingAllowed = aiContextCloudSharingAllowed
         self.meshyEnabled = meshyEnabled
+        self.runtimeModeEnabled = runtimeModeEnabled
         self.themeName = themeName
     }
 
@@ -109,6 +119,8 @@ public struct Stack: Identifiable, Codable, Sendable {
         // Defaults to false (opt-in), matching the existing privacy-on-by-default
         // pattern for webAssetsAllowed.
         meshyEnabled = try c.decodeIfPresent(Bool.self, forKey: .meshyEnabled) ?? false
+        // Backward-compatible: pre-runtime-mode stacks open in edit mode.
+        runtimeModeEnabled = try c.decodeIfPresent(Bool.self, forKey: .runtimeModeEnabled) ?? false
         // Backward-compatible: pre-theme stacks default to "System".
         themeName = try c.decodeIfPresent(String.self, forKey: .themeName) ?? "System"
     }

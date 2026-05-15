@@ -332,7 +332,9 @@ final class SceneBridge {
                     if tsAsset.tileHeight > 0 { return Double(tsAsset.tileHeight) }
                     return 32
                 }()
+                let isSingleTileAsset = tsAsset.tileColumns == 1 && tsAsset.tileRows == 1
                 let sheetCols: Int = {
+                    if isSingleTileAsset { return 1 }
                     if tmSpec.tileSetColumns > 0 { return tmSpec.tileSetColumns }
                     if tsAsset.tileColumns > 0 { return tsAsset.tileColumns }
                     // Fall back to deriving from image width when
@@ -345,19 +347,32 @@ final class SceneBridge {
                 // image height by tile height to infer the number
                 // of rows in the sheet — guarded against zero.
                 var tileGroups: [SKTileGroup] = []
-                let rowsInSheet = max(1, Int(tsImage.size.height / CGFloat(effectiveTileH)))
-                let tileCount = sheetCols * rowsInSheet
+                let rowsInSheet = isSingleTileAsset
+                    ? 1
+                    : (tsAsset.tileRows > 0 ? tsAsset.tileRows : max(1, Int(tsImage.size.height / CGFloat(effectiveTileH))))
+                let tileCount = max(1, sheetCols * rowsInSheet)
 
                 for i in 0..<tileCount {
-                    let col = i % sheetCols
-                    let row = i / sheetCols
-                    let texRect = CGRect(
-                        x: CGFloat(col) * CGFloat(effectiveTileW) / tsImage.size.width,
-                        y: 1.0 - CGFloat(row + 1) * CGFloat(effectiveTileH) / tsImage.size.height,
-                        width: CGFloat(effectiveTileW) / tsImage.size.width,
-                        height: CGFloat(effectiveTileH) / tsImage.size.height
-                    )
-                    let tileTexture = SKTexture(rect: texRect, in: texture)
+                    let tileTexture: SKTexture
+                    if isSingleTileAsset {
+                        // AI image generation usually returns a large
+                        // single texture for prompts like "maze wall
+                        // tile". A 1x1 tile-set classification means
+                        // "use the whole image as tile 0 and scale it
+                        // to tileSize", not "crop the top-left tileSize
+                        // pixels out of a 1024px generated image".
+                        tileTexture = texture
+                    } else {
+                        let col = i % sheetCols
+                        let row = i / sheetCols
+                        let texRect = CGRect(
+                            x: CGFloat(col) * CGFloat(effectiveTileW) / tsImage.size.width,
+                            y: 1.0 - CGFloat(row + 1) * CGFloat(effectiveTileH) / tsImage.size.height,
+                            width: CGFloat(effectiveTileW) / tsImage.size.width,
+                            height: CGFloat(effectiveTileH) / tsImage.size.height
+                        )
+                        tileTexture = SKTexture(rect: texRect, in: texture)
+                    }
                     let tileDef = SKTileDefinition(texture: tileTexture, size: tileSize)
                     tileGroups.append(SKTileGroup(tileDefinition: tileDef))
                 }
@@ -370,6 +385,7 @@ final class SceneBridge {
                     rows: tmSpec.rows,
                     tileSize: tileSize
                 )
+                tileMap.anchorPoint = CGPoint(x: 0, y: 1)
 
                 // Fill with tile data
                 for (rowIdx, row) in tmSpec.tileData.enumerated() {
@@ -388,7 +404,9 @@ final class SceneBridge {
                 // Placeholder: empty tile map
                 let tileSize = CGSize(width: spec.tileMapSpec?.tileWidth ?? 32, height: spec.tileMapSpec?.tileHeight ?? 32)
                 let ts = SKTileSet(tileGroups: [SKTileGroup.empty()])
-                node = SKTileMapNode(tileSet: ts, columns: spec.tileMapSpec?.columns ?? 10, rows: spec.tileMapSpec?.rows ?? 10, tileSize: tileSize)
+                let tileMap = SKTileMapNode(tileSet: ts, columns: spec.tileMapSpec?.columns ?? 10, rows: spec.tileMapSpec?.rows ?? 10, tileSize: tileSize)
+                tileMap.anchorPoint = CGPoint(x: 0, y: 1)
+                node = tileMap
             }
 
         case .video:

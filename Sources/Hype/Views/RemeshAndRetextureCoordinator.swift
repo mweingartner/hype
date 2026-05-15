@@ -255,7 +255,7 @@ struct RemeshAndRetextureCoordinator: View {
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundColor(.secondary)
             }
-            Text("Save the document to keep the imported model.")
+            Text("The imported model is embedded in this stack and autosaved.")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
             Spacer()
@@ -422,6 +422,7 @@ struct RemeshAndRetextureCoordinator: View {
             importedAssetName = asset.name
             onAssetImported?(asset.id)
             phase = .done
+            HypeDocumentMutationCoordinator.shared.flushAllAutosaves()
 
         } catch is CancellationError {
             return

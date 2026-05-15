@@ -166,7 +166,7 @@ public enum HypeTalkGuide {
 
         **Part properties:** name, id, left, top, width, height, right, bottom, loc, rect, visible, enabled, hilite, style, script, textFont, textSize, textAlign, textStyle, fontColor (alias textColor / color), textContent, fillColor, strokeColor, strokeWidth, cornerRadius, showName, autoHilite, lockText, url, helpText (aliases tooltip / help — hover bubble shown in browse mode).
         **Sprite-node properties:** loc, size, width, height, rotation, alpha, xScale, yScale, zPosition, hidden, text, fontName, fontSize, fontColor, textStyle, fillColor, strokeColor, lineWidth, velocity, angularVelocity, density, friction, restitution, damping, dynamic, affectedByGravity, birthRate, particleLifetime, particleSpeed, particleColor, particleScale, emissionAngle, volume, loop, autoplay, target, zoom.
-        **Scope properties:** stack supports name, script, theme, defaultFont, width, height, webAssetsAllowed, aiContextCloudSharingAllowed, aiContextCount, aiContextSummary. Card supports name, marked, script, background, theme, effectiveTheme. Background supports name, script, theme, cardCount. `this card`, `current card`, `this background`, `current background`, and `this stack` are valid scope references.
+        **Scope properties:** stack supports name, script, theme, defaultFont, width, height, webAssetsAllowed, runtimeMode, aiContextCloudSharingAllowed, aiContextCount, aiContextSummary. Card supports name, marked, script, background, theme, effectiveTheme. Background supports name, script, theme, cardCount. `this card`, `current card`, `this background`, `current background`, and `this stack` are valid scope references.
 
         ## AI Context Library
         Users can attach stack-scoped files, folders, images, examples, and rules notes to the AI Context Library. Scripts can inspect the library summary but cannot read arbitrary attached file bytes directly:
@@ -174,6 +174,7 @@ public enum HypeTalkGuide {
             answer the aiContextSummary of this stack
             answer the aiContextCloudSharingAllowed of this stack
             set the aiContextCloudSharingAllowed of this stack to true
+            set the runtimeMode of this stack to true
         AI authoring models should use context tools instead of filesystem tools:
             list_ai_context(role?)
             search_ai_context(query, role?, limit?)
@@ -498,6 +499,7 @@ public enum HypeTalkGuide {
             apply force "10,20" to sprite "ball"
             apply impulse "5,0" to sprite "ball"
             set the text of label "score" to "Score: " & score
+        Sprite scene coordinates are Hype-style top-left coordinates within the scene design size. For tile-map games, create/classify the tileset first, then create the tilemap; Hype expands the scene design size to the tilemap's pixel dimensions so sprites placed at map coordinates remain visible. Keep player, enemy, pellet, and HUD positions within the scene size unless you are deliberately using a camera/scrolling world.
 
         ## Tile maps
             create tilemap "ground" columns 20 rows 15 tilesize 32 with tileset "grass_tiles"
@@ -505,7 +507,7 @@ public enum HypeTalkGuide {
             fill tilemap "ground" with 1                  -- paint every cell with tile 1
             clear tilemap "ground"                        -- reset every cell to empty (-1)
             put the tile at 3,5 of tilemap "ground" into t  -- read a cell's tile index
-        Tile indices are 0-based left-to-right, top-to-bottom in the tileset sprite sheet. Use -1 for "empty cell". The tileset asset must be classified first (via the Sprite Repository or the `classify_asset_as_tileset` tool) — a plain unclassified image will render as a single vertical strip, since `tileSetColumns` defaults to 1 when no metadata is present.
+        Tile indices are 0-based left-to-right, top-to-bottom in the tileset sheet. Use -1 for empty. Classify the asset first; unclassified images render as one strip. For AI-generated single wall/floor/maze tiles, pass tile_width/tile_height and omit tile_columns/tile_rows; Hype treats the full image as tile 0. Only pass columns/rows for real sprite sheets.
 
         ## Networking
             put request "http://localhost:8080/health" into reqId
@@ -617,6 +619,8 @@ public enum HypeTalkGuide {
             -- model3D asset with that exact name; if found it binds via scene3DAssetRef
             -- (the preferred rendering path). If NOT found it falls back to file-path
             -- resolution (same as `set the object of ...`).
+            -- Meshy GLB assets render in scene3D through their USDZ companion; keep
+            -- with_usdz=true when generating models that should display in SceneKit.
             set the model of scene3d "Viewer" to "wooden-barrel"
 
             -- Read back the currently-bound name:
@@ -647,18 +651,30 @@ public enum HypeTalkGuide {
             -- Text-to-3D: generate from a text prompt.
             generate_3d_model_from_text(
                 prompt: "a low-poly wooden barrel",
-                art_style: "realistic",   -- realistic | cartoon | low-poly | sculpture | pbr
+                asset_name: "wooden-barrel",
+                art_style: "realistic",   -- realistic | sculpture
                 ai_model: "meshy-6",      -- meshy-4 | meshy-5 | meshy-6 (default)
                 should_remesh: false,
-                also_usdz: false,
-                also_fbx: false,
+                target_polycount: 30000,
+                topology: "triangle",     -- triangle | quad
+                enable_pbr: false,
+                quality: "preview",       -- preview | refined
+                with_usdz: true,          -- default; needed for scene3D rendering
+                with_fbx: false,
                 place_on_card: false,     -- if true, also creates a scene3d part
                 part_name: "barrel"       -- required when place_on_card is true
             )
 
+            -- Existing model3D asset -> existing scene3D part, no Meshy credits:
+            bind_3d_model_to_scene3d(
+                scene3d_part_name: "modelViewer",
+                model_asset_name: "barrel.glb"
+            )
+
             -- Image-to-3D: generate from a Sprite Repository image asset by name.
             generate_3d_model_from_image(
-                image_path: "asset:hero-sprite",   -- "asset:<name>" for repository
+                image_asset_name: "hero-sprite",
+                asset_name: "hero-sprite-3d",
                 ai_model: "meshy-6"                -- other options same as above
             )
             -- Or from an absolute file path (must be inside ~/Desktop or ~/Downloads etc.):

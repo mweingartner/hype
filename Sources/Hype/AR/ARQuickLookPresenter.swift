@@ -227,7 +227,7 @@ public final class ARQuickLookPresenter: NSObject {
         switch mimeType.lowercased() {
         case "model/vnd.usdz+zip", "model/usd", "model/usda", "model/usdc":
             return "usdz"
-        case "model/gltf-binary", "application/octet-stream" where true:
+        case "model/gltf-binary", "application/octet-stream":
             // GLB is commonly delivered as application/octet-stream when the
             // server doesn't set the correct type. Accept it as GLB for model3D.
             return "glb"

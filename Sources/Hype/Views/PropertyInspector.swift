@@ -553,9 +553,10 @@ struct PropertyInspector: View {
             }) {
                 HStack {
                     Image(systemName: "sparkles")
-                    Text("Edit Hype Script...")
+                    Text("Edit Global Hype Script...")
                 }
             }
+            .help("Global Hype script is stored in this Mac's app preferences. Use the stack script for portable stack behavior.")
 
             Text("Messages pass: part → card → background → stack → Hype")
                 .font(.system(size: 9))
@@ -1285,7 +1286,7 @@ struct PropertyInspector: View {
             Button("Generate from prompt\u{2026}") { openGenerate3DSheetForPart(partId: part.id) }
                 .controlSize(.small)
 
-            Text("Pick a 3D model from the Sprite Repository, or generate one from a prompt. Use the \"Generate 3D\u{2026}\" button in the Sprite Repository to import models.")
+            Text("Pick a 3D model from the Sprite Repository, or generate one from a prompt. GLB assets render through their USDZ companion, so keep USDZ enabled for Meshy-generated models.")
                 .font(.system(size: 9))
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1300,7 +1301,7 @@ struct PropertyInspector: View {
                 Button("Choose 3D Model...") { chooseModelForPart(partId: part.id) }
                     .controlSize(.small)
             }
-            Text("Accepts .usdz, .usd, .scn, .dae, .obj, .stl. STL is converted to a cached .obj automatically. HypeTalk: `set the object of scene3d \"X\" to \"/path/to/model.stl\"`.")
+            Text("Accepts .usdz, .usd, .scn, .dae, .obj, .stl, .ply, .abc, .fbx. STL is converted to a cached .obj automatically. GLB files require a USDZ companion in the Sprite Repository.")
                 .font(.system(size: 9))
                 .foregroundColor(.secondary)
             // Resolved path is read-only — it shows what SceneKit
@@ -1349,6 +1350,8 @@ struct PropertyInspector: View {
                     if let id = newId,
                        let asset = self.document.document.spriteRepository.asset(byId: id) {
                         part.scene3DAssetRef = self.document.document.spriteRepository.assetRef(for: asset)
+                        part.scene3DSourceURL = ""
+                        part.scene3DURL = ""
                     } else {
                         part.scene3DAssetRef = nil
                     }
@@ -1398,6 +1401,7 @@ struct PropertyInspector: View {
             },
             set: { newValue in
                 self.document.document.updatePart(id: id) {
+                    $0.scene3DAssetRef = nil
                     $0.scene3DSourceURL = newValue
                     if STLConverter.isSTL(path: newValue) {
                         $0.scene3DURL = (try? STLConverter.convert(stlPath: newValue)) ?? ""
@@ -1429,6 +1433,7 @@ struct PropertyInspector: View {
         if panel.runModal() == .OK, let url = panel.url {
             let path = url.path
             document.document.updatePart(id: partId) {
+                $0.scene3DAssetRef = nil
                 $0.scene3DSourceURL = path
                 if STLConverter.isSTL(path: path) {
                     $0.scene3DURL = (try? STLConverter.convert(stlPath: path)) ?? ""

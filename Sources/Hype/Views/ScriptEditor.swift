@@ -685,7 +685,7 @@ struct ScriptEditor: View {
         case .stack:
             return "on openStack\n  \nend openStack"
         case .hype:
-            return "-- Hype app-level script\n-- Handles unhandled messages from all stacks\n"
+            return "-- Global Hype app-level script\n-- Stored in this Mac's app preferences, not in the current stack.\n-- For portable stack behavior, put handlers in this stack's script instead.\n"
         }
     }
 

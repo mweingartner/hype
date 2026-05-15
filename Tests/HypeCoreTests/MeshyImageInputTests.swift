@@ -219,6 +219,33 @@ struct MeshyImageInputTests {
         #expect(MeshyImageInput.sniffMimeType(webpMagicBytes()) == "image/webp")
     }
 
+    @Test("base64 WebP bytes are sniffed but rejected")
+    func base64WebPIsRejected() throws {
+        let b64 = webpMagicBytes().base64EncodedString()
+        let repo = makeRepository()
+        do {
+            _ = try MeshyImageInput.base64(b64).resolve(in: repo)
+            Issue.record("Expected validationFailed")
+        } catch MeshyError.validationFailed(let field, let reason) {
+            #expect(field == "image_base64")
+            #expect(reason.contains("PNG or JPEG"))
+        }
+    }
+
+    @Test("assetName WebP bytes are sniffed but rejected")
+    func assetNameWebPIsRejected() throws {
+        var asset = SpriteAsset(name: "sprite.webp", data: webpMagicBytes())
+        asset.kind = .imageTexture
+        let repo = makeRepository(assets: [asset])
+        do {
+            _ = try MeshyImageInput.assetName("sprite.webp").resolve(in: repo)
+            Issue.record("Expected validationFailed")
+        } catch MeshyError.validationFailed(let field, let reason) {
+            #expect(field == "image_asset_name")
+            #expect(reason.contains("PNG or JPEG"))
+        }
+    }
+
     // MARK: (m) dataURI uses sniffed MIME type, not claimed type
 
     @Test("dataURI uses sniffed MIME type in prefix")

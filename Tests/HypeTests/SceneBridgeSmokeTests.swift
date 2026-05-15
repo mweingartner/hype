@@ -1,5 +1,6 @@
 import Testing
 import AppKit
+import SpriteKit
 @testable import Hype
 @testable import HypeCore
 
@@ -78,11 +79,100 @@ struct SceneBridgeSmokeTests {
         #expect(clearedStats.cachedTextureCount == 0)
     }
 
-    private func pngData(color: NSColor) -> Data {
-        let image = NSImage(size: NSSize(width: 16, height: 16))
+    @Test("tile maps anchor at top-left Hype coordinates")
+    func tileMapsAnchorAtTopLeftCoordinates() {
+        let tilesetAsset = SpriteAsset(
+            name: "maze_tiles",
+            kind: .tileSet,
+            mimeType: "image/png",
+            data: pngData(color: .systemBlue),
+            width: 64,
+            height: 64,
+            tileWidth: 32,
+            tileHeight: 32,
+            tileColumns: 2,
+            tileRows: 2
+        )
+        let repository = SpriteRepository(assets: [tilesetAsset])
+        var tileMap = HypeNodeSpec(
+            name: "maze",
+            nodeType: .tileMap,
+            position: PointSpec(x: 0, y: 0)
+        )
+        tileMap.tileMapSpec = TileMapSpec(
+            columns: 2,
+            rows: 2,
+            tileWidth: 32,
+            tileHeight: 32,
+            tileSetAssetRef: repository.assetRef(for: tilesetAsset),
+            tileSetColumns: 2,
+            tileData: [[0, 0], [0, 0]]
+        )
+        let scene = SceneSpec(
+            name: "main",
+            size: SizeSpec(width: 64, height: 64),
+            nodes: [tileMap]
+        )
+        let bridge = SceneBridge(sceneHeight: scene.size.height)
+        let skScene = SKScene(size: CGSize(width: scene.size.width, height: scene.size.height))
+
+        bridge.apply(spec: scene, to: skScene, repository: repository)
+
+        let rendered = skScene.childNode(withName: "maze") as? SKTileMapNode
+        #expect(rendered?.anchorPoint == CGPoint(x: 0, y: 1))
+        #expect(rendered?.position == CGPoint(x: 0, y: 64))
+    }
+
+    @Test("single-tile generated tilesets render as one full-image tile")
+    func singleTileGeneratedTilesetsRenderAsOneFullImageTile() {
+        let tilesetAsset = SpriteAsset(
+            name: "maze_wall",
+            kind: .tileSet,
+            mimeType: "image/png",
+            data: pngData(color: .systemBlue, size: 128),
+            width: 128,
+            height: 128,
+            tags: ["ai-generated"],
+            tileWidth: 32,
+            tileHeight: 32,
+            tileColumns: 1,
+            tileRows: 1
+        )
+        let repository = SpriteRepository(assets: [tilesetAsset])
+        var tileMap = HypeNodeSpec(
+            name: "maze",
+            nodeType: .tileMap,
+            position: PointSpec(x: 0, y: 0)
+        )
+        tileMap.tileMapSpec = TileMapSpec(
+            columns: 1,
+            rows: 1,
+            tileWidth: 32,
+            tileHeight: 32,
+            tileSetAssetRef: repository.assetRef(for: tilesetAsset),
+            tileSetColumns: 1,
+            tileData: [[0]]
+        )
+        let scene = SceneSpec(
+            name: "main",
+            size: SizeSpec(width: 32, height: 32),
+            nodes: [tileMap]
+        )
+        let bridge = SceneBridge(sceneHeight: scene.size.height)
+        let skScene = SKScene(size: CGSize(width: scene.size.width, height: scene.size.height))
+
+        bridge.apply(spec: scene, to: skScene, repository: repository)
+
+        let rendered = skScene.childNode(withName: "maze") as? SKTileMapNode
+        #expect(rendered?.tileSet.tileGroups.count == 2)
+        #expect(rendered?.tileGroup(atColumn: 0, row: 0) != nil)
+    }
+
+    private func pngData(color: NSColor, size: CGFloat = 16) -> Data {
+        let image = NSImage(size: NSSize(width: size, height: size))
         image.lockFocus()
         color.setFill()
-        NSBezierPath(rect: NSRect(x: 0, y: 0, width: 16, height: 16)).fill()
+        NSBezierPath(rect: NSRect(x: 0, y: 0, width: size, height: size)).fill()
         image.unlockFocus()
 
         let rep = NSBitmapImageRep(data: image.tiffRepresentation!)!

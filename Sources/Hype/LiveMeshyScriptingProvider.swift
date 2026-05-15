@@ -75,7 +75,7 @@ public struct LiveMeshyScriptingProvider: MeshyScriptingProvider {
         let options = Generate3DJob.Options(
             aiModel: aiModel,
             shouldRemesh: aiModel.defaultRemesh,
-            alsoUSDZ: false,
+            alsoUSDZ: true,
             alsoFBX: false,
             hardTimeout: 1800
         )

@@ -35,10 +35,18 @@ public actor MeshyTaskMonitor {
         public var pollInterval: TimeInterval
         /// Wall-clock timeout in seconds. Default is 1800 (30 minutes).
         public var hardTimeout: TimeInterval
+        /// Number of transient poll failures tolerated before surfacing the
+        /// last failure. Non-retryable API/decode/auth errors fail immediately.
+        public var maxTransientPollFailures: Int
 
-        public init(pollInterval: TimeInterval = 3.0, hardTimeout: TimeInterval = 1800) {
+        public init(
+            pollInterval: TimeInterval = 3.0,
+            hardTimeout: TimeInterval = 1800,
+            maxTransientPollFailures: Int = 3
+        ) {
             self.pollInterval = pollInterval
             self.hardTimeout = hardTimeout
+            self.maxTransientPollFailures = max(0, maxTransientPollFailures)
         }
     }
 
@@ -64,6 +72,8 @@ public actor MeshyTaskMonitor {
     private var didFinish: Bool = false
     /// Wall-clock timestamp captured when `progress()` is first called.
     private var startedAt: Date?
+    private var transientPollFailures: Int = 0
+    private var lastPollError: MeshyError?
 
     // MARK: - Init
 
@@ -99,7 +109,7 @@ public actor MeshyTaskMonitor {
     /// Subsequent calls return the same stream — only one subscriber
     /// is supported in Phase 1.
     public func progress() -> AsyncStream<State> {
-        if let existing = continuation {
+        if continuation != nil {
             // Already started — return a new stream that replays current
             // state immediately. This is the "second call" path, which
             // is discouraged but tolerated gracefully.
@@ -177,8 +187,10 @@ public actor MeshyTaskMonitor {
                 break
             }
 
-            // Poll. Transient network blips are tolerated (try?) — they just skip an interval.
-            if let fact = try? await client.fetchTaskFact(taskId: taskId, kind: taskKind) {
+            do {
+                let fact = try await client.fetchTaskFact(taskId: taskId, kind: taskKind)
+                transientPollFailures = 0
+                lastPollError = nil
                 let newState = mapPolledFact(fact)
                 if currentState != newState {
                     currentState = newState
@@ -186,6 +198,24 @@ public actor MeshyTaskMonitor {
                 }
                 if isTerminal(newState) {
                     finish(with: newState)
+                    break
+                }
+            } catch {
+                let meshyError = normalizePollError(error)
+                lastPollError = meshyError
+
+                if isRetryablePollError(meshyError) {
+                    transientPollFailures += 1
+                    logger.info(
+                        "Transient Meshy poll failure \(transientPollFailures)/\(config.maxTransientPollFailures) for task \(taskId): \(meshyError.errorDescription ?? String(describing: meshyError))",
+                        source: "Meshy"
+                    )
+                    if transientPollFailures > config.maxTransientPollFailures {
+                        finish(with: .failed(meshyError))
+                        break
+                    }
+                } else {
+                    finish(with: .failed(meshyError))
                     break
                 }
             }
@@ -236,6 +266,26 @@ public actor MeshyTaskMonitor {
         switch state {
         case .succeeded, .failed, .cancelled: return true
         case .pending, .inProgress: return false
+        }
+    }
+
+    private func normalizePollError(_ error: Error) -> MeshyError {
+        if let meshyError = error as? MeshyError { return meshyError }
+        if error is DecodingError { return .decodingFailed }
+        if error is URLError { return .networkError }
+        return .networkError
+    }
+
+    private func isRetryablePollError(_ error: MeshyError) -> Bool {
+        switch error {
+        case .networkError:
+            return true
+        case .rateLimited:
+            return true
+        case .requestFailed(let statusCode, _):
+            return (500...599).contains(statusCode)
+        default:
+            return false
         }
     }
 

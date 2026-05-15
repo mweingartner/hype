@@ -667,8 +667,12 @@ public struct Interpreter: Sendable {
                         document.stack.name = value
                     case "defaultfont", "default_font", "textfont", "font":
                         document.stack.defaultFont = value
+                    case "webassetsallowed", "web_assets_allowed":
+                        document.stack.webAssetsAllowed = isTruthy(value)
                     case "aicontextcloudsharingallowed", "ai_context_cloud_sharing_allowed", "contextcloudsharingallowed":
-                        document.stack.aiContextCloudSharingAllowed = value.lowercased() == "true"
+                        document.stack.aiContextCloudSharingAllowed = isTruthy(value)
+                    case "runtimemode", "runtime_mode", "runtimemodeenabled", "runtime_mode_enabled":
+                        document.stack.runtimeModeEnabled = isTruthy(value)
                     case "theme", "themename", "theme_name":
                         // Empty / `the empty` resets to the built-in
                         // fallback so the cascade always terminates.
@@ -1883,6 +1887,12 @@ public struct Interpreter: Sendable {
                     var node = HypeNodeSpec(name: name, nodeType: .tileMap, position: PointSpec(x: 0, y: 0))
                     node.tileMapSpec = tmSpec
                     spec.nodes.append(node)
+                    let mapWidth = max(0, Double(tmSpec.columns)) * max(1, tmSpec.tileWidth)
+                    let mapHeight = max(0, Double(tmSpec.rows)) * max(1, tmSpec.tileHeight)
+                    spec.size = SizeSpec(
+                        width: max(spec.size.width, node.position.x + mapWidth),
+                        height: max(spec.size.height, node.position.y + mapHeight)
+                    )
                 }
             }
 
@@ -2870,12 +2880,16 @@ public struct Interpreter: Sendable {
             case "width":       return String(document.stack.width)
             case "height":      return String(document.stack.height)
             case "script":      return document.stack.script
+            case "webassetsallowed", "web_assets_allowed":
+                return String(document.stack.webAssetsAllowed)
             case "aicontextcount", "ai_context_count", "contextcount", "context_count":
                 return String(document.aiContextLibrary.itemCount)
             case "aicontextsummary", "ai_context_summary", "contextsummary", "context_summary":
                 return document.aiContextLibrary.promptSummary(maxItems: 20)
             case "aicontextcloudsharingallowed", "ai_context_cloud_sharing_allowed", "contextcloudsharingallowed":
                 return String(document.stack.aiContextCloudSharingAllowed)
+            case "runtimemode", "runtime_mode", "runtimemodeenabled", "runtime_mode_enabled":
+                return String(document.stack.runtimeModeEnabled)
             // Theme is non-optional on the stack — always returns a name.
             case "theme", "themename", "theme_name":
                 return document.stack.themeName
@@ -3185,19 +3199,9 @@ public struct Interpreter: Sendable {
         case "imagefilter", "image_filter", "filter": return part.imageFilter
         case "imagefilterintensity", "image_filter_intensity", "filterintensity", "filter_intensity": return formatNumber(part.imageFilterIntensity)
         case "object":
-            // If an asset ref is bound, return its name. Otherwise return
-            // the author-visible source path or the resolved URL.
-            if let assetRef = part.scene3DAssetRef, !assetRef.name.isEmpty {
-                return assetRef.name
-            }
-            return part.scene3DSourceURL.isEmpty ? part.scene3DURL : part.scene3DSourceURL
+            return Scene3DModelBindingResolver.displayModel(for: part)
         case "model":
-            // Canonical getter — returns the asset name when bound via
-            // scene3DAssetRef, or the source URL path otherwise.
-            if let assetRef = part.scene3DAssetRef, !assetRef.name.isEmpty {
-                return assetRef.name
-            }
-            return part.scene3DSourceURL.isEmpty ? part.scene3DURL : part.scene3DSourceURL
+            return Scene3DModelBindingResolver.displayModel(for: part)
         case "modelurl", "model_url", "sceneurl", "scene_url": return part.scene3DURL
         case "allowscameracontrol", "allows_camera_control", "cameracontrol": return part.scene3DAllowsCameraControl ? "true" : "false"
         case "autolighting", "auto_lighting", "defaultlighting": return part.scene3DAutoLighting ? "true" : "false"
@@ -4262,57 +4266,29 @@ public struct Interpreter: Sendable {
         case "imagefilterintensity", "image_filter_intensity", "filterintensity", "filter_intensity":
             document.parts[partIndex].imageFilterIntensity = max(0, min(1, toNumber(value)))
         case "object":
-            // `object` accepts both file paths and model3D asset names.
-            // Try the Sprite Repository first: if there is a model3D asset
-            // with this exact name, bind via asset ref (preferred path).
-            // Otherwise fall through to the file-path resolver.
-            //
-            // Security Finding 3: ALWAYS clear `scene3DAssetRef` on the
-            // file-path branch so a previously-bound asset can't shadow
-            // the new file path through the getter precedence rule.
-            if let asset = document.spriteRepository.asset(byName: value),
-               asset.kind == .model3D {
-                document.parts[partIndex].scene3DAssetRef = document.spriteRepository.assetRef(for: asset)
-                document.parts[partIndex].scene3DSourceURL = ""
-                document.parts[partIndex].scene3DURL = ""
-            } else {
-                // Store the author-visible source path, then resolve to the
-                // working URL (converting STL → OBJ via cache if needed).
-                document.parts[partIndex].scene3DAssetRef = nil
-                document.parts[partIndex].scene3DSourceURL = value
-                document.parts[partIndex].scene3DURL = resolveScene3DPath(
-                    value, partId: document.parts[partIndex].id, context: context
-                )
-            }
+            let partId = document.parts[partIndex].id
+            _ = Scene3DModelBindingResolver.bindModelOrObject(
+                value: value,
+                to: &document.parts[partIndex],
+                repository: document.spriteRepository,
+                resolvePath: { resolveScene3DPath($0, partId: partId, context: context) }
+            )
         case "model":
-            // `model` is the canonical asset-name setter for scene3D parts.
-            //
-            // 1. Looks up the value as a model3D asset name in the Sprite Repository.
-            //    If found: binds via scene3DAssetRef and clears URL fields so the
-            //    asset-ref rendering path wins in Scene3DHostNSView.apply.
-            // 2. If NOT found: falls back to the file-path resolver (same as `object`),
-            //    so `set the model of scene3d "X" to "/path/to/cube.usdz"` still works.
-            //
-            // Same Finding-3 clearing rule applies: the file-path branch nils
-            // out scene3DAssetRef to keep document state internally consistent.
-            if let asset = document.spriteRepository.asset(byName: value),
-               asset.kind == .model3D {
-                document.parts[partIndex].scene3DAssetRef = document.spriteRepository.assetRef(for: asset)
-                document.parts[partIndex].scene3DSourceURL = ""
-                document.parts[partIndex].scene3DURL = ""
-            } else {
-                document.parts[partIndex].scene3DAssetRef = nil
-                document.parts[partIndex].scene3DSourceURL = value
-                document.parts[partIndex].scene3DURL = resolveScene3DPath(
-                    value, partId: document.parts[partIndex].id, context: context
-                )
-            }
+            let partId = document.parts[partIndex].id
+            _ = Scene3DModelBindingResolver.bindModelOrObject(
+                value: value,
+                to: &document.parts[partIndex],
+                repository: document.spriteRepository,
+                resolvePath: { resolveScene3DPath($0, partId: partId, context: context) }
+            )
         case "modelurl", "model_url", "sceneurl", "scene_url":
             // Legacy alias: route through the resolver so STL files auto-
             // convert whether the author uses `object` or `modelURL`.
-            document.parts[partIndex].scene3DSourceURL = value
-            document.parts[partIndex].scene3DURL = resolveScene3DPath(
-                value, partId: document.parts[partIndex].id, context: context
+            let partId = document.parts[partIndex].id
+            _ = Scene3DModelBindingResolver.bindPath(
+                value: value,
+                to: &document.parts[partIndex],
+                resolvePath: { resolveScene3DPath($0, partId: partId, context: context) }
             )
         case "allowscameracontrol", "allows_camera_control", "cameracontrol":
             document.parts[partIndex].scene3DAllowsCameraControl = isTruthy(value)

@@ -10,6 +10,10 @@ private actor ScriptedMeshyClient: MeshyClient {
     private var taskFacts: [MeshyPolledFact]
     private var responseIndex = 0
     private(set) var lastCreatedKind: String? = nil
+    private(set) var lastTextRequest: MeshyTextTo3DRequest?
+    private(set) var lastImageRequest: MeshyImageTo3DRequest?
+    private(set) var lastMultiImageRequest: MeshyMultiImageTo3DRequest?
+    private(set) var textCreateCount = 0
     private(set) var cancelledTaskIds: [String] = []
 
     init(responses: [MeshyPolledFact]) {
@@ -18,16 +22,20 @@ private actor ScriptedMeshyClient: MeshyClient {
 
     func createTextTo3DTask(_ request: MeshyTextTo3DRequest) async throws -> String {
         lastCreatedKind = "text"
-        return "stub_text_task"
+        lastTextRequest = request
+        textCreateCount += 1
+        return textCreateCount == 1 ? "stub_text_task" : "stub_refine_task"
     }
 
     func createImageTo3DTask(_ request: MeshyImageTo3DRequest) async throws -> String {
         lastCreatedKind = "image"
+        lastImageRequest = request
         return "stub_image_task"
     }
 
     func createMultiImageTo3DTask(_ request: MeshyMultiImageTo3DRequest) async throws -> String {
         lastCreatedKind = "multiImage"
+        lastMultiImageRequest = request
         return "stub_multi_task"
     }
 
@@ -128,6 +136,62 @@ struct Generate3DJobTests {
         let kind = await stub.lastCreatedKind
         #expect(kind == "text")
         #expect(!assets.isEmpty)
+        let request = try #require(await stub.lastTextRequest)
+        #expect(request.targetFormats == ["glb", "usdz"])
+    }
+
+    @Test("Generate3DJob forwards Meshy request options")
+    func forwardsRequestOptions() async throws {
+        let stub = ScriptedMeshyClient(responses: [makeSuccessResponse()])
+        let job = Generate3DJob(client: stub, logger: HypeLogger(setupFileLogging: false))
+        let options = Generate3DJob.Options(
+            aiModel: .meshy6,
+            shouldRemesh: true,
+            alsoUSDZ: true,
+            alsoFBX: true,
+            targetPolycount: 12000,
+            topology: "quad",
+            symmetryMode: "auto",
+            enablePbr: true,
+            assetName: "named-barrel.glb",
+            hardTimeout: 30
+        )
+
+        let assets = try await job.run(
+            kind: .text(prompt: "a barrel", artStyle: .realistic),
+            options: options,
+            existingAssetNames: []
+        )
+
+        let request = try #require(await stub.lastTextRequest)
+        #expect(request.targetPolycount == 12000)
+        #expect(request.topology == "quad")
+        #expect(request.symmetryMode == "auto")
+        #expect(request.enablePbr == true)
+        #expect(request.targetFormats == ["fbx", "glb", "usdz"])
+        #expect(assets.first?.name == "named-barrel.glb")
+    }
+
+    @Test("Generate3DJob refined text mode creates preview then refine task")
+    func refinedTextModeCreatesPreviewThenRefine() async throws {
+        let stub = ScriptedMeshyClient(responses: [
+            makeSuccessResponse(taskId: "preview_done"),
+            makeSuccessResponse(taskId: "refine_done")
+        ])
+        let job = Generate3DJob(client: stub, logger: HypeLogger(setupFileLogging: false))
+        let options = Generate3DJob.Options(textQuality: .refined, hardTimeout: 30)
+
+        _ = try await job.run(
+            kind: .text(prompt: "a barrel", artStyle: .realistic),
+            options: options,
+            existingAssetNames: []
+        )
+
+        let count = await stub.textCreateCount
+        let last = try #require(await stub.lastTextRequest)
+        #expect(count == 2)
+        #expect(last.mode == .refine)
+        #expect(last.previewTaskId == "preview_done")
     }
 
     // MARK: (b) singleImage kind calls createImageTo3DTask

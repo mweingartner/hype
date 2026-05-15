@@ -137,6 +137,37 @@ struct DocumentMutationCoordinatorTests {
         try? FileManager.default.removeItem(at: temporaryDirectory)
     }
 
+    @Test("tracked mutation writes recovery snapshot before debounced autosave")
+    func trackedMutationWritesRecoveryBeforeDebouncedAutosave() throws {
+        var wrapper = HypeDocumentWrapper()
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HypeImmediateRecoveryTests-\(UUID().uuidString)", isDirectory: true)
+        let store = HypeRecoveryStore(rootDirectory: temporaryDirectory)
+        var autosaveCallCount = 0
+        let coordinator = HypeDocumentMutationCoordinator(
+            recoveryStore: store,
+            autosaveDelayNanoseconds: 60_000_000_000,
+            autosaveDocuments: { autosaveCallCount += 1 }
+        )
+        let binding = Binding<HypeDocumentWrapper>(
+            get: { wrapper },
+            set: { wrapper = $0 }
+        )
+        let tracked = coordinator.trackedBinding(binding, undoManager: nil, actionName: "Rename Stack")
+
+        var updated = tracked.wrappedValue
+        updated.document.stack.name = "Immediately Recovered"
+        tracked.wrappedValue = updated
+
+        let snapshotData = try Data(contentsOf: store.snapshotURL(for: wrapper.document))
+        let decoded = try JSONDecoder().decode(HypeDocument.self, from: snapshotData)
+        #expect(decoded.stack.name == "Immediately Recovered")
+        #expect(autosaveCallCount == 0)
+
+        coordinator.flushAllAutosaves()
+        try? FileManager.default.removeItem(at: temporaryDirectory)
+    }
+
     @Test("recovery store writes encoded document snapshots")
     func recoveryStoreWritesEncodedDocumentSnapshots() throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory

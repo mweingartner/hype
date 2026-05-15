@@ -1106,6 +1106,9 @@ struct SpriteRepositoryView: View {
             if let id = lastImportedId {
                 selectedAssetIds = [id]
             }
+            if lastImportedId != nil {
+                HypeDocumentMutationCoordinator.shared.flushAllAutosaves()
+            }
         }
     }
 
@@ -1147,6 +1150,9 @@ struct SpriteRepositoryView: View {
             // "Classify as Tileset".
             if let id = lastImportedId {
                 selectedAssetIds = [id]
+            }
+            if lastImportedId != nil {
+                HypeDocumentMutationCoordinator.shared.flushAllAutosaves()
             }
         }
     }

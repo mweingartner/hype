@@ -4,15 +4,17 @@ import HypeCore
 
 /// AppKit-hosted 3D scene viewer for `scene3D` parts.
 ///
-/// Wraps `SCNView`. Loads `.usdz` / `.scn` / `.dae` / `.obj` / `.glb` /
+/// Wraps `SCNView`. Loads `.usdz` / `.scn` / `.dae` / `.obj` /
 /// `.fbx` / `.stl` via `Scene3DAssetLoader`. The `apply(_:)` method only
 /// re-loads the scene when the URL or asset ref actually changed — toggling
 /// camera control or anti-aliasing doesn't force a heavyweight scene rebuild.
 ///
 /// Two load paths:
 /// 1. **Asset-ref path** (preferred): `part.scene3DAssetRef` points to a
-///    `SpriteAsset(kind: .model3D)` in the repository. Bytes are written to a
-///    temp file under `URL.temporaryDirectory/hype-scene3d/<uuid>.<ext>`.
+///    `SpriteAsset(kind: .model3D)` in the repository. If that selected asset
+///    is a GLB, Hype renders its USDZ companion because SceneKit does not load
+///    GLB reliably. Bytes are written to a temp file under
+///    `URL.temporaryDirectory/hype-scene3d/<uuid>.<ext>`.
 /// 2. **Legacy URL path**: `part.scene3DURL` — original file-URL behaviour.
 ///    When BOTH are set, `scene3DAssetRef` wins.
 ///
@@ -24,8 +26,8 @@ final class Scene3DHostNSView: NSView {
     let scnView = SCNView()
     /// Tracks which URL was last loaded (legacy path).
     private var loadedURL: String = ""
-    /// Tracks which asset-ref id was last loaded (asset-ref path).
-    private var loadedAssetRefId: UUID?
+    /// Tracks which selected/render asset pair was last loaded.
+    private var loadedAssetKey: String?
     /// Current temp file for the asset-ref path — deleted before next swap.
     private var tempScenePath: String?
     /// Repository reference, refreshed on each `apply(_:)` call.
@@ -78,13 +80,18 @@ final class Scene3DHostNSView: NSView {
 
         // Asset-ref path takes priority over the legacy URL path.
         if let ref = part.scene3DAssetRef {
-            if ref.id != loadedAssetRefId {
-                loadedAssetRefId = ref.id
+            let assetKey = Scene3DRepositoryAssetResolver.loadIdentity(
+                for: ref,
+                in: repository,
+                fallbackURL: part.scene3DURL
+            )
+            if assetKey != loadedAssetKey {
+                loadedAssetKey = assetKey
                 loadedURL = ""  // Invalidate URL cache.
                 loadScene(fromAssetRef: ref, fallbackURL: part.scene3DURL)
             }
         } else if part.scene3DURL != loadedURL {
-            loadedAssetRefId = nil
+            loadedAssetKey = nil
             loadedURL = part.scene3DURL
             loadScene(from: part.scene3DURL)
         }
@@ -111,11 +118,14 @@ final class Scene3DHostNSView: NSView {
         // freeze the main thread; swap the scene in once ready.
         let localLoader = loader
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let scene: SCNScene? = try? localLoader.load(from: url)
+            let result = Result { try localLoader.load(from: url) }
             DispatchQueue.main.async {
-                self?.scnView.scene = scene
-                if scene == nil {
-                    self?.onLoadFailed?("SCNScene returned nil for \(url.lastPathComponent)")
+                switch result {
+                case .success(let scene):
+                    self?.scnView.scene = scene
+                case .failure:
+                    self?.scnView.scene = nil
+                    self?.onLoadFailed?("Scene3D could not load \(url.lastPathComponent)")
                 }
             }
         }
@@ -129,18 +139,29 @@ final class Scene3DHostNSView: NSView {
     /// NOT the raw temp file path (which contains the asset UUID).
     private func loadScene(fromAssetRef ref: AssetRef, fallbackURL: String) {
         guard let repo = repository,
-              let asset = repo.asset(byId: ref.id) else {
+              let resolved = Scene3DRepositoryAssetResolver.resolvedAsset(for: ref, in: repo) else {
             // Asset not found — fall back to the legacy URL.
             loadScene(from: fallbackURL)
             return
         }
 
-        let ext = Self.ext(forMime: asset.mimeType)
-        let assetName = asset.name  // Captured for the error string (M2).
-        let data = asset.data
+        let selectedAsset = resolved.selectedAsset
+        if Scene3DRepositoryAssetResolver.requiresCompanionForSceneKit(selectedAsset),
+           !resolved.usesCompanionAsset {
+            scnView.scene = nil
+            onLoadFailed?("Model asset '\(selectedAsset.name)' is GLB-only. Regenerate or download it with USDZ enabled, then assign the USDZ companion or the GLB asset with its companion present.")
+            return
+        }
+
+        let renderAsset = resolved.renderAsset
+        let ext = Self.ext(for: renderAsset)
+        let assetName = selectedAsset.name  // Captured for the error string (M2).
+        let data = renderAsset.data
+        let previousTempPath = tempScenePath
+        tempScenePath = nil
 
         let localLoader = loader
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        DispatchQueue.global(qos: .userInitiated).async { [weak self, previousTempPath] in
             // Create temp directory.
             let tempDir = URL.temporaryDirectory
                 .appendingPathComponent("hype-scene3d", isDirectory: true)
@@ -149,9 +170,8 @@ final class Scene3DHostNSView: NSView {
             )
 
             // Delete previous temp file before writing new one.
-            if let prev = self?.tempScenePath {
-                try? FileManager.default.removeItem(atPath: prev)
-                DispatchQueue.main.async { self?.tempScenePath = nil }
+            if let previousTempPath {
+                try? FileManager.default.removeItem(atPath: previousTempPath)
             }
 
             // Write bytes to a UUID-named temp file (no path traversal).
@@ -169,10 +189,13 @@ final class Scene3DHostNSView: NSView {
             DispatchQueue.main.async { self?.tempScenePath = tempURL.path }
 
             // Load via the asset loader.
-            let scene: SCNScene? = try? localLoader.load(from: tempURL)
+            let result = Result { try localLoader.load(from: tempURL) }
             DispatchQueue.main.async {
-                self?.scnView.scene = scene
-                if scene == nil {
+                switch result {
+                case .success(let scene):
+                    self?.scnView.scene = scene
+                case .failure:
+                    self?.scnView.scene = nil
                     // M2: use asset.name, not the temp path.
                     self?.onLoadFailed?("Model asset '\(assetName)' could not be loaded")
                 }
@@ -197,8 +220,12 @@ final class Scene3DHostNSView: NSView {
     }
 
     /// MIME type → file extension for temp-file naming.
-    private static func ext(forMime mime: String) -> String {
-        switch mime.lowercased() {
+    private static func ext(for asset: SpriteAsset) -> String {
+        let nameExt = (asset.name as NSString).pathExtension.lowercased()
+        if Scene3DAssetLoader.supportedExtensions.contains(nameExt) {
+            return nameExt
+        }
+        switch asset.mimeType.lowercased() {
         case "model/gltf-binary": return "glb"
         case "model/vnd.usdz+zip", "application/zip": return "usdz"
         case "model/fbx": return "fbx"

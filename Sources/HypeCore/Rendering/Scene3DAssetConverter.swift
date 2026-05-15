@@ -5,21 +5,21 @@ import ModelIO
 
 /// Converts between 3D file formats using Apple's ModelIO.
 ///
-/// Lifts the GLB → USDZ round trip out of `Scene3DAssetLoader.loadViaMDLAsset`
-/// into a reusable utility so the "Open in AR" action can produce a USDZ
-/// without going through SceneKit. The conversion is synchronous; the
-/// caller MUST run it off the main thread (or in a detached Task).
+/// Converts ModelIO-readable 3D files to USDZ for "Open in AR" flows.
+/// GLB is intentionally not considered render-convertible here because
+/// current macOS ModelIO returns an empty asset for GLB in Hype's runtime.
+/// Meshy GLB assets should be generated with a USDZ companion instead.
+/// The conversion is synchronous; the caller MUST run it off the main thread
+/// (or in a detached Task).
 ///
-/// Conversion path: `MDLAsset(url:)` → `MDLAsset.export(to:)` which is the
-/// same pattern already audited in Phase 1 (`Scene3DAssetLoader` uses it
-/// successfully on every GLB / FBX load).
+/// Conversion path: `MDLAsset(url:)` → `MDLAsset.export(to:)`.
 ///
 /// **Security (C12):** the output USDZ is bounded by the source asset's size.
 /// Phase 1 enforces a 50 MB cap at ingest; converter output cannot exceed that.
 /// No additional size cap is introduced here — the cap already exists upstream.
 ///
 /// Threading: synchronous. Call from a background queue or detached Task.
-/// macOS 13+ required for MDLAsset GLB/FBX support.
+/// macOS 13+ required for ModelIO conversion support.
 public struct Scene3DAssetConverter: Sendable {
 
     // MARK: - Error type
@@ -56,13 +56,13 @@ public struct Scene3DAssetConverter: Sendable {
 
     // MARK: - Public API
 
-    /// Convert a GLB (or any MDLAsset-readable format) to a USDZ at `outputURL`.
+    /// Convert any MDLAsset-readable format to a USDZ at `outputURL`.
     ///
     /// If `inputURL` already points to a `.usdz` file, throws `.alreadyTargetFormat` —
     /// the caller should detect this and skip the round trip.
     ///
     /// - Parameters:
-    ///   - inputURL: An absolute `file://` URL to a `.glb` / `.fbx` / `.obj` etc.
+    ///   - inputURL: An absolute `file://` URL to a `.fbx` / `.obj` / `.ply` etc.
     ///   - outputURL: An absolute `file://` URL with the `.usdz` extension. Will
     ///     be overwritten if it exists.
     /// - Throws: `ConvertError`.

@@ -241,11 +241,13 @@ public struct HypeToolDefinitions {
         ]),
 
         makeTool(name: "create_scene3d", description: """
-            Create a 3D scene viewer (SceneKit). Loads `.usdz`, `.scn`, `.dae`, `.obj`, `.stl` \
-            from a local file path or http(s) URL. `.stl` files are auto-converted to `.obj` \
-            on import (cached by SHA-256 of file contents). Camera control \
+            Create a 3D scene viewer (SceneKit). Loads embedded Sprite Repository `model3D` \
+            assets by name, or `.usdz`, `.usd`, `.scn`, `.dae`, `.obj`, `.stl`, `.ply`, `.abc`, \
+            `.fbx` from a local file path or http(s) URL. `.stl` files are auto-converted to `.obj` \
+            on import (cached by SHA-256 of file contents). Repository GLB assets render through \
+            a same-name or same-task USDZ companion. Camera control \
             (mouse-orbit / scroll-zoom) on by default. HypeTalk reads: \
-            `the object of scene3d "X"` (source path) or `the modelURL of scene3d "X"` \
+            `the model of scene3d "X"` / `the object of scene3d "X"` (asset name or source path) or `the modelURL of scene3d "X"` \
             (resolved path after STL conversion).
             """, params: [
             "name": ("string", "Scene3D part name", true),
@@ -253,8 +255,10 @@ public struct HypeToolDefinitions {
             "top": ("string", "Y position", true),
             "width": ("string", "Width", true),
             "height": ("string", "Height", true),
-            "object": ("string", "Path or URL of the 3D model file. Accepts .usdz, .usd, .scn, .dae, .obj, .stl. STL is auto-converted to OBJ on import.", false),
-            "model_url": ("string", "(deprecated alias for object — still works)", false),
+            "model_asset_name": ("string", "Name of a model3D asset in the Sprite Repository. Preferred when using generated Meshy assets.", false),
+            "model": ("string", "model3D asset name, path, or URL. Asset names are resolved first.", false),
+            "object": ("string", "model3D asset name, path, or URL. Paths accept .usdz, .usd, .scn, .dae, .obj, .stl, .ply, .abc, .fbx. Repository GLB assets render through a USDZ companion.", false),
+            "model_url": ("string", "Explicit path/URL alias for object. Clears repository asset binding.", false),
             "allows_camera_control": ("string", "'true' (default) to let user orbit/zoom", false),
             "auto_lighting": ("string", "'true' (default) to add default lights", false),
             "background": ("string", "Hex color for the scene background (empty = transparent)", false),
@@ -407,6 +411,23 @@ public struct HypeToolDefinitions {
             "height": ("string", "Height", true),
             "on_background": ("string", "true to place on background", false),
         ]),
+        makeTool(name: "create_sprite_game_template", description: """
+            Create or rebuild a complete playable SpriteKit arcade-game scaffold in one \
+            transaction. For Pac-Man / maze-chase requests, call this FIRST instead of \
+            manually generating individual wall images, tile maps, pellets, ghosts, and \
+            scripts. The tool creates deterministic embedded PNG assets, a classified \
+            tileset, a tile map, static wall colliders, player/ghost sprites, pellets, \
+            power pellets, and scene-level HypeTalk for WASD movement, scoring, and \
+            ghost/pellet collisions. Supported game_type values: pacman, maze_chase.
+            """, params: [
+            "sprite_area_name": ("string", "Sprite area name to create or rebuild. Defaults to pacmanArea.", false),
+            "game_type": ("string", "Template type: pacman or maze_chase. Defaults to pacman.", false),
+            "left": ("string", "X position if a new sprite area must be created", false),
+            "top": ("string", "Y position if a new sprite area must be created", false),
+            "width": ("string", "Width if a new sprite area must be created", false),
+            "height": ("string", "Height if a new sprite area must be created", false),
+            "on_background": ("string", "true to place a newly-created sprite area on the background", false),
+        ]),
         makeTool(name: "get_scene_spec", description: "Get the full SceneSpec JSON for a sprite area.", params: [
             "sprite_area_name": ("string", "Name of the sprite area part", true),
         ]),
@@ -445,7 +466,7 @@ public struct HypeToolDefinitions {
             "sprite_area_name": ("string", "Name of the sprite area part", true),
             "diff_json": ("string", "SceneDiff as a JSON-encoded string (see description)", true),
         ]),
-        makeTool(name: "add_sprite_to_scene", description: "Add a sprite node to a sprite area scene.", params: [
+        makeTool(name: "add_sprite_to_scene", description: "Add a sprite node to a sprite area scene. For generated image assets, pass game-sized width/height when you know them; if omitted, Hype defaults large image assets down to a manageable sprite size instead of rendering a 1024px source image at full size.", params: [
             "sprite_area_name": ("string", "Name of the sprite area part", true),
             "sprite_name": ("string", "Name for the new sprite", true),
             "asset_name": ("string", "Repository asset name for texture", false),
@@ -460,7 +481,9 @@ public struct HypeToolDefinitions {
             classified as a tileset first via `classify_asset_as_tileset` \
             so the tile size, column count, and row count are picked up \
             automatically — otherwise multi-column tilesets render as a \
-            single vertical strip. Columns/rows control the tile MAP \
+            single vertical strip. Hype expands the scene design size to \
+            fit the map's pixel dimensions, so sprite coordinates can be \
+            placed against the full map. Columns/rows control the tile MAP \
             dimensions (how many cells the map contains), not the tile \
             SET dimensions (how many tiles the sprite sheet contains).
             """, params: [
@@ -471,20 +494,35 @@ public struct HypeToolDefinitions {
             "tile_size": ("string", "Tile size in pixels. Optional — defaults to the tileset asset's tileWidth when the asset is classified.", false),
             "tileset_asset": ("string", "Repository asset name for the tile set sprite sheet. Classify it first with classify_asset_as_tileset for correct rendering.", false),
         ]),
+        makeTool(name: "create_basic_tileset_asset", description: """
+            Create a deterministic embedded PNG tileset asset without calling an external \
+            image model. Use this when the AI needs a simple wall/floor/maze tileset \
+            for a tile map and should not ask the user to attach or stitch a sheet. \
+            The result is stored as kind=tileSet with tileWidth/tileHeight/tileColumns \
+            metadata already set, so it can be used directly with create_tilemap.
+            """, params: [
+            "asset_name": ("string", "Sprite Repository asset name. Defaults to hype_arcade_maze_tiles.", false),
+            "style": ("string", "Visual style hint, currently neon/default.", false),
+            "tile_size": ("string", "Tile size in pixels, 8...128. Defaults to 32.", false),
+        ]),
         makeTool(name: "classify_asset_as_tileset", description: """
             Mark a repository image asset as a tileset and record its \
             grid metadata (tile width/height, how many tiles across and \
             down). Must be called on a tileset sprite sheet BEFORE using \
             it with create_tilemap, or the tilemap will render the entire \
             sheet as a single vertical strip. Columns and rows are \
-            auto-derived from image dimensions when omitted. Safe to call \
-            multiple times to re-classify with different tile sizes.
+            auto-derived from image dimensions when omitted for imported \
+            sprite sheets. For AI-generated single wall/floor/maze tile \
+            images, omit tile_columns/tile_rows and Hype will classify \
+            the asset as a 1x1 tile set so the full generated image is \
+            scaled into tile 0 instead of cropping the top-left corner. \
+            Safe to call multiple times to re-classify with different tile sizes.
             """, params: [
             "asset_name": ("string", "Name of the asset in the sprite repository to classify", true),
             "tile_width": ("string", "Width of a single tile in pixels (required, > 0)", true),
             "tile_height": ("string", "Height of a single tile in pixels (required, > 0)", true),
-            "tile_columns": ("string", "Number of tile columns in the sprite sheet (optional, auto-derived from image width / tile_width when omitted)", false),
-            "tile_rows": ("string", "Number of tile rows in the sprite sheet (optional, auto-derived from image height / tile_height when omitted)", false),
+            "tile_columns": ("string", "Number of tile columns in a real sprite sheet. Omit for AI-generated single-tile images.", false),
+            "tile_rows": ("string", "Number of tile rows in a real sprite sheet. Omit for AI-generated single-tile images.", false),
         ]),
         makeTool(name: "set_tile", description: """
             Set a single cell of an existing tile map to a tile index. \
@@ -916,6 +954,15 @@ public struct HypeToolDefinitions {
             Use this before calling a generate_3d_model_* tool to avoid regenerating a model the user already has.
             """, params: [:]),
 
+        makeTool(name: "bind_3d_model_to_scene3d", description: """
+            Bind an existing Sprite Repository model3D asset to an existing scene3D part. \
+            Use this when the model already exists and the user asks to place, show, assign, \
+            or swap it in a 3D viewer. This does not call Meshy and does not consume credits.
+            """, params: [
+            "scene3d_part_name": ("string", "Name of the existing scene3D part", true),
+            "model_asset_name":  ("string", "Name of an existing model3D asset in the Sprite Repository", true),
+        ]),
+
         makeTool(name: "generate_3d_model_from_text", description: """
             Generate a 3D model from a text prompt using Meshy.ai and add it to the \
             Sprite Repository as a model3D asset. Optionally also place a scene3D part \
@@ -929,10 +976,16 @@ public struct HypeToolDefinitions {
             Requires: (a) the stack has meshyEnabled; (b) the Meshy API key is in the Keychain.
             """, params: [
             "prompt":         ("string", "Plain-English description of the model (max 600 chars)", true),
+            "asset_name":     ("string", "Optional repository base name chosen by the user. Hype appends .glb/.usdz/.fbx.", false),
             "ai_model":       ("string", "meshy-6 (default) | meshy-5 | meshy-4 | latest", false),
             "art_style":      ("string", "realistic (default) | sculpture", false),
             "should_remesh":  ("string", "'true' / 'false'. Defaults to model default.", false),
-            "with_usdz":      ("string", "'true' to also download USDZ for AR/Quick Look", false),
+            "target_polycount": ("string", "Optional target polygon count, 100–300000", false),
+            "topology":        ("string", "triangle (default) | quad", false),
+            "enable_pbr":      ("string", "'true' to request PBR textures where supported", false),
+            "quality":         ("string", "preview (default) | refined. Refined uses Meshy's preview→refine flow and may take longer/cost more.", false),
+            "with_usdz":      ("string", "'true' to also download USDZ for Scene3D/AR/Quick Look. Defaults to true.", false),
+            "with_fbx":       ("string", "'true' to also download FBX", false),
             "place_on_card":  ("string", "'true' to also create a scene3D part referencing the new asset", false),
             "part_name":      ("string", "Name for the scene3D part (required when place_on_card='true')", false),
             "left":           ("string", "X position for the scene3D part (default 100)", false),
@@ -950,14 +1003,18 @@ public struct HypeToolDefinitions {
             image_path must be an absolute path under the user's home or temp directory. \
             image_base64 accepts raw base64 (with or without data: prefix), capped at 10 MB.
 
-            Allowed formats: PNG, JPEG, WebP. Cap: 10 MB. Generation: ~90–150 s; 5-min cap.
+            Allowed formats: PNG and JPEG. Cap: 10 MB. Generation: ~90–150 s; 5-min cap.
             """, params: [
-            "image_path":        ("string", "Absolute path to a PNG/JPEG/WebP image on disk", false),
+            "image_path":        ("string", "Absolute path to a PNG/JPEG image on disk", false),
             "image_asset_name":  ("string", "Name of an existing image asset in the Sprite Repository", false),
             "image_base64":      ("string", "Raw base64 image bytes (or data: URI), max 10 MB", false),
+            "asset_name":        ("string", "Optional repository base name chosen by the user. Hype appends .glb/.usdz/.fbx.", false),
             "ai_model":          ("string", "meshy-6 (default) | meshy-5 | meshy-4 | latest", false),
             "should_remesh":     ("string", "'true' / 'false'", false),
-            "with_usdz":         ("string", "'true' to also download USDZ", false),
+            "target_polycount":  ("string", "Optional target polygon count, 100–300000", false),
+            "enable_pbr":        ("string", "'true' to request PBR textures where supported", false),
+            "with_usdz":         ("string", "'true' to also download USDZ for Scene3D rendering. Defaults to true.", false),
+            "with_fbx":          ("string", "'true' to also download FBX", false),
             "place_on_card":     ("string", "'true' to also create a scene3D part", false),
             "part_name":         ("string", "Name for the scene3D part (required when place_on_card='true')", false),
             "left":              ("string", "X position (default 100)", false),
@@ -980,9 +1037,13 @@ public struct HypeToolDefinitions {
             to EACH image. Combined cap: 40 MB. Generation: ~150–300 s; 5-min cap.
             """, params: [
             "images":         ("string", "Comma-separated 2–4 image refs, each prefixed 'asset:', 'path:', or 'base64:'", true),
+            "asset_name":     ("string", "Optional repository base name chosen by the user. Hype appends .glb/.usdz/.fbx.", false),
             "ai_model":       ("string", "meshy-6 (default) | meshy-5 | meshy-4 | latest", false),
             "should_remesh":  ("string", "'true' / 'false'", false),
-            "with_usdz":      ("string", "'true' to also download USDZ", false),
+            "target_polycount": ("string", "Optional target polygon count, 100–300000", false),
+            "enable_pbr":     ("string", "'true' to request PBR textures where supported", false),
+            "with_usdz":      ("string", "'true' to also download USDZ for Scene3D rendering. Defaults to true.", false),
+            "with_fbx":       ("string", "'true' to also download FBX", false),
             "place_on_card":  ("string", "'true' to also create a scene3D part", false),
             "part_name":      ("string", "Name for the scene3D part (required when place_on_card='true')", false),
             "left":           ("string", "X position (default 100)", false),
@@ -1069,7 +1130,8 @@ public struct HypeToolDefinitions {
 
         makeTool(name: "set_node_property", description: """
             Set a single property on a scene node by dotted key. Covers every writable \
-            HypeNodeSpec field: position.x, position.y, zPosition, rotation, xScale, yScale, \
+            HypeNodeSpec field: loc/position ("x,y"), x, y, position.x, position.y, \
+            size ("w,h"), width, height, zPosition, rotation, xScale, yScale, \
             alpha, isHidden, name, text, fontSize, fontColor, fontName, textStyle, shape.fillColor, \
             shape.strokeColor, shape.lineWidth, shape.cornerRadius, shape.shapeType, \
             physics.enabled, physics.bodyType, physics.isDynamic, physics.restitution, \
@@ -1160,12 +1222,13 @@ public struct HypeToolDefinitions {
             Set a stack-level property: width, height, name, defaultFont, theme. `width` and `height` \
             control the canvas size in points. `defaultFont` applies to new parts. \
             `webAssetsAllowed` toggles the stack's AI web-asset search permission. \
+            `runtimeMode` controls whether the stack opens in end-user runtime mode. \
             `aiContextCloudSharingAllowed` controls whether attached AI Context Library snippets \
             may be sent to cloud model providers for this stack. \
             `theme` accepts any theme name from `list_themes`; empty value resets to the fallback theme. \
             Use this instead of set_part_property — the stack is not a part.
             """, params: [
-            "property": ("string", "Property name: width, height, name, defaultFont, webAssetsAllowed, aiContextCloudSharingAllowed, theme", true),
+            "property": ("string", "Property name: width, height, name, defaultFont, webAssetsAllowed, runtimeMode, aiContextCloudSharingAllowed, theme", true),
             "value": ("string", "New value (numeric for width/height, string for name/defaultFont)", true),
         ]),
 
@@ -1271,7 +1334,7 @@ public struct HypeToolDefinitions {
 
         makeTool(name: "get_stack_property", description: """
             Read a stack-level property: name, width, height, defaultFont, script, theme, \
-            webAssetsAllowed, aiContextCount, aiContextSummary, aiContextCloudSharingAllowed. \
+            webAssetsAllowed, runtimeMode, aiContextCount, aiContextSummary, aiContextCloudSharingAllowed. \
             Use this instead of get_stack_info when you only need one field.
             """, params: [
             "property": ("string", "Property name to read", true),
@@ -1496,6 +1559,7 @@ public struct HypeToolDefinitions {
             "remesh_3d_model",
             "retexture_3d_model",
             "list_3d_models",
+            "bind_3d_model_to_scene3d",
             "create_webpage",
             "create_video",
             "create_chart",
@@ -1568,6 +1632,7 @@ public struct HypeToolDefinitions {
         let allowed = Set([
             // Scene-level creation / diagnostics
             "create_sprite_area",
+            "create_sprite_game_template",
             "get_scene_spec",
             "get_scene_script",
             "set_scene_script",
@@ -1585,6 +1650,7 @@ public struct HypeToolDefinitions {
             "create_camera",
             "create_tilemap",
             // Tile-map authoring
+            "create_basic_tileset_asset",
             "classify_asset_as_tileset",
             "set_tile",
             "fill_tilemap",
@@ -1637,6 +1703,7 @@ public struct HypeToolDefinitions {
             "remesh_3d_model",
             "retexture_3d_model",
             "list_3d_models",
+            "bind_3d_model_to_scene3d",
             "create_webpage",
             "create_video",
             "create_chart",
@@ -1693,6 +1760,7 @@ public struct HypeToolDefinitions {
             // Repository + validation (already in the prior allowlist)
             "list_repository_assets",
             "import_repository_asset",
+            "create_basic_tileset_asset",
             "generate_sprite_asset",
             "write_ai_context_note",
             "check_script",
@@ -1710,6 +1778,7 @@ public struct HypeToolDefinitions {
         let allowed = Set([
             "list_repository_assets",
             "import_repository_asset",
+            "create_basic_tileset_asset",
             "generate_sprite_asset",
             "classify_asset_as_tileset",
             "write_ai_context_note",

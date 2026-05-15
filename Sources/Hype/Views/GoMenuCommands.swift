@@ -160,16 +160,16 @@ struct ToolsMenuCommands: Commands {
 /// menu, so this must use `CommandGroup` rather than `CommandMenu` to
 /// avoid a duplicate top-level View menu.
 struct ViewMenuCommands: Commands {
-    @AppStorage("hypeRuntimeMode") private var isRuntimeMode: Bool = false
     @AppStorage("hypeObjectsPanelVisible") private var objectsPanelVisible: Bool = true
 
     var body: some Commands {
         CommandGroup(after: .toolbar) {
             Divider()
 
-            Button(isRuntimeMode ? "Switch to Edit Mode" : "Switch to Runtime Mode") {
+            Button("Switch Runtime/Edit Mode") {
                 NotificationCenter.default.post(name: .toggleRuntimeMode, object: nil)
             }
+            .help("Switch to Runtime Mode or back to Edit Mode for the current stack")
             .keyboardShortcut("e", modifiers: [.command, .shift])
 
             Divider()

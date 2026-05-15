@@ -102,6 +102,8 @@ public struct MeshyTextTo3DRequest: Codable, Sendable, Equatable {
     public var moderation: Bool
     /// Ignored in Phase 1 preview.
     public var enablePbr: Bool?
+    /// Optional list of output formats for Meshy to generate.
+    public var targetFormats: [String]?
     /// Required when `mode == .refine`.
     public var previewTaskId: String?
 
@@ -116,6 +118,7 @@ public struct MeshyTextTo3DRequest: Codable, Sendable, Equatable {
         case symmetryMode    = "symmetry_mode"
         case moderation
         case enablePbr       = "enable_pbr"
+        case targetFormats   = "target_formats"
         case previewTaskId   = "preview_task_id"
     }
 
@@ -130,6 +133,7 @@ public struct MeshyTextTo3DRequest: Codable, Sendable, Equatable {
         symmetryMode: String? = nil,
         moderation: Bool = true,
         enablePbr: Bool? = nil,
+        targetFormats: [String]? = nil,
         previewTaskId: String? = nil
     ) {
         self.mode = mode
@@ -142,6 +146,7 @@ public struct MeshyTextTo3DRequest: Codable, Sendable, Equatable {
         self.symmetryMode = symmetryMode
         self.moderation = moderation
         self.enablePbr = enablePbr
+        self.targetFormats = targetFormats
         self.previewTaskId = previewTaskId
     }
 }
@@ -388,9 +393,9 @@ public struct MeshyPolledFact: Sendable, Equatable {
             taskId: resp.id,
             status: resp.status,
             progress: resp.progress,
-            primaryModelUrl: resp.modelUrls?.glb,
-            usdzUrl: resp.modelUrls?.usdz,
-            fbxUrl: resp.modelUrls?.fbx,
+            primaryModelUrl: sanitizedMeshyURL(resp.modelUrls?.glb),
+            usdzUrl: sanitizedMeshyURL(resp.modelUrls?.usdz),
+            fbxUrl: sanitizedMeshyURL(resp.modelUrls?.fbx),
             basicWalkUrl: nil,
             basicRunUrl: nil,
             errorMessage: errorMsg.map { String($0.prefix(200)) }

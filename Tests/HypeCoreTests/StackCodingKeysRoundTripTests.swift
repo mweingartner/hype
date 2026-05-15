@@ -31,6 +31,7 @@ struct StackCodingKeysRoundTripTests {
         let stack = try decoder.decode(Stack.self, from: data)
         #expect(stack.webAssetsAllowed == false)
         #expect(stack.aiContextCloudSharingAllowed == false)
+        #expect(stack.runtimeModeEnabled == false)
         #expect(stack.name == "My Stack")
     }
 
@@ -57,6 +58,7 @@ struct StackCodingKeysRoundTripTests {
         // null decodeIfPresent → nil → ?? false
         #expect(stack.webAssetsAllowed == false)
         #expect(stack.aiContextCloudSharingAllowed == false)
+        #expect(stack.runtimeModeEnabled == false)
     }
 
     // MARK: - All 9 pre-existing fields decode correctly
@@ -90,6 +92,7 @@ struct StackCodingKeysRoundTripTests {
         // webAssetsAllowed defaults to false when absent
         #expect(stack.webAssetsAllowed == false)
         #expect(stack.aiContextCloudSharingAllowed == false)
+        #expect(stack.runtimeModeEnabled == false)
     }
 
     // MARK: - Full round-trip with webAssetsAllowed = true
@@ -107,7 +110,8 @@ struct StackCodingKeysRoundTripTests {
             defaultFont: "Menlo",
             networkManifest: StackNetworkManifest(),
             webAssetsAllowed: true,
-            aiContextCloudSharingAllowed: true
+            aiContextCloudSharingAllowed: true,
+            runtimeModeEnabled: true
         )
 
         let encoder = JSONEncoder()
@@ -126,6 +130,7 @@ struct StackCodingKeysRoundTripTests {
         #expect(decoded.defaultFont == "Menlo")
         #expect(decoded.webAssetsAllowed == true)
         #expect(decoded.aiContextCloudSharingAllowed == true)
+        #expect(decoded.runtimeModeEnabled == true)
     }
 
     @Test("Stack with webAssetsAllowed=false round-trips through JSON")
@@ -139,6 +144,7 @@ struct StackCodingKeysRoundTripTests {
         let decoded = try JSONDecoder().decode(Stack.self, from: encoded)
         #expect(decoded.webAssetsAllowed == false)
         #expect(decoded.aiContextCloudSharingAllowed == false)
+        #expect(decoded.runtimeModeEnabled == false)
     }
 
     // MARK: - Default init
@@ -148,6 +154,7 @@ struct StackCodingKeysRoundTripTests {
         let stack = Stack()
         #expect(stack.webAssetsAllowed == false)
         #expect(stack.aiContextCloudSharingAllowed == false)
+        #expect(stack.runtimeModeEnabled == false)
     }
 
     @Test("Stack default init sets all other fields to expected defaults")
@@ -179,5 +186,6 @@ struct StackCodingKeysRoundTripTests {
         #expect(stack.defaultFont == "Apple Braille")
         #expect(stack.webAssetsAllowed == false)
         #expect(stack.aiContextCloudSharingAllowed == false)
+        #expect(stack.runtimeModeEnabled == false)
     }
 }

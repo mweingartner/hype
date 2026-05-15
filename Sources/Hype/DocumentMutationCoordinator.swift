@@ -285,6 +285,7 @@ final class HypeDocumentMutationCoordinator {
 
     private func scheduleAutosave(for document: HypeDocument) {
         let stackId = document.stack.id
+        persistRecoverySnapshot(document)
         pendingAutosaves[stackId]?.cancel()
         pendingAutosaves[stackId] = Task { @MainActor [weak self] in
             guard let self else { return }
