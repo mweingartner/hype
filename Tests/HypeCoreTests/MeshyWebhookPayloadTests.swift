@@ -212,4 +212,142 @@ struct MeshyWebhookPayloadTests {
         #expect(payload?.id == "task_unknown_001")
         #expect(payload?.status == .pending)
     }
+
+    // MARK: (D-1) task_error.error set but task_error.message nil → error field used as fallback
+
+    @Test("task_error with error field but no message field uses error as errorMessage fallback")
+    func taskErrorFieldUsedWhenMessageNil() {
+        let body = """
+        {
+          "id": "task_err_fallback_001",
+          "status": "FAILED",
+          "task_error": {"error": "Topology calculation failed"}
+        }
+        """
+        let payload = MeshyWebhookPayload.parse(jsonBody: body)
+
+        #expect(payload?.id == "task_err_fallback_001")
+        #expect(payload?.status == .failed)
+        // The `error` field must be used as the fallback when `message` is absent.
+        #expect(payload?.errorMessage == "Topology calculation failed",
+                "error field must be used as fallback when message is nil")
+    }
+
+    // MARK: (D-1b) task_error with both error and message fields → message takes priority
+
+    @Test("task_error with both message and error fields — message takes priority")
+    func taskErrorMessageTakesPriorityOverError() {
+        let body = """
+        {
+          "id": "task_priority_001",
+          "status": "FAILED",
+          "task_error": {"message": "Primary message", "error": "Secondary error"}
+        }
+        """
+        let payload = MeshyWebhookPayload.parse(jsonBody: body)
+
+        #expect(payload?.errorMessage == "Primary message",
+                "message field must take priority over error field")
+    }
+
+    // MARK: (D-2) Three competing GLB sources all populated → priority order test
+    //
+    // Contract: model_urls.glb wins over rigged_character_glb_url wins over
+    // result.animation_glb_url. This is the priority order encoded in the
+    // Codable init and documented in the source comment at line 98–109.
+
+    @Test("All three GLB sources present → model_urls.glb wins (priority contract)")
+    func modelUrlsGlbWinsOverRiggedAndAnimation() {
+        let body = """
+        {
+          "id": "task_priority_glb_001",
+          "status": "SUCCEEDED",
+          "model_urls": {
+            "glb": "https://assets.meshy.ai/models/model.glb"
+          },
+          "rigged_character_glb_url": "https://assets.meshy.ai/rigs/rig.glb",
+          "result": {
+            "animation_glb_url": "https://assets.meshy.ai/anims/anim.glb"
+          }
+        }
+        """
+        let payload = MeshyWebhookPayload.parse(jsonBody: body)
+
+        #expect(payload?.glbUrl?.absoluteString == "https://assets.meshy.ai/models/model.glb",
+                "model_urls.glb must win when all three GLB sources are present")
+    }
+
+    @Test("model_urls.glb absent → rigged_character_glb_url wins over result.animation_glb_url")
+    func riggedUrlWinsOverAnimationWhenModelUrlsAbsent() {
+        let body = """
+        {
+          "id": "task_priority_glb_002",
+          "status": "SUCCEEDED",
+          "rigged_character_glb_url": "https://assets.meshy.ai/rigs/rig.glb",
+          "result": {
+            "animation_glb_url": "https://assets.meshy.ai/anims/anim.glb"
+          }
+        }
+        """
+        let payload = MeshyWebhookPayload.parse(jsonBody: body)
+
+        #expect(payload?.glbUrl?.absoluteString == "https://assets.meshy.ai/rigs/rig.glb",
+                "rigged_character_glb_url must win when model_urls.glb is absent")
+    }
+
+    @Test("Only result.animation_glb_url present → used as glbUrl")
+    func animationUrlUsedWhenOnlySource() {
+        let body = """
+        {
+          "id": "task_anim_only_001",
+          "status": "SUCCEEDED",
+          "result": {
+            "animation_glb_url": "https://assets.meshy.ai/anims/anim.glb"
+          }
+        }
+        """
+        let payload = MeshyWebhookPayload.parse(jsonBody: body)
+
+        #expect(payload?.glbUrl?.absoluteString == "https://assets.meshy.ai/anims/anim.glb",
+                "result.animation_glb_url must be used when it is the only GLB source")
+    }
+
+    // MARK: (D-3) task_error.message longer than 200 chars → truncated to 200
+
+    @Test("task_error.message longer than 200 chars is truncated to 200 chars")
+    func longErrorMessageTruncatedTo200Chars() {
+        // Build a message that is 300 characters long.
+        let longMessage = String(repeating: "A", count: 300)
+        let body = """
+        {
+          "id": "task_long_err_001",
+          "status": "FAILED",
+          "task_error": {"message": "\(longMessage)"}
+        }
+        """
+        let payload = MeshyWebhookPayload.parse(jsonBody: body)
+
+        #expect(payload?.errorMessage?.count == 200,
+                "errorMessage must be truncated to 200 chars; got \(payload?.errorMessage?.count ?? -1)")
+        #expect(payload?.errorMessage == String(repeating: "A", count: 200),
+                "Truncation must keep the first 200 characters")
+    }
+
+    // MARK: (D-3b) task_error.error longer than 200 chars → truncated to 200
+
+    @Test("task_error.error longer than 200 chars is truncated to 200 chars when message is absent")
+    func longErrorFieldTruncatedTo200Chars() {
+        let longError = String(repeating: "E", count: 250)
+        let body = """
+        {
+          "id": "task_long_err_field_001",
+          "status": "FAILED",
+          "task_error": {"error": "\(longError)"}
+        }
+        """
+        let payload = MeshyWebhookPayload.parse(jsonBody: body)
+
+        #expect(payload?.errorMessage?.count == 200,
+                "errorMessage derived from error field must also be truncated to 200 chars")
+    }
 }

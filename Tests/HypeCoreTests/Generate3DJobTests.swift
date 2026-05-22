@@ -347,3 +347,174 @@ struct Generate3DJobTests {
         #expect(Bool(true))
     }
 }
+
+// MARK: - Suite E: Generate3DJob.validate boundary cases
+
+@Suite("Generate3DJob.Options — validate boundary cases")
+struct Generate3DJobValidateBoundaryTests {
+
+    // MARK: E-1: targetPolycount exactly 100 → valid (no throw)
+
+    @Test("targetPolycount exactly 100 is valid — no error thrown")
+    func polycountExactly100IsValid() async throws {
+        let stub = ScriptedMeshyClient(responses: [makeSuccessResponse()])
+        let job = Generate3DJob(client: stub, logger: HypeLogger(setupFileLogging: false))
+        let options = Generate3DJob.Options(targetPolycount: 100, hardTimeout: 30)
+
+        let assets = try await job.run(
+            kind: .text(prompt: "barrel", artStyle: .realistic),
+            options: options,
+            existingAssetNames: []
+        )
+        #expect(!assets.isEmpty, "targetPolycount=100 must not throw — it is the lower bound")
+    }
+
+    // MARK: E-2: targetPolycount exactly 300,000 → valid
+
+    @Test("targetPolycount exactly 300,000 is valid — no error thrown")
+    func polycountExactly300kIsValid() async throws {
+        let stub = ScriptedMeshyClient(responses: [makeSuccessResponse()])
+        let job = Generate3DJob(client: stub, logger: HypeLogger(setupFileLogging: false))
+        let options = Generate3DJob.Options(targetPolycount: 300_000, hardTimeout: 30)
+
+        let assets = try await job.run(
+            kind: .text(prompt: "barrel", artStyle: .realistic),
+            options: options,
+            existingAssetNames: []
+        )
+        #expect(!assets.isEmpty, "targetPolycount=300,000 must not throw — it is the upper bound")
+    }
+
+    // MARK: E-3: targetPolycount 99 → throws MeshyError.invalidPolycount
+
+    @Test("targetPolycount 99 throws MeshyError.invalidPolycount")
+    func polycountBelow100Throws() async throws {
+        let stub = ScriptedMeshyClient(responses: [makeSuccessResponse()])
+        let job = Generate3DJob(client: stub, logger: HypeLogger(setupFileLogging: false))
+        let options = Generate3DJob.Options(targetPolycount: 99, hardTimeout: 30)
+
+        do {
+            _ = try await job.run(
+                kind: .text(prompt: "barrel", artStyle: .realistic),
+                options: options,
+                existingAssetNames: []
+            )
+            Issue.record("Expected MeshyError.invalidPolycount for targetPolycount=99")
+        } catch MeshyError.invalidPolycount(let value) {
+            #expect(value == 99)
+        } catch {
+            Issue.record("Unexpected error type for polycount=99: \(error)")
+        }
+    }
+
+    // MARK: E-4: targetPolycount 300,001 → throws MeshyError.invalidPolycount
+
+    @Test("targetPolycount 300,001 throws MeshyError.invalidPolycount")
+    func polycountAbove300kThrows() async throws {
+        let stub = ScriptedMeshyClient(responses: [makeSuccessResponse()])
+        let job = Generate3DJob(client: stub, logger: HypeLogger(setupFileLogging: false))
+        let options = Generate3DJob.Options(targetPolycount: 300_001, hardTimeout: 30)
+
+        do {
+            _ = try await job.run(
+                kind: .text(prompt: "barrel", artStyle: .realistic),
+                options: options,
+                existingAssetNames: []
+            )
+            Issue.record("Expected MeshyError.invalidPolycount for targetPolycount=300,001")
+        } catch MeshyError.invalidPolycount(let value) {
+            #expect(value == 300_001)
+        } catch {
+            Issue.record("Unexpected error type for polycount=300,001: \(error)")
+        }
+    }
+
+    // MARK: E-5: topology with mixed case ("qUaD") → validate lowercases for comparison, run succeeds
+
+    /// Contract: `validate` lowercases `topology` before comparing to "quad"/"triangle".
+    /// The original (mixed-case) string flows through to the wire request unchanged.
+    /// The important invariant is that no validation error is thrown — the AI can
+    /// supply any capitalisation.
+    @Test("topology 'qUaD' is accepted without throwing (validate lowercases for comparison)")
+    func topologyMixedCaseAccepted() async throws {
+        let stub = ScriptedMeshyClient(responses: [makeSuccessResponse()])
+        let job = Generate3DJob(client: stub, logger: HypeLogger(setupFileLogging: false))
+        let options = Generate3DJob.Options(topology: "qUaD", hardTimeout: 30)
+
+        // Should not throw — the validate function lowercases before comparing.
+        let assets = try await job.run(
+            kind: .text(prompt: "barrel", artStyle: .realistic),
+            options: options,
+            existingAssetNames: []
+        )
+        #expect(!assets.isEmpty, "Mixed-case 'qUaD' topology must be accepted (no validation throw)")
+
+        // The wire request receives the original case (validate does not mutate Options).
+        let request = try #require(await stub.lastTextRequest)
+        #expect(request.topology?.lowercased() == "quad", "Wire topology must lower-equal 'quad'")
+    }
+
+    // MARK: E-6: symmetryMode with mixed case ("aUtO") → validate lowercases for comparison, run succeeds
+
+    /// Contract: `validate` lowercases `symmetryMode` before comparing to "off"/"auto"/"on".
+    @Test("symmetryMode 'aUtO' is accepted without throwing (validate lowercases for comparison)")
+    func symmetryModeMixedCaseAccepted() async throws {
+        let stub = ScriptedMeshyClient(responses: [makeSuccessResponse()])
+        let job = Generate3DJob(client: stub, logger: HypeLogger(setupFileLogging: false))
+        let options = Generate3DJob.Options(symmetryMode: "aUtO", hardTimeout: 30)
+
+        let assets = try await job.run(
+            kind: .text(prompt: "barrel", artStyle: .realistic),
+            options: options,
+            existingAssetNames: []
+        )
+        #expect(!assets.isEmpty, "Mixed-case 'aUtO' symmetryMode must be accepted (no validation throw)")
+
+        let request = try #require(await stub.lastTextRequest)
+        #expect(request.symmetryMode?.lowercased() == "auto", "Wire symmetryMode must lower-equal 'auto'")
+    }
+
+    // MARK: E-extra: invalid topology value → throws MeshyError.validationFailed
+
+    @Test("topology 'hexagonal' throws MeshyError.validationFailed")
+    func invalidTopologyThrows() async throws {
+        let stub = ScriptedMeshyClient(responses: [makeSuccessResponse()])
+        let job = Generate3DJob(client: stub, logger: HypeLogger(setupFileLogging: false))
+        let options = Generate3DJob.Options(topology: "hexagonal", hardTimeout: 30)
+
+        do {
+            _ = try await job.run(
+                kind: .text(prompt: "barrel", artStyle: .realistic),
+                options: options,
+                existingAssetNames: []
+            )
+            Issue.record("Expected MeshyError.validationFailed for topology='hexagonal'")
+        } catch MeshyError.validationFailed(let field, _) {
+            #expect(field == "topology")
+        } catch {
+            Issue.record("Unexpected error type for invalid topology: \(error)")
+        }
+    }
+
+    // MARK: E-extra: invalid symmetryMode value → throws MeshyError.validationFailed
+
+    @Test("symmetryMode 'diagonal' throws MeshyError.validationFailed")
+    func invalidSymmetryModeThrows() async throws {
+        let stub = ScriptedMeshyClient(responses: [makeSuccessResponse()])
+        let job = Generate3DJob(client: stub, logger: HypeLogger(setupFileLogging: false))
+        let options = Generate3DJob.Options(symmetryMode: "diagonal", hardTimeout: 30)
+
+        do {
+            _ = try await job.run(
+                kind: .text(prompt: "barrel", artStyle: .realistic),
+                options: options,
+                existingAssetNames: []
+            )
+            Issue.record("Expected MeshyError.validationFailed for symmetryMode='diagonal'")
+        } catch MeshyError.validationFailed(let field, _) {
+            #expect(field == "symmetry_mode")
+        } catch {
+            Issue.record("Unexpected error type for invalid symmetryMode: \(error)")
+        }
+    }
+}
