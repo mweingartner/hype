@@ -1,6 +1,6 @@
 # Hype Architecture
 
-> A snapshot of the current implementation as of 2026-05-11.
+> A snapshot of the current implementation as of 2026-05-16.
 
 Hype is a modern, macOS-native re-imagining of HyperCard. It preserves the
 HyperCard mental model — **stacks** of **cards** built on shared **backgrounds**,
@@ -45,6 +45,9 @@ hype-v2/
 │   ├── Hype/                       # Executable target — UI / AppKit / SpriteKit host
 │   │   ├── HypeApp.swift           # @main, DocumentGroup, menu commands
 │   │   ├── OpenAISpeechOutputProvider.swift # App-side speech playback adapter
+│   │   ├── Accessibility/          # Stable AX IDs + virtual canvas hierarchy
+│   │   │   ├── HypeAccessibilityID.swift
+│   │   │   └── CardCanvasAccessibility.swift
 │   │   ├── Resources/
 │   │   ├── SpriteKit/              # SKScene/SKNode bridge layer
 │   │   │   ├── HypeSKScene.swift          # Per-sprite-area interactive scene
@@ -93,6 +96,7 @@ hype-v2/
 │   │       │   └── ThemePicker.swift                    # Picker bound to BuiltInThemes + stack themes
 │   │       ├── ToolName.swift             # Tool palette catalog
 │   │       └── GoMenuCommands.swift       # Menu items (Go, Objects, Arrange, Tools, AI + View/Window additions)
+│   ├── HypePacmanTestbedBuilder/   # CLI that emits a Pac-Man .hype regression stack
 │   └── HypeCore/                   # Library target — model, scripting, AI, rendering
 │       ├── Models/                 # Document model (all value types)
 │       │   ├── HypeDocument.swift         # Root aggregate (themes array, scriptGlobals)
@@ -207,18 +211,22 @@ hype-v2/
 │       │   └── SyncService.swift          # Transport-neutral live-sync engine
 │       └── Export/
 │           └── DocumentExporter.swift     # JSON / single-file HTML export
+├── TestStacks/
+│   └── PacmanAccessibilityTestbed.hype # Generated SpriteKit-heavy UI automation stack
 ├── Tests/HypeCoreTests/            # Model, script, async runtime, AI, export
-└── Tests/HypeTests/                # App/SpriteKit smoke coverage
+└── Tests/HypeTests/                # App/SpriteKit/AppKit/accessibility smoke coverage
 ```
 
-The package defines two targets: **HypeCore** (model + scripting + AI + Core
-Graphics/AppKit rendering helpers — fully testable without launching the app)
-and **Hype** (the macOS executable — SwiftUI, NSView, AppKit, SpriteKit, AVKit,
-WKWebView). The hard split keeps the document model and script runtime as
-value-oriented Swift while the executable owns windows, menus, live AppKit
-hosts, and SpriteKit scenes. HypeCore conditionally imports AppKit for macOS
-rendering/audio/image utilities, but it does not own SwiftUI windows or live
-SpriteKit nodes.
+The package defines three production targets: **HypeCore** (model, scripting,
+AI, and Core Graphics/AppKit rendering helpers — fully testable without
+launching the app), **Hype** (the macOS executable — SwiftUI, NSView, AppKit,
+SpriteKit, AVKit, WKWebView), and **HypePacmanTestbedBuilder** (a small CLI
+that emits a deterministic Pac-Man-style `.hype` stack for accessibility and
+SpriteKit regression work). The hard split keeps the document model and script
+runtime as value-oriented Swift while the executable owns windows, menus, live
+AppKit hosts, and SpriteKit scenes. HypeCore conditionally imports AppKit for
+macOS rendering/audio/image utilities, but it does not own SwiftUI windows or
+live SpriteKit nodes.
 
 ### 1.2 The big picture in one diagram
 
@@ -327,7 +335,7 @@ HypeDocument
   ├── Backgrounds[]    (sortKey, name, script)            ← shared visual templates
   ├── Cards[]          (sortKey, name, marked, backgroundId, script)
   ├── Parts[]          (cardId? or backgroundId?, see §2.3)
-  ├── Constraints[]    (LayoutConstraint, see §6.4)
+  ├── Constraints[]    (LayoutConstraint, see §6.5)
   ├── AIContextLibrary (stack-scoped AI files/images/notes/folders)
   └── SpriteRepository (see §4)
 ```
@@ -516,7 +524,7 @@ SpriteKit serves Hype in two distinct ways:
    `cardNode`, and animated via `SKView.presentScene(_:transition:)`.
 
 The card-level `SKView` is implemented as `PassthroughSKView`
-(CardCanvasView.swift:360) — a subclass whose `hitTest` returns `nil`. This
+(CardCanvasView.swift, search for `class PassthroughSKView`) — a subclass whose `hitTest` returns `nil`. This
 keeps it visible for transitions without ever stealing mouse events from
 the underlying NSView, so editing tools and inline NSView controls keep
 working unchanged.
@@ -673,7 +681,7 @@ on a background queue.
 
 ### 3.4 The bridge: `SceneBridge`
 
-`SceneBridge` (Sources/Hype/SpriteKit/SceneBridge.swift, ~742 LoC) is the
+`SceneBridge` (Sources/Hype/SpriteKit/SceneBridge.swift, ~900 LoC) is the
 single point of translation between the persistent `SceneSpec` and the
 live `SKNode` tree. It owns three pieces of state:
 
@@ -903,11 +911,15 @@ scripting, asset-ref, and Sprite Repository discipline.
 AppKit-hosted `SCNView` overlay. One instance is created per visible `scene3D`
 part and tracked in `CardCanvasNSView.scene3DViews: [UUID: Scene3DHostNSView]`.
 On part update, the host checks whether `scene3DAssetRef` has changed: if so,
-it resolves the asset bytes from `SpriteRepository`, writes them to a UUID-named
-temp file under `URL.temporaryDirectory/hype-scene3d/` (directory created with
+it resolves the asset bytes from `SpriteRepository` through
+`Scene3DRepositoryAssetResolver`, writes the render asset to a UUID-named temp
+file under `URL.temporaryDirectory/hype-scene3d/` (directory created with
 `0o700` permissions), and calls `Scene3DAssetLoader.load(from:)` on a
-background queue. The fallback path reads `scene3DURL` directly for legacy
-file-path bindings.
+background queue. GLB/GLTF repository selections render through a same-task or
+same-basename USDZ companion when one exists, while the selected asset name
+remains the author-visible model value. The load identity includes a byte
+fingerprint so replacing an embedded asset with same-length bytes still reloads.
+The fallback path reads `scene3DURL` directly for legacy file-path bindings.
 
 **`Scene3DAssetLoader`** (`Sources/HypeCore/Rendering/Scene3DAssetLoader.swift`)
 is the centralised extension→strategy table:
@@ -1385,7 +1397,7 @@ them often:
 - **`helpText`** — every part can opt into a hover bubble shown via native
   `NSToolTip`. `set the helpText of cd btn "Save" to "Saves the current
   document. ⌘S also works."` is enough; aliases `tooltip`, `help`,
-  `tool_tip`, `help_text` are accepted. Empty disables the bubble. See §6.7.
+  `tool_tip`, `help_text` are accepted. Empty disables the bubble. See §6.9.
 
 **Field-exit events** (`exitField`, `closeField`) underwent a deliberate
 semantic change:
@@ -1489,13 +1501,15 @@ fires a billable Meshy generation call. The expression is not memoized.
 
 **`set the model of scene3d "X" to "<value>"`** — smart resolver.
 
-- If `<value>` matches a `model3D` asset name in the Sprite Repository, binds
-  via `Part.scene3DAssetRef` (asset-ref discipline).
+- If `<value>` matches a `model3D` asset name or extensionless asset stem in
+  the Sprite Repository, binds via `Part.scene3DAssetRef` (asset-ref discipline).
 - Otherwise, falls back to the file-path resolver (sets `scene3DURL` directly).
   On the file-path branch, `scene3DAssetRef` is explicitly cleared.
 - The `put <expr> into the model of scene3d "X"` form applies the same
   smart-resolve rules and is fully equivalent to the `set` form (Phase 5
   Finding 3 fix).
+- `modelAsset`, `model_asset`, `assetName`, and `asset_name` use the same
+  resolver for AI tools and HypeTalk aliases.
 
 **`remesh asset "X" to <polycount>`** — triggers a Meshy remesh operation on
 the named model3D asset and imports the result as a new repository asset.
@@ -1615,7 +1629,57 @@ single anonymous `SceneSpec`. `SceneBridge` diffing and cache invalidation are
 recursive, so nested node edits, scene switching, and repository-driven texture
 changes can be applied without always tearing down the full `SKView`.
 
-### 6.4 Layout constraints
+### 6.4 Accessibility and UI automation
+
+Hype exposes a stable macOS Accessibility API contract for both assistive
+clients and automation agents. The implementation is split between
+`HypeAccessibilityID` (stable, non-localized identifiers) and
+`CardCanvasAccessibility` (a virtual accessibility tree for the custom
+canvas).
+
+Stable IDs deliberately use document UUIDs rather than visible labels. Key
+examples:
+
+- `hype.canvas.card.<cardUUID>` — the active `CardCanvasNSView`.
+- `hype.part.<partUUID>` — every visible, enabled card/background part.
+- `hype.spriteArea.<partUUID>.scene.<sceneUUID>` — the active scene inside a
+  sprite area.
+- `hype.spriteArea.<partUUID>.scene.<sceneUUID>.node.<nodeUUID>` — each visible
+  SpriteKit node described by `SceneSpec`.
+- `hype.panel.objects`, `hype.panel.inspector`, `hype.panel.ai`,
+  `hype.ai.prompt`, `hype.ai.send`, `hype.scriptEditor.text`, and
+  `hype.scriptEditor.ai` — the primary shell, AI, and script-editor surfaces.
+
+The canvas is a custom `NSView`, so it cannot rely on AppKit child controls to
+describe stack content. Instead it exposes virtual `NSAccessibilityElement`
+instances for parts, sprite scenes, and sprite nodes. Part elements report role,
+label, help text, value summaries, and screen frames. Sprite-area parts expose
+their active scene as a child, and that scene exposes its visible
+`HypeNodeSpec` nodes as children. This makes a Pac-Man-style generated scene
+discoverable through the hierarchy: canvas → `pacmanArea` part → `main` scene →
+`maze`, `pacmanPlayer`, ghosts, pellets, score label, and colliders.
+
+Automation actions route through the same mutation and script paths as user
+interaction. Part elements support pick/press plus custom actions for opening
+the script editor, revealing the part in the inspector, deleting, moving, and
+resizing. Scene and node elements support script-editor and inspector reveal
+actions. These actions intentionally reuse `CardCanvasView.Coordinator`,
+`NotificationCenter` script-editor routing, and document mutation/autosave
+paths rather than creating a second automation-only edit path.
+
+Security posture: accessibility labels and values expose user-visible document
+content, geometry, IDs, and scene metadata, but not provider API keys, Keychain
+values, or hidden preference secrets. The model/provider preference controls
+still live behind the normal macOS process boundary and should not place raw
+secrets into AX labels, values, or help text.
+
+`HypePacmanTestbedBuilder` generates
+`TestStacks/PacmanAccessibilityTestbed.hype`, a deterministic SpriteKit-heavy
+stack used as a live automation fixture. `CardCanvasAccessibilityTests` asserts
+that this class of document exposes fields, sprite areas, scenes, and
+individual Pac-Man nodes through the AX tree.
+
+### 6.5 Layout constraints
 
 Hype supports HyperCard-style absolute positioning **and** edge-based
 responsive layout. `LayoutConstraint`
@@ -1636,7 +1700,7 @@ provide live drag-time snap guides: the solver computes alignment
 candidates against other parts' edges and centers, the canvas center, and
 HIG-recommended spacings (8 / 12 / 20 pt) within a 6-point threshold.
 
-### 6.5 Tools
+### 6.6 Tools
 
 `ToolManager` (Sources/HypeCore/Tools/ToolManager.swift) holds the active
 tool name and the current selection. `ToolName` (Sources/Hype/Views/ToolName.swift)
@@ -1664,7 +1728,7 @@ the appropriate Y-flip; HypeTalk can paint into it through a
 `DrawingProvider` adapter, mirroring HyperCard's classic painting
 commands.
 
-### 6.6 Card transitions and effects
+### 6.7 Card transitions and effects
 
 `VisualEffects.swift` (Sources/HypeCore/Controls/VisualEffects.swift)
 catalogs the supported transition effects, which the `HypeTalk visual`
@@ -1677,7 +1741,7 @@ scripts can use human forms such as `visual effect wipe left`,
 `visual effect none`. Durations are clamped before scheduling timers so a
 malformed script cannot create a negative or unbounded transition delay.
 
-### 6.7 Themes
+### 6.8 Themes
 
 The theme system (`Sources/HypeCore/Theme/`) introduces a Mac-app-style
 visual system on top of the per-part color fields. A `HypeTheme` is a
@@ -1719,7 +1783,7 @@ authors edit colors with `NSColorWell`-backed pickers and live preview, save
 the result back into `HypeDocument.themes`, and apply it card-by-card from
 the inspector's THEME row.
 
-### 6.8 Hover help (NSToolTip)
+### 6.9 Hover help (NSToolTip)
 
 Hover help text — both for the tool palette and for any author-defined
 control — is delivered via the system `NSToolTip` mechanism, not a custom
@@ -1755,7 +1819,7 @@ HypeTalk (`set the helpText of cd btn "Save" to "..."`, aliases `tooltip` /
 All three paths converge on `Part.helpText`, which `updatePartToolTips`
 reads on the next draw.
 
-### 6.9 Map geocoding service
+### 6.10 Map geocoding service
 
 Map parts use a `MapLocationGeocoder` actor-style singleton
 (`Sources/Hype/Views/MapLocationGeocoder.swift`) to translate
@@ -1780,7 +1844,7 @@ both the geocoder and the `MapHostNSView` rendering path: it memoizes
 successful (query → coordinate) pairs and records recent failures (60s TTL)
 so we don't hammer Apple after a not-found.
 
-### 6.10 Multi-selection and grouping authoring
+### 6.11 Multi-selection and grouping authoring
 
 The canvas, inspector, and sprite scene host all support multi-selection
 edits. `selectedPartIds: Set<UUID>` is the single source of truth on the
@@ -1909,7 +1973,7 @@ schema struct. The categories:
 | Charts                    | `set_chart_data_point_color`, `get_chart_data_points` |
 | Maps                      | `add_map_annotation`, `clear_map_annotations` |
 | Images                    | `set_image_filter` |
-| Sprite areas / scenes     | `create_sprite_area`, `create_sprite_game_template`, `get_scene_spec`, `apply_scene_diff`, `add_sprite_to_scene`, `add_label_to_scene`, `add_shape_to_scene`, `add_emitter_to_scene`, `add_audio_to_scene`, `add_video_to_scene`, `add_group_to_scene`, `create_tilemap`, `create_basic_tileset_asset`, `classify_asset_as_tileset`, `set_tile`, `fill_tilemap`, `get_tilemap_info`, `create_camera`, `add_joint_to_scene`, `add_constraint_to_scene`, `add_physics_field_to_scene`, `capture_scene_snapshot`, `get_scene_diagnostics`, `list_scene_nodes`, `list_scene_joints`, `list_scene_constraints`, `get_scene_script`, `get_node_script`, `get_node_property`, `set_node_property`, `set_node_script`, `set_scene_script`, `set_physics_body` |
+| Sprite areas / scenes     | `create_sprite_area`, `infer_sprite_game_template`, `get_sprite_game_template_guide`, `create_sprite_game_template`, `list_sprite_game_templates`, `get_scene_spec`, `apply_scene_diff`, `add_sprite_to_scene`, `add_label_to_scene`, `add_shape_to_scene`, `add_emitter_to_scene`, `add_audio_to_scene`, `add_video_to_scene`, `add_group_to_scene`, `create_tilemap`, `create_basic_tileset_asset`, `classify_asset_as_tileset`, `set_tile`, `fill_tilemap`, `get_tilemap_info`, `create_camera`, `add_joint_to_scene`, `add_constraint_to_scene`, `add_physics_field_to_scene`, `capture_scene_snapshot`, `get_scene_diagnostics`, `list_scene_nodes`, `list_scene_joints`, `list_scene_constraints`, `get_scene_script`, `get_node_script`, `get_node_property`, `set_node_property`, `set_node_script`, `set_scene_script`, `set_physics_body` |
 | Asset repository          | `list_repository_assets`, `import_repository_asset`, `generate_sprite_asset`, `create_basic_tileset_asset`, `web_asset_search`, `web_asset_import` |
 | AI Context Library        | `list_ai_context`, `search_ai_context`, `read_ai_context_item`, `import_context_asset`, `write_ai_context_note` |
 | 3D model generation (Meshy) | `generate_3d_model_from_text`, `generate_3d_model_from_image`, `generate_3d_model_from_images`, `list_3d_models`, `remesh_3d_model`, `retexture_3d_model` |
@@ -1926,15 +1990,50 @@ longer part of the default in-app authoring loop. They still exist as optional
 capabilities for explicit future use, but normal authoring is narrowed to
 repository-aware stack, card, part, and scene operations.
 
-For complex sprite-area game requests, Hype now also exposes a deterministic
-template path. `create_sprite_game_template` builds the initial Pac-Man /
-maze-chase scaffold in one bounded mutation: local embedded PNG assets,
-classified maze tileset, tile map, static wall colliders, player/ghost sprites,
-pellets, power pellets, and parser-tested scene HypeTalk. `create_basic_tileset_asset`
-is the smaller reusable primitive for local maze/wall tilesets when a full
-game scaffold is not needed. These tools avoid sending the model through dozens
-of low-level tile/image/script calls and prevent it from asking the user to
-provide basic tile sheets that Hype can synthesize itself.
+For complex sprite-area game requests, Hype exposes a deterministic
+catalog-based template path without embedding the whole taxonomy in every
+model prompt. `SpriteGameTemplateCatalog` owns the supported template IDs,
+aliases, default scene sizes, controls, mechanics, generated-node contracts,
+and test expectations. The model first uses the non-mutating
+`infer_sprite_game_template` tool to map a natural-language request to a
+template ID. If the request has unusual mechanics or needs richer details, it
+can then call `get_sprite_game_template_guide` for focused guidance about that
+one template. `list_sprite_game_templates` remains a compact discovery tool
+with optional query/full-detail arguments. `create_sprite_game_template` is
+the bounded mutating tool that builds the selected local scaffold instead of
+asking the model to freehand dozens of image, tile, node, physics, and script
+calls. The high-fidelity templates remain Pac-Man / `maze_chase` and Donkey
+Kong-style / `barrel_climber`: the maze scaffold creates local embedded PNG
+assets, a classified maze tileset, tile map, static wall colliders,
+player/ghost sprites, pellets, power pellets, and parser-tested scene
+HypeTalk; the barrel-climber scaffold creates an 800×600 Sprite Area with
+generated hero, barrel, platform, ladder, rival, trophy, and hammer assets,
+platform physics, A/D/W/S plus Space controls, top-origin barrel spawns from
+the rival/gorilla platform, three-life barrel-hit reset/loss handling,
+ladder-safe contact rules, timed hammer pickup/swing/smash behavior, and a New
+Game button that re-dispatches `sceneDidLoad`.
+
+The catalog also provides deterministic baseline scaffolds for
+`side_scroller_platformer`, `top_down_adventure`, `twin_stick_shooter`,
+`space_shooter`, `physics_puzzle`, `breakout`, `pinball_pachinko`,
+`endless_runner`, `tower_defense`, `match3_grid_puzzle`,
+`sokoban_block_puzzle`, `racing_lane`, `pong_sports_arena`, `rhythm_timing`,
+`board_card_game`, `boss_wave_arena`, `sandbox_physics_toy`, and
+`educational_sim`. These baseline templates create self-contained placeholder
+assets, bounds, player/enemy/pickup/goal/projectile nodes, reset handlers,
+keyboard controls, contact scoring, and parser-validated HypeTalk. Tile/grid
+families also get deterministic tile-map scaffolds. The main AI panel keeps
+only the template-first routing rule in its always-on prompt; catalog details
+are pulled through `infer_sprite_game_template`,
+`get_sprite_game_template_guide`, and `list_sprite_game_templates` when needed.
+The Sprite Scene setup guide also exposes the full catalog as a complete-game
+option for users who want a local deterministic scaffold without going through
+chat.
+`create_basic_tileset_asset` is the smaller reusable primitive for local
+maze/wall tilesets when a full game scaffold is not needed. These tools avoid
+sending the model through dozens of low-level tile/image/script calls and
+prevent it from asking the user to provide basic tile sheets that Hype can
+synthesize itself.
 
 ### 7.3 Structured scene authoring
 
@@ -2211,9 +2310,19 @@ model, parser, interpreter, renderer helpers, and tool executor directly;
 A separate `HypeTests` target holds app-facing smoke coverage for SpriteKit
 bridge behavior, native card-node reconciliation, the canvas hover-help
 registration path, grouped-object keyboard movement, card transition handoff,
-menu composition, field-editor layout parity, and Script Editor AI prompt
-behavior. Provider parity and AI transaction coverage live in `HypeCoreTests`
-so they can run without live OpenAI/Ollama credentials.
+menu composition, field-editor layout parity, Script Editor AI prompt behavior,
+and the Accessibility virtual tree for a Pac-Man-style sprite scene. Provider
+parity and AI transaction coverage live in `HypeCoreTests` so they can run
+without live OpenAI/Ollama credentials.
+
+`HypePacmanTestbedBuilder` is a reproducible fixture generator rather than a
+test-only mock. Running
+`swift run HypePacmanTestbedBuilder TestStacks/PacmanAccessibilityTestbed.hype`
+writes a real `.hype` stack containing a generated Pac-Man-style sprite area,
+deterministic sprite assets, tile map, physics bodies, player, ghosts, pellets,
+score label, and scene script. That stack is intended for live app smoke tests
+with macOS Accessibility clients after the user grants Hype accessibility
+permission in System Settings.
 
 ---
 

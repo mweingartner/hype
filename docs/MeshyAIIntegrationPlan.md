@@ -1,11 +1,34 @@
 # Meshy.ai Integration Plan for Hype
 
-> Status: design proposal — not yet implemented. Date: 2026-05-10.
+> **STATUS (2026-05-13): Phases 1–5 SHIPPED.** See commits:
+> - `d50dd58` — Phase 1: text-to-3D foundations (`MeshyAIClient`,
+>   `MeshyTaskMonitor`, `Generate3DSheet`, `AssetKind.model3D`,
+>   `Part.scene3DAssetRef`, `Scene3DAssetLoader`, Preferences entry,
+>   per-stack `meshyEnabled` flag)
+> - `9f38778` — Phase 2: image-to-3D + multi-image + four AI tools
+>   wrapped in `AIEditTransaction`
+> - `7ec9c75` — Phase 3: rigging via `/openapi/v1/rigging`, animation
+>   picker (~3000-entry bundled catalog, user-selected), HypeTalk
+>   `ask meshy` grammar with sync/expr/async forms
+> - `7ed3347` — Phase 4: `remesh_3d_model`, `retexture_3d_model`,
+>   AR Quick Look (`ARQuickLookPresenter`, `Scene3DAssetConverter`),
+>   `MeshyWebhookPayload` decoder (listener disabled — documented)
+> - `11f1040` — Phase 5: HypeTalk `set the model of scene3d "X" to
+>   <asset>` smart resolver, `put X into the model of scene3d "Y"`
+>   container form, Sprite Repo AI chat allowlist extension
+> - `d4cb9c5` — scene3D resolvers (`Scene3DRepositoryAssetResolver`,
+>   `Scene3DModelBindingResolver`), `bind_3d_model_to_scene3d` AI
+>   tool, `Stack.runtimeModeEnabled`, `SpriteGameTemplateBuilder`,
+>   GLB-via-USDZ-companion render path
 >
-> This plan is the proposed staged-delivery path for adding Meshy.ai
-> 3D asset generation into Hype. It follows the same control gates the
-> Hype Feature Gap plan uses (architect → security → build → security
-> → outcome tests) and is sized so each phase ships independently.
+> Total: 1909+ tests covering the pipeline. Bytes embedded in `.hype`
+> documents (no sidecars). Security pipeline includes hostname
+> allowlist `*.meshy.ai`, NoRedirect URLSession delegate, 50 MB
+> download + decode caps, MIME-sniff authoritative, MeshyImageInput
+> strict path validation, off-main-thread Keychain reads.
+>
+> The document below is preserved as the historical design narrative.
+> Original date: 2026-05-10.
 
 ---
 

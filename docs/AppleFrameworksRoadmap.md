@@ -1,5 +1,12 @@
 # Apple Frameworks → Hype Controls Roadmap
 
+> **STATUS (2026-05-13):** Phases 1, 2, and the CoreImage filter portion of
+> Phase 3 are SHIPPED — see ✅ markers on each item below. Phase 3 entries
+> without a marker remain genuine future work: ContactsUI, EventKit (real
+> calendar events), WebAuthenticationServices, UserNotifications, AVKit
+> Picture-in-Picture, and CoreLocation map overlay. The historical date
+> ranges in each section reflect when the item was first proposed.
+
 A survey of Apple platform frameworks and the controls each could expose to Hype users. Everything in **Phase 1** is recommended to ship in the immediate window. **Phase 2** is high-value, moderate effort. **Phase 3** is interesting-but-niche.
 
 Hype already supports: Button, Field, Shape, Image, Animated GIF, Video (AVKit), Web Page (WebKit), Chart (Swift Charts), Sprite Area (SpriteKit + SKScene + nodes/labels/emitters/joints/constraints/fields), Tile Map.

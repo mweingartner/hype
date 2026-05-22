@@ -1,5 +1,13 @@
 # Hype Feature Gap Implementation Plan
 
+> **STATUS (2026-05-13): All 7 phases SHIPPED.** This plan was executed in
+> commit `07475ca` ("execute the 7-phase HypeFeatureGapImplementationPlan").
+> AIEditTransactionRunner, AIProviderParityHarness, SyncService (local
+> engine), CardSKScene SpriteKit migration of every classic part type,
+> per-card paint snapshots, transactional AI in the main chat — all in the
+> shipping build. The document below is preserved as the historical
+> delivery contract.
+
 This plan is the staged delivery path for closing the current high-risk feature
 gaps without destabilizing the stack model, HypeTalk runtime, AI authoring, or
 renderer. Every workstream uses the same control gates:
