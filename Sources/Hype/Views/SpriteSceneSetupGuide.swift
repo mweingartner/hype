@@ -73,6 +73,8 @@ struct SpriteSceneSetupGuide: View {
     @Environment(\.hypeTheme) private var hypeTheme
     @State private var stepIndex: Int = 0
     @State private var draft: SpriteSceneSetupDraft
+    @State private var selectedGameTemplateID: String = ""
+    @State private var templateError: String?
 
     init(
         document: Binding<HypeDocumentWrapper>,
@@ -301,9 +303,10 @@ struct SpriteSceneSetupGuide: View {
                     .disabled(!canContinue)
                 } else {
                     Button("Apply Setup") {
-                        applyDraft()
-                        dismiss()
-                        onDone()
+                        if applyDraft() {
+                            dismiss()
+                            onDone()
+                        }
                     }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canApply)
@@ -409,6 +412,35 @@ struct SpriteSceneSetupGuide: View {
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
 
+            Divider()
+
+            Picker("Complete game template", selection: $selectedGameTemplateID) {
+                Text("Starter scene only").tag("")
+                ForEach(SpriteGameTemplateBuilder.templateCatalog) { template in
+                    Text(template.displayName).tag(template.id)
+                }
+            }
+
+            if let selectedGameTemplate {
+                Text(selectedGameTemplate.description)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                Text("Controls: \(selectedGameTemplate.supportedControls.joined(separator: ", "))")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                Text("Applying this replaces the active scene with a deterministic, self-contained playable scaffold.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.orange)
+            }
+
+            if let templateError {
+                Text(templateError)
+                    .font(.system(size: 11))
+                    .foregroundColor(.red)
+            }
+
+            Divider()
+
             Toggle("Starter player node", isOn: $draft.wantsPlayerNode)
             Toggle("Camera node", isOn: $draft.wantsCamera)
             Toggle("HUD label", isOn: $draft.wantsHUD)
@@ -492,6 +524,11 @@ struct SpriteSceneSetupGuide: View {
         }
     }
 
+    private var selectedGameTemplate: GameTemplateDescriptor? {
+        guard !selectedGameTemplateID.isEmpty else { return nil }
+        return SpriteGameTemplateCatalog.descriptor(for: selectedGameTemplateID)
+    }
+
     private func applyTemplateDefaults(_ template: SpriteSceneTemplate) {
         switch template {
         case .blank:
@@ -527,7 +564,27 @@ struct SpriteSceneSetupGuide: View {
         }
     }
 
-    private func applyDraft() {
+    private func applyDraft() -> Bool {
+        templateError = nil
+        if let selectedGameTemplate {
+            guard let partIndex = document.document.parts.firstIndex(where: { $0.id == partId }) else {
+                templateError = "Sprite Area not found."
+                return false
+            }
+            do {
+                _ = try SpriteGameTemplateBuilder.applyTemplate(
+                    to: &document.document,
+                    partIndex: partIndex,
+                    spriteAreaName: document.document.parts[partIndex].name,
+                    gameType: selectedGameTemplate.id
+                )
+                return true
+            } catch {
+                templateError = error.localizedDescription
+                return false
+            }
+        }
+
         document.document.updatePart(id: partId) { part in
             part.updateSpriteAreaSpec { areaSpec in
                 areaSpec.designSize = SizeSpec(width: draft.width, height: draft.height)
@@ -566,6 +623,7 @@ struct SpriteSceneSetupGuide: View {
                 areaSpec.activeSceneID = targetSceneId
             }
         }
+        return true
     }
 
     private func seedStarterContent(into scene: inout SceneSpec) {

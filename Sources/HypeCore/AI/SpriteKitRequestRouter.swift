@@ -84,12 +84,49 @@ public enum SpriteKitRequestRouter {
             "create sprite area",
             "create spritearea",
             "create spritekit scene",
+            "create spritekit game",
+            "create a spritekit game",
+            "create a spritekit based game",
             "create sprite scene",
+            "build spritekit game",
+            "build a spritekit game",
             "build spritekit scene",
+            "make spritekit game",
+            "make a spritekit game",
             "set up spritekit scene",
             "setup spritekit scene",
             "starter scene",
             "new sprite area"
+        ]
+        let spriteKitGameTerms = [
+            "spritekit based game",
+            "spritekit game",
+            "sprite scene game",
+            "sprite area game",
+            "donkey kong",
+            "barrel game",
+            "barrel climber",
+            "barrel jumper",
+            "jump barrels",
+            "platformer",
+            "platform game",
+            "arcade game",
+            "tower defense",
+            "top down shooter",
+            "top-down shooter",
+            "space shooter",
+            "physics puzzle",
+            "breakout",
+            "pinball",
+            "endless runner",
+            "match-3",
+            "match 3",
+            "sokoban",
+            "racing game",
+            "pong",
+            "rhythm game",
+            "boss battle",
+            "physics sandbox"
         ]
         let formControlTerms = [
             "entry form",
@@ -190,6 +227,9 @@ public enum SpriteKitRequestRouter {
         let mentionsSpriteBehavior = behaviorTerms.contains(where: { lower.contains($0) })
             || behaviorPhrases.contains(where: { lower.contains($0) })
         let explicitCreate = explicitCreateTerms.contains(where: { lower.contains($0) })
+        let inferredTemplateGame = SpriteGameTemplateBuilder.inferredGameType(forPrompt: prompt) != nil
+        let mentionsSpriteKitGame = inferredTemplateGame || spriteKitGameTerms.contains(where: { lower.contains($0) })
+            || (lower.contains("game") && (mentionsSpriteKit || lower.contains("sprite scene") || lower.contains("sprite area")))
         let explicitRepair = explicitRepairTerms.contains(where: { lower.contains($0) })
         let explicitScriptRequest = explicitScriptTerms.contains(where: { lower.contains($0) }) || lower.contains(" script ")
         let partAuthoringOverride = partAuthoringOverrideTerms.contains(where: { lower.contains($0) })
@@ -199,9 +239,17 @@ public enum SpriteKitRequestRouter {
             && !explicitRepair
 
         // Early escape: the user is explicitly talking about a
-        // card/background-level part. Skip all SpriteKit inference
-        // and go straight to the full authoring toolset.
-        if formControlOverride || partAuthoringOverride {
+        // card/background-level part. Skip all SpriteKit inference and
+        // go straight to the full authoring toolset, unless the prompt
+        // is explicitly a SpriteKit game request that merely includes
+        // card-level supporting pieces like "add a New Game button".
+        if formControlOverride || (partAuthoringOverride
+            && !mentionsSpriteKit
+            && !mentionsSpriteKitGame
+            && !mentionsSpriteBehavior
+            && !explicitCreate
+            && !mentionsKnownArea
+            && !mentionsKnownNode) {
             return SpriteKitAIRoute(
                 isSpriteKitRequest: false,
                 structuredIntent: nil,
@@ -211,7 +259,7 @@ public enum SpriteKitRequestRouter {
         }
 
         let isSpriteKitRequest =
-            mentionsSpriteKit || mentionsSpriteBehavior || mentionsKnownArea || mentionsKnownNode
+            mentionsSpriteKit || mentionsSpriteKitGame || mentionsSpriteBehavior || mentionsKnownArea || mentionsKnownNode
 
         guard isSpriteKitRequest else {
             return SpriteKitAIRoute()

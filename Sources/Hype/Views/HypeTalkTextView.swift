@@ -28,6 +28,7 @@ struct HypeTalkTextView: NSViewRepresentable {
     /// the user edits the script.
     var errorHighlightLine: Binding<Int?>? = nil
     var onTextChange: (() -> Void)? = nil
+    var accessibilityIdentifier: String = HypeAccessibilityID.scriptEditorText
     /// The active theme's script-editor sub-palette. Drives every
     /// color and font decision. Defaults to the System theme so this
     /// view still works in previews/tests outside the document tree.
@@ -65,6 +66,10 @@ struct HypeTalkTextView: NSViewRepresentable {
         textView.textColor = fg
         textView.typingAttributes = [.font: font, .foregroundColor: fg]
         textView.delegate = context.coordinator
+        textView.setAccessibilityElement(true)
+        textView.setAccessibilityRole(.textArea)
+        textView.setAccessibilityLabel("HypeTalk script")
+        textView.setAccessibilityIdentifier(accessibilityIdentifier)
 
         // Configure text container
         textView.textContainer?.widthTracksTextView = true
@@ -102,6 +107,7 @@ struct HypeTalkTextView: NSViewRepresentable {
             context.coordinator.isUpdating = false
         }
         context.coordinator.parent = self
+        textView.setAccessibilityIdentifier(accessibilityIdentifier)
 
         // Re-apply theme palette in case the active theme changed
         // since this view was created. Cheap because NSTextView's

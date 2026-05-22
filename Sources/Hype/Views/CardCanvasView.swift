@@ -142,6 +142,7 @@ struct CardCanvasView: NSViewRepresentable {
         // edit mode never moved the map (the live MapKit host that
         // used to own the geocode logic is destroyed in edit mode).
         context.coordinator.reconcileMapLocations()
+        nsView.refreshAccessibilityTreeIfNeeded()
         // Suppress redraws while a SpriteKit card transition is
         // playing. The SKView is on top showing the animated
         // transition between two card-texture scenes — if we
@@ -323,6 +324,27 @@ struct CardCanvasView: NSViewRepresentable {
         /// Update a part's text content (used by inline field editor).
         func updatePartText(id: UUID, text: String) {
             parent.document.document.updatePart(id: id) { $0.textContent = text }
+        }
+
+        /// Accessibility writeback for button labels and authored part text.
+        func setPartText(id: UUID, text: String) {
+            parent.document.document.updatePart(id: id) { $0.textContent = text }
+        }
+
+        /// Accessibility writeback for non-text parts. Automation clients use
+        /// the AX value setter as a broad "rename selected object" affordance
+        /// when the part does not expose editable text.
+        func setPartName(id: UUID, name: String) {
+            parent.document.document.updatePart(id: id) { $0.name = name }
+        }
+
+        /// Accessibility resize action. Keeps the model mutation on the same
+        /// coordinator path as other canvas edits so undo/autosave still see it.
+        func resizeAccessibilityPart(id: UUID, dw: Double, dh: Double) {
+            parent.document.document.updatePart(id: id) { part in
+                part.width = max(10, part.width + dw)
+                part.height = max(10, part.height + dh)
+            }
         }
 
         /// Toggle the hilite state of a part (used for image invert-on-click).
@@ -535,25 +557,67 @@ struct CardCanvasView: NSViewRepresentable {
         }
 
         func deletePart(id: UUID) {
-            // Dispatch delete message before removing
-            if let part = parent.document.document.parts.first(where: { $0.id == id }) {
-                let message: String
-                switch part.partType {
-                case .button: message = "deleteButton"
-                case .field:  message = "deleteField"
-                default:      message = "deleteButton"
-                }
-                dispatchMessage(message, to: id)
-                // Release GIF state for image parts before the part
-                // is removed from the document.
-                if part.partType == .image {
-                    GIFAnimator.shared.remove(partId: id)
-                }
+            deleteParts(ids: [id])
+        }
+
+        func deleteParts(ids: Set<UUID>) {
+            let expanded = parent.document.document.expandedGroupSelection(ids)
+            let orderedIds = parent.document.document.parts
+                .filter { expanded.contains($0.id) }
+                .map(\.id)
+            guard !orderedIds.isEmpty else { return }
+
+            // Drop inspector/canvas selection immediately, but keep the
+            // document objects alive until their delete handlers have run.
+            parent.selectedPartIds.subtract(expanded)
+            nsView?.selectedPartIds.subtract(expanded)
+            dispatchDeleteMessagesThenRemove(orderedIds, index: 0)
+        }
+
+        private func dispatchDeleteMessagesThenRemove(_ orderedIds: [UUID], index: Int) {
+            guard index < orderedIds.count else {
+                removeDeletedParts(orderedIds)
+                return
             }
-            // Remove constraints referencing this part
-            parent.document.document.removeConstraintsForPart(id)
-            parent.selectedPartIds.remove(id)
-            parent.document.document.removePart(id: id)
+
+            let id = orderedIds[index]
+            guard let part = parent.document.document.parts.first(where: { $0.id == id }) else {
+                dispatchDeleteMessagesThenRemove(orderedIds, index: index + 1)
+                return
+            }
+
+            dispatchMessage(
+                Self.deleteMessageName(for: part.partType),
+                to: id,
+                params: [],
+                completion: { [weak self] in
+                    self?.dispatchDeleteMessagesThenRemove(orderedIds, index: index + 1)
+                }
+            )
+        }
+
+        private func removeDeletedParts(_ ids: [UUID]) {
+            let idSet = Set(ids)
+            for id in idSet {
+                nsView?.releasePartRuntimeResources(partId: id)
+            }
+
+            var wrapper = parent.document
+            for id in ids {
+                wrapper.document.deletePart(id: id)
+            }
+            parent.document = wrapper
+            parent.selectedPartIds.subtract(idSet)
+            nsView?.selectedPartIds.subtract(idSet)
+            nsView?.needsDisplay = true
+        }
+
+        private static func deleteMessageName(for partType: PartType) -> String {
+            switch partType {
+            case .button: return "deleteButton"
+            case .field: return "deleteField"
+            default: return "deletePart"
+            }
         }
 
         /// Add a layout constraint to the document.
@@ -691,7 +755,8 @@ struct CardCanvasView: NSViewRepresentable {
             params: [Value],
             mouseX: Double = 0,
             mouseY: Double = 0,
-            scriptContext: ScriptDispatchContext? = nil
+            scriptContext: ScriptDispatchContext? = nil,
+            completion: (@MainActor () -> Void)? = nil
         ) {
             let cardId = parent.currentCardId
             dispatchThroughRuntime(
@@ -701,7 +766,8 @@ struct CardCanvasView: NSViewRepresentable {
                 currentCardId: cardId,
                 mouseX: mouseX,
                 mouseY: mouseY,
-                scriptContext: scriptContext
+                scriptContext: scriptContext,
+                completion: completion
             )
         }
 
@@ -776,6 +842,7 @@ struct CardCanvasView: NSViewRepresentable {
                 }
             case .error:
                 if let err = result.error {
+                    nsView?.blockSpriteDispatch(after: err)
                     postScriptErrorNotification(err)
                 }
             }
@@ -838,7 +905,8 @@ struct CardCanvasView: NSViewRepresentable {
             currentCardId: UUID,
             mouseX: Double,
             mouseY: Double,
-            scriptContext: ScriptDispatchContext?
+            scriptContext: ScriptDispatchContext?,
+            completion: (@MainActor () -> Void)? = nil
         ) {
             let snapshot = parent.document.document
             let config = runtimeConfiguration()
@@ -855,6 +923,7 @@ struct CardCanvasView: NSViewRepresentable {
                 )
                 await MainActor.run {
                     self.applyDispatchResult(result)
+                    completion?()
                 }
             }
         }
@@ -991,6 +1060,7 @@ class CardCanvasNSView: NSView {
     private var mouseMovedTrackingArea: NSTrackingArea?
     private var activeCursorDescriptor: CursorDescriptor?
     private var cursorCache: [CursorDescriptor: NSCursor] = [:]
+    var accessibilitySignature: String = ""
 
     // Active SKViews for spriteArea parts (keyed by part ID)
     private var spriteViews: [UUID: SKView] = [:]
@@ -998,7 +1068,20 @@ class CardCanvasNSView: NSView {
     private var spriteBridges: [UUID: SceneBridge] = [:]
     private var loadedSceneSpecs: [UUID: String] = [:]
     private var loadedActiveSceneIDs: [UUID: UUID] = [:]
-    private var pendingSceneLoadIds: Set<UUID> = []
+    private var dispatchedLifecycleSceneIDs: [UUID: UUID] = [:]
+    private struct SpriteLifecycleDispatchKey: Hashable {
+        var partId: UUID
+        var sceneId: UUID
+    }
+    private var pendingSceneLoads: Set<SpriteLifecycleDispatchKey> = []
+    private var frameUpdateDispatchInFlight: Set<UUID> = []
+    private var frameUpdateDispatchPayloads: [UUID: (targetId: UUID, context: ScriptDispatchContext, hasHandler: Bool)] = [:]
+    private var frameUpdateDispatchSignatures: [UUID: String] = [:]
+    /// Circuit-breaks a sprite area after a script runtime error until
+    /// its scene/script signature changes. This prevents a bad
+    /// frameUpdate/openScene loop from repeatedly reopening the Script
+    /// Editor and stealing Browse-mode gameplay focus.
+    private var blockedSpriteDispatchSignatures: [UUID: String] = [:]
 
     /// Last-known cursor position within each sprite scene, in Hype
     /// scene-local top-left-origin coordinates (the same system
@@ -1090,6 +1173,68 @@ class CardCanvasNSView: NSView {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
+    override func isAccessibilityElement() -> Bool { true }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .group }
+
+    override func accessibilityIdentifier() -> String {
+        HypeAccessibilityID.canvas(cardId: currentCardId)
+    }
+
+    override func accessibilityLabel() -> String? {
+        let cardName = document.cards.first(where: { $0.id == currentCardId })?.name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let cardName, !cardName.isEmpty {
+            return "Hype card canvas: \(cardName)"
+        }
+        return "Hype card canvas"
+    }
+
+    override func accessibilityValue() -> Any? {
+        "card=\(currentCardId.uuidString); tool=\(currentTool.rawValue); selected=\(selectedPartIds.count)"
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        accessibilityRootChildren()
+    }
+
+    override func accessibilityVisibleChildren() -> [Any]? {
+        accessibilityRootChildren()
+    }
+
+    override func accessibilityChildrenInNavigationOrder() -> [any NSAccessibilityElementProtocol]? {
+        accessibilityRootChildren().compactMap { $0 as? any NSAccessibilityElementProtocol }
+    }
+
+    override func accessibilitySelectedChildren() -> [Any]? {
+        accessibilitySelectedPartChildren()
+    }
+
+    override func accessibilityHitTest(_ point: NSPoint) -> Any? {
+        guard let window else { return self }
+        let windowPoint = window.convertPoint(fromScreen: point)
+        let localPoint = convert(windowPoint, from: nil)
+        guard bounds.contains(localPoint) else { return nil }
+
+        let cardParts = document.partsForCard(currentCardId)
+        let backgroundParts: [Part]
+        if let card = document.cards.first(where: { $0.id == currentCardId }) {
+            backgroundParts = document.partsForBackground(card.backgroundId)
+        } else {
+            backgroundParts = []
+        }
+        let hitParts = (backgroundParts + cardParts).filter {
+            $0.visible && $0.enabled && $0.partType != .unknown && $0.width > 0 && $0.height > 0
+        }
+        for part in hitParts.reversed() {
+            let rect = NSRect(x: part.left, y: part.top, width: part.width, height: part.height)
+            if rect.contains(localPoint) {
+                return CardCanvasPartAccessibilityElement(canvas: self, partId: part.id)
+            }
+        }
+        return self
+    }
+
     override func keyDown(with event: NSEvent) {
         // While a field editor is active there's a small race
         // window: `startFieldEditing` schedules
@@ -1140,14 +1285,14 @@ class CardCanvasNSView: NSView {
                     scene.keyDown(with: event)
                 }
             }
+
+            return
         }
 
         // Delete or Backspace: delete all selected parts
         if event.keyCode == 51 || event.keyCode == 117 {
             if !selectedPartIds.isEmpty {
-                for id in document.expandedGroupSelection(selectedPartIds) {
-                    coordinator?.deletePart(id: id)
-                }
+                coordinator?.deleteParts(ids: selectedPartIds)
                 needsDisplay = true
                 return
             }
@@ -1208,6 +1353,7 @@ class CardCanvasNSView: NSView {
                     scene.keyUp(with: event)
                 }
             }
+            return
         }
         super.keyUp(with: event)
     }
@@ -1771,28 +1917,34 @@ class CardCanvasNSView: NSView {
 
     // MARK: - Idle Timer
 
-    /// True if the given script source declares `on idle`.
+    /// True if the given script source declares `on <handlerName>`.
     ///
-    /// Accepts `on idle` at the start of any line (ignoring leading
+    /// Accepts `on <handlerName>` at the start of any line (ignoring leading
     /// whitespace). Stricter than `.contains("on idle")`, which would
     /// false-positive on comments like `-- on idle does X` and on
     /// handlers whose names happen to start with "idle" (e.g.
     /// `on idleState`), wastefully dispatching idle to parts that
     /// have no actual idle handler.
-    private static func scriptHasIdleHandler(_ script: String) -> Bool {
-        guard !script.isEmpty else { return false }
+    private static func scriptHasHandler(_ script: String, named handlerName: String) -> Bool {
+        let marker = "on \(handlerName.lowercased())"
+        guard !script.isEmpty, !handlerName.isEmpty else { return false }
         for rawLine in script.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
             let line = rawLine.trimmingCharacters(in: .whitespaces).lowercased()
-            if line.hasPrefix("on idle") {
-                // Next char after "on idle" must be whitespace or
-                // end-of-line — so "on idleState" doesn't count.
-                let afterIdle = line.dropFirst("on idle".count)
-                if afterIdle.isEmpty || afterIdle.first?.isWhitespace == true {
+            if line.hasPrefix(marker) {
+                // Next char after the handler name must be whitespace
+                // or end-of-line, so "on idleState" doesn't count as
+                // an `idle` handler.
+                let remainder = line.dropFirst(marker.count)
+                if remainder.isEmpty || remainder.first?.isWhitespace == true {
                     return true
                 }
             }
         }
         return false
+    }
+
+    private static func scriptHasIdleHandler(_ script: String) -> Bool {
+        scriptHasHandler(script, named: "idle")
     }
 
     private func startIdleTimer() {
@@ -3603,6 +3755,27 @@ class CardCanvasNSView: NSView {
 
     // MARK: - Sprite View Management
 
+    func releasePartRuntimeResources(partId: UUID) {
+        GIFAnimator.shared.remove(partId: partId)
+
+        if let skView = spriteViews[partId] {
+            skView.presentScene(nil)
+            skView.removeFromSuperview()
+        }
+        spriteViews.removeValue(forKey: partId)
+        spriteScenes.removeValue(forKey: partId)
+        spriteBridges.removeValue(forKey: partId)
+        loadedSceneSpecs.removeValue(forKey: partId)
+        lastSceneMousePosition.removeValue(forKey: partId)
+        loadedActiveSceneIDs.removeValue(forKey: partId)
+        dispatchedLifecycleSceneIDs.removeValue(forKey: partId)
+        pendingSceneLoads = pendingSceneLoads.filter { $0.partId != partId }
+        frameUpdateDispatchInFlight.remove(partId)
+        frameUpdateDispatchPayloads.removeValue(forKey: partId)
+        frameUpdateDispatchSignatures.removeValue(forKey: partId)
+        blockedSpriteDispatchSignatures.removeValue(forKey: partId)
+    }
+
     /// Create, update, or remove SKViews for spriteArea parts on the current card.
     private func updateSpriteViews() {
         let toolState = ToolState(currentTool: currentTool.rawValue)
@@ -3642,6 +3815,13 @@ class CardCanvasNSView: NSView {
             spriteBridges.removeAll()
             loadedSceneSpecs.removeAll()
             loadedActiveSceneIDs.removeAll()
+            dispatchedLifecycleSceneIDs.removeAll()
+            pendingSceneLoads.removeAll()
+            lastSceneMousePosition.removeAll()
+            frameUpdateDispatchInFlight.removeAll()
+            frameUpdateDispatchPayloads.removeAll()
+            frameUpdateDispatchSignatures.removeAll()
+            blockedSpriteDispatchSignatures.removeAll()
             return
         }
 
@@ -3672,6 +3852,7 @@ class CardCanvasNSView: NSView {
                 // inspector toggle, HypeTalk, or AI) takes effect
                 // on the existing SKView without a scene rebuild.
                 applyTransparency(part: part, to: existingSKView)
+                refreshFrameUpdateDispatchPayloadIfNeeded(for: part)
 
                 // Only update scene if the sceneSpec JSON changed
                 if loadedSceneSpecs[part.id] != part.sceneSpec {
@@ -3692,7 +3873,13 @@ class CardCanvasNSView: NSView {
                     if let bridge = spriteBridges[part.id],
                        let scene = spriteScenes[part.id],
                        let spec = part.activeSceneSpec {
-                        let needsRebuild = bridge.applyLiveUpdates(spec: spec, to: scene, repository: document.spriteRepository)
+                        let previousSpec = previousActiveSceneSpec(for: part)
+                        let needsRebuild = bridge.applyLiveUpdates(
+                            spec: spec,
+                            previousSpec: previousSpec,
+                            to: scene,
+                            repository: document.spriteRepository
+                        )
                         if needsRebuild {
                             rebuildSpriteScene(for: part, in: existingSKView)
                         } else {
@@ -3704,12 +3891,15 @@ class CardCanvasNSView: NSView {
                             // scene back to opaque on the next frame.
                             applyTransparency(part: part, to: existingSKView)
                             loadedActiveSceneIDs[part.id] = currentSceneId
+                            if let currentSceneId {
+                                refreshFrameUpdateDispatchPayload(for: part, sceneId: currentSceneId, scene: spec)
+                            }
                         }
                         loadedSceneSpecs[part.id] = part.sceneSpec
                         if let previousSceneId,
                            let currentSceneId,
                            previousSceneId != currentSceneId {
-                            dispatchSpriteLifecycleMessages(partId: part.id, sceneId: currentSceneId)
+                            scheduleSpriteLifecycleMessagesIfNeeded(partId: part.id, sceneId: currentSceneId)
                         }
                     } else {
                         rebuildSpriteScene(for: part, in: existingSKView)
@@ -3745,7 +3935,7 @@ class CardCanvasNSView: NSView {
         }
 
         // Remove SKViews for parts that no longer exist
-        for id in spriteViews.keys where !activeIds.contains(id) {
+        for id in Array(spriteViews.keys) where !activeIds.contains(id) {
             if let sceneId = loadedActiveSceneIDs[id],
                let payload = spriteDispatchContext(for: id, sceneId: sceneId) {
                 coordinator?.dispatchMessage(
@@ -3757,14 +3947,14 @@ class CardCanvasNSView: NSView {
             } else {
                 coordinator?.dispatchMessage("closeScene", to: id)
             }
-            spriteViews[id]?.removeFromSuperview()
-            spriteViews.removeValue(forKey: id)
-            spriteScenes.removeValue(forKey: id)
-            spriteBridges.removeValue(forKey: id)
-            loadedSceneSpecs.removeValue(forKey: id)
-            lastSceneMousePosition.removeValue(forKey: id)
-            loadedActiveSceneIDs.removeValue(forKey: id)
+            releasePartRuntimeResources(partId: id)
         }
+    }
+
+    private func previousActiveSceneSpec(for part: Part) -> SceneSpec? {
+        guard let previousJSON = loadedSceneSpecs[part.id] else { return nil }
+        let fallbackSize = SizeSpec(width: part.width, height: part.height)
+        return SpriteAreaSpec.fromStoredJSON(previousJSON, fallbackSize: fallbackSize)?.activeScene
     }
 
     /// Parse the sceneSpec and present a new HypeSKScene in the given SKView.
@@ -3809,6 +3999,8 @@ class CardCanvasNSView: NSView {
             skView.allowsTransparency = part.transparentBackground
             skView.presentScene(emptyScene)
             loadedSceneSpecs[part.id] = part.sceneSpec
+            frameUpdateDispatchPayloads.removeValue(forKey: part.id)
+            frameUpdateDispatchSignatures.removeValue(forKey: part.id)
             return
         }
 
@@ -3829,6 +4021,7 @@ class CardCanvasNSView: NSView {
         spriteScenes[part.id] = scene
         spriteBridges[part.id] = bridge
         loadedActiveSceneIDs[part.id] = sceneEntry.id
+        refreshFrameUpdateDispatchPayload(for: part, sceneId: sceneEntry.id, scene: spec)
 
         // Build the scene from spec
         let repository = document.spriteRepository
@@ -3864,14 +4057,7 @@ class CardCanvasNSView: NSView {
 
         loadedSceneSpecs[part.id] = part.sceneSpec
 
-        // Dispatch lifecycle events after a short delay — must be outside the draw() cycle
-        // to avoid re-entrant document mutations during rendering
-        let partId = part.id
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self = self else { return }
-            guard self.spriteScenes[partId] != nil else { return }  // scene still exists
-            self.dispatchSpriteLifecycleMessages(partId: partId, sceneId: sceneEntry.id)
-        }
+        scheduleSpriteLifecycleMessagesIfNeeded(partId: part.id, sceneId: sceneEntry.id)
     }
 
     private func spriteDispatchContext(
@@ -3889,6 +4075,15 @@ class CardCanvasNSView: NSView {
             return nil
         }
 
+        return makeSpriteDispatchContext(partId: part.id, sceneId: resolvedSceneId, scene: scene, nodeId: nodeId)
+    }
+
+    private func makeSpriteDispatchContext(
+        partId: UUID,
+        sceneId: UUID,
+        scene: SceneSpec,
+        nodeId: UUID? = nil
+    ) -> (targetId: UUID, context: ScriptDispatchContext) {
         var hierarchyPrefix: [UUID] = []
         var objectScripts: [UUID: String] = [:]
         var objectDescriptions: [UUID: String] = [:]
@@ -3904,18 +4099,161 @@ class CardCanvasNSView: NSView {
             }
         }
 
-        hierarchyPrefix.append(resolvedSceneId)
-        objectScripts[resolvedSceneId] = scene.script
-        objectDescriptions[resolvedSceneId] = "scene \"\(scene.name)\""
-        hierarchyPrefix.append(part.id)
+        hierarchyPrefix.append(sceneId)
+        objectScripts[sceneId] = scene.script
+        objectDescriptions[sceneId] = "scene \"\(scene.name)\""
+        hierarchyPrefix.append(partId)
 
-        let targetId = hierarchyPrefix.first ?? resolvedSceneId
+        let targetId = hierarchyPrefix.first ?? sceneId
         let context = ScriptDispatchContext(
             hierarchyPrefix: hierarchyPrefix,
             objectScripts: objectScripts,
             objectDescriptions: objectDescriptions
         )
         return (targetId, context)
+    }
+
+    private func refreshFrameUpdateDispatchPayload(for part: Part, sceneId: UUID, scene: SceneSpec) {
+        let payload = makeSpriteDispatchContext(partId: part.id, sceneId: sceneId, scene: scene)
+        let signature = frameUpdateDispatchSignature(for: part)
+        frameUpdateDispatchPayloads[part.id] = (
+            targetId: payload.targetId,
+            context: payload.context,
+            hasHandler: spriteHierarchyHasHandler(named: "frameUpdate", partId: part.id, scriptContext: payload.context)
+        )
+        frameUpdateDispatchSignatures[part.id] = signature
+        if blockedSpriteDispatchSignatures[part.id] != signature {
+            blockedSpriteDispatchSignatures.removeValue(forKey: part.id)
+        }
+    }
+
+    private func refreshFrameUpdateDispatchPayloadIfNeeded(for part: Part) {
+        let signature = frameUpdateDispatchSignature(for: part)
+        guard frameUpdateDispatchPayloads[part.id] == nil || frameUpdateDispatchSignatures[part.id] != signature else {
+            return
+        }
+        guard let areaSpec = part.spriteAreaSpecModel,
+              let sceneEntry = areaSpec.activeSceneEntry,
+              let scene = areaSpec.activeScene else {
+            frameUpdateDispatchPayloads.removeValue(forKey: part.id)
+            frameUpdateDispatchSignatures.removeValue(forKey: part.id)
+            blockedSpriteDispatchSignatures.removeValue(forKey: part.id)
+            return
+        }
+        refreshFrameUpdateDispatchPayload(for: part, sceneId: sceneEntry.id, scene: scene)
+    }
+
+    private func frameUpdateDispatchSignature(for part: Part) -> String {
+        var pieces = [part.sceneSpec, part.script]
+        if let cardId = part.cardId,
+           let card = document.cards.first(where: { $0.id == cardId }) {
+            pieces.append(card.script)
+            if let background = document.backgrounds.first(where: { $0.id == card.backgroundId }) {
+                pieces.append(background.script)
+            }
+        } else if let backgroundId = part.backgroundId,
+                  let background = document.backgrounds.first(where: { $0.id == backgroundId }) {
+            pieces.append(background.script)
+        }
+        pieces.append(document.stack.script)
+        return pieces.joined(separator: "\u{1F}")
+    }
+
+    func blockSpriteDispatch(after error: ScriptError) {
+        guard let partId = spriteAreaPartId(forScriptObject: error.objectId),
+              let part = document.parts.first(where: { $0.id == partId }) else {
+            return
+        }
+        let signature = frameUpdateDispatchSignature(for: part)
+        blockedSpriteDispatchSignatures[partId] = signature
+        frameUpdateDispatchInFlight.remove(partId)
+        HypeLogger.shared.warn(
+            "Disabled SpriteKit event dispatch for sprite area '\(part.name)' after script error in \(error.handler). Edit or rebuild the scene script to resume gameplay dispatch.",
+            source: "SpriteKit"
+        )
+    }
+
+    private func spriteDispatchIsBlocked(for partId: UUID) -> Bool {
+        guard let blockedSignature = blockedSpriteDispatchSignatures[partId] else {
+            return false
+        }
+        guard let part = document.parts.first(where: { $0.id == partId }) else {
+            blockedSpriteDispatchSignatures.removeValue(forKey: partId)
+            return false
+        }
+        if frameUpdateDispatchSignature(for: part) == blockedSignature {
+            return true
+        }
+        blockedSpriteDispatchSignatures.removeValue(forKey: partId)
+        return false
+    }
+
+    private func spriteAreaPartId(forScriptObject objectId: UUID?) -> UUID? {
+        guard let objectId else { return nil }
+        for part in document.parts where part.partType == .spriteArea {
+            if part.id == objectId {
+                return part.id
+            }
+            guard let areaSpec = part.spriteAreaSpecModel else { continue }
+            if areaSpec.scenes.contains(where: { $0.id == objectId }) {
+                return part.id
+            }
+            if areaSpec.scenes.contains(where: { $0.scene.node(id: objectId) != nil }) {
+                return part.id
+            }
+        }
+        return nil
+    }
+
+    private func spriteHierarchyHasHandler(
+        named handlerName: String,
+        partId: UUID,
+        scriptContext: ScriptDispatchContext
+    ) -> Bool {
+        if scriptContext.objectScripts.values.contains(where: { Self.scriptHasHandler($0, named: handlerName) }) {
+            return true
+        }
+        guard let part = document.parts.first(where: { $0.id == partId }) else { return false }
+        if Self.scriptHasHandler(part.script, named: handlerName) {
+            return true
+        }
+        if let cardId = part.cardId,
+           let card = document.cards.first(where: { $0.id == cardId }) {
+            if Self.scriptHasHandler(card.script, named: handlerName) {
+                return true
+            }
+            if let background = document.backgrounds.first(where: { $0.id == card.backgroundId }),
+               Self.scriptHasHandler(background.script, named: handlerName) {
+                return true
+            }
+        } else if let backgroundId = part.backgroundId,
+                  let background = document.backgrounds.first(where: { $0.id == backgroundId }),
+                  Self.scriptHasHandler(background.script, named: handlerName) {
+            return true
+        }
+        return Self.scriptHasHandler(document.stack.script, named: handlerName)
+    }
+
+    private func scheduleSpriteLifecycleMessagesIfNeeded(partId: UUID, sceneId: UUID) {
+        guard dispatchedLifecycleSceneIDs[partId] != sceneId else { return }
+        let key = SpriteLifecycleDispatchKey(partId: partId, sceneId: sceneId)
+        guard !pendingSceneLoads.contains(key) else { return }
+
+        dispatchedLifecycleSceneIDs[partId] = sceneId
+        pendingSceneLoads.insert(key)
+
+        // Lifecycle handlers can mutate the scene. Defer them until after
+        // SpriteKit presentation and gate by scene id so a same-scene rebuild
+        // caused by `openScene` does not recursively dispatch `openScene` again.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self else { return }
+            defer { self.pendingSceneLoads.remove(key) }
+            guard self.spriteScenes[partId] != nil,
+                  self.loadedActiveSceneIDs[partId] == sceneId else {
+                return
+            }
+            self.dispatchSpriteLifecycleMessages(partId: partId, sceneId: sceneId)
+        }
     }
 
     private func dispatchSpriteLifecycleMessages(partId: UUID, sceneId: UUID) {
@@ -4383,6 +4721,7 @@ extension CardCanvasNSView: SpriteEventDelegate {
     func spriteScene(_ scene: HypeSKScene, didReceiveEvent event: SpriteEvent) {
         // Find the spriteArea part ID that owns this scene
         guard let partId = spriteScenes.first(where: { $0.value === scene })?.key else { return }
+        guard !spriteDispatchIsBlocked(for: partId) else { return }
 
         // Record scene-local mouse position for any pointer-carrying
         // event. The stored position backs `the mouseLoc` during the
@@ -4443,13 +4782,13 @@ extension CardCanvasNSView: SpriteEventDelegate {
                 coordinator?.dispatchMessage("keyDown", to: partId, params: [characters])
             }
             if !characters.isEmpty {
-                coordinator?.dispatchMessageToCard("keyDown")
+                coordinator?.dispatchMessageToCard("keyDown", params: [characters])
             }
-        case .keyUp(_, _):
+        case .keyUp(let characters, _):
             if let payload = spriteDispatchContext(for: partId) {
-                coordinator?.dispatchMessage("keyUp", to: payload.targetId, params: [], scriptContext: payload.context)
+                coordinator?.dispatchMessage("keyUp", to: payload.targetId, params: [characters], scriptContext: payload.context)
             } else {
-                coordinator?.dispatchMessage("keyUp", to: partId)
+                coordinator?.dispatchMessage("keyUp", to: partId, params: [characters])
             }
         case .contactBegan(let nodeA, let nodeB):
             let nodeNames: [UUID: String] = {
@@ -4482,6 +4821,24 @@ extension CardCanvasNSView: SpriteEventDelegate {
                 coordinator?.dispatchMessage("endContact", to: payload.targetId, params: [nodeNames[nodeA] ?? ""], scriptContext: payload.context)
             }
         case .frameUpdate(let deltaTime):
+            let toolState = ToolState(currentTool: currentTool.rawValue)
+            guard toolState.category == .browse, activeFieldEditor == nil else {
+                frameUpdateDispatchInFlight.remove(partId)
+                return
+            }
+            guard !frameUpdateDispatchInFlight.contains(partId) else {
+                return
+            }
+            if frameUpdateDispatchPayloads[partId] == nil,
+               let part = document.parts.first(where: { $0.id == partId }) {
+                refreshFrameUpdateDispatchPayloadIfNeeded(for: part)
+            }
+            guard let payload = frameUpdateDispatchPayloads[partId],
+                  payload.hasHandler,
+                  let coordinator else {
+                return
+            }
+
             // Plumb the last-known mouse position so `the mouseLoc` /
             // `the mouseH` / `the mouseV` return real cursor coords
             // inside `on frameUpdate` handlers. Without this the
@@ -4495,16 +4852,23 @@ extension CardCanvasNSView: SpriteEventDelegate {
             let mousePos = lastSceneMousePosition[partId]
             let mouseX = mousePos?.x ?? 0
             let mouseY = mousePos?.y ?? 0
-            if let payload = spriteDispatchContext(for: partId) {
-                coordinator?.dispatchMessage("frameUpdate", to: payload.targetId, params: [String(deltaTime)], mouseX: mouseX, mouseY: mouseY, scriptContext: payload.context)
-            } else {
-                coordinator?.dispatchMessage("frameUpdate", to: partId, params: [String(deltaTime)], mouseX: mouseX, mouseY: mouseY)
-            }
+            frameUpdateDispatchInFlight.insert(partId)
+            coordinator.dispatchMessage(
+                "frameUpdate",
+                to: payload.targetId,
+                params: [String(deltaTime)],
+                mouseX: mouseX,
+                mouseY: mouseY,
+                scriptContext: payload.context,
+                completion: { [weak self] in
+                    self?.frameUpdateDispatchInFlight.remove(partId)
+                }
+            )
         case .sceneDidLoad:
             // Lifecycle events are now dispatched directly from rebuildSpriteScene()
             // This case is kept for completeness but should not fire in normal flow
             if let sceneId = loadedActiveSceneIDs[partId] {
-                dispatchSpriteLifecycleMessages(partId: partId, sceneId: sceneId)
+                scheduleSpriteLifecycleMessagesIfNeeded(partId: partId, sceneId: sceneId)
             } else {
                 coordinator?.dispatchMessage("sceneDidLoad", to: partId)
                 coordinator?.dispatchMessage("openScene", to: partId)

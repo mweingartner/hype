@@ -258,6 +258,46 @@ struct StackRuntimeAsyncTests {
         #expect(outputText(from: updated, fieldID: fieldID) == "done")
     }
 
+    @Test("wait followed by send to me is queued instead of nesting synchronously")
+    func waitThenSendToMeQueuesTimerLoop() async {
+        let clock = RecordingClock()
+        let (doc, cardId, buttonId, fieldID) = makeRuntimeDocument(buttonScript: """
+        on mouseUp
+          global tickCount
+          put 0 into tickCount
+          put 0 into field "output"
+          send "tick" to me
+        end mouseUp
+
+        on tick
+          global tickCount
+          add 1 to tickCount
+          put tickCount into field "output"
+          if tickCount < 2 then
+            wait 0.01 seconds
+            send "tick" to me
+          end if
+        end tick
+        """)
+
+        let runtime = await StackRuntimeRegistry.shared.runtime(
+            for: doc,
+            configuration: runtimeConfiguration(clock: clock)
+        )
+        let result = await runtime.dispatchAndWait("mouseUp", params: [], targetId: buttonId, currentCardId: cardId)
+        let completed = await waitUntil {
+            let updated = await runtime.currentDocument()
+            return outputText(from: updated, fieldID: fieldID) == "2"
+        }
+        let updated = await runtime.currentDocument()
+        await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
+
+        #expect(result.status == .completed)
+        #expect(completed)
+        #expect(outputText(from: updated, fieldID: fieldID) == "2")
+        #expect(await clock.sleeps == [0.01])
+    }
+
     @Test("await ollama expression uses the async AI provider")
     func awaitOllamaExpression() async {
         let provider = FixedAIProvider(generated: "scene summary")

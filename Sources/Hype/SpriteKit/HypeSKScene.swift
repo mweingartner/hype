@@ -83,12 +83,12 @@ final class HypeSKScene: SKScene {
 
     @MainActor
     override func keyDown(with event: NSEvent) {
-        eventDelegate?.spriteScene(self, didReceiveEvent: .keyDown(characters: event.characters ?? "", keyCode: event.keyCode))
+        eventDelegate?.spriteScene(self, didReceiveEvent: .keyDown(characters: HypeKeyInput.normalizedName(for: event), keyCode: event.keyCode))
     }
 
     @MainActor
     override func keyUp(with event: NSEvent) {
-        eventDelegate?.spriteScene(self, didReceiveEvent: .keyUp(characters: event.characters ?? "", keyCode: event.keyCode))
+        eventDelegate?.spriteScene(self, didReceiveEvent: .keyUp(characters: HypeKeyInput.normalizedName(for: event), keyCode: event.keyCode))
     }
 
     // MARK: - Frame Update

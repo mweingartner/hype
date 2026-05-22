@@ -30,7 +30,7 @@ public enum Scene3DModelBindingResolver {
         resolvePath: (String) -> String
     ) -> BindingResult {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let asset = repository.asset(byName: trimmed), asset.kind == .model3D {
+        if let asset = modelAsset(named: trimmed, in: repository) {
             part.scene3DAssetRef = repository.assetRef(for: asset)
             part.scene3DSourceURL = ""
             part.scene3DURL = ""
@@ -38,9 +38,9 @@ public enum Scene3DModelBindingResolver {
         }
 
         part.scene3DAssetRef = nil
-        part.scene3DSourceURL = value
-        part.scene3DURL = resolvePath(value)
-        return .path(source: value, resolved: part.scene3DURL)
+        part.scene3DSourceURL = trimmed
+        part.scene3DURL = resolvePath(trimmed)
+        return .path(source: trimmed, resolved: part.scene3DURL)
     }
 
     /// Force legacy URL/path binding and clear any previous repository asset
@@ -51,9 +51,45 @@ public enum Scene3DModelBindingResolver {
         to part: inout Part,
         resolvePath: (String) -> String
     ) -> BindingResult {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         part.scene3DAssetRef = nil
-        part.scene3DSourceURL = value
-        part.scene3DURL = resolvePath(value)
-        return .path(source: value, resolved: part.scene3DURL)
+        part.scene3DSourceURL = trimmed
+        part.scene3DURL = resolvePath(trimmed)
+        return .path(source: trimmed, resolved: part.scene3DURL)
+    }
+
+    public static func modelAsset(named rawName: String, in repository: SpriteRepository) -> SpriteAsset? {
+        let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if let exact = repository.asset(byName: trimmed), exact.kind == .model3D {
+            return exact
+        }
+
+        let requestedStem = trimmed.deletingKnown3DExtension.lowercased()
+        let modelAssets = repository.assets.reversed().filter { $0.kind == .model3D }
+        if let preferredGLB = modelAssets.first(where: {
+            Scene3DRepositoryAssetResolver.isGLB($0)
+                && $0.name.deletingKnown3DExtension.lowercased() == requestedStem
+        }) {
+            return preferredGLB
+        }
+        return modelAssets.first {
+            $0.name.deletingKnown3DExtension.lowercased() == requestedStem
+        }
+    }
+}
+
+private extension String {
+    var lowercasedPathExtension: String {
+        (self as NSString).pathExtension.lowercased()
+    }
+
+    var deletingKnown3DExtension: String {
+        let ext = lowercasedPathExtension
+        if ["glb", "gltf", "usdz", "usd", "fbx", "obj", "scn", "dae", "ply", "abc", "stl"].contains(ext) {
+            return (self as NSString).deletingPathExtension
+        }
+        return self
     }
 }

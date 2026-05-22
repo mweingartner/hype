@@ -112,6 +112,16 @@ public struct HypeToolExecutor: Sendable {
         }
     }
 
+    private func encodeTemplateInference(_ result: GameTemplateInferenceResult) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(result),
+              let json = String(data: data, encoding: .utf8) else {
+            return "Template inference failed to encode."
+        }
+        return json
+    }
+
     private func intArgument(_ value: String?) -> Int? {
         guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !raw.isEmpty else { return nil }
@@ -265,6 +275,21 @@ public struct HypeToolExecutor: Sendable {
         return "\(base)_\(suffix)"
     }
 
+    private func resolvedTemplateGameType(arguments: [String: String]) -> String {
+        let raw = arguments["game_type"] ?? "maze_chase"
+        let options = (arguments["template_options"] ?? "").lowercased()
+        let theme = (arguments["theme"] ?? "").lowercased()
+        let style = (arguments["asset_style"] ?? "").lowercased()
+        let combined = "\(raw.lowercased()) \(options) \(theme) \(style)"
+        if combined.contains("missile_command")
+            || combined.contains("missile command")
+            || combined.contains("city defense")
+            || combined.contains("base defense") {
+            return "missile command"
+        }
+        return raw
+    }
+
     private func repairFormControls(
         arguments: [String: String],
         document: inout HypeDocument,
@@ -347,7 +372,7 @@ public struct HypeToolExecutor: Sendable {
         let hasSceneOrPartScript = !area.script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || !scene.script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if nonLabelNodes.isEmpty && !hasSceneOrPartScript {
-            document.removePart(id: area.id)
+            document.deletePart(id: area.id)
             return "Converted \(createdLabels) SpriteKit label node(s) from '\(area.name)' into locked field labels and removed the unused Sprite Area"
         }
 
@@ -1673,7 +1698,7 @@ public struct HypeToolExecutor: Sendable {
                 case "outputpath", "output_path", "filepath", "file_path": document.parts[index].audioOutputPath = value
                 case "format": document.parts[index].audioFormat = value
                 // Scene3D
-                case "object", "model":
+                case "object", "model", "modelasset", "model_asset", "assetname", "asset_name":
                     _ = Scene3DModelBindingResolver.bindModelOrObject(
                         value: value,
                         to: &document.parts[index],
@@ -1930,7 +1955,7 @@ public struct HypeToolExecutor: Sendable {
         case "delete_part":
             let partName = arguments["part_name"] ?? ""
             if let index = scopedPartIndex(named: partName, currentCardId: currentCardId, in: document) {
-                document.removePart(id: document.parts[index].id)
+                document.deletePart(id: document.parts[index].id)
                 return "Deleted part '\(partName)'"
             }
             return "Part '\(partName)' not found"
@@ -2206,19 +2231,41 @@ public struct HypeToolExecutor: Sendable {
             document.addPart(newPart)
             return "Created sprite area '\(name)' with scene '\(sceneName)' at (\(Int(left)),\(Int(top))) \(Int(width))x\(Int(height))"
 
+        case "infer_sprite_game_template":
+            let prompt = arguments["user_prompt"] ?? arguments["prompt"] ?? ""
+            let context = arguments["current_card_context"] ?? ""
+            let combined = [prompt, context]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+            let result = SpriteGameTemplateBuilder.inferTemplate(forPrompt: combined)
+            return encodeTemplateInference(result)
+
+        case "get_sprite_game_template_guide":
+            let gameType = arguments["game_type"] ?? arguments["template_id"] ?? ""
+            let detailLevel = arguments["detail_level"] ?? "creation"
+            let intent = arguments["intent"] ?? arguments["user_intent"] ?? ""
+            return SpriteGameTemplateBuilder.templateGuide(
+                gameType: gameType,
+                detailLevel: detailLevel,
+                intent: intent
+            )
+
+        case "list_sprite_game_templates":
+            let query = arguments["query"] ?? ""
+            let compact = boolArgument(arguments["compact"]) ?? true
+            return SpriteGameTemplateBuilder.templateCatalogSummary(query: query, compact: compact)
+
         case "create_sprite_game_template":
-            let rawGameType = arguments["game_type"] ?? "pacman"
+            let rawGameType = resolvedTemplateGameType(arguments: arguments)
             let gameType: String
             do {
                 gameType = try SpriteGameTemplateBuilder.normalizedGameType(rawGameType)
             } catch {
                 return error.localizedDescription
             }
-            guard gameType == "pacman" else {
-                return "Unsupported sprite game template '\(rawGameType)'"
-            }
 
-            let rawAreaName = arguments["sprite_area_name"] ?? "pacmanArea"
+            let rawAreaName = arguments["sprite_area_name"] ?? SpriteGameTemplateBuilder.defaultSpriteAreaName(for: gameType)
             guard let areaName = sanitizeAssetName(rawAreaName) else {
                 return "sprite_area_name '\(rawAreaName)' is invalid — use 1-128 characters, letters / digits / _ / - / . / space only"
             }
@@ -2228,14 +2275,20 @@ public struct HypeToolExecutor: Sendable {
             if let existing = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) {
                 partIdx = existing
                 createdArea = false
+                if let width = Double(arguments["scene_width"] ?? arguments["width"] ?? ""), width > 0 {
+                    document.parts[partIdx].width = width
+                }
+                if let height = Double(arguments["scene_height"] ?? arguments["height"] ?? ""), height > 0 {
+                    document.parts[partIdx].height = height
+                }
             } else {
-                let sceneSize = SpriteGameTemplateBuilder.defaultPacmanSceneSize
+                let sceneSize = SpriteGameTemplateBuilder.defaultSceneSize(for: gameType)
                 let stackWidth = Double(document.stack.width)
                 let stackHeight = Double(document.stack.height)
                 let left = Double(arguments["left"] ?? "") ?? max(0, (stackWidth - sceneSize.width) / 2)
                 let top = Double(arguments["top"] ?? "") ?? max(0, (stackHeight - sceneSize.height) / 2)
-                let width = Double(arguments["width"] ?? "") ?? min(sceneSize.width, stackWidth)
-                let height = Double(arguments["height"] ?? "") ?? min(sceneSize.height, stackHeight)
+                let width = Double(arguments["scene_width"] ?? arguments["width"] ?? "") ?? min(sceneSize.width, stackWidth)
+                let height = Double(arguments["scene_height"] ?? arguments["height"] ?? "") ?? min(sceneSize.height, stackHeight)
                 let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
                 var part = Part(
                     partType: .spriteArea,
@@ -2256,13 +2309,14 @@ public struct HypeToolExecutor: Sendable {
             }
 
             do {
-                let result = try SpriteGameTemplateBuilder.applyPacmanTemplate(
+                let result = try SpriteGameTemplateBuilder.applyTemplate(
                     to: &document,
                     partIndex: partIdx,
-                    spriteAreaName: document.parts[partIdx].name
+                    spriteAreaName: document.parts[partIdx].name,
+                    gameType: gameType
                 )
                 let action = createdArea ? "Created" : "Rebuilt"
-                return "\(action) Pac-Man-style game in sprite area '\(result.spriteAreaName)': \(result.assetNames.count) embedded assets, \(result.wallColliderCount) wall colliders, \(result.pelletCount) pellets, \(result.powerPelletCount) power pellets, and scene-level WASD / collision logic."
+                return "\(action) \(result.gameTypeDisplayName) in sprite area '\(result.spriteAreaName)': \(result.assetNames.count) embedded assets, \(result.wallColliderCount) colliders, \(result.pelletCount) collectible/hazard nodes, \(result.powerPelletCount) support nodes, and scene-level keyboard / collision / reset logic."
             } catch {
                 return "create_sprite_game_template failed: \(error.localizedDescription)"
             }
@@ -4561,7 +4615,7 @@ public struct HypeToolExecutor: Sendable {
             var isOnlyScene = false
             var removedName = sceneName
             modifySpriteAreaSpec(partIndex: partIdx, document: &document) { areaSpec in
-                guard let sceneIdx = areaSpec.scenes.firstIndex(where: {
+                guard let scene = areaSpec.scenes.first(where: {
                     $0.scene.name.lowercased() == sceneName.lowercased()
                 }) else { return }
                 sceneFound = true
@@ -4569,15 +4623,8 @@ public struct HypeToolExecutor: Sendable {
                     isOnlyScene = true
                     return
                 }
-                let removedId = areaSpec.scenes[sceneIdx].id
-                removedName = areaSpec.scenes[sceneIdx].scene.name
-                areaSpec.scenes.remove(at: sceneIdx)
-                // If we just removed the active scene, activate the
-                // first remaining one so the area never has a stale
-                // activeSceneID pointing at nothing.
-                if areaSpec.activeSceneID == removedId, let firstRemaining = areaSpec.scenes.first {
-                    areaSpec.activeSceneID = firstRemaining.id
-                    areaSpec.setActiveScene(firstRemaining.scene)
+                if let removed = areaSpec.removeScene(id: scene.id) {
+                    removedName = removed.scene.name
                 }
             }
             if !sceneFound {

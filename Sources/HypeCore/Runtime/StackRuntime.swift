@@ -191,6 +191,15 @@ public struct TCPConnectionSpec: Sendable {
 
 public protocol ScriptRuntimeProviding: Sendable {
     func sleep(seconds: TimeInterval) async throws
+    func enqueueMessage(
+        _ message: String,
+        params: [Value],
+        targetId: UUID,
+        currentCardId: UUID,
+        mouseX: Double,
+        mouseY: Double,
+        scriptContext: ScriptDispatchContext?
+    ) async
     func startAIRequest(prompt: String, model: String?, callbackMessage: String, owner: RuntimeOwnerContext) async throws -> UUID
     /// Phase 3: kick off a Meshy text-to-3D generation asynchronously.
     ///
@@ -1074,29 +1083,38 @@ public actor StackRuntime: ScriptRuntimeProviding {
             if let objectId = err.objectId {
                 userInfo["objectId"] = objectId
             }
-            NotificationCenter.default.post(name: Notification.Name("showScriptError"), object: nil, userInfo: userInfo)
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: Notification.Name("showScriptError"), object: nil, userInfo: userInfo)
+            }
         }
     }
 
     private func postDocumentChange() {
-        NotificationCenter.default.post(
-            name: .stackRuntimeDocumentDidChange,
-            object: nil,
-            userInfo: [
-                "stackId": document.stack.id,
-                "document": document,
-            ]
-        )
+        let stackId = document.stack.id
+        let updatedDocument = document
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .stackRuntimeDocumentDidChange,
+                object: nil,
+                userInfo: [
+                    "stackId": stackId,
+                    "document": updatedDocument,
+                ]
+            )
+        }
     }
 
     private func postStatusChange() {
-        NotificationCenter.default.post(
-            name: .stackRuntimeStatusDidChange,
-            object: nil,
-            userInfo: [
-                "stackId": document.stack.id,
-            ]
-        )
+        let stackId = document.stack.id
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .stackRuntimeStatusDidChange,
+                object: nil,
+                userInfo: [
+                    "stackId": stackId,
+                ]
+            )
+        }
     }
 
     private func enqueueCallback(message: String, owner: RuntimeOwnerContext, params: [Value]) async {

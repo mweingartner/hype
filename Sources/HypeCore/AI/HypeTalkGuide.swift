@@ -229,7 +229,7 @@ public enum HypeTalkGuide {
         underlying engine event happens. Write `on <messageName> ... end <messageName>`
         in a script to react.
 
-        **Generic part / mouse / keyboard:** mouseUp, mouseDown, mouseEnter, mouseLeave, mouseStillDown, openCard, closeCard, openStack, closeStack, openBackground, closeBackground, idle, openField, closeField, exitField, returnInField, tabInField, keyDown, deleteButton, deleteField.
+        **Generic part / mouse / keyboard:** mouseUp, mouseDown, mouseEnter, mouseLeave, mouseStillDown, openCard, closeCard, openStack, closeStack, openBackground, closeBackground, idle, openField, closeField, exitField, returnInField, tabInField, keyDown, deleteButton, deleteField, deletePart.
         **Calendar (`recorder` style — fires on the calendar part):** dateChanged.
         **ColorWell:** colorChanged.
         **Stepper / Slider / Gauge:** valueChanged. (Gauge fires on user click/drag when `enabled` is true.)
@@ -616,9 +616,9 @@ public enum HypeTalkGuide {
             -- `set the model of scene3d "X" to "<asset-name>"` is the canonical
             -- way to connect a model3D asset from the Sprite Repository to a scene3D
             -- part by name. The interpreter first checks the Sprite Repository for a
-            -- model3D asset with that exact name; if found it binds via scene3DAssetRef
-            -- (the preferred rendering path). If NOT found it falls back to file-path
-            -- resolution (same as `set the object of ...`).
+            -- model3D asset with that exact name or extensionless stem; if found it
+            -- binds via scene3DAssetRef (the preferred rendering path). If NOT found
+            -- it falls back to file-path resolution (same as `set the object of ...`).
             -- Meshy GLB assets render in scene3D through their USDZ companion; keep
             -- with_usdz=true when generating models that should display in SceneKit.
             set the model of scene3d "Viewer" to "wooden-barrel"
@@ -957,23 +957,18 @@ public enum HypeTalkGuide {
             -- asked for. Always pass `name` when the user named
             -- the new card.
 
+        **SpriteKit scaffolds:** use `infer_sprite_game_template`, maybe
+        `get_sprite_game_template_guide`, then `create_sprite_game_template`.
+        Use `list_sprite_game_templates` for discovery.
+
         **React when a field loses focus — use `on exitField` (always fires) or `on closeField` (only when text changed):**
             on exitField
-              -- Fires on EVERY field exit (Tab out, click out, focus loss).
-              -- Use this for the universal "user is done with this
-              -- field" trigger — e.g. validating an entry, geocoding
-              -- an address into a map, copying the field's value
-              -- somewhere else. HypeTalk has no `on change` or `on
-              -- blur` handler — `on exitField` plays that role.
+              -- Fires on every field exit; use for validation/geocoding.
               set the location of map "shipping_map" to the text of me
             end exitField
 
             on closeField
-              -- Fires BEFORE exitField when the user changed the
-              -- field's text during this edit session. Use this when
-              -- you specifically need "did the value change?", e.g.
-              -- to mark a form dirty. If both handlers exist, both
-              -- run (closeField first, then exitField).
+              -- Fires before exitField only when text changed.
               put "updated" into field "shared_status"
             end closeField
 
@@ -987,6 +982,10 @@ public enum HypeTalkGuide {
 
         **Keyboard-controlled physics sprite:**
             on keyDown
+              if the key is "up" then set the velocity of sprite "player" to "0,220"
+              if the key is "down" then set the velocity of sprite "player" to "0,-220"
+              if the key is "left" then set the velocity of sprite "player" to "-220,0"
+              if the key is "right" then set the velocity of sprite "player" to "220,0"
               if the key is "w" then set the velocity of sprite "player" to "0,220"
               if the key is "s" then set the velocity of sprite "player" to "0,-220"
               if the key is "a" then set the velocity of sprite "player" to "-220,0"
@@ -1071,7 +1070,7 @@ public enum HypeTalkGuide {
             the mouseLoc       the mouseH        the mouseV
             the shiftKey       the optionKey     the commandKey   -- return "down" or "up"
             the hoveredSprite  the spriteUnderMouse                -- name or "" if none
-            the key                                                  -- inside keyDown/keyUp only
+            the key                                                  -- inside keyDown/keyUp only; arrows are "up", "down", "left", "right"
             the otherNode                                            -- inside begin/endContact only
             the paramCount                                            -- count of current handler params
             the params                                                -- return-separated handler params

@@ -207,6 +207,10 @@ private struct Environment {
     /// Phase 3: `the result` — set by `ask meshy` on success. Mirrors `it`.
     var result: Value = ""
     var globalNames: Set<String> = []
+    /// A `wait` followed by `send "... " to me` is commonly used as
+    /// a timer-loop idiom. Defer exactly that next self-send through
+    /// StackRuntime so it does not grow nested synchronous send depth.
+    var deferNextSelfSend = false
 
     mutating func getVariable(_ name: String) -> Value {
         let key = name.lowercased()
@@ -254,6 +258,111 @@ private enum _InterpreterSyncGate {
     static let semaphore = DispatchSemaphore(value: 1)
 }
 
+private final class SpriteAreaMutationBatch: @unchecked Sendable {
+    private final class Entry: @unchecked Sendable {
+        var spec: SpriteAreaSpec
+        var dirty: Bool
+
+        init(spec: SpriteAreaSpec, dirty: Bool) {
+            self.spec = spec
+            self.dirty = dirty
+        }
+    }
+
+    private var entries: [UUID: Entry] = [:]
+
+    func spriteAreaSpec(partIndex: Int, document: HypeDocument) -> SpriteAreaSpec? {
+        entry(partIndex: partIndex, document: document)?.spec
+    }
+
+    private func entry(partIndex: Int, document: HypeDocument) -> Entry? {
+        guard document.parts.indices.contains(partIndex) else { return nil }
+        let part = document.parts[partIndex]
+        if let entry = entries[part.id] {
+            return entry
+        }
+        guard let spec = part.spriteAreaSpecModel else { return nil }
+        let entry = Entry(spec: spec, dirty: false)
+        entries[part.id] = entry
+        return entry
+    }
+
+    func mutateSpriteAreaSpec(
+        partIndex: Int,
+        document: HypeDocument,
+        transform: (inout SpriteAreaSpec) -> Void
+    ) -> Bool {
+        guard document.parts.indices.contains(partIndex) else { return false }
+        let part = document.parts[partIndex]
+        let entry = entry(partIndex: partIndex, document: document) ?? Entry(
+            spec: SpriteAreaSpec(
+                defaultSceneNamed: part.name.isEmpty ? "main" : part.name,
+                fallbackSize: SizeSpec(width: part.width, height: part.height)
+            ),
+            dirty: false
+        )
+        entries[part.id] = entry
+        transform(&entry.spec)
+        entry.dirty = true
+        return true
+    }
+
+    func mutateActiveScene(
+        partIndex: Int,
+        document: HypeDocument,
+        transform: (inout SceneSpec) -> Void
+    ) -> Bool {
+        guard document.parts.indices.contains(partIndex) else { return false }
+        let part = document.parts[partIndex]
+        let entry = entry(partIndex: partIndex, document: document) ?? Entry(
+            spec: SpriteAreaSpec(
+                defaultSceneNamed: part.name.isEmpty ? "main" : part.name,
+                fallbackSize: SizeSpec(width: part.width, height: part.height)
+            ),
+            dirty: false
+        )
+        entries[part.id] = entry
+
+        if entry.spec.scenes.isEmpty {
+            let scene = SceneSpec(size: entry.spec.designSize, scaleMode: entry.spec.scaleMode)
+            let sceneEntry = SpriteAreaScene(scene: scene)
+            entry.spec.scenes = [sceneEntry]
+            entry.spec.activeSceneID = sceneEntry.id
+        }
+
+        let activeIndex = entry.spec.scenes.firstIndex(where: { $0.id == entry.spec.activeSceneID }) ?? 0
+        entry.spec.activeSceneID = entry.spec.scenes[activeIndex].id
+
+        entry.spec.scenes[activeIndex].scene.size = entry.spec.designSize
+        entry.spec.scenes[activeIndex].scene.scaleMode = entry.spec.scaleMode
+        entry.spec.scenes[activeIndex].scene.showsPhysics = entry.spec.showsPhysics
+        entry.spec.scenes[activeIndex].scene.showsFPS = entry.spec.showsFPS
+        entry.spec.scenes[activeIndex].scene.showsNodeCount = entry.spec.showsNodeCount
+
+        transform(&entry.spec.scenes[activeIndex].scene)
+
+        let activeScene = entry.spec.scenes[activeIndex].scene
+        entry.spec.designSize = activeScene.size
+        entry.spec.scaleMode = activeScene.scaleMode
+        entry.spec.showsPhysics = activeScene.showsPhysics
+        entry.spec.showsFPS = activeScene.showsFPS
+        entry.spec.showsNodeCount = activeScene.showsNodeCount
+        entry.dirty = true
+        return true
+    }
+
+    func flush(to document: inout HypeDocument) {
+        for (partId, entry) in entries where entry.dirty {
+            guard let partIndex = document.parts.firstIndex(where: { $0.id == partId }) else { continue }
+            document.parts[partIndex].setSpriteAreaSpec(entry.spec)
+        }
+    }
+}
+
+private enum SpriteAreaMutationScope {
+    @TaskLocal static var current: SpriteAreaMutationBatch?
+}
+
 // MARK: - Interpreter
 
 /// Tree-walking interpreter for HypeTalk scripts.
@@ -269,6 +378,23 @@ public struct Interpreter: Sendable {
     }
 
     public func executeAsync(handler: Handler, params: [Value], context: ExecutionContext) async -> ExecutionResult {
+        let spriteAreaMutationBatch = SpriteAreaMutationBatch()
+        return await SpriteAreaMutationScope.$current.withValue(spriteAreaMutationBatch) {
+            await executeAsyncImpl(
+                handler: handler,
+                params: params,
+                context: context,
+                spriteAreaMutationBatch: spriteAreaMutationBatch
+            )
+        }
+    }
+
+    private func executeAsyncImpl(
+        handler: Handler,
+        params: [Value],
+        context: ExecutionContext,
+        spriteAreaMutationBatch: SpriteAreaMutationBatch
+    ) async -> ExecutionResult {
         var document = context.document
         // Seed the environment's globals from the document's
         // session-level scriptGlobals. This is the fix for "on idle
@@ -336,12 +462,14 @@ public struct Interpreter: Sendable {
             // like `visual effect dissolve / go next / pass mouseUp`
             // sets both before passing — dropping them here makes
             // the transition invisible.
+            spriteAreaMutationBatch.flush(to: &document)
             visualEffect = env.locals["_visualEffect"]
             let veDuration = Double(env.locals["_visualEffectDuration"] ?? "")
             return ExecutionResult(status: .passed, modifiedDocument: document,
                                    navigationTarget: navigationTarget,
                                    visualEffect: visualEffect, visualEffectDuration: veDuration)
         } catch ControlSignal.exitHandler(let returnVal) {
+            spriteAreaMutationBatch.flush(to: &document)
             document.scriptGlobals = env.globals
             visualEffect = env.locals["_visualEffect"]
             let veDuration = Double(env.locals["_visualEffectDuration"] ?? "")
@@ -349,6 +477,7 @@ public struct Interpreter: Sendable {
                                    modifiedDocument: document, navigationTarget: navigationTarget,
                                    visualEffect: visualEffect, visualEffectDuration: veDuration)
         } catch ControlSignal.showAllCards {
+            spriteAreaMutationBatch.flush(to: &document)
             document.scriptGlobals = env.globals
             return ExecutionResult(status: .completed, modifiedDocument: document, showAllCards: true)
         } catch let error as ScriptError {
@@ -361,6 +490,7 @@ public struct Interpreter: Sendable {
         // Normal completion: write accumulated globals back so the
         // next dispatch (e.g. the next idle tick) reads the
         // mutated values.
+        spriteAreaMutationBatch.flush(to: &document)
         document.scriptGlobals = env.globals
         visualEffect = env.locals["_visualEffect"]
         let veDuration = Double(env.locals["_visualEffectDuration"] ?? "")
@@ -1161,6 +1291,23 @@ public struct Interpreter: Sendable {
             }
 
             document.scriptGlobals = env.globals
+            if env.deferNextSelfSend,
+               targetID == context.targetId,
+               let runtime = context.runtimeProvider {
+                env.deferNextSelfSend = false
+                await runtime.enqueueMessage(
+                    message,
+                    params: [],
+                    targetId: targetID,
+                    currentCardId: context.currentCardId,
+                    mouseX: context.mouseX,
+                    mouseY: context.mouseY,
+                    scriptContext: context.scriptContext
+                )
+                break
+            }
+            env.deferNextSelfSend = false
+
             let result = await MessageDispatcher().dispatchAsync(
                 message: message,
                 params: [],
@@ -1265,6 +1412,7 @@ public struct Interpreter: Sendable {
                 } else {
                     try await sleepOutsideRuntime(seconds: min(seconds, 300))
                 }
+                env.deferNextSelfSend = true
             }
 
         case .waitUntil(let condition):
@@ -1280,6 +1428,7 @@ public struct Interpreter: Sendable {
                     try await sleepOutsideRuntime(seconds: 0.05)
                 }
             }
+            env.deferNextSelfSend = true
 
         // Animation
         case .animateProperty(let property, let targetExpr, let toValueExpr, let durationExpr):
@@ -2310,13 +2459,13 @@ public struct Interpreter: Sendable {
             let col = Int(toNumber(try await evaluate(colExpr, env: &env, document: document, context: context)))
             let row = Int(toNumber(try await evaluate(rowExpr, env: &env, document: document, context: context)))
             let tilemapName = try await evaluate(tilemapExpr, env: &env, document: document, context: context)
-            let cardParts = document.partsForCard(context.currentCardId)
-            guard let area = cardParts.first(where: { $0.partType == .spriteArea }),
-                  let spec = SceneSpec.fromJSON(area.sceneSpec),
-                  let node = spec.nodes.first(where: {
-                      $0.name.lowercased() == tilemapName.lowercased() && $0.nodeType == .tileMap
-                  }),
-                  let tmSpec = node.tileMapSpec
+            guard let location = nodeLocation(
+                named: tilemapName,
+                objectType: "tilemap",
+                document: document,
+                currentCardId: context.currentCardId
+            ),
+                  let tmSpec = location.node.tileMapSpec
             else {
                 return "-1"
             }
@@ -3349,22 +3498,40 @@ public struct Interpreter: Sendable {
             return part.htmlContent
         // SpriteArea-specific properties (read from SpriteAreaSpec JSON)
         case "scalemode", "scale_mode":
-            if let spec = part.spriteAreaSpecModel { return spec.scaleMode.rawValue }
+            if let partIndex = document.parts.firstIndex(where: { $0.id == part.id }),
+               let spec = spriteAreaSpec(partIndex: partIndex, document: document) {
+                return spec.scaleMode.rawValue
+            }
             return ""
         case "showsphysics", "shows_physics":
-            if let spec = part.spriteAreaSpecModel { return spec.showsPhysics ? "true" : "false" }
+            if let partIndex = document.parts.firstIndex(where: { $0.id == part.id }),
+               let spec = spriteAreaSpec(partIndex: partIndex, document: document) {
+                return spec.showsPhysics ? "true" : "false"
+            }
             return "false"
         case "showsfps", "shows_fps":
-            if let spec = part.spriteAreaSpecModel { return spec.showsFPS ? "true" : "false" }
+            if let partIndex = document.parts.firstIndex(where: { $0.id == part.id }),
+               let spec = spriteAreaSpec(partIndex: partIndex, document: document) {
+                return spec.showsFPS ? "true" : "false"
+            }
             return "false"
         case "showsnodecount", "shows_node_count":
-            if let spec = part.spriteAreaSpecModel { return spec.showsNodeCount ? "true" : "false" }
+            if let partIndex = document.parts.firstIndex(where: { $0.id == part.id }),
+               let spec = spriteAreaSpec(partIndex: partIndex, document: document) {
+                return spec.showsNodeCount ? "true" : "false"
+            }
             return "false"
         case "scenename", "scene_name", "activescene", "active_scene":
-            if let spec = part.spriteAreaSpecModel { return spec.activeScene?.name ?? "" }
+            if let partIndex = document.parts.firstIndex(where: { $0.id == part.id }),
+               let spec = spriteAreaSpec(partIndex: partIndex, document: document) {
+                return spec.activeScene?.name ?? ""
+            }
             return ""
         case "scenecount", "scene_count":
-            if let spec = part.spriteAreaSpecModel { return String(spec.scenes.count) }
+            if let partIndex = document.parts.firstIndex(where: { $0.id == part.id }),
+               let spec = spriteAreaSpec(partIndex: partIndex, document: document) {
+                return String(spec.scenes.count)
+            }
             return "0"
         default:            return ""
         }
@@ -4265,7 +4432,7 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].imageFilter = value.lowercased() == "none" ? "" : value.lowercased()
         case "imagefilterintensity", "image_filter_intensity", "filterintensity", "filter_intensity":
             document.parts[partIndex].imageFilterIntensity = max(0, min(1, toNumber(value)))
-        case "object":
+        case "object", "modelasset", "model_asset", "assetname", "asset_name":
             let partId = document.parts[partIndex].id
             _ = Scene3DModelBindingResolver.bindModelOrObject(
                 value: value,
@@ -4630,6 +4797,9 @@ public struct Interpreter: Sendable {
         document: HypeDocument
     ) -> SpriteAreaSpec? {
         guard document.parts.indices.contains(partIndex) else { return nil }
+        if let cached = SpriteAreaMutationScope.current?.spriteAreaSpec(partIndex: partIndex, document: document) {
+            return cached
+        }
         return document.parts[partIndex].spriteAreaSpecModel
     }
 
@@ -4647,6 +4817,9 @@ public struct Interpreter: Sendable {
         transform: (inout SpriteAreaSpec) -> Void
     ) -> Bool {
         guard document.parts.indices.contains(partIndex) else { return false }
+        if let batch = SpriteAreaMutationScope.current {
+            return batch.mutateSpriteAreaSpec(partIndex: partIndex, document: document, transform: transform)
+        }
         var part = document.parts[partIndex]
         var spec = part.spriteAreaSpecModel ?? SpriteAreaSpec(
             defaultSceneNamed: part.name.isEmpty ? "main" : part.name,
@@ -4664,7 +4837,10 @@ public struct Interpreter: Sendable {
         document: inout HypeDocument,
         transform: (inout SceneSpec) -> Void
     ) -> Bool {
-        mutateSpriteAreaSpec(partIndex: partIndex, document: &document) { spec in
+        if let batch = SpriteAreaMutationScope.current {
+            return batch.mutateActiveScene(partIndex: partIndex, document: document, transform: transform)
+        }
+        return mutateSpriteAreaSpec(partIndex: partIndex, document: &document) { spec in
             var scene = spec.activeScene ?? SceneSpec(size: spec.designSize, scaleMode: spec.scaleMode)
             transform(&scene)
             spec.setActiveScene(scene)

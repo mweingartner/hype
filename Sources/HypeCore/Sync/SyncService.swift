@@ -286,6 +286,10 @@ private actor InMemorySyncHub {
             }
         case .deleteCard:
             guard let id = operation.cardId else { return }
+            let deletedPartIds = document.parts.filter { $0.cardId == id }.map(\.id)
+            for partId in deletedPartIds {
+                document.removeConstraintsForPart(partId)
+            }
             document.cards.removeAll { $0.id == id }
             document.parts.removeAll { $0.cardId == id }
             document.removePaintLayer(forCardId: id)
@@ -298,7 +302,7 @@ private actor InMemorySyncHub {
             }
         case .deletePart:
             guard let id = operation.partId else { return }
-            document.removePart(id: id)
+            document.deletePart(id: id)
         case .setPaintLayer:
             guard let layer = operation.paintLayer else { return }
             document.setPaintLayer(layer)

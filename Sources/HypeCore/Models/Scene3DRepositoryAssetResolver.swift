@@ -8,7 +8,13 @@ public struct Scene3DResolvedRepositoryAsset: Sendable {
 
 public enum Scene3DRepositoryAssetResolver {
     public static func selectedAsset(for ref: AssetRef, in repository: SpriteRepository) -> SpriteAsset? {
-        repository.asset(byId: ref.id) ?? repository.asset(byName: ref.name)
+        if let asset = repository.asset(byId: ref.id), asset.kind == .model3D {
+            return asset
+        }
+        if let asset = repository.asset(byName: ref.name), asset.kind == .model3D {
+            return asset
+        }
+        return nil
     }
 
     public static func resolvedAsset(
@@ -49,10 +55,10 @@ public enum Scene3DRepositoryAssetResolver {
             "asset",
             selected.id.uuidString,
             selected.name,
-            String(selected.data.count),
+            dataFingerprint(selected.data),
             render.id.uuidString,
             render.name,
-            String(render.data.count),
+            dataFingerprint(render.data),
             resolved.usesCompanionAsset ? "companion" : "direct"
         ].joined(separator: ":")
     }
@@ -76,7 +82,7 @@ public enum Scene3DRepositoryAssetResolver {
     }
 
     private static func usdzCompanion(for selected: SpriteAsset, in repository: SpriteRepository) -> SpriteAsset? {
-        let candidates = repository.assets.filter { $0.kind == .model3D && isUSDZ($0) }
+        let candidates = repository.assets.reversed().filter { $0.kind == .model3D && isUSDZ($0) }
 
         if let taskId = selected.provenance?.attribution.taskId, !taskId.isEmpty,
            let byTask = candidates.first(where: { $0.provenance?.attribution.taskId == taskId }) {
@@ -87,6 +93,15 @@ public enum Scene3DRepositoryAssetResolver {
         return candidates.first {
             $0.name.deletingKnown3DExtension.lowercased() == selectedStem
         }
+    }
+
+    private static func dataFingerprint(_ data: Data) -> String {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in data {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x100000001b3
+        }
+        return "\(data.count)-\(String(hash, radix: 16))"
     }
 }
 

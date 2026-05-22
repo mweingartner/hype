@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [
         .executable(name: "Hype", targets: ["Hype"]),
+        .executable(name: "HypePacmanTestbedBuilder", targets: ["HypePacmanTestbedBuilder"]),
         .library(name: "HypeCore", targets: ["HypeCore"]),
     ],
     targets: [
@@ -13,6 +14,11 @@ let package = Package(
             name: "Hype",
             dependencies: ["HypeCore"],
             path: "Sources/Hype"
+        ),
+        .executableTarget(
+            name: "HypePacmanTestbedBuilder",
+            dependencies: ["HypeCore"],
+            path: "Sources/HypePacmanTestbedBuilder"
         ),
         .target(
             name: "HypeCore",

@@ -164,6 +164,8 @@ struct ObjectsToolPanel: View {
             maxWidth: Self.panelMaxWidth
         )
         .background(.regularMaterial)
+        .accessibilityLabel("Objects and Tools")
+        .accessibilityIdentifier(HypeAccessibilityID.objectsPanel)
         .overlay(alignment: .trailing) {
             Rectangle()
                 .fill(Color.secondary.opacity(0.3))
@@ -231,6 +233,9 @@ struct ObjectsToolPanel: View {
         }
         .buttonStyle(.plain)
         .help(helpText)
+        .accessibilityLabel(title)
+        .accessibilityValue(isActive ? "active" : "inactive")
+        .accessibilityIdentifier(HypeAccessibilityID.toolbar("mode.\(title.lowercased())"))
     }
 
     @ViewBuilder
@@ -250,5 +255,9 @@ struct ObjectsToolPanel: View {
         }
         .buttonStyle(.plain)
         .help(tooltipText(title: tool.displayTitle, body: tool.description))
+        .accessibilityLabel(tool.displayTitle)
+        .accessibilityHint(tool.description)
+        .accessibilityValue(currentTool == tool ? "selected" : "not selected")
+        .accessibilityIdentifier(HypeAccessibilityID.tool(tool))
     }
 }

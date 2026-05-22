@@ -144,8 +144,7 @@ struct PropertyInspector: View {
                         Button(role: .destructive, action: {
                             let idToDelete = part.id
                             selectedPartIds = []
-                            document.document.removeConstraintsForPart(idToDelete)
-                            document.document.removePart(id: idToDelete)
+                            document.document.deletePart(id: idToDelete)
                         }) {
                             HStack {
                                 Image(systemName: "trash")
@@ -415,7 +414,7 @@ struct PropertyInspector: View {
                     let proceed: () -> Void = {
                         selectedPartIds = []
                         for id in ids {
-                            document.document.removePart(id: id)
+                            document.document.deletePart(id: id)
                         }
                     }
                     if count >= 2 {
@@ -1665,6 +1664,14 @@ struct PropertyInspector: View {
                     }
                     .buttonStyle(.borderless)
                     .help("Add Scene")
+
+                    Button(action: { removeActiveScene(partId: part.id) }) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(areaSpec.scenes.count <= 1)
+                    .help(areaSpec.scenes.count <= 1 ? "A Sprite Area must keep at least one scene" : "Delete Active Scene")
                 }
 
                 HStack(spacing: 8) {
@@ -1888,7 +1895,7 @@ struct PropertyInspector: View {
                         Image(systemName: nodeIcon(node.nodeType))
                             .font(.system(size: 10))
                             .foregroundColor(.secondary)
-                        TextField("name", text: bindNodeName(partId: partId, nodeId: node.id))
+                        TextField("name", text: bindNodeName(partId: partId, node: node))
                             .font(.system(size: 11))
                             .textFieldStyle(.plain)
                             .frame(maxWidth: .infinity)
@@ -2147,6 +2154,14 @@ struct PropertyInspector: View {
         }
     }
 
+    private func removeActiveScene(partId: UUID) {
+        document.document.updatePart(id: partId) { part in
+            part.updateSpriteAreaSpec { areaSpec in
+                _ = areaSpec.removeScene(id: areaSpec.activeSceneID)
+            }
+        }
+    }
+
     /// Binding helper for SceneSpec string properties.
     private func bindSceneSpecString(_ partId: UUID, _ keyPath: WritableKeyPath<SceneSpec, String>) -> Binding<String> {
         Binding(
@@ -2330,16 +2345,14 @@ struct PropertyInspector: View {
         }
     }
 
-    private func bindNodeName(partId: UUID, nodeId: UUID) -> Binding<String> {
+    private func bindNodeName(partId: UUID, node: HypeNodeSpec) -> Binding<String> {
         Binding(
             get: {
-                let json = document.document.parts.first(where: { $0.id == partId })?.sceneSpec ?? ""
-                let spec = SceneSpec.fromJSON(json) ?? SceneSpec()
-                return Self.findNodeById(nodeId, in: spec.nodes)?.name ?? ""
+                node.name
             },
             set: { newVal in
                 modifySceneSpec(partId: partId) { spec in
-                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) { $0.name = newVal }
+                    Self.updateNodeInTree(nodeId: node.id, in: &spec.nodes) { $0.name = newVal }
                 }
             }
         )

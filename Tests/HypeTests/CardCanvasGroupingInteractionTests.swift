@@ -92,4 +92,35 @@ struct CardCanvasGroupingInteractionTests {
         #expect(second.left == 85)
         #expect(state.selectedPartIds == [firstId, secondId])
     }
+
+    @Test("browse mode keyboard dispatch does not fall through to edit-mode nudge")
+    func browseModeKeyboardDoesNotNudgeStaleSelection() throws {
+        let (state, firstId, secondId, coordinator, nsView) = try groupedFixture()
+        state.selectedPartIds = [firstId]
+        nsView.selectedPartIds = [firstId]
+        nsView.currentTool = .browse
+        let rightArrow = String(UnicodeScalar(UInt32(NSRightArrowFunctionKey))!)
+
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.shift],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: rightArrow,
+            charactersIgnoringModifiers: rightArrow,
+            isARepeat: false,
+            keyCode: 124
+        ))
+
+        withExtendedLifetime(coordinator) {
+            nsView.keyDown(with: event)
+        }
+
+        let first = try #require(state.wrapper.document.part(byId: firstId))
+        let second = try #require(state.wrapper.document.part(byId: secondId))
+        #expect(first.left == 10)
+        #expect(second.left == 80)
+    }
 }

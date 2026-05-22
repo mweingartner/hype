@@ -24,18 +24,31 @@ final class SceneBridge {
     }
 
     /// Apply property changes from a SceneSpec to live SKNodes without rebuilding.
-    /// Returns `true` if a full rebuild is needed (node count changed).
-    func applyLiveUpdates(spec: SceneSpec, to scene: SKScene, repository: SpriteRepository) -> Bool {
+    /// Returns `true` if a full rebuild is needed, such as when new nodes
+    /// need to be inserted with the authored hierarchy/order.
+    func applyLiveUpdates(
+        spec: SceneSpec,
+        previousSpec: SceneSpec?,
+        to scene: SKScene,
+        repository: SpriteRepository
+    ) -> Bool {
         // Update scene-level properties
         scene.backgroundColor = nsColor(from: spec.backgroundColor)
         scene.physicsWorld.gravity = CGVector(dx: spec.gravity.dx, dy: spec.gravity.dy)
         scene.isPaused = spec.isPaused
 
-        // Check if structural change occurred (node added/removed)
+        // Handle structural changes. Removed nodes can be applied in-place;
+        // added nodes need a rebuild because parent insertion order matters.
         let specNodeIds = Set(spec.allNodeIDs)
         let registryIds = Set(registry.allIDs())
-        if specNodeIds != registryIds {
-            return true  // need full rebuild
+        let addedIds = specNodeIds.subtracting(registryIds)
+        if !addedIds.isEmpty {
+            return true
+        }
+        for removedId in registryIds.subtracting(specNodeIds) {
+            if let node = registry.node(for: removedId) {
+                removeRegisteredNodeTree(node)
+            }
         }
 
         // Update each node's properties
@@ -43,14 +56,24 @@ final class SceneBridge {
             guard let node = registry.node(for: nodeSpec.id) else {
                 return true
             }
+            let previousNodeSpec = previousSpec?.node(id: nodeSpec.id)
+            let isDynamicPhysicsNode = node.physicsBody?.isDynamic == true
 
-            // Position (convert from Hype to SpriteKit coords)
-            let skPos = converter.toSK(nodeSpec.position)
-            node.position = CGPoint(x: skPos.x, y: skPos.y)
+            // Do not stamp model positions back onto dynamic physics nodes
+            // unless the document position actually changed. Gameplay physics
+            // moves live SKNodes every frame while the document keeps the
+            // authored starting positions; overwriting those live positions on
+            // every velocity/pellet update makes characters snap back.
+            if previousNodeSpec == nil || previousNodeSpec?.position != nodeSpec.position || !isDynamicPhysicsNode {
+                let skPos = converter.toSK(nodeSpec.position)
+                node.position = CGPoint(x: skPos.x, y: skPos.y)
+            }
 
             // Common properties
             node.zPosition = CGFloat(nodeSpec.zPosition)
-            node.zRotation = CGFloat(converter.toSKRotation(nodeSpec.rotation))
+            if previousNodeSpec == nil || previousNodeSpec?.rotation != nodeSpec.rotation || !isDynamicPhysicsNode {
+                node.zRotation = CGFloat(converter.toSKRotation(nodeSpec.rotation))
+            }
             node.xScale = CGFloat(nodeSpec.xScale)
             node.yScale = CGFloat(nodeSpec.yScale)
             node.alpha = CGFloat(nodeSpec.alpha)
@@ -129,6 +152,16 @@ final class SceneBridge {
         }
 
         return false  // live updates sufficient
+    }
+
+    private func removeRegisteredNodeTree(_ node: SKNode) {
+        for child in node.children {
+            removeRegisteredNodeTree(child)
+        }
+        if let id = registry.id(for: node) {
+            registry.unregister(id: id)
+        }
+        node.removeFromParent()
     }
 
     /// Full rebuild: remove all children from scene, create nodes from spec.

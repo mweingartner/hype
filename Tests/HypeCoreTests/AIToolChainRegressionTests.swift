@@ -382,4 +382,44 @@ struct AIToolChainRegressionTests {
         #expect(!doc.parts.contains(where: { $0.name == "remove" }),
                 "delete_part failed — 'remove' still present")
     }
+
+    @Test("delete_scene removes the scene and keeps the Sprite Area valid")
+    func deleteSceneKeepsSpriteAreaValid() async {
+        var (doc, cardId) = docWithSpriteArea("arena", sprites: [])
+        let areaIndex = doc.parts.firstIndex(where: { $0.name == "arena" })!
+        doc.parts[areaIndex].updateSpriteAreaSpec { spec in
+            _ = spec.addScene(named: "bonus", basedOn: spec.activeScene)
+        }
+
+        let executor = HypeToolExecutor()
+        let result = await executor.execute(
+            toolName: "delete_scene",
+            arguments: ["sprite_area_name": "arena", "scene_name": "bonus"],
+            document: &doc,
+            currentCardId: cardId
+        )
+
+        let area = doc.parts.first(where: { $0.name == "arena" })
+        let spec = area?.spriteAreaSpecModel
+        #expect(result.contains("Deleted scene 'bonus'"), "unexpected delete_scene result: \(result)")
+        #expect(spec?.scenes.map(\.scene.name) == ["main"])
+        #expect(spec?.activeScene?.name == "main")
+    }
+
+    @Test("delete_scene refuses to remove the only scene")
+    func deleteSceneRefusesOnlyScene() async {
+        var (doc, cardId) = docWithSpriteArea("arena", sprites: [])
+        let executor = HypeToolExecutor()
+        let result = await executor.execute(
+            toolName: "delete_scene",
+            arguments: ["sprite_area_name": "arena", "scene_name": "main"],
+            document: &doc,
+            currentCardId: cardId
+        )
+
+        let spec = doc.parts.first(where: { $0.name == "arena" })?.spriteAreaSpecModel
+        #expect(result.contains("Cannot delete scene 'main'"), "unexpected delete_scene result: \(result)")
+        #expect(spec?.scenes.map(\.scene.name) == ["main"])
+        #expect(spec?.activeScene?.name == "main")
+    }
 }

@@ -411,22 +411,56 @@ public struct HypeToolDefinitions {
             "height": ("string", "Height", true),
             "on_background": ("string", "true to place on background", false),
         ]),
+        makeTool(name: "infer_sprite_game_template", description: """
+            Infer the best deterministic SpriteKit game template for a user's game request. \
+            Call this before creating a complete game when the template ID is not already \
+            obvious. This tool is read-only and returns a compact JSON recommendation.
+            """, params: [
+            "user_prompt": ("string", "The user's complete game request.", true),
+            "current_card_context": ("string", "Optional short context about the current card or Sprite Area.", false),
+        ]),
+        makeTool(name: "get_sprite_game_template_guide", description: """
+            Return focused implementation guidance for one deterministic SpriteKit game \
+            template. Call this after inference when the request needs template-specific \
+            controls, mechanics, customization, or script contract details.
+            """, params: [
+            "game_type": ("string", "Template ID or alias to explain.", true),
+            "detail_level": ("string", "summary, creation, customization, script_contract, or full. Defaults to creation.", false),
+            "intent": ("string", "Optional user intent to tailor the guidance.", false),
+        ]),
         makeTool(name: "create_sprite_game_template", description: """
             Create or rebuild a complete playable SpriteKit arcade-game scaffold in one \
-            transaction. For Pac-Man / maze-chase requests, call this FIRST instead of \
-            manually generating individual wall images, tile maps, pellets, ghosts, and \
-            scripts. The tool creates deterministic embedded PNG assets, a classified \
-            tileset, a tile map, static wall colliders, player/ghost sprites, pellets, \
-            power pellets, and scene-level HypeTalk for WASD movement, scoring, and \
-            ghost/pellet collisions. Supported game_type values: pacman, maze_chase.
+            transaction. For complete SpriteKit game requests, use this instead of manually \
+            generating individual images, tile maps, platforms, hazards, projectiles, and \
+            scripts. The tool creates deterministic embedded PNG assets, a Sprite Area \
+            scene, physics bodies, visible terrain/goal objects, player/enemy sprites, and \
+            parser-tested scene-level HypeTalk for keyboard movement, reset, scoring, and \
+            collisions. Use infer_sprite_game_template, get_sprite_game_template_guide, or \
+            list_sprite_game_templates when you need to discover the game_type first.
             """, params: [
-            "sprite_area_name": ("string", "Sprite area name to create or rebuild. Defaults to pacmanArea.", false),
-            "game_type": ("string", "Template type: pacman or maze_chase. Defaults to pacman.", false),
+            "sprite_area_name": ("string", "Sprite area name to create or rebuild. Defaults to pacmanArea for maze games or barrelClimberArea for platformers.", false),
+            "game_type": ("string", "Template ID or alias. Use infer_sprite_game_template or list_sprite_game_templates to discover supported values. Defaults to maze_chase.", false),
+            "theme": ("string", "Optional visual theme hint for later customization. Core template creation remains deterministic and local.", false),
+            "difficulty": ("string", "Optional difficulty hint for later customization: easy, normal, hard.", false),
+            "controls": ("string", "Optional control hint. Baseline templates support WASD/arrows and Space where useful.", false),
+            "asset_style": ("string", "Optional placeholder asset style hint. Core templates use local deterministic placeholder assets.", false),
+            "include_new_game_button": ("string", "true to add/update a New Game button where supported; templates include a sceneDidLoad reset path either way.", false),
+            "template_options": ("string", "Optional JSON string for future template-specific options. Unknown options are ignored by current deterministic builders.", false),
             "left": ("string", "X position if a new sprite area must be created", false),
             "top": ("string", "Y position if a new sprite area must be created", false),
             "width": ("string", "Width if a new sprite area must be created", false),
             "height": ("string", "Height if a new sprite area must be created", false),
+            "scene_width": ("string", "Preferred scene width if a new sprite area must be created. Current high-fidelity templates may use their canonical scene size.", false),
+            "scene_height": ("string", "Preferred scene height if a new sprite area must be created. Current high-fidelity templates may use their canonical scene size.", false),
             "on_background": ("string", "true to place a newly-created sprite area on the background", false),
+        ]),
+        makeTool(name: "list_sprite_game_templates", description: """
+            List deterministic SpriteKit game templates that Hype can create with \
+            create_sprite_game_template. Use query to filter the catalog; keep compact=true \
+            unless aliases or fuller descriptions are needed.
+            """, params: [
+            "query": ("string", "Optional filter text such as pacman, tower defense, physics puzzle, or racing.", false),
+            "compact": ("string", "true for compact ID/control/mechanics rows; false for aliases and fuller descriptions. Defaults to true.", false),
         ]),
         makeTool(name: "get_scene_spec", description: "Get the full SceneSpec JSON for a sprite area.", params: [
             "sprite_area_name": ("string", "Name of the sprite area part", true),
@@ -603,6 +637,11 @@ public struct HypeToolDefinitions {
             through (the scene's nodes still render normally on top). \
             Chart-specific properties: chartdata, charttype, charttitle, x_axis_label, y_axis_label, \
             show_legend, show_grid. \
+            Scene3D parts also accept: object, model, modelAsset, assetName, modelURL, \
+            modelSource, allowsCameraControl, autoLighting, antialiasing, sceneBackground. \
+            Use model/modelAsset/assetName for Sprite Repository model3D assets; Hype accepts \
+            exact asset names and extensionless stems, then renders GLB assets through their USDZ \
+            companion when present. Use modelURL only for explicit file paths/URLs. \
             If the named part is a Sprite Area and property is script, this routes to the active \
             scene script shown in "<sprite area> / <scene>" Script Editor. Prefer set_scene_script \
             when the user asks for SpriteKit scene behavior. \
@@ -685,7 +724,8 @@ public struct HypeToolDefinitions {
             height, text, url, videoURL, fillColor, strokeColor, strokeWidth, cornerRadius, \
             visible, enabled, hilite, autoHilite, showName, lockText, textFont, textSize, \
             textAlign, textStyle, fontColor, helpText, script, style. For Sprite Area parts, property=script returns \
-            the active scene script, matching set_part_property's compatibility routing.
+            the active scene script, matching set_part_property's compatibility routing. Scene3D parts also return \
+            object/model, modelAsset, modelURL, modelSource, allowsCameraControl, autoLighting, antialiasing, and sceneBackground.
             """, params: [
             "part_name": ("string", "Name of the part to query", true),
             "property": ("string", "Property name to read", true),
@@ -1632,7 +1672,10 @@ public struct HypeToolDefinitions {
         let allowed = Set([
             // Scene-level creation / diagnostics
             "create_sprite_area",
+            "infer_sprite_game_template",
+            "get_sprite_game_template_guide",
             "create_sprite_game_template",
+            "list_sprite_game_templates",
             "get_scene_spec",
             "get_scene_script",
             "set_scene_script",

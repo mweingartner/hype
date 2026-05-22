@@ -79,6 +79,39 @@ struct HypeTalkScene3DModelBindingTests {
                 "scene3DSourceURL must be cleared when bound via asset ref")
     }
 
+    @Test("set the model of scene3d binds by extensionless repository asset stem")
+    func setModelBindsExtensionlessAssetStem() async throws {
+        let (doc, cardId, targetId, _) = makeDocWithScene3DAndAsset(assetName: "wooden-barrel.glb")
+
+        let script = """
+        on mouseUp
+          set the model of scene3d "Viewer" to "wooden-barrel"
+        end mouseUp
+        """
+
+        let result = await dispatch(script, doc: doc, cardId: cardId, targetId: targetId)
+        let viewer = result.modifiedDocument?.parts.first(where: { $0.name == "Viewer" })
+        #expect(viewer?.scene3DAssetRef?.name == "wooden-barrel.glb",
+                "extensionless scene3D model names should bind to matching model3D repository assets")
+        #expect(viewer?.scene3DURL == "")
+    }
+
+    @Test("set the modelAsset alias of scene3d binds through the shared resolver")
+    func setModelAssetAliasBindsAssetRef() async throws {
+        let (doc, cardId, targetId, _) = makeDocWithScene3DAndAsset(assetName: "barrel.glb")
+
+        let script = """
+        on mouseUp
+          set the modelAsset of scene3d "Viewer" to "barrel"
+        end mouseUp
+        """
+
+        let result = await dispatch(script, doc: doc, cardId: cardId, targetId: targetId)
+        let viewer = result.modifiedDocument?.parts.first(where: { $0.name == "Viewer" })
+        #expect(viewer?.scene3DAssetRef?.name == "barrel.glb")
+        #expect(viewer?.scene3DSourceURL == "")
+    }
+
     // MARK: (b) get round-trip — `the model of scene3d "Viewer"` returns asset name
 
     @Test("get the model of scene3d returns asset name when bound via asset ref")

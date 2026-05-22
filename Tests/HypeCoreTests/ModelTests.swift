@@ -46,12 +46,59 @@ struct ModelTests {
         #expect(doc.parts.isEmpty)
     }
 
+    @Test func deletePartRemovesReferencingConstraints() {
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        let source = Part(partType: .button, cardId: cardId, name: "source")
+        let target = Part(partType: .field, cardId: cardId, name: "target")
+        doc.addPart(source)
+        doc.addPart(target)
+        doc.addConstraint(LayoutConstraint(
+            sourcePartId: source.id,
+            sourceEdge: .left,
+            targetType: .part,
+            targetPartId: target.id,
+            targetEdge: .right,
+            distance: 12
+        ))
+
+        doc.deletePart(id: target.id)
+
+        #expect(doc.parts.contains(where: { $0.id == source.id }))
+        #expect(!doc.parts.contains(where: { $0.id == target.id }))
+        #expect(doc.constraints.isEmpty)
+    }
+
     @Test func updatePart() {
         var doc = HypeDocument.newDocument()
         let part = Part(partType: .button, cardId: doc.cards[0].id, name: "Original")
         doc.addPart(part)
         doc.updatePart(id: part.id) { $0.name = "Updated" }
         #expect(doc.parts[0].name == "Updated")
+    }
+
+    @Test func spriteAreaRemoveActiveSceneActivatesRemainingScene() {
+        var spec = SpriteAreaSpec(defaultSceneNamed: "main", fallbackSize: SizeSpec(width: 640, height: 480))
+        let mainId = spec.activeSceneID
+        let second = spec.addScene(named: "bonus", basedOn: SceneSpec(name: "bonus", size: SizeSpec(width: 320, height: 240)))
+
+        let removed = spec.removeScene(id: second.id)
+
+        #expect(removed?.scene.name == "bonus")
+        #expect(spec.scenes.count == 1)
+        #expect(spec.activeSceneID == mainId)
+        #expect(spec.activeScene?.name == "main")
+    }
+
+    @Test func spriteAreaRemoveSceneRefusesOnlyScene() {
+        var spec = SpriteAreaSpec(defaultSceneNamed: "main", fallbackSize: SizeSpec(width: 640, height: 480))
+        let activeId = spec.activeSceneID
+
+        let removed = spec.removeScene(id: activeId)
+
+        #expect(removed == nil)
+        #expect(spec.scenes.count == 1)
+        #expect(spec.activeSceneID == activeId)
     }
 
     @Test func addBackgroundWithUniqueName() {

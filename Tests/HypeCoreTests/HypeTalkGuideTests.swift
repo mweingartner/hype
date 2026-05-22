@@ -180,6 +180,7 @@ struct HypeTalkGuideTests {
         for event in events {
             #expect(text.contains(event), "guide is missing event '\(event)'")
         }
+        #expect(text.contains("arrows are \"up\", \"down\", \"left\", \"right\""))
     }
 
     @Test("guide shows put/get/set core commands")

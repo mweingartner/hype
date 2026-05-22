@@ -243,9 +243,9 @@ private let scriptTemplates: [ScriptTemplate] = [
     ScriptTemplate(name: "on actionFinished", category: "SpriteKit",
         code: "on actionFinished\n  -- Action completed\nend actionFinished"),
     ScriptTemplate(name: "on keyDown", category: "SpriteKit",
-        code: "on keyDown\n  -- Key pressed in scene\nend keyDown"),
+        code: "on keyDown\n  -- Arrow keys arrive as \"up\", \"down\", \"left\", \"right\"\nend keyDown"),
     ScriptTemplate(name: "on keyUp", category: "SpriteKit",
-        code: "on keyUp\n  -- Key released in scene\nend keyUp"),
+        code: "on keyUp\n  -- the key is the released key name\nend keyUp"),
 
     // SpriteKit Commands
     ScriptTemplate(name: "create sprite", category: "SpriteKit",
@@ -351,8 +351,11 @@ struct ScriptEditor: View {
                         .font(.headline)
                     Spacer()
                     Button("Comment") { toggleComment() }
+                        .accessibilityIdentifier(HypeAccessibilityID.toolbar("script.comment"))
                     Button("Check Syntax") { checkSyntax() }
+                        .accessibilityIdentifier(HypeAccessibilityID.toolbar("script.checkSyntax"))
                     Button("Format") { reformatScript() }
+                        .accessibilityIdentifier(HypeAccessibilityID.toolbar("script.format"))
                 }
                 .padding(8)
                 .background(hypeTheme.toolbarBackground.swiftUIColor)
@@ -366,6 +369,7 @@ struct ScriptEditor: View {
                     selectedRange: $selectedRange,
                     partNames: partNames,
                     errorHighlightLine: $errorHighlightLine,
+                    accessibilityIdentifier: HypeAccessibilityID.scriptEditorText,
                     scriptTheme: hypeTheme.scriptTheme
                 )
                     .frame(minHeight: 200)
@@ -391,6 +395,7 @@ struct ScriptEditor: View {
                 target: resolvedTarget
             )
             .frame(width: 300)
+            .accessibilityIdentifier(HypeAccessibilityID.scriptEditorAI)
         }
         .onAppear {
             loadScript()
@@ -442,6 +447,8 @@ struct ScriptEditor: View {
         // Force chrome colorScheme so command-palette labels and
         // toolbar text remain readable against the themed bg.
         .environment(\.colorScheme, hypeTheme.chromeColorScheme)
+        .accessibilityLabel("Script Editor")
+        .accessibilityIdentifier(HypeAccessibilityID.scriptEditor)
     }
 
     // MARK: - Command Palette
@@ -466,11 +473,13 @@ struct ScriptEditor: View {
                             }
                             .buttonStyle(.plain)
                             .padding(.vertical, 1)
+                            .accessibilityIdentifier(HypeAccessibilityID.scriptTemplate(template.name))
                         }
                     }
                 }
             }
             .listStyle(.sidebar)
+            .accessibilityIdentifier(HypeAccessibilityID.scriptEditorCommands)
         }
     }
 

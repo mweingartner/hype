@@ -277,6 +277,17 @@ public struct HypeDocument: Codable, Sendable {
         parts.removeAll { $0.id == id }
     }
 
+    /// Remove a part and document-level references that cannot survive without it.
+    ///
+    /// `removePart(id:)` remains the raw array mutation for compatibility with
+    /// low-level callers and tests. User-facing delete paths should prefer this
+    /// helper so constraints do not retain stale source/target IDs after the part
+    /// is gone.
+    public mutating func deletePart(id: UUID) {
+        removeConstraintsForPart(id)
+        removePart(id: id)
+    }
+
     /// Update a part by ID.
     public mutating func updatePart(id: UUID, transform: (inout Part) -> Void) {
         if let index = partIndex(byId: id) {

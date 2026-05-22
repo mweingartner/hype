@@ -92,6 +92,31 @@ struct Scene3DTests {
         #expect(doc.parts.first { $0.partType == .scene3D }?.scene3DURL == "/tmp/x.scn")
     }
 
+    @Test("set_part_property modelAsset binds repository model by extensionless stem")
+    func aiSetModelAssetBindsRepositoryStem() async throws {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        let model = SpriteAsset(name: "creature.glb", kind: .model3D, mimeType: "model/gltf-binary")
+        doc.spriteRepository.addAsset(model)
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_scene3d",
+            arguments: ["name": "model", "left": "0", "top": "0", "width": "200", "height": "200"],
+            document: &doc, currentCardId: cardId
+        )
+        _ = await executor.execute(
+            toolName: "set_part_property",
+            arguments: ["part_name": "model", "property": "modelAsset", "value": "creature"],
+            document: &doc, currentCardId: cardId
+        )
+
+        let part = try #require(doc.parts.first { $0.partType == .scene3D })
+        #expect(part.scene3DAssetRef?.id == model.id)
+        #expect(part.scene3DAssetRef?.name == "creature.glb")
+        #expect(part.scene3DURL == "")
+        #expect(part.scene3DSourceURL == "")
+    }
+
     @Test("Parser accepts `the modelURL of scene3d \"X\"`")
     func hypeTalkScene3D() throws {
         let source = "the modelURL of scene3d \"model\""
@@ -272,6 +297,18 @@ struct Scene3DTests {
         #expect(resolved.usesCompanionAsset)
     }
 
+    @Test("repository GLB resolves to newest same-base USDZ companion")
+    func glbResolvesToNewestSameBaseUSDZ() throws {
+        let glb = SpriteAsset(name: "space-fighter.glb", kind: .model3D, mimeType: "model/gltf-binary")
+        let staleUSDZ = SpriteAsset(name: "space-fighter.usdz", kind: .model3D, mimeType: "model/vnd.usdz+zip", data: Data([1]))
+        let newestUSDZ = SpriteAsset(name: "space-fighter.usdz", kind: .model3D, mimeType: "model/vnd.usdz+zip", data: Data([2]))
+        let repo = SpriteRepository(assets: [glb, staleUSDZ, newestUSDZ])
+        let resolved = try #require(Scene3DRepositoryAssetResolver.resolvedAsset(for: repo.assetRef(for: glb), in: repo))
+
+        #expect(resolved.renderAsset.id == newestUSDZ.id)
+        #expect(resolved.usesCompanionAsset)
+    }
+
     @Test("repository GLB without USDZ companion is marked as companion-required")
     func glbWithoutCompanionRequiresUSDZ() throws {
         let glb = SpriteAsset(name: "solo.glb", kind: .model3D, mimeType: "model/gltf-binary")
@@ -281,5 +318,35 @@ struct Scene3DTests {
         #expect(resolved.renderAsset.id == glb.id)
         #expect(!resolved.usesCompanionAsset)
         #expect(Scene3DRepositoryAssetResolver.requiresCompanionForSceneKit(glb))
+    }
+
+    @Test("scene3D repository resolver ignores non-model assets")
+    func scene3DResolverIgnoresNonModelAssets() throws {
+        let image = SpriteAsset(name: "robot.glb", kind: .imageTexture, mimeType: "model/gltf-binary", data: Data([1]))
+        let repo = SpriteRepository(assets: [image])
+
+        #expect(Scene3DRepositoryAssetResolver.selectedAsset(for: repo.assetRef(for: image), in: repo) == nil)
+        #expect(Scene3DRepositoryAssetResolver.resolvedAsset(for: repo.assetRef(for: image), in: repo) == nil)
+    }
+
+    @Test("scene3D load identity changes when embedded asset bytes change without size change")
+    func scene3DLoadIdentityFingerprintsBytes() throws {
+        let first = SpriteAsset(name: "robot.usdz", kind: .model3D, mimeType: "model/vnd.usdz+zip", data: Data([1, 2, 3]))
+        var second = SpriteAsset(name: "robot.usdz", kind: .model3D, mimeType: "model/vnd.usdz+zip", data: Data([1, 2, 4]))
+        second.id = first.id
+        let ref = SpriteRepository(assets: [first]).assetRef(for: first)
+
+        let firstKey = Scene3DRepositoryAssetResolver.loadIdentity(
+            for: ref,
+            in: SpriteRepository(assets: [first]),
+            fallbackURL: ""
+        )
+        let secondKey = Scene3DRepositoryAssetResolver.loadIdentity(
+            for: ref,
+            in: SpriteRepository(assets: [second]),
+            fallbackURL: ""
+        )
+
+        #expect(firstKey != secondKey)
     }
 }

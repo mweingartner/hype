@@ -37,6 +37,8 @@ struct AIChatInputView: NSViewRepresentable {
     var onSubmit: () -> Void = {}
     var onHistoryUp: () -> Void = {}
     var onHistoryDown: () -> Void = {}
+    var accessibilityIdentifier: String = HypeAccessibilityID.aiPrompt
+    var accessibilityLabel: String = "AI prompt"
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -89,6 +91,11 @@ struct AIChatInputView: NSViewRepresentable {
         textView.onSubmit = { context.coordinator.parent.onSubmit() }
         textView.onHistoryUp = { context.coordinator.parent.onHistoryUp() }
         textView.onHistoryDown = { context.coordinator.parent.onHistoryDown() }
+        textView.setAccessibilityElement(true)
+        textView.setAccessibilityRole(.textArea)
+        textView.setAccessibilityIdentifier(accessibilityIdentifier)
+        textView.setAccessibilityLabel(accessibilityLabel)
+        scrollView.setAccessibilityElement(false)
 
         scrollView.documentView = textView
         context.coordinator.textView = textView
@@ -125,6 +132,8 @@ struct AIChatInputView: NSViewRepresentable {
         if textView.isEditable != isEnabled {
             textView.isEditable = isEnabled
         }
+        textView.setAccessibilityIdentifier(accessibilityIdentifier)
+        textView.setAccessibilityLabel(accessibilityLabel)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }

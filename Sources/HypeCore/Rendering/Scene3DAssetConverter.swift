@@ -1,6 +1,30 @@
 import Foundation
 import ModelIO
 
+// MARK: - Scene3DAssetConverting
+
+/// Dependency-injection protocol for the GLB→USDZ conversion step.
+///
+/// The production implementation is `Scene3DAssetConverter`. Tests may supply
+/// a stub that returns canned bytes without touching the real filesystem or
+/// requiring macOS 13+.
+///
+/// The conversion is expressed as Data-in / Data-out so the protocol boundary
+/// is free of file-URL side-effects, making stubs trivial to write.
+/// `Scene3DAssetConverter.convertToUSDZ(glbData:fileExtension:)` handles all
+/// file staging internally using a per-call temp directory.
+public protocol Scene3DAssetConverting: Sendable {
+    /// Convert `sourceData` (GLB, FBX, OBJ, …) to USDZ and return the bytes.
+    ///
+    /// - Parameters:
+    ///   - sourceData: Raw bytes of the source 3D asset.
+    ///   - fileExtension: The file extension that identifies the format (e.g.
+    ///     `"glb"`, `"fbx"`, `"obj"`). Must not be `"usdz"`.
+    /// - Returns: USDZ-encoded bytes.
+    /// - Throws: Any error — callers wrap in `.conversionFailed`.
+    func convertToUSDZ(sourceData: Data, fileExtension: String) throws -> Data
+}
+
 // MARK: - Scene3DAssetConverter
 
 /// Converts between 3D file formats using Apple's ModelIO.
@@ -90,5 +114,36 @@ public struct Scene3DAssetConverter: Sendable {
         } else {
             throw ConvertError.unsupportedOS
         }
+    }
+}
+
+// MARK: - Scene3DAssetConverting conformance
+
+extension Scene3DAssetConverter: Scene3DAssetConverting {
+
+    /// Data-in / Data-out conversion for use via the `Scene3DAssetConverting` protocol.
+    ///
+    /// Writes `sourceData` to a per-call temp directory, converts to USDZ using
+    /// the file-URL path, reads the output back into memory, and cleans up the
+    /// temp directory before returning.
+    ///
+    /// - Parameters:
+    ///   - sourceData: Raw bytes of the source asset.
+    ///   - fileExtension: File extension identifying the format (e.g. `"glb"`, `"fbx"`).
+    /// - Returns: USDZ bytes.
+    /// - Throws: `ConvertError` on any failure.
+    public func convertToUSDZ(sourceData: Data, fileExtension: String) throws -> Data {
+        let fm = FileManager.default
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("hype-convert-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tempDir) }
+
+        let inputURL  = tempDir.appendingPathComponent("source.\(fileExtension)")
+        let outputURL = tempDir.appendingPathComponent("output.usdz")
+
+        try sourceData.write(to: inputURL, options: .atomic)
+        try convertToUSDZ(inputURL: inputURL, outputURL: outputURL)
+        return try Data(contentsOf: outputURL)
     }
 }

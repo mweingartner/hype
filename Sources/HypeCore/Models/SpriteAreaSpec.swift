@@ -1,5 +1,61 @@
 import Foundation
 
+private final class SpriteAreaSpecJSONCache: @unchecked Sendable {
+    static let shared = SpriteAreaSpecJSONCache()
+
+    private let lock = NSLock()
+    private var values: [String: SpriteAreaSpec] = [:]
+    private var order: [String] = []
+    private let limit = 8
+
+    private init() {}
+
+    func cachedPlain(json: String) -> SpriteAreaSpec? {
+        cached(key: plainKey(json))
+    }
+
+    func cachedStored(json: String, fallbackSize: SizeSpec) -> SpriteAreaSpec? {
+        cached(key: storedKey(json, fallbackSize: fallbackSize))
+    }
+
+    func storePlain(_ spec: SpriteAreaSpec, json: String) {
+        store(spec, key: plainKey(json))
+    }
+
+    func storeStored(_ spec: SpriteAreaSpec, json: String, fallbackSize: SizeSpec) {
+        store(spec, key: storedKey(json, fallbackSize: fallbackSize))
+    }
+
+    private func cached(key: String) -> SpriteAreaSpec? {
+        lock.lock()
+        defer { lock.unlock() }
+        return values[key]
+    }
+
+    private func store(_ spec: SpriteAreaSpec, key: String) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if values[key] == nil {
+            order.append(key)
+        }
+        values[key] = spec
+
+        while order.count > limit {
+            let evicted = order.removeFirst()
+            values.removeValue(forKey: evicted)
+        }
+    }
+
+    private func plainKey(_ json: String) -> String {
+        "plain|\(json)"
+    }
+
+    private func storedKey(_ json: String, fallbackSize: SizeSpec) -> String {
+        "stored|\(fallbackSize.width)x\(fallbackSize.height)|\(json)"
+    }
+}
+
 /// A named scene entry owned by a Sprite Area.
 public struct SpriteAreaScene: Identifiable, Codable, Sendable {
     public var id: UUID
@@ -102,15 +158,28 @@ public struct SpriteAreaSpec: Codable, Sendable {
     }
 
     public static func fromJSON(_ json: String) -> SpriteAreaSpec? {
-        return JSONCodec.decode(SpriteAreaSpec.self, from: json)
+        if let cached = SpriteAreaSpecJSONCache.shared.cachedPlain(json: json) {
+            return cached
+        }
+        guard let spec = JSONCodec.decode(SpriteAreaSpec.self, from: json) else {
+            return nil
+        }
+        SpriteAreaSpecJSONCache.shared.storePlain(spec, json: json)
+        return spec
     }
 
     public static func fromStoredJSON(_ json: String, fallbackSize: SizeSpec) -> SpriteAreaSpec? {
+        if let cached = SpriteAreaSpecJSONCache.shared.cachedStored(json: json, fallbackSize: fallbackSize) {
+            return cached
+        }
         if let spec = fromJSON(json) {
+            SpriteAreaSpecJSONCache.shared.storeStored(spec, json: json, fallbackSize: fallbackSize)
             return spec
         }
         guard let legacy = SceneSpec.fromLegacyJSON(json) else { return nil }
-        return SpriteAreaSpec(scene: legacy, fallbackSize: fallbackSize)
+        let spec = SpriteAreaSpec(scene: legacy, fallbackSize: fallbackSize)
+        SpriteAreaSpecJSONCache.shared.storeStored(spec, json: json, fallbackSize: fallbackSize)
+        return spec
     }
 
     public var activeSceneEntry: SpriteAreaScene? {
@@ -159,6 +228,30 @@ public struct SpriteAreaSpec: Codable, Sendable {
     public mutating func duplicateActiveScene() -> SpriteAreaScene? {
         guard let scene = activeScene else { return nil }
         return addScene(named: "\(scene.name) Copy", basedOn: scene)
+    }
+
+    @discardableResult
+    public mutating func removeScene(id sceneId: UUID) -> SpriteAreaScene? {
+        guard scenes.count > 1,
+              let index = scenes.firstIndex(where: { $0.id == sceneId }) else {
+            return nil
+        }
+
+        let removed = scenes.remove(at: index)
+        if activeSceneID == sceneId, let replacement = scenes.first {
+            activeSceneID = replacement.id
+            syncAreaDefaults(from: effectiveScene(for: replacement.scene))
+        }
+        normalize()
+        return removed
+    }
+
+    @discardableResult
+    public mutating func removeScene(named name: String) -> SpriteAreaScene? {
+        guard let scene = scenes.first(where: { $0.scene.name.lowercased() == name.lowercased() }) else {
+            return nil
+        }
+        return removeScene(id: scene.id)
     }
 
     @discardableResult
@@ -271,6 +364,9 @@ public extension Part {
 
     mutating func setSpriteAreaSpec(_ spec: SpriteAreaSpec) {
         sceneSpec = spec.toStoredJSON()
+        let fallbackSize = SizeSpec(width: width, height: height)
+        SpriteAreaSpecJSONCache.shared.storePlain(spec, json: sceneSpec)
+        SpriteAreaSpecJSONCache.shared.storeStored(spec, json: sceneSpec, fallbackSize: fallbackSize)
     }
 
     mutating func updateSpriteAreaSpec(_ transform: (inout SpriteAreaSpec) -> Void) {

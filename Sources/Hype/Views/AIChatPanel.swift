@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 import HypeCore
 
 struct AIChatPanel: View {
@@ -156,6 +157,8 @@ struct AIChatPanel: View {
                     }
                     .buttonStyle(.borderless)
                     .help("Clear Chat")
+                    .accessibilityLabel("Clear Chat")
+                    .accessibilityIdentifier(HypeAccessibilityID.aiClearChat)
                 }
                 Text(currentModelDisplay)
                     .font(.system(size: 10))
@@ -259,6 +262,8 @@ struct AIChatPanel: View {
                     }
                     .padding(8)
                 }
+                .accessibilityLabel("AI conversation")
+                .accessibilityIdentifier(HypeAccessibilityID.aiMessages)
                 .onChange(of: messages.count) { _, _ in
                     if !messages.isEmpty {
                         proxy.scrollTo(messages.count - 1, anchor: .bottom)
@@ -323,7 +328,9 @@ struct AIChatPanel: View {
                         isEnabled: !isProcessing,
                         onSubmit: { sendMessage() },
                         onHistoryUp: { recallHistory(direction: .up) },
-                        onHistoryDown: { recallHistory(direction: .down) }
+                        onHistoryDown: { recallHistory(direction: .down) },
+                        accessibilityIdentifier: HypeAccessibilityID.aiPrompt,
+                        accessibilityLabel: "AI prompt"
                     )
                     .padding(8)
                     .focused($isInputFocused)
@@ -352,6 +359,8 @@ struct AIChatPanel: View {
                         }
                         .buttonStyle(.borderless)
                         .help("Stop the AI (or say 'cancel operation')")
+                        .accessibilityLabel("Stop AI")
+                        .accessibilityIdentifier(HypeAccessibilityID.aiStop)
                     } else {
                         Button(action: sendMessage) {
                             Image(systemName: "paperplane.fill")
@@ -360,6 +369,8 @@ struct AIChatPanel: View {
                         .buttonStyle(.borderless)
                         .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .help("Send (Return)")
+                        .accessibilityLabel("Send AI Prompt")
+                        .accessibilityIdentifier(HypeAccessibilityID.aiSend)
                     }
 
                     Button(action: { speechCapture.toggle() }) {
@@ -369,6 +380,8 @@ struct AIChatPanel: View {
                     }
                     .buttonStyle(.borderless)
                     .help(speechCapture.isTranscribing ? "Transcribing..." : (speechCapture.isListening ? "Stop listening" : "Start voice input"))
+                    .accessibilityLabel(speechCapture.isListening ? "Stop voice input" : "Start voice input")
+                    .accessibilityIdentifier(HypeAccessibilityID.aiVoiceInput)
                 }
                 .padding(.bottom, 6)
             }
@@ -435,6 +448,8 @@ struct AIChatPanel: View {
             }
             captureTempFiles.removeAll()
         }
+        .accessibilityLabel("AI Assistant")
+        .accessibilityIdentifier(HypeAccessibilityID.aiAssistant)
     }
 
     private var selectedAIProvider: HypeAIProvider {
@@ -738,6 +753,18 @@ struct AIChatPanel: View {
         appendMessage(role: "assistant", content: "Rolled back the last AI edit transaction.")
     }
 
+    private func syncRuntimeAfterAIMutation(_ snapshot: HypeDocument) async {
+        _ = await StackRuntimeRegistry.shared.runtime(
+            for: snapshot,
+            configuration: StackRuntimeConfiguration(
+                aiProvider: SelectedAIScriptingProvider(),
+                meshyProvider: LiveMeshyScriptingProvider(),
+                speechOutputProvider: OpenAISpeechOutputProvider.shared,
+                speechListenerProvider: RuntimeSpeechListenerProvider.shared
+            )
+        )
+    }
+
     private func applyCreateProposal(_ proposal: SceneCreateProposal) {
         guard let cardId = currentCardId ?? document.document.sortedCards.first?.id else { return }
         let partIndex = ensureSpriteAreaPartIndex(named: proposal.areaName, cardId: cardId, sceneSize: proposal.scene.size)
@@ -817,6 +844,60 @@ struct AIChatPanel: View {
                 }
             }
         }
+    }
+
+    @MainActor
+    private func applySpriteGameTemplateIfRequested(_ userMessage: String) async -> Bool {
+        guard let gameType = SpriteGameTemplateBuilder.inferredGameType(forPrompt: userMessage) else {
+            return false
+        }
+
+        let size = requestedSpriteGameSize(in: userMessage)
+            ?? SpriteGameTemplateBuilder.defaultSceneSize(for: gameType)
+        let areaName = SpriteGameTemplateBuilder.defaultSpriteAreaName(for: gameType)
+        var updatedDocument = document.document
+        let cardId = currentCardId ?? updatedDocument.sortedCards.first?.id ?? UUID()
+        let result = await HypeToolExecutor().execute(
+            toolName: "create_sprite_game_template",
+            arguments: [
+                "game_type": gameType,
+                "sprite_area_name": areaName,
+                "left": "0",
+                "top": "0",
+                "width": String(Int(size.width.rounded())),
+                "height": String(Int(size.height.rounded())),
+                "scene_width": String(Int(size.width.rounded())),
+                "scene_height": String(Int(size.height.rounded())),
+            ],
+            document: &updatedDocument,
+            currentCardId: cardId
+        )
+
+        lastStructuredUndoDocument = document.document
+        document.document = updatedDocument
+        await syncRuntimeAfterAIMutation(updatedDocument)
+        appendMessage(role: "assistant", content: result)
+        return true
+    }
+
+    private func requestedSpriteGameSize(in prompt: String) -> SizeSpec? {
+        let pattern = #"(\d{2,5})\s*(?:w|wide|width)?\s*[x×]\s*(\d{2,5})\s*(?:h|high|height)?"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let range = NSRange(prompt.startIndex..<prompt.endIndex, in: prompt)
+        guard let match = regex.firstMatch(in: prompt, options: [], range: range),
+              let widthRange = Range(match.range(at: 1), in: prompt),
+              let heightRange = Range(match.range(at: 2), in: prompt),
+              let width = Double(prompt[widthRange]),
+              let height = Double(prompt[heightRange]),
+              width >= 100,
+              height >= 100,
+              width <= 4096,
+              height <= 4096 else {
+            return nil
+        }
+        return SizeSpec(width: width, height: height)
     }
 
     private func applyRepairProposal(_ proposal: SceneRepairProposal) {
@@ -1136,6 +1217,7 @@ struct AIChatPanel: View {
             ) {
                 lastStructuredUndoDocument = document.document
                 document.document = updatedDocument
+                await syncRuntimeAfterAIMutation(updatedDocument)
                 appendMessage(
                     role: "assistant",
                     content: """
@@ -1144,12 +1226,23 @@ struct AIChatPanel: View {
                 )
                 return
             }
+
+            if await applySpriteGameTemplateIfRequested(userMessage) {
+                return
+            }
         }
 
         if let intent = spriteKitRoute.structuredIntent,
            await processStructuredScenePrompt(userMessage, intent: intent) {
             return
         }
+
+        // Keep a turn-local authoring snapshot for the whole tool loop.
+        // Runtime script notifications can arrive between model/tool rounds;
+        // using the live binding as the source for every tool call lets an
+        // older runtime snapshot erase AI-created parts before the next tool
+        // can target them.
+        var workingDocument = document.document
 
         // Reset the per-turn web-asset soft cap at the start of each processWithTools call.
         await webAssetSession.beginTurn()
@@ -1165,12 +1258,12 @@ struct AIChatPanel: View {
         }
 
         // Build executor with web-asset dependencies when the stack has them enabled.
-        let webAssetClient: (any WebAssetSearchClient)? = document.document.stack.webAssetsAllowed
+        let webAssetClient: (any WebAssetSearchClient)? = workingDocument.stack.webAssetsAllowed
             ? WebAssetSearchClientFactory.make(
                 provider: WebAssetSearchProvider(rawValue: webAssetProviderRaw) ?? .openverse
               )
             : nil
-        let webAssetPipeline: WebAssetImportPipeline? = document.document.stack.webAssetsAllowed
+        let webAssetPipeline: WebAssetImportPipeline? = workingDocument.stack.webAssetsAllowed
             ? WebAssetImportPipeline()
             : nil
         let imageGenerationClient: (any HypeImageGenerating)? = try? HypeAIConfiguration.makeImageGenerationClient()
@@ -1182,7 +1275,7 @@ struct AIChatPanel: View {
             return MeshyAIClient(apiKey: key)
         }
         let executor = HypeToolExecutor(
-            webAssetSession: document.document.stack.webAssetsAllowed ? webAssetSession : nil,
+            webAssetSession: workingDocument.stack.webAssetsAllowed ? webAssetSession : nil,
             webAssetClient: webAssetClient,
             webAssetPipeline: webAssetPipeline,
             imageGenerationClient: imageGenerationClient,
@@ -1190,23 +1283,23 @@ struct AIChatPanel: View {
         )
 
         // Get current stack context
-        let cardId = currentCardId ?? document.document.sortedCards.first?.id ?? UUID()
-        let currentCard = document.document.cards.first(where: { $0.id == cardId })
+        let cardId = currentCardId ?? workingDocument.sortedCards.first?.id ?? UUID()
+        let currentCard = workingDocument.cards.first(where: { $0.id == cardId })
         let cardName = currentCard?.name ?? "Card 1"
-        let bgName = currentCard.flatMap { document.document.backgroundForCard($0)?.name } ?? "unknown"
-        let cardCount = document.document.cards.count
+        let bgName = currentCard.flatMap { workingDocument.backgroundForCard($0)?.name } ?? "unknown"
+        let cardCount = workingDocument.cards.count
 
         // Card parts
-        let currentParts = document.document.partsForCard(cardId)
+        let currentParts = workingDocument.partsForCard(cardId)
             .map { "[\($0.partType.rawValue)] \"\($0.name)\" at (\(Int($0.left)),\(Int($0.top))) \(Int($0.width))x\(Int($0.height))" }
             .joined(separator: ", ")
 
         // Background parts
-        let bgParts = currentCard.map { document.document.partsForBackground($0.backgroundId) } ?? []
+        let bgParts = currentCard.map { workingDocument.partsForBackground($0.backgroundId) } ?? []
         let bgPartsDesc = bgParts.map { "[\($0.partType.rawValue)] \"\($0.name)\"" }.joined(separator: ", ")
 
         // Sprite area summaries
-        let spriteAreaParts = document.document.effectivePartsForCard(cardId).filter { $0.partType == .spriteArea }
+        let spriteAreaParts = workingDocument.effectivePartsForCard(cardId).filter { $0.partType == .spriteArea }
         let spriteInfo = spriteAreaParts.compactMap { part -> String? in
             guard let areaSpec = part.spriteAreaSpecModel,
                   let spec = areaSpec.activeScene else { return nil }
@@ -1215,12 +1308,12 @@ struct AIChatPanel: View {
         }.joined(separator: ". ")
 
         // Repository assets
-        let repoAssets = document.document.spriteRepository.assets
+        let repoAssets = workingDocument.spriteRepository.assets
             .map { "\($0.kind.rawValue) \"\($0.name)\"" }
             .joined(separator: ", ")
 
-        let hasAIContext = !document.document.aiContextLibrary.items.isEmpty
-        let aiContextCanBeShared = selectedAIProvider != .openAI || document.document.stack.aiContextCloudSharingAllowed
+        let hasAIContext = !workingDocument.aiContextLibrary.items.isEmpty
+        let aiContextCanBeShared = selectedAIProvider != .openAI || workingDocument.stack.aiContextCloudSharingAllowed
         let aiContextToolsEnabled = hasAIContext && aiContextCanBeShared
         let aiContextPromptRules: String = {
             if aiContextToolsEnabled {
@@ -1233,7 +1326,7 @@ struct AIChatPanel: View {
             }
             if hasAIContext {
                 return """
-                - This stack has \(document.document.aiContextLibrary.itemCount) attached AI Context Library item(s), but the selected cloud provider cannot receive them until the user enables `aiContextCloudSharingAllowed` for this stack. Ask for explicit permission before enabling it.
+                - This stack has \(workingDocument.aiContextLibrary.itemCount) attached AI Context Library item(s), but the selected cloud provider cannot receive them until the user enables `aiContextCloudSharingAllowed` for this stack. Ask for explicit permission before enabling it.
                 - You may still use write_ai_context_note to save new project-memory notes; do not read or summarize withheld context.
                 """
             }
@@ -1247,14 +1340,14 @@ struct AIChatPanel: View {
                 return """
 
                 AI CONTEXT LIBRARY:
-                \(document.document.aiContextLibrary.promptSummary(maxItems: 16))
+                \(workingDocument.aiContextLibrary.promptSummary(maxItems: 16))
                 """
             }
             if hasAIContext {
                 return """
 
                 AI CONTEXT LIBRARY:
-                \(document.document.aiContextLibrary.itemCount) item(s) attached but withheld from the selected cloud provider because stack.aiContextCloudSharingAllowed is false.
+                \(workingDocument.aiContextLibrary.itemCount) item(s) attached but withheld from the selected cloud provider because stack.aiContextCloudSharingAllowed is false.
                 """
             }
             return ""
@@ -1312,17 +1405,18 @@ struct AIChatPanel: View {
         let systemPrompt: String
         if isTunedHypeTalkModel {
             systemPrompt = """
-                You are an AI assistant for Hype, a HyperCard-inspired app. The canvas is \(document.document.stack.width)x\(document.document.stack.height) points.
+                You are an AI assistant for Hype, a HyperCard-inspired app. The canvas is \(workingDocument.stack.width)x\(workingDocument.stack.height) points.
 
                 TOOL-USE PRIORITIES:
                 - To READ a property: prefer get_part_property / get_node_property / get_stack_property / get_card_property / get_background_property / get_scene_script / list_scene_nodes / list_all_cards / get_card_parts over get_scene_spec (which is 10k+ tokens).
                 - To MODIFY one property: prefer set_part_property / set_node_property / set_scene_property / set_stack_property / set_card_property / set_background_property / set_physics_body / set_card_script / set_background_script / set_stack_script over apply_scene_diff.
                 - To CREATE a single node: prefer add_sprite_to_scene / add_label_to_scene / add_shape_to_scene / add_emitter_to_scene / add_joint_to_scene over apply_scene_diff.
                 - Use apply_scene_diff ONLY for multi-node batch edits.
+                - If the user says to create something on the current card, do NOT call create_card first. Build on the current card unless the user explicitly asks for a new card.
                 - For data-entry forms, input forms, customer/contact/login forms, headers, labels, and text fields: use ordinary card/background controls. Use create_label for labels/headers and create_field(style=rectangle, stroke_color=#000000, stroke_width=1) for user input fields. Do NOT create a Sprite Area or scene labels unless the user explicitly asks for SpriteKit, sprites, physics, a game, or a scene.
                 - To add a generated picture/illustration/image to the current card or background, use generate_image. Use create_image only for an existing file path or existing repository asset.
                 - To create a generated sprite/library/repository asset, use generate_sprite_asset. If the user did not provide the desired sprite asset name, ask for the name before calling the tool.
-                - For Pac-Man, maze-chase, or similar SpriteKit arcade-game requests, call create_sprite_game_template first. Do NOT ask the user to provide a basic tileset or manually stitch a sheet; use create_basic_tileset_asset for simple deterministic tilesets and customize after the scaffold exists.
+                - For complete SpriteKit game requests, call infer_sprite_game_template with the user's prompt first unless Hype already routed the request directly. If confidence is low or the request has unusual mechanics, call get_sprite_game_template_guide for the selected game_type, then call create_sprite_game_template. Deterministic templates create local placeholder assets, scene nodes, physics, reset logic, and parser-tested HypeTalk before optional customization. Do NOT ask the user to provide basic tile sheets or manually stitch a full game from low-level calls when a template exists.
                 \(aiContextPromptRules)
                 - When the user says "background", set on_background to "true" in create tools.
                 - If the user asks to create, set, attach, install, replace, or update a script on the stack, card, background, button, field, sprite area, scene, or node, use the appropriate setter tool. Do not answer with bare HypeTalk unless the user explicitly asks only to write or explain code.
@@ -1330,7 +1424,7 @@ struct AIChatPanel: View {
                 - For button scripts, just provide the HypeTalk command (e.g. "go next"). It will be auto-wrapped in on mouseUp/end mouseUp.\(spriteKitPromptRules.isEmpty ? "" : "\n" + spriteKitPromptRules)
 
                 CURRENT STATE:
-                Stack: "\(document.document.stack.name)" (\(cardCount) cards)
+                Stack: "\(workingDocument.stack.name)" (\(cardCount) cards)
                 Current card: "\(cardName)" | Background: "\(bgName)"
                 Card parts: \(currentParts.isEmpty ? "none" : currentParts)
                 Background parts: \(bgPartsDesc.isEmpty ? "none" : bgPartsDesc)
@@ -1344,13 +1438,14 @@ struct AIChatPanel: View {
             // HypeTalk syntax or tool conventions, so the guide is load-
             // bearing.
             systemPrompt = """
-                You are an AI assistant for Hype, a HyperCard-inspired app. The canvas is \(document.document.stack.width)x\(document.document.stack.height) points.
+                You are an AI assistant for Hype, a HyperCard-inspired app. The canvas is \(workingDocument.stack.width)x\(workingDocument.stack.height) points.
 
                 RULES:
                 - Call the needed tools to fulfill the user's request, then STOP and respond with a brief summary.
                 - Do NOT repeat tool calls you have already made.
                 - Do NOT call additional introspection tools after the first one that answers the user's question. (e.g. if the user asks "list scenes", call `list_scenes` and STOP — don't follow up with `add_scene`, `get_scene_nodes`, etc.)
                 - When CURRENT STATE shows a part / card / background already exists with the requested name, MODIFY it with `set_part_property` (script attaches via `property="script"`), `set_card_script`, `set_background_script`, etc. Use `create_*` tools ONLY for parts that do NOT yet appear in CURRENT STATE.
+                - If the user says to create something on the current card, do NOT call create_card first. Build on the current card unless the user explicitly asks for a new card.
                 - Do NOT delete parts unless the user specifically asks you to.
                 - Stay inside Hype stack-authoring tools. Do not assume filesystem or arbitrary web access is available.
                 - Create well-spaced, visually appealing layouts.
@@ -1358,7 +1453,7 @@ struct AIChatPanel: View {
                 - For data-entry forms, input forms, customer/contact/login forms, headers, labels, and text fields: use ordinary card/background controls. Use create_label for labels/headers and create_field(style=rectangle, stroke_color=#000000, stroke_width=1) for user input fields. Do NOT create a Sprite Area or scene labels unless the user explicitly asks for SpriteKit, sprites, physics, a game, or a scene.
                 - To add a generated picture/illustration/image to the current card or background, use generate_image. Use create_image only for an existing file path or existing repository asset.
                 - To create a generated sprite/library/repository asset, use generate_sprite_asset. If the user did not provide the desired sprite asset name, ask for the name before calling the tool.
-                - For Pac-Man, maze-chase, or similar SpriteKit arcade-game requests, call create_sprite_game_template first. Do NOT ask the user to provide a basic tileset or manually stitch a sheet; use create_basic_tileset_asset for simple deterministic tilesets and customize after the scaffold exists.
+                - For complete SpriteKit game requests, call infer_sprite_game_template with the user's prompt first unless Hype already routed the request directly. If confidence is low or the request has unusual mechanics, call get_sprite_game_template_guide for the selected game_type, then call create_sprite_game_template. Deterministic templates create local placeholder assets, scene nodes, physics, reset logic, and parser-tested HypeTalk before optional customization. Do NOT ask the user to provide basic tile sheets or manually stitch a full game from low-level calls when a template exists.
                 \(aiContextPromptRules)
                 - For SpriteKit requests involving bouncing, gravity, collisions, or objects staying inside a sprite area, prefer native scene nodes, physics bodies, restitution, and velocity. Do NOT solve those with `on idle` or `on frameUpdate` scripts unless the user explicitly asks for custom scripting.
                 \(spriteKitPromptRules)
@@ -1377,7 +1472,7 @@ struct AIChatPanel: View {
                 \(hypeTalkGuideBlock)
 
                 CURRENT STATE:
-                Stack: "\(document.document.stack.name)" (\(cardCount) cards)
+                Stack: "\(workingDocument.stack.name)" (\(cardCount) cards)
                 Current card: "\(cardName)" | Background: "\(bgName)"
                 Card parts: \(currentParts.isEmpty ? "none" : currentParts)
                 Background parts: \(bgPartsDesc.isEmpty ? "none" : bgPartsDesc)
@@ -1446,7 +1541,7 @@ struct AIChatPanel: View {
                     : HypeToolDefinitions.cardControlAuthoringTools
                 let webTools = HypeToolDefinitions.withWebAssetTools(
                     baseTools,
-                    enabled: document.document.stack.webAssetsAllowed
+                    enabled: workingDocument.stack.webAssetsAllowed
                 )
                 let tools = HypeToolDefinitions.withAIContextTools(
                     webTools,
@@ -1472,7 +1567,7 @@ struct AIChatPanel: View {
                     if let existing = HypeAIResponseRepair.repairedToolCalls(
                         response.message.tool_calls,
                         userMessage: userMessage,
-                        document: document.document,
+                        document: workingDocument,
                         currentCardId: activeCardId
                     ),
                        !existing.isEmpty {
@@ -1512,14 +1607,16 @@ struct AIChatPanel: View {
                             var augmented = call.function.arguments
                             augmented["__captures_remaining_hint"] = String(captureBudget.remaining)
 
-                            var doc = document.document
+                            var doc = workingDocument
                             let result = await executor.execute(
                                 toolName: call.function.name,
                                 arguments: augmented,
                                 document: &doc,
                                 currentCardId: activeCardId
                             )
+                            workingDocument = doc
                             document.document = doc
+                            await syncRuntimeAfterAIMutation(doc)
                             captureStatus = nil
 
                             // SECURITY FINDING 1: redact base64 from logger — never write image bytes to disk log.
@@ -1578,14 +1675,16 @@ struct AIChatPanel: View {
                         let transactionRunner = AIEditTransactionRunner(executor: executor)
                         var transaction = await transactionRunner.preview(
                             toolCalls: [call],
-                            document: document.document,
+                            document: workingDocument,
                             currentCardId: activeCardId,
                             prompt: userMessage,
                             providerName: client.providerName
                         )
-                        var doc = document.document
+                        var doc = workingDocument
                         await transactionRunner.apply(&transaction, to: &doc, currentCardId: activeCardId)
+                        workingDocument = doc
                         document.document = doc
+                        await syncRuntimeAfterAIMutation(doc)
                         if transaction.delta.hasChanges {
                             lastAITransaction = transaction
                         }
@@ -1613,6 +1712,7 @@ struct AIChatPanel: View {
                                 tools: tools,
                                 activeCardId: activeCardId
                             )
+                            workingDocument = document.document
                             iterationStatus = nil
                             appendMessage(role: "assistant", content: loopResult.finalToolResultString)
                             conversationMessages.append(OllamaMessage(role: "tool", content: loopResult.finalToolResultString))
@@ -1651,12 +1751,11 @@ struct AIChatPanel: View {
 
                         if result.hasPrefix("NAVIGATE:") {
                             let dest = String(result.dropFirst(9))
-                            let doc = document.document
-                            if let targetCard = doc.cards.first(where: { $0.name.lowercased() == dest.lowercased() }) {
+                            if let targetCard = workingDocument.cards.first(where: { $0.name.lowercased() == dest.lowercased() }) {
                                 activeCardId = targetCard.id
                                 currentCardId = targetCard.id
-                            } else if let num = Int(dest), num > 0, num <= doc.sortedCards.count {
-                                let card = doc.sortedCards[num - 1]
+                            } else if let num = Int(dest), num > 0, num <= workingDocument.sortedCards.count {
+                                let card = workingDocument.sortedCards[num - 1]
                                 activeCardId = card.id
                                 currentCardId = card.id
                             } else {
@@ -1669,7 +1768,7 @@ struct AIChatPanel: View {
                                 default: direction = nil
                                 }
                                 if let dir = direction,
-                                   let newId = CardNavigator.navigate(direction: dir, currentCardId: activeCardId, document: doc) {
+                                   let newId = CardNavigator.navigate(direction: dir, currentCardId: activeCardId, document: workingDocument) {
                                     activeCardId = newId
                                     currentCardId = newId
                                 }
@@ -1702,7 +1801,7 @@ struct AIChatPanel: View {
                 if let repairedCall = HypeAIResponseRepair.scriptAttachmentToolCall(
                     userMessage: userMessage,
                     modelContent: response.message.content,
-                    document: document.document,
+                    document: workingDocument,
                     currentCardId: activeCardId
                 ) {
                     conversationMessages.append(response.message)
@@ -1715,14 +1814,16 @@ struct AIChatPanel: View {
                     let transactionRunner = AIEditTransactionRunner(executor: executor)
                     var transaction = await transactionRunner.preview(
                         toolCalls: [repairedCall],
-                        document: document.document,
+                        document: workingDocument,
                         currentCardId: activeCardId,
                         prompt: userMessage,
                         providerName: client.providerName
                     )
-                    var doc = document.document
+                    var doc = workingDocument
                     await transactionRunner.apply(&transaction, to: &doc, currentCardId: activeCardId)
+                    workingDocument = doc
                     document.document = doc
+                    await syncRuntimeAfterAIMutation(doc)
                     if transaction.delta.hasChanges {
                         lastAITransaction = transaction
                     }
@@ -1757,6 +1858,7 @@ struct AIChatPanel: View {
                             tools: tools,
                             activeCardId: activeCardId
                         )
+                        workingDocument = document.document
                         iterationStatus = nil
                         appendMessage(role: "assistant", content: loopResult.finalToolResultString)
                         conversationMessages.append(OllamaMessage(role: "tool", content: loopResult.finalToolResultString))
@@ -1890,6 +1992,7 @@ struct AIChatPanel: View {
                         currentCardId: activeCardId
                     )
                     document.document = doc
+                    await syncRuntimeAfterAIMutation(doc)
                     HypeLogger.shared.aiDialog(role: "tool_result", content: checkResult, source: "AI Tool")
                     conversationMessages.append(OllamaMessage(role: "tool", content: checkResult))
                     continue
@@ -1913,6 +2016,7 @@ struct AIChatPanel: View {
                         currentCardId: activeCardId
                     )
                     document.document = doc
+                    await syncRuntimeAfterAIMutation(doc)
                     HypeLogger.shared.aiDialog(role: "tool_result", content: result, source: "AI Tool")
 
                     let outcome = scriptDraftCoordinator.classify(toolResult: result)
@@ -1969,6 +2073,7 @@ struct AIChatPanel: View {
                         currentCardId: activeCardId
                     )
                     document.document = doc
+                    await syncRuntimeAfterAIMutation(doc)
                     HypeLogger.shared.aiDialog(role: "tool_result", content: result, source: "AI Tool")
                     return ScriptDraftCoordinator.LoopResult(
                         finalAttempts: attempt - 1,

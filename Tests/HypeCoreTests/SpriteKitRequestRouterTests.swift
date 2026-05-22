@@ -175,6 +175,46 @@ struct SpriteKitRequestRouterTests {
         #expect(route.prefersSceneTooling == false)
     }
 
+    @Test("SpriteKit game prompt with support button still gets scene tools")
+    func spriteKitGamePromptWithNewGameButtonRoutesToSpriteKit() {
+        let document = HypeDocument.newDocument(name: "Test")
+        let cardId = document.cards[0].id
+
+        let route = SpriteKitRequestRouter.route(
+            prompt: """
+            Create a SpriteKit based game on the current card in the style of Donkey Kong.
+            Add a button for "New Game" that resets the game state. Use WASD and Space.
+            """,
+            document: document,
+            currentCardId: cardId
+        )
+
+        #expect(route.isSpriteKitRequest)
+        #expect(route.prefersSceneTooling)
+        #expect(route.structuredIntent == .create)
+    }
+
+    @Test("catalog game prompts route to SpriteKit template tooling")
+    func catalogGamePromptsRouteToSpriteKitTemplateTooling() {
+        let document = HypeDocument.newDocument(name: "Test")
+        let cardId = document.cards[0].id
+
+        for prompt in [
+            "make a tower defense game",
+            "create a top-down shooter",
+            "build an angry birds physics puzzle",
+            "make a match-3 puzzle",
+        ] {
+            let route = SpriteKitRequestRouter.route(
+                prompt: prompt,
+                document: document,
+                currentCardId: cardId
+            )
+            #expect(route.isSpriteKitRequest)
+            #expect(route.prefersSceneTooling)
+        }
+    }
+
     @Test("generic 'inside' / 'bounds' do not flip prompts into SpriteKit routing")
     func insideAndBoundsAreNotSpriteKitTriggers() {
         let document = HypeDocument.newDocument(name: "Test")
@@ -262,6 +302,9 @@ struct SpriteKitRequestRouterTests {
         // Steering away from part tools is now the system prompt's
         // job (TOOL-USE PRIORITIES), not the tool-whitelist's.
         #expect(toolNames.contains("set_part_property"))
+        #expect(toolNames.contains("list_sprite_game_templates"))
+        #expect(toolNames.contains("infer_sprite_game_template"))
+        #expect(toolNames.contains("get_sprite_game_template_guide"))
         #expect(toolNames.contains("get_part_property"))
         #expect(toolNames.contains("create_button"))
         #expect(toolNames.contains("create_field"))

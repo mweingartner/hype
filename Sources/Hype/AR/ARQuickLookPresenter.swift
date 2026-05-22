@@ -3,6 +3,19 @@ import AppKit
 @preconcurrency import Quartz
 import HypeCore
 
+// MARK: - UncheckedSendableBox
+
+/// Wraps a non-Sendable value and declares it `@unchecked Sendable`.
+///
+/// Use only for values that are safe for concurrent read access and whose
+/// concurrent write risk is managed by the caller (e.g. a per-task local
+/// copy that is never written to concurrently).  This is the same pattern
+/// the project uses for `JSONCodec.decoder/encoder` (see JSONCodec.swift).
+private struct UncheckedSendableBox<T>: @unchecked Sendable {
+    let value: T
+    init(_ value: T) { self.value = value }
+}
+
 // MARK: - ARQuickLookError
 
 /// Errors surfaced to the user from the AR Quick Look path.
@@ -45,10 +58,10 @@ public enum ARQuickLookError: Error, LocalizedError, Sendable, Equatable {
 /// Lifecycle:
 /// 1. Caller invokes `present(asset:)`.
 /// 2. The presenter writes the asset bytes to a temp file at
-///    `~/Library/Caches/com.hype.app/ar-quicklook/<assetId>.<ext>`.
+///    `~/Library/Caches/com.hype.app/<cacheDirectoryName>/<assetId>.<ext>`.
 ///    - For USDZ assets, bytes are written as-is.
-///    - For GLB assets, `Scene3DAssetConverter.convertToUSDZ` runs on a
-///      detached task before the panel opens.
+///    - For GLB assets, `converter.convertToUSDZ` runs on a detached task
+///      before the panel opens.
 /// 3. `QLPreviewPanel.shared().reloadData()` is called; the panel opens.
 /// 4. The presenter retains the staged URL strongly via its data-source
 ///    conformance so Quick Look has a stable reference for its lifetime.
@@ -59,6 +72,11 @@ public enum ARQuickLookError: Error, LocalizedError, Sendable, Equatable {
 /// - On `evictOldStagedFiles`, files older than 30 days and totalling more
 ///   than 200 MB are deleted.
 ///
+/// **Dependency injection:**
+/// The designated initializer accepts `fileManager`, `converter`, and an
+/// `osVersion` closure so the OS-version gate, file I/O, and conversion
+/// are all substitutable in tests.
+///
 /// Threading: `present(asset:)` is `@MainActor`. GLB→USDZ conversion runs
 /// on a detached task; the panel opens only after the file is ready.
 @MainActor
@@ -66,7 +84,26 @@ public final class ARQuickLookPresenter: NSObject {
 
     // MARK: - Singleton
 
+    /// Shared production instance using `FileManager.default`,
+    /// `Scene3DAssetConverter()`, and the real macOS version check.
     public static let shared = ARQuickLookPresenter()
+
+    // MARK: - Dependencies
+    //
+    // These are `let` constants set at init time and never mutated.
+    // `nonisolated(unsafe)` is the standard project pattern (see JSONCodec.swift)
+    // for immutable-after-init values on actor-isolated types that carry
+    // non-Sendable types. Read-only access from concurrent contexts is safe
+    // because FileManager's read/list/write operations are thread-safe.
+
+    /// FileManager for all cache-directory I/O.
+    nonisolated(unsafe) private let fileManager: FileManager
+    /// GLB→USDZ converter (protocol-typed for test substitution).
+    nonisolated(unsafe) private let converter: any Scene3DAssetConverting
+    /// Last path component of the per-app cache subdirectory.
+    nonisolated(unsafe) private let cacheDirectoryName: String
+    /// Returns `true` when the OS supports ModelIO GLB/FBX conversion (macOS 13+).
+    nonisolated(unsafe) private let osVersionSupported: @Sendable () -> Bool
 
     // MARK: - Private state
 
@@ -75,7 +112,31 @@ public final class ARQuickLookPresenter: NSObject {
 
     // MARK: - Init
 
-    private override init() {
+    /// Create a presenter with injected dependencies.
+    ///
+    /// - Parameters:
+    ///   - fileManager: FileManager used for all cache-directory I/O. Defaults
+    ///     to `FileManager.default`.
+    ///   - converter: The GLB→USDZ converter. Defaults to
+    ///     `Scene3DAssetConverter()`.
+    ///   - cacheDirectoryName: Last path component of the per-app cache
+    ///     subdirectory. Defaults to `"ar-quicklook"`.
+    ///   - osVersion: Closure returning `true` when the OS supports ModelIO
+    ///     GLB/FBX conversion (i.e. macOS 13+). Defaults to a runtime
+    ///     `#available(macOS 13, *)` check. Tests pass `{ false }` to simulate
+    ///     macOS 12.
+    public init(
+        fileManager: FileManager = .default,
+        converter: any Scene3DAssetConverting = Scene3DAssetConverter(),
+        cacheDirectoryName: String = "ar-quicklook",
+        osVersion: @escaping @Sendable () -> Bool = {
+            if #available(macOS 13, *) { return true } else { return false }
+        }
+    ) {
+        self.fileManager = fileManager
+        self.converter = converter
+        self.cacheDirectoryName = cacheDirectoryName
+        self.osVersionSupported = osVersion
         super.init()
     }
 
@@ -84,14 +145,15 @@ public final class ARQuickLookPresenter: NSObject {
     /// Returns the cache directory for AR Quick Look temp files.
     ///
     /// Creates the directory with `0o700` permissions (C10) if it doesn't exist.
-    /// Declared `nonisolated` so it can be called from the detached eviction task.
-    nonisolated private static func resolveCacheDirectory() throws -> URL {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+    /// Declared `nonisolated` so it can be called from the eviction helper
+    /// without crossing the main-actor boundary.
+    nonisolated private func resolveCacheDirectory() throws -> URL {
+        let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
         let dir = caches
             .appendingPathComponent("com.hype.app", isDirectory: true)
-            .appendingPathComponent("ar-quicklook", isDirectory: true)
-        if !FileManager.default.fileExists(atPath: dir.path) {
-            try FileManager.default.createDirectory(
+            .appendingPathComponent(cacheDirectoryName, isDirectory: true)
+        if !fileManager.fileExists(atPath: dir.path) {
+            try fileManager.createDirectory(
                 at: dir,
                 withIntermediateDirectories: true,
                 attributes: [.posixPermissions: 0o700]
@@ -111,65 +173,7 @@ public final class ARQuickLookPresenter: NSObject {
     /// - Parameter asset: A `model3D` asset from the Sprite Repository.
     /// - Throws: `ARQuickLookError`.
     public func present(asset: SpriteAsset) async throws {
-        guard asset.kind == .model3D else {
-            throw ARQuickLookError.unsupportedAssetKind(kind: asset.kind.rawValue)
-        }
-
-        // Determine the file extension from the asset's MIME type.
-        let ext = fileExtension(for: asset.mimeType)
-        guard !ext.isEmpty else {
-            throw ARQuickLookError.unknownFormat
-        }
-
-        // Build the stable staged path using the asset id — never user-controlled.
-        let cacheDir = try ARQuickLookPresenter.resolveCacheDirectory()
-        let stagedPath: URL
-
-        if ext == "usdz" {
-            // USDZ: write directly.
-            stagedPath = cacheDir.appendingPathComponent("\(asset.id.uuidString).usdz")
-            do {
-                try asset.data.write(to: stagedPath, options: .atomic)
-            } catch {
-                throw ARQuickLookError.stagingFailed(reason: error.localizedDescription)
-            }
-        } else {
-            // GLB (or other MDLAsset-readable format): write the source file,
-            // then convert to USDZ on a detached background task (C10).
-            let sourcePath = cacheDir.appendingPathComponent("\(asset.id.uuidString).\(ext)")
-            do {
-                try asset.data.write(to: sourcePath, options: .atomic)
-            } catch {
-                throw ARQuickLookError.stagingFailed(reason: error.localizedDescription)
-            }
-
-            let usdzPath = cacheDir.appendingPathComponent("\(asset.id.uuidString).usdz")
-
-            // Conversion requires macOS 13+.
-            if #available(macOS 13, *) {
-                let converter = Scene3DAssetConverter()
-                let conversionResult: Result<Void, Scene3DAssetConverter.ConvertError> =
-                    await Task.detached(priority: .userInitiated) {
-                        do {
-                            try converter.convertToUSDZ(inputURL: sourcePath, outputURL: usdzPath)
-                            return .success(())
-                        } catch let err as Scene3DAssetConverter.ConvertError {
-                            return .failure(err)
-                        } catch {
-                            return .failure(.exportFailed(reason: error.localizedDescription))
-                        }
-                    }.value
-
-                switch conversionResult {
-                case .success:
-                    stagedPath = usdzPath
-                case .failure(let err):
-                    throw ARQuickLookError.conversionFailed(reason: err.errorDescription ?? err.localizedDescription)
-                }
-            } else {
-                throw ARQuickLookError.unsupportedOS
-            }
-        }
+        let stagedPath = try await stageAsset(asset)
 
         // Retain the staged URL for the QLPreviewPanelDataSource callbacks.
         self.stagedURL = stagedPath
@@ -183,13 +187,87 @@ public final class ARQuickLookPresenter: NSObject {
         }
     }
 
+    /// Stage an asset to the cache directory without opening Quick Look.
+    ///
+    /// This method contains all the testable I/O logic from `present(asset:)`.
+    /// It is `internal` (accessible via `@testable import`) so tests can exercise
+    /// the byte-staging and OS-gate paths without activating `QLPreviewPanel`.
+    ///
+    /// - Parameter asset: A `model3D` asset.
+    /// - Returns: The URL of the staged USDZ file in the cache directory.
+    /// - Throws: `ARQuickLookError`.
+    func stageAsset(_ asset: SpriteAsset) async throws -> URL {
+        guard asset.kind == .model3D else {
+            throw ARQuickLookError.unsupportedAssetKind(kind: asset.kind.rawValue)
+        }
+
+        let ext = fileExtension(for: asset.mimeType)
+        guard !ext.isEmpty else {
+            throw ARQuickLookError.unknownFormat
+        }
+
+        let cacheDir = try resolveCacheDirectory()
+
+        if ext == "usdz" {
+            // USDZ: write directly, no conversion needed.
+            let stagedPath = cacheDir.appendingPathComponent("\(asset.id.uuidString).usdz")
+            do {
+                try asset.data.write(to: stagedPath, options: .atomic)
+            } catch {
+                throw ARQuickLookError.stagingFailed(reason: error.localizedDescription)
+            }
+            return stagedPath
+        } else {
+            // GLB (or other MDLAsset-readable format): convert to USDZ.
+            // Conversion requires macOS 13+.
+            guard osVersionSupported() else {
+                throw ARQuickLookError.unsupportedOS
+            }
+
+            let usdzPath = cacheDir.appendingPathComponent("\(asset.id.uuidString).usdz")
+            let sourceExt = ext
+            let sourceData = asset.data
+            let converterRef = converter
+
+            let conversionResult: Result<Data, Error> =
+                await Task.detached(priority: .userInitiated) {
+                    do {
+                        let usdzData = try converterRef.convertToUSDZ(
+                            sourceData: sourceData,
+                            fileExtension: sourceExt
+                        )
+                        return .success(usdzData)
+                    } catch {
+                        return .failure(error)
+                    }
+                }.value
+
+            switch conversionResult {
+            case .success(let usdzData):
+                do {
+                    try usdzData.write(to: usdzPath, options: .atomic)
+                } catch {
+                    throw ARQuickLookError.stagingFailed(reason: error.localizedDescription)
+                }
+                return usdzPath
+            case .failure(let err):
+                throw ARQuickLookError.conversionFailed(
+                    reason: err.localizedDescription.prefix(200).description
+                )
+            }
+        }
+    }
+
     /// Evict staged files in the cache directory older than 30 days (200 MB cap).
     ///
     /// Safe to call from any actor — I/O runs on a detached task.
     public func evictOldStagedFiles() async {
+        // Box the non-Sendable FileManager for safe capture into the detached task.
+        // The detached task accesses `fm` serially; no concurrent mutation occurs.
+        let fmBox = UncheckedSendableBox(fileManager)
+        guard let cacheDir = try? resolveCacheDirectory() else { return }
         await Task.detached(priority: .background) {
-            guard let cacheDir = try? ARQuickLookPresenter.resolveCacheDirectory() else { return }
-            let fm = FileManager.default
+            let fm = fmBox.value
             guard let items = try? fm.contentsOfDirectory(
                 at: cacheDir,
                 includingPropertiesForKeys: [.creationDateKey, .fileSizeKey],

@@ -102,7 +102,14 @@ struct MainContentView: View {
                 guard let stackId = notification.userInfo?["stackId"] as? UUID,
                       stackId == document.document.stack.id,
                       let updated = notification.userInfo?["document"] as? HypeDocument else { return }
-                applyDocument(updated, actionName: "Apply Runtime Changes")
+                let merge = RuntimeDocumentMerge.preservingCurrentOnlyEntities(
+                    runtimeDocument: updated,
+                    currentDocument: document.document
+                )
+                applyDocument(merge.document, actionName: "Apply Runtime Changes")
+                if merge.preservedCurrentOnlyEntities {
+                    syncRuntimeDocument(merge.document)
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .stackRuntimeStatusDidChange)) { notification in
                 guard let stackId = notification.userInfo?["stackId"] as? UUID,
@@ -163,6 +170,7 @@ struct MainContentView: View {
                     selectedPartIds: $selectedPartIds,
                     isRuntimeMode: isRuntimeMode
                 )
+                .accessibilityIdentifier(HypeAccessibilityID.objectsPanel)
             }
 
             canvasArea
@@ -176,6 +184,8 @@ struct MainContentView: View {
                     Image(systemName: "sidebar.leading")
                 }
                 .help(objectsPanelVisible ? "Hide Objects Panel (⇧⌘O)" : "Show Objects Panel (⇧⌘O)")
+                .accessibilityLabel(objectsPanelVisible ? "Hide Objects Panel" : "Show Objects Panel")
+                .accessibilityIdentifier(HypeAccessibilityID.toolbar("objectsPanel"))
 
                 Spacer()
 
@@ -190,12 +200,16 @@ struct MainContentView: View {
                 }
                 .help("Previous Card")
                 .disabled(!canNavigatePrevious)
+                .accessibilityLabel("Previous Card")
+                .accessibilityIdentifier(HypeAccessibilityID.toolbar("previousCard"))
 
                 Button(action: navigateNext) {
                     Image(systemName: "chevron.right")
                 }
                 .help("Next Card")
                 .disabled(!canNavigateNext)
+                .accessibilityLabel("Next Card")
+                .accessibilityIdentifier(HypeAccessibilityID.toolbar("nextCard"))
 
                 if !isRuntimeMode {
                     Divider()
@@ -206,6 +220,8 @@ struct MainContentView: View {
                         Image(systemName: "tray.2")
                     }
                     .help("Sprite Repository")
+                    .accessibilityLabel("Sprite Repository")
+                    .accessibilityIdentifier(HypeAccessibilityID.toolbar("spriteRepository"))
 
                     Button(action: {
                         openAIContextLibraryWindow(document: trackedDocumentBinding)
@@ -213,17 +229,23 @@ struct MainContentView: View {
                         Image(systemName: "folder.badge.gearshape")
                     }
                     .help("AI Context Library")
+                    .accessibilityLabel("AI Context Library")
+                    .accessibilityIdentifier(HypeAccessibilityID.toolbar("aiContextLibrary"))
 
                     Button(action: { showAI.toggle() }) {
                         Image(systemName: "sparkles")
                             .foregroundColor(showAI ? .accentColor : .primary)
                     }
                     .help("AI Assistant")
+                    .accessibilityLabel(showAI ? "Hide AI Assistant" : "Show AI Assistant")
+                    .accessibilityIdentifier(HypeAccessibilityID.toolbar("aiAssistant"))
 
                     Button(action: { showNetworkPanel = true }) {
                         Image(systemName: "antenna.radiowaves.left.and.right")
                     }
                     .help("Stack Network")
+                    .accessibilityLabel("Stack Network")
+                    .accessibilityIdentifier(HypeAccessibilityID.toolbar("stackNetwork"))
                 }
             }
         }
@@ -252,6 +274,7 @@ struct MainContentView: View {
                 paintColorHex: paintColor.toHex(),
                 pencilRadius: Int(pencilRadius)
             )
+            .accessibilityIdentifier(HypeAccessibilityID.canvas(cardId: currentCardId ?? document.document.sortedCards.first?.id ?? document.document.stack.id))
             .frame(
                 minWidth: CGFloat(document.document.stack.width),
                 minHeight: CGFloat(document.document.stack.height)
@@ -299,9 +322,11 @@ struct MainContentView: View {
             PropertyInspector(document: trackedDocumentBinding, selectedPartIds: $selectedPartIds,
                               currentTool: currentTool, currentCardId: currentCardId,
                               paintColor: $paintColor, pencilRadius: $pencilRadius)
+            .accessibilityIdentifier(HypeAccessibilityID.propertyInspector)
         }
         if showAI {
             AIChatPanel(document: trackedDocumentBinding, currentCardId: $currentCardId)
+                .accessibilityIdentifier(HypeAccessibilityID.aiAssistant)
         }
     }
 
@@ -511,6 +536,13 @@ struct MainContentView: View {
         }
     }
 
+    private func syncRuntimeDocument(_ snapshot: HypeDocument) {
+        let config = runtimeConfiguration()
+        Task {
+            _ = await StackRuntimeRegistry.shared.runtime(for: snapshot, configuration: config)
+        }
+    }
+
     private func mutateDocument(actionName: String, _ mutation: (inout HypeDocument) -> Void) {
         HypeDocumentMutationCoordinator.shared.mutate(
             $document,
@@ -707,7 +739,10 @@ private struct NavigationHandlers: ViewModifier {
         // Cmd+click in browse mode: open the script editor for the
         // clicked part, or the current card when clicking empty space.
         let info = notification.userInfo ?? [:]
-        if let partId = info["partId"] as? UUID {
+        if let target = info["target"] as? ScriptTarget {
+            let partId = info["partId"] as? UUID
+            openScriptEditorWindow(document: $document, partId: partId, target: target)
+        } else if let partId = info["partId"] as? UUID {
             let target: ScriptTarget = .part(partId)
             openScriptEditorWindow(document: $document, partId: partId, target: target)
         } else if let cardId = info["cardId"] as? UUID {
@@ -948,7 +983,7 @@ private struct NavigationHandlers: ViewModifier {
                          idx > 0 ? sorted[idx - 1].id : nil
             let cardParts = document.document.partsForCard(cardId)
             for part in cardParts {
-                document.document.removePart(id: part.id)
+                document.document.deletePart(id: part.id)
             }
             document.document.cards.removeAll { $0.id == cardId }
             if let nextId = nextId {
