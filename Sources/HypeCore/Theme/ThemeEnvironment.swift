@@ -18,7 +18,7 @@ import AppKit
 /// still render reasonably.
 
 private struct HypeThemeKey: EnvironmentKey {
-    nonisolated(unsafe) static let defaultValue: HypeTheme = BuiltInThemes.system
+    static let defaultValue: HypeTheme = BuiltInThemes.system
 }
 
 public extension EnvironmentValues {
@@ -169,10 +169,7 @@ private struct LiquidGlassPopoverMaterial: ViewModifier {
 /// `reduceTransparency` / `increaseContrast` automatically; this helper
 /// centralises the read so renderers stay terse.
 ///
-/// `nonisolated(unsafe)` matches the established Hype pattern for
-/// read-mostly singletons (see GIFAnimator). The properties are
-/// recomputed on each access, so there's no stale cache.
-public enum LiquidGlassEnvironment {
+    public enum LiquidGlassEnvironment {
 
     /// True when the user has enabled "Reduce transparency" in System
     /// Settings → Accessibility → Display. When true, all glass

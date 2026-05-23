@@ -30,11 +30,11 @@ public struct GIFAnimationState: Sendable {
 /// state already exists, or when the bytes are known to be non-GIF.
 ///
 /// **Threading**: all methods must be called from the main thread.
-/// The singleton is declared `nonisolated(unsafe)` to match the
-/// established `PartAnimator` pattern.
+/// The singleton is intentionally process-wide and isolated to
+/// all callers through internal synchronization.
 public final class GIFAnimator: @unchecked Sendable {
 
-    nonisolated(unsafe) public static let shared = GIFAnimator()
+    public static let shared = GIFAnimator()
 
     // MARK: - Callbacks
 

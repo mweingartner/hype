@@ -214,7 +214,7 @@ public enum ImageChromaKey {
     /// 64 entries is plenty for typical authoring sessions; large
     /// stacks with hundreds of distinct images will see eviction
     /// but never unbounded memory growth.
-    private final class LRUCache<K: Hashable, V> {
+    private final class LRUCache<K: Hashable, V>: @unchecked Sendable {
         private var storage: [K: V] = [:]
         private var order: [K] = []
         private let capacity: Int
@@ -255,7 +255,7 @@ public enum ImageChromaKey {
         }
     }
 
-    nonisolated(unsafe) private static let cache = LRUCache<CacheKey, CGImage>(capacity: 64)
+    private static let cache = LRUCache<CacheKey, CGImage>(capacity: 64)
 }
 
 private extension Int {

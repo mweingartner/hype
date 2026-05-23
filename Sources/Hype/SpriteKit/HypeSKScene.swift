@@ -121,7 +121,7 @@ final class HypeSKScene: SKScene {
 
 // MARK: - SKPhysicsContactDelegate
 
-extension HypeSKScene: @preconcurrency SKPhysicsContactDelegate {
+extension HypeSKScene: SKPhysicsContactDelegate {
     nonisolated func didBegin(_ contact: SKPhysicsContact) {
         guard let nodeA = contact.bodyA.node,
               let nodeB = contact.bodyB.node else { return }

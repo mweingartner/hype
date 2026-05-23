@@ -68,7 +68,7 @@ public enum StackScriptAttributionSync {
     static func sanitizeField(_ raw: String) -> String {
         // Step 1: Collapse \r\n pairs first, then individual terminators.
         // We work on scalars after an initial string pass for the two-char pair.
-        var s = raw.replacingOccurrences(of: "\r\n", with: " ")
+        let s = raw.replacingOccurrences(of: "\r\n", with: " ")
 
         // Now rebuild via scalar iteration for single-char cases.
         var result = ""

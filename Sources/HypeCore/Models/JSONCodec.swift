@@ -14,13 +14,10 @@ import Foundation
 ///
 /// Thread safety — `JSONDecoder` and `JSONEncoder` are safe for
 /// concurrent use as long as their *configuration* is read-only
-/// after creation, which is the case for both shared instances
-/// here. We never mutate `dateDecodingStrategy` etc. after the
-/// `let`. The `nonisolated(unsafe)` annotation is the standard
-/// pattern for this kind of always-immutable shared singleton.
+/// after creation, which is the case for both shared instances.
 public enum JSONCodec {
-    nonisolated(unsafe) public static let decoder = JSONDecoder()
-    nonisolated(unsafe) public static let encoder = JSONEncoder()
+    public static let decoder = JSONDecoder()
+    public static let encoder = JSONEncoder()
 
     /// Decode a model value from a JSON string. Returns nil on
     /// invalid UTF-8 or decode failure (callers already handle the

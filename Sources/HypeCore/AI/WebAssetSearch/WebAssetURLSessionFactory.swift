@@ -131,7 +131,6 @@ final class WebAssetDownloadDelegate: NSObject,
     ) {
         let tid = dataTask.taskIdentifier
         var shouldCancel = false
-        var cancelErr: WebAssetSearchError?
 
         lock.withLock {
             dataByTask[tid, default: Data()].append(data)
@@ -145,7 +144,6 @@ final class WebAssetDownloadDelegate: NSObject,
                     cancellationReason[tid] = err
                 }
                 shouldCancel = true
-                cancelErr = err
             }
         }
 

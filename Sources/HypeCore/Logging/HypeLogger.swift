@@ -50,7 +50,7 @@ public struct LogEntry: Identifiable, Sendable {
 /// log without races.
 public final class HypeLogger: @unchecked Sendable {
 
-    nonisolated(unsafe) public static let shared = HypeLogger()
+    public static let shared = HypeLogger()
     private static let maxLogMessageCharacters = 24_000
 
     private static let secretPatterns: [NSRegularExpression] = [
