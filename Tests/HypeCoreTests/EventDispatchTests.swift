@@ -693,6 +693,204 @@ struct EventDispatchTests {
         }
     }
 
+    @Test("runtime idle burst can skip card target while dispatching parts") func runtimeIdleBurstCanSkipCardTarget() async {
+        var (doc, cardId) = makeDocWithOneCard()
+        let cardIndex = doc.cards.firstIndex(where: { $0.id == cardId })!
+        doc.cards[cardIndex].script = """
+            on idle
+              put "card" into field "log"
+            end idle
+            """
+        var button = Part(
+            partType: .button,
+            cardId: cardId,
+            name: "animated",
+            left: 0,
+            top: 0,
+            width: 40,
+            height: 20
+        )
+        button.script = """
+            on idle
+              set the left of me to the left of me + 1
+            end idle
+            """
+        let buttonId = button.id
+        doc.addPart(button)
+
+        let runtime = StackRuntime(document: doc, configuration: StackRuntimeConfiguration())
+        await runtime.dispatchIdleBurst(
+            cardTargetID: cardId,
+            partTargetIDs: [buttonId],
+            currentCardId: cardId,
+            includeCardTarget: false
+        )
+        let modified = await runtime.currentDocument()
+
+        #expect(modified.parts.first(where: { $0.id == buttonId })?.left == 1)
+        #expect(modified.parts.first(where: { $0.name == "log" })?.textContent == "")
+    }
+
+    @Test("runtime idle burst includes card target when requested") func runtimeIdleBurstIncludesCardTarget() async {
+        var (doc, cardId) = makeDocWithOneCard()
+        let cardIndex = doc.cards.firstIndex(where: { $0.id == cardId })!
+        doc.cards[cardIndex].script = """
+            on idle
+              put "card" into field "log"
+            end idle
+            """
+        var button = Part(
+            partType: .button,
+            cardId: cardId,
+            name: "animated",
+            left: 0,
+            top: 0,
+            width: 40,
+            height: 20
+        )
+        button.script = """
+            on idle
+              set the left of me to the left of me + 1
+            end idle
+            """
+        let buttonId = button.id
+        doc.addPart(button)
+
+        let runtime = StackRuntime(document: doc, configuration: StackRuntimeConfiguration())
+        await runtime.dispatchIdleBurst(
+            cardTargetID: cardId,
+            partTargetIDs: [buttonId],
+            currentCardId: cardId,
+            includeCardTarget: true
+        )
+        let modified = await runtime.currentDocument()
+
+        #expect(modified.parts.first(where: { $0.id == buttonId })?.left == 1)
+        #expect(modified.parts.first(where: { $0.name == "log" })?.textContent == "card")
+    }
+
+    @Test("dispatcher parse cache uses edited script source") func dispatcherParseCacheUsesEditedScriptSource() async {
+        var (doc, cardId) = makeDocWithOneCard()
+        let cardIndex = doc.cards.firstIndex(where: { $0.id == cardId })!
+        doc.cards[cardIndex].script = """
+            on idle
+              put "one" into field "log"
+            end idle
+            """
+
+        let dispatcher = MessageDispatcher()
+        let first = await runOnLargeStack { [doc, cardId] in dispatcher.dispatch(
+            message: "idle",
+            params: [],
+            targetId: cardId,
+            document: doc,
+            currentCardId: cardId
+        ) }
+        var edited = first.modifiedDocument ?? doc
+        let editedCardIndex = edited.cards.firstIndex(where: { $0.id == cardId })!
+        edited.cards[editedCardIndex].script = """
+            on idle
+              put "two" into field "log"
+            end idle
+            """
+
+        let second = await runOnLargeStack { [edited, cardId] in dispatcher.dispatch(
+            message: "idle",
+            params: [],
+            targetId: cardId,
+            document: edited,
+            currentCardId: cardId
+        ) }
+
+        #expect(first.modifiedDocument?.parts.first(where: { $0.name == "log" })?.textContent == "one")
+        #expect(second.modifiedDocument?.parts.first(where: { $0.name == "log" })?.textContent == "two")
+    }
+
+    @Test("runtime idle burst ignores removed cached target id") func runtimeIdleBurstIgnoresRemovedCachedTargetID() async {
+        var (doc, cardId) = makeDocWithOneCard()
+        var button = Part(
+            partType: .button,
+            cardId: cardId,
+            name: "removed",
+            left: 0,
+            top: 0,
+            width: 40,
+            height: 20
+        )
+        button.script = """
+            on idle
+              set the left of me to the left of me + 1
+            end idle
+            """
+        let buttonId = button.id
+        doc.addPart(button)
+
+        let runtime = StackRuntime(document: doc, configuration: StackRuntimeConfiguration())
+        await runtime.dispatchIdleBurst(
+            cardTargetID: cardId,
+            partTargetIDs: [buttonId],
+            currentCardId: cardId,
+            includeCardTarget: false
+        )
+        var edited = await runtime.currentDocument()
+        edited.parts.removeAll { $0.id == buttonId }
+        await runtime.syncDocument(edited)
+
+        await runtime.dispatchIdleBurst(
+            cardTargetID: cardId,
+            partTargetIDs: [buttonId],
+            currentCardId: cardId,
+            includeCardTarget: false
+        )
+        let modified = await runtime.currentDocument()
+
+        #expect(!modified.parts.contains(where: { $0.id == buttonId }))
+    }
+
+    @Test("runtime idle burst keeps renamed cached target alive by id") func runtimeIdleBurstUsesIDAfterRename() async {
+        var (doc, cardId) = makeDocWithOneCard()
+        var button = Part(
+            partType: .button,
+            cardId: cardId,
+            name: "before",
+            left: 0,
+            top: 0,
+            width: 40,
+            height: 20
+        )
+        button.script = """
+            on idle
+              set the left of me to the left of me + 1
+            end idle
+            """
+        let buttonId = button.id
+        doc.addPart(button)
+
+        let runtime = StackRuntime(document: doc, configuration: StackRuntimeConfiguration())
+        await runtime.dispatchIdleBurst(
+            cardTargetID: cardId,
+            partTargetIDs: [buttonId],
+            currentCardId: cardId,
+            includeCardTarget: false
+        )
+        var edited = await runtime.currentDocument()
+        let editedPartIndex = edited.parts.firstIndex(where: { $0.id == buttonId })!
+        edited.parts[editedPartIndex].name = "after"
+        await runtime.syncDocument(edited)
+
+        await runtime.dispatchIdleBurst(
+            cardTargetID: cardId,
+            partTargetIDs: [buttonId],
+            currentCardId: cardId,
+            includeCardTarget: false
+        )
+        let modified = await runtime.currentDocument()
+        let modifiedPart = modified.parts.first(where: { $0.id == buttonId })
+
+        #expect(modifiedPart?.name == "after")
+        #expect(modifiedPart?.left == 2)
+    }
+
     // MARK: - Hierarchy completeness spot-check
 
     @Test("every level of the hierarchy can handle a lifecycle event") func everyHierarchyLevelCanHandle() async {
