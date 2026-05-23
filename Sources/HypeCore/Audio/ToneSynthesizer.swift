@@ -4,7 +4,7 @@ import AVFoundation
 /// Generates tone sequences using AVAudioEngine for melodic note playback.
 /// Maps instrument names to waveform types for different timbres.
 #if canImport(AppKit)
-public final class ToneSynthesizer {
+public final class ToneSynthesizer: @unchecked Sendable {
 
     public enum Waveform: Sendable {
         case sine       // smooth (flute)

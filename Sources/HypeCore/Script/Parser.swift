@@ -2367,10 +2367,9 @@ public struct Parser: Sendable {
              .export, .import, .copy, .disable, .enable, .edit, .dial,
              .reply, .start, .stop, .using, .template, .paint,
              .report, .file, .printing, .convert, .typeText,
-             .sprite, .scene, .spritearea, .emitter, .action,
-             .joint, .constrain, .listen, .http, .tcp, .message,
-             .method, .headers, .body, .username, .password, .host,
-             .port, .status, .tls, .connect, .send:
+             .emitter, .action, .joint, .constrain, .listen, .http,
+             .tcp, .message, .method, .headers, .body, .username,
+             .password, .host, .port, .status, .tls, .connect, .send:
             // These keywords can appear as identifiers in some contexts.
             let tok = advance()
             return .literal(tok.value)

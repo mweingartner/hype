@@ -99,7 +99,7 @@ package enum WebAssetExecutorBranches {
             return "Web asset search is off for this stack. Ask the user to enable it in Preferences → Web Asset Search → Current Stack."
         }
         // Gate 2: wired dependencies
-        guard let client = context.webAssetClient, let pipeline = context.webAssetPipeline else {
+        guard let _ = context.webAssetClient, let pipeline = context.webAssetPipeline else {
             return "import_web_asset not configured: no search client or pipeline available."
         }
 

@@ -1652,7 +1652,8 @@ public struct HypeToolExecutor: Sendable {
                 case "displaymonth", "display_month": document.parts[index].displayMonth = value
                 case "mindate", "min_date": document.parts[index].minDate = value
                 case "maxdate", "max_date": document.parts[index].maxDate = value
-                case "calendarstyle", "calendar_style", "style": document.parts[index].calendarStyle = value
+                case "calendarstyle", "calendar_style":
+                    document.parts[index].calendarStyle = value
                 // PDF-specific
                 case "pdfurl", "pdf_url": document.parts[index].pdfURL = value
                 case "currentpage", "current_page": document.parts[index].pdfCurrentPage = Int(value) ?? 1
