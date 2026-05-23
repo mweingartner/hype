@@ -2,15 +2,14 @@ import Foundation
 import HypeCore
 import ArgumentParser
 
-@main
 struct HypeCLI: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "hypetalk",
         abstract: "HypeTalk interpreter CLI"
     )
 
-    @Argument(help: "HypeTalk script to execute")
-    var script: String
+    @Argument(help: "HypeTalk script to execute. Omit with --benchmark to run the built-in suite.")
+    var script: String?
 
     @Option(help: "Path to a .hype document to load")
     var document: String?
@@ -18,15 +17,40 @@ struct HypeCLI: ParsableCommand {
     @Option(help: "Handler name to invoke (default: main)")
     var handler: String = "main"
 
+    @Flag(help: "Run scripts in benchmark mode and print timing plus execution diagnostics")
+    var benchmark = false
+
+    @Option(help: "Benchmark iterations per case")
+    var benchmarkIterations = 10
+
+    @Option(help: "Benchmark output format: text or json")
+    var benchmarkFormat: HypeTalkBenchmarkFormat = .text
+
     mutating func run() throws {
-        let script: String
-        if self.script == "/dev/stdin" || self.script == "-" {
-            script = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        } else if FileManager.default.fileExists(atPath: self.script) {
-            script = try String(contentsOfFile: self.script, encoding: .utf8)
-        } else {
-            script = self.script
+        if benchmark {
+            let cases: [HypeTalkBenchmarkSuite.Case]
+            if let script, script != "suite" {
+                cases = [
+                    HypeTalkBenchmarkSuite.Case(
+                        name: URL(fileURLWithPath: script).lastPathComponent,
+                        script: try loadScript(script),
+                        handler: handler
+                    )
+                ]
+            } else {
+                cases = HypeTalkBenchmarkSuite.cases
+            }
+            let report = try HypeTalkBenchmarkRunner(iterations: benchmarkIterations)
+                .run(cases: cases, documentPath: document)
+            try printBenchmarkReport(report, format: benchmarkFormat)
+            return
         }
+
+        guard let scriptSource = script else {
+            throw ValidationError("Missing expected argument '<script>'")
+        }
+
+        let script = try loadScript(scriptSource)
 
         var lexer = Lexer(source: script)
         let tokens = lexer.tokenize()
@@ -80,16 +104,32 @@ struct HypeCLI: ParsableCommand {
             throw HypeCLIError.executionFailed
         }
     }
+
+    private func loadScript(_ source: String) throws -> String {
+        let script: String
+        if source == "/dev/stdin" || source == "-" {
+            script = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        } else if FileManager.default.fileExists(atPath: source) {
+            script = try String(contentsOfFile: source, encoding: .utf8)
+        } else {
+            script = source
+        }
+        return script
+    }
 }
+
+HypeCLI.main()
 
 enum HypeCLIError: Error, CustomStringConvertible {
     case noHandlerFound
     case executionFailed
+    case benchmarkFailed(String, String)
 
     var description: String {
         switch self {
         case .noHandlerFound: return "No handler found in script"
         case .executionFailed: return "Script execution failed"
+        case .benchmarkFailed(let name, let message): return "Benchmark '\(name)' failed: \(message)"
         }
     }
 }

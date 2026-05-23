@@ -95,6 +95,7 @@ public struct ExecutionContext: Sendable {
     public var scriptContext: ScriptDispatchContext?
     public var appScript: String
     public var nestedSendDepth: Int
+    public var profiler: HypeTalkExecutionProfiler?
 
     public init(targetId: UUID, currentCardId: UUID, document: HypeDocument, instructionLimit: Int = 1_000_000,
                 dialogProvider: DialogProvider = StubDialogProvider(),
@@ -107,7 +108,8 @@ public struct ExecutionContext: Sendable {
                 meshyProvider: (any MeshyScriptingProvider)? = nil,
                 mouseX: Double = 0, mouseY: Double = 0,
                 appScript: String = "",
-                nestedSendDepth: Int = 0) {
+                nestedSendDepth: Int = 0,
+                profiler: HypeTalkExecutionProfiler? = nil) {
         self.targetId = targetId
         self.currentCardId = currentCardId
         self.document = document
@@ -125,6 +127,7 @@ public struct ExecutionContext: Sendable {
         self.scriptContext = nil
         self.appScript = appScript
         self.nestedSendDepth = nestedSendDepth
+        self.profiler = profiler
     }
 
     public init(targetId: UUID, currentCardId: UUID, document: HypeDocument, instructionLimit: Int = 1_000_000,
@@ -425,6 +428,7 @@ public struct Interpreter: Sendable {
         context: ExecutionContext,
         spriteAreaMutationBatch: SpriteAreaMutationBatch
     ) async -> ExecutionResult {
+        context.profiler?.recordHandlerInvocation(handler.name)
         var document = context.document
         // Seed the environment's globals from the document's
         // session-level scriptGlobals. This is the fix for "on idle
@@ -607,6 +611,7 @@ public struct Interpreter: Sendable {
         handler: Handler
     ) async throws {
         instructionCount += 1
+        context.profiler?.recordStatement(statementKind(stmt))
         if instructionCount > context.instructionLimit {
             throw ScriptError(message: "Instruction limit exceeded", line: handler.line, handler: handler.name)
         }
@@ -648,6 +653,7 @@ public struct Interpreter: Sendable {
                 env.it = value
 
             case .propertyAccess(let property, let targetExpr):
+                context.profiler?.recordPropertyWrite(property)
                 // `put X into the <property> of <part-ref>`
                 //
                 // Handles `put "asset-name" into the model of scene3d "Viewer"` by
@@ -679,6 +685,7 @@ public struct Interpreter: Sendable {
             env.it = try await evaluate(expr, env: &env, document: document, context: context)
 
         case .set(let property, let target, let toExpr):
+            context.profiler?.recordPropertyWrite(property)
             let value = try await evaluate(toExpr, env: &env, document: document, context: context)
             if target == nil, isActivateListenerProperty(property) {
                 try await setSpeechListenerActive(value, context: context, handler: handler)
@@ -935,6 +942,7 @@ public struct Interpreter: Sendable {
             let countStr = try await evaluate(countExpr, env: &env, document: document, context: context)
             let count = Int(toNumber(countStr))
             for _ in 0..<max(0, count) {
+                context.profiler?.recordLoopIteration("repeatCount")
                 do {
                     for s in body {
                         try await executeStatement(s, env: &env, document: &document, context: context,
@@ -952,6 +960,7 @@ public struct Interpreter: Sendable {
             while true {
                 let condValue = try await evaluate(cond, env: &env, document: document, context: context)
                 if !isTruthy(condValue) { break }
+                context.profiler?.recordLoopIteration("repeatWhile")
                 do {
                     for s in body {
                         try await executeStatement(s, env: &env, document: &document, context: context,
@@ -971,6 +980,7 @@ public struct Interpreter: Sendable {
             let step = fromVal <= toVal ? 1 : -1
             var i = fromVal
             while (step > 0 && i <= toVal) || (step < 0 && i >= toVal) {
+                context.profiler?.recordLoopIteration("repeatWith")
                 env.setVariable(varName, String(i))
                 do {
                     for s in body {
@@ -1017,6 +1027,7 @@ public struct Interpreter: Sendable {
             let modelName = try await evaluateOptional(modelExpr, env: &env, document: document, context: context)
             if let callbackExpr, let runtime = context.runtimeProvider {
                 let callbackName = try await evaluate(callbackExpr, env: &env, document: document, context: context)
+                context.profiler?.recordCallbackRequest("askAI")
                 let requestID = try await runtime.startAIRequest(
                     prompt: promptText,
                     model: modelName,
@@ -1047,6 +1058,7 @@ public struct Interpreter: Sendable {
             if let callbackExpr, let runtime = context.runtimeProvider {
                 // Async form: hand off to the runtime, return the request UUID in `it`.
                 let callbackName = try await evaluate(callbackExpr, env: &env, document: document, context: context)
+                context.profiler?.recordCallbackRequest("askMeshy")
                 let requestID = try await runtime.startMeshyRequest(
                     prompt: promptText,
                     style: styleText,
@@ -1087,6 +1099,7 @@ public struct Interpreter: Sendable {
 
             if let callbackExpr, let runtime = context.runtimeProvider {
                 let callbackName = try await evaluate(callbackExpr, env: &env, document: document, context: context)
+                context.profiler?.recordCallbackRequest("remeshAsset")
                 let requestID = try await runtime.startRemeshRequest(
                     sourceAssetName: sourceNameText,
                     targetPolycount: targetPolycount,
@@ -1120,6 +1133,7 @@ public struct Interpreter: Sendable {
 
             if let callbackExpr, let runtime = context.runtimeProvider {
                 let callbackName = try await evaluate(callbackExpr, env: &env, document: document, context: context)
+                context.profiler?.recordCallbackRequest("retextureAsset")
                 let requestID = try await runtime.startRetextureRequest(
                     sourceAssetName: sourceNameText,
                     stylePrompt: stylePromptText,
@@ -1618,6 +1632,9 @@ public struct Interpreter: Sendable {
             let username = try await evaluateOptional(usernameExpr, env: &env, document: document, context: context)
             let password = try await evaluateOptional(passwordExpr, env: &env, document: document, context: context)
             let callback = try await evaluateOptional(callbackExpr, env: &env, document: document, context: context)
+            if callback != nil {
+                context.profiler?.recordCallbackRequest("requestURL")
+            }
             let id = try await runtime.startHTTPRequest(
                 OutboundHTTPRequestSpec(url: url, method: method, headersText: headers, body: body, username: username, password: password, callbackMessage: callback),
                 owner: RuntimeOwnerContext(targetId: context.targetId, currentCardId: context.currentCardId, scriptContext: context.scriptContext)
@@ -1647,6 +1664,7 @@ public struct Interpreter: Sendable {
             let method = try await evaluateOptional(methodExpr, env: &env, document: document, context: context)
             let path = try await evaluateOptional(pathExpr, env: &env, document: document, context: context)
             let callback = try await evaluate(callbackExpr, env: &env, document: document, context: context)
+            context.profiler?.recordCallbackRequest("listenHTTP")
             let listenerID = try await runtime.startListener(
                 ListenerSpec(transport: .http, host: host, port: port, bindScope: .loopback, callbackMessage: callback, httpMethod: method, httpPath: path),
                 owner: RuntimeOwnerContext(targetId: context.targetId, currentCardId: context.currentCardId, scriptContext: context.scriptContext)
@@ -1660,6 +1678,7 @@ public struct Interpreter: Sendable {
             let port = Int(toNumber(try await evaluate(portExpr, env: &env, document: document, context: context)))
             let host = try await evaluateOptional(hostExpr, env: &env, document: document, context: context) ?? "127.0.0.1"
             let callback = try await evaluate(callbackExpr, env: &env, document: document, context: context)
+            context.profiler?.recordCallbackRequest("listenTCP")
             let listenerID = try await runtime.startListener(
                 ListenerSpec(transport: .tcp, host: host, port: port, bindScope: .loopback, callbackMessage: callback),
                 owner: RuntimeOwnerContext(targetId: context.targetId, currentCardId: context.currentCardId, scriptContext: context.scriptContext)
@@ -1675,6 +1694,7 @@ public struct Interpreter: Sendable {
             let tlsValue = try await evaluateOptional(tlsExpr, env: &env, document: document, context: context)
             let tls = tlsValue.map(isTruthy) ?? false
             let callback = try await evaluate(callbackExpr, env: &env, document: document, context: context)
+            context.profiler?.recordCallbackRequest("connectTCP")
             let connectionID = try await runtime.connectTCP(
                 TCPConnectionSpec(host: host, port: port, tls: tls, callbackMessage: callback),
                 owner: RuntimeOwnerContext(targetId: context.targetId, currentCardId: context.currentCardId, scriptContext: context.scriptContext)
@@ -2311,6 +2331,7 @@ public struct Interpreter: Sendable {
         document: HypeDocument,
         context: ExecutionContext
     ) async throws -> Value {
+        context.profiler?.recordExpression(expressionKind(expr))
         switch expr {
         case .literal(let val):
             return val
@@ -2866,6 +2887,7 @@ public struct Interpreter: Sendable {
         document: HypeDocument,
         context: ExecutionContext
     ) async throws -> Value {
+        context.profiler?.recordPropertyRead(property)
         let lower = property.lowercased()
 
         // Global properties (no target).
@@ -5280,5 +5302,109 @@ public struct Interpreter: Sendable {
             }
         }
         return nil
+    }
+
+    private func statementKind(_ stmt: Statement) -> String {
+        switch stmt {
+        case .put: return "put"
+        case .get: return "get"
+        case .set: return "set"
+        case .go: return "go"
+        case .ifThenElse: return "ifThenElse"
+        case .repeatCount: return "repeatCount"
+        case .repeatWhile: return "repeatWhile"
+        case .repeatWith: return "repeatWith"
+        case .exitRepeat: return "exitRepeat"
+        case .nextRepeat: return "nextRepeat"
+        case .passMessage: return "passMessage"
+        case .exitHandler: return "exitHandler"
+        case .returnValue: return "returnValue"
+        case .globalDecl: return "globalDecl"
+        case .ask: return "ask"
+        case .askAI: return "askAI"
+        case .askMeshy: return "askMeshy"
+        case .remeshAsset: return "remeshAsset"
+        case .retextureAsset: return "retextureAsset"
+        case .answer: return "answer"
+        case .say: return "say"
+        case .activateListener: return "activateListener"
+        case .visual: return "visual"
+        case .send: return "send"
+        case .expressionStatement: return "expressionStatement"
+        case .doBlock: return "doBlock"
+        case .animateProperty: return "animateProperty"
+        case .playSound: return "playSound"
+        case .playStop: return "playStop"
+        case .beep: return "beep"
+        case .waitDuration: return "waitDuration"
+        case .waitUntil: return "waitUntil"
+        case .createCard: return "createCard"
+        case .createBackground: return "createBackground"
+        case .createButton: return "createButton"
+        case .createField: return "createField"
+        case .showAllCards: return "showAllCards"
+        case .addTo: return "addTo"
+        case .subtractFrom: return "subtractFrom"
+        case .multiplyBy: return "multiplyBy"
+        case .divideBy: return "divideBy"
+        case .deleteObject: return "deleteObject"
+        case .findText: return "findText"
+        case .selectObject: return "selectObject"
+        case .sortCards: return "sortCards"
+        case .hideObject: return "hideObject"
+        case .showObject: return "showObject"
+        case .lockScreen: return "lockScreen"
+        case .unlockScreen: return "unlockScreen"
+        case .openStack: return "openStack"
+        case .convert: return "convert"
+        case .closeWindow: return "closeWindow"
+        case .saveStack: return "saveStack"
+        case .quitApp: return "quitApp"
+        case .editScriptOf: return "editScriptOf"
+        case .chooseTool: return "chooseTool"
+        case .markCard: return "markCard"
+        case .unmarkCard: return "unmarkCard"
+        case .typeText: return "typeText"
+        case .requestURL: return "requestURL"
+        case .listenHTTP: return "listenHTTP"
+        case .listenTCP: return "listenTCP"
+        case .connectTCP: return "connectTCP"
+        case .sendToConnection: return "sendToConnection"
+        default: return "other"
+        }
+    }
+
+    private func expressionKind(_ expr: Expression) -> String {
+        switch expr {
+        case .literal: return "literal"
+        case .variable: return "variable"
+        case .it: return "it"
+        case .me: return "me"
+        case .this: return "this"
+        case .binary: return "binary"
+        case .unary: return "unary"
+        case .await: return "await"
+        case .functionCall: return "functionCall"
+        case .propertyAccess: return "propertyAccess"
+        case .headerAccess: return "headerAccess"
+        case .chunk: return "chunk"
+        case .objectRef: return "objectRef"
+        case .chartDataPointRef: return "chartDataPointRef"
+        case .tileAt: return "tileAt"
+        case .not: return "not"
+        case .contains: return "contains"
+        case .stringConcat: return "stringConcat"
+        case .spacedConcat: return "spacedConcat"
+        case .empty: return "empty"
+        case .isIn: return "isIn"
+        case .isNotIn: return "isNotIn"
+        case .isWithin: return "isWithin"
+        case .isNotWithin: return "isNotWithin"
+        case .isA: return "isA"
+        case .isNotA: return "isNotA"
+        case .thereIsA: return "thereIsA"
+        case .thereIsNo: return "thereIsNo"
+        case .askMeshy: return "askMeshy"
+        }
     }
 }

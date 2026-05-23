@@ -30,9 +30,13 @@ struct HypeCLITests {
     }
 
     private func runBinary(filePath: String) -> ProcessResult {
+        runBinary(arguments: [filePath])
+    }
+
+    private func runBinary(arguments: [String]) -> ProcessResult {
         let process = Foundation.Process()
         process.executableURL = URL(fileURLWithPath: binaryPath)
-        process.arguments = [filePath]
+        process.arguments = arguments
         process.currentDirectoryURL = projectRoot
 
         let stdoutPipe = Pipe()
@@ -302,6 +306,46 @@ struct HypeCLITests {
         """)
         #expect(result.exitStatus == 0)
         #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "ok")
+    }
+
+    @Test func testBenchmarkSuiteTextOutput() {
+        let result = runBinary(arguments: ["--benchmark", "--benchmark-iterations", "1"])
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("HypeTalk benchmark"))
+        #expect(result.stdout.contains("looping-and-expressions"))
+        #expect(result.stdout.contains("property-access"))
+        #expect(result.stdout.contains("callback requests"))
+        #expect(result.stderr.isEmpty)
+    }
+
+    @Test func testBenchmarkScriptJSONOutput() throws {
+        let scriptFile = scriptDir.appendingPathComponent("bench.hypetalk")
+        try """
+        on main
+          put 0 into total
+          repeat with i from 1 to 5
+            add i to total
+          end repeat
+          return total
+        end main
+        """.write(to: scriptFile, atomically: true, encoding: .utf8)
+
+        let result = runBinary(arguments: [
+            "--benchmark",
+            "--benchmark-iterations", "2",
+            "--benchmark-format", "json",
+            scriptFile.path
+        ])
+
+        #expect(result.exitStatus == 0)
+        let data = try #require(result.stdout.data(using: .utf8))
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        #expect(json?["iterations"] as? Int == 2)
+        let cases = try #require(json?["cases"] as? [[String: Any]])
+        #expect(cases.first?["iterations"] as? Int == 2)
+        let diagnostics = try #require(cases.first?["diagnostics"] as? [String: Any])
+        #expect((diagnostics["statements"] as? Int ?? 0) > 0)
+        #expect((diagnostics["loopIterations"] as? Int ?? 0) == 10)
     }
 }
 
