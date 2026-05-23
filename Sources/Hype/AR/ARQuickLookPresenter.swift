@@ -91,19 +91,17 @@ public final class ARQuickLookPresenter: NSObject {
     // MARK: - Dependencies
     //
     // These are `let` constants set at init time and never mutated.
-    // `nonisolated(unsafe)` is the standard project pattern (see JSONCodec.swift)
-    // for immutable-after-init values on actor-isolated types that carry
-    // non-Sendable types. Read-only access from concurrent contexts is safe
-    // because FileManager's read/list/write operations are thread-safe.
+    // Read-only access is safe under the class-level `@MainActor`
+    // isolation and the surrounding lock-free immutable usage pattern.
 
     /// FileManager for all cache-directory I/O.
-    nonisolated(unsafe) private let fileManager: FileManager
+    private let fileManager: FileManager
     /// GLB→USDZ converter (protocol-typed for test substitution).
-    nonisolated(unsafe) private let converter: any Scene3DAssetConverting
+    private let converter: any Scene3DAssetConverting
     /// Last path component of the per-app cache subdirectory.
-    nonisolated(unsafe) private let cacheDirectoryName: String
+    private let cacheDirectoryName: String
     /// Returns `true` when the OS supports ModelIO GLB/FBX conversion (macOS 13+).
-    nonisolated(unsafe) private let osVersionSupported: @Sendable () -> Bool
+    private let osVersionSupported: @Sendable () -> Bool
 
     // MARK: - Private state
 

@@ -41,9 +41,9 @@ import AppKit
 /// This runs outside the interpreter (which is synchronous) and
 /// uses the main thread's run loop timer -- the same pattern the
 /// idle timer uses.
-public final class PartAnimator {
+public final class PartAnimator: @unchecked Sendable {
 
-    nonisolated(unsafe) public static let shared = PartAnimator()
+    public static let shared = PartAnimator()
 
     private var animations: [PartAnimation] = []
     private var timer: Timer?

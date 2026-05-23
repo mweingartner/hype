@@ -347,7 +347,7 @@ struct RemeshAndRetextureCoordinator: View {
             return
         }
         let sourceTaskId = provenance.attribution.taskId
-        let sourcePrompt = provenance.searchQuery ?? ""
+        let sourcePrompt = provenance.searchQuery
 
         // Fetch API key off-main (security M3).
         let apiKey: String

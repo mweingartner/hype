@@ -1354,13 +1354,13 @@ public struct Interpreter: Sendable {
                 } else {
                     tempo = 120
                 }
-                await context.systemProvider.playNotes(instrument: soundName, noteString: noteString, tempo: tempo, document: document)
+                context.systemProvider.playNotes(instrument: soundName, noteString: noteString, tempo: tempo, document: document)
             } else {
-                await context.systemProvider.playSound(name: soundName, document: document)
+                context.systemProvider.playSound(name: soundName, document: document)
             }
 
         case .playStop:
-            await context.systemProvider.stopSound()
+            context.systemProvider.stopSound()
 
         case .beep(let countExpr):
             let count: Int
@@ -1369,7 +1369,7 @@ public struct Interpreter: Sendable {
             } else {
                 count = 1
             }
-            await context.systemProvider.beep(count: count)
+            context.systemProvider.beep(count: count)
 
         case .waitDuration(let expr):
             let val = try await evaluate(expr, env: &env, document: document, context: context)
@@ -3235,7 +3235,7 @@ public struct Interpreter: Sendable {
         case "style":
             return part.partType == .button ? part.buttonStyle.rawValue : part.fieldStyle.rawValue
         case "textfont", "font": return part.textFont
-        case "textsize", "size": return formatNumber(part.textSize)
+        case "textsize": return formatNumber(part.textSize)
         case "textstyle", "text_style":   return part.textStyle
         case "textalign":   return part.textAlign.rawValue
         // Foreground (font) color. Aliases mirror the AI tool
@@ -3753,7 +3753,7 @@ public struct Interpreter: Sendable {
                let activeSceneEntry = location.areaSpec.scenes.first(where: { $0.scene.name.lowercased() == identifier.lowercased() }) {
                 return activeSceneEntry.id.uuidString
             }
-        case "sprite", "label", "shape", "emitter", "audio", "video", "tilemap", "camera", "crop", "effect", "light", "group":
+        case "sprite", "label", "shape", "emitter", "audio", "tilemap", "camera", "crop", "effect", "light", "group":
             if let location = nodeLocation(
                 named: identifier,
                 objectType: objectType,
@@ -5009,10 +5009,10 @@ public struct Interpreter: Sendable {
         case "particlebirthrate", "birthrate":
             if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
             node.emitterSpec?.particleBirthRate = toNumber(value)
-        case "particlelifetime", "lifetime" where node.nodeType == .emitter:
+        case "particlelifetime" where node.nodeType == .emitter, "lifetime" where node.nodeType == .emitter:
             if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
             node.emitterSpec?.particleLifetime = toNumber(value)
-        case "particlespeed", "speed" where node.nodeType == .emitter:
+        case "particlespeed" where node.nodeType == .emitter, "speed" where node.nodeType == .emitter:
             if node.emitterSpec == nil { node.emitterSpec = EmitterSpec() }
             node.emitterSpec?.particleSpeed = toNumber(value)
         case "emissionangle":
@@ -5137,9 +5137,9 @@ public struct Interpreter: Sendable {
         case "zoom": return formatNumber(node.xScale)
         case "particlebirthrate", "birthrate":
             return formatNumber(node.emitterSpec?.particleBirthRate ?? 50)
-        case "particlelifetime", "lifetime" where node.nodeType == .emitter:
+        case "particlelifetime" where node.nodeType == .emitter, "lifetime" where node.nodeType == .emitter:
             return formatNumber(node.emitterSpec?.particleLifetime ?? 2)
-        case "particlespeed", "speed" where node.nodeType == .emitter:
+        case "particlespeed" where node.nodeType == .emitter, "speed" where node.nodeType == .emitter:
             return formatNumber(node.emitterSpec?.particleSpeed ?? 100)
         case "emissionangle":
             return formatNumber(node.emitterSpec?.emissionAngle ?? 90)

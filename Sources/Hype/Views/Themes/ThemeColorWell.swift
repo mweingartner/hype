@@ -168,6 +168,7 @@ struct ThemeColorWell: View {
 /// to a SwiftUI `@Binding` directly. This `NSObject` subclass bridges
 /// the two: it holds the SwiftUI setter closure and forwards every
 /// panel change to it.
+@MainActor
 final class ThemeColorPanelTarget: NSObject {
     private let onChange: (NSColor) -> Void
     private let initialColor: NSColor

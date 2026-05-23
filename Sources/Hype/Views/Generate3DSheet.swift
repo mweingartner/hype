@@ -798,16 +798,19 @@ struct Generate3DSheet: View {
             let img = NSImage(size: size)
             img.lockFocus()
             pdfRep.draw()
-            // Capture the bitmap BEFORE releasing the focus lock — once the
-            // focus is unlocked the focused-view rect is no longer the
-            // image's drawing context. Single unlockFocus call paired with
-            // the lockFocus above. (Security review Phase 2 Defect 3.)
-            let rep2 = NSBitmapImageRep(focusedViewRect: NSRect(origin: .zero, size: size))
             img.unlockFocus()
-            if let pngData = rep2?.representation(using: .png, properties: [:]) {
-                resolveAndSet(.base64(pngData.base64EncodedString()), resolved: resolved, preview: preview, error: error)
+
+            // Prefer the non-deprecated TIFF round-trip for
+            // `focusedViewRect`-free capture. The `tiffRepresentation` call
+            // succeeds because the image was just drawn to during `lockFocus`.
+            guard let tiffData = img.tiffRepresentation,
+                  let rep2 = NSBitmapImageRep(data: tiffData),
+                  let pngData = rep2.representation(using: .png, properties: [:]) else {
+                error.wrappedValue = "Could not read image from clipboard."
                 return
             }
+            resolveAndSet(.base64(pngData.base64EncodedString()), resolved: resolved, preview: preview, error: error)
+            return
         }
 
         error.wrappedValue = "No supported image found in clipboard. Copy a PNG or JPEG image first."

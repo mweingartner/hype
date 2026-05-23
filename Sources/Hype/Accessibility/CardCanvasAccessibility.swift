@@ -13,7 +13,18 @@ private enum CardCanvasAccessibilityActionName {
     static let resizeSmaller = "Resize Smaller"
 }
 
-final class CardCanvasPartAccessibilityElement: NSAccessibilityElement {
+@preconcurrency
+@inline(__always)
+private func withCanvas<T: Sendable>(
+    _ canvas: CardCanvasNSView?,
+    fallback: @autoclosure () -> T,
+    _ action: @MainActor (CardCanvasNSView) -> T
+) -> T {
+    guard let canvas else { return fallback() }
+    return MainActor.assumeIsolated { action(canvas) }
+}
+
+final class CardCanvasPartAccessibilityElement: NSAccessibilityElement, @unchecked Sendable {
     weak var canvas: CardCanvasNSView?
     let partId: UUID
 
@@ -32,36 +43,52 @@ final class CardCanvasPartAccessibilityElement: NSAccessibilityElement {
     }
 
     override func accessibilityRole() -> NSAccessibility.Role? {
-        canvas?.accessibilityRole(forPart: partId) ?? .group
+        let partId = partId
+        return withCanvas(canvas, fallback: .group) { $0.accessibilityRole(forPart: partId) }
     }
 
     override func accessibilityLabel() -> String? {
-        canvas?.accessibilityLabel(forPart: partId)
+        let partId = partId
+        return withCanvas(canvas, fallback: nil) { $0.accessibilityLabel(forPart: partId) }
     }
 
     override func accessibilityHelp() -> String? {
-        canvas?.accessibilityHelp(forPart: partId)
+        let partId = partId
+        return withCanvas(canvas, fallback: nil) { $0.accessibilityHelp(forPart: partId) }
     }
 
     override func accessibilityValue() -> Any? {
-        canvas?.accessibilityValue(forPart: partId)
+        let partId = partId
+        return withCanvas(canvas, fallback: nil) { $0.accessibilityValue(forPart: partId) }
     }
 
     override func setAccessibilityValue(_ accessibilityValue: Any?) {
         guard let value = accessibilityValue as? String else { return }
-        canvas?.setAccessibilityValue(value, forPart: partId)
+        let partId = partId
+        let textValue = value
+        withCanvas(canvas, fallback: ()) { $0.setAccessibilityValue(textValue, forPart: partId) }
     }
 
     override func accessibilityFrame() -> NSRect {
-        canvas?.accessibilityFrame(forPart: partId) ?? .zero
+        let partId = partId
+        return withCanvas(canvas, fallback: .zero) { $0.accessibilityFrame(forPart: partId) }
     }
 
     override func accessibilityChildren() -> [Any]? {
-        guard let canvas,
-              let part = canvas.document.parts.first(where: { $0.id == partId }),
-              part.partType == .spriteArea,
-              let spec = part.spriteAreaSpecModel else { return nil }
-        return [CardCanvasSpriteSceneAccessibilityElement(canvas: canvas, partId: part.id, sceneId: spec.activeSceneID)]
+        guard let canvas else { return nil }
+        let partId = partId
+        if Thread.isMainThread {
+            guard let part = canvas.document.parts.first(where: { $0.id == partId }),
+                  part.partType == .spriteArea,
+                  let spec = part.spriteAreaSpecModel else { return nil }
+            return [CardCanvasSpriteSceneAccessibilityElement(canvas: canvas, partId: part.id, sceneId: spec.activeSceneID)]
+        }
+        return DispatchQueue.main.sync {
+            guard let part = canvas.document.parts.first(where: { $0.id == partId }),
+                  part.partType == .spriteArea,
+                  let spec = part.spriteAreaSpecModel else { return nil }
+            return [CardCanvasSpriteSceneAccessibilityElement(canvas: canvas, partId: part.id, sceneId: spec.activeSceneID)]
+        }
     }
 
     override func accessibilityActionNames() -> [NSAccessibility.Action] {
@@ -80,11 +107,13 @@ final class CardCanvasPartAccessibilityElement: NSAccessibilityElement {
     }
 
     override func accessibilityPerformPress() -> Bool {
-        canvas?.performAccessibilityPress(onPart: partId) ?? false
+        let partId = partId
+        return withCanvas(canvas, fallback: false) { $0.performAccessibilityPress(onPart: partId) }
     }
 
     override func accessibilityPerformPick() -> Bool {
-        canvas?.performAccessibilityPick(onPart: partId) ?? false
+        let partId = partId
+        return withCanvas(canvas, fallback: false) { $0.performAccessibilityPick(onPart: partId) }
     }
 
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
@@ -102,43 +131,52 @@ final class CardCanvasPartAccessibilityElement: NSAccessibilityElement {
     }
 
     @objc private func openScript(_ action: NSAccessibilityCustomAction) -> Bool {
-        canvas?.openAccessibilityScriptEditor(forPart: partId) ?? false
+        let partId = partId
+        return withCanvas(canvas, fallback: false) { $0.openAccessibilityScriptEditor(forPart: partId) }
     }
 
     @objc private func revealInInspector(_ action: NSAccessibilityCustomAction) -> Bool {
-        canvas?.revealAccessibilityPartInInspector(partId) ?? false
+        let partId = partId
+        return withCanvas(canvas, fallback: false) { $0.revealAccessibilityPartInInspector(partId) }
     }
 
     @objc private func deletePart(_ action: NSAccessibilityCustomAction) -> Bool {
-        canvas?.deleteAccessibilityPart(partId) ?? false
+        let partId = partId
+        return withCanvas(canvas, fallback: false) { $0.deleteAccessibilityPart(partId) }
     }
 
     @objc private func moveLeft(_ action: NSAccessibilityCustomAction) -> Bool {
-        canvas?.moveAccessibilityPart(partId, dx: -1, dy: 0) ?? false
+        let partId = partId
+        return withCanvas(canvas, fallback: false) { $0.moveAccessibilityPart(partId, dx: -1, dy: 0) }
     }
 
     @objc private func moveRight(_ action: NSAccessibilityCustomAction) -> Bool {
-        canvas?.moveAccessibilityPart(partId, dx: 1, dy: 0) ?? false
+        let partId = partId
+        return withCanvas(canvas, fallback: false) { $0.moveAccessibilityPart(partId, dx: 1, dy: 0) }
     }
 
     @objc private func moveUp(_ action: NSAccessibilityCustomAction) -> Bool {
-        canvas?.moveAccessibilityPart(partId, dx: 0, dy: -1) ?? false
+        let partId = partId
+        return withCanvas(canvas, fallback: false) { $0.moveAccessibilityPart(partId, dx: 0, dy: -1) }
     }
 
     @objc private func moveDown(_ action: NSAccessibilityCustomAction) -> Bool {
-        canvas?.moveAccessibilityPart(partId, dx: 0, dy: 1) ?? false
+        let partId = partId
+        return withCanvas(canvas, fallback: false) { $0.moveAccessibilityPart(partId, dx: 0, dy: 1) }
     }
 
     @objc private func resizeLarger(_ action: NSAccessibilityCustomAction) -> Bool {
-        canvas?.resizeAccessibilityPart(partId, dw: 10, dh: 10) ?? false
+        let partId = partId
+        return withCanvas(canvas, fallback: false) { $0.resizeAccessibilityPart(partId, dw: 10, dh: 10) }
     }
 
     @objc private func resizeSmaller(_ action: NSAccessibilityCustomAction) -> Bool {
-        canvas?.resizeAccessibilityPart(partId, dw: -10, dh: -10) ?? false
+        let partId = partId
+        return withCanvas(canvas, fallback: false) { $0.resizeAccessibilityPart(partId, dw: -10, dh: -10) }
     }
 }
 
-final class CardCanvasSpriteSceneAccessibilityElement: NSAccessibilityElement {
+final class CardCanvasSpriteSceneAccessibilityElement: NSAccessibilityElement, @unchecked Sendable {
     weak var canvas: CardCanvasNSView?
     let partId: UUID
     let sceneId: UUID
@@ -164,24 +202,40 @@ final class CardCanvasSpriteSceneAccessibilityElement: NSAccessibilityElement {
     }
 
     override func accessibilityLabel() -> String? {
-        canvas?.accessibilityLabel(forScene: sceneId, inPart: partId)
+        let partId = partId
+        let sceneId = sceneId
+        return withCanvas(canvas, fallback: nil) { $0.accessibilityLabel(forScene: sceneId, inPart: partId) }
     }
 
     override func accessibilityValue() -> Any? {
-        canvas?.accessibilityValue(forScene: sceneId, inPart: partId)
+        let partId = partId
+        let sceneId = sceneId
+        return withCanvas(canvas, fallback: nil) { $0.accessibilityValue(forScene: sceneId, inPart: partId) }
     }
 
     override func accessibilityFrame() -> NSRect {
-        canvas?.accessibilityFrame(forPart: partId) ?? .zero
+        let partId = partId
+        return withCanvas(canvas, fallback: .zero) { $0.accessibilityFrame(forPart: partId) }
     }
 
     override func accessibilityChildren() -> [Any]? {
-        guard let canvas,
-              let part = canvas.document.parts.first(where: { $0.id == partId }),
-              let scene = part.spriteAreaSpecModel?.scene(id: sceneId) else { return nil }
-        return scene.allNodes
-            .filter { !$0.isHidden }
-            .map { CardCanvasSpriteNodeAccessibilityElement(canvas: canvas, partId: partId, sceneId: sceneId, nodeId: $0.id) }
+        guard let canvas else { return nil }
+        let partId = partId
+        let sceneId = sceneId
+        if Thread.isMainThread {
+            guard let part = canvas.document.parts.first(where: { $0.id == partId }),
+                  let scene = part.spriteAreaSpecModel?.scene(id: sceneId) else { return nil }
+            return scene.allNodes
+                .filter { !$0.isHidden }
+                .map { CardCanvasSpriteNodeAccessibilityElement(canvas: canvas, partId: partId, sceneId: sceneId, nodeId: $0.id) }
+        }
+        return DispatchQueue.main.sync {
+            guard let part = canvas.document.parts.first(where: { $0.id == partId }),
+                  let scene = part.spriteAreaSpecModel?.scene(id: sceneId) else { return nil }
+            return scene.allNodes
+                .filter { !$0.isHidden }
+                .map { CardCanvasSpriteNodeAccessibilityElement(canvas: canvas, partId: partId, sceneId: sceneId, nodeId: $0.id) }
+        }
     }
 
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
@@ -192,15 +246,19 @@ final class CardCanvasSpriteSceneAccessibilityElement: NSAccessibilityElement {
     }
 
     @objc private func openScript(_ action: NSAccessibilityCustomAction) -> Bool {
-        canvas?.openAccessibilityScriptEditor(forScene: sceneId, inPart: partId) ?? false
+        let partId = partId
+        let sceneId = sceneId
+        return withCanvas(canvas, fallback: false) { $0.openAccessibilityScriptEditor(forScene: sceneId, inPart: partId) }
     }
 
     @objc private func revealInInspector(_ action: NSAccessibilityCustomAction) -> Bool {
-        canvas?.revealAccessibilitySceneInInspector(sceneId: sceneId, partId: partId) ?? false
+        let partId = partId
+        let sceneId = sceneId
+        return withCanvas(canvas, fallback: false) { $0.revealAccessibilitySceneInInspector(sceneId: sceneId, partId: partId) }
     }
 }
 
-final class CardCanvasSpriteNodeAccessibilityElement: NSAccessibilityElement {
+final class CardCanvasSpriteNodeAccessibilityElement: NSAccessibilityElement, @unchecked Sendable {
     weak var canvas: CardCanvasNSView?
     let partId: UUID
     let sceneId: UUID
@@ -224,19 +282,31 @@ final class CardCanvasSpriteNodeAccessibilityElement: NSAccessibilityElement {
     }
 
     override func accessibilityRole() -> NSAccessibility.Role? {
-        canvas?.accessibilityRole(forNode: nodeId, sceneId: sceneId, partId: partId) ?? .group
+        let partId = partId
+        let sceneId = sceneId
+        let nodeId = nodeId
+        return withCanvas(canvas, fallback: .group) { $0.accessibilityRole(forNode: nodeId, sceneId: sceneId, partId: partId) }
     }
 
     override func accessibilityLabel() -> String? {
-        canvas?.accessibilityLabel(forNode: nodeId, sceneId: sceneId, partId: partId)
+        let partId = partId
+        let sceneId = sceneId
+        let nodeId = nodeId
+        return withCanvas(canvas, fallback: nil) { $0.accessibilityLabel(forNode: nodeId, sceneId: sceneId, partId: partId) }
     }
 
     override func accessibilityValue() -> Any? {
-        canvas?.accessibilityValue(forNode: nodeId, sceneId: sceneId, partId: partId)
+        let partId = partId
+        let sceneId = sceneId
+        let nodeId = nodeId
+        return withCanvas(canvas, fallback: nil) { $0.accessibilityValue(forNode: nodeId, sceneId: sceneId, partId: partId) }
     }
 
     override func accessibilityFrame() -> NSRect {
-        canvas?.accessibilityFrame(forNode: nodeId, sceneId: sceneId, partId: partId) ?? .zero
+        let partId = partId
+        let sceneId = sceneId
+        let nodeId = nodeId
+        return withCanvas(canvas, fallback: .zero) { $0.accessibilityFrame(forNode: nodeId, sceneId: sceneId, partId: partId) }
     }
 
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
@@ -247,11 +317,17 @@ final class CardCanvasSpriteNodeAccessibilityElement: NSAccessibilityElement {
     }
 
     @objc private func openScript(_ action: NSAccessibilityCustomAction) -> Bool {
-        canvas?.openAccessibilityScriptEditor(forNode: nodeId, sceneId: sceneId, partId: partId) ?? false
+        let partId = partId
+        let sceneId = sceneId
+        let nodeId = nodeId
+        return withCanvas(canvas, fallback: false) { $0.openAccessibilityScriptEditor(forNode: nodeId, sceneId: sceneId, partId: partId) }
     }
 
     @objc private func revealInInspector(_ action: NSAccessibilityCustomAction) -> Bool {
-        canvas?.revealAccessibilityNodeInInspector(nodeId: nodeId, sceneId: sceneId, partId: partId) ?? false
+        let partId = partId
+        let sceneId = sceneId
+        let nodeId = nodeId
+        return withCanvas(canvas, fallback: false) { $0.revealAccessibilityNodeInInspector(nodeId: nodeId, sceneId: sceneId, partId: partId) }
     }
 }
 

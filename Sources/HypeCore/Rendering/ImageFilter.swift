@@ -112,33 +112,43 @@ public enum ImageFilter {
     /// (and any non-main-thread renderer paths added in the future)
     /// don't trip a `MainActor.assumeIsolated` precondition crash
     /// when they call into the cache lazily.
-    private static let cacheLock = NSLock()
-    nonisolated(unsafe) private static var cache: [CacheKey: CGImage] = [:]
-    nonisolated(unsafe) private static var cacheOrder: [CacheKey] = []
-    private static let cacheLimit = 32
+    private final class CacheState: @unchecked Sendable {
+        private var cache: [CacheKey: CGImage] = [:]
+        private var order: [CacheKey] = []
+        private let lock = NSLock()
+        private let limit = 32
 
-    private static func lookupCache(_ key: CacheKey) -> CGImage? {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-        if let hit = cache[key] {
-            if let idx = cacheOrder.firstIndex(of: key) {
-                cacheOrder.remove(at: idx)
+        func lookup(_ key: CacheKey) -> CGImage? {
+            lock.lock()
+            defer { lock.unlock() }
+            guard let hit = cache[key] else { return nil }
+            if let idx = order.firstIndex(of: key) {
+                order.remove(at: idx)
             }
-            cacheOrder.append(key)
+            order.append(key)
             return hit
         }
-        return nil
+
+        func store(_ key: CacheKey, result: CGImage) {
+            lock.lock()
+            defer { lock.unlock() }
+            if order.count >= limit, let oldest = order.first {
+                order.removeFirst()
+                cache.removeValue(forKey: oldest)
+            }
+            cache[key] = result
+            order.append(key)
+        }
+    }
+
+    private static let cacheState = CacheState()
+
+    private static func lookupCache(_ key: CacheKey) -> CGImage? {
+        cacheState.lookup(key)
     }
 
     private static func storeInCache(_ key: CacheKey, result: CGImage) {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-        if cacheOrder.count >= cacheLimit, let oldest = cacheOrder.first {
-            cacheOrder.removeFirst()
-            cache.removeValue(forKey: oldest)
-        }
-        cache[key] = result
-        cacheOrder.append(key)
+        cacheState.store(key, result: result)
     }
 
     /// Singleton CI context. Software-only — fast enough for 1024×768
