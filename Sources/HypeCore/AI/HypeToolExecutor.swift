@@ -93,7 +93,7 @@ public struct HypeToolExecutor: Sendable {
     }
 
     /// Determine whether to place on card or background based on arguments.
-    private func placement(arguments: [String: String], currentCardId: UUID, document: HypeDocument) -> (cardId: UUID?, backgroundId: UUID?) {
+    func placement(arguments: [String: String], currentCardId: UUID, document: HypeDocument) -> (cardId: UUID?, backgroundId: UUID?) {
         let onBg = (arguments["on_background"] ?? "").lowercased() == "true"
         if onBg {
             let bgId = document.cards.first(where: { $0.id == currentCardId })?.backgroundId
@@ -102,7 +102,7 @@ public struct HypeToolExecutor: Sendable {
         return (cardId: currentCardId, backgroundId: nil)
     }
 
-    private func boolArgument(_ value: String?) -> Bool? {
+    func boolArgument(_ value: String?) -> Bool? {
         guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
               !raw.isEmpty else { return nil }
         switch raw {
@@ -122,7 +122,7 @@ public struct HypeToolExecutor: Sendable {
         return json
     }
 
-    private func intArgument(_ value: String?) -> Int? {
+    func intArgument(_ value: String?) -> Int? {
         guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !raw.isEmpty else { return nil }
         return Int(raw)
@@ -389,7 +389,7 @@ public struct HypeToolExecutor: Sendable {
     }
 
     /// Auto-wrap a script in `on mouseUp`/`end mouseUp` if it's not already wrapped in a handler.
-    private func wrapScript(_ script: String) -> String {
+    func wrapScript(_ script: String) -> String {
         // Pre-flight repair: silently fix mechanical mistakes (bare
         // `end`, joined `elseif`) so the parser doesn't have to
         // refuse-and-retry for errors that are trivially correctable.
@@ -545,7 +545,7 @@ public struct HypeToolExecutor: Sendable {
     /// The returned refusal can be encoded as a sentinel tool-result string
     /// (`refusal.encodedSentinel()`) so the `AIChatPanel`'s iteration loop
     /// can classify, surface, and retry it automatically.
-    private func refusalForInvalidDraft(
+    func refusalForInvalidDraft(
         toolName: String,
         arguments: [String: String],
         targetDescription: String,
@@ -861,7 +861,7 @@ public struct HypeToolExecutor: Sendable {
         return document.backgrounds.firstIndex(where: { $0.name.lowercased() == trimmed.lowercased() })
     }
 
-    private func scopedPartIndex(
+    func scopedPartIndex(
         named partName: String,
         currentCardId: UUID,
         in document: HypeDocument,
@@ -902,7 +902,7 @@ public struct HypeToolExecutor: Sendable {
         return nil
     }
 
-    private func spriteAreaIndex(
+    func spriteAreaIndex(
         named areaName: String,
         currentCardId: UUID,
         in document: HypeDocument
@@ -916,7 +916,7 @@ public struct HypeToolExecutor: Sendable {
     }
 
     @discardableResult
-    private func modifyActiveScene(
+    func modifyActiveScene(
         partIndex: Int,
         document: inout HypeDocument,
         transform: (inout SceneSpec) -> Void
@@ -929,7 +929,7 @@ public struct HypeToolExecutor: Sendable {
     }
 
     @discardableResult
-    private func modifySpriteAreaSpec(
+    func modifySpriteAreaSpec(
         partIndex: Int,
         document: inout HypeDocument,
         transform: (inout SpriteAreaSpec) -> Void
@@ -2176,43 +2176,16 @@ public struct HypeToolExecutor: Sendable {
             return "Parts on background '\(background.name)':\n\(descriptions.joined(separator: "\n"))"
 
         case "fetch_url":
-            let urlStr = arguments["url"] ?? ""
-            guard let url = URL(string: urlStr) else { return "Invalid URL" }
-            do {
-                let (data, _) = try await URLSession.shared.data(from: url)
-                let text = String(data: data, encoding: .utf8) ?? "(binary data)"
-                return String(text.prefix(5000))  // Limit response size
-            } catch {
-                return "Fetch error: \(error.localizedDescription)"
-            }
+            return await FileIOExecutorBranches.executeFetchURL(arguments: arguments)
 
         case "read_file":
-            let path = arguments["path"] ?? ""
-            do {
-                let content = try String(contentsOfFile: path, encoding: .utf8)
-                return String(content.prefix(10000))
-            } catch {
-                return "Read error: \(error.localizedDescription)"
-            }
+            return FileIOExecutorBranches.executeReadFile(arguments: arguments)
 
         case "write_file":
-            let path = arguments["path"] ?? ""
-            let content = arguments["content"] ?? ""
-            do {
-                try content.write(toFile: path, atomically: true, encoding: .utf8)
-                return "Wrote \(content.count) characters to \(path)"
-            } catch {
-                return "Write error: \(error.localizedDescription)"
-            }
+            return FileIOExecutorBranches.executeWriteFile(arguments: arguments)
 
         case "list_directory":
-            let path = arguments["path"] ?? "."
-            do {
-                let items = try FileManager.default.contentsOfDirectory(atPath: path)
-                return items.joined(separator: "\n")
-            } catch {
-                return "List error: \(error.localizedDescription)"
-            }
+            return FileIOExecutorBranches.executeListDirectory(arguments: arguments)
 
         case "create_sprite_area":
             let name = arguments["name"] ?? "Sprite Area"
@@ -2383,21 +2356,9 @@ public struct HypeToolExecutor: Sendable {
             return "Set script of scene '\(resolvedSceneName)' in sprite area '\(areaName)'"
 
         case "apply_scene_diff":
-            let areaName = arguments["sprite_area_name"] ?? ""
-            let diffJson = arguments["diff_json"] ?? ""
-            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
-                return "Sprite area '\(areaName)' not found"
-            }
-            guard var spec = document.parts[partIdx].activeSceneSpec else {
-                return "Invalid scene spec"
-            }
-            guard let diffData = diffJson.data(using: .utf8),
-                  let diff = try? JSONDecoder().decode(SceneDiff.self, from: diffData) else {
-                return "Invalid diff JSON"
-            }
-            diff.apply(to: &spec)
-            _ = modifyActiveScene(partIndex: partIdx, document: &document) { $0 = spec }
-            return "Applied scene diff to '\(areaName)'. Scene now has \(spec.nodes.count) nodes."
+            return SceneNodeExecutorBranches.executeApplySceneDiff(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
 
         case "add_sprite_to_scene":
             let areaName = arguments["sprite_area_name"] ?? ""
@@ -2878,151 +2839,19 @@ public struct HypeToolExecutor: Sendable {
         // MARK: - Web Asset Search Tools
 
         case "search_web_for_sprite":
-            // Gate 0: per-turn soft cap
-            guard let session = webAssetSession else {
-                return "Web asset search is off for this stack. Ask the user to enable it in Preferences → Web Asset Search → Current Stack."
-            }
-            let capAllowed = await session.shouldAllowDispatch()
-            guard capAllowed else {
-                return "Safety limit reached: too many web asset operations in one turn. Start a new message to continue."
-            }
-            // Gate 1: webAssetsAllowed
-            guard document.stack.webAssetsAllowed else {
-                return "Web asset search is off for this stack. Ask the user to enable it in Preferences → Web Asset Search → Current Stack."
-            }
-            // Gate 2: wired dependencies
-            guard let client = webAssetClient else {
-                return "search_web_for_sprite not configured: no search client available."
-            }
-
-            let query = arguments["query"] ?? ""
-            guard !query.trimmingCharacters(in: .whitespaces).isEmpty else {
-                return "search_web_for_sprite requires 'query'."
-            }
-            let maxResults = min(max(Int(arguments["max_results"] ?? "8") ?? 8, 1), 20)
-
-            do {
-                let results = try await client.search(WebAssetSearchQuery(query: query, maxResults: maxResults))
-                _ = await session.recordSearch(query: query, results: results)
-                if results.isEmpty {
-                    return "No \(client.provider.displayName) results for \"\(query)\"."
-                }
-                let lines = results.map { r in
-                    let w = r.width ?? 0; let h = r.height ?? 0
-                    let lic = r.license.name.isEmpty ? "unknown" : r.license.name
-                    return "candidate_id=\(r.id) provider=\(r.providerRaw.rawValue) title=\"\(r.title)\" size=\(w)x\(h) license=\(lic) url=\(r.downloadURL.absoluteString)"
-                }
-                return "Found \(results.count) candidate(s) from \(client.provider.displayName):\n" + lines.joined(separator: "\n")
-            } catch let error as WebAssetSearchError {
-                return formatWebAssetError(error, context: "search_web_for_sprite", phase: .search)
-            } catch {
-                return "search_web_for_sprite network error (transport failure)"
-            }
+            return await WebAssetExecutorBranches.executeSearchWebForSprite(
+                arguments: arguments, document: document,
+                currentCardId: currentCardId, context: self)
 
         case "import_web_asset":
-            // Gate 0: per-turn soft cap
-            guard let session = webAssetSession else {
-                return "Web asset search is off for this stack. Ask the user to enable it in Preferences → Web Asset Search → Current Stack."
-            }
-            let capAllowed2 = await session.shouldAllowDispatch()
-            guard capAllowed2 else {
-                return "Safety limit reached: too many web asset operations in one turn. Start a new message to continue."
-            }
-            // Gate 1: webAssetsAllowed
-            guard document.stack.webAssetsAllowed else {
-                return "Web asset search is off for this stack. Ask the user to enable it in Preferences → Web Asset Search → Current Stack."
-            }
-            // Gate 2: wired dependencies
-            guard let client = webAssetClient, let pipeline = webAssetPipeline else {
-                return "import_web_asset not configured: no search client or pipeline available."
-            }
-
-            let candidateId = arguments["candidate_id"] ?? ""
-            let rawName = arguments["asset_name"] ?? ""
-            guard !candidateId.isEmpty, !rawName.isEmpty else {
-                return "import_web_asset requires 'candidate_id' and 'asset_name'."
-            }
-            // Gate 3: asset_name sanitization (Finding 8)
-            guard let cleanedName = sanitizeAssetName(rawName) else {
-                return "asset_name '\(rawName)' is invalid — use 1-128 characters, letters / digits / _ / - / . / space only"
-            }
-            guard let candidate = await session.candidate(id: candidateId) else {
-                return "Unknown candidate_id '\(candidateId)'. Call search_web_for_sprite first; candidate ids only live for the current chat session."
-            }
-            let searchQuery = await session.queryForCandidate(id: candidateId) ?? ""
-
-            do {
-                let download = try await pipeline.fetch(candidate)
-                let asset = WebAssetImportPipeline.makeSpriteAsset(
-                    name: cleanedName,
-                    searchQuery: searchQuery,
-                    download: download
-                )
-                document.spriteRepository.addAsset(asset)
-                let webAssets = document.spriteRepository.assets.filter { $0.provenance?.origin == .webSearch }
-                document.stack.script = StackScriptAttributionSync.sync(
-                    stackScript: document.stack.script,
-                    webAssets: webAssets
-                )
-                return "Imported '\(cleanedName)' (\(download.width)x\(download.height), \(download.bytes.count) bytes) from \(candidate.providerRaw.displayName)."
-            } catch let error as WebAssetSearchError {
-                return formatWebAssetError(error, context: "import_web_asset", phase: .download)
-            } catch {
-                return "import_web_asset network error (transport failure)"
-            }
+            return await WebAssetExecutorBranches.executeImportWebAsset(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
 
         case "find_and_import_sprite":
-            // Gate 0: per-turn soft cap
-            guard let session = webAssetSession else {
-                return "Web asset search is off for this stack. Ask the user to enable it in Preferences → Web Asset Search → Current Stack."
-            }
-            let capAllowed3 = await session.shouldAllowDispatch()
-            guard capAllowed3 else {
-                return "Safety limit reached: too many web asset operations in one turn. Start a new message to continue."
-            }
-            // Gate 1: webAssetsAllowed
-            guard document.stack.webAssetsAllowed else {
-                return "Web asset search is off for this stack. Ask the user to enable it in Preferences → Web Asset Search → Current Stack."
-            }
-            // Gate 2: wired dependencies
-            guard let client = webAssetClient, let pipeline = webAssetPipeline else {
-                return "find_and_import_sprite not configured: no search client or pipeline available."
-            }
-
-            let fQuery = arguments["query"] ?? ""
-            let rawName3 = arguments["asset_name"] ?? ""
-            guard !fQuery.isEmpty, !rawName3.isEmpty else {
-                return "find_and_import_sprite requires 'query' and 'asset_name'."
-            }
-            // Gate 3: asset_name sanitization (Finding 8)
-            guard let cleanedName3 = sanitizeAssetName(rawName3) else {
-                return "asset_name '\(rawName3)' is invalid — use 1-128 characters, letters / digits / _ / - / . / space only"
-            }
-
-            do {
-                let results = try await client.search(WebAssetSearchQuery(query: fQuery, maxResults: 8))
-                _ = await session.recordSearch(query: fQuery, results: results)
-                guard let first = results.first else {
-                    return "No \(client.provider.displayName) results for \"\(fQuery)\". find_and_import_sprite did not install anything."
-                }
-                let download = try await pipeline.fetch(first)
-                let asset = WebAssetImportPipeline.makeSpriteAsset(
-                    name: cleanedName3,
-                    searchQuery: fQuery,
-                    download: download
-                )
-                document.spriteRepository.addAsset(asset)
-                let webAssets3 = document.spriteRepository.assets.filter { $0.provenance?.origin == .webSearch }
-                document.stack.script = StackScriptAttributionSync.sync(
-                    stackScript: document.stack.script,
-                    webAssets: webAssets3
-                )
-                return "Installed '\(cleanedName3)' from \(first.providerRaw.displayName) (query: \"\(fQuery)\")."
-            } catch let error as WebAssetSearchError {
-                return formatWebAssetError(error, context: "find_and_import_sprite", phase: .download)
-            } catch {
-                return "find_and_import_sprite network error (transport failure)"
-            }
+            return await WebAssetExecutorBranches.executeFindAndImportSprite(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
 
         // MARK: - Read-side granular queries
 
@@ -3952,340 +3781,36 @@ public struct HypeToolExecutor: Sendable {
         // MARK: - Scene-node setters
 
         case "set_node_property":
-            let areaName = arguments["sprite_area_name"] ?? ""
-            let nodeName = arguments["node_name"] ?? ""
-            let property = arguments["property"] ?? ""
-            let value = arguments["value"] ?? ""
-            let requestedSceneName = arguments["scene_name"] ?? ""
-            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
-                return "Sprite area '\(areaName)' not found"
-            }
-            guard !property.isEmpty else {
-                return "set_node_property: property is required"
-            }
-            var resolvedSceneName = ""
-            var nodeFoundFlag = false
-            var sceneFoundFlag = false
-            modifySpriteAreaSpec(partIndex: partIdx, document: &document) { areaSpec in
-                let sceneIdx: Int?
-                if !requestedSceneName.isEmpty {
-                    sceneIdx = areaSpec.scenes.firstIndex { $0.scene.name.lowercased() == requestedSceneName.lowercased() }
-                } else if let entry = areaSpec.activeSceneEntry {
-                    sceneIdx = areaSpec.scenes.firstIndex { $0.id == entry.id }
-                } else {
-                    sceneIdx = nil
-                }
-                guard let idx = sceneIdx else { return }
-                sceneFoundFlag = true
-                guard let nodeFound = areaSpec.scenes[idx].scene.node(named: nodeName) else {
-                    return
-                }
-                nodeFoundFlag = true
-                _ = areaSpec.scenes[idx].scene.updateNode(id: nodeFound.id) { node in
-                    applyNodeProperty(&node, property: property, value: value)
-                }
-                if areaSpec.scenes[idx].id == areaSpec.activeSceneID {
-                    areaSpec.setActiveScene(areaSpec.scenes[idx].scene)
-                }
-                resolvedSceneName = areaSpec.scenes[idx].scene.name
-            }
-            if !sceneFoundFlag {
-                return !requestedSceneName.isEmpty
-                    ? "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
-                    : "Sprite area '\(areaName)' has no active scene"
-            }
-            if !nodeFoundFlag {
-                return "Node '\(nodeName)' not found in '\(areaName)'"
-            }
-            return "Set \(property) of '\(nodeName)' in scene '\(resolvedSceneName)' of '\(areaName)' to '\(value)'"
+            return SceneNodeExecutorBranches.executeSetNodeProperty(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
 
         case "set_node_script":
-            let areaName = arguments["sprite_area_name"] ?? ""
-            let nodeName = arguments["node_name"] ?? ""
-            let rawScript = arguments["script"] ?? ""
-            let requestedSceneName = arguments["scene_name"] ?? ""
-            let wrapped = wrapScript(rawScript)
-            if let refusal = refusalForInvalidDraft(
-                toolName: toolName,
-                arguments: arguments,
-                targetDescription: "node '\(nodeName)' in sprite area '\(areaName)'",
-                rawScript: rawScript,
-                wrappedScript: wrapped,
-                document: document,
-                currentCardId: currentCardId
-            ) {
-                return refusal.encodedSentinel()
-            }
-            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
-                return "Sprite area '\(areaName)' not found"
-            }
-            var resolvedSceneName = ""
-            var nodeFoundFlag = false
-            var sceneFoundFlag = false
-            modifySpriteAreaSpec(partIndex: partIdx, document: &document) { areaSpec in
-                let sceneIdx: Int?
-                if !requestedSceneName.isEmpty {
-                    sceneIdx = areaSpec.scenes.firstIndex { $0.scene.name.lowercased() == requestedSceneName.lowercased() }
-                } else if let entry = areaSpec.activeSceneEntry {
-                    sceneIdx = areaSpec.scenes.firstIndex { $0.id == entry.id }
-                } else {
-                    sceneIdx = nil
-                }
-                guard let idx = sceneIdx else { return }
-                sceneFoundFlag = true
-                guard let nodeFound = areaSpec.scenes[idx].scene.node(named: nodeName) else {
-                    return
-                }
-                nodeFoundFlag = true
-                _ = areaSpec.scenes[idx].scene.updateNode(id: nodeFound.id) { n in
-                    n.script = wrapped
-                }
-                if areaSpec.scenes[idx].id == areaSpec.activeSceneID {
-                    areaSpec.setActiveScene(areaSpec.scenes[idx].scene)
-                }
-                resolvedSceneName = areaSpec.scenes[idx].scene.name
-            }
-            if !sceneFoundFlag {
-                return !requestedSceneName.isEmpty
-                    ? "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
-                    : "Sprite area '\(areaName)' has no active scene"
-            }
-            if !nodeFoundFlag {
-                return "Node '\(nodeName)' not found in '\(areaName)'"
-            }
-            return "Set script of '\(nodeName)' in scene '\(resolvedSceneName)' of '\(areaName)'"
+            return SceneNodeExecutorBranches.executeSetNodeScript(
+                toolName: toolName, arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
 
         case "set_physics_body":
-            let areaName = arguments["sprite_area_name"] ?? ""
-            let nodeName = arguments["node_name"] ?? ""
-            let requestedSceneName = arguments["scene_name"] ?? ""
-            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
-                return "Sprite area '\(areaName)' not found"
-            }
-            var resolvedSceneName = ""
-            var nodeFoundFlag = false
-            var sceneFoundFlag = false
-            modifySpriteAreaSpec(partIndex: partIdx, document: &document) { areaSpec in
-                let sceneIdx: Int?
-                if !requestedSceneName.isEmpty {
-                    sceneIdx = areaSpec.scenes.firstIndex { $0.scene.name.lowercased() == requestedSceneName.lowercased() }
-                } else if let entry = areaSpec.activeSceneEntry {
-                    sceneIdx = areaSpec.scenes.firstIndex { $0.id == entry.id }
-                } else {
-                    sceneIdx = nil
-                }
-                guard let idx = sceneIdx else { return }
-                sceneFoundFlag = true
-                guard let nodeFound = areaSpec.scenes[idx].scene.node(named: nodeName) else {
-                    return
-                }
-                nodeFoundFlag = true
-                _ = areaSpec.scenes[idx].scene.updateNode(id: nodeFound.id) { n in
-                    var body = n.physicsBody ?? PhysicsBodySpec()
-                    if let bt = arguments["body_type"], let bodyType = PhysicsBodyType(rawValue: bt) {
-                        body.bodyType = bodyType
-                    }
-                    if let dyn = arguments["is_dynamic"] {
-                        body.isDynamic = (dyn.lowercased() == "true")
-                    }
-                    if let r = arguments["restitution"], let v = Double(r) {
-                        body.restitution = v
-                    }
-                    if let f = arguments["friction"], let v = Double(f) {
-                        body.friction = v
-                    }
-                    if let m = arguments["mass"], let v = Double(m) {
-                        body.mass = v
-                    }
-                    if let g = arguments["affected_by_gravity"] {
-                        body.affectedByGravity = (g.lowercased() == "true")
-                    }
-                    if let ar = arguments["allows_rotation"] {
-                        body.allowsRotation = (ar.lowercased() == "true")
-                    }
-                    if let vx = arguments["velocity_x"], let v = Double(vx) {
-                        body.velocityX = v
-                    }
-                    if let vy = arguments["velocity_y"], let v = Double(vy) {
-                        body.velocityY = v
-                    }
-                    n.physicsBody = body
-                }
-                if areaSpec.scenes[idx].id == areaSpec.activeSceneID {
-                    areaSpec.setActiveScene(areaSpec.scenes[idx].scene)
-                }
-                resolvedSceneName = areaSpec.scenes[idx].scene.name
-            }
-            if !sceneFoundFlag {
-                return !requestedSceneName.isEmpty
-                    ? "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
-                    : "Sprite area '\(areaName)' has no active scene"
-            }
-            if !nodeFoundFlag {
-                return "Node '\(nodeName)' not found in '\(areaName)'"
-            }
-            return "Configured physics body on '\(nodeName)' in scene '\(resolvedSceneName)' of '\(areaName)'"
+            return SceneNodeExecutorBranches.executeSetPhysicsBody(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
 
         case "delete_scene_node":
-            let areaName = arguments["sprite_area_name"] ?? ""
-            let nodeName = arguments["node_name"] ?? ""
-            let requestedSceneName = arguments["scene_name"] ?? ""
-            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
-                return "Sprite area '\(areaName)' not found"
-            }
-            var resolvedSceneName = ""
-            var nodeFoundFlag = false
-            var sceneFoundFlag = false
-            modifySpriteAreaSpec(partIndex: partIdx, document: &document) { areaSpec in
-                let sceneIdx: Int?
-                if !requestedSceneName.isEmpty {
-                    sceneIdx = areaSpec.scenes.firstIndex { $0.scene.name.lowercased() == requestedSceneName.lowercased() }
-                } else if let entry = areaSpec.activeSceneEntry {
-                    sceneIdx = areaSpec.scenes.firstIndex { $0.id == entry.id }
-                } else {
-                    sceneIdx = nil
-                }
-                guard let idx = sceneIdx else { return }
-                sceneFoundFlag = true
-                guard let nodeFound = areaSpec.scenes[idx].scene.node(named: nodeName) else {
-                    return
-                }
-                nodeFoundFlag = true
-                _ = areaSpec.scenes[idx].scene.removeNode(id: nodeFound.id)
-                if areaSpec.scenes[idx].id == areaSpec.activeSceneID {
-                    areaSpec.setActiveScene(areaSpec.scenes[idx].scene)
-                }
-                resolvedSceneName = areaSpec.scenes[idx].scene.name
-            }
-            if !sceneFoundFlag {
-                return !requestedSceneName.isEmpty
-                    ? "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
-                    : "Sprite area '\(areaName)' has no active scene"
-            }
-            if !nodeFoundFlag {
-                return "Node '\(nodeName)' not found in '\(areaName)'"
-            }
-            return "Deleted node '\(nodeName)' from scene '\(resolvedSceneName)' of '\(areaName)'"
+            return SceneNodeExecutorBranches.executeDeleteSceneNode(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
 
         // MARK: - Actions
 
         case "add_action":
-            let areaName = arguments["sprite_area_name"] ?? ""
-            let nodeName = arguments["node_name"] ?? ""
-            let actionTypeStr = arguments["action_type"] ?? ""
-            let requestedSceneName = arguments["scene_name"] ?? ""
-            guard let actionType = ActionType(rawValue: actionTypeStr) else {
-                let valid = "moveTo, moveBy, rotateTo, rotateBy, scaleTo, scaleBy, fadeTo, fadeIn, fadeOut, sequence, group, repeatForever, repeatCount, wait, removeFromParent, followPath, setTexture, animate, playAudio, stopAudio, changeVolume, resize, hide, unhide, colorize, speedTo, speedBy"
-                return "Invalid action_type '\(actionTypeStr)'. Valid: \(valid)"
-            }
-            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
-                return "Sprite area '\(areaName)' not found"
-            }
-            let duration = Double(arguments["duration"] ?? "0.25") ?? 0.25
-            let actionName = arguments["name"] ?? ""
-            var parameters: [String: String] = [:]
-            if let json = arguments["parameters_json"], !json.isEmpty,
-               let data = json.data(using: .utf8),
-               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                for (k, v) in dict {
-                    if let str = v as? String {
-                        parameters[k] = str
-                    } else if let num = v as? NSNumber {
-                        parameters[k] = num.stringValue
-                    } else if let bool = v as? Bool {
-                        parameters[k] = bool ? "true" : "false"
-                    } else {
-                        parameters[k] = String(describing: v)
-                    }
-                }
-            }
-            let action = ActionSpec(
-                actionType: actionType,
-                name: actionName,
-                duration: duration,
-                parameters: parameters,
-                children: nil
-            )
-            var resolvedSceneName = ""
-            var nodeFoundFlag = false
-            var sceneFoundFlag = false
-            modifySpriteAreaSpec(partIndex: partIdx, document: &document) { areaSpec in
-                let sceneIdx: Int?
-                if !requestedSceneName.isEmpty {
-                    sceneIdx = areaSpec.scenes.firstIndex { $0.scene.name.lowercased() == requestedSceneName.lowercased() }
-                } else if let entry = areaSpec.activeSceneEntry {
-                    sceneIdx = areaSpec.scenes.firstIndex { $0.id == entry.id }
-                } else {
-                    sceneIdx = nil
-                }
-                guard let idx = sceneIdx else { return }
-                sceneFoundFlag = true
-                guard let nodeFound = areaSpec.scenes[idx].scene.node(named: nodeName) else {
-                    return
-                }
-                nodeFoundFlag = true
-                _ = areaSpec.scenes[idx].scene.updateNode(id: nodeFound.id) { n in
-                    n.actions.append(action)
-                }
-                if areaSpec.scenes[idx].id == areaSpec.activeSceneID {
-                    areaSpec.setActiveScene(areaSpec.scenes[idx].scene)
-                }
-                resolvedSceneName = areaSpec.scenes[idx].scene.name
-            }
-            if !sceneFoundFlag {
-                return !requestedSceneName.isEmpty
-                    ? "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
-                    : "Sprite area '\(areaName)' has no active scene"
-            }
-            if !nodeFoundFlag {
-                return "Node '\(nodeName)' not found in '\(areaName)'"
-            }
-            return "Added \(actionType.rawValue) action (duration=\(duration)) to '\(nodeName)' in scene '\(resolvedSceneName)' of '\(areaName)'"
+            return SceneNodeExecutorBranches.executeAddAction(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
 
         case "remove_all_actions":
-            let areaName = arguments["sprite_area_name"] ?? ""
-            let nodeName = arguments["node_name"] ?? ""
-            let requestedSceneName = arguments["scene_name"] ?? ""
-            guard let partIdx = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {
-                return "Sprite area '\(areaName)' not found"
-            }
-            var resolvedSceneName = ""
-            var nodeFoundFlag = false
-            var sceneFoundFlag = false
-            var removedCount = 0
-            modifySpriteAreaSpec(partIndex: partIdx, document: &document) { areaSpec in
-                let sceneIdx: Int?
-                if !requestedSceneName.isEmpty {
-                    sceneIdx = areaSpec.scenes.firstIndex { $0.scene.name.lowercased() == requestedSceneName.lowercased() }
-                } else if let entry = areaSpec.activeSceneEntry {
-                    sceneIdx = areaSpec.scenes.firstIndex { $0.id == entry.id }
-                } else {
-                    sceneIdx = nil
-                }
-                guard let idx = sceneIdx else { return }
-                sceneFoundFlag = true
-                guard let nodeFound = areaSpec.scenes[idx].scene.node(named: nodeName) else {
-                    return
-                }
-                nodeFoundFlag = true
-                removedCount = nodeFound.actions.count
-                _ = areaSpec.scenes[idx].scene.updateNode(id: nodeFound.id) { n in
-                    n.actions = []
-                }
-                if areaSpec.scenes[idx].id == areaSpec.activeSceneID {
-                    areaSpec.setActiveScene(areaSpec.scenes[idx].scene)
-                }
-                resolvedSceneName = areaSpec.scenes[idx].scene.name
-            }
-            if !sceneFoundFlag {
-                return !requestedSceneName.isEmpty
-                    ? "Scene '\(requestedSceneName)' not found in sprite area '\(areaName)'"
-                    : "Sprite area '\(areaName)' has no active scene"
-            }
-            if !nodeFoundFlag {
-                return "Node '\(nodeName)' not found in '\(areaName)'"
-            }
-            return "Removed \(removedCount) action(s) from '\(nodeName)' in scene '\(resolvedSceneName)' of '\(areaName)'"
+            return SceneNodeExecutorBranches.executeRemoveAllActions(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
 
         // MARK: - Stack / card / background admin
 
@@ -5086,49 +4611,37 @@ public struct HypeToolExecutor: Sendable {
         // MARK: - Meshy 3D generation tools (Phase 2)
 
         case "list_3d_models":
-            return executeListModel3DAssets(document: document)
+            return Scene3DExecutorBranches.executeListModel3DAssets(document: document)
 
         case "bind_3d_model_to_scene3d":
-            return executeBindModel3DToScene3D(
-                arguments: arguments,
-                document: &document,
-                currentCardId: currentCardId
-            )
+            return Scene3DExecutorBranches.executeBindModel3DToScene3D(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
 
         case "generate_3d_model_from_text":
-            return await executeGenerate3DFromText(
-                arguments: arguments,
-                document: &document,
-                currentCardId: currentCardId
-            )
+            return await Scene3DExecutorBranches.executeGenerate3DFromText(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
 
         case "generate_3d_model_from_image":
-            return await executeGenerate3DFromImage(
-                arguments: arguments,
-                document: &document,
-                currentCardId: currentCardId
-            )
+            return await Scene3DExecutorBranches.executeGenerate3DFromImage(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
 
         case "generate_3d_model_from_images":
-            return await executeGenerate3DFromImages(
-                arguments: arguments,
-                document: &document,
-                currentCardId: currentCardId
-            )
+            return await Scene3DExecutorBranches.executeGenerate3DFromImages(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
 
         case "remesh_3d_model":
-            return await executeRemesh3D(
-                arguments: arguments,
-                document: &document,
-                currentCardId: currentCardId
-            )
+            return await Scene3DExecutorBranches.executeRemesh3D(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
 
         case "retexture_3d_model":
-            return await executeRetexture3D(
-                arguments: arguments,
-                document: &document,
-                currentCardId: currentCardId
-            )
+            return await Scene3DExecutorBranches.executeRetexture3D(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
 
         default:
             return "Unknown tool: \(toolName)"
@@ -5140,7 +4653,7 @@ public struct HypeToolExecutor: Sendable {
     /// Result returned when mutating a scene within a SpriteAreaSpec.
     /// `success` carries the resolved scene name for the response string;
     /// `failure` carries a pre-formatted error message.
-    private enum SceneMutationResult {
+    enum SceneMutationResult {
         case success(String)
         case failure(String)
     }
@@ -5307,7 +4820,7 @@ public struct HypeToolExecutor: Sendable {
     /// Mirrors SceneDiff.applyProperties (lines 144-242) for shared paths
     /// and extends it with emitter/audio/video/camera fields that
     /// SceneDiff doesn't cover. Unknown keys silently no-op.
-    private func applyNodeProperty(_ node: inout HypeNodeSpec, property: String, value: String) {
+    func applyNodeProperty(_ node: inout HypeNodeSpec, property: String, value: String) {
         let key = property
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "_", with: "")
@@ -5475,7 +4988,7 @@ public struct HypeToolExecutor: Sendable {
     ///
     /// - Parameter raw: The AI-supplied name string.
     /// - Returns: The sanitized name, or nil if it is empty, `.`, `..`, or >128 chars.
-    private func sanitizeAssetName(_ raw: String) -> String? {
+    func sanitizeAssetName(_ raw: String) -> String? {
         var cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         // ASCII-only allow-list per Security Finding B.
         let allowed = CharacterSet(
@@ -5488,74 +5001,6 @@ public struct HypeToolExecutor: Sendable {
             return nil
         }
         return cleaned
-    }
-
-    /// Phase context for error formatting (controls whether body summary is included).
-    private enum WebAssetErrorPhase { case search, download }
-
-    /// Map a `WebAssetSearchError` to a safe, concise AI-visible string.
-    ///
-    /// Transport-level `localizedDescription` is NEVER forwarded to the AI
-    /// (Security Finding 5). `providerRejected` body summaries are trimmed to
-    /// 100 printable characters and omitted entirely for download-phase errors
-    /// (Security Finding 9).
-    private func formatWebAssetError(
-        _ error: WebAssetSearchError,
-        context: String,
-        phase: WebAssetErrorPhase
-    ) -> String {
-        switch error {
-        case .notConfigured(let msg):
-            return "\(context) not configured: \(msg)"
-
-        case .providerRejected(let body):
-            switch phase {
-            case .search:
-                // Trim to 100 printable chars; strip control characters.
-                let printable = body.unicodeScalars.filter { scalar in
-                    scalar.value >= 0x20 && scalar.value != 0x7F
-                }.map { String($0) }.joined()
-                let summary = String(printable.prefix(100))
-                // Provider name from the error context (best-effort)
-                return "\(context.replacingOccurrences(of: "_", with: " ").capitalized) rejected search: \(summary)"
-            case .download:
-                return "\(context.replacingOccurrences(of: "_", with: " ").capitalized) rejected download (HTTP error)."
-            }
-
-        case .httpOnly(let url):
-            return "Rejected \(url): only HTTPS downloads are allowed."
-
-        case .redirectBlocked(let from, let to):
-            return "Rejected \(from): redirect to \(to) blocked."
-
-        case .ssrfBlocked(let url):
-            return "Rejected \(url): network target not allowed."
-
-        case .payloadTooLarge(let url, _):
-            return "Rejected \(url): download exceeded 50 MB OOM ceiling."
-
-        case .imageTooLarge(let url, _):
-            return "Rejected \(url): decoded image exceeds 100 MP memory safety rail."
-
-        case .unsupportedMimeType(let t):
-            return "Rejected image: MIME \"\(t)\" is not a supported image format (png, jpg, webp, gif, svg)."
-
-        case .svgRejected(let why):
-            return "Rejected SVG: failed sanitization (\(why))."
-
-        case .decodeFailed(let url):
-            return "Rejected \(url): image data did not decode."
-
-        case .unknownCandidate(let id):
-            return "Unknown candidate_id '\(id)'. Call search_web_for_sprite first; candidate ids only live for the current chat session."
-
-        case .webAssetsDisabled:
-            return "Web asset search is off for this stack."
-
-        case .networkFailure:
-            // Do NOT forward localizedDescription — fixed safe string only (Finding 5).
-            return "\(context) network error (transport failure)"
-        }
     }
 
     // MARK: - List-all-properties helper
@@ -5755,717 +5200,6 @@ public struct HypeToolExecutor: Sendable {
         lines.append("#   AI tool: set_part_property(part_name=\"\(p.name)\", property=\"<name>\", value=\"<new>\")")
         lines.append("#   HypeTalk: set the <name> of \(p.partType.rawValue) \"\(p.name)\" to <new>")
         return lines.joined(separator: "\n")
-    }
-
-    // MARK: - Meshy 3D tool helpers (Phase 2)
-
-    /// List all `.model3D` assets in the repository.
-    ///
-    /// M3: Caps at 50 results; appends "… and N more" when exceeded.
-    /// Security: returns only metadata (name, id, size, rigging flags) — never bytes.
-    ///
-    /// Phase 3 enrichment: each row now includes `is_rigged` and `action_id`
-    /// so AI tools can distinguish base models, rigged models, and animated
-    /// models without having to parse asset names heuristically.
-    private func executeListModel3DAssets(document: HypeDocument) -> String {
-        let models = document.spriteRepository.assets
-            .filter { $0.kind == .model3D }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-
-        guard !models.isEmpty else {
-            return "(no 3D models in repository)"
-        }
-
-        let cap = 50
-        let shown = Array(models.prefix(cap))
-        var lines = shown.map { asset in
-            var row = "name=\(asset.name) id=\(asset.id) size=\(asset.data.count)B is_rigged=\(asset.isRigged)"
-            if let actionId = asset.animationActionId {
-                row += " action_id=\(actionId)"
-            }
-            return row
-        }
-        if models.count > cap {
-            lines.append("… and \(models.count - cap) more — use the Sprite Repository to see all.")
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    /// Bind an existing Sprite Repository model3D asset into an existing
-    /// scene3D part. This gives AI a direct, non-generative path for
-    /// "put that model into this 3D viewer" requests.
-    private func executeBindModel3DToScene3D(
-        arguments: [String: String],
-        document: inout HypeDocument,
-        currentCardId: UUID
-    ) -> String {
-        let partName = (arguments["scene3d_part_name"] ?? arguments["part_name"] ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let assetName = (arguments["model_asset_name"] ?? arguments["asset_name"] ?? arguments["model"] ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !partName.isEmpty else {
-            return "bind_3d_model_to_scene3d requires 'scene3d_part_name'."
-        }
-        guard !assetName.isEmpty else {
-            return "bind_3d_model_to_scene3d requires 'model_asset_name'."
-        }
-        guard let index = scopedPartIndex(named: partName, currentCardId: currentCardId, in: document) else {
-            return "Scene3D part '\(partName)' not found."
-        }
-        guard document.parts[index].partType == .scene3D else {
-            return "Part '\(partName)' is a \(document.parts[index].partType.rawValue), not a scene3D part."
-        }
-        guard let asset = document.spriteRepository.asset(byName: assetName) else {
-            return "3D model asset '\(assetName)' not found in the Sprite Repository."
-        }
-        guard asset.kind == .model3D else {
-            return "Asset '\(assetName)' is \(asset.kind.rawValue), not model3D."
-        }
-
-        document.parts[index].scene3DAssetRef = document.spriteRepository.assetRef(for: asset)
-        document.parts[index].scene3DSourceURL = ""
-        document.parts[index].scene3DURL = ""
-        return "Bound model3D asset '\(asset.name)' to scene3D part '\(document.parts[index].name)'."
-    }
-
-    /// Gate check + client construction shared by all three generators.
-    ///
-    /// - Returns: `(.some(client), nil)` when gate passes, or `(nil, .some(errorString))` on refusal.
-    /// - Note: Gate is checked BEFORE invoking `meshyClientFactory` (invariant §11.2 item 7).
-    private func meshyGateAndClient(document: HypeDocument) -> (client: MeshyClient?, error: String?) {
-        let keyIsSet = KeychainStore.hasSecret(account: KeychainStore.meshyAPIKeyAccount)
-        let gateStatus = Meshy3DGate.status(for: document, keyIsSet: keyIsSet)
-        switch gateStatus {
-        case .stackDisabled:
-            return (nil, "Meshy is not enabled for this stack. Enable it in Preferences → Meshy.ai.")
-        case .apiKeyMissing:
-            return (nil, "Set your Meshy API key in Preferences → Meshy.ai.")
-        case .ready:
-            break
-        }
-
-        // Gate passed — build the client.
-        do {
-            let client: MeshyClient = try meshyClientFactory?() ?? {
-                let key = try KeychainStore.getSecret(account: KeychainStore.meshyAPIKeyAccount)
-                return MeshyAIClient(apiKey: key)
-            }()
-            return (client, nil)
-        } catch {
-            return (nil, "Failed to read Meshy API key from keychain.")
-        }
-    }
-
-    /// Parse optional `place_on_card` arguments and create a `scene3D` part,
-    /// wiring `scene3DAssetRef` to the first imported asset.
-    ///
-    /// - Returns: A success description string for the created part, or `nil`
-    ///   when `place_on_card != "true"`.
-    private func placeScene3DPartIfRequested(
-        arguments: [String: String],
-        document: inout HypeDocument,
-        currentCardId: UUID,
-        primaryAsset: SpriteAsset
-    ) -> String? {
-        guard (arguments["place_on_card"] ?? "").lowercased() == "true" else {
-            return nil
-        }
-        let rawPartName = arguments["part_name"] ?? ""
-        guard let safePartName = sanitizeAssetName(rawPartName), !safePartName.isEmpty else {
-            return nil  // Caller validates part_name before calling us.
-        }
-
-        let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
-        var part = Part(
-            partType: .scene3D,
-            cardId: place.cardId,
-            backgroundId: place.backgroundId,
-            name: safePartName,
-            left: Double(arguments["left"] ?? "100") ?? 100,
-            top: Double(arguments["top"] ?? "100") ?? 100,
-            width: Double(arguments["width"] ?? "400") ?? 400,
-            height: Double(arguments["height"] ?? "300") ?? 300
-        )
-        part.scene3DAssetRef = document.spriteRepository.assetRef(for: primaryAsset)
-        document.addPart(part)
-        let layer = place.backgroundId != nil ? " on background" : ""
-        return "Created scene3D part '\(safePartName)'\(layer) referencing '\(primaryAsset.name)'."
-    }
-
-    /// Generate a 3D model from a text prompt.
-    private func executeGenerate3DFromText(
-        arguments: [String: String],
-        document: inout HypeDocument,
-        currentCardId: UUID
-    ) async -> String {
-        // Step A: Gate check.
-        let (client, gateError) = meshyGateAndClient(document: document)
-        if let err = gateError { return err }
-        guard let client else { return "Internal error: no Meshy client." }
-
-        // Step B: Validate arguments.
-        let promptRaw = arguments["prompt"] ?? ""
-        let prompt = promptRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty else {
-            return "generate_3d_model_from_text requires 'prompt'."
-        }
-        guard prompt.count <= 600 else {
-            return "generate_3d_model_from_text: prompt must be ≤ 600 characters."
-        }
-
-        // Validate place_on_card / part_name constraint before starting generation.
-        let placeOnCard = (arguments["place_on_card"] ?? "").lowercased() == "true"
-        if placeOnCard {
-            let rawPartName = arguments["part_name"] ?? ""
-            guard sanitizeAssetName(rawPartName) != nil, !rawPartName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return "generate_3d_model_from_text requires 'part_name' when place_on_card='true'."
-            }
-        }
-
-        let artStyleRaw = (arguments["art_style"] ?? "realistic").lowercased()
-        let artStyle: MeshyArtStyle = artStyleRaw == "sculpture" ? .sculpture : .realistic
-        let aiModel: MeshyAIModel = parseAIModel(arguments["ai_model"])
-        let shouldRemesh = boolArgument(arguments["should_remesh"]) ?? aiModel.defaultRemesh
-        let (assetName, assetNameError) = optional3DAssetName(arguments: arguments, toolName: "generate_3d_model_from_text")
-        if let assetNameError { return assetNameError }
-
-        // Step C: Progress reporter (D in plan).
-        let reporter = Meshy3DToolProgressReporter(
-            logger: .shared,
-            toolName: "generate_3d_model_from_text",
-            taskKindDescription: "text-to-3D"
-        )
-
-        // Step D: Run the job (E in plan).
-        let job = Generate3DJob(client: client)
-        let options = generate3DOptions(
-            arguments: arguments,
-            aiModel: aiModel,
-            shouldRemesh: shouldRemesh,
-            assetName: assetName,
-            hardTimeout: 300   // 5-min cap for AI tool path.
-        )
-        let existing = Set(document.spriteRepository.assets.map(\.name))
-        let assets: [SpriteAsset]
-        do {
-            assets = try await job.run(
-                kind: .text(prompt: prompt, artStyle: artStyle),
-                options: options,
-                existingAssetNames: existing,
-                onProgress: { state in reporter.report(state) }
-            )
-        } catch let error as MeshyError {
-            if case .timedOut = error {
-                return "Meshy generation timed out after 5 minutes. The Meshy task may still be running — check your dashboard. The Generate 3D sheet (Sprite Repository → Generate 3D) supports the full 30-minute wait."
-            }
-            return "Meshy generation failed: \(error.errorDescription ?? "unknown error")."
-        } catch is CancellationError {
-            return "Meshy generation cancelled."
-        } catch {
-            return "Meshy generation failed: \(error.localizedDescription)"
-        }
-
-        // Step E: Integration (F in plan).
-        for asset in assets {
-            document.spriteRepository.addAsset(asset)
-        }
-        guard let primary = assets.first else {
-            return "Meshy generation failed: no assets were imported."
-        }
-
-        var result = "Generated 3D model '\(primary.name)' and added to the Sprite Repository."
-        if let partResult = placeScene3DPartIfRequested(
-            arguments: arguments,
-            document: &document,
-            currentCardId: currentCardId,
-            primaryAsset: primary
-        ) {
-            result += " \(partResult)"
-        }
-        return result
-    }
-
-    /// Generate a 3D model from a single image.
-    private func executeGenerate3DFromImage(
-        arguments: [String: String],
-        document: inout HypeDocument,
-        currentCardId: UUID
-    ) async -> String {
-        // Step A: Gate check.
-        let (client, gateError) = meshyGateAndClient(document: document)
-        if let err = gateError { return err }
-        guard let client else { return "Internal error: no Meshy client." }
-
-        // Validate place_on_card / part_name before starting generation.
-        let placeOnCard = (arguments["place_on_card"] ?? "").lowercased() == "true"
-        if placeOnCard {
-            let rawPartName = arguments["part_name"] ?? ""
-            guard sanitizeAssetName(rawPartName) != nil, !rawPartName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return "generate_3d_model_from_image requires 'part_name' when place_on_card='true'."
-            }
-        }
-
-        // Step B: Parse image input — exactly one of the three sources must be set.
-        let imageInput: MeshyImageInput
-        if let pathArg = arguments["image_path"].flatMap({ $0.isEmpty ? nil : $0 }) {
-            imageInput = .filePath(pathArg)
-        } else if let nameArg = arguments["image_asset_name"].flatMap({ $0.isEmpty ? nil : $0 }) {
-            imageInput = .assetName(nameArg)
-        } else if let b64Arg = arguments["image_base64"].flatMap({ $0.isEmpty ? nil : $0 }) {
-            imageInput = .base64(b64Arg)
-        } else {
-            return "generate_3d_model_from_image requires one of: image_path, image_asset_name, or image_base64."
-        }
-
-        // Resolve and validate the image input.
-        let resolved: MeshyImageInput.Resolved
-        do {
-            resolved = try imageInput.resolve(in: document.spriteRepository)
-        } catch let error as MeshyError {
-            return "Image validation failed: \(error.errorDescription ?? "unknown error")."
-        } catch {
-            return "Image validation failed: \(error.localizedDescription)"
-        }
-
-        let aiModel: MeshyAIModel = parseAIModel(arguments["ai_model"])
-        let shouldRemesh = boolArgument(arguments["should_remesh"]) ?? aiModel.defaultRemesh
-        let (assetName, assetNameError) = optional3DAssetName(arguments: arguments, toolName: "generate_3d_model_from_image")
-        if let assetNameError { return assetNameError }
-
-        let reporter = Meshy3DToolProgressReporter(
-            logger: .shared,
-            toolName: "generate_3d_model_from_image",
-            taskKindDescription: "image-to-3D"
-        )
-
-        let job = Generate3DJob(client: client)
-        let options = generate3DOptions(
-            arguments: arguments,
-            aiModel: aiModel,
-            shouldRemesh: shouldRemesh,
-            assetName: assetName,
-            hardTimeout: 300
-        )
-        let existing = Set(document.spriteRepository.assets.map(\.name))
-        let assets: [SpriteAsset]
-        do {
-            assets = try await job.run(
-                kind: .singleImage(image: resolved),
-                options: options,
-                existingAssetNames: existing,
-                onProgress: { state in reporter.report(state) }
-            )
-        } catch let error as MeshyError {
-            if case .timedOut = error {
-                return "Meshy generation timed out after 5 minutes. The Meshy task may still be running — check your dashboard. The Generate 3D sheet (Sprite Repository → Generate 3D) supports the full 30-minute wait."
-            }
-            return "Meshy generation failed: \(error.errorDescription ?? "unknown error")."
-        } catch is CancellationError {
-            return "Meshy generation cancelled."
-        } catch {
-            return "Meshy generation failed: \(error.localizedDescription)"
-        }
-
-        for asset in assets {
-            document.spriteRepository.addAsset(asset)
-        }
-        guard let primary = assets.first else {
-            return "Meshy generation failed: no assets were imported."
-        }
-
-        // H1: result string uses asset name only — never sourceDescriptor.
-        var result = "Generated 3D model '\(primary.name)' from image and added to the Sprite Repository."
-        if let partResult = placeScene3DPartIfRequested(
-            arguments: arguments,
-            document: &document,
-            currentCardId: currentCardId,
-            primaryAsset: primary
-        ) {
-            result += " \(partResult)"
-        }
-        return result
-    }
-
-    /// Generate a 3D model from 2–4 images.
-    private func executeGenerate3DFromImages(
-        arguments: [String: String],
-        document: inout HypeDocument,
-        currentCardId: UUID
-    ) async -> String {
-        // Step A: Gate check.
-        let (client, gateError) = meshyGateAndClient(document: document)
-        if let err = gateError { return err }
-        guard let client else { return "Internal error: no Meshy client." }
-
-        // Validate place_on_card / part_name before starting generation.
-        let placeOnCard = (arguments["place_on_card"] ?? "").lowercased() == "true"
-        if placeOnCard {
-            let rawPartName = arguments["part_name"] ?? ""
-            guard sanitizeAssetName(rawPartName) != nil, !rawPartName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return "generate_3d_model_from_images requires 'part_name' when place_on_card='true'."
-            }
-        }
-
-        // Step B: Parse comma-separated image refs.
-        let imagesArg = arguments["images"] ?? ""
-        guard !imagesArg.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return "generate_3d_model_from_images requires 'images' — a comma-separated list of 2–4 refs (prefix each with 'asset:', 'path:', or 'base64:')."
-        }
-
-        // Split on commas. Each ref must have a prefix.
-        let rawRefs = imagesArg.split(separator: ",", omittingEmptySubsequences: true).map {
-            $0.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        guard (2...4).contains(rawRefs.count) else {
-            return "generate_3d_model_from_images requires 2 to 4 image refs (got \(rawRefs.count))."
-        }
-
-        var inputs: [MeshyImageInput] = []
-        for ref in rawRefs {
-            if ref.hasPrefix("asset:") {
-                inputs.append(.assetName(String(ref.dropFirst("asset:".count))))
-            } else if ref.hasPrefix("path:") {
-                inputs.append(.filePath(String(ref.dropFirst("path:".count))))
-            } else if ref.hasPrefix("base64:") {
-                inputs.append(.base64(String(ref.dropFirst("base64:".count))))
-            } else {
-                return "Image ref '\(ref.prefix(40))' must be prefixed with 'asset:', 'path:', or 'base64:'."
-            }
-        }
-
-        // Resolve all inputs.
-        var resolvedImages: [MeshyImageInput.Resolved] = []
-        for input in inputs {
-            do {
-                let resolved = try input.resolve(in: document.spriteRepository)
-                resolvedImages.append(resolved)
-            } catch let error as MeshyError {
-                return "Image validation failed: \(error.errorDescription ?? "unknown error")."
-            } catch {
-                return "Image validation failed: \(error.localizedDescription)"
-            }
-        }
-
-        // M2: Combined 40 MB cap — checked again inside Generate3DJob but
-        // surfacing here gives a better error message.
-        let totalBytes = resolvedImages.map(\.data.count).reduce(0, +)
-        guard totalBytes <= 40 * 1024 * 1024 else {
-            return "Total image size (\(totalBytes / 1_048_576) MB) exceeds the 40 MB combined limit."
-        }
-
-        let aiModel: MeshyAIModel = parseAIModel(arguments["ai_model"])
-        let shouldRemesh = boolArgument(arguments["should_remesh"]) ?? aiModel.defaultRemesh
-        let (assetName, assetNameError) = optional3DAssetName(arguments: arguments, toolName: "generate_3d_model_from_images")
-        if let assetNameError { return assetNameError }
-
-        let reporter = Meshy3DToolProgressReporter(
-            logger: .shared,
-            toolName: "generate_3d_model_from_images",
-            taskKindDescription: "multi-image-to-3D"
-        )
-
-        let job = Generate3DJob(client: client)
-        let options = generate3DOptions(
-            arguments: arguments,
-            aiModel: aiModel,
-            shouldRemesh: shouldRemesh,
-            assetName: assetName,
-            hardTimeout: 300
-        )
-        let existing = Set(document.spriteRepository.assets.map(\.name))
-        let assets: [SpriteAsset]
-        do {
-            assets = try await job.run(
-                kind: .multiImage(images: resolvedImages),
-                options: options,
-                existingAssetNames: existing,
-                onProgress: { state in reporter.report(state) }
-            )
-        } catch let error as MeshyError {
-            if case .timedOut = error {
-                return "Meshy generation timed out after 5 minutes. The Meshy task may still be running — check your dashboard. The Generate 3D sheet (Sprite Repository → Generate 3D) supports the full 30-minute wait."
-            }
-            return "Meshy generation failed: \(error.errorDescription ?? "unknown error")."
-        } catch is CancellationError {
-            return "Meshy generation cancelled."
-        } catch {
-            return "Meshy generation failed: \(error.localizedDescription)"
-        }
-
-        for asset in assets {
-            document.spriteRepository.addAsset(asset)
-        }
-        guard let primary = assets.first else {
-            return "Meshy generation failed: no assets were imported."
-        }
-
-        // H1: result string uses asset name only — never sourceDescriptors.
-        var result = "Generated 3D model '\(primary.name)' from \(resolvedImages.count) images and added to the Sprite Repository."
-        if let partResult = placeScene3DPartIfRequested(
-            arguments: arguments,
-            document: &document,
-            currentCardId: currentCardId,
-            primaryAsset: primary
-        ) {
-            result += " \(partResult)"
-        }
-        return result
-    }
-
-    /// Remesh an existing model3D asset.
-    ///
-    /// **Security (C5):** validates `targetPolycount` at this executor layer
-    /// (third defense-in-depth layer after client + flow).
-    private func executeRemesh3D(
-        arguments: [String: String],
-        document: inout HypeDocument,
-        currentCardId: UUID
-    ) async -> String {
-        // Step A: Gate check.
-        let (client, gateError) = meshyGateAndClient(document: document)
-        if let err = gateError { return err }
-        guard let client else { return "Internal error: no Meshy client." }
-
-        // Step B: Validate source asset.
-        let sourceAssetName = (arguments["source_asset_name"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !sourceAssetName.isEmpty else {
-            return "remesh_3d_model requires 'source_asset_name'."
-        }
-        guard let sourceAsset = document.spriteRepository.assets.first(where: { $0.name == sourceAssetName }) else {
-            return "remesh_3d_model: asset '\(sourceAssetName)' not found in the Sprite Repository."
-        }
-        let sourceTaskId = sourceAsset.provenance?.attribution.taskId ?? ""
-        guard !sourceTaskId.isEmpty,
-              sourceAsset.provenance?.attribution.providerIdentifier == "meshy" else {
-            return "remesh_3d_model: '\(sourceAssetName)' wasn't generated by Meshy. Remesh requires a Meshy-generated source model."
-        }
-
-        // Step C: Validate target_polycount (C5 — third layer).
-        let polycountRaw = (arguments["target_polycount"] ?? "30000").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let targetPolycount = Int(polycountRaw), (100...300_000).contains(targetPolycount) else {
-            return "remesh_3d_model: 'target_polycount' must be an integer between 100 and 300,000 (got '\(polycountRaw)')."
-        }
-        let topologyRaw = (arguments["topology"] ?? "triangle").lowercased()
-        let topology = topologyRaw == "quad" ? "quad" : "triangle"
-
-        // Validate place_on_card / part_name constraint.
-        let placeOnCard = (arguments["place_on_card"] ?? "").lowercased() == "true"
-        if placeOnCard {
-            let rawPartName = arguments["part_name"] ?? ""
-            guard sanitizeAssetName(rawPartName) != nil, !rawPartName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return "remesh_3d_model requires 'part_name' when place_on_card='true'."
-            }
-        }
-
-        // Step D: Run the remesh flow (5-min cap for AI tool path).
-        let reporter = Meshy3DToolProgressReporter(
-            logger: .shared,
-            toolName: "remesh_3d_model",
-            taskKindDescription: "remesh"
-        )
-        let flow = RemeshAndRetextureFlow(client: client)
-        let options = RemeshAndRetextureFlow.RemeshOptions(
-            targetPolycount: targetPolycount,
-            topology: topology,
-            hardTimeout: 300
-        )
-        let sourcePrompt = sourceAsset.provenance?.searchQuery ?? ""
-        let existingNames = Set(document.spriteRepository.assets.map(\.name))
-
-        let asset: SpriteAsset
-        do {
-            asset = try await flow.runRemesh(
-                sourceTaskId: sourceTaskId,
-                sourceAssetName: sourceAssetName,
-                sourcePrompt: sourcePrompt,
-                options: options,
-                existingAssetNames: existingNames,
-                onProgress: { state in reporter.report(state) }
-            )
-        } catch let error as MeshyError {
-            if case .timedOut = error {
-                return "Meshy remesh timed out after 5 minutes. The task may still be running — check your Meshy dashboard."
-            }
-            return "Meshy remesh failed: \(error.errorDescription ?? "unknown error")."
-        } catch is CancellationError {
-            return "Meshy remesh cancelled."
-        } catch {
-            return "Meshy remesh failed: \(error.localizedDescription)"
-        }
-
-        // Step E: Install asset into document (AIEditTransaction captures this).
-        document.spriteRepository.addAsset(asset)
-
-        var result = "Remeshed '\(sourceAssetName)' to \(targetPolycount) polygons. New asset '\(asset.name)' added to the Sprite Repository."
-        if let partResult = placeScene3DPartIfRequested(
-            arguments: arguments,
-            document: &document,
-            currentCardId: currentCardId,
-            primaryAsset: asset
-        ) {
-            result += " \(partResult)"
-        }
-        return result
-    }
-
-    /// Retexture an existing model3D asset using a text style prompt.
-    ///
-    /// **Security (C6):** validates `style_prompt` is non-empty; truncation
-    /// to 600 chars is applied in `MeshyRetextureRequest.init`.
-    private func executeRetexture3D(
-        arguments: [String: String],
-        document: inout HypeDocument,
-        currentCardId: UUID
-    ) async -> String {
-        // Step A: Gate check.
-        let (client, gateError) = meshyGateAndClient(document: document)
-        if let err = gateError { return err }
-        guard let client else { return "Internal error: no Meshy client." }
-
-        // Step B: Validate source asset.
-        let sourceAssetName = (arguments["source_asset_name"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !sourceAssetName.isEmpty else {
-            return "retexture_3d_model requires 'source_asset_name'."
-        }
-        guard let sourceAsset = document.spriteRepository.assets.first(where: { $0.name == sourceAssetName }) else {
-            return "retexture_3d_model: asset '\(sourceAssetName)' not found in the Sprite Repository."
-        }
-        let sourceTaskId = sourceAsset.provenance?.attribution.taskId ?? ""
-        guard !sourceTaskId.isEmpty,
-              sourceAsset.provenance?.attribution.providerIdentifier == "meshy" else {
-            return "retexture_3d_model: '\(sourceAssetName)' wasn't generated by Meshy. Retexture requires a Meshy-generated source model."
-        }
-
-        // Step C: Validate style_prompt (C6 — empty check; truncation happens in init).
-        let stylePromptRaw = (arguments["style_prompt"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !stylePromptRaw.isEmpty else {
-            return "retexture_3d_model requires 'style_prompt'."
-        }
-        if stylePromptRaw.count > 600 {
-            HypeLogger.shared.info("retexture_3d_model: style_prompt truncated from \(stylePromptRaw.count) to 600 chars", source: "Meshy")
-        }
-
-        let aiModel = parseAIModel(arguments["ai_model"])
-        let enablePbr = (arguments["enable_pbr"] ?? "").lowercased() == "true"
-        let hdTexture = (arguments["hd_texture"] ?? "").lowercased() == "true"
-
-        // Validate place_on_card / part_name constraint.
-        let placeOnCard = (arguments["place_on_card"] ?? "").lowercased() == "true"
-        if placeOnCard {
-            let rawPartName = arguments["part_name"] ?? ""
-            guard sanitizeAssetName(rawPartName) != nil, !rawPartName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return "retexture_3d_model requires 'part_name' when place_on_card='true'."
-            }
-        }
-
-        // Step D: Run the retexture flow (5-min cap for AI tool path).
-        let reporter = Meshy3DToolProgressReporter(
-            logger: .shared,
-            toolName: "retexture_3d_model",
-            taskKindDescription: "retexture"
-        )
-        let flow = RemeshAndRetextureFlow(client: client)
-        let options = RemeshAndRetextureFlow.RetextureOptions(
-            aiModel: aiModel,
-            enablePbr: enablePbr,
-            hdTexture: hdTexture,
-            hardTimeout: 300
-        )
-        let sourcePrompt = sourceAsset.provenance?.searchQuery ?? ""
-        let existingNames = Set(document.spriteRepository.assets.map(\.name))
-
-        let asset: SpriteAsset
-        do {
-            asset = try await flow.runRetexture(
-                sourceTaskId: sourceTaskId,
-                sourceAssetName: sourceAssetName,
-                sourcePrompt: sourcePrompt,
-                newStylePrompt: stylePromptRaw,
-                options: options,
-                existingAssetNames: existingNames,
-                onProgress: { state in reporter.report(state) }
-            )
-        } catch let error as MeshyError {
-            if case .timedOut = error {
-                return "Meshy retexture timed out after 5 minutes. The task may still be running — check your Meshy dashboard."
-            }
-            return "Meshy retexture failed: \(error.errorDescription ?? "unknown error")."
-        } catch is CancellationError {
-            return "Meshy retexture cancelled."
-        } catch {
-            return "Meshy retexture failed: \(error.localizedDescription)"
-        }
-
-        // Step E: Install asset into document (AIEditTransaction captures this).
-        document.spriteRepository.addAsset(asset)
-
-        var result = "Retextured '\(sourceAssetName)' with style '\(stylePromptRaw.prefix(80))'. New asset '\(asset.name)' added to the Sprite Repository."
-        if let partResult = placeScene3DPartIfRequested(
-            arguments: arguments,
-            document: &document,
-            currentCardId: currentCardId,
-            primaryAsset: asset
-        ) {
-            result += " \(partResult)"
-        }
-        return result
-    }
-
-    /// Parse an `ai_model` argument string into a `MeshyAIModel`.
-    private func parseAIModel(_ raw: String?) -> MeshyAIModel {
-        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
-            return .meshy6
-        }
-        return MeshyAIModel(rawValue: trimmed) ?? .meshy6
-    }
-
-    private func generate3DOptions(
-        arguments: [String: String],
-        aiModel: MeshyAIModel,
-        shouldRemesh: Bool,
-        assetName: String? = nil,
-        hardTimeout: TimeInterval
-    ) -> Generate3DJob.Options {
-        let qualityRaw = (arguments["quality"] ?? "preview")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let quality: Generate3DJob.TextQuality = ["refine", "refined", "high", "final"].contains(qualityRaw)
-            ? .refined
-            : .preview
-        let topologyRaw = arguments["topology"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let topology = topologyRaw == "quad" ? "quad" : (topologyRaw == "triangle" ? "triangle" : nil)
-        let symmetryRaw = arguments["symmetry_mode"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let symmetryMode = ["off", "auto", "on"].contains(symmetryRaw ?? "") ? symmetryRaw : nil
-
-        return Generate3DJob.Options(
-            aiModel: aiModel,
-            shouldRemesh: shouldRemesh,
-            alsoUSDZ: boolArgument(arguments["with_usdz"] ?? arguments["also_usdz"]) ?? true,
-            alsoFBX: boolArgument(arguments["with_fbx"] ?? arguments["also_fbx"]) ?? false,
-            textQuality: quality,
-            targetPolycount: intArgument(arguments["target_polycount"]),
-            topology: topology,
-            symmetryMode: symmetryMode,
-            enablePbr: boolArgument(arguments["enable_pbr"]),
-            assetName: assetName,
-            hardTimeout: hardTimeout
-        )
-    }
-
-    private func optional3DAssetName(arguments: [String: String], toolName: String) -> (String?, String?) {
-        guard let raw = arguments["asset_name"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !raw.isEmpty else {
-            return (nil, nil)
-        }
-        guard let safe = sanitizeAssetName(raw) else {
-            return (nil, "\(toolName): asset_name is invalid — use 1-128 ASCII letters / digits / _ / - / . / space.")
-        }
-        return (safe, nil)
     }
 
     // MARK: - STL Model Path Resolver
