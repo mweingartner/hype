@@ -29,6 +29,9 @@ Primary references used for the implementation:
    and attaches `LegacyStackImportMetadata`.
 5. The Hype app exposes the flow through `File > Import HyperCard Stack...`.
 
+For the expected portable package layout used by classic stack import tooling,
+see [`ClassicHyperCardStackManifest.md`](ClassicHyperCardStackManifest.md).
+
 ## XCMD/XFCN Emulation Plan
 
 Classic HyperCard extended HyperTalk through native code resources named XCMDs
