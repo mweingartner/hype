@@ -129,6 +129,33 @@ swift test --filter HypeTalk
    - Keep this behind the same invalidation rules as the part index cache.
    - Prioritize field/button/card references because they dominate the current benchmark mix.
 
+## Phase 2 Idle Hook Results
+
+Implemented an idle-focused runtime pass for animation frame consistency:
+
+- Added a successful-parse cache for repeated `MessageDispatcher` dispatches. This targets `idle` and `frameUpdate`, where the same scripts are dispatched every tick/frame.
+- Changed `StackRuntime.dispatchIdleBurst` to enqueue the entire burst before processing instead of starting the queue once per target.
+- Coalesced document-change notifications for multi-target runtime batches.
+- Changed the canvas idle timer from `0.5s` to `1 / 60s` and cached idle target discovery so frames do not rescan every script unless the card/script signature changes.
+- Added an `idle-hook-burst` benchmark workload that dispatches idle to 12 animated parts through `StackRuntime`.
+
+Measured with `.build/release/hypetalk --benchmark --benchmark-iterations 50`.
+
+| Workload | Execute Total ms | Execute Avg ms | Frame Budget Share |
+| --- | ---: | ---: | ---: |
+| idle-hook-burst | 10.314 | 0.206 | 1.2% of 16.667 ms |
+
+The idle benchmark mutates 12 button parts via `on idle` handlers that read and write `the left of me`. This measures the runtime dispatch path used by the app idle hook, not just raw interpreter execution.
+
+Focused validation:
+
+```sh
+swift build
+swift build -c release --product hypetalk
+.build/release/hypetalk --benchmark --benchmark-iterations 50
+swift test --filter EventDispatchTests
+```
+
 ## Measurement Practice
 
 - Run release benchmarks before and after each optimization.

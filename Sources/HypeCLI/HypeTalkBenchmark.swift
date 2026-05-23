@@ -4,9 +4,15 @@ import ArgumentParser
 
 struct HypeTalkBenchmarkSuite {
     struct Case {
+        enum Mode {
+            case handler
+            case idleBurst(partCount: Int)
+        }
+
         var name: String
         var script: String
         var handler: String = "main"
+        var mode: Mode = .handler
     }
 
     static let cases: [Case] = [
@@ -81,7 +87,12 @@ struct HypeTalkBenchmarkSuite {
         on checkpointDone requestId, status
           return requestId && status
         end checkpointDone
-        """)
+        """),
+        Case(
+            name: "idle-hook-burst",
+            script: "",
+            mode: .idleBurst(partCount: 12)
+        )
     ]
 }
 
@@ -120,6 +131,18 @@ struct HypeTalkBenchmarkRunner {
         var totalDiagnostics = HypeTalkExecutionDiagnostics()
 
         for benchmarkCase in cases {
+            if case .idleBurst(let partCount) = benchmarkCase.mode {
+                let report = try runIdleBurstCase(
+                    benchmarkCase,
+                    iterations: safeIterations,
+                    partCount: partCount
+                )
+                totalExecution += report.executionNanoseconds
+                totalDiagnostics.merge(report.diagnostics)
+                reports.append(report)
+                continue
+            }
+
             let parseStart = DispatchTime.now().uptimeNanoseconds
             let handler = try parseHandler(script: benchmarkCase.script, handlerName: benchmarkCase.handler)
             let parseElapsed = DispatchTime.now().uptimeNanoseconds - parseStart
@@ -186,6 +209,82 @@ struct HypeTalkBenchmarkRunner {
         throw HypeCLIError.noHandlerFound
     }
 
+    private func runIdleBurstCase(
+        _ benchmarkCase: HypeTalkBenchmarkSuite.Case,
+        iterations: Int,
+        partCount: Int
+    ) throws -> HypeTalkBenchmarkCaseReport {
+        let setupStart = DispatchTime.now().uptimeNanoseconds
+        let (document, partIds) = makeIdleBurstDocument(partCount: partCount)
+        let setupElapsed = DispatchTime.now().uptimeNanoseconds - setupStart
+
+        let semaphore = DispatchSemaphore(value: 0)
+        let box = IdleBurstBenchmarkBox()
+        Task {
+            let runtime = StackRuntime(
+                document: document,
+                configuration: StackRuntimeConfiguration()
+            )
+            var elapsed: UInt64 = 0
+            for _ in 0..<iterations {
+                let start = DispatchTime.now().uptimeNanoseconds
+                await runtime.dispatchIdleBurst(
+                    cardTargetID: document.cards[0].id,
+                    partTargetIDs: partIds,
+                    currentCardId: document.cards[0].id,
+                    includeCardTarget: false
+                )
+                elapsed += DispatchTime.now().uptimeNanoseconds - start
+            }
+            let finalDocument = await runtime.currentDocument()
+            box.executionNanoseconds = elapsed
+            box.didMutate = finalDocument.parts.contains { part in
+                partIds.contains(part.id) && part.left > 10
+            }
+            semaphore.signal()
+        }
+        semaphore.wait()
+
+        guard box.didMutate else {
+            throw HypeCLIError.benchmarkFailed(benchmarkCase.name, "idle burst did not mutate animated parts")
+        }
+
+        return HypeTalkBenchmarkCaseReport(
+            name: benchmarkCase.name,
+            iterations: iterations,
+            parseNanoseconds: setupElapsed,
+            executionNanoseconds: box.executionNanoseconds,
+            averageExecutionNanoseconds: box.executionNanoseconds / UInt64(iterations),
+            diagnostics: HypeTalkExecutionDiagnostics()
+        )
+    }
+
+    private func makeIdleBurstDocument(partCount: Int) -> (HypeDocument, [UUID]) {
+        var document = HypeDocument.newDocument()
+        let cardId = document.cards[0].id
+        var partIds: [UUID] = []
+        for index in 0..<max(1, partCount) {
+            var part = Part(
+                partType: .button,
+                cardId: cardId,
+                name: "idle-\(index)",
+                left: 10 + Double(index * 4),
+                top: 10 + Double(index * 3),
+                width: 48,
+                height: 24
+            )
+            part.script = """
+            on idle
+              set the left of me to the left of me + 1
+              set the top of me to the top of me + 1
+            end idle
+            """
+            document.addPart(part)
+            partIds.append(part.id)
+        }
+        return (document, partIds)
+    }
+
     private func loadDocument(path: String?) throws -> HypeDocument {
         if let path {
             let data = try Data(contentsOf: URL(fileURLWithPath: path))
@@ -193,6 +292,11 @@ struct HypeTalkBenchmarkRunner {
         }
         return HypeDocument.newDocument()
     }
+}
+
+private final class IdleBurstBenchmarkBox: @unchecked Sendable {
+    var executionNanoseconds: UInt64 = 0
+    var didMutate = false
 }
 
 final class BenchmarkRuntime: ScriptRuntimeProviding, @unchecked Sendable {

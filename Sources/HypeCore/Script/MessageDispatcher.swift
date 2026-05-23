@@ -18,6 +18,42 @@ private enum _DispatchSyncGate {
     static let semaphore = DispatchSemaphore(value: 1)
 }
 
+private final class HypeTalkScriptParseCache: @unchecked Sendable {
+    static let shared = HypeTalkScriptParseCache()
+
+    private let lock = NSLock()
+    private var entries: [String: Script] = [:]
+    private var order: [String] = []
+    private let maxEntries = 256
+
+    func parsedScript(for source: String) throws -> Script {
+        lock.lock()
+        if let cached = entries[source] {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+
+        var lexer = Lexer(source: source)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let parsed = try parser.parse()
+
+        lock.lock()
+        if entries[source] == nil {
+            entries[source] = parsed
+            order.append(source)
+            if order.count > maxEntries {
+                let evicted = order.removeFirst()
+                entries.removeValue(forKey: evicted)
+            }
+        }
+        lock.unlock()
+
+        return parsed
+    }
+}
+
 /// Dispatches messages through the HyperCard-style object hierarchy:
 /// part -> card -> background -> stack.
 public struct ScriptDispatchContext: Sendable {
@@ -167,13 +203,12 @@ public struct MessageDispatcher: Sendable {
             ) else { continue }
             guard !script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
 
-            // Tokenize and parse the script.
-            var lexer = Lexer(source: script)
-            let tokens = lexer.tokenize()
-            var parser = Parser(tokens: tokens)
+            // Tokenize and parse the script. Repeated idle/frame
+            // dispatches hit the same source every tick, so cache
+            // successful parses by exact source text.
             let parsedScript: Script
             do {
-                parsedScript = try parser.parse()
+                parsedScript = try HypeTalkScriptParseCache.shared.parsedScript(for: script)
             } catch let error as ParseError {
                 let description = error.errorDescription ?? String(describing: error)
                 let ownerDescription = Self.describeObject(
