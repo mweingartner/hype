@@ -22,6 +22,10 @@ struct AIChatPanel: View {
     /// operation" voice command). Cleared when the task completes
     /// or is cancelled.
     @State private var activeChatTask: Task<Void, Never>? = nil
+    /// ID of the currently streaming message bubble for real-time token updates.
+    @State private var streamingBubbleId: UUID?
+    /// Accumulated content for the streaming message (updated in real-time).
+    @State private var streamingContent: String = ""
     /// Speech-to-text controller. Lazily initialized — its
     /// `start()` requests mic + speech-recognition authorization.
     @StateObject private var speechCapture = AISpeechCapture()
@@ -179,7 +183,8 @@ struct AIChatPanel: View {
                             HStack(alignment: .top) {
                                 if msg.role == "user" { Spacer() }
                                 VStack(alignment: msg.role == "user" ? .trailing : .leading) {
-                                    Text(msg.content)
+                                    let displayContent = (streamingBubbleId == msg.id) ? streamingContent : msg.content
+                                    Text(displayContent)
                                         .font(.system(size: 13))
                                         .textSelection(.enabled)
                                         .padding(8)
@@ -1547,9 +1552,48 @@ struct AIChatPanel: View {
                     webTools,
                     enabled: aiContextToolsEnabled
                 )
-                let response = try await client.chat(
-                    messages: conversationMessages,
-                    tools: tools
+
+                var streamingMessageId: UUID?
+                var accumulatedText = ""
+                streamingBubbleId = nil
+                streamingContent = ""
+
+                let streamingClient: (any HypeAIClient)? = client as? OpenAIChatCompletionsClient ?? (client as? OllamaToolClient)
+                if let client = streamingClient {
+                    for await token in client.chatStream(messages: conversationMessages, tools: tools) {
+                        if streamingBubbleId == nil {
+                            let bubble = ChatBubble(role: "assistant", content: "", imageBase64: nil, imagePixelWidth: nil, imagePixelHeight: nil, imageCaption: nil)
+                            streamingBubbleId = bubble.id
+                            messages.append(bubble)
+                            streamingMessageId = bubble.id
+                        }
+                        accumulatedText += token
+                        streamingContent = accumulatedText
+                    }
+                } else {
+                    let response = try await client.chat(messages: conversationMessages, tools: tools)
+                    accumulatedText = response.message.content ?? ""
+                    appendMessage(role: "assistant", content: accumulatedText)
+                }
+
+                streamingBubbleId = nil
+                streamingContent = ""
+
+                if streamingMessageId != nil {
+                    guard let lastBubbleId = streamingMessageId,
+                          let bubbleIndex = messages.firstIndex(where: { $0.id == lastBubbleId }) else {
+                        return
+                    }
+                    messages[bubbleIndex] = ChatBubble(role: "assistant", content: accumulatedText, imageBase64: nil, imagePixelWidth: nil, imagePixelHeight: nil, imageCaption: nil)
+                }
+
+                if speakAssistantResponses {
+                    speakAssistantText(accumulatedText)
+                }
+
+                let response = OllamaChatResponse(
+                    message: OllamaMessage(role: "assistant", content: accumulatedText),
+                    done: true
                 )
 
                 // Ollama's gemma4 parser extracts structured tool_calls
@@ -1563,21 +1607,17 @@ struct AIChatPanel: View {
                 // get a narrow document-aware repair pass for known
                 // local-model misroutes (e.g. Sprite Area scene script
                 // stored as a generic part script).
+                let assistantMessage = OllamaMessage(role: "assistant", content: accumulatedText)
                 let effectiveToolCalls: [OllamaToolCall]? = {
-                    if let existing = HypeAIResponseRepair.repairedToolCalls(
-                        response.message.tool_calls,
-                        userMessage: userMessage,
-                        document: workingDocument,
-                        currentCardId: activeCardId
-                    ),
+                    if let existing = HypeAIResponseRepair.extractToolCalls(from: accumulatedText),
                        !existing.isEmpty {
                         return existing
                     }
-                    return HypeAIResponseRepair.extractToolCalls(from: response.message.content)
+                    return nil
                 }()
 
                 if let toolCalls = effectiveToolCalls, !toolCalls.isEmpty {
-                    conversationMessages.append(response.message)
+                    conversationMessages.append(assistantMessage)
 
                     // Per-loop accumulator for the synthetic user message carrying the capture image.
                     // SECURITY FINDING 2: defer injection until AFTER the loop so we never interleave

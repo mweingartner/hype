@@ -352,6 +352,11 @@ extension JSONFlexibleValue: Decodable {
 public struct OllamaChatResponse: Codable, Sendable {
     public let message: OllamaMessage
     public let done: Bool
+
+    public init(message: OllamaMessage, done: Bool) {
+        self.message = message
+        self.done = done
+    }
 }
 
 public struct OllamaGenerateResponse: Codable, Sendable {
@@ -1142,6 +1147,87 @@ public actor OllamaToolClient: HypeAIClient {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         _ = try await sessionData(for: request, endpoint: "/api/generate")
+    }
+
+    public nonisolated func chatStream(messages: [OllamaMessage], tools: [OllamaTool]) -> AsyncStream<String> {
+        let baseURL = self.baseURL
+        let model = self.model
+
+        return AsyncStream { continuation in
+            Task {
+                do {
+                    let url = URL(string: "\(baseURL)/v1/chat/completions")!
+
+                    var request = URLRequest(url: url)
+                    request.httpMethod = "POST"
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+
+                    let body = (try? Self.requestBodyObject(model: model, messages: messages, tools: tools, format: nil)) ?? [:]
+                    var streamBody = body
+                    streamBody["stream"] = true
+                    request.httpBody = try? JSONSerialization.data(withJSONObject: streamBody)
+
+                    let (bytes, response) = try await self.session.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse,
+                          (200..<300).contains(httpResponse.statusCode) else {
+                        continuation.finish()
+                        return
+                    }
+
+                    var buffer = Data()
+                    for try await byteChunk in bytes {
+                        buffer.append(byteChunk)
+
+                        while let newlineIndex = buffer.firstIndex(of: UInt8(ascii: "\n")) {
+                            let lineData = Data(buffer[..<newlineIndex])
+                            buffer = Data(buffer[buffer.index(after: newlineIndex)...])
+
+                            guard let line = String(data: lineData, encoding: .utf8),
+                                  line.hasPrefix("data: ") else { continue }
+
+                            let jsonString = String(line.dropFirst(6))
+                            if jsonString == "[DONE]" {
+                                continuation.finish()
+                                return
+                            }
+
+                            if let token = Self.parseStreamToken(jsonString) {
+                                continuation.yield(token)
+                            }
+                        }
+                    }
+
+                    if !buffer.isEmpty, let remaining = String(data: buffer, encoding: .utf8) {
+                        for line in remaining.components(separatedBy: "\n") {
+                            guard line.hasPrefix("data: ") else { continue }
+                            let jsonString = String(line.dropFirst(6))
+                            if jsonString == "[DONE]" { break }
+                            if let token = Self.parseStreamToken(jsonString) {
+                                continuation.yield(token)
+                            }
+                        }
+                    }
+
+                    continuation.finish()
+                } catch {
+                    continuation.finish()
+                }
+            }
+        }
+    }
+
+    private static func parseStreamToken(_ jsonString: String) -> String? {
+        guard let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let first = choices.first,
+              let delta = first["delta"] as? [String: Any],
+              let content = delta["content"] as? String else {
+            return nil
+        }
+        return content
     }
 }
 
