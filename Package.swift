@@ -51,7 +51,7 @@ let package = Package(
         ),
         .testTarget(
             name: "HypeCLITests",
-            dependencies: ["HypeCore"],
+            dependencies: ["HypeCore", "HypeCLI"],
             path: "Tests/HypeCLITests"
         ),
     ]

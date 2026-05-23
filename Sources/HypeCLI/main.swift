@@ -56,6 +56,7 @@ struct HypeCLI: ParsableCommand {
             document: doc,
             dialogProvider: StubDialogProvider(),
             drawingProvider: StubDrawingProvider(),
+            systemProvider: StubSystemProvider(),
             aiProvider: StubAIScriptingProvider(),
             speechOutputProvider: StubSpeechOutputProvider()
         )

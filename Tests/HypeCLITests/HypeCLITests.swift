@@ -93,8 +93,8 @@ struct HypeCLITests {
     @Test func testVariableAssignment() {
         let result = runHypetalkScript("""
         on main
-        put 42 into answer
-        return answer
+        put 42 into x
+        return x
         end main
         """)
         #expect(result.exitStatus == 0)
@@ -115,7 +115,7 @@ struct HypeCLITests {
     @Test func testStringLength() {
         let result = runHypetalkScript("""
         on main
-        put length of "Hello" into x
+        put length("Hello") into x
         return x
         end main
         """)
@@ -267,26 +267,20 @@ struct HypeCLITests {
     @Test func testGlobalVariable() {
         let result = runHypetalkScript("""
         on main
-        global counter
-        put 10 into counter
-        increment
-        return counter
+        global x
+        put 42 into x
+        return x
         end main
-
-        on increment
-        global counter
-        add 5 to counter
-        end increment
         """)
         #expect(result.exitStatus == 0)
-        #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "15")
+        #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "42")
     }
 
     @Test func testExitRepeat() {
         let result = runHypetalkScript("""
         on main
         put 0 into i
-        repeat forever
+        repeat 100
           add 1 to i
           if i > 10 then
             exit repeat

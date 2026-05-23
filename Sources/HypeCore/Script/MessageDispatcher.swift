@@ -230,13 +230,13 @@ public struct MessageDispatcher: Sendable {
                 document: currentDocument,
                 dialogProvider: dialogProvider,
                 drawingProvider: drawingProvider,
+                systemProvider: StubSystemProvider(),
                 aiProvider: aiProvider,
                 speechOutputProvider: speechOutputProvider,
                 runtimeProvider: runtimeProvider,
                 meshyProvider: meshyProvider,
                 mouseX: mouseX,
                 mouseY: mouseY,
-                scriptContext: scriptContext,
                 appScript: appScript,
                 nestedSendDepth: nestedSendDepth
             )
