@@ -5,6 +5,7 @@ Repository-level instructions for agentic coding harnesses working on Hype.
 ## Read First
 
 - Start with `architecture.md` before substantive code changes. It is the product and runtime architecture source of truth.
+- Read and follow `decisions.md` for Hype product behavior, persistence, scripting, AI tooling, provider, and runtime guardrails. It is mandatory for all substantive changes.
 - Use `README.md` for user-facing overview, setup, and contribution context.
 - Use `HypeTalk-LLM-Context.md` and `Sources/HypeCore/AI/HypeTalkGuide.swift` when changing HypeTalk or AI model guidance.
 - Treat `.hype` stack files as user documents. Do not stage or rewrite them unless the task explicitly requires it.
@@ -22,30 +23,11 @@ Meaningful changes should follow this sequence:
 
 For review-only tasks, do not edit files unless the user asks for implementation.
 
-## Architectural Rules
+## Product Decisions And Guardrails
 
-- Persist document state as value types in `HypeDocument`, `Stack`, `Background`, `Card`, `Part`, `SpriteAreaSpec`, and `SceneSpec`.
-- Do not persist live AppKit, SpriteKit, SceneKit, AVFoundation, or network objects.
-- Keep `SceneSpec` and `SpriteAreaSpec` as the source of truth for SpriteKit content; `SceneBridge` projects specs into live SpriteKit nodes.
-- Route HypeTalk through `MessageDispatcher`, `Interpreter`, and `StackRuntime` rather than bypassing the message hierarchy.
-- Preserve HyperCard-style message pass-up: part -> card -> background -> stack -> app, and scene/node -> sprite area -> card -> background -> stack -> app.
-- Keep AI authoring deterministic where tools exist. Prefer validated tools and templates over freehand raw script or node edits.
-- Keep core deterministic creation offline. Optional OpenAI, Ollama, Meshy, web, or image-generation passes must not be required for baseline local template creation.
-- Treat provider integrations as user-controlled side effects. Respect existing preferences, keychain handling, hostname allowlists, and stack-level opt-in gates.
-
-## HypeTalk And Script Safety
-
-- Generated or migrated scripts must parse through the existing parser and validator path.
-- Add parser/interpreter tests for new grammar, commands, properties, or legacy compatibility behavior.
-- Do not silently swallow script errors. Route parse/runtime errors through existing logging and UI notification paths.
-- For legacy HyperCard compatibility, emulate behavior in Swift; never execute classic native XCMD/XFCN code.
-
-## AI And Tooling Rules
-
-- Keep model prompts concise and source-grounded. Large catalogs should be discoverable through tools rather than always injected into the system prompt.
-- For stack context memory, use the stack-scoped AI context library and avoid secrets, API keys, credentials, or private tokens.
-- Tool changes need schema coverage and execution-path tests.
-- AI transactions should preserve preview/apply/rollback semantics where applicable.
+`decisions.md` owns durable guidance for how Hype should behave. Do not duplicate
+those product decisions here; keep this file focused on agent workflow,
+verification, testing, deployment, and git hygiene.
 
 ## Testing Commands
 
@@ -81,6 +63,7 @@ PATH=/usr/bin:/bin:/usr/sbin:/sbin:/Applications/Codex.app/Contents/Resources ./
 
 ## Useful References
 
+- `decisions.md`: product behavior guardrails and durable build decisions.
 - `architecture.md`: full architecture, subsystem map, persistence/runtime boundaries, feature gaps.
 - `README.md`: setup, run/test commands, project overview.
 - `docs/HyperCardImportAndXCMDCompatibility.md`: HyperCard import and XCMD/XFCN emulation rules.
