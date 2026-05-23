@@ -34,6 +34,8 @@ Primary references used for the implementation:
 Classic HyperCard extended HyperTalk through native code resources named XCMDs
 and XFCNs. Hype treats those resources as untrusted legacy code and never loads
 or executes them. Compatibility is provided through `HyperCardExternalRegistry`.
+The current per-external support map lives in
+[`HyperCardExternalMapping.md`](HyperCardExternalMapping.md).
 
 The registry models the behavior that matters to scripts:
 
