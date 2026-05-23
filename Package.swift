@@ -7,7 +7,11 @@ let package = Package(
     products: [
         .executable(name: "Hype", targets: ["Hype"]),
         .executable(name: "HypePacmanTestbedBuilder", targets: ["HypePacmanTestbedBuilder"]),
+        .executable(name: "hypetalk", targets: ["HypeCLI"]),
         .library(name: "HypeCore", targets: ["HypeCore"]),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-argument-parser.git", exact: "1.5.0"),
     ],
     targets: [
         .executableTarget(
@@ -19,6 +23,14 @@ let package = Package(
             name: "HypePacmanTestbedBuilder",
             dependencies: ["HypeCore"],
             path: "Sources/HypePacmanTestbedBuilder"
+        ),
+        .executableTarget(
+            name: "HypeCLI",
+            dependencies: [
+                "HypeCore",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            path: "Sources/HypeCLI"
         ),
         .target(
             name: "HypeCore",
@@ -36,6 +48,11 @@ let package = Package(
             name: "HypeTests",
             dependencies: ["Hype", "HypeCore"],
             path: "Tests/HypeTests"
+        ),
+        .testTarget(
+            name: "HypeCLITests",
+            dependencies: ["HypeCore"],
+            path: "Tests/HypeCLITests"
         ),
     ]
 )
