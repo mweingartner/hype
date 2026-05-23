@@ -56,6 +56,13 @@ package enum WebAssetExecutorBranches {
         do {
             let results = try await client.search(WebAssetSearchQuery(query: query, maxResults: maxResults))
             _ = await session.recordSearch(query: query, results: results)
+            // Phase 7 polish: log successful searches at the executor seam so
+            // observability covers both halves of the flow (errors were logged
+            // via formatWebAssetError; success was previously silent).
+            HypeLogger.shared.aiOutput(
+                "search query=\"\(query.prefix(80))\" provider=\(client.provider.displayName) results=\(results.count)",
+                source: "WebAssetSearch"
+            )
             if results.isEmpty {
                 return "No \(client.provider.displayName) results for \"\(query)\"."
             }
@@ -168,6 +175,12 @@ package enum WebAssetExecutorBranches {
         do {
             let results = try await client.search(WebAssetSearchQuery(query: fQuery, maxResults: 8))
             _ = await session.recordSearch(query: fQuery, results: results)
+            // Phase 7 polish: log success alongside failure (parity with
+            // search_web_for_sprite above).
+            HypeLogger.shared.aiOutput(
+                "find_and_import query=\"\(fQuery.prefix(80))\" provider=\(client.provider.displayName) results=\(results.count) target=\"\(cleanedName3)\"",
+                source: "WebAssetSearch"
+            )
             guard let first = results.first else {
                 return "No \(client.provider.displayName) results for \"\(fQuery)\". find_and_import_sprite did not install anything."
             }
