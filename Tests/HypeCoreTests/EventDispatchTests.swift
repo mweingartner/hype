@@ -656,6 +656,43 @@ struct EventDispatchTests {
         #expect(keyDown.modifiedDocument?.scriptGlobals["score"] == "2")
     }
 
+    @Test("runtime idle burst mutates every targeted idle part") func runtimeIdleBurstMutatesEveryTarget() async {
+        var (doc, cardId) = makeDocWithOneCard()
+        var ids: [UUID] = []
+        for index in 0..<3 {
+            var button = Part(
+                partType: .button,
+                cardId: cardId,
+                name: "idle-\(index)",
+                left: Double(index),
+                top: 0,
+                width: 40,
+                height: 20
+            )
+            button.script = """
+                on idle
+                  set the left of me to the left of me + 1
+                end idle
+                """
+            doc.addPart(button)
+            ids.append(button.id)
+        }
+
+        let runtime = StackRuntime(document: doc, configuration: StackRuntimeConfiguration())
+        await runtime.dispatchIdleBurst(
+            cardTargetID: cardId,
+            partTargetIDs: ids,
+            currentCardId: cardId,
+            includeCardTarget: false
+        )
+        let modified = await runtime.currentDocument()
+
+        for (index, id) in ids.enumerated() {
+            let part = modified.parts.first(where: { $0.id == id })
+            #expect(part?.left == Double(index + 1))
+        }
+    }
+
     // MARK: - Hierarchy completeness spot-check
 
     @Test("every level of the hierarchy can handle a lifecycle event") func everyHierarchyLevelCanHandle() async {

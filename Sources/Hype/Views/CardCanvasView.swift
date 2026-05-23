@@ -776,7 +776,7 @@ struct CardCanvasView: NSViewRepresentable {
             )
         }
 
-        func dispatchIdleBurst(cardTargetId: UUID, partTargetIds: [UUID]) {
+        func dispatchIdleBurst(cardTargetId: UUID, includeCardTarget: Bool, partTargetIds: [UUID]) {
             let snapshot = parent.document.document
             let config = runtimeConfiguration()
             Task {
@@ -784,9 +784,14 @@ struct CardCanvasView: NSViewRepresentable {
                 await runtime.dispatchIdleBurst(
                     cardTargetID: cardTargetId,
                     partTargetIDs: partTargetIds,
-                    currentCardId: cardTargetId
+                    currentCardId: cardTargetId,
+                    includeCardTarget: includeCardTarget
                 )
             }
+        }
+
+        func appScriptHasHandler(_ handlerName: String) -> Bool {
+            CardCanvasNSView.scriptHasHandler(appScript, named: handlerName)
         }
 
         /// Shared result-handling for both part-targeted
@@ -1163,6 +1168,10 @@ class CardCanvasNSView: NSView {
 
     // Idle timer for dispatching idle messages in browse mode
     private var idleTimer: Timer?
+    private static let idleTimerInterval: TimeInterval = 1.0 / 60.0
+    private var idleDispatchTargetSignature = ""
+    private var idleDispatchCachedPartIDs: [UUID] = []
+    private var idleDispatchCachedIncludesCard = true
 
     // Timer for mouseStillDown messages while mouse is held
     private var mouseStillDownTimer: Timer?
@@ -1948,7 +1957,7 @@ class CardCanvasNSView: NSView {
     /// handlers whose names happen to start with "idle" (e.g.
     /// `on idleState`), wastefully dispatching idle to parts that
     /// have no actual idle handler.
-    private static func scriptHasHandler(_ script: String, named handlerName: String) -> Bool {
+    fileprivate static func scriptHasHandler(_ script: String, named handlerName: String) -> Bool {
         let marker = "on \(handlerName.lowercased())"
         guard !script.isEmpty, !handlerName.isEmpty else { return false }
         for rawLine in script.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
@@ -1970,21 +1979,58 @@ class CardCanvasNSView: NSView {
         scriptHasHandler(script, named: "idle")
     }
 
+    private func idleDispatchTargetsForCurrentCard() -> (includeCardTarget: Bool, partIDs: [UUID]) {
+        let cardParts = document.partsForCard(currentCardId)
+        let card = document.cards.first(where: { $0.id == currentCardId })
+        let bgParts = card.map { document.partsForBackground($0.backgroundId) } ?? []
+        let background = card.flatMap { card in
+            document.backgrounds.first(where: { $0.id == card.backgroundId })
+        }
+        let appHasIdle = coordinator?.appScriptHasHandler("idle") ?? false
+        let signatureParts = [
+            currentCardId.uuidString,
+            card?.script ?? "",
+            background?.script ?? "",
+            document.stack.script,
+            appHasIdle ? "app-idle" : "app-no-idle",
+        ] + (cardParts + bgParts).map { "\($0.id.uuidString):\($0.script)" }
+        let signature = signatureParts.joined(separator: "\u{1F}")
+        if signature == idleDispatchTargetSignature {
+            return (idleDispatchCachedIncludesCard, idleDispatchCachedPartIDs)
+        }
+
+        let includeCardTarget = CardCanvasNSView.scriptHasIdleHandler(card?.script ?? "")
+            || CardCanvasNSView.scriptHasIdleHandler(background?.script ?? "")
+            || CardCanvasNSView.scriptHasIdleHandler(document.stack.script)
+            || appHasIdle
+        let partIDs = (cardParts + bgParts)
+            .filter { CardCanvasNSView.scriptHasIdleHandler($0.script) }
+            .map(\.id)
+
+        idleDispatchTargetSignature = signature
+        idleDispatchCachedIncludesCard = includeCardTarget
+        idleDispatchCachedPartIDs = partIDs
+        return (includeCardTarget, partIDs)
+    }
+
     private func startIdleTimer() {
         idleTimer?.invalidate()
-        idleTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: Self.idleTimerInterval, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             let toolState = ToolState(currentTool: self.currentTool.rawValue)
             guard toolState.category == .browse, self.activeFieldEditor == nil else { return }
 
-            let cardParts = self.document.partsForCard(self.currentCardId)
-            let card = self.document.cards.first(where: { $0.id == self.currentCardId })
-            let bgParts = card.map { self.document.partsForBackground($0.backgroundId) } ?? []
-            let idlePartIDs = (cardParts + bgParts)
-                .filter { CardCanvasNSView.scriptHasIdleHandler($0.script) }
-                .map(\.id)
-            self.coordinator?.dispatchIdleBurst(cardTargetId: self.currentCardId, partTargetIds: idlePartIDs)
+            let targets = self.idleDispatchTargetsForCurrentCard()
+            guard targets.includeCardTarget || !targets.partIDs.isEmpty else { return }
+            self.coordinator?.dispatchIdleBurst(
+                cardTargetId: self.currentCardId,
+                includeCardTarget: targets.includeCardTarget,
+                partTargetIds: targets.partIDs
+            )
         }
+        timer.tolerance = Self.idleTimerInterval / 4
+        RunLoop.main.add(timer, forMode: .common)
+        idleTimer = timer
     }
 
     private func stopIdleTimer() {

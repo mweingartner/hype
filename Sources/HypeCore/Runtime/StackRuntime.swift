@@ -496,13 +496,39 @@ public actor StackRuntime: ScriptRuntimeProviding {
     public func dispatchIdleBurst(
         cardTargetID: UUID,
         partTargetIDs: [UUID],
-        currentCardId: UUID
+        currentCardId: UUID,
+        includeCardTarget: Bool = true
     ) async {
         guard !isProcessing, queue.isEmpty else { return }
-        await enqueueMessage("idle", params: [], targetId: cardTargetID, currentCardId: currentCardId)
-        for partID in partTargetIDs {
-            await enqueueMessage("idle", params: [], targetId: partID, currentCardId: currentCardId)
+        if includeCardTarget {
+            queue.append(
+                QueuedDispatch(
+                    message: "idle",
+                    params: [],
+                    targetId: cardTargetID,
+                    currentCardId: currentCardId,
+                    mouseX: 0,
+                    mouseY: 0,
+                    scriptContext: nil,
+                    completion: nil
+                )
+            )
         }
+        for partID in partTargetIDs {
+            queue.append(
+                QueuedDispatch(
+                    message: "idle",
+                    params: [],
+                    targetId: partID,
+                    currentCardId: currentCardId,
+                    mouseX: 0,
+                    mouseY: 0,
+                    scriptContext: nil,
+                    completion: nil
+                )
+            )
+        }
+        await processQueue()
     }
 
     public func statusSnapshot() -> RuntimeStatusSnapshot {
@@ -1040,33 +1066,48 @@ public actor StackRuntime: ScriptRuntimeProviding {
         defer { isProcessing = false }
 
         while !queue.isEmpty {
-            let item = queue.removeFirst()
-            let result = await dispatcher.dispatchAsync(
-                message: item.message,
-                params: item.params,
-                targetId: item.targetId,
-                document: document,
-                currentCardId: item.currentCardId,
-                dialogProvider: configuration.dialogProvider,
-                drawingProvider: configuration.drawingProvider,
-                aiProvider: configuration.aiProvider,
-                meshyProvider: configuration.meshyProvider,
-                speechOutputProvider: configuration.speechOutputProvider,
-                appScript: configuration.appScript,
-                mouseX: item.mouseX,
-                mouseY: item.mouseY,
-                scriptContext: item.scriptContext,
-                runtimeProvider: self
-            )
-            apply(result: result)
-            item.completion?.resume(returning: result)
+            let batch = queue
+            queue.removeAll(keepingCapacity: true)
+            var batchDocumentChanged = false
+            for item in batch {
+                let result = await dispatcher.dispatchAsync(
+                    message: item.message,
+                    params: item.params,
+                    targetId: item.targetId,
+                    document: document,
+                    currentCardId: item.currentCardId,
+                    dialogProvider: configuration.dialogProvider,
+                    drawingProvider: configuration.drawingProvider,
+                    aiProvider: configuration.aiProvider,
+                    meshyProvider: configuration.meshyProvider,
+                    speechOutputProvider: configuration.speechOutputProvider,
+                    appScript: configuration.appScript,
+                    mouseX: item.mouseX,
+                    mouseY: item.mouseY,
+                    scriptContext: item.scriptContext,
+                    runtimeProvider: self
+                )
+                batchDocumentChanged = apply(
+                    result: result,
+                    postsDocumentChange: batch.count == 1
+                ) || batchDocumentChanged
+                item.completion?.resume(returning: result)
+            }
+            if batch.count > 1, batchDocumentChanged {
+                postDocumentChange()
+            }
         }
     }
 
-    private func apply(result: ExecutionResult) {
+    @discardableResult
+    private func apply(result: ExecutionResult, postsDocumentChange: Bool = true) -> Bool {
+        var documentChanged = false
         if let modified = result.modifiedDocument {
             document = modified
-            postDocumentChange()
+            documentChanged = true
+            if postsDocumentChange {
+                postDocumentChange()
+            }
         }
         if result.showAllCards {
             NotificationCenter.default.post(name: Notification.Name("showAllCards"), object: nil)
@@ -1087,6 +1128,7 @@ public actor StackRuntime: ScriptRuntimeProviding {
                 NotificationCenter.default.post(name: Notification.Name("showScriptError"), object: nil, userInfo: userInfo)
             }
         }
+        return documentChanged
     }
 
     private func postDocumentChange() {
