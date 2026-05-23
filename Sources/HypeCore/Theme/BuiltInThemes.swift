@@ -368,15 +368,20 @@ public enum BuiltInThemes {
         buttonBackground:     .hex("#FFFFFFA6"),    // 65% white — glass pill
         buttonForeground:     .hex("#1C1C1E"),
         buttonBorder:         .hex("#FFFFFF66"),    // 40% white sheen ring
-        buttonHilite:         .hex("#0A84FF"),      // Apple system blue
+        // System accent — flows the user's chosen tint through every
+        // hilite + accent surface (System Settings → Appearance →
+        // Accent color). This is how Apple's actual Liquid Glass
+        // theme picks up "Blue" / "Purple" / "Pink" / etc.
+        // Previously hardcoded `#0A84FF` (dark-mode system blue).
+        buttonHilite:         .systemKey("controlAccentColor"),
         fieldBackground:      .hex("#FFFFFFCC"),    // 80% white frosted
         fieldForeground:      .hex("#1C1C1E"),
         fieldBorder:          .hex("#0000001A"),    // 10% black hairline
         shapeFillDefault:     .hex("#FFFFFFA6"),
         shapeStrokeDefault:   .hex("#0000001F"),    // 12% black
-        accent:               .hex("#0A84FF"),
+        accent:               .systemKey("controlAccentColor"),
         selectionFill:        .hex("#0A84FF33"),    // 20% accent
-        selectionStroke:      .hex("#0A84FF"),
+        selectionStroke:      .systemKey("controlAccentColor"),
         toolbarBackground:    .systemKey("controlBackgroundColor"),
         inspectorBackground:  .systemKey("controlBackgroundColor"),
         panelDivider:         .hex("#0000001A"),    // 10% black
@@ -388,7 +393,10 @@ public enum BuiltInThemes {
         labelFontSize:        11,
         cornerRadiusSmall:    8,
         cornerRadiusMedium:   12,
-        cornerRadiusLarge:    18,                   // matches Tahoe / iOS 26
+        // Apple's Liquid Glass standard rounded-rect radius is 16pt;
+        // capsule shape is the default for floating controls. Was 18,
+        // which was slightly off-spec.
+        cornerRadiusLarge:    16,
         spacingUnit:          8,
         strokeWidthThin:      0.5,                  // hairline, not 1pt
         strokeWidthMedium:    1,

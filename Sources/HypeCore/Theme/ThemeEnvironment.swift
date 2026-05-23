@@ -2,6 +2,9 @@ import Foundation
 
 #if canImport(SwiftUI)
 import SwiftUI
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// SwiftUI environment plumbing for the active theme.
 ///
@@ -83,24 +86,127 @@ private struct _HypeSurfaceBackground: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if theme.usesGlassMaterial {
-            // Liquid Glass: live vibrancy + a tinted overlay so the
-            // theme's color identity still bleeds through. The
-            // material picker matches Apple's recommended pairing —
-            // panels use `.regularMaterial`, popovers use
-            // `.thinMaterial`, the canvas uses `.thickMaterial` to
-            // stay reading-friendly.
+        if theme.usesGlassMaterial && !LiquidGlassEnvironment.reduceTransparency {
+            // Surface dispatch obeys Apple's Liquid Glass rule:
+            // "Liquid Glass is exclusively for the navigation layer
+            // that floats above app content. Never apply to content
+            // itself." So the canvas (content layer) gets a flat
+            // theme fill even when the theme opts into glass; only
+            // panels / toolbars / popovers get the material.
             switch surface {
             case .canvas:
-                content.background(.thickMaterial, in: Rectangle())
+                // Content layer — flat fill, no glass. Apple HIG
+                // anti-pattern check ("don't stack glass over
+                // content") satisfied.
+                content.background(_resolvedSurfaceColor(theme: theme, surface: surface))
             case .panel, .toolbar:
-                content.background(.regularMaterial, in: Rectangle())
+                content.modifier(LiquidGlassPanelMaterial(theme: theme))
             case .popover:
-                content.background(.thinMaterial, in: Rectangle())
+                content.modifier(LiquidGlassPopoverMaterial(theme: theme))
             }
         } else {
+            // Non-glass theme OR user has enabled Reduce Transparency
+            // — fall back to the resolved opaque surface color.
+            // Honoring `accessibilityDisplayShouldReduceTransparency`
+            // is the Apple-prescribed behavior; we MUST NOT override.
             content.background(_resolvedSurfaceColor(theme: theme, surface: surface))
         }
+    }
+}
+
+/// Panel / toolbar surface: prefers Apple's `.glassEffect()` (macOS 26+
+/// Liquid Glass) and falls back to `.regularMaterial` on older systems.
+/// The Increase Contrast accessibility setting tilts the material a step
+/// thicker so text legibility wins over translucency.
+private struct LiquidGlassPanelMaterial: ViewModifier {
+    let theme: HypeTheme
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26, *) {
+            // Native Liquid Glass — refraction + specular highlight,
+            // adapts to surrounding content + system tint. The
+            // Increase Contrast setting is handled by the system
+            // automatically (Apple HIG: "never override").
+            content.background {
+                Rectangle().glassEffect(in: Rectangle())
+            }
+        } else {
+            // macOS 15 fallback — vibrancy via standard material.
+            let mat: Material = LiquidGlassEnvironment.increaseContrast
+                ? .thickMaterial
+                : .regularMaterial
+            content.background(mat, in: Rectangle())
+        }
+    }
+}
+
+/// Popover / floating-control surface. Apple's guidance for floating
+/// controls over media is `.glassEffect(.clear)`; for general popovers
+/// over panel content, `.regular` (default) is correct. We default to
+/// regular here because Hype's popovers (color picker, menu) tend to
+/// sit over the document, not media.
+private struct LiquidGlassPopoverMaterial: ViewModifier {
+    let theme: HypeTheme
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26, *) {
+            content.background {
+                Rectangle().glassEffect(in: Rectangle())
+            }
+        } else {
+            let mat: Material = LiquidGlassEnvironment.increaseContrast
+                ? .regularMaterial
+                : .thinMaterial
+            content.background(mat, in: Rectangle())
+        }
+    }
+}
+
+/// Process-wide accessibility-state cache for Liquid Glass decisions.
+///
+/// Reading `NSWorkspace.shared` properties is cheap but happens on
+/// every SwiftUI render. The Apple HIG mandate is that we honor
+/// `reduceTransparency` / `increaseContrast` automatically; this helper
+/// centralises the read so renderers stay terse.
+///
+/// `nonisolated(unsafe)` matches the established Hype pattern for
+/// read-mostly singletons (see GIFAnimator). The properties are
+/// recomputed on each access, so there's no stale cache.
+public enum LiquidGlassEnvironment {
+
+    /// True when the user has enabled "Reduce transparency" in System
+    /// Settings → Accessibility → Display. When true, all glass
+    /// surfaces fall back to opaque fills (per Apple HIG).
+    public static var reduceTransparency: Bool {
+        #if canImport(AppKit)
+        return NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        #else
+        return false
+        #endif
+    }
+
+    /// True when the user has enabled "Increase contrast." Glass
+    /// surfaces switch to a thicker material variant; CG renderers
+    /// drop the specular highlight in favor of a sharper border.
+    public static var increaseContrast: Bool {
+        #if canImport(AppKit)
+        return NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        #else
+        return false
+        #endif
+    }
+
+    /// True when the user has enabled "Reduce motion." Animated
+    /// glass features (specular shimmer, GlassEffectContainer
+    /// morphs) should fall back to static states. Currently Hype's
+    /// CG glass is already static, but the flag exists for future
+    /// SwiftUI `.glassEffect(.regular.interactive())` adoption.
+    public static var reduceMotion: Bool {
+        #if canImport(AppKit)
+        return NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        #else
+        return false
+        #endif
     }
 }
 

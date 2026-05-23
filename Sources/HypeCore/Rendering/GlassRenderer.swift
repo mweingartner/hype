@@ -53,57 +53,111 @@ public enum GlassRenderer {
     ) {
         ctx.saveGState()
 
-        // 1) Outer drop shadow.
-        let shadowColor = NSColor.black.withAlphaComponent(shadowOpacity).cgColor
-        ctx.setShadow(offset: CGSize(width: 0, height: 3),
-                      blur: shadowRadius,
-                      color: shadowColor)
+        // Honor Apple's accessibility-display flags. When Reduce
+        // Transparency is on, fall back to a flat opaque fill with
+        // a real border — same shape, no glass illusion. When
+        // Increase Contrast is on, drop the specular highlight and
+        // beef up the border so the control reads with a stark
+        // edge instead of a soft bevel. Apple HIG: "Never override
+        // system settings."
+        let reduceTransparency = LiquidGlassEnvironment.reduceTransparency
+        let increaseContrast = LiquidGlassEnvironment.increaseContrast
 
-        // 2) Translucent fill.
         let path = CGPath(
             roundedRect: rect,
             cornerWidth: cornerRadius,
             cornerHeight: cornerRadius,
             transform: nil
         )
+
+        // 1) Outer drop shadow — skipped in high-contrast mode
+        // so the part edge reads as crisp, not floating.
+        if !increaseContrast {
+            let shadowColor = NSColor.black.withAlphaComponent(shadowOpacity).cgColor
+            ctx.setShadow(offset: CGSize(width: 0, height: 3),
+                          blur: shadowRadius,
+                          color: shadowColor)
+        }
+
+        // 2) Fill. Opaque under Reduce Transparency; otherwise the
+        // theme's resolved alpha (defaults to 65%) bleeds the
+        // background through, matching Apple's frosted-glass look.
         ctx.addPath(path)
-        let fill = nsColorFromHexWithAlpha(fillHex, defaultAlpha: 0.65).cgColor
+        let fillAlpha: CGFloat = reduceTransparency ? 1.0 : 0.65
+        let fill = nsColorFromHexWithAlpha(fillHex, defaultAlpha: fillAlpha).cgColor
         ctx.setFillColor(fill)
         ctx.fillPath()
 
-        // Disable the shadow before painting the highlight so it
-        // doesn't acquire the same drop offset.
+        // Disable shadow before painting highlights / border so they
+        // don't inherit the drop offset.
         ctx.setShadow(offset: .zero, blur: 0, color: nil)
 
-        // 3) Top-edge specular highlight.
-        // Clip to the rounded rect, then paint a 1pt white gradient
-        // along the top — outside the clip the highlight wouldn't
-        // hug the corners.
-        ctx.saveGState()
-        ctx.addPath(path)
-        ctx.clip()
-        let topGradient = CGGradient(
-            colorsSpace: CGColorSpaceCreateDeviceRGB(),
-            colors: [
-                NSColor.white.withAlphaComponent(0.35).cgColor,
-                NSColor.white.withAlphaComponent(0.0).cgColor,
-            ] as CFArray,
-            locations: [0.0, 1.0]
-        )!
-        let highlightHeight = min(rect.height * 0.5, 12)
-        ctx.drawLinearGradient(
-            topGradient,
-            start: CGPoint(x: rect.midX, y: rect.minY),
-            end: CGPoint(x: rect.midX, y: rect.minY + highlightHeight),
-            options: []
-        )
-        ctx.restoreGState()
-
-        // 4) Hairline border ring.
-        if let strokeHex {
+        // 3) Specular highlight — only in default mode. Apple's
+        // actual Liquid Glass uses real-time refraction; the closest
+        // CG can do without a Metal shader is a thin top-edge sheen
+        // that suggests a glass bevel. Slimmer than the prior
+        // implementation (12pt → 6pt) so it reads as a refractive
+        // edge rather than a heavy gradient.
+        if !increaseContrast && !reduceTransparency {
+            ctx.saveGState()
             ctx.addPath(path)
-            ctx.setStrokeColor(nsColorFromHexWithAlpha(strokeHex, defaultAlpha: 1.0).cgColor)
-            ctx.setLineWidth(strokeWidth)
+            ctx.clip()
+
+            // Top-edge sheen.
+            let topGradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: [
+                    NSColor.white.withAlphaComponent(0.30).cgColor,
+                    NSColor.white.withAlphaComponent(0.0).cgColor,
+                ] as CFArray,
+                locations: [0.0, 1.0]
+            )!
+            let highlightHeight = min(rect.height * 0.35, 6)
+            ctx.drawLinearGradient(
+                topGradient,
+                start: CGPoint(x: rect.midX, y: rect.minY),
+                end: CGPoint(x: rect.midX, y: rect.minY + highlightHeight),
+                options: []
+            )
+
+            // Bottom-edge counter-glow — adds the depth cue that
+            // distinguishes Liquid Glass from old-school glossy
+            // buttons. Very faint (alpha 0.10) so it doesn't read
+            // as a second highlight.
+            let bottomGradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: [
+                    NSColor.white.withAlphaComponent(0.0).cgColor,
+                    NSColor.white.withAlphaComponent(0.10).cgColor,
+                ] as CFArray,
+                locations: [0.0, 1.0]
+            )!
+            let bottomHeight = min(rect.height * 0.4, 4)
+            ctx.drawLinearGradient(
+                bottomGradient,
+                start: CGPoint(x: rect.midX, y: rect.maxY - bottomHeight),
+                end: CGPoint(x: rect.midX, y: rect.maxY),
+                options: []
+            )
+
+            ctx.restoreGState()
+        }
+
+        // 4) Border. In high-contrast mode, force a visible stroke
+        // even when the caller passed nil and beef up the alpha so
+        // the part has a crisp outline that doesn't depend on the
+        // soft glass bevel.
+        let effectiveStroke = increaseContrast
+            ? (strokeHex ?? "#000000")
+            : strokeHex
+        let effectiveAlpha: CGFloat = increaseContrast ? 0.85 : 1.0
+        let effectiveWidth: CGFloat = increaseContrast
+            ? max(strokeWidth, 1.0)
+            : strokeWidth
+        if let s = effectiveStroke {
+            ctx.addPath(path)
+            ctx.setStrokeColor(nsColorFromHexWithAlpha(s, defaultAlpha: effectiveAlpha).cgColor)
+            ctx.setLineWidth(effectiveWidth)
             ctx.strokePath()
         }
 
