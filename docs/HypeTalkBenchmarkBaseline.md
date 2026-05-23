@@ -90,6 +90,45 @@ Measured with `.build/debug/hypetalk --benchmark --benchmark-iterations 10`.
    - Callback setup is measurable but currently much cheaper than property and expression-heavy workloads.
    - Revisit after expression/property optimizations or when benchmarking real async runtime dispatch instead of the stub runtime.
 
+## Phase 1 Optimization Results
+
+Implemented a handler-local part lookup cache in `Environment` for repeated object-type plus identifier resolution. The cache is invalidated on part creation, deletion, and part `name` mutation. Also pre-normalized the `repeat with` loop variable key so each loop iteration avoids lowercasing that variable name.
+
+Measured with `.build/release/hypetalk --benchmark --benchmark-iterations 50`.
+
+| Workload | Baseline Execute Total ms | Phase 1 Execute Total ms | Delta |
+| --- | ---: | ---: | ---: |
+| looping-and-expressions | 178.418 | 184.022 | +3.1% |
+| property-access | 194.734 | 154.501 | -20.7% |
+| callbacks | 39.500 | 37.458 | -5.2% |
+| realistic-mix | 392.852 | 329.107 | -16.2% |
+| total | 805.504 | 705.088 | -12.5% |
+
+The diagnostic counters stayed stable, so the timing changes are attributable to lower interpreter overhead rather than changed workload behavior. The pure loop workload regressed slightly; the next phase should prioritize variable/expression fast paths and verify that the lookup cache does not add measurable overhead to scripts that do not touch parts.
+
+Focused validation:
+
+```sh
+swift build --product hypetalk
+.build/debug/hypetalk --benchmark --benchmark-iterations 10
+swift build -c release --product hypetalk
+.build/release/hypetalk --benchmark --benchmark-iterations 50
+swift test --filter HypeTalk
+```
+
+### Next Phase
+
+1. Reduce variable-expression overhead.
+   - Avoid repeated lowercasing in `.variable` evaluation by normalizing once per lookup and using normalized environment helpers.
+   - Replace `env.locals.keys.contains(key)` with direct dictionary lookup checks on the hot system-property fallback path.
+
+2. Re-check pure loop performance after the variable fast path.
+   - The phase-one cache should mostly be cold for `looping-and-expressions`; if the regression remains, benchmark with and without the cache field in `Environment` to isolate dictionary storage overhead from normal run noise.
+
+3. Consider a positive-only object reference cache for `resolveObjectRef`.
+   - Keep this behind the same invalidation rules as the part index cache.
+   - Prioritize field/button/card references because they dominate the current benchmark mix.
+
 ## Measurement Practice
 
 - Run release benchmarks before and after each optimization.

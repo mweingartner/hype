@@ -196,11 +196,18 @@ public struct ScriptError: Error, Sendable {
 
 // MARK: - Environment
 
+private struct PartLookupKey: Hashable {
+    var objectType: String
+    var identifier: String
+    var currentCardId: UUID
+}
+
 /// Mutable variable environment for script execution.
 private struct Environment {
     var locals: [String: Value] = [:]
     var globals: [String: Value]
     var handlerParams: [Value] = []
+    var partLookupCache: [PartLookupKey: Int] = [:]
     var it: Value = ""
     /// Phase 3: `the result` — set by `ask meshy` on success. Mirrors `it`.
     var result: Value = ""
@@ -220,11 +227,19 @@ private struct Environment {
 
     mutating func setVariable(_ name: String, _ value: Value) {
         let key = name.lowercased()
+        setVariableKey(key, value)
+    }
+
+    mutating func setVariableKey(_ key: String, _ value: Value) {
         if globalNames.contains(key) {
             globals[key] = value
         } else {
             locals[key] = value
         }
+    }
+
+    mutating func invalidatePartLookupCache() {
+        partLookupCache.removeAll(keepingCapacity: true)
     }
 
     func handlerParam(at oneBasedIndex: Int) -> Value {
@@ -605,7 +620,7 @@ public struct Interpreter: Sendable {
             case .objectRef(let ref):
                 // Put into a field or button by name/number
                 let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
-                if let partIndex = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
+                if let partIndex = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
                     switch prep {
                     case .into:
                         document.parts[partIndex].textContent = value
@@ -628,7 +643,7 @@ public struct Interpreter: Sendable {
                 // `it` since there is no sensible concatenation semantic for a model ref.
                 if prep == .into, case .objectRef(let ref) = targetExpr {
                     let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
-                    if let partIndex = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
+                    if let partIndex = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
                         applyPartPropertySet(
                             partIndex: partIndex,
                             property: property,
@@ -817,7 +832,7 @@ public struct Interpreter: Sendable {
                     }
                     } else if !handledAsNode {
                     let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
-                    if let partIndex = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
+                    if let partIndex = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
                         applyPartPropertySet(
                             partIndex: partIndex,
                             property: property,
@@ -943,10 +958,11 @@ public struct Interpreter: Sendable {
             let fromVal = Int(toNumber(try await evaluate(fromExpr, env: &env, document: document, context: context)))
             let toVal = Int(toNumber(try await evaluate(toExpr, env: &env, document: document, context: context)))
             let step = fromVal <= toVal ? 1 : -1
+            let varKey = varName.lowercased()
             var i = fromVal
             while (step > 0 && i <= toVal) || (step < 0 && i >= toVal) {
                 context.profiler?.recordLoopIteration("repeatWith")
-                env.setVariable(varName, String(i))
+                env.setVariableKey(varKey, String(i))
                 do {
                     for s in body {
                         try await executeStatement(s, env: &env, document: &document, context: context,
@@ -1184,6 +1200,7 @@ public struct Interpreter: Sendable {
             let stackFont = document.stack.defaultFont
             if !stackFont.isEmpty { part.textFont = stackFont }
             document.addPart(part)
+            env.invalidatePartLookupCache()
 
         case .createField(let nameExpr, let onBackground):
             let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
@@ -1197,6 +1214,7 @@ public struct Interpreter: Sendable {
             let stackFont = document.stack.defaultFont
             if !stackFont.isEmpty { part.textFont = stackFont }
             document.addPart(part)
+            env.invalidatePartLookupCache()
 
         case .showAllCards:
             // Signal the UI to cycle through all cards with animation.
@@ -1210,7 +1228,7 @@ public struct Interpreter: Sendable {
                 env.setVariable(name, formatNumber(toNumber(existing) + toNumber(value)))
             } else if case .objectRef(let ref) = targetExpr {
                 let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
-                if let idx = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
+                if let idx = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
                     let existing = document.parts[idx].textContent
                     document.parts[idx].textContent = formatNumber(toNumber(existing) + toNumber(value))
                 }
@@ -1241,8 +1259,9 @@ public struct Interpreter: Sendable {
         case .deleteObject(let expr):
             if case .objectRef(let ref) = expr {
                 let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
-                if let idx = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
+                if let idx = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
                     document.parts.remove(at: idx)
+                    env.invalidatePartLookupCache()
                 }
             }
 
@@ -1262,7 +1281,7 @@ public struct Interpreter: Sendable {
         case .hideObject(let expr):
             if case .objectRef(let ref) = expr {
                 let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
-                if let idx = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
+                if let idx = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
                     document.parts[idx].visible = false
                 }
             }
@@ -1270,7 +1289,7 @@ public struct Interpreter: Sendable {
         case .showObject(let expr):
             if case .objectRef(let ref) = expr {
                 let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
-                if let idx = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
+                if let idx = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
                     document.parts[idx].visible = true
                 }
             }
@@ -1420,7 +1439,7 @@ public struct Interpreter: Sendable {
             // Resolve the target part
             if case .objectRef(let ref) = targetExpr {
                 let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
-                if let partIndex = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
+                if let partIndex = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
                     let part = document.parts[partIndex]
                     let prop = property.lowercased()
 
@@ -2256,7 +2275,7 @@ public struct Interpreter: Sendable {
         switch targetExpr {
         case .objectRef(let ref):
             let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
-            partIndex = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId)
+            partIndex = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId)
         default:
             let ident = try await evaluate(targetExpr, env: &env, document: document, context: context)
             partIndex = findPartIndexGeneral(ident, document: document)
@@ -3165,7 +3184,7 @@ public struct Interpreter: Sendable {
         // Property of a specific part via object reference.
         if case .objectRef(let ref) = targetExpr {
             let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
-            if let idx = findPartIndex(ref.objectType, identifier: ident, document: document, currentCardId: context.currentCardId) {
+            if let idx = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
                 return partPropertyValue(document.parts[idx], property: property, document: document, context: context)
             }
         }
@@ -3862,11 +3881,23 @@ public struct Interpreter: Sendable {
     private func findPartIndex(
         _ objectType: String,
         identifier: Value,
+        env: inout Environment,
         document: HypeDocument,
         currentCardId: UUID
     ) -> Int? {
+        let normalizedType = objectType.lowercased()
+        let normalizedIdentifier = identifier.lowercased()
+        let cacheKey = PartLookupKey(
+            objectType: normalizedType,
+            identifier: normalizedIdentifier,
+            currentCardId: currentCardId
+        )
+        if let cached = env.partLookupCache[cacheKey] {
+            return cached
+        }
+
         let targetType: PartType?
-        switch objectType {
+        switch normalizedType {
         case "field", "fld": targetType = .field
         case "button", "btn": targetType = .button
         case "webpage": targetType = .webpage
@@ -3901,12 +3932,13 @@ public struct Interpreter: Sendable {
         let allParts = cardParts + bgParts
 
         // Try by name first
-        let lower = identifier.lowercased()
         if let part = allParts.first(where: {
             (targetType == nil || $0.partType == targetType) &&
-            $0.name.lowercased() == lower
+            $0.name.lowercased() == normalizedIdentifier
         }) {
-            return document.parts.firstIndex(where: { $0.id == part.id })
+            let index = document.parts.firstIndex(where: { $0.id == part.id })
+            env.partLookupCache[cacheKey] = index
+            return index
         }
 
         // Try by number (1-based)
@@ -3914,7 +3946,9 @@ public struct Interpreter: Sendable {
             let typed = allParts.filter { targetType == nil || $0.partType == targetType }
             if num <= typed.count {
                 let part = typed[num - 1]
-                return document.parts.firstIndex(where: { $0.id == part.id })
+                let index = document.parts.firstIndex(where: { $0.id == part.id })
+                env.partLookupCache[cacheKey] = index
+                return index
             }
         }
 
@@ -3964,6 +3998,7 @@ public struct Interpreter: Sendable {
         guard let partIdx = findPartIndex(
             "chart",
             identifier: chartIdent,
+            env: &env,
             document: document,
             currentCardId: context.currentCardId
         ) else {
@@ -4027,6 +4062,7 @@ public struct Interpreter: Sendable {
         guard let idx = findPartIndex(
             "chart",
             identifier: chartIdent,
+            env: &env,
             document: document,
             currentCardId: context.currentCardId
         ), let config = ChartConfig.fromJSON(document.parts[idx].chartData) else {
@@ -4129,6 +4165,7 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].url = value
         case "name":
             document.parts[partIndex].name = value
+            env.invalidatePartLookupCache()
         case "textcontent", "text":
             document.parts[partIndex].textContent = value
         case "visible":
