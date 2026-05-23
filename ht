@@ -1,0 +1,21 @@
+#!/bin/bash
+# HypeTalk CLI wrapper
+# Usage: ./ht "on main ... end main" or ./ht script.hypetalk
+
+SCRIPT="${1:-/dev/stdin}"
+
+BUILD_DIR=".build/arm64-apple-macosx/debug"
+BINARY="$BUILD_DIR/hypetalk"
+
+if [[ ! -f "$BINARY" ]]; then
+    swift build -c debug --target HypeCLI 2>/dev/null || swift build 2>/dev/null
+fi
+
+if [[ -f "$SCRIPT" ]]; then
+    "$BINARY" "$(cat "$SCRIPT")"
+else
+    tempfile=$(mktemp /tmp/hypetalk.XXXXXX)
+    printf '%s\n' "$SCRIPT" > "$tempfile"
+    "$BINARY" "$(cat "$tempfile")"
+    rm -f "$tempfile"
+fi

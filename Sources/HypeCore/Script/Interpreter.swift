@@ -54,6 +54,26 @@ public struct StubDrawingProvider: DrawingProvider, Sendable {
     public func drawLine(from: (Int, Int), to: (Int, Int), radius: Int, colorHex: String) {}
 }
 
+/// Protocol for system-level operations (beep, play sound, etc.) — injected by the UI layer.
+public protocol SystemProvider: Sendable {
+    func beep(count: Int)
+    func playSound(name: String, document: HypeDocument)
+    func playNotes(instrument: String, noteString: String, tempo: Int, document: HypeDocument)
+    func stopSound()
+}
+
+public extension SystemProvider {
+    func beep(count: Int) {}
+    func playSound(name: String, document: HypeDocument) {}
+    func playNotes(instrument: String, noteString: String, tempo: Int, document: HypeDocument) {}
+    func stopSound() {}
+}
+
+/// Default system provider that does nothing (used when no UI is available).
+public struct StubSystemProvider: SystemProvider, Sendable {
+    public init() {}
+}
+
 /// Context for script execution.
 public struct ExecutionContext: Sendable {
     public var targetId: UUID
@@ -62,6 +82,7 @@ public struct ExecutionContext: Sendable {
     public var instructionLimit: Int
     public var dialogProvider: DialogProvider
     public var drawingProvider: DrawingProvider
+    public var systemProvider: SystemProvider
     public var aiProvider: any AIScriptingProvider
     public var speechOutputProvider: SpeechOutputProvider
     public var runtimeProvider: (any ScriptRuntimeProviding)?
@@ -78,6 +99,7 @@ public struct ExecutionContext: Sendable {
     public init(targetId: UUID, currentCardId: UUID, document: HypeDocument, instructionLimit: Int = 1_000_000,
                 dialogProvider: DialogProvider = StubDialogProvider(),
                 drawingProvider: DrawingProvider = StubDrawingProvider(),
+                systemProvider: SystemProvider = StubSystemProvider(),
                 aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
                 speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
                 runtimeProvider: (any ScriptRuntimeProviding)? = nil,
@@ -92,6 +114,7 @@ public struct ExecutionContext: Sendable {
         self.instructionLimit = instructionLimit
         self.dialogProvider = dialogProvider
         self.drawingProvider = drawingProvider
+        self.systemProvider = systemProvider
         self.aiProvider = aiProvider
         self.speechOutputProvider = speechOutputProvider
         self.runtimeProvider = runtimeProvider
@@ -107,6 +130,7 @@ public struct ExecutionContext: Sendable {
     public init(targetId: UUID, currentCardId: UUID, document: HypeDocument, instructionLimit: Int = 1_000_000,
                 dialogProvider: DialogProvider = StubDialogProvider(),
                 drawingProvider: DrawingProvider = StubDrawingProvider(),
+                systemProvider: SystemProvider = StubSystemProvider(),
                 aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
                 speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
                 runtimeProvider: (any ScriptRuntimeProviding)? = nil,
@@ -122,6 +146,7 @@ public struct ExecutionContext: Sendable {
         self.instructionLimit = instructionLimit
         self.dialogProvider = dialogProvider
         self.drawingProvider = drawingProvider
+        self.systemProvider = systemProvider
         self.aiProvider = aiProvider
         self.speechOutputProvider = speechOutputProvider
         self.runtimeProvider = runtimeProvider
@@ -1378,15 +1403,6 @@ public struct Interpreter: Sendable {
 
         case .playSound(let soundExpr, let notesExpr, let tempoExpr):
             let soundName = try await evaluate(soundExpr, env: &env, document: document, context: context)
-            #if canImport(AppKit)
-            // `SoundPlayer` is @MainActor-isolated because
-            // `NSSoundDelegate` methods fire synchronously on whichever
-            // thread called `stop()` — and those methods are @MainActor
-            // in modern AppKit. The Interpreter runs on a cooperative
-            // task thread, so we must hop before any play/stop call.
-            // Capturing the document inside the closure via a local
-            // let keeps the isolation transfer safe.
-            let capturedDocument = document
             if let notesExprVal = notesExpr {
                 let noteString = try await evaluate(notesExprVal, env: &env, document: document, context: context)
                 let tempo: Int
@@ -1395,40 +1411,22 @@ public struct Interpreter: Sendable {
                 } else {
                     tempo = 120
                 }
-                await MainActor.run {
-                    SoundPlayer.shared.playNotes(instrument: soundName, noteString: noteString, tempo: tempo, document: capturedDocument)
-                }
+                await context.systemProvider.playNotes(instrument: soundName, noteString: noteString, tempo: tempo, document: document)
             } else {
-                await MainActor.run {
-                    SoundPlayer.shared.play(name: soundName, document: capturedDocument)
-                }
+                await context.systemProvider.playSound(name: soundName, document: document)
             }
-            #endif
 
         case .playStop:
-            #if canImport(AppKit)
-            await MainActor.run {
-                SoundPlayer.shared.stop()
-            }
-            #endif
+            await context.systemProvider.stopSound()
 
         case .beep(let countExpr):
-            #if canImport(AppKit)
             let count: Int
             if let expr = countExpr {
                 count = max(1, Int(toNumber(try await evaluate(expr, env: &env, document: document, context: context))))
             } else {
                 count = 1
             }
-            // NSSound.beep() is @MainActor in modern AppKit SDKs; hop
-            // to main so it can be invoked from the interpreter's
-            // cooperative task thread without an executor assertion.
-            await MainActor.run {
-                for _ in 0..<count {
-                    NSSound.beep()
-                }
-            }
-            #endif
+            await context.systemProvider.beep(count: count)
 
         case .waitDuration(let expr):
             let val = try await evaluate(expr, env: &env, document: document, context: context)
