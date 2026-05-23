@@ -97,6 +97,14 @@ public struct ExecutionContext: Sendable {
     public var nestedSendDepth: Int
     public var profiler: HypeTalkExecutionProfiler?
 
+    /// Consolidated initializer.
+    ///
+    /// Two near-identical inits previously existed (one from the
+    /// HyperCard-import work that took a `scriptContext`, one from
+    /// the benchmark/CLI optimization work that added `profiler`).
+    /// Both parameters are optional so callers from either era stay
+    /// source-compatible; only one init now exists so the compiler
+    /// stops complaining about ambiguous use.
     public init(targetId: UUID, currentCardId: UUID, document: HypeDocument, instructionLimit: Int = 1_000_000,
                 dialogProvider: DialogProvider = StubDialogProvider(),
                 drawingProvider: DrawingProvider = StubDrawingProvider(),
@@ -107,6 +115,7 @@ public struct ExecutionContext: Sendable {
                 externalRegistry: HyperCardExternalRegistry = .default,
                 meshyProvider: (any MeshyScriptingProvider)? = nil,
                 mouseX: Double = 0, mouseY: Double = 0,
+                scriptContext: ScriptDispatchContext? = nil,
                 appScript: String = "",
                 nestedSendDepth: Int = 0,
                 profiler: HypeTalkExecutionProfiler? = nil) {
@@ -124,42 +133,10 @@ public struct ExecutionContext: Sendable {
         self.meshyProvider = meshyProvider
         self.mouseX = mouseX
         self.mouseY = mouseY
-        self.scriptContext = nil
-        self.appScript = appScript
-        self.nestedSendDepth = nestedSendDepth
-        self.profiler = profiler
-    }
-
-    public init(targetId: UUID, currentCardId: UUID, document: HypeDocument, instructionLimit: Int = 1_000_000,
-                dialogProvider: DialogProvider = StubDialogProvider(),
-                drawingProvider: DrawingProvider = StubDrawingProvider(),
-                systemProvider: SystemProvider = StubSystemProvider(),
-                aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
-                speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
-                runtimeProvider: (any ScriptRuntimeProviding)? = nil,
-                externalRegistry: HyperCardExternalRegistry = .default,
-                meshyProvider: (any MeshyScriptingProvider)? = nil,
-                mouseX: Double = 0, mouseY: Double = 0,
-                scriptContext: ScriptDispatchContext? = nil,
-                appScript: String = "",
-                nestedSendDepth: Int = 0) {
-        self.targetId = targetId
-        self.currentCardId = currentCardId
-        self.document = document
-        self.instructionLimit = instructionLimit
-        self.dialogProvider = dialogProvider
-        self.drawingProvider = drawingProvider
-        self.systemProvider = systemProvider
-        self.aiProvider = aiProvider
-        self.speechOutputProvider = speechOutputProvider
-        self.runtimeProvider = runtimeProvider
-        self.externalRegistry = externalRegistry
-        self.meshyProvider = meshyProvider
-        self.mouseX = mouseX
-        self.mouseY = mouseY
         self.scriptContext = scriptContext
         self.appScript = appScript
         self.nestedSendDepth = nestedSendDepth
+        self.profiler = profiler
     }
 }
 
