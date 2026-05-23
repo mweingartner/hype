@@ -246,6 +246,7 @@ public protocol ScriptRuntimeProviding: Sendable {
 public struct StackRuntimeConfiguration: Sendable {
     public var dialogProvider: DialogProvider
     public var drawingProvider: DrawingProvider
+    public var systemProvider: SystemProvider
     public var aiProvider: any AIScriptingProvider
     /// Phase 3: Meshy scripting provider for `ask meshy` async-callback generation.
     public var meshyProvider: any MeshyScriptingProvider
@@ -259,6 +260,7 @@ public struct StackRuntimeConfiguration: Sendable {
     public init(
         dialogProvider: DialogProvider = StubDialogProvider(),
         drawingProvider: DrawingProvider = StubDrawingProvider(),
+        systemProvider: SystemProvider = StubSystemProvider(),
         aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
         meshyProvider: any MeshyScriptingProvider = StubMeshyScriptingProvider(),
         speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
@@ -270,6 +272,7 @@ public struct StackRuntimeConfiguration: Sendable {
     ) {
         self.dialogProvider = dialogProvider
         self.drawingProvider = drawingProvider
+        self.systemProvider = systemProvider
         self.aiProvider = aiProvider
         self.meshyProvider = meshyProvider
         self.speechOutputProvider = speechOutputProvider
@@ -1078,6 +1081,7 @@ public actor StackRuntime: ScriptRuntimeProviding {
                     currentCardId: item.currentCardId,
                     dialogProvider: configuration.dialogProvider,
                     drawingProvider: configuration.drawingProvider,
+                    systemProvider: configuration.systemProvider,
                     aiProvider: configuration.aiProvider,
                     meshyProvider: configuration.meshyProvider,
                     speechOutputProvider: configuration.speechOutputProvider,
