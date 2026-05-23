@@ -16,6 +16,11 @@ public struct HypeDocument: Codable, Sendable {
     public var aiContextLibrary: AIContextLibrary
     public var aiPromptHistory: [String]
     public var defaultBackgroundId: UUID?
+    /// Optional metadata for documents converted from original
+    /// HyperCard stacks. When present, it preserves the import report
+    /// and, when size limits allow, the original data/resource forks
+    /// for future importer passes and auditability.
+    public var legacyImport: LegacyStackImportMetadata?
 
     /// User-defined themes that travel with this `.hype` document.
     /// Built-in themes (in `BuiltInThemes.all`) are NOT stored here —
@@ -58,6 +63,7 @@ public struct HypeDocument: Codable, Sendable {
         aiPromptHistory: [String] = [],
         scriptGlobals: [String: String] = [:],
         defaultBackgroundId: UUID? = nil,
+        legacyImport: LegacyStackImportMetadata? = nil,
         themes: [HypeTheme] = []
     ) {
         self.stack = stack
@@ -71,12 +77,14 @@ public struct HypeDocument: Codable, Sendable {
         self.aiPromptHistory = aiPromptHistory
         self.scriptGlobals = scriptGlobals
         self.defaultBackgroundId = defaultBackgroundId
+        self.legacyImport = legacyImport
         self.themes = themes
     }
 
     // Custom decoder for backward compatibility.
     enum CodingKeys: String, CodingKey {
         case stack, backgrounds, cards, parts, paintLayers, constraints, spriteRepository, aiContextLibrary, aiPromptHistory, defaultBackgroundId
+        case legacyImport
         case themes
         // `scriptGlobals` is NOT in the coding keys — session-only.
     }
@@ -103,6 +111,7 @@ public struct HypeDocument: Codable, Sendable {
         aiContextLibrary = try container.decodeIfPresent(AIContextLibrary.self, forKey: .aiContextLibrary) ?? AIContextLibrary()
         aiPromptHistory = try container.decodeIfPresent([String].self, forKey: .aiPromptHistory) ?? []
         defaultBackgroundId = try container.decodeIfPresent(UUID.self, forKey: .defaultBackgroundId)
+        legacyImport = try container.decodeIfPresent(LegacyStackImportMetadata.self, forKey: .legacyImport)
         // Backward-compatible: pre-theme documents have no themes array.
         themes = try container.decodeIfPresent([HypeTheme].self, forKey: .themes) ?? []
         scriptGlobals = [:]  // session-only, always starts empty on load

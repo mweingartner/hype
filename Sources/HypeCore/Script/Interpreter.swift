@@ -65,6 +65,7 @@ public struct ExecutionContext: Sendable {
     public var aiProvider: any AIScriptingProvider
     public var speechOutputProvider: SpeechOutputProvider
     public var runtimeProvider: (any ScriptRuntimeProviding)?
+    public var externalRegistry: HyperCardExternalRegistry
     /// Phase 3: Meshy scripting provider for `ask meshy` statements.
     /// `nil` degrades gracefully — `ask meshy` sets `it = ""` and returns.
     public var meshyProvider: (any MeshyScriptingProvider)?
@@ -80,6 +81,7 @@ public struct ExecutionContext: Sendable {
                 aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
                 speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
                 runtimeProvider: (any ScriptRuntimeProviding)? = nil,
+                externalRegistry: HyperCardExternalRegistry = .default,
                 meshyProvider: (any MeshyScriptingProvider)? = nil,
                 mouseX: Double = 0, mouseY: Double = 0,
                 appScript: String = "",
@@ -93,6 +95,7 @@ public struct ExecutionContext: Sendable {
         self.aiProvider = aiProvider
         self.speechOutputProvider = speechOutputProvider
         self.runtimeProvider = runtimeProvider
+        self.externalRegistry = externalRegistry
         self.meshyProvider = meshyProvider
         self.mouseX = mouseX
         self.mouseY = mouseY
@@ -107,6 +110,7 @@ public struct ExecutionContext: Sendable {
                 aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
                 speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
                 runtimeProvider: (any ScriptRuntimeProviding)? = nil,
+                externalRegistry: HyperCardExternalRegistry = .default,
                 meshyProvider: (any MeshyScriptingProvider)? = nil,
                 mouseX: Double = 0, mouseY: Double = 0,
                 scriptContext: ScriptDispatchContext? = nil,
@@ -121,6 +125,7 @@ public struct ExecutionContext: Sendable {
         self.aiProvider = aiProvider
         self.speechOutputProvider = speechOutputProvider
         self.runtimeProvider = runtimeProvider
+        self.externalRegistry = externalRegistry
         self.meshyProvider = meshyProvider
         self.mouseX = mouseX
         self.mouseY = mouseY
@@ -1271,6 +1276,28 @@ public struct Interpreter: Sendable {
 
         case .openStack:
             break // Complex — stub
+
+        case .externalCommand(let name, let argumentExprs):
+            var args: [Value] = []
+            for expr in argumentExprs {
+                args.append(try await evaluate(expr, env: &env, document: document, context: context))
+            }
+            let result = await context.externalRegistry.invoke(
+                HyperCardExternalCall(name: name, kind: .xcmd, arguments: args),
+                context: HyperCardExternalCallContext(
+                    targetId: context.targetId,
+                    currentCardId: context.currentCardId,
+                    document: document
+                )
+            )
+            if let modified = result.modifiedDocument {
+                document = modified
+            }
+            env.it = result.value
+            env.result = result.result
+            if result.passMessage {
+                throw ControlSignal.passMessage(handler.name)
+            }
 
         case .send(let messageExpr, let targetExpr):
             guard context.nestedSendDepth < 32 else {
@@ -2819,7 +2846,16 @@ public struct Interpreter: Sendable {
             return MeshyWebhookPayload.parse(jsonBody: body)?.toCSV() ?? ""
 
         default:
-            return ""
+            let result = await context.externalRegistry.invoke(
+                HyperCardExternalCall(name: name, kind: .xfcn, arguments: args),
+                context: HyperCardExternalCallContext(
+                    targetId: context.targetId,
+                    currentCardId: context.currentCardId,
+                    document: context.document
+                )
+            )
+            env.result = result.result
+            return result.value
         }
     }
 

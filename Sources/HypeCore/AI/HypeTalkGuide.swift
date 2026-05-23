@@ -1081,7 +1081,9 @@ public enum HypeTalkGuide {
             await ollama(prompt)                 -- async variant
             ollamaModels()  /  the aiModels      -- list installed Ollama models, newline-separated
 
-        Note: `the result` (the classic HyperTalk "what did the last command do?") is NOT implemented in this dialect — it always returns `""`. Read return values directly: synchronous calls put their result in `it`; async/network forms invoke a callback handler with the request UUID.
+        Note: only documented commands set `the result`; sync values use `it`, async values use callbacks.
+
+        Imported XCMD/XFCN calls never execute native code; unknown externals set `the result` to `Can't Load External...`.
 
         ## Stub commands & getters — recognized but no-op
 
@@ -1094,7 +1096,7 @@ public enum HypeTalkGuide {
         | `do "<expression>"` | No-op (parsed but not evaluated). | Inline the expression directly. |
         | `push card`, `pop card` | No-op. | Track navigation in a global if you need a stack. |
         | `clickAt`, `dial`, `print`, `reset`, `run`, `doMenu`, `copy template`, `type "X"` | No-op (recognized as legacy verbs). | Use the relevant explicit command (`go card "X"`, `play "Glass"`, `set the textContent of field "Y" to "X"`). |
-        | `the result` | Always returns `""`. | Read sync return values from `it`; for async, use the callback handler and `the body of request <id>`. |
+        | `the result` | Returns diagnostics/results only for operations that set it explicitly. | Read sync return values from `it`; for async, use the callback handler and `the body of request <id>`. |
         | `the foundChunk` / `the foundField` / `the foundLine` / `the foundText` | Always return `""`. | Same as `find` row above. |
         | `the selectedChunk` / `the selectedField` / `the selectedLine` / `the selectedText` | Always return `""`. | Read field text and parse it yourself. |
         | `the target` | Returns `""`. | Use `the name of me` or pass identifiers explicitly. |

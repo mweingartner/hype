@@ -194,6 +194,7 @@ public indirect enum Statement: Sendable {
     case lockScreen                                              // lock screen
     case unlockScreen                                            // unlock screen
     case openStack(Expression)                                   // open stack "file"
+    case externalCommand(name: String, arguments: [Expression])  // XCMD-style unknown command call
 
     // Phase 2: HypeTalk compliance commands
     case convert(Expression, Expression)                         // convert X to Y

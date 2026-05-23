@@ -288,6 +288,9 @@ public struct Parser: Sendable {
             case "activatelistener":
                 return try parseActivateListenerStatement()
             default:
+                if shouldParseExternalCommandStatement() {
+                    return try parseExternalCommandStatement()
+                }
                 // Bare expression (function call, etc.)
                 let expr = try parseExpression()
                 skipNewlines()
@@ -299,6 +302,51 @@ public struct Parser: Sendable {
             skipNewlines()
             return .expressionStatement(expr)
         }
+    }
+
+    private func shouldParseExternalCommandStatement() -> Bool {
+        guard current.type == .identifier, let next = peek(1) else { return false }
+        if next.type == .newline || next.type == .eof || next.type == .lparen {
+            return false
+        }
+        switch next.type {
+        case .string, .integer, .float, .identifier, .comma,
+             .the, .it, .me, .this, .empty, .await,
+             .word, .char, .character, .item, .line, .number,
+             .first, .second, .third, .last, .middle, .any,
+             .not,
+             .card, .background, .field, .button, .stack, .webpage,
+             .image, .video, .sprite, .scene, .spritearea, .request,
+             .connection, .listener:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private mutating func parseExternalCommandStatement() throws -> Statement {
+        let name = advance().value
+        var arguments: [Expression] = []
+        while current.type != .newline && current.type != .eof && current.type != .end && current.type != .else {
+            if current.type == .comma {
+                _ = advance()
+                continue
+            }
+            arguments.append(try parseExpression())
+            if current.type == .comma {
+                _ = advance()
+            } else if current.type != .newline && current.type != .eof && current.type != .end && current.type != .else {
+                // Classic external commands use whitespace-separated
+                // or comma-separated parameters. Continue while the
+                // next token can start another argument; otherwise
+                // let the outer parser surface the syntax error.
+                if !Self.canStartPrimaryExpression(current.type) {
+                    break
+                }
+            }
+        }
+        skipNewlines()
+        return .externalCommand(name: name, arguments: arguments)
     }
 
     // MARK: - Individual statement parsers

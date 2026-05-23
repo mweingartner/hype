@@ -1,6 +1,7 @@
 import SwiftUI
 import HypeCore
 import UniformTypeIdentifiers
+import AppKit
 
 /// App delegate to handle quit lifecycle, dispatch the "quit" system message,
 /// and save/restore window state across launches.
@@ -194,6 +195,10 @@ struct HypeApp: App {
         }
         .commands {
             CommandGroup(after: .newItem) {
+                Button("Import HyperCard Stack…") {
+                    HyperCardImportPanel.open()
+                }
+                .keyboardShortcut("i", modifiers: [.command, .option])
                 Divider()
             }
             // Menu order follows the macOS HIG convention used by
@@ -293,7 +298,7 @@ struct PreferencesSceneWrapper: View {
 struct HypeDocumentWrapper: FileDocument {
     var document: HypeDocument
 
-    static var readableContentTypes: [UTType] { [.hypeStack] }
+    static var readableContentTypes: [UTType] { [.hypeStack, .hyperCardStack] }
 
     init() {
         self.document = HypeDocument.newDocument()
@@ -303,7 +308,11 @@ struct HypeDocumentWrapper: FileDocument {
         guard let data = configuration.file.regularFileContents else {
             throw CocoaError(.fileReadCorruptFile)
         }
-        self.document = try JSONDecoder().decode(HypeDocument.self, from: data)
+        do {
+            self.document = try JSONDecoder().decode(HypeDocument.self, from: data)
+        } catch {
+            self.document = try HyperCardToHypeConverter().convert(data: data).document
+        }
     }
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
@@ -314,4 +323,46 @@ struct HypeDocumentWrapper: FileDocument {
 
 extension UTType {
     static let hypeStack = UTType(exportedAs: "com.hype.stack", conformingTo: .json)
+    static let hyperCardStack = UTType(importedAs: "com.apple.hypercard.stack", conformingTo: .data)
+}
+
+@MainActor
+private enum HyperCardImportPanel {
+    static func open() {
+        let panel = NSOpenPanel()
+        panel.title = "Import HyperCard Stack"
+        panel.message = "Select an original HyperCard stack data fork. Hype will convert it to a temporary .hype document and preserve the original forks when size limits allow."
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowsOtherFileTypes = true
+        panel.allowedContentTypes = [.hyperCardStack, .data]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let package = try HyperCardInputNormalizer().normalize(url: url)
+            let result = try HyperCardToHypeConverter().convert(package: package)
+            let encoded = try JSONEncoder().encode(result.document)
+            let outputURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(url.deletingPathExtension().lastPathComponent + "-imported.hype")
+            try encoded.write(to: outputURL, options: .atomic)
+            NSDocumentController.shared.openDocument(withContentsOf: outputURL, display: true) { _, _, error in
+                if let error {
+                    HypeLogger.shared.error("Failed to open converted HyperCard import: \(error.localizedDescription)", source: "HyperCardImport")
+                    showImportError(error)
+                }
+            }
+        } catch {
+            HypeLogger.shared.error("HyperCard import failed: \(error.localizedDescription)", source: "HyperCardImport")
+            showImportError(error)
+        }
+    }
+
+    private static func showImportError(_ error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "HyperCard Import Failed"
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        alert.runModal()
+    }
 }

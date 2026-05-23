@@ -436,6 +436,14 @@ Runtime-only fields
 that are intentionally excluded from `HypeDocument.CodingKeys` (for example
 `scriptGlobals`) do not create persistent undo entries.
 
+Converted HyperCard stacks add one optional persisted field:
+`legacyImport: LegacyStackImportMetadata?`. It stores the import report, block
+and resource summaries, discovered XCMD/XFCN resources, SHA-256 hashes, and,
+when the original forks fit the safety limit, the raw HyperCard data/resource
+forks. This keeps converted `.hype` files self-contained and lets future importer
+revisions re-run conversion from the preserved source without executing any
+legacy code.
+
 Continuous interactions are coalesced before entering undo: canvas
 drag/resize mutations suppress per-frame registrations and commit one undo item
 on mouse-up, while animation tick mutations remain autosaved but do not flood
@@ -491,6 +499,29 @@ while runtime-only state describes what the current machine has actually
 approved and started. Live sockets, in-flight requests, pending HTTP replies,
 AI jobs, and open TCP connections belong to `StackRuntime`, never to the file
 format.
+
+### 2.6 HyperCard import and legacy preservation
+
+The HyperCard import path lives in `Sources/HypeCore/HyperCardImport/` and is
+designed around untrusted binary input:
+
+- `HyperCardInputNormalizer` reads the selected data fork and, on macOS, tries
+  the native `..namedfork/rsrc` resource fork plus AppleDouble `._Name`
+  sidecars.
+- `HyperCardBlockParser` walks the HyperCard block stream (`STAK`, `BKGD`,
+  `CARD`, `LIST`, `PAGE`, `BMAP`, `TAIL`, etc.) with hard byte/block limits.
+- `MacResourceForkReader` parses classic resource-map structure and reports
+  resources such as `XCMD`, `XFCN`, `PICT`, and `snd ` without executing them.
+- `HyperCardToHypeConverter` maps supported stack/background/card/button/field
+  structure into `HypeDocument`, preserves scripts as HypeTalk text, records
+  unsupported bitmap/resource features in `HyperCardImportReport`, and stores
+  `LegacyStackImportMetadata` on the document.
+
+The Hype app exposes this through **File > Import HyperCard Stack...**. The menu
+opens an untyped file picker because original stacks often have no extension or
+arrive as restored classic-Mac files. The selected stack is converted to a
+temporary `.hype` document and opened normally; saving from there writes a
+standard portable `.hype` JSON file.
 
 ---
 
@@ -1214,7 +1245,10 @@ script source string
   `request …`, `reply to request …`, `listen for http …`, `listen for tcp …`,
   `connect to host …`, `send "<message>" to <target>`, `send … to connection …`,
   `close connection …`, and `stop listener …`. The plain `send` form is
-  HypeTalk message dispatch; the `to connection` form is TCP I/O.
+  HypeTalk message dispatch; the `to connection` form is TCP I/O. For imported
+  HyperCard scripts, unknown command-style identifiers with arguments parse as
+  `.externalCommand(name:arguments:)` so XCMD calls like `SetCursor "watch"`
+  can flow into the emulation registry rather than causing a parse error.
 
   Property animation is a first-class statement:
   `animate the loc of button "ball" to "400,300" over 0.5`,
@@ -1345,6 +1379,22 @@ The network-facing `request`/`reply` verbs are now about real I/O, not a stub
 for future Apple Events. V1 scope is UTF-8 text/JSON over HTTP/HTTPS and raw
 TCP. Binary payloads, UDP, WebSockets, and server-side TLS certificate
 management are intentionally deferred.
+
+#### Legacy external emulation
+
+HyperCard XCMD/XFCN compatibility is handled by
+`HyperCardExternalRegistry`, not by loading original native resources. Imported
+scripts can use command-style external calls (`SetCursor "watch"`) and
+function-style calls (`put HypeVersion() into v`). The parser emits
+`.externalCommand` for unknown command identifiers with arguments, while normal
+function-call syntax falls through to the registry after Hype's built-ins.
+
+The registry returns a `HyperCardExternalResult` containing the command value,
+`the result` diagnostic, optional document mutation, and optional pass-message
+flag. Unknown or not-yet-emulated externals set `the result` to a clear
+`Can't Load External...` diagnostic and continue execution. This matches the
+security posture of the importer: XCMD/XFCN resources are preserved and
+reported, but classic 68K/PPC code is never executed in-process.
 
 ### 5.5 Object and property model
 
@@ -2397,11 +2447,14 @@ unknowns:
    stores per-card `CardPaintLayer` snapshots and HTML export embeds them as
    PNG data. The remaining gap is richer paint-layer management such as import,
    layer ordering, and external image export controls.
-4. **Some legacy HyperTalk commands are recognized no-ops.** Commands such as
-   `doMenu`, `print`, `run`, `copy template`, and some selection/find surfaces
-   remain intentionally stubbed or compatibility-only. Classic handler parameter
-   access (`the paramCount`, `the params`, `param N`) is implemented; users may
-   still expect fuller classic HyperCard behavior later.
+4. **HyperCard import now has a safe structural foundation, but visual-resource
+   compatibility is incomplete.** `STAK`/`BKGD`/`CARD` structure, button/field
+   records, scripts, resource summaries, and XCMD/XFCN discovery are implemented.
+   Original XCMD/XFCN native code is never executed; calls route through the
+   Swift emulation registry. Remaining import work includes WOBA bitmap
+   decompression, PICT/snd conversion, AddColor rendering, and many classic
+   command surfaces such as `doMenu`, `print`, `run`, `copy template`, and
+   programmatic selection/find behavior.
 5. **AI authoring has formal transactions, but preview UX is still maturing.**
    `AIEditTransactionRunner` executes tool calls against a draft document,
    captures operation deltas, and supports explicit apply/rollback. Main chat AI
