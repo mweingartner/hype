@@ -21,6 +21,30 @@ struct PreferencesView: View {
     @State private var openAIKeyIsSet = false
     @State private var isTestingOpenAI = false
     @State private var openAITestStatus = ""
+    @State private var selectedCategory: PreferenceCategory = .ai
+
+    private enum PreferenceCategory: String, CaseIterable, Hashable {
+        case ai = "AI"
+        case services = "Services"
+        case speech = "Speech"
+        case assets = "Assets"
+        case context = "Context"
+
+        var systemImage: String {
+            switch self {
+            case .ai:
+                "sparkles"
+            case .services:
+                "cube"
+            case .speech:
+                "waveform"
+            case .assets:
+                "photo.on.rectangle"
+            case .context:
+                "books.vertical"
+            }
+        }
+    }
 
     // MARK: - Meshy.ai state
 
@@ -66,7 +90,44 @@ struct PreferencesView: View {
     // MARK: - Body
 
     var body: some View {
-        Form {
+        TabView(selection: $selectedCategory) {
+            aiSettings
+                .tabItem { Label(PreferenceCategory.ai.rawValue, systemImage: PreferenceCategory.ai.systemImage) }
+                .tag(PreferenceCategory.ai)
+
+            integrationSettings
+                .tabItem { Label(PreferenceCategory.services.rawValue, systemImage: PreferenceCategory.services.systemImage) }
+                .tag(PreferenceCategory.services)
+
+            speechSettings
+                .tabItem { Label(PreferenceCategory.speech.rawValue, systemImage: PreferenceCategory.speech.systemImage) }
+                .tag(PreferenceCategory.speech)
+
+            assetSettings
+                .tabItem { Label(PreferenceCategory.assets.rawValue, systemImage: PreferenceCategory.assets.systemImage) }
+                .tag(PreferenceCategory.assets)
+
+            contextSettings
+                .tabItem { Label(PreferenceCategory.context.rawValue, systemImage: PreferenceCategory.context.systemImage) }
+                .tag(PreferenceCategory.context)
+        }
+        .frame(width: 560, height: 640)
+        // Settings surface — tint with the inspector-background
+        // token so the Preferences scene picks up theme swaps.
+        .background(hypeTheme.inspectorBackground.swiftUIColor)
+        // Force chrome colorScheme so picker rows, toggles, and
+        // text fields keep their labels readable on themed bg.
+        .environment(\.colorScheme, hypeTheme.chromeColorScheme)
+        .onAppear {
+            fetchModels()
+            pexelsKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.pexelsAPIKeyAccount)
+            openAIKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.openAIAPIKeyAccount)
+            meshyKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.meshyAPIKeyAccount)
+        }
+    }
+
+    private var aiSettings: some View {
+        settingsForm {
             Section("AI Provider") {
                 Picker("Provider", selection: $aiProviderRaw) {
                     ForEach(HypeAIProvider.allCases) { provider in
@@ -152,7 +213,11 @@ struct PreferencesView: View {
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
 
+    private var integrationSettings: some View {
+        settingsForm {
             // MARK: - Meshy.ai section
 
             Section("Meshy.ai (3D model generation)") {
@@ -232,7 +297,11 @@ struct PreferencesView: View {
                 }
                 .font(.system(size: 11))
             }
+        }
+    }
 
+    private var speechSettings: some View {
+        settingsForm {
             Section("Speech") {
                 Picker("Voice Input", selection: $speechInputProviderRaw) {
                     ForEach(HypeSpeechInputProvider.allCases) { provider in
@@ -269,7 +338,11 @@ struct PreferencesView: View {
                 }
                 .disabled(!speakAssistantResponses || !openAIKeyIsSet)
             }
+        }
+    }
 
+    private var assetSettings: some View {
+        settingsForm {
             // MARK: - Web Asset Search section
 
             Section("Web Asset Search") {
@@ -335,7 +408,11 @@ struct PreferencesView: View {
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
 
+    private var contextSettings: some View {
+        settingsForm {
             Section("AI Context Library") {
                 Toggle("Allow Current Stack Context with OpenAI", isOn: currentStackAIContextCloudSharingBinding)
                     .disabled(document == nil)
@@ -351,20 +428,14 @@ struct PreferencesView: View {
                     .foregroundColor(.secondary)
             }
         }
-        .formStyle(.grouped)
-        .frame(width: 560, height: 1040)
-        // Settings surface — tint with the inspector-background
-        // token so the Preferences scene picks up theme swaps.
-        .background(hypeTheme.inspectorBackground.swiftUIColor)
-        // Force chrome colorScheme so picker rows, toggles, and
-        // text fields keep their labels readable on themed bg.
-        .environment(\.colorScheme, hypeTheme.chromeColorScheme)
-        .onAppear {
-            fetchModels()
-            pexelsKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.pexelsAPIKeyAccount)
-            openAIKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.openAIAPIKeyAccount)
-            meshyKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.meshyAPIKeyAccount)
+    }
+
+    @ViewBuilder
+    private func settingsForm<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        Form {
+            content()
         }
+        .formStyle(.grouped)
     }
 
     // MARK: - Current Stack Binding
