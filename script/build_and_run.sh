@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+log_error() {
+  printf 'error: %s\n' "$*" >&2
+}
+
 MODE="${1:-run}"
 APP_NAME="Hype"
 BUNDLE_ID="com.hype.app"
@@ -19,10 +23,86 @@ INFO_PLIST="$APP_CONTENTS/Info.plist"
 
 cd "$ROOT_DIR"
 
+SWIFT="${SWIFT_BIN:-${SWIFT:-/usr/bin/swift}}"
+SWIFTPM_RETRY_ATTEMPTS="${SWIFTPM_RETRY_ATTEMPTS:-3}"
+SWIFTPM_RETRY_DELAY_SECONDS="${SWIFTPM_RETRY_DELAY_SECONDS:-2}"
+
+normalize_positive_int() {
+  local value="$1"
+  local fallback="$2"
+
+  if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+    printf '%s' "$fallback"
+    return
+  fi
+
+  printf '%s' "$value"
+}
+
+SWIFTPM_RETRY_ATTEMPTS="$(normalize_positive_int "$SWIFTPM_RETRY_ATTEMPTS" 3)"
+SWIFTPM_RETRY_DELAY_SECONDS="$(normalize_positive_int "$SWIFTPM_RETRY_DELAY_SECONDS" 2)"
+
+run_with_retry() {
+  local label="$1"
+  shift
+
+  local attempts=1
+  local delay_seconds="$SWIFTPM_RETRY_DELAY_SECONDS"
+  local cmd=("$@")
+
+  while :; do
+    local tmp_output
+    tmp_output="$(mktemp)"
+
+    echo "Running ($label): ${cmd[*]}"
+    set +e
+    ("${cmd[@]}" >"${tmp_output}" 2>&1)
+    local status=$?
+    set -e
+
+    if [ "$status" -eq 0 ]; then
+      cat "${tmp_output}"
+      rm -f "${tmp_output}"
+      return 0
+    fi
+
+    if ! grep -q "Another instance of SwiftPM" "${tmp_output}"; then
+      log_error "${label} failed (exit code: ${status})."
+      cat "${tmp_output}" >&2
+      rm -f "${tmp_output}"
+      return "$status"
+    fi
+
+    if [ "$attempts" -ge "$SWIFTPM_RETRY_ATTEMPTS" ]; then
+      log_error "${label} failed after ${attempts} attempts due to SwiftPM lock contention."
+      cat "${tmp_output}" >&2
+      rm -f "${tmp_output}"
+      return "$status"
+    fi
+
+    echo "SwiftPM lock detected; retrying in ${delay_seconds}s..." >&2
+    rm -f "${tmp_output}"
+    sleep "$delay_seconds"
+    attempts=$((attempts + 1))
+    delay_seconds=$((delay_seconds * 2))
+  done
+}
+
+if [ ! -x "$SWIFT" ]; then
+  log_error "Swift toolchain not found at $SWIFT"
+  log_error "Set SWIFT_BIN (or SWIFT) to a valid swift binary, or install the Swift toolchain."
+  exit 2
+fi
+
 /usr/bin/pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
-/usr/bin/swift build
-BUILD_BINARY="$(/usr/bin/swift build --show-bin-path)/$APP_NAME"
+run_with_retry "swift build" "$SWIFT" build
+BUILD_BINARY="$($SWIFT build --show-bin-path)/$APP_NAME"
+
+if [ ! -x "$BUILD_BINARY" ]; then
+  log_error "Build artifact not found: $BUILD_BINARY"
+  exit 2
+fi
 
 /bin/rm -rf "$APP_BUNDLE"
 /bin/mkdir -p "$APP_MACOS" "$APP_RESOURCES"
@@ -136,6 +216,22 @@ case "$MODE" in
     /usr/bin/pgrep -x "$APP_NAME" >/dev/null
     ;;
   --deploy|deploy)
+    if [ ! -d "/Applications" ]; then
+      log_error "/Applications directory is not available."
+      exit 2
+    fi
+
+    if [ ! -w "/Applications" ]; then
+      log_error "No permission to write /Applications. Run with a writable user session or use sudo."
+      exit 2
+    fi
+
+    if [ ! -d "$APP_BUNDLE" ]; then
+      log_error "Expected app bundle not found at $APP_BUNDLE"
+      exit 2
+    fi
+
+    /bin/rm -rf "/Applications/$APP_NAME.app"
     /usr/bin/ditto "$APP_BUNDLE" "/Applications/$APP_NAME.app"
     ;;
   *)
