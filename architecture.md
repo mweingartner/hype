@@ -2054,7 +2054,7 @@ scene edit.
 
 ### 7.4 Executor and authoring loop
 
-`HypeToolExecutor` (Sources/HypeCore/AI/HypeToolExecutor.swift, ~5,400 LoC)
+`HypeToolExecutor` (Sources/HypeCore/AI/HypeToolExecutor.swift, ~5,200 LoC)
 remains the structural mutation engine. It is still a large `switch` over tool
 name taking `document: inout HypeDocument`, but its responsibilities are now
 more sharply defined:
@@ -2067,6 +2067,23 @@ more sharply defined:
 - return diagnostics and navigation signals back to the UI
 - emit `formatAllProperties(_:)` dumps for `list_all_properties` so the
   model can discover the full property surface of any part without guessing
+
+**Branch-extraction split (Phase 5 remediation).** The executor itself stays
+the dispatcher; high-volume tool families now live in sibling files under
+`Sources/HypeCore/AI/Executors/`:
+
+| Branch file | Tool cases hosted |
+|-------------|-------------------|
+| `WebAssetExecutorBranches.swift` (~260 LoC) | `search_web_for_sprite`, `import_web_asset`, `find_and_import_sprite` |
+| `Scene3DExecutorBranches.swift` (~740 LoC) | `list_3d_models`, `bind_model_3d_to_scene3d`, `generate_3d_from_text/image/images`, `remesh_3d`, `retexture_3d` |
+| `SceneNodeExecutorBranches.swift` (~410 LoC) | `apply_scene_diff`, `set_node_property`, `set_node_script`, `set_physics_body`, `delete_scene_node`, `add_action`, `remove_all_actions` |
+| `FileIOExecutorBranches.swift` (~100 LoC) | `fetch_url`, `read_file`, `write_file`, `list_directory` (each accepts injected `urlSession` / `fileSystem` for testability — see §8.4) |
+
+Each branch file is a `package enum` namespace with `static` functions that
+take `context: HypeToolExecutor` for access to the dispatcher's clients and
+helpers. The dispatcher's tool case is reduced to a single-line delegation
+call. No public API changed; tool names, argument shapes, and result strings
+are byte-for-byte identical.
 
 A few cross-cutting helpers harden the loop:
 
@@ -2273,7 +2290,7 @@ surface.
 
 ### 8.4 Testing
 
-The combined SwiftPM test suite currently runs **214 suites and 1,909 tests**
+The combined SwiftPM test suite currently runs **230 suites and 2,075 tests**
 in about 80-90 seconds on the local machine. Most tests live in
 `HypeCoreTests` and run without launching the app because they exercise the
 model, parser, interpreter, renderer helpers, and tool executor directly;
@@ -2323,6 +2340,41 @@ deterministic sprite assets, tile map, physics bodies, player, ghosts, pellets,
 score label, and scene script. That stack is intended for live app smoke tests
 with macOS Accessibility clients after the user grants Hype accessibility
 permission in System Settings.
+
+#### Test isolation abstractions
+
+Three protocols exist purely to keep tests deterministic and parallel-safe
+without forcing production code through any extra indirection:
+
+- **`KeychainProviding`** (`Sources/HypeCore/AI/WebAssetSearch/KeychainProviding.swift`)
+  abstracts the four-method `setSecret` / `getSecret` / `hasSecret` /
+  `deleteSecret` surface. `KeychainStore` conforms via `KeychainStore.live`;
+  the existing `KeychainStore.setSecret(_:account:)` static API is preserved
+  as a passthrough, so production callers are unchanged. Tests inject
+  `InMemoryKeychain` (package-visible, `[String: String]` + `NSLock`)
+  instead of touching the real macOS Keychain.
+
+- **`FileSystemProviding`** (`Sources/HypeCore/AI/FileSystemProviding.swift`)
+  covers `fileExists`, `createDirectory`, `write`, `read`, `contents`,
+  `removeItem`, `attributesOfItem`. `FileManager` conforms via extension.
+  Tests inject `InMemoryFileSystem` (path-normalised via `URL.standardized`
+  so `/tmp` vs `/private/tmp` mismatches don't surface).
+
+- **`URLSessionProviding`** (in `FileIOExecutorBranches.swift`) abstracts
+  the small subset of `URLSession` used by the `fetch_url` AI tool.
+  `URLSession` conforms; tests inject `MockURLSession`.
+
+- **`Scene3DAssetConverting`** (`Sources/HypeCore/Rendering/Scene3DAssetConverter.swift`)
+  abstracts the GLB→USDZ conversion path used by `ARQuickLookPresenter`.
+  `Scene3DAssetConverter` conforms. The presenter accepts the protocol +
+  a `FileManager` + an `osVersion: () -> Bool` closure at init time so
+  the macOS 13+ gate, file staging, and conversion failures can each be
+  tested without touching real OS surfaces.
+
+Together these eliminated a known parallel-keychain flake
+(`MeshyKeychainAccountTests` "deleting Meshy key does not affect openAI
+key", `errSecMissingEntitlement`) and let `ARQuickLookPresenter` ship
+with 9 unit tests instead of zero.
 
 ---
 

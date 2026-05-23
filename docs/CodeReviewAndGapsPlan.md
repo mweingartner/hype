@@ -1,5 +1,42 @@
 # Code Review and Gaps Plan
 
+> **STATUS (2026-05-13): All 7 phases SHIPPED.** See commits:
+> - `a09c960` — Phase 1: doc staleness pass (STATUS headers on the
+>   three plan docs; arch.md line-citation drift fixed)
+> - `0d23e83` — Phase 2: ARQuickLookPresenter DI refactor +
+>   `Scene3DAssetConverting` protocol + 9 unit tests
+> - `51753b6` — Phase 3: AI tool error-branch tests (+39 tests across
+>   MeshyToolMultiImageBoundaryTests, CreateImageToolErrorTests, plus
+>   extensions to MeshyWebhookPayloadTests and Generate3DJobTests)
+> - `9473475` — Phase 4: coordinator UI lifecycle tests (+44 tests
+>   across RigAndAnimateCoordinatorLifecycleTests,
+>   RemeshAndRetextureCoordinatorLifecycleTests,
+>   Generate3DSheetLifecycleTests)
+> - `6108c3a` — Phase 5: HypeToolExecutor split (6,497 → 5,231 lines;
+>   four new branch files under `Sources/HypeCore/AI/Executors/`)
+> - `42aa2b2` — Phase 6: test isolation hardening (`KeychainProviding`
+>   + `FileSystemProviding` protocols, `InMemoryKeychain` /
+>   `InMemoryFileSystem` / `MockURLSession` test doubles, parallel-
+>   keychain flake eliminated)
+> - `b3eb0c2` — Phase 7: polish (web-asset success logging,
+>   `Sources/Hype/SpriteKit/README.md` NSCoder pattern note)
+>
+> Final test count: **2,075 tests in 230 suites passing.** Net delta
+> from the pre-plan baseline of 1,909 / 214: **+166 tests, +16 suites.**
+>
+> Three follow-up items remain explicitly deferred (see end of doc):
+> LiveMeshyScriptingProvider keychain injection,
+> Scene3DExecutorBranches keychain injection, ARQuickLookPresenter
+> FileSystemProviding adoption (requires expanded protocol surface).
+> None block; all are tracked in the Phase 6 commit message.
+>
+> The audit + plan below is preserved as the historical narrative
+> driving this work.
+
+---
+
+# Original audit + plan (pre-execution)
+
 > Snapshot: 2026-05-13
 > Scope: full audit of the Hype codebase (~81k LOC Swift across `HypeCore` and
 > `Hype`) plus the three design documents at `docs/MeshyAIIntegrationPlan.md`,

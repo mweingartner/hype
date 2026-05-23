@@ -104,7 +104,7 @@ emitters in the same document, with one unified scripting model.
   types — diffs are readable, undo/redo is trivial, and the file
   format is forward-compatible (unknown part types decode to a
   filtered-out sentinel, not a crash).
-- **Tested.** 1,909 tests in 214 suites under Swift Testing, all passing
+- **Tested.** 2,075 tests in 230 suites under Swift Testing, all passing
   under the parallel runner in roughly 80 seconds. Coverage spans
   parser, interpreter, tool-call routing, scene serialization,
   rendering geometry (per-pixel sampling), theme cascade, async
@@ -509,7 +509,7 @@ swift run Hype
 ### Run the test suite
 
 ```bash
-scripts/test.sh                    # 1,909 tests in 214 suites, ~80 seconds
+scripts/test.sh                    # 2,075 tests in 230 suites, ~80 seconds
 scripts/test.sh --filter HypeTalk  # subset by Suite or Test name
 scripts/test.sh --no-parallel      # serial runner — fallback for debugging
 ```
@@ -625,8 +625,18 @@ Recent milestones:
 - AI eval suite expanded to 127 prompts across 10 categories;
   `granite4.1:30b` reaches 98.4% raw / 99.999% effective.
 - Test suite parallel-runner deadlock fixed (cooperative-thread
-  starvation in the sync→async dispatch bridge); 1,909 tests in
-  214 suites run in ~80 s.
+  starvation in the sync→async dispatch bridge); 2,075 tests in
+  230 suites run in ~80 s.
+- **7-phase code-review remediation (CodeReviewAndGapsPlan).**
+  Doc staleness fixed across all plan documents; AR Quick Look
+  test suite (9 tests, DI refactor with `Scene3DAssetConverting`
+  protocol); AI tool error-branch tests (+39); coordinator UI
+  lifecycle tests (+44); HypeToolExecutor split from 6,497 to
+  5,231 lines across four `Sources/HypeCore/AI/Executors/` branch
+  files; test isolation hardening (`KeychainProviding` +
+  `FileSystemProviding` protocols + `InMemoryKeychain` +
+  `InMemoryFileSystem` + `MockURLSession`); parallel-keychain
+  flake eliminated. Net delta: +166 tests / +16 suites.
 - **Meshy.ai 3D model generation (Phases 1–5).** Text-to-3D,
   image-to-3D, multi-image-to-3D, auto-rigging, animation picker,
   remesh, retexture, AR Quick Look, 6 AI tools, HypeTalk `ask meshy`
