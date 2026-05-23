@@ -112,6 +112,23 @@ private func makePNGResolved(sourceDesc: String = "asset:test") -> MeshyImageInp
     return MeshyImageInput.Resolved(data: pngBytes, mimeType: "image/png", sourceDescriptor: sourceDesc)
 }
 
+// MARK: - ProgressCollector
+
+/// An actor-isolated collector for `MeshyTaskMonitor.State` values emitted by
+/// `Generate3DJob`'s `onProgress` callback. Replaces the `nonisolated(unsafe)`
+/// variable that was previously used to accumulate states across the async boundary.
+private actor ProgressCollector {
+    private var states: [MeshyTaskMonitor.State] = []
+
+    func append(_ state: MeshyTaskMonitor.State) {
+        states.append(state)
+    }
+
+    func snapshot() -> [MeshyTaskMonitor.State] {
+        states
+    }
+}
+
 // MARK: - Tests
 
 @Suite("Generate3DJob coordinator")
@@ -242,18 +259,17 @@ struct Generate3DJobTests {
         let job = Generate3DJob(client: stub, logger: HypeLogger(setupFileLogging: false))
         let options = Generate3DJob.Options(hardTimeout: 30)
 
-        nonisolated(unsafe) var receivedStates: [MeshyTaskMonitor.State] = []
+        let collector = ProgressCollector()
         _ = try await job.run(
             kind: .text(prompt: "test", artStyle: .realistic),
             options: options,
             existingAssetNames: [],
-            onProgress: { state in
-                receivedStates.append(state)
-            }
+            onProgress: { state in await collector.append(state) }
         )
 
-        let hasInProgress = receivedStates.contains { if case .inProgress = $0 { return true }; return false }
-        let hasSucceeded = receivedStates.contains { if case .succeeded = $0 { return true }; return false }
+        let states = await collector.snapshot()
+        let hasInProgress = states.contains { if case .inProgress = $0 { return true }; return false }
+        let hasSucceeded = states.contains { if case .succeeded = $0 { return true }; return false }
         #expect(hasInProgress)
         #expect(hasSucceeded)
     }
