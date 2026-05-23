@@ -79,18 +79,12 @@ struct CardCanvasView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> CardCanvasNSView {
         let view = CardCanvasNSView()
-        view.wantsLayer = true  // Layer-backed so subviews (NSTextField) composite properly
-        // CRITICAL: layer-backed NSViews default to `layerContentsRedrawPolicy =
-        // .duringViewResize`, which means `view.needsDisplay = true` is silently
-        // IGNORED unless something else (a SwiftUI lifecycle pass, a resize event)
-        // happens to come along. This breaks any redraw triggered outside the
-        // SwiftUI updateNSView path — most visibly the GIF animator's per-frame
-        // `onFrameChanged` callback (the chick GIF never advanced its frame) and
-        // any idle-script-driven property change that doesn't mutate the document
-        // shape (rotation / position writes from `set the loc of me to ...`).
-        // `.onSetNeedsDisplay` is the only policy that honors needsDisplay = true
-        // for on-demand redraws.
-        view.layerContentsRedrawPolicy = .onSetNeedsDisplay
+        // Layer-backing + .onSetNeedsDisplay redraw policy. Both are
+        // mandatory; see `configureForCardCanvasRendering` doc comment
+        // for the failure modes if either is missing. Centralised on
+        // the view itself so the regression test exercises the exact
+        // same code path production uses.
+        view.configureForCardCanvasRendering()
         view.document = document.document
         view.currentCardId = currentCardId
         view.currentTool = currentTool
@@ -995,6 +989,24 @@ class CardCanvasNSView: NSView {
     var selectedPartIds: Set<UUID> = []
     var editingBackground: Bool = false
     weak var coordinator: CardCanvasView.Coordinator?
+
+    /// Configure the layer-backing and redraw policy required for the
+    /// card canvas to behave correctly. Both `wantsLayer = true` (so
+    /// AppKit text-field subviews composite atop the CG-drawn card) and
+    /// `layerContentsRedrawPolicy = .onSetNeedsDisplay` (so
+    /// `view.needsDisplay = true` actually queues a draw) are
+    /// REQUIRED. Layer-backed `NSView`s default the policy to
+    /// `.duringViewResize`, which silently drops on-demand redraws —
+    /// the user-visible symptom is animated GIFs that never advance
+    /// and `on idle` scripts whose `set the loc of me` / `set the
+    /// rotation of me` writes never appear on screen. Single seam
+    /// owned by `CardCanvasNSView` itself so production wiring
+    /// (`CardCanvasView.makeNSView`) and the regression test live
+    /// against the same code path.
+    func configureForCardCanvasRendering() {
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+    }
 
     /// Eraser radius in pixels (adjustable with [ and ] keys).
     var eraserRadius: Int = 10
