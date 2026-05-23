@@ -80,6 +80,17 @@ struct CardCanvasView: NSViewRepresentable {
     func makeNSView(context: Context) -> CardCanvasNSView {
         let view = CardCanvasNSView()
         view.wantsLayer = true  // Layer-backed so subviews (NSTextField) composite properly
+        // CRITICAL: layer-backed NSViews default to `layerContentsRedrawPolicy =
+        // .duringViewResize`, which means `view.needsDisplay = true` is silently
+        // IGNORED unless something else (a SwiftUI lifecycle pass, a resize event)
+        // happens to come along. This breaks any redraw triggered outside the
+        // SwiftUI updateNSView path — most visibly the GIF animator's per-frame
+        // `onFrameChanged` callback (the chick GIF never advanced its frame) and
+        // any idle-script-driven property change that doesn't mutate the document
+        // shape (rotation / position writes from `set the loc of me to ...`).
+        // `.onSetNeedsDisplay` is the only policy that honors needsDisplay = true
+        // for on-demand redraws.
+        view.layerContentsRedrawPolicy = .onSetNeedsDisplay
         view.document = document.document
         view.currentCardId = currentCardId
         view.currentTool = currentTool
