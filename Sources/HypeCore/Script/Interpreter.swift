@@ -56,17 +56,19 @@ public struct StubDrawingProvider: DrawingProvider, Sendable {
 
 /// Protocol for system-level operations (beep, play sound, etc.) — injected by the UI layer.
 public protocol SystemProvider: Sendable {
-    func beep(count: Int)
-    func playSound(name: String, document: HypeDocument)
-    func playNotes(instrument: String, noteString: String, tempo: Int, document: HypeDocument)
-    func stopSound()
+    func beep(count: Int) async
+    func playSound(name: String, document: HypeDocument) async
+    func playNotes(instrument: String, noteString: String, tempo: Int, document: HypeDocument) async
+    func stopSound() async
+    func currentSoundName() async -> String
 }
 
 public extension SystemProvider {
-    func beep(count: Int) {}
-    func playSound(name: String, document: HypeDocument) {}
-    func playNotes(instrument: String, noteString: String, tempo: Int, document: HypeDocument) {}
-    func stopSound() {}
+    func beep(count: Int) async {}
+    func playSound(name: String, document: HypeDocument) async {}
+    func playNotes(instrument: String, noteString: String, tempo: Int, document: HypeDocument) async {}
+    func stopSound() async {}
+    func currentSoundName() async -> String { "done" }
 }
 
 /// Default system provider that does nothing (used when no UI is available).
@@ -1378,6 +1380,7 @@ public struct Interpreter: Sendable {
                 currentCardId: context.currentCardId,
                 dialogProvider: context.dialogProvider,
                 drawingProvider: context.drawingProvider,
+                systemProvider: context.systemProvider,
                 aiProvider: context.aiProvider,
                 speechOutputProvider: context.speechOutputProvider,
                 appScript: context.appScript,
@@ -1421,13 +1424,13 @@ public struct Interpreter: Sendable {
                 } else {
                     tempo = 120
                 }
-                context.systemProvider.playNotes(instrument: soundName, noteString: noteString, tempo: tempo, document: document)
+                await context.systemProvider.playNotes(instrument: soundName, noteString: noteString, tempo: tempo, document: document)
             } else {
-                context.systemProvider.playSound(name: soundName, document: document)
+                await context.systemProvider.playSound(name: soundName, document: document)
             }
 
         case .playStop:
-            context.systemProvider.stopSound()
+            await context.systemProvider.stopSound()
 
         case .beep(let countExpr):
             let count: Int
@@ -1436,7 +1439,7 @@ public struct Interpreter: Sendable {
             } else {
                 count = 1
             }
-            context.systemProvider.beep(count: count)
+            await context.systemProvider.beep(count: count)
 
         case .waitDuration(let expr):
             let val = try await evaluate(expr, env: &env, document: document, context: context)
@@ -2837,12 +2840,7 @@ public struct Interpreter: Sendable {
         case "selectedbutton", "selectedchunk", "selectedfield", "selectedline", "selectedloc", "selectedtext":
             return ""
         case "sound":
-            #if canImport(AppKit)
-            // SoundPlayer is @MainActor — hop before touching it.
-            return await MainActor.run { SoundPlayer.shared.soundName }
-            #else
-            return "done"
-            #endif
+            return await context.systemProvider.currentSoundName()
         case "programs":
             return "Hype"
         case "menus":
@@ -2940,12 +2938,7 @@ public struct Interpreter: Sendable {
             case "userlevel":
                 return "5"
             case "sound":
-                #if canImport(AppKit)
-                // SoundPlayer is @MainActor — hop before touching it.
-                return await MainActor.run { SoundPlayer.shared.soundName }
-                #else
-                return "done"
-                #endif
+                return await context.systemProvider.currentSoundName()
             case "version":
                 return "Hype 2.0"
             case "environment":

@@ -124,9 +124,10 @@ public final class ToneSynthesizer: @unchecked Sendable {
         }
 
         // Monitor playback completion on a background thread
-        let totalDuration = allSamples.count / Int(sampleRate)
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + Double(totalDuration) + 0.1) { [weak self] in
-            self?.stop()
+        let totalDuration = Double(allSamples.count) / sampleRate
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + totalDuration + 0.1) { [weak self] in
+            guard let self, !self.stopRequested else { return }
+            self.stop()
             DispatchQueue.main.async { completion() }
         }
     }

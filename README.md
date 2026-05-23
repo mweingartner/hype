@@ -604,6 +604,8 @@ The full design rationale, including the SpriteKit substrate
 decision, the StackRuntime actor model, async dispatch semantics,
 and security posture (script gates, AI tool refusal sentinels,
 forbidden patterns), is in [`architecture.md`](architecture.md).
+Agentic coding harnesses should follow [`AGENTS.md`](AGENTS.md) for
+verification workflow, safety checks, test commands, and git hygiene.
 
 ---
 
@@ -650,9 +652,9 @@ Recent milestones:
 ## Contributing
 
 The repository is open-source under the MIT license. Issues and
-pull requests are welcome. See `architecture.md` before opening a
-substantive PR — many design choices have load-bearing rationale
-documented there.
+pull requests are welcome. See `AGENTS.md` for the repo workflow and
+`architecture.md` before opening a substantive PR — many design choices
+have load-bearing rationale documented there.
 
 For PRs:
 

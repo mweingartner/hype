@@ -24,7 +24,8 @@ import AVFoundation
 /// Callers from async contexts (like the `Interpreter`, which runs
 /// on a cooperative thread) MUST hop to `MainActor` before calling
 /// `play` / `stop` / `playNotes` / reading `soundName`. The
-/// Interpreter uses `await MainActor.run { … }` wrappers for this.
+/// production `AppKitSystemProvider` uses `await MainActor.run { … }`
+/// wrappers for this.
 ///
 /// The `NSSoundDelegate` and `AVAudioPlayerDelegate` conformance
 /// methods are marked `nonisolated` so the audio frameworks can
@@ -244,13 +245,16 @@ public final class SoundPlayer: NSObject, NSSoundDelegate {
         let synth = ToneSynthesizer()
         toneSynth = synth
 
-        synth.playNotes(notes, tempo: tempo, waveform: waveform) { [weak self] in
+        synth.playNotes(notes, tempo: tempo, waveform: waveform) { [weak self, weak synth] in
             // ToneSynthesizer invokes the completion callback on an
             // arbitrary audio-engine queue. Hop to the main actor
             // before touching isolated state.
             Task { @MainActor [weak self] in
-                self?.currentName = nil
-                self?.toneSynth = nil
+                guard let self else { return }
+                if let synth, self.toneSynth === synth {
+                    self.currentName = nil
+                    self.toneSynth = nil
+                }
             }
         }
     }

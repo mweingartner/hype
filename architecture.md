@@ -32,6 +32,10 @@ without blocking the app or corrupting handler ordering.
 
 This document describes how that is implemented today.
 
+Agentic coding harness instructions live in `AGENTS.md`. This file should stay
+focused on the architecture as built: persistent models, runtime ownership,
+message dispatch, rendering bridges, AI/tool surfaces, and known feature gaps.
+
 ---
 
 ## 1. Top-Level Layout
@@ -1265,8 +1269,8 @@ script source string
   `fillColor`, `strokeColor`, `fontColor`).
 - **Interpreter** (Sources/HypeCore/Script/Interpreter.swift) is a
   tree walker. It maintains an `ExecutionContext` (target ID, current
-  card, document, dialog/drawing providers, mouse coordinates, instruction
-  budget) and an `Environment` (locals, globals, the special `it`
+  card, document, dialog/drawing/system providers, mouse coordinates,
+  instruction budget) and an `Environment` (locals, globals, the special `it`
   variable, and a set of names declared global). Control flow uses thrown
   signals: `exitRepeat`, `nextRepeat`, `exitHandler(returnValue)`,
   `passMessage` are exceptions caught at the appropriate level. An
@@ -1289,6 +1293,8 @@ The runtime owns:
 
 - the live `HypeDocument`
 - script globals and the app script
+- provider bridges for dialog, drawing, local system audio/beep, AI, speech,
+  and Meshy so browse-mode scripts do not silently fall back to test stubs
 - async AI jobs
 - outbound HTTP requests and inbound pending HTTP replies
 - active HTTP/TCP listeners and TCP connections

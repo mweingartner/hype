@@ -5,6 +5,49 @@ import Foundation
 @Suite("Play/Beep/Wait Command Tests", .serialized)
 struct PlayCommandTests {
 
+    private enum RecordedSystemEvent: Equatable, Sendable {
+        case beep(Int)
+        case playSound(String)
+        case playNotes(instrument: String, notes: String, tempo: Int)
+        case stop
+        case currentSoundName
+    }
+
+    private actor RecordingSystemProvider: SystemProvider {
+        private var events: [RecordedSystemEvent] = []
+        private var soundNames: [String]
+
+        init(soundNames: [String] = Array(repeating: "done", count: 16)) {
+            self.soundNames = soundNames
+        }
+
+        func beep(count: Int) async {
+            events.append(.beep(count))
+        }
+
+        func playSound(name: String, document: HypeDocument) async {
+            events.append(.playSound(name))
+        }
+
+        func playNotes(instrument: String, noteString: String, tempo: Int, document: HypeDocument) async {
+            events.append(.playNotes(instrument: instrument, notes: noteString, tempo: tempo))
+        }
+
+        func stopSound() async {
+            events.append(.stop)
+        }
+
+        func currentSoundName() async -> String {
+            events.append(.currentSoundName)
+            if soundNames.isEmpty { return "done" }
+            return soundNames.removeFirst()
+        }
+
+        func recordedEvents() -> [RecordedSystemEvent] {
+            events
+        }
+    }
+
     // MARK: - Helpers
 
     private func parse(_ source: String) -> Script? {
@@ -145,6 +188,52 @@ struct PlayCommandTests {
         let outputField = result.modifiedDocument?.parts.first(where: { $0.name == "output" })
         #expect(outputField?.textContent == "done",
                 "the sound should return 'done' when no sound is playing, got '\(outputField?.textContent ?? "nil")'")
+    }
+
+    @Test("Runtime dispatch passes real SystemProvider to Birthday Song button")
+    func runtimeDispatchRoutesBirthdaySongToSystemProvider() async {
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        var button = Part(partType: .button, cardId: cardId, name: "Birthday Song")
+        button.script = """
+        on mouseUp
+          play stop
+          play "harpsichord" tempo 120 "g4q g4q a4q g4q c5q b4h"
+          wait until the sound is "done"
+          play "harpsichord" tempo 120 "g4q g4q a4q g4q d5q c5h"
+          wait until the sound is "done"
+          play "harpsichord" tempo 120 "g4q g4q g5q e5q c5q b4q a4h"
+          wait until the sound is "done"
+          play "harpsichord" tempo 120 "f5q f5q e5q c5q d5q c5h"
+        end mouseUp
+        """
+        doc.addPart(button)
+
+        let provider = RecordingSystemProvider()
+        let runtime = StackRuntime(
+            document: doc,
+            configuration: StackRuntimeConfiguration(systemProvider: provider)
+        )
+
+        let result = await runtime.dispatchAndWait(
+            "mouseUp",
+            params: [],
+            targetId: button.id,
+            currentCardId: cardId
+        )
+
+        #expect(result.status == .completed)
+        let events = await provider.recordedEvents()
+        #expect(events == [
+            .stop,
+            .playNotes(instrument: "harpsichord", notes: "g4q g4q a4q g4q c5q b4h", tempo: 120),
+            .currentSoundName,
+            .playNotes(instrument: "harpsichord", notes: "g4q g4q a4q g4q d5q c5h", tempo: 120),
+            .currentSoundName,
+            .playNotes(instrument: "harpsichord", notes: "g4q g4q g5q e5q c5q b4q a4h", tempo: 120),
+            .currentSoundName,
+            .playNotes(instrument: "harpsichord", notes: "f5q f5q e5q c5q d5q c5h", tempo: 120)
+        ])
     }
 
     @Test func beepExecutesWithoutCrash() {

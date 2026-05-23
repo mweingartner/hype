@@ -71,6 +71,7 @@ struct MessageBoxView: View {
                 let runtime = await StackRuntimeRegistry.shared.runtime(
                     for: snapshot,
                     configuration: StackRuntimeConfiguration(
+                        systemProvider: AppKitSystemProvider(),
                         aiProvider: SelectedAIScriptingProvider(),
                         speechOutputProvider: OpenAISpeechOutputProvider.shared,
                         speechListenerProvider: RuntimeSpeechListenerProvider.shared
@@ -81,6 +82,7 @@ struct MessageBoxView: View {
                     targetId: liveDocument.stack.id,
                     currentCardId: cardId,
                     document: liveDocument,
+                    systemProvider: AppKitSystemProvider(),
                     aiProvider: SelectedAIScriptingProvider(),
                     speechOutputProvider: OpenAISpeechOutputProvider.shared,
                     runtimeProvider: runtime
