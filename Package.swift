@@ -17,7 +17,12 @@ let package = Package(
         .executableTarget(
             name: "Hype",
             dependencies: ["HypeCore"],
-            path: "Sources/Hype"
+            path: "Sources/Hype",
+            exclude: ["SpriteKit/README.md"],
+            resources: [
+                .process("Resources/HypeDocIcon.icns"),
+                .process("Resources/AppIcon.icns"),
+            ]
         ),
         .executableTarget(
             name: "HypePacmanTestbedBuilder",
