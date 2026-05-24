@@ -248,6 +248,7 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
 
     public nonisolated func chatStream(messages: [OllamaMessage], tools: [OllamaTool]) -> AsyncStream<String> {
         let config = self.configuration
+        let session = self.session
         return AsyncStream { continuation in
             Task {
                 do {
@@ -255,6 +256,7 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
 
                     var request = URLRequest(url: url)
                     request.httpMethod = "POST"
+                    request.timeoutInterval = config.requestTimeout
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
                     Self.applyProviderHeaders(to: &request, configuration: config)
@@ -278,10 +280,6 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
                     }
 
                     request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-                    let sessionConfig = URLSessionConfiguration.ephemeral
-                    sessionConfig.timeoutIntervalForRequest = 120
-                    let session = URLSession(configuration: sessionConfig)
 
                     let (bytes, response) = try await session.bytes(for: request)
 
