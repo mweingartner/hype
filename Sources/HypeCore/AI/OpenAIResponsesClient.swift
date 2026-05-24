@@ -110,6 +110,7 @@ public actor OpenAIResponsesClient: HypeAIClient {
 
     public nonisolated var providerName: String { providerNameValue }
     public nonisolated var modelName: String { model }
+    public nonisolated var supportsChatStreaming: Bool { true }
 
     public func availableModels() async throws -> [String] {
         HypeAIConfiguration.openAITextModels
@@ -158,6 +159,7 @@ public actor OpenAIResponsesClient: HypeAIClient {
 
     public nonisolated func chatStream(messages: [OllamaMessage], tools: [OllamaTool]) -> AsyncStream<String> {
         let apiKey = self.apiKey
+        let requiresAPIKey = self.requiresAPIKey
         let modelName = self.model
         let baseURL = self.baseURL
 
@@ -169,7 +171,12 @@ public actor OpenAIResponsesClient: HypeAIClient {
                     request.httpMethod = "POST"
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-                    request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+                    if let token = HypeAIConfiguration.normalized(apiKey) {
+                        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                    } else if requiresAPIKey {
+                        continuation.finish()
+                        return
+                    }
 
                     let body: [String: Any] = [
                         "model": modelName,

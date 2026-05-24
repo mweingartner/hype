@@ -13,6 +13,14 @@ private enum CardCanvasAccessibilityActionName {
     static let resizeSmaller = "Resize Smaller"
 }
 
+private final class AccessibilityChildrenResult: @unchecked Sendable {
+    let value: [Any]?
+
+    init(_ value: [Any]?) {
+        self.value = value
+    }
+}
+
 @preconcurrency
 @inline(__always)
 private func withCanvas<T: Sendable>(
@@ -78,10 +86,12 @@ final class CardCanvasPartAccessibilityElement: NSAccessibilityElement, @uncheck
         guard let canvas else { return nil }
         let partId = partId
         if Thread.isMainThread {
-            guard let part = canvas.document.parts.first(where: { $0.id == partId }),
-                  part.partType == .spriteArea,
-                  let spec = part.spriteAreaSpecModel else { return nil }
-            return [CardCanvasSpriteSceneAccessibilityElement(canvas: canvas, partId: part.id, sceneId: spec.activeSceneID)]
+            return MainActor.assumeIsolated {
+                guard let part = canvas.document.parts.first(where: { $0.id == partId }),
+                      part.partType == .spriteArea,
+                      let spec = part.spriteAreaSpecModel else { return AccessibilityChildrenResult(nil) }
+                return AccessibilityChildrenResult([CardCanvasSpriteSceneAccessibilityElement(canvas: canvas, partId: part.id, sceneId: spec.activeSceneID)])
+            }.value
         }
         return DispatchQueue.main.sync {
             guard let part = canvas.document.parts.first(where: { $0.id == partId }),
@@ -102,7 +112,7 @@ final class CardCanvasPartAccessibilityElement: NSAccessibilityElement, @uncheck
         case .pick:
             return "Select \(accessibilityLabel() ?? "part")"
         default:
-            return super.accessibilityActionDescription(action)
+            return nil
         }
     }
 
@@ -223,11 +233,13 @@ final class CardCanvasSpriteSceneAccessibilityElement: NSAccessibilityElement, @
         let partId = partId
         let sceneId = sceneId
         if Thread.isMainThread {
-            guard let part = canvas.document.parts.first(where: { $0.id == partId }),
-                  let scene = part.spriteAreaSpecModel?.scene(id: sceneId) else { return nil }
-            return scene.allNodes
-                .filter { !$0.isHidden }
-                .map { CardCanvasSpriteNodeAccessibilityElement(canvas: canvas, partId: partId, sceneId: sceneId, nodeId: $0.id) }
+            return MainActor.assumeIsolated {
+                guard let part = canvas.document.parts.first(where: { $0.id == partId }),
+                      let scene = part.spriteAreaSpecModel?.scene(id: sceneId) else { return AccessibilityChildrenResult(nil) }
+                return AccessibilityChildrenResult(scene.allNodes
+                    .filter { !$0.isHidden }
+                    .map { CardCanvasSpriteNodeAccessibilityElement(canvas: canvas, partId: partId, sceneId: sceneId, nodeId: $0.id) })
+            }.value
         }
         return DispatchQueue.main.sync {
             guard let part = canvas.document.parts.first(where: { $0.id == partId }),

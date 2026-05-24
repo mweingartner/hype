@@ -45,9 +45,9 @@ private struct RefusingMeshyProvider: MeshyScriptingProvider {
 private func makeDoc() -> (HypeDocument, UUID, UUID) {
     var doc = HypeDocument.newDocument()
     let cardId = doc.cards[0].id
-    var btn = Part(partType: .button, cardId: cardId, name: "btn", left: 0, top: 0, width: 100, height: 30)
+    let btn = Part(partType: .button, cardId: cardId, name: "btn", left: 0, top: 0, width: 100, height: 30)
     doc.addPart(btn)
-    var field = Part(partType: .field, cardId: cardId, name: "out", left: 0, top: 40, width: 200, height: 30)
+    let field = Part(partType: .field, cardId: cardId, name: "out", left: 0, top: 40, width: 200, height: 30)
     doc.addPart(field)
     return (doc, cardId, btn.id)
 }
@@ -170,10 +170,6 @@ struct HypeTalkAskMeshyInterpreterTests {
 
     @Test("ask meshy with style and model — modifiers forwarded to provider")
     func modifiersForwardedToProvider() async throws {
-        var capturedStyle: String?
-        var capturedModel: String?
-        var capturedPrompt: String?
-
         struct CapturingProvider: MeshyScriptingProvider {
             let onCall: @Sendable (String, String?, String?) -> Void
             func generateSync(prompt: String, style: String?, model: String?, document: HypeDocument) async throws -> String {

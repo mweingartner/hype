@@ -11,6 +11,7 @@ import HypeCore
 /// sidebar, and status bar. Using the wrong bounds causes
 /// bottom-constrained parts to render below the visible canvas
 /// edge on card navigation.
+@MainActor
 private func liveCanvasSize(fallbackStack stack: Stack) -> (Double, Double) {
     if let window = NSApp?.keyWindow ?? NSApp?.mainWindow,
        let canvas = findCardCanvas(in: window.contentView) {
@@ -23,6 +24,7 @@ private func liveCanvasSize(fallbackStack stack: Stack) -> (Double, Double) {
 }
 
 /// Recursively search the view hierarchy for a CardCanvasNSView.
+@MainActor
 private func findCardCanvas(in view: NSView?) -> CardCanvasNSView? {
     guard let view = view else { return nil }
     if let canvas = view as? CardCanvasNSView { return canvas }

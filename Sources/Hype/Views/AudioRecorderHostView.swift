@@ -252,10 +252,12 @@ final class AudioRecorderHostNSView: NSView {
             playButton.isEnabled = false  // Can't play during record.
             onStateChange?(true, false, 0, path, nil)
             tickTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-                guard let self, let rec = self.recorder, rec.isRecording else { return }
-                let dur = rec.currentTime
-                self.durationLabel.stringValue = Self.formatDuration(dur)
-                self.onStateChange?(true, false, dur, self.lastOutputPath, nil)
+                Task { @MainActor in
+                    guard let self, let rec = self.recorder, rec.isRecording else { return }
+                    let dur = rec.currentTime
+                    self.durationLabel.stringValue = Self.formatDuration(dur)
+                    self.onStateChange?(true, false, dur, self.lastOutputPath, nil)
+                }
             }
         } catch {
             HypeLogger.shared.error(

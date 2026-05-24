@@ -3,7 +3,10 @@ import Foundation
 public enum HypeAIProvider: String, CaseIterable, Sendable, Identifiable {
     case ollama
     case llamaSwap = "llama-swap"
+    case llamaCpp = "llama.cpp"
     case openAI = "openai"
+    case zAI = "z.ai"
+    case miniMax = "minimax"
 
     public var id: String { rawValue }
 
@@ -11,7 +14,10 @@ public enum HypeAIProvider: String, CaseIterable, Sendable, Identifiable {
         switch self {
         case .ollama: return "Ollama"
         case .llamaSwap: return "llama-swap"
+        case .llamaCpp: return "llama.cpp"
         case .openAI: return "OpenAI"
+        case .zAI: return "Z.ai"
+        case .miniMax: return "MiniMax"
         }
     }
 }
@@ -33,6 +39,7 @@ public enum HypeSpeechInputProvider: String, CaseIterable, Sendable, Identifiabl
 public protocol HypeAIClient: Sendable {
     var providerName: String { get }
     var modelName: String { get }
+    var supportsChatStreaming: Bool { get }
 
     func availableModels() async throws -> [String]
     func generate(prompt: String, model: String?, system: String?) async throws -> String
@@ -51,6 +58,8 @@ public protocol HypeAIClient: Sendable {
 }
 
 public extension HypeAIClient {
+    var supportsChatStreaming: Bool { false }
+
     func generate(prompt: String, model: String? = nil) async throws -> String {
         try await generate(prompt: prompt, model: model, system: nil)
     }
@@ -68,7 +77,14 @@ public enum HypeAIConfiguration {
     public static let llamaSwapHostKey = "hype.llamaSwap.host"
     public static let llamaSwapPortKey = "hype.llamaSwap.port"
     public static let llamaSwapModelKey = "hype.llamaSwap.model"
+    public static let llamaCppHostKey = "hype.llamaCpp.host"
+    public static let llamaCppPortKey = "hype.llamaCpp.port"
+    public static let llamaCppModelKey = "hype.llamaCpp.model"
     public static let openAIModelKey = "hype.openai.model"
+    public static let zAIBaseURLKey = "hype.zai.baseURL"
+    public static let zAIModelKey = "hype.zai.model"
+    public static let miniMaxBaseURLKey = "hype.minimax.baseURL"
+    public static let miniMaxModelKey = "hype.minimax.model"
     public static let openAIImageModelKey = "hype.openai.imageModel"
     public static let openAITranscriptionModelKey = "hype.openai.transcriptionModel"
     public static let openAITTSModelKey = "hype.openai.ttsModel"
@@ -80,6 +96,13 @@ public enum HypeAIConfiguration {
     public static let defaultLlamaSwapHost = "localhost"
     public static let defaultLlamaSwapPort = "8080"
     public static let defaultLlamaSwapModel = "model1"
+    public static let defaultLlamaCppHost = "localhost"
+    public static let defaultLlamaCppPort = "8001"
+    public static let defaultLlamaCppModel = "model"
+    public static let defaultZAIBaseURL = "https://api.z.ai/api/paas/v4"
+    public static let defaultZAIModel = "glm-5.1"
+    public static let defaultMiniMaxBaseURL = "https://api.minimax.io/v1"
+    public static let defaultMiniMaxModel = "MiniMax-M2"
     public static let defaultOpenAIImageModel = "gpt-image-1.5"
     public static let defaultOpenAITranscriptionModel = "gpt-4o-mini-transcribe"
     public static let defaultOpenAITTSModel = "gpt-4o-mini-tts"
@@ -97,6 +120,20 @@ public enum HypeAIConfiguration {
         "gpt-4.1-nano",
         "gpt-4o",
         "gpt-4o-mini"
+    ]
+
+    public static let zAITextModels = [
+        "glm-5.1",
+        "glm-4.5",
+        "glm-4.5-air",
+        "glm-4.5-x",
+        "glm-4.5-airx",
+        "glm-4.5-flash"
+    ]
+
+    public static let miniMaxTextModels = [
+        "MiniMax-M2",
+        "MiniMax-Text-01"
     ]
 
     public static let openAIImageModels = [
@@ -144,6 +181,22 @@ public enum HypeAIConfiguration {
         normalized(defaults.string(forKey: openAIModelKey)) ?? defaultOpenAIModel
     }
 
+    public static func zAIBaseURL(defaults: UserDefaults = .standard) -> String {
+        normalized(defaults.string(forKey: zAIBaseURLKey)) ?? defaultZAIBaseURL
+    }
+
+    public static func zAIModel(defaults: UserDefaults = .standard) -> String {
+        normalized(defaults.string(forKey: zAIModelKey)) ?? defaultZAIModel
+    }
+
+    public static func miniMaxBaseURL(defaults: UserDefaults = .standard) -> String {
+        normalized(defaults.string(forKey: miniMaxBaseURLKey)) ?? defaultMiniMaxBaseURL
+    }
+
+    public static func miniMaxModel(defaults: UserDefaults = .standard) -> String {
+        normalized(defaults.string(forKey: miniMaxModelKey)) ?? defaultMiniMaxModel
+    }
+
     public static func llamaSwapHost(defaults: UserDefaults = .standard) -> String {
         normalized(defaults.string(forKey: llamaSwapHostKey)) ?? defaultLlamaSwapHost
     }
@@ -154,6 +207,18 @@ public enum HypeAIConfiguration {
 
     public static func llamaSwapModel(defaults: UserDefaults = .standard) -> String {
         normalized(defaults.string(forKey: llamaSwapModelKey)) ?? defaultLlamaSwapModel
+    }
+
+    public static func llamaCppHost(defaults: UserDefaults = .standard) -> String {
+        normalized(defaults.string(forKey: llamaCppHostKey)) ?? defaultLlamaCppHost
+    }
+
+    public static func llamaCppPort(defaults: UserDefaults = .standard) -> String {
+        normalized(defaults.string(forKey: llamaCppPortKey)) ?? defaultLlamaCppPort
+    }
+
+    public static func llamaCppModel(defaults: UserDefaults = .standard) -> String {
+        normalized(defaults.string(forKey: llamaCppModelKey)) ?? defaultLlamaCppModel
     }
 
     public static func openAIImageModel(defaults: UserDefaults = .standard) -> String {
@@ -190,6 +255,21 @@ public enum HypeAIConfiguration {
                 model: llamaSwapModel(defaults: defaults),
                 apiKey: apiKey
             )
+        case .llamaCpp:
+            guard let baseURL = localOpenAICompatibleBaseURL(
+                host: llamaCppHost(defaults: defaults),
+                port: llamaCppPort(defaults: defaults)
+            ) else {
+                throw OpenAIChatCompletionsClient.StreamingError.invalidResponse
+            }
+            return OpenAIChatCompletionsClient(
+                configuration: .openAICompatible(
+                    baseURL: baseURL,
+                    model: llamaCppModel(defaults: defaults),
+                    providerName: HypeAIProvider.llamaCpp.rawValue,
+                    modelListPath: "v1/models"
+                )
+            )
         case .openAI:
             let apiKey = try KeychainStore.getSecret(account: KeychainStore.openAIAPIKeyAccount)
             return OpenAIChatCompletionsClient(
@@ -199,7 +279,40 @@ public enum HypeAIConfiguration {
                     model: openAIModel(defaults: defaults)
                 )
             )
+        case .zAI:
+            let apiKey = try KeychainStore.getSecret(account: KeychainStore.zAIAPIKeyAccount)
+            guard let baseURL = URL(string: zAIBaseURL(defaults: defaults)) else {
+                throw OpenAIChatCompletionsClient.StreamingError.invalidResponse
+            }
+            return OpenAIChatCompletionsClient(
+                configuration: .openAICompatible(
+                    baseURL: baseURL,
+                    apiKey: apiKey,
+                    model: zAIModel(defaults: defaults),
+                    providerName: HypeAIProvider.zAI.rawValue,
+                    chatCompletionsPath: "chat/completions",
+                    modelListPath: "models"
+                )
+            )
+        case .miniMax:
+            let apiKey = try KeychainStore.getSecret(account: KeychainStore.miniMaxAPIKeyAccount)
+            guard let baseURL = URL(string: miniMaxBaseURL(defaults: defaults)) else {
+                throw OpenAIChatCompletionsClient.StreamingError.invalidResponse
+            }
+            return OpenAIChatCompletionsClient(
+                configuration: .openAICompatible(
+                    baseURL: baseURL,
+                    apiKey: apiKey,
+                    model: miniMaxModel(defaults: defaults),
+                    providerName: HypeAIProvider.miniMax.rawValue,
+                    modelListPath: "v1/models"
+                )
+            )
         }
+    }
+
+    public static func makeChatInferenceProvider(defaults: UserDefaults = .standard) throws -> any AIChatInferenceProviding {
+        HypeAIClientChatInferenceProvider(client: try makeClient(defaults: defaults))
     }
 
     public static func makeImageGenerationClient(defaults: UserDefaults = .standard) throws -> any HypeImageGenerating {
@@ -216,5 +329,16 @@ public enum HypeAIConfiguration {
             return nil
         }
         return trimmed
+    }
+
+    public static func localOpenAICompatibleBaseURL(host: String, port: String) -> URL? {
+        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedPort = port.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedHost.isEmpty else { return nil }
+        if trimmedHost.hasPrefix("http://") || trimmedHost.hasPrefix("https://") {
+            return URL(string: trimmedHost)
+        }
+        guard !trimmedPort.isEmpty else { return nil }
+        return URL(string: "http://\(trimmedHost):\(trimmedPort)")
     }
 }

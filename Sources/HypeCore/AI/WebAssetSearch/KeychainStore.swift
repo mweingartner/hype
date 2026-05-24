@@ -140,6 +140,12 @@ public extension KeychainStore {
     /// in llama-swap, Hype stores that token here instead of in UserDefaults.
     static let llamaSwapAPIKeyAccount = "llamaSwap.apiKey"
 
+    /// Account identifier for the Z.ai API key.
+    static let zAIAPIKeyAccount = "zai.apiKey"
+
+    /// Account identifier for the MiniMax API key.
+    static let miniMaxAPIKeyAccount = "minimax.apiKey"
+
     /// Account identifier for the Meshy.ai API key. Stored under the
     /// shared `KeychainStore.service` ("com.hype.webAssets") so it
     /// lives next to the existing AI-provider keys.

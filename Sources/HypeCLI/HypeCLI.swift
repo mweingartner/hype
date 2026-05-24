@@ -2,7 +2,8 @@ import Foundation
 import HypeCore
 import ArgumentParser
 
-struct HypeCLI: ParsableCommand {
+@main
+struct HypeCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "hypetalk",
         abstract: "HypeTalk interpreter CLI"
@@ -26,7 +27,41 @@ struct HypeCLI: ParsableCommand {
     @Option(help: "Benchmark output format: text or json")
     var benchmarkFormat: HypeTalkBenchmarkFormat = .text
 
-    mutating func run() throws {
+    @Flag(help: "Run an OpenAI-compatible inference smoke test instead of a HypeTalk script")
+    var inferenceSmoke = false
+
+    @Option(help: "OpenAI-compatible inference base URL, for example http://localhost:8001/v1")
+    var inferenceBaseURL: String?
+
+    @Option(help: "Model name to send in the inference smoke test")
+    var inferenceModel = HypeAIConfiguration.defaultLlamaSwapModel
+
+    @Option(help: "Prompt to send in the inference smoke test")
+    var inferencePrompt = "Reply with OK."
+
+    @Flag(help: "Run an Ollama tool API smoke test: model query, pull, and tool chat")
+    var ollamaToolSmoke = false
+
+    @Option(help: "Ollama host for --ollama-tool-smoke")
+    var ollamaHost = "localhost"
+
+    @Option(help: "Ollama port for --ollama-tool-smoke")
+    var ollamaPort = "11434"
+
+    @Option(help: "Ollama model for --ollama-tool-smoke query/pull/chat")
+    var ollamaModel = "llama3.2"
+
+    mutating func run() async throws {
+        if ollamaToolSmoke {
+            try await runOllamaToolSmoke()
+            return
+        }
+
+        if inferenceSmoke {
+            try await runInferenceSmoke()
+            return
+        }
+
         if benchmark {
             let cases: [HypeTalkBenchmarkSuite.Case]
             if let script, script != "suite" {
@@ -105,6 +140,75 @@ struct HypeCLI: ParsableCommand {
         }
     }
 
+    private func runInferenceSmoke() async throws {
+        guard let inferenceBaseURL,
+              let baseURL = URL(string: inferenceBaseURL) else {
+            throw ValidationError("--inference-base-url is required, for example http://localhost:8001/v1")
+        }
+
+        let client = OpenAIChatCompletionsClient(
+            configuration: .openAICompatible(
+                baseURL: baseURL,
+                apiKey: nil,
+                model: inferenceModel,
+                providerName: "cli-openai-compatible"
+            )
+        )
+        let inference = HypeAIClientChatInferenceProvider(client: client)
+        let response = try await inference.chat(AIChatInferenceRequest(
+            messages: [OllamaMessage(role: "user", content: inferencePrompt)],
+            tools: []
+        ))
+
+        let content = response.message.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if content.isEmpty {
+            throw ValidationError("Inference response was empty")
+        }
+        print(content)
+    }
+
+    private func runOllamaToolSmoke() async throws {
+        let client = OllamaToolClient(
+            host: ollamaHost,
+            port: ollamaPort,
+            model: ollamaModel,
+            timeouts: .chat
+        )
+
+        let models = try await client.availableModels()
+        if !models.contains(ollamaModel) {
+            let status = try await client.pullModel(ollamaModel)
+            print("pull: \(status)")
+        } else {
+            print("pull: skipped (model already present)")
+        }
+
+        let tool = OllamaTool(
+            type: "function",
+            function: OllamaFunction(
+                name: "report_status",
+                description: "Report a short smoke-test status.",
+                parameters: OllamaParameters(
+                    type: "object",
+                    properties: [
+                        "status": OllamaProperty(type: "string", description: "Short status, for example OK")
+                    ],
+                    required: ["status"]
+                )
+            )
+        )
+        let response = try await client.chat(
+            messages: [
+                OllamaMessage(role: "system", content: "Use the provided tool when possible."),
+                OllamaMessage(role: "user", content: "Call report_status with status OK.")
+            ],
+            tools: [tool]
+        )
+        let toolNames = response.message.tool_calls?.map(\.function.name) ?? []
+        print("models: \(models.count)")
+        print("chat: \(toolNames.isEmpty ? (response.message.content ?? "no tool calls") : toolNames.joined(separator: ","))")
+    }
+
     private func loadScript(_ source: String) throws -> String {
         let script: String
         if source == "/dev/stdin" || source == "-" {
@@ -117,8 +221,6 @@ struct HypeCLI: ParsableCommand {
         return script
     }
 }
-
-HypeCLI.main()
 
 enum HypeCLIError: Error, CustomStringConvertible {
     case noHandlerFound

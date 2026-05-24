@@ -674,7 +674,7 @@ struct OllamaTimeoutPolicyTests {
     }
 
     @Test("OllamaToolClient initializer accepts custom Timeouts without throwing")
-    func clientInitializesWithTimeouts() async {
+    func clientInitializesWithTimeouts() {
         // The actor init runs the URLSessionConfiguration path — smoke
         // test that a caller-provided timeouts value flows through.
         let client = OllamaToolClient(
@@ -683,7 +683,7 @@ struct OllamaTimeoutPolicyTests {
             model: "llama3.2",
             timeouts: OllamaToolClient.Timeouts(request: 30, resource: 30)
         )
-        let base = await client.baseURL
+        let base = client.baseURL
         #expect(base == "http://localhost:11434")
     }
 }
@@ -812,6 +812,128 @@ struct OllamaFormatUnsupportedFallbackTests {
     }
 }
 
+@Suite("OllamaToolClient native API smoke", .serialized)
+struct OllamaToolClientNativeAPITests {
+    @Test("model query, pull, and tool chat use native Ollama endpoints")
+    func modelQueryPullAndToolChatUseNativeEndpoints() async throws {
+        defer { MockURLProtocolOllamaToolNative.requestHandler = nil }
+
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocolOllamaToolNative.self]
+        let session = URLSession(configuration: config)
+        var observedPaths: [String] = []
+
+        MockURLProtocolOllamaToolNative.requestHandler = { request in
+            let path = request.url?.path ?? ""
+            observedPaths.append(path)
+
+            switch path {
+            case "/api/tags":
+                let payload = """
+                { "models": [ { "name": "existing-model" } ] }
+                """
+                return (Self.response(for: request), Data(payload.utf8))
+            case "/api/pull":
+                let body = try #require(Self.bodyData(from: request))
+                let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+                #expect(object["name"] as? String == "missing-model")
+                #expect(object["stream"] as? Bool == false)
+                return (Self.response(for: request), Data(#"{ "status": "success" }"#.utf8))
+            case "/api/chat":
+                let body = try #require(Self.bodyData(from: request))
+                let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+                #expect(object["model"] as? String == "missing-model")
+                #expect(object["stream"] as? Bool == false)
+                let tools = try #require(object["tools"] as? [[String: Any]])
+                let function = try #require(tools.first?["function"] as? [String: Any])
+                #expect(function["name"] as? String == "report_status")
+                let payload = """
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                      {
+                        "function": {
+                          "name": "report_status",
+                          "arguments": { "status": "OK" }
+                        }
+                      }
+                    ]
+                  },
+                  "done": true
+                }
+                """
+                return (Self.response(for: request), Data(payload.utf8))
+            default:
+                Issue.record("unexpected path: \(path)")
+                return (Self.response(for: request, status: 404), Data())
+            }
+        }
+
+        let client = OllamaToolClient(
+            host: "localhost",
+            port: "11434",
+            model: "missing-model",
+            session: session,
+            logger: HypeLogger(setupFileLogging: false)
+        )
+        let models = try await client.availableModels()
+        let pullStatus = try await client.pullModel()
+        let response = try await client.chat(
+            messages: [OllamaMessage(role: "user", content: "Call report_status")],
+            tools: [Self.reportStatusTool]
+        )
+
+        #expect(models == ["existing-model"])
+        #expect(pullStatus == "success")
+        #expect(response.message.tool_calls?.first?.function.name == "report_status")
+        #expect(response.message.tool_calls?.first?.function.arguments["status"] == "OK")
+        #expect(observedPaths == ["/api/tags", "/api/pull", "/api/chat"])
+    }
+
+    private static var reportStatusTool: OllamaTool {
+        OllamaTool(
+            type: "function",
+            function: OllamaFunction(
+                name: "report_status",
+                description: "Report status.",
+                parameters: OllamaParameters(
+                    type: "object",
+                    properties: [
+                        "status": OllamaProperty(type: "string", description: "Status")
+                    ],
+                    required: ["status"]
+                )
+            )
+        )
+    }
+
+    private static func response(for request: URLRequest, status: Int = 200) -> HTTPURLResponse {
+        HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+    }
+
+    private static func bodyData(from request: URLRequest) -> Data? {
+        if let body = request.httpBody {
+            return body
+        }
+        guard let stream = request.httpBodyStream else {
+            return nil
+        }
+        stream.open()
+        defer { stream.close() }
+
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count <= 0 { break }
+            data.append(buffer, count: count)
+        }
+        return data.isEmpty ? nil : data
+    }
+}
+
 @Suite("OllamaToolClient console logging", .serialized)
 struct OllamaToolClientConsoleLoggingTests {
 
@@ -823,13 +945,13 @@ struct OllamaToolClientConsoleLoggingTests {
         // open the on-disk log file, keeping the test purely
         // in-memory.
         let testLogger = HypeLogger(setupFileLogging: false)
-        defer { MockURLProtocol.requestHandler = nil }
+        defer { MockURLProtocolOllamaToolLogging.requestHandler = nil }
 
         let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [MockURLProtocol.self]
+        config.protocolClasses = [MockURLProtocolOllamaToolLogging.self]
         let session = URLSession(configuration: config)
 
-        MockURLProtocol.requestHandler = { request in
+        MockURLProtocolOllamaToolLogging.requestHandler = { request in
             #expect(request.url?.path == "/api/chat")
 
             let payload = """
