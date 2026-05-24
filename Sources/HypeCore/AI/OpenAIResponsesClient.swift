@@ -156,6 +156,129 @@ public actor OpenAIResponsesClient: HypeAIClient {
         return (response, decoded)
     }
 
+    public nonisolated func chatStream(messages: [OllamaMessage], tools: [OllamaTool]) -> AsyncStream<String> {
+        let apiKey = self.apiKey
+        let modelName = self.model
+        let baseURL = self.baseURL
+
+        return AsyncStream { continuation in
+            Task {
+                do {
+                    let url = baseURL.appendingPathComponent("/v1/chat/completions")
+                    var request = URLRequest(url: url)
+                    request.httpMethod = "POST"
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                    request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+                    let body: [String: Any] = [
+                        "model": modelName,
+                        "stream": true,
+                        "messages": try Self.chatCompletionMessages(from: messages)
+                    ]
+                    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+                    let config = URLSessionConfiguration.ephemeral
+                    config.timeoutIntervalForRequest = self.timeouts.request
+                    let session = URLSession(configuration: config)
+
+                    let (bytes, response) = try await session.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse,
+                          (200..<300).contains(httpResponse.statusCode) else {
+                        continuation.finish()
+                        return
+                    }
+
+                    var buffer = Data()
+                    for try await byteChunk in bytes {
+                        buffer.append(byteChunk)
+
+                        while let newlineIndex = buffer.firstIndex(of: UInt8(ascii: "\n")) {
+                            let lineData = Data(buffer[..<newlineIndex])
+                            buffer = Data(buffer[buffer.index(after: newlineIndex)...])
+
+                            guard let line = String(data: lineData, encoding: .utf8),
+                                  line.hasPrefix("data: ") else { continue }
+
+                            let jsonString = String(line.dropFirst(6))
+                            if jsonString == "[DONE]" {
+                                continuation.finish()
+                                return
+                            }
+
+                            if let token = Self.parseStreamToken(jsonString) {
+                                continuation.yield(token)
+                            }
+                        }
+                    }
+
+                    if !buffer.isEmpty, let remaining = String(data: buffer, encoding: .utf8) {
+                        for line in remaining.components(separatedBy: "\n") {
+                            guard line.hasPrefix("data: ") else { continue }
+                            let jsonString = String(line.dropFirst(6))
+                            if jsonString == "[DONE]" { break }
+                            if let token = Self.parseStreamToken(jsonString) {
+                                continuation.yield(token)
+                            }
+                        }
+                    }
+
+                    continuation.finish()
+                } catch {
+                    continuation.finish()
+                }
+            }
+        }
+    }
+
+    private static func parseStreamToken(_ jsonString: String) -> String? {
+        guard let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let first = choices.first,
+              let delta = first["delta"] as? [String: Any],
+              let content = delta["content"] as? String else {
+            return nil
+        }
+        return content
+    }
+
+    private static func chatCompletionMessages(from ollamaMessages: [OllamaMessage]) throws -> [[String: Any]] {
+        var messages: [[String: Any]] = []
+
+        for message in ollamaMessages {
+            switch message.role {
+            case "system":
+                messages.append(["role": "system", "content": message.content ?? ""])
+            case "user":
+                messages.append(["role": "user", "content": message.content ?? ""])
+            case "assistant":
+                var msg: [String: Any] = ["role": "assistant"]
+                if let content = message.content { msg["content"] = content }
+                if let toolCalls = message.tool_calls {
+                    msg["tool_calls"] = toolCalls.map { call in
+                        [
+                            "id": call.id ?? "call_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))",
+                            "type": "function",
+                            "function": [
+                                "name": call.function.name,
+                                "arguments": Self.jsonString(from: call.function.arguments) ?? "{}"
+                            ]
+                        ]
+                    }
+                }
+                messages.append(msg)
+            case "tool":
+                messages.append(["role": "tool", "content": message.content ?? ""])
+            default:
+                messages.append(["role": "user", "content": message.content ?? ""])
+            }
+        }
+
+        return messages
+    }
+
     private func chat(
         messages: [OllamaMessage],
         tools: [OllamaTool],
@@ -278,7 +401,7 @@ public actor OpenAIResponsesClient: HypeAIClient {
                             "type": "function_call",
                             "call_id": callId,
                             "name": call.function.name,
-                            "arguments": try jsonString(from: call.function.arguments)
+                            "arguments": Self.jsonString(from: call.function.arguments) ?? "{}"
                         ])
                     }
                 }
@@ -436,14 +559,6 @@ public actor OpenAIResponsesClient: HypeAIClient {
         return try JSONDecoder().decode(OllamaToolCallFunction.self, from: data)
     }
 
-    private static func jsonString(from arguments: [String: String]) throws -> String {
-        let object = arguments.reduce(into: [String: Any]()) { partialResult, pair in
-            partialResult[pair.key] = OllamaToolClient.parseScalarJSONValue(pair.value)
-        }
-        let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
-        return String(data: data, encoding: .utf8) ?? "{}"
-    }
-
     private static func errorMessage(from data: Data) -> String {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return String(data: data, encoding: .utf8).map { String($0.prefix(300)) } ?? "Unknown error"
@@ -504,5 +619,12 @@ public actor OpenAIResponsesClient: HypeAIClient {
         case .json: return "json"
         case .schema: return "schema"
         }
+    }
+
+    private static func jsonString(from arguments: [String: String]) -> String? {
+        guard let data = try? JSONSerialization.data(withJSONObject: arguments as [String: Any], options: [.sortedKeys]) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
     }
 }

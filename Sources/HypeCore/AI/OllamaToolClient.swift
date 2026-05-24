@@ -59,24 +59,51 @@ public struct OllamaProperty: Codable, Sendable {
 public struct OllamaMessage: Codable, Sendable {
     public let role: String
     public let content: String?
+    public let thinking: String?
     public let tool_calls: [OllamaToolCall]?
     /// Base64-encoded PNG strings attached to this message for vision models.
     /// Nil means no images; use `encodeIfPresent` so the key is omitted entirely.
     public let images: [String]?
 
-    public init(role: String, content: String? = nil, tool_calls: [OllamaToolCall]? = nil, images: [String]? = nil) {
+    public init(
+        role: String,
+        content: String? = nil,
+        thinking: String? = nil,
+        tool_calls: [OllamaToolCall]? = nil,
+        images: [String]? = nil
+    ) {
         self.role = role
         self.content = content
+        self.thinking = thinking
         self.tool_calls = tool_calls
         self.images = images
     }
 
-    private enum CodingKeys: String, CodingKey { case role, content, tool_calls, images }
+    fileprivate enum CodingKeys: String, CodingKey {
+        case role
+        case content
+        case thinking
+        case reasoning
+        case reasoning_content
+        case tool_calls
+        case images
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        role = try c.decode(String.self, forKey: .role)
-        content = try c.decodeIfPresent(String.self, forKey: .content)
+        role = try c.decodeIfPresent(String.self, forKey: .role) ?? "assistant"
+        var decodedContent = try c.decodeIfPresent(String.self, forKey: .content)
+        let taggedThinking = decodedContent.map { Self.extractThinkingBlocks(from: $0) }
+        if let taggedThinking {
+            decodedContent = taggedThinking.content
+        }
+        content = decodedContent
+        let explicitThinking = try c.decodeThinkingField()
+        thinking = [explicitThinking, taggedThinking?.thinking]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
+            .nilIfEmpty
         tool_calls = try c.decodeIfPresent([OllamaToolCall].self, forKey: .tool_calls)
         images = try c.decodeIfPresent([String].self, forKey: .images)
     }
@@ -85,8 +112,50 @@ public struct OllamaMessage: Codable, Sendable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(role, forKey: .role)
         try c.encodeIfPresent(content, forKey: .content)
+        // Intentionally omit `thinking`: it is local UI/log metadata from a
+        // prior model response, not part of the portable chat request shape.
         try c.encodeIfPresent(tool_calls, forKey: .tool_calls)
         try c.encodeIfPresent(images, forKey: .images)
+    }
+
+    private static func extractThinkingBlocks(from content: String) -> (content: String?, thinking: String?) {
+        var remaining = content
+        var blocks: [String] = []
+
+        while let openRange = remaining.range(of: "<think>", options: [.caseInsensitive]),
+              let closeRange = remaining.range(of: "</think>", options: [.caseInsensitive], range: openRange.upperBound..<remaining.endIndex) {
+            let block = String(remaining[openRange.upperBound..<closeRange.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !block.isEmpty {
+                blocks.append(block)
+            }
+            remaining.removeSubrange(openRange.lowerBound..<closeRange.upperBound)
+        }
+
+        let trimmedContent = remaining.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedThinking = blocks.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return (
+            content: trimmedContent.isEmpty ? nil : trimmedContent,
+            thinking: trimmedThinking.isEmpty ? nil : trimmedThinking
+        )
+    }
+}
+
+private extension KeyedDecodingContainer where K == OllamaMessage.CodingKeys {
+    func decodeThinkingField() throws -> String? {
+        for key in [K.reasoning_content, K.thinking, K.reasoning] {
+            if let value = try decodeIfPresent(String.self, forKey: key),
+               !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return value
+            }
+        }
+        return nil
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 
@@ -98,6 +167,31 @@ public struct OllamaToolCall: Codable, Sendable {
     public init(id: String? = nil, function: OllamaToolCallFunction) {
         self.id = id
         self.function = function
+    }
+
+    fileprivate enum CodingKeys: String, CodingKey { case id, type, function, name, arguments }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decodeIfPresent(String.self, forKey: .id)
+
+        if let function = try c.decodeIfPresent(OllamaToolCallFunction.self, forKey: .function) {
+            self.function = function
+            return
+        }
+
+        // Some OpenAI-compatible local servers and model adapters emit
+        // tool calls as `{ "name": "...", "arguments": {...} }` rather than
+        // Ollama's documented `{ "function": { ... } }` wrapper. Normalize
+        // that shape so the assistant loop still reaches the executor.
+        self.function = try OllamaToolCallFunction(fromToolCallContainer: c)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(id, forKey: .id)
+        try c.encode("function", forKey: .type)
+        try c.encode(function, forKey: .function)
     }
 }
 
@@ -130,18 +224,28 @@ extension OllamaToolCallFunction: Codable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.name = try container.decode(String.self, forKey: .name)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        self.arguments = try Self.decodeArguments(from: container, key: CodingKeys.arguments)
+    }
 
+    fileprivate init(fromToolCallContainer container: KeyedDecodingContainer<OllamaToolCall.CodingKeys>) throws {
+        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        self.arguments = try Self.decodeArguments(from: container, key: OllamaToolCall.CodingKeys.arguments)
+    }
+
+    private static func decodeArguments<K: CodingKey>(
+        from container: KeyedDecodingContainer<K>,
+        key: K
+    ) throws -> [String: String] {
         // Missing arguments is valid — some tool calls take no parameters.
-        guard container.contains(.arguments),
-              try !container.decodeNil(forKey: .arguments) else {
-            self.arguments = [:]
-            return
+        guard container.contains(key),
+              try !container.decodeNil(forKey: key) else {
+            return [:]
         }
 
         // Decode as a generic JSON value. JSONFlexibleValue can represent any
         // JSON type, so this decode step never fails on well-formed JSON.
-        let raw = try container.decode(JSONFlexibleValue.self, forKey: .arguments)
+        let raw = try container.decode(JSONFlexibleValue.self, forKey: key)
 
         // Normalize to a [String: JSONFlexibleValue] object we can walk.
         var object: [String: JSONFlexibleValue] = [:]
@@ -192,7 +296,7 @@ extension OllamaToolCallFunction: Codable {
         for (key, value) in object {
             result[key] = value.canonicalString
         }
-        self.arguments = result
+        return result
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -352,6 +456,41 @@ extension JSONFlexibleValue: Decodable {
 public struct OllamaChatResponse: Codable, Sendable {
     public let message: OllamaMessage
     public let done: Bool
+
+    private enum CodingKeys: String, CodingKey { case message, done, choices }
+    private struct OpenAICompatibleChoice: Codable, Sendable {
+        let message: OllamaMessage
+        let finish_reason: String?
+    }
+
+    public init(message: OllamaMessage, done: Bool) {
+        self.message = message
+        self.done = done
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let message = try c.decodeIfPresent(OllamaMessage.self, forKey: .message) {
+            self.message = message
+            self.done = try c.decodeIfPresent(Bool.self, forKey: .done) ?? true
+            return
+        }
+
+        if let choice = try c.decodeIfPresent([OpenAICompatibleChoice].self, forKey: .choices)?.first {
+            self.message = choice.message
+            self.done = choice.finish_reason != nil
+            return
+        }
+
+        self.message = OllamaMessage(role: "assistant")
+        self.done = try c.decodeIfPresent(Bool.self, forKey: .done) ?? true
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(message, forKey: .message)
+        try c.encode(done, forKey: .done)
+    }
 }
 
 public struct OllamaGenerateResponse: Codable, Sendable {
@@ -1048,6 +1187,9 @@ public actor OllamaToolClient: HypeAIClient {
         }
 
         var parts = [prefix]
+        if let thinking = message.thinking, !thinking.isEmpty {
+            parts.append("THINKING:\n\(thinking)")
+        }
         if let content = message.content, !content.isEmpty {
             parts.append(content)
         } else {
@@ -1142,6 +1284,87 @@ public actor OllamaToolClient: HypeAIClient {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         _ = try await sessionData(for: request, endpoint: "/api/generate")
+    }
+
+    public nonisolated func chatStream(messages: [OllamaMessage], tools: [OllamaTool]) -> AsyncStream<String> {
+        let baseURL = self.baseURL
+        let model = self.model
+
+        return AsyncStream { continuation in
+            Task {
+                do {
+                    let url = URL(string: "\(baseURL)/v1/chat/completions")!
+
+                    var request = URLRequest(url: url)
+                    request.httpMethod = "POST"
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+
+                    let body = (try? Self.requestBodyObject(model: model, messages: messages, tools: tools, format: nil)) ?? [:]
+                    var streamBody = body
+                    streamBody["stream"] = true
+                    request.httpBody = try? JSONSerialization.data(withJSONObject: streamBody)
+
+                    let (bytes, response) = try await self.session.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse,
+                          (200..<300).contains(httpResponse.statusCode) else {
+                        continuation.finish()
+                        return
+                    }
+
+                    var buffer = Data()
+                    for try await byteChunk in bytes {
+                        buffer.append(byteChunk)
+
+                        while let newlineIndex = buffer.firstIndex(of: UInt8(ascii: "\n")) {
+                            let lineData = Data(buffer[..<newlineIndex])
+                            buffer = Data(buffer[buffer.index(after: newlineIndex)...])
+
+                            guard let line = String(data: lineData, encoding: .utf8),
+                                  line.hasPrefix("data: ") else { continue }
+
+                            let jsonString = String(line.dropFirst(6))
+                            if jsonString == "[DONE]" {
+                                continuation.finish()
+                                return
+                            }
+
+                            if let token = Self.parseStreamToken(jsonString) {
+                                continuation.yield(token)
+                            }
+                        }
+                    }
+
+                    if !buffer.isEmpty, let remaining = String(data: buffer, encoding: .utf8) {
+                        for line in remaining.components(separatedBy: "\n") {
+                            guard line.hasPrefix("data: ") else { continue }
+                            let jsonString = String(line.dropFirst(6))
+                            if jsonString == "[DONE]" { break }
+                            if let token = Self.parseStreamToken(jsonString) {
+                                continuation.yield(token)
+                            }
+                        }
+                    }
+
+                    continuation.finish()
+                } catch {
+                    continuation.finish()
+                }
+            }
+        }
+    }
+
+    private static func parseStreamToken(_ jsonString: String) -> String? {
+        guard let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let first = choices.first,
+              let delta = first["delta"] as? [String: Any],
+              let content = delta["content"] as? String else {
+            return nil
+        }
+        return content
     }
 }
 

@@ -47,6 +47,7 @@ public protocol HypeAIClient: Sendable {
         format: OllamaResponseFormat
     ) async throws -> (response: OllamaChatResponse, decoded: Response)
     func preloadModel() async throws
+    func chatStream(messages: [OllamaMessage], tools: [OllamaTool]) -> AsyncStream<String>
 }
 
 public extension HypeAIClient {
@@ -174,10 +175,12 @@ public enum HypeAIConfiguration {
     public static func makeClient(defaults: UserDefaults = .standard) throws -> any HypeAIClient {
         switch selectedProvider(defaults: defaults) {
         case .ollama:
-            return OllamaToolClient(
-                host: normalized(defaults.string(forKey: "ollamaHost")) ?? "localhost",
-                port: normalized(defaults.string(forKey: "ollamaPort")) ?? "11434",
-                model: normalized(defaults.string(forKey: "ollamaModel")) ?? "llama3.2"
+            return OpenAIChatCompletionsClient(
+                configuration: .ollama(
+                    host: normalized(defaults.string(forKey: "ollamaHost")) ?? "localhost",
+                    port: normalized(defaults.string(forKey: "ollamaPort")) ?? "11434",
+                    model: normalized(defaults.string(forKey: "ollamaModel")) ?? "llama3.2"
+                )
             )
         case .llamaSwap:
             let apiKey = try? KeychainStore.getSecret(account: KeychainStore.llamaSwapAPIKeyAccount)
@@ -189,9 +192,12 @@ public enum HypeAIConfiguration {
             )
         case .openAI:
             let apiKey = try KeychainStore.getSecret(account: KeychainStore.openAIAPIKeyAccount)
-            return OpenAIResponsesClient(
-                apiKey: apiKey,
-                model: openAIModel(defaults: defaults)
+            return OpenAIChatCompletionsClient(
+                configuration: .init(
+                    baseURL: URL(string: "https://api.openai.com")!,
+                    apiKey: apiKey,
+                    model: openAIModel(defaults: defaults)
+                )
             )
         }
     }

@@ -384,6 +384,33 @@ struct TileMapTests {
         #expect(node?.size?.height == 64)
     }
 
+    @Test("add_sprite_to_scene without asset creates a visible placeholder sprite")
+    func addSpriteWithoutAssetDefaultsToVisiblePlaceholder() async {
+        var doc = HypeDocument.newDocument(name: "Tile Test")
+        let cardId = doc.cards[0].id
+        var area = Part(partType: .spriteArea, cardId: cardId, name: "game", left: 0, top: 0, width: 800, height: 600)
+        area.setSpriteAreaSpec(SpriteAreaSpec(defaultSceneNamed: "main", fallbackSize: SizeSpec(width: 800, height: 600)))
+        doc.addPart(area)
+
+        _ = await HypeToolExecutor().execute(
+            toolName: "add_sprite_to_scene",
+            arguments: [
+                "sprite_area_name": "game",
+                "sprite_name": "sprite_1",
+                "x": "50",
+                "y": "200",
+            ],
+            document: &doc,
+            currentCardId: cardId
+        )
+
+        let areaPart = doc.parts.first { $0.name == "game" }!
+        let node = areaPart.activeSceneSpec?.node(named: "sprite_1")
+        #expect(node?.size?.width == 48)
+        #expect(node?.size?.height == 48)
+        #expect(node?.shapeSpec?.fillColor == "#4AA8FF")
+    }
+
     @Test("set_node_property accepts loc alias used by AI game authoring")
     func setNodePropertyAcceptsLocAlias() async {
         var doc = HypeDocument.newDocument(name: "Tile Test")
