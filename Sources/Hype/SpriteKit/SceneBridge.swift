@@ -219,7 +219,13 @@ final class SceneBridge {
 
         switch spec.nodeType {
         case .sprite:
-            let sprite = SKSpriteNode()
+            let fallbackSize = spec.size.map {
+                CGSize(width: $0.width, height: $0.height)
+            } ?? CGSize(width: 48, height: 48)
+            let sprite = SKSpriteNode(
+                color: nsColor(from: spec.shapeSpec?.fillColor ?? "#4AA8FF"),
+                size: fallbackSize
+            )
             // Load texture from asset ref
             if let ref = spec.assetRef, let texture = loadTexture(for: ref, from: repository) {
                 sprite.texture = texture

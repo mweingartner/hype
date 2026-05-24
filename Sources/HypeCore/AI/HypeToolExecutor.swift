@@ -2385,6 +2385,16 @@ public struct HypeToolExecutor: Sendable {
                     newNode.size = defaultSpriteNodeSize(for: asset)
                 }
             }
+            if newNode.assetRef == nil && newNode.size == nil {
+                newNode.size = SizeSpec(width: 48, height: 48)
+                newNode.shapeSpec = ShapeNodeSpec(
+                    shapeType: .rect,
+                    fillColor: "#4AA8FF",
+                    strokeColor: "#1D5FBD",
+                    lineWidth: 1,
+                    cornerRadius: 6
+                )
+            }
             _ = modifyActiveScene(partIndex: partIdx, document: &document) { $0.nodes.append(newNode) }
             return "Added sprite '\(spriteName)' to scene in '\(areaName)' at (\(Int(x)),\(Int(y)))"
 

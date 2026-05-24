@@ -8,6 +8,22 @@ import SpriteKit
 @Suite("SceneBridge smoke tests")
 struct SceneBridgeSmokeTests {
 
+    @Test("assetless sprite nodes render with fallback size and color")
+    func assetlessSpritesRenderWithFallbackAppearance() {
+        let repository = SpriteRepository()
+        let sprite = HypeNodeSpec(
+            name: "sprite_1",
+            nodeType: .sprite,
+            position: PointSpec(x: 50, y: 200)
+        )
+        let bridge = SceneBridge(sceneHeight: 600)
+
+        let rendered = bridge.makeNode(from: sprite, repository: repository) as? SKSpriteNode
+
+        #expect(rendered?.size == CGSize(width: 48, height: 48))
+        #expect(rendered?.color.alphaComponent == 1)
+    }
+
     @Test("preloadTextures warms the cache for referenced scene assets")
     func preloadTexturesWarmsCache() {
         let textureAsset = SpriteAsset(
