@@ -12,6 +12,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", exact: "1.5.0"),
+        .package(url: "https://github.com/AudioKit/AudioKit.git", exact: "5.2.3"),
     ],
     targets: [
         .executableTarget(
@@ -39,6 +40,9 @@ let package = Package(
         ),
         .target(
             name: "HypeCore",
+            dependencies: [
+                .product(name: "AudioKit", package: "AudioKit"),
+            ],
             path: "Sources/HypeCore",
             resources: [
                 .process("Resources/MeshyAnimationCatalog.json"),

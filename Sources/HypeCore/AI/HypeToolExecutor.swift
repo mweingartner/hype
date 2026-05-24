@@ -764,6 +764,12 @@ public struct HypeToolExecutor: Sendable {
             props.append("format=\(p.audioFormat)")
             props.append("saveInStack=\(p.audioEmbedInStack)")
             if let audioData = p.audioData { props.append("storedBytes=\(audioData.count)") }
+        case .musicPlayer, .pianoKeyboard, .stepSequencer, .musicMixer:
+            if !p.musicPatternName.isEmpty { props.append("musicPattern=\(p.musicPatternName)") }
+            props.append("instrument=\(p.musicInstrumentName)")
+            props.append("tempo=\(p.musicTempo)")
+            props.append("loop=\(p.musicLoop)")
+            props.append("volume=\(p.musicVolume)")
         case .scene3D:
             if let ref = p.scene3DAssetRef {
                 props.append("model=\(ref.name)")
@@ -1473,6 +1479,91 @@ public struct HypeToolExecutor: Sendable {
             let layer = place.backgroundId != nil ? " on background" : ""
             return "Created audio recorder '\(part.name)'\(layer)"
 
+        case "list_music_instruments":
+            let query = (arguments["query"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let instruments = MusicInstrumentCatalog.instruments.filter { descriptor in
+                query.isEmpty
+                    || descriptor.name.lowercased().contains(query)
+                    || descriptor.family.lowercased().contains(query)
+            }
+            return instruments
+                .map { $0.isPercussion ? "\($0.name) (drums)" : "\($0.name) [\($0.family)]" }
+                .joined(separator: "\n")
+
+        case "create_music_pattern":
+            let rawName = arguments["name"] ?? "Music Pattern"
+            let patternName = rawName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Music Pattern" : rawName
+            let tempo = max(1, Int(arguments["tempo"] ?? "") ?? 120)
+            let shouldLoop = boolArgument(arguments["loop"]) ?? false
+            let tracks = musicTracks(from: arguments)
+            let notes = arguments["notes"] ?? tracks.first?.noteString ?? ""
+            let pattern = MusicPatternSpec(
+                name: patternName,
+                tempo: tempo,
+                loop: shouldLoop,
+                tracks: tracks.isEmpty
+                    ? [MusicTrackSpec(name: "melody", instrument: MusicInstrumentCatalog.resolve(arguments["instrument"] ?? "Acoustic Grand Piano").name, noteString: notes)]
+                    : tracks,
+                notes: notes
+            )
+            document.musicLibrary.upsertPattern(pattern)
+            return "Created music pattern '\(pattern.name)' with \(pattern.tracks.count) track(s) at \(pattern.tempo) BPM"
+
+        case "list_music_patterns":
+            guard !document.musicLibrary.patterns.isEmpty else { return "No music patterns in this stack" }
+            return document.musicLibrary.patterns.map { pattern in
+                let instruments = pattern.tracks.map(\.instrument).joined(separator: ", ")
+                return "\(pattern.name): \(pattern.tempo) BPM, loop=\(pattern.loop), tracks=\(pattern.tracks.count), instruments=\(instruments)"
+            }.joined(separator: "\n")
+
+        case "export_music_pattern":
+            let patternName = arguments["name"] ?? ""
+            guard let pattern = document.musicLibrary.pattern(named: patternName) else {
+                return "Music pattern '\(patternName)' not found"
+            }
+            let assetName = upsertMusicPatternAsset(
+                pattern: pattern,
+                requestedName: arguments["asset_name"] ?? "",
+                document: &document
+            )
+            return "Exported music pattern '\(pattern.name)' to audio asset '\(assetName)'"
+
+        case "create_music_player":
+            return createMusicControl(
+                partType: .musicPlayer,
+                defaultName: "Music Player",
+                arguments: arguments,
+                document: &document,
+                currentCardId: currentCardId
+            )
+
+        case "create_piano_keyboard":
+            return createMusicControl(
+                partType: .pianoKeyboard,
+                defaultName: "Piano Keyboard",
+                arguments: arguments,
+                document: &document,
+                currentCardId: currentCardId
+            )
+
+        case "create_step_sequencer":
+            return createMusicControl(
+                partType: .stepSequencer,
+                defaultName: "Step Sequencer",
+                arguments: arguments,
+                document: &document,
+                currentCardId: currentCardId
+            )
+
+        case "create_music_mixer":
+            return createMusicControl(
+                partType: .musicMixer,
+                defaultName: "Music Mixer",
+                arguments: arguments,
+                document: &document,
+                currentCardId: currentCardId
+            )
+
         case "create_segmented":
             let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
             var part = Part(
@@ -1705,6 +1796,19 @@ public struct HypeToolExecutor: Sendable {
                 case "format": document.parts[index].audioFormat = value
                 case "saveinstack", "save_in_stack", "embedinstack", "embed_in_stack", "embedded", "audioembedded":
                     document.parts[index].audioEmbedInStack = boolArgument(value) ?? (value.lowercased() == "true")
+                // AudioKit music controls
+                case "musicpattern", "music_pattern", "patternname", "pattern_name":
+                    document.parts[index].musicPatternName = value
+                case "musicinstrument", "music_instrument", "instrument":
+                    document.parts[index].musicInstrumentName = MusicInstrumentCatalog.resolve(value).name
+                case "musictempo", "music_tempo", "tempo", "bpm":
+                    document.parts[index].musicTempo = max(1, Double(value) ?? 120)
+                case "musicloop", "music_loop", "loop", "looping":
+                    document.parts[index].musicLoop = boolArgument(value) ?? (value.lowercased() == "true")
+                case "musicvolume", "music_volume", "volume":
+                    document.parts[index].musicVolume = min(1, max(0, Double(value) ?? 1))
+                case "musictracks", "music_tracks", "trackdata", "track_data":
+                    document.parts[index].musicTrackData = value
                 // Scene3D
                 case "object", "model", "modelasset", "model_asset", "assetname", "asset_name":
                     _ = Scene3DModelBindingResolver.bindModelOrObject(
@@ -2948,6 +3052,19 @@ public struct HypeToolExecutor: Sendable {
             case "format": return part.audioFormat
             case "saveinstack", "save_in_stack", "embedinstack", "embed_in_stack", "embedded", "audioembedded": return String(part.audioEmbedInStack)
             case "audiosize", "audio_size", "audiodatasize", "audio_data_size": return String(part.audioData?.count ?? 0)
+            // AudioKit music controls
+            case "musicpattern", "music_pattern", "patternname", "pattern_name":
+                return part.musicPatternName
+            case "musicinstrument", "music_instrument", "instrument":
+                return part.musicInstrumentName
+            case "musictempo", "music_tempo", "tempo", "bpm":
+                return String(part.musicTempo)
+            case "musicloop", "music_loop", "loop", "looping":
+                return String(part.musicLoop)
+            case "musicvolume", "music_volume", "volume":
+                return String(part.musicVolume)
+            case "musictracks", "music_tracks", "trackdata", "track_data":
+                return part.musicTrackData
             // Scene3D
             case "object", "model":
                 return Scene3DModelBindingResolver.displayModel(for: part)
@@ -4658,6 +4775,103 @@ public struct HypeToolExecutor: Sendable {
         }
     }
 
+    private func musicTracks(from arguments: [String: String]) -> [MusicTrackSpec] {
+        if let json = arguments["tracks_json"],
+           let data = json.data(using: .utf8),
+           let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+            return array.enumerated().map { index, item in
+                let rawInstrument = (item["instrument"] as? String) ?? arguments["instrument"] ?? "Acoustic Grand Piano"
+                let notes = (item["notes"] as? String)
+                    ?? (item["noteString"] as? String)
+                    ?? (item["note_string"] as? String)
+                    ?? ""
+                let volume = (item["volume"] as? Double)
+                    ?? (item["volume"] as? NSNumber)?.doubleValue
+                    ?? 1
+                let pan = (item["pan"] as? Double)
+                    ?? (item["pan"] as? NSNumber)?.doubleValue
+                    ?? 0
+                let muted = (item["muted"] as? Bool) ?? false
+                let solo = (item["solo"] as? Bool) ?? false
+                return MusicTrackSpec(
+                    name: (item["name"] as? String) ?? "track \(index + 1)",
+                    instrument: MusicInstrumentCatalog.resolve(rawInstrument).name,
+                    noteString: notes,
+                    volume: volume,
+                    pan: pan,
+                    muted: muted,
+                    solo: solo
+                )
+            }
+        }
+        let notes = arguments["notes"] ?? ""
+        guard !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        return [
+            MusicTrackSpec(
+                name: "melody",
+                instrument: MusicInstrumentCatalog.resolve(arguments["instrument"] ?? "Acoustic Grand Piano").name,
+                noteString: notes
+            )
+        ]
+    }
+
+    private func upsertMusicPatternAsset(
+        pattern: MusicPatternSpec,
+        requestedName: String,
+        document: inout HypeDocument
+    ) -> String {
+        let trimmed = requestedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let assetName = trimmed.isEmpty ? "\(pattern.name).wav" : trimmed
+        let data = MusicPatternRenderer.wavData(for: pattern)
+        let tags = ["music", "generated", "audiokit"]
+        if let existing = document.spriteRepository.asset(byName: assetName) {
+            document.spriteRepository.updateAsset(id: existing.id) { asset in
+                asset.kind = .audioClip
+                asset.mimeType = "audio/wav"
+                asset.data = data
+                asset.tags = Array(Set(asset.tags + tags)).sorted()
+            }
+        } else {
+            document.spriteRepository.addAsset(SpriteAsset(
+                name: assetName,
+                kind: .audioClip,
+                mimeType: "audio/wav",
+                data: data,
+                tags: tags
+            ))
+        }
+        return assetName
+    }
+
+    private func createMusicControl(
+        partType: PartType,
+        defaultName: String,
+        arguments: [String: String],
+        document: inout HypeDocument,
+        currentCardId: UUID
+    ) -> String {
+        let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+        var part = Part(
+            partType: partType,
+            cardId: place.cardId,
+            backgroundId: place.backgroundId,
+            name: arguments["name"] ?? defaultName,
+            left: Double(arguments["left"] ?? "100") ?? 100,
+            top: Double(arguments["top"] ?? "100") ?? 100,
+            width: Double(arguments["width"] ?? "260") ?? 260,
+            height: Double(arguments["height"] ?? "96") ?? 96
+        )
+        part.musicPatternName = arguments["pattern"] ?? arguments["music_pattern"] ?? ""
+        part.musicInstrumentName = MusicInstrumentCatalog.resolve(arguments["instrument"] ?? "Acoustic Grand Piano").name
+        part.musicTempo = max(1, Double(arguments["tempo"] ?? "120") ?? 120)
+        part.musicLoop = boolArgument(arguments["loop"]) ?? false
+        part.musicVolume = min(1, max(0, Double(arguments["volume"] ?? "1") ?? 1))
+        part.musicTrackData = arguments["tracks_json"] ?? ""
+        document.addPart(part)
+        let layer = place.backgroundId != nil ? " on background" : ""
+        return "Created \(partType.rawValue) '\(part.name)'\(layer)"
+    }
+
     // MARK: - Scene-node helpers
 
     /// Result returned when mutating a scene within a SpriteAreaSpec.
@@ -5168,6 +5382,13 @@ public struct HypeToolExecutor: Sendable {
             row("format", p.audioFormat, "m4a")
             row("saveInStack", String(p.audioEmbedInStack), "false")
             row("audioSize", String(p.audioData?.count ?? 0), "0")
+        case .musicPlayer, .pianoKeyboard, .stepSequencer, .musicMixer:
+            row("musicPattern", "\"\(p.musicPatternName)\"", "\"\"")
+            row("instrument", "\"\(p.musicInstrumentName)\"", "\"Acoustic Grand Piano\"")
+            row("tempo", String(p.musicTempo), "120")
+            row("loop", String(p.musicLoop), "false")
+            row("volume", String(p.musicVolume), "1.0")
+            row("musicTracks", "\"\(p.musicTrackData.prefix(80))\(p.musicTrackData.count > 80 ? "..." : "")\"", "\"\" (JSON)")
         case .scene3D:
             row("object", "\"\(Scene3DModelBindingResolver.displayModel(for: p))\"", "\"\"")
             row("model", "\"\(Scene3DModelBindingResolver.displayModel(for: p))\"", "\"\"")

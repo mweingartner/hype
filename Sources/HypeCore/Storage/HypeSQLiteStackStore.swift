@@ -95,7 +95,7 @@ public enum HypeSQLiteStackStoreError: Error, LocalizedError, Equatable {
 }
 
 public final class HypeSQLiteStackStore {
-    public static let schemaVersion = 2
+    public static let schemaVersion = 3
     public static let manifestFileName = "manifest.json"
     public static let sqliteFileName = "stack.sqlite"
 
@@ -282,6 +282,7 @@ public final class HypeSQLiteStackStore {
         let paintLayers: [CardPaintLayer] = try loadPayloadRows(CardPaintLayer.self, db: db, table: "paint_layers")
         let constraints: [LayoutConstraint] = try loadPayloadRows(LayoutConstraint.self, db: db, table: "constraints")
         let assets: [SpriteAsset] = try loadPayloadRows(SpriteAsset.self, db: db, table: "assets")
+        let musicLibrary = try loadMusicLibrary(db: db)
         let contextSources: [AIContextSource] = try loadPayloadRows(AIContextSource.self, db: db, table: "ai_context_sources")
         let contextItems: [AIContextItem] = try loadPayloadRows(AIContextItem.self, db: db, table: "ai_context_items")
         let themes: [HypeTheme] = try loadPayloadRows(HypeTheme.self, db: db, table: "themes")
@@ -297,6 +298,7 @@ public final class HypeSQLiteStackStore {
             paintLayers: paintLayers,
             constraints: constraints,
             spriteRepository: SpriteRepository(assets: assets),
+            musicLibrary: musicLibrary,
             aiContextLibrary: AIContextLibrary(sources: contextSources, items: contextItems),
             aiPromptHistory: aiPromptHistory,
             scriptGlobals: [:],
@@ -445,6 +447,41 @@ public final class HypeSQLiteStackStore {
             ) STRICT
             """)
         try db.execute("""
+            CREATE TABLE music_patterns (
+                id TEXT PRIMARY KEY,
+                stack_id TEXT NOT NULL REFERENCES stacks(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                tempo INTEGER NOT NULL,
+                time_signature TEXT NOT NULL,
+                loop INTEGER NOT NULL,
+                document_order INTEGER NOT NULL,
+                payload_json TEXT NOT NULL
+            ) STRICT
+            """)
+        try db.execute("""
+            CREATE TABLE music_tracks (
+                id TEXT PRIMARY KEY,
+                pattern_id TEXT NOT NULL REFERENCES music_patterns(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                instrument TEXT NOT NULL,
+                volume REAL NOT NULL,
+                pan REAL NOT NULL,
+                muted INTEGER NOT NULL,
+                solo INTEGER NOT NULL,
+                document_order INTEGER NOT NULL,
+                payload_json TEXT NOT NULL
+            ) STRICT
+            """)
+        try db.execute("""
+            CREATE TABLE music_notes (
+                id TEXT PRIMARY KEY,
+                track_id TEXT NOT NULL REFERENCES music_tracks(id) ON DELETE CASCADE,
+                note_index INTEGER NOT NULL,
+                token TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+            ) STRICT
+            """)
+        try db.execute("""
             CREATE TABLE ai_context_sources (
                 id TEXT PRIMARY KEY,
                 stack_id TEXT NOT NULL REFERENCES stacks(id) ON DELETE CASCADE,
@@ -573,9 +610,12 @@ public final class HypeSQLiteStackStore {
         try db.execute("CREATE INDEX idx_scripts_owner ON scripts(owner_type, owner_id)")
         try db.execute("CREATE INDEX idx_scene_nodes_scene_parent_sort ON scene_nodes(scene_id, parent_node_id, sort_key)")
         try db.execute("CREATE INDEX idx_assets_name ON assets(stack_id, name COLLATE NOCASE)")
+        try db.execute("CREATE INDEX idx_music_patterns_name ON music_patterns(stack_id, name COLLATE NOCASE)")
+        try db.execute("CREATE INDEX idx_music_tracks_pattern_sort ON music_tracks(pattern_id, document_order)")
         try db.execute("CREATE VIEW v_card_layout AS SELECT cards.name AS card, parts.name AS part, parts.part_type, parts.left, parts.top, parts.width, parts.height, parts.document_order FROM cards JOIN parts ON parts.card_id = cards.id")
         try db.execute("CREATE VIEW v_object_scripts AS SELECT owner_type, owner_id, parse_status, substr(source, 1, 160) AS preview FROM scripts")
         try db.execute("CREATE VIEW v_missing_asset_refs AS SELECT scene_nodes.id AS node_id, scene_nodes.name, scene_nodes.asset_id FROM scene_nodes LEFT JOIN assets ON assets.id = scene_nodes.asset_id WHERE scene_nodes.asset_id IS NOT NULL AND assets.id IS NULL")
+        try db.execute("CREATE VIEW v_music_patterns AS SELECT music_patterns.name AS pattern, music_patterns.tempo, music_tracks.name AS track, music_tracks.instrument, music_tracks.document_order FROM music_patterns LEFT JOIN music_tracks ON music_tracks.pattern_id = music_patterns.id")
     }
 
     private func insertDocument(_ document: HypeDocument, db: SQLiteDatabase) throws {
@@ -728,6 +768,14 @@ public final class HypeSQLiteStackStore {
             try insertSearch(objectType: "asset", objectId: asset.id.uuidString, title: asset.name, body: provenance, tags: ([asset.kind.rawValue] + asset.tags).joined(separator: " "), db: db)
         }
 
+        for (index, pattern) in document.musicLibrary.patterns.enumerated() {
+            try insertMusicPattern(pattern, stackId: document.stack.id, documentOrder: index, db: db)
+            let body = pattern.tracks
+                .map { "\($0.name) \($0.instrument)\n\($0.noteString)" }
+                .joined(separator: "\n")
+            try insertSearch(objectType: "music_pattern", objectId: pattern.id.uuidString, title: pattern.name, body: body, tags: "music pattern", db: db)
+        }
+
         for (index, source) in document.aiContextLibrary.sources.enumerated() {
             try db.execute(
                 "INSERT INTO ai_context_sources (id, stack_id, name, kind, status, document_order, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -868,6 +916,61 @@ public final class HypeSQLiteStackStore {
         }
     }
 
+    private func insertMusicPattern(_ pattern: MusicPatternSpec, stackId: UUID, documentOrder: Int, db: SQLiteDatabase) throws {
+        try db.execute(
+            """
+            INSERT INTO music_patterns (
+                id, stack_id, name, tempo, time_signature, loop, document_order, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                .text(pattern.id.uuidString),
+                .text(stackId.uuidString),
+                .text(pattern.name),
+                .int(Int64(pattern.tempo)),
+                .text(pattern.timeSignature),
+                .int(pattern.loop.sqliteInt),
+                .int(Int64(documentOrder)),
+                .text(try encode(pattern)),
+            ]
+        )
+        for (trackIndex, track) in pattern.tracks.enumerated() {
+            try db.execute(
+                """
+                INSERT INTO music_tracks (
+                    id, pattern_id, name, instrument, volume, pan, muted, solo,
+                    document_order, payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    .text(track.id.uuidString),
+                    .text(pattern.id.uuidString),
+                    .text(track.name),
+                    .text(track.instrument),
+                    .double(track.volume),
+                    .double(track.pan),
+                    .int(track.muted.sqliteInt),
+                    .int(track.solo.sqliteInt),
+                    .int(Int64(trackIndex)),
+                    .text(try encode(track)),
+                ]
+            )
+            for (noteIndex, token) in track.noteString.split(separator: " ", omittingEmptySubsequences: true).enumerated() {
+                let escaped = String(token).replacingOccurrences(of: "\"", with: "\\\"")
+                try db.execute(
+                    "INSERT INTO music_notes (id, track_id, note_index, token, payload_json) VALUES (?, ?, ?, ?, ?)",
+                    [
+                        .text("\(track.id.uuidString)-\(noteIndex)"),
+                        .text(track.id.uuidString),
+                        .int(Int64(noteIndex)),
+                        .text(String(token)),
+                        .text("{\"token\":\"\(escaped)\"}"),
+                    ]
+                )
+            }
+        }
+    }
+
     private func insertSceneNodes(_ nodes: [HypeNodeSpec], sceneId: UUID, parentNodeId: UUID?, db: SQLiteDatabase) throws {
         for (index, node) in nodes.enumerated() {
             let scriptId = try insertScript(ownerType: "scene_node", ownerId: node.id.uuidString, source: node.script, db: db)
@@ -989,6 +1092,14 @@ public final class HypeSQLiteStackStore {
             values.append(part)
         }
         return values
+    }
+
+    private func loadMusicLibrary(db: SQLiteDatabase) throws -> MusicLibrary {
+        guard try db.tableExists("music_patterns") else {
+            return try loadDocumentValue(MusicLibrary.self, key: "musicLibrary", db: db) ?? MusicLibrary()
+        }
+        let patterns: [MusicPatternSpec] = try loadPayloadRows(MusicPatternSpec.self, db: db, table: "music_patterns")
+        return MusicLibrary(patterns: patterns)
     }
 
     private func encode<T: Encodable>(_ value: T) throws -> String {
@@ -1172,6 +1283,14 @@ private final class SQLiteDatabase {
             }
         }
         return exists
+    }
+
+    func tableExists(_ table: String) throws -> Bool {
+        let count = try scalarInt(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
+            [.text(table)]
+        )
+        return count > 0
     }
 
     private func prepare(_ sql: String, _ values: [SQLiteValue]) throws -> SQLiteStatement {

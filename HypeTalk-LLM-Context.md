@@ -341,6 +341,24 @@ set the loop of audio "music" to true
 set the autoplay of video "intro" to true
 ```
 
+### Music (AudioKit-backed)
+Music patterns are stored in the stack and projected to AudioKit at runtime.
+Use tools first for authoring: `create_music_pattern`, `create_music_player`,
+`create_piano_keyboard`, `create_step_sequencer`, `create_music_mixer`,
+`list_music_instruments`, `list_music_patterns`, `export_music_pattern`.
+
+```hypertalk
+create music pattern "Theme" with instrument "Harpsichord" tempo 120 notes "c4q e4q g4q c5h"
+play pattern "Theme" loop
+pause music
+resume music
+stop music
+export pattern "Theme" to audio asset "Theme WAV"
+put the musicState into field "status"
+put the musicPatterns into field "songs"
+put the musicInstruments into field "instruments"
+```
+
 ### Mouse Tracking in Scenes
 ```
 on mouseWithin

@@ -255,9 +255,22 @@ public struct Parser: Sendable {
                 skipNewlines()
                 return .expressionStatement(expr)
             case "pause":
+                if peek(1)?.type == .identifier && peek(1)?.value.lowercased() == "music" {
+                    return try parsePauseMusicStatement()
+                }
                 return try parsePauseSceneStatement()
             case "resume":
+                if peek(1)?.type == .identifier && peek(1)?.value.lowercased() == "music" {
+                    return try parseResumeMusicStatement()
+                }
                 return try parseResumeSceneStatement()
+            case "loop":
+                if peek(1)?.type == .identifier && peek(1)?.value.lowercased() == "pattern" {
+                    return try parseLoopMusicPatternStatement()
+                }
+                let expr = try parseExpression()
+                skipNewlines()
+                return .expressionStatement(expr)
             case "remove":
                 return try parseRemoveSpriteStatement()
             case "apply":
@@ -865,6 +878,20 @@ public struct Parser: Sendable {
 
     private mutating func parseCreateStatement() throws -> Statement {
         _ = try expect(.create)
+
+        // "create music pattern "name" with instrument "piano" tempo 120 notes "c4q e4q""
+        if current.type == .identifier && current.value.lowercased() == "music" {
+            _ = advance()
+            if current.type == .identifier && current.value.lowercased() == "pattern" {
+                return try parseCreateMusicPatternTail()
+            }
+            throw ParseError.unexpected(current, expected: "pattern")
+        }
+
+        // Shorthand: "create pattern "name" ..."
+        if current.type == .identifier && current.value.lowercased() == "pattern" {
+            return try parseCreateMusicPatternTail()
+        }
 
         // "create button "name" [on background]"
         // "create btn "name" [on background]"
@@ -1669,6 +1696,11 @@ public struct Parser: Sendable {
 
     private mutating func parseStopStatement() throws -> Statement {
         _ = try expect(.stop)
+        if current.type == .identifier && current.value.lowercased() == "music" {
+            _ = advance()
+            skipNewlines()
+            return .stopMusic
+        }
         if current.type == .listener {
             _ = advance()
             let expr = try parseExpression()
@@ -1711,6 +1743,16 @@ public struct Parser: Sendable {
 
     private mutating func parseExportStatement() throws -> Statement {
         _ = try expect(.export)
+        if current.type == .identifier && current.value.lowercased() == "pattern" {
+            _ = advance()
+            let pattern = try parseExpression()
+            _ = try expect(.to)
+            if current.type == .identifier && current.value.lowercased() == "audio" { _ = advance() }
+            if current.type == .identifier && current.value.lowercased() == "asset" { _ = advance() }
+            let asset = try parseExpression()
+            skipNewlines()
+            return .exportMusicPattern(name: pattern, assetName: asset)
+        }
         // Skip optional "paint"
         _ = match(.paint)
         let expr = try parseExpression()
@@ -1746,6 +1788,18 @@ public struct Parser: Sendable {
             skipNewlines()
             return .playStop
         }
+        // play pattern "name" [loop]
+        if current.type == .identifier && current.value.lowercased() == "pattern" {
+            _ = advance()
+            let name = try parseExpression()
+            var loop = false
+            if current.type == .identifier && current.value.lowercased() == "loop" {
+                _ = advance()
+                loop = true
+            }
+            skipNewlines()
+            return .playMusicPattern(name: name, loop: loop)
+        }
         // play <soundExpr> [tempo N] [<notesExpr>]
         let sound = try parseExpression()
         var tempo: Expression? = nil
@@ -1773,6 +1827,69 @@ public struct Parser: Sendable {
         }
         skipNewlines()
         return .beep(nil)
+    }
+
+    private mutating func parseCreateMusicPatternTail() throws -> Statement {
+        _ = advance() // pattern
+        let name = try parseExpression()
+        var instrument: Expression?
+        var notes: Expression?
+        var tempo: Expression?
+        var loop: Expression?
+        while current.type != .newline && current.type != .eof {
+            if current.type == .with || current.type == .using {
+                _ = advance()
+                continue
+            }
+            guard current.type == .identifier else {
+                _ = advance()
+                continue
+            }
+            switch current.value.lowercased() {
+            case "instrument":
+                _ = advance()
+                instrument = try parseExpression()
+            case "notes", "sequence":
+                _ = advance()
+                notes = try parseExpression()
+            case "tempo":
+                _ = advance()
+                tempo = try parsePrimary()
+            case "loop", "looping":
+                _ = advance()
+                if current.type != .newline && current.type != .eof {
+                    loop = try parsePrimary()
+                } else {
+                    loop = .literal("true")
+                }
+            default:
+                _ = advance()
+            }
+        }
+        skipNewlines()
+        return .createMusicPattern(name: name, instrument: instrument, notes: notes, tempo: tempo, loop: loop)
+    }
+
+    private mutating func parseLoopMusicPatternStatement() throws -> Statement {
+        _ = advance() // loop
+        _ = advance() // pattern
+        let name = try parseExpression()
+        skipNewlines()
+        return .playMusicPattern(name: name, loop: true)
+    }
+
+    private mutating func parsePauseMusicStatement() throws -> Statement {
+        _ = advance() // pause
+        _ = advance() // music
+        skipNewlines()
+        return .pauseMusic
+    }
+
+    private mutating func parseResumeMusicStatement() throws -> Statement {
+        _ = advance() // resume
+        _ = advance() // music
+        skipNewlines()
+        return .resumeMusic
     }
 
     private mutating func parseWaitStatement() throws -> Statement {

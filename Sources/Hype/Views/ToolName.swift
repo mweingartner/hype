@@ -4,6 +4,7 @@ public enum ToolName: String, CaseIterable, Sendable {
     case browse, button, field, shape, webpage, image, video, chart, spriteArea
     case calendar, pdf, map, colorWell
     case stepper, slider, segmented, audioRecorder, scene3D
+    case musicPlayer, pianoKeyboard, stepSequencer, musicMixer
     case progressView, gauge, divider
     case select
     case pencil, spray, bucket, eraser
@@ -32,6 +33,10 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .segmented: return "Segmented Control"
         case .audioRecorder: return "Audio Recorder"
         case .scene3D: return "3D Scene"
+        case .musicPlayer: return "Music Player"
+        case .pianoKeyboard: return "Piano Keyboard"
+        case .stepSequencer: return "Step Sequencer"
+        case .musicMixer: return "Music Mixer"
         case .progressView: return "Progress View"
         case .gauge: return "Gauge"
         case .divider: return "Divider"
@@ -85,6 +90,14 @@ public enum ToolName: String, CaseIterable, Sendable {
             return "Place a recorder on the card so users can capture and play back short audio clips. Turn on Save in Stack when the recording should travel with the stack file."
         case .scene3D:
             return "Place a 3D model viewer on the card. Users can inspect models, orbit around them, zoom in, and use stack assets as the displayed object."
+        case .musicPlayer:
+            return "Place a music player on the card for songs and loops stored inside the stack. Scripts can create patterns, play them, stop them, and export them as audio assets."
+        case .pianoKeyboard:
+            return "Place a keyboard-style music control on the card. Use it to present playable notes, trigger music scripts, or show the instrument assigned to a music pattern."
+        case .stepSequencer:
+            return "Place a grid-style sequencer on the card. Use it for beats, repeating patterns, and simple composed loops that scripts can store in the stack."
+        case .musicMixer:
+            return "Place a small mixer on the card. Use it to represent track volume and arrangement controls for stack-contained music."
         case .progressView:
             return "Place a progress indicator on the card. Use it to show task completion, loading state, or a running process."
         case .gauge:
@@ -124,6 +137,10 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .segmented: return "rectangle.split.3x1"
         case .audioRecorder: return "mic.circle"
         case .scene3D: return "cube.transparent"
+        case .musicPlayer: return "music.note.list"
+        case .pianoKeyboard: return "pianokeys"
+        case .stepSequencer: return "square.grid.4x3.fill"
+        case .musicMixer: return "slider.horizontal.3"
         case .progressView: return "chart.bar.xaxis"
         case .gauge: return "gauge"
         case .divider: return "minus"

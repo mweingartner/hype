@@ -172,6 +172,12 @@ public indirect enum Statement: Sendable {
     // Sound commands
     case playSound(sound: Expression, notes: Expression?, tempo: Expression?)
     case playStop
+    case createMusicPattern(name: Expression, instrument: Expression?, notes: Expression?, tempo: Expression?, loop: Expression?)
+    case playMusicPattern(name: Expression, loop: Bool)
+    case stopMusic
+    case pauseMusic
+    case resumeMusic
+    case exportMusicPattern(name: Expression, assetName: Expression)
     case beep(Expression?)
     // Wait commands
     case waitDuration(Expression)

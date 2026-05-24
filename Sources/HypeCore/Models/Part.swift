@@ -251,6 +251,20 @@ public struct Part: Identifiable, Codable, Sendable {
     /// into the runtime model on load.
     public var audioData: Data?
 
+    // Music-control-specific (AudioKit-backed at runtime)
+    /// Name of the stack music pattern this control manipulates.
+    public var musicPatternName: String
+    /// Default instrument name for keyboard / pattern creation controls.
+    public var musicInstrumentName: String
+    /// Tempo in beats per minute for controls that create or play patterns.
+    public var musicTempo: Double
+    /// Whether playback should loop when started from this control.
+    public var musicLoop: Bool
+    /// Normalized playback volume, 0...1.
+    public var musicVolume: Double
+    /// JSON or newline/pipe encoded control data for sequencer and mixer UIs.
+    public var musicTrackData: String
+
     // ProgressView-specific
     /// Current progress value; 0..progressTotal. Default 0.
     public var progressValue: Double
@@ -462,6 +476,12 @@ public struct Part: Identifiable, Codable, Sendable {
         self.audioPlaying = false
         self.audioEmbedInStack = false
         self.audioData = nil
+        self.musicPatternName = ""
+        self.musicInstrumentName = "Acoustic Grand Piano"
+        self.musicTempo = 120
+        self.musicLoop = false
+        self.musicVolume = 1
+        self.musicTrackData = ""
         self.progressValue = 0
         self.progressTotal = 1.0
         self.progressIsCircular = false
@@ -602,6 +622,13 @@ public struct Part: Identifiable, Codable, Sendable {
         audioPlaying = try container.decodeIfPresent(Bool.self, forKey: .audioPlaying) ?? false
         audioEmbedInStack = try container.decodeIfPresent(Bool.self, forKey: .audioEmbedInStack) ?? false
         audioData = try container.decodeIfPresent(Data.self, forKey: .audioData)
+        // Music-control fields — backward-compat optional.
+        musicPatternName = try container.decodeIfPresent(String.self, forKey: .musicPatternName) ?? ""
+        musicInstrumentName = try container.decodeIfPresent(String.self, forKey: .musicInstrumentName) ?? "Acoustic Grand Piano"
+        musicTempo = try container.decodeIfPresent(Double.self, forKey: .musicTempo) ?? 120
+        musicLoop = try container.decodeIfPresent(Bool.self, forKey: .musicLoop) ?? false
+        musicVolume = try container.decodeIfPresent(Double.self, forKey: .musicVolume) ?? 1
+        musicTrackData = try container.decodeIfPresent(String.self, forKey: .musicTrackData) ?? ""
         // Scene3D fields — backward-compat optional.
         scene3DURL = try container.decodeIfPresent(String.self, forKey: .scene3DURL) ?? ""
         scene3DAllowsCameraControl = try container.decodeIfPresent(Bool.self, forKey: .scene3DAllowsCameraControl) ?? true

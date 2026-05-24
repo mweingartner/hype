@@ -288,6 +288,90 @@ public struct HypeToolDefinitions {
             "on_background": ("string", "true to place on background", false),
         ]),
 
+        makeTool(name: "list_music_instruments", description: """
+            List the AudioKit/General MIDI instruments Hype can use for stack-contained \
+            music patterns. Use this before choosing an unfamiliar instrument name.
+            """, params: [
+            "query": ("string", "Optional filter text such as piano, bass, drums, flute, synth, or harpsichord.", false),
+        ]),
+
+        makeTool(name: "create_music_pattern", description: """
+            Create or replace a named music pattern stored inside the stack. The pattern \
+            is declarative: instrument, tempo, notes, looping, and optional track JSON are \
+            persisted with the stack and projected to AudioKit at runtime. Use note strings \
+            like `c4q e4q g4q c5h`; suffixes include w, h, q, e, s and rests use r.
+            """, params: [
+            "name": ("string", "Pattern name", true),
+            "instrument": ("string", "Instrument name or alias. Defaults to Acoustic Grand Piano.", false),
+            "tempo": ("string", "Tempo in BPM. Defaults to 120.", false),
+            "notes": ("string", "Single-track note sequence, e.g. 'c4q e4q g4q c5h'.", false),
+            "loop": ("string", "true to loop playback by default", false),
+            "tracks_json": ("string", "Optional JSON array of tracks: [{\"name\":\"bass\",\"instrument\":\"Electric Bass Finger\",\"notes\":\"c2q c2q\",\"volume\":0.8,\"pan\":0}].", false),
+        ]),
+
+        makeTool(name: "list_music_patterns", description: "List stack-contained music patterns and their instruments/tempo.", params: [:]),
+
+        makeTool(name: "export_music_pattern", description: """
+            Render a named music pattern to a WAV audio asset in the sprite repository so \
+            the stack stays portable and the result can be used by `play "assetName"` or \
+            SpriteKit audio nodes.
+            """, params: [
+            "name": ("string", "Music pattern name", true),
+            "asset_name": ("string", "Audio asset name to create or replace. Defaults to '<pattern>.wav'.", false),
+        ]),
+
+        makeTool(name: "create_music_player", description: "Create a music player control connected to a stack-contained music pattern.", params: [
+            "name": ("string", "Control name", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "pattern": ("string", "Music pattern name to play", false),
+            "instrument": ("string", "Default instrument for related scripts", false),
+            "tempo": ("string", "Tempo in BPM", false),
+            "loop": ("string", "true to loop", false),
+            "volume": ("string", "0.0...1.0", false),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
+        makeTool(name: "create_piano_keyboard", description: "Create a keyboard-style music control for triggering or presenting stack-contained music.", params: [
+            "name": ("string", "Control name", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "pattern": ("string", "Optional pattern name", false),
+            "instrument": ("string", "Instrument name", false),
+            "tempo": ("string", "Tempo in BPM", false),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
+        makeTool(name: "create_step_sequencer", description: "Create a grid-style sequencer control for beats and looping note patterns.", params: [
+            "name": ("string", "Control name", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "pattern": ("string", "Optional pattern name", false),
+            "instrument": ("string", "Instrument name", false),
+            "tempo": ("string", "Tempo in BPM", false),
+            "loop": ("string", "true to loop", false),
+            "tracks_json": ("string", "Optional track JSON stored on the control for scripts/AI.", false),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
+        makeTool(name: "create_music_mixer", description: "Create a music mixer control for volume/track arrangement metadata.", params: [
+            "name": ("string", "Control name", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "pattern": ("string", "Optional pattern name", false),
+            "volume": ("string", "0.0...1.0", false),
+            "tracks_json": ("string", "Optional track JSON stored on the control for scripts/AI.", false),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
         makeTool(name: "create_color_well", description: """
             Create a color-picker (NSColorWell) control. Click opens the macOS color panel; \
             picks fire the `colorChanged` HypeTalk message on the part. Read the bound color \
@@ -1615,6 +1699,14 @@ public struct HypeToolDefinitions {
             "create_slider",
             "create_segmented",
             "create_audio_recorder",
+            "list_music_instruments",
+            "create_music_pattern",
+            "list_music_patterns",
+            "export_music_pattern",
+            "create_music_player",
+            "create_piano_keyboard",
+            "create_step_sequencer",
+            "create_music_mixer",
             "create_scene3d",
             "create_progressview",
             "create_gauge",
@@ -1700,6 +1792,11 @@ public struct HypeToolDefinitions {
             "set_tile",
             "fill_tilemap",
             "get_tilemap_info",
+            // Music tools are allowed for game soundtracks/effects.
+            "list_music_instruments",
+            "create_music_pattern",
+            "list_music_patterns",
+            "export_music_pattern",
             // Node read/write
             "list_scene_nodes",
             "list_scene_joints",

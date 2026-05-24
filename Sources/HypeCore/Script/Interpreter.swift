@@ -61,6 +61,11 @@ public protocol SystemProvider: Sendable {
     func playNotes(instrument: String, noteString: String, tempo: Int, document: HypeDocument) async
     func stopSound() async
     func currentSoundName() async -> String
+    func playMusicPattern(_ pattern: MusicPatternSpec, loop: Bool, document: HypeDocument) async
+    func stopMusic() async
+    func pauseMusic() async
+    func resumeMusic() async
+    func currentMusicState() async -> String
 }
 
 public extension SystemProvider {
@@ -69,6 +74,11 @@ public extension SystemProvider {
     func playNotes(instrument: String, noteString: String, tempo: Int, document: HypeDocument) async {}
     func stopSound() async {}
     func currentSoundName() async -> String { "done" }
+    func playMusicPattern(_ pattern: MusicPatternSpec, loop: Bool, document: HypeDocument) async {}
+    func stopMusic() async {}
+    func pauseMusic() async {}
+    func resumeMusic() async {}
+    func currentMusicState() async -> String { "stopped" }
 }
 
 /// Default system provider that does nothing (used when no UI is available).
@@ -1431,6 +1441,83 @@ public struct Interpreter: Sendable {
 
         case .playStop:
             await context.systemProvider.stopSound()
+
+        case .createMusicPattern(let nameExpr, let instrumentExpr, let notesExpr, let tempoExpr, let loopExpr):
+            let rawName = try await evaluate(nameExpr, env: &env, document: document, context: context)
+            let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Music Pattern" : rawName
+            let instrument: String
+            if let instrumentExpr {
+                instrument = try await evaluate(instrumentExpr, env: &env, document: document, context: context)
+            } else {
+                instrument = "Acoustic Grand Piano"
+            }
+            let notes: String
+            if let notesExpr {
+                notes = try await evaluate(notesExpr, env: &env, document: document, context: context)
+            } else {
+                notes = ""
+            }
+            let tempo: Int
+            if let tempoExpr {
+                tempo = max(1, Int(toNumber(try await evaluate(tempoExpr, env: &env, document: document, context: context))))
+            } else {
+                tempo = 120
+            }
+            let shouldLoop: Bool
+            if let loopExpr {
+                shouldLoop = isTruthy(try await evaluate(loopExpr, env: &env, document: document, context: context))
+            } else {
+                shouldLoop = false
+            }
+            let resolvedInstrument = MusicInstrumentCatalog.resolve(instrument).name
+            let pattern = MusicPatternSpec.singleTrack(
+                name: name,
+                instrument: resolvedInstrument,
+                tempo: tempo,
+                notes: notes,
+                loop: shouldLoop
+            )
+            document.musicLibrary.upsertPattern(pattern)
+            env.it = name
+            env.result = name
+
+        case .playMusicPattern(let nameExpr, let loop):
+            let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
+            guard let pattern = document.musicLibrary.pattern(named: name) else {
+                throw ScriptError(message: "Music pattern '\(name)' not found", line: handler.line, handler: handler.name)
+            }
+            await context.systemProvider.playMusicPattern(pattern, loop: loop || pattern.loop, document: document)
+            env.it = pattern.name
+            env.result = pattern.name
+
+        case .stopMusic:
+            await context.systemProvider.stopMusic()
+            env.it = "stopped"
+            env.result = "stopped"
+
+        case .pauseMusic:
+            await context.systemProvider.pauseMusic()
+            env.it = "paused"
+            env.result = "paused"
+
+        case .resumeMusic:
+            await context.systemProvider.resumeMusic()
+            env.it = "playing"
+            env.result = "playing"
+
+        case .exportMusicPattern(let nameExpr, let assetNameExpr):
+            let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
+            let assetNameValue = try await evaluate(assetNameExpr, env: &env, document: document, context: context)
+            guard let pattern = document.musicLibrary.pattern(named: name) else {
+                throw ScriptError(message: "Music pattern '\(name)' not found", line: handler.line, handler: handler.name)
+            }
+            let exportedName = upsertMusicAsset(
+                pattern: pattern,
+                requestedName: assetNameValue,
+                document: &document
+            )
+            env.it = exportedName
+            env.result = exportedName
 
         case .beep(let countExpr):
             let count: Int
@@ -2841,6 +2928,12 @@ public struct Interpreter: Sendable {
             return ""
         case "sound":
             return await context.systemProvider.currentSoundName()
+        case "musicstate":
+            return await context.systemProvider.currentMusicState()
+        case "musicpatterns":
+            return context.document.musicLibrary.patterns.map(\.name).joined(separator: "\n")
+        case "musicinstruments":
+            return MusicInstrumentCatalog.displayList
         case "programs":
             return "Hype"
         case "menus":
@@ -2939,6 +3032,12 @@ public struct Interpreter: Sendable {
                 return "5"
             case "sound":
                 return await context.systemProvider.currentSoundName()
+            case "musicstate":
+                return await context.systemProvider.currentMusicState()
+            case "musicpatterns":
+                return document.musicLibrary.patterns.map(\.name).joined(separator: "\n")
+            case "musicinstruments":
+                return MusicInstrumentCatalog.displayList
             case "version":
                 return "Hype 2.0"
             case "environment":
@@ -3393,6 +3492,19 @@ public struct Interpreter: Sendable {
             return part.audioEmbedInStack ? "true" : "false"
         case "audiosize", "audio_size", "audiodatasize", "audio_data_size":
             return String(part.audioData?.count ?? 0)
+        // AudioKit music controls
+        case "musicpattern", "music_pattern", "patternname", "pattern_name":
+            return part.musicPatternName
+        case "musicinstrument", "music_instrument", "instrument":
+            return part.musicInstrumentName
+        case "musictempo", "music_tempo", "tempo", "bpm":
+            return formatNumber(Double(part.musicTempo))
+        case "musicloop", "music_loop", "loop", "looping":
+            return part.musicLoop ? "true" : "false"
+        case "musicvolume", "music_volume", "volume":
+            return formatNumber(part.musicVolume)
+        case "musictracks", "music_tracks", "trackdata", "track_data":
+            return part.musicTrackData
         // Scene3D
         case "imagefilter", "image_filter", "filter": return part.imageFilter
         case "imagefilterintensity", "image_filter_intensity", "filterintensity", "filter_intensity": return formatNumber(part.imageFilterIntensity)
@@ -3815,6 +3927,22 @@ public struct Interpreter: Sendable {
             if let part = document.parts.first(where: { $0.partType == .gauge && $0.name.lowercased() == identifier.lowercased() }) {
                 return part.id.uuidString
             }
+        case "musicplayer", "music":
+            if let part = document.parts.first(where: { $0.partType == .musicPlayer && $0.name.lowercased() == identifier.lowercased() }) {
+                return part.id.uuidString
+            }
+        case "pianokeyboard", "keyboard":
+            if let part = document.parts.first(where: { $0.partType == .pianoKeyboard && $0.name.lowercased() == identifier.lowercased() }) {
+                return part.id.uuidString
+            }
+        case "stepsequencer", "sequencer":
+            if let part = document.parts.first(where: { $0.partType == .stepSequencer && $0.name.lowercased() == identifier.lowercased() }) {
+                return part.id.uuidString
+            }
+        case "musicmixer", "mixer":
+            if let part = document.parts.first(where: { $0.partType == .musicMixer && $0.name.lowercased() == identifier.lowercased() }) {
+                return part.id.uuidString
+            }
         // `link`, `menu`, `searchfield` once had their own PartType
         // values; `Part.init(from:)` (Part.swift:610-648) migrates
         // any decoded part with those types to its canonical form
@@ -3955,6 +4083,10 @@ public struct Interpreter: Sendable {
         case "toggle": targetType = .toggle
         case "segmented": targetType = .segmented
         case "recorder", "audiorecorder": targetType = .audioRecorder
+        case "musicplayer", "music": targetType = .musicPlayer
+        case "pianokeyboard", "keyboard": targetType = .pianoKeyboard
+        case "stepsequencer", "sequencer": targetType = .stepSequencer
+        case "musicmixer", "mixer": targetType = .musicMixer
         case "scene3d", "model3d": targetType = .scene3D
         case "progressview", "progress": targetType = .progressView
         case "gauge": targetType = .gauge
@@ -4496,6 +4628,19 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].audioFormat = value
         case "saveinstack", "save_in_stack", "embedinstack", "embed_in_stack", "embedded", "audioembedded":
             document.parts[partIndex].audioEmbedInStack = isTruthy(value)
+        // AudioKit music controls
+        case "musicpattern", "music_pattern", "patternname", "pattern_name":
+            document.parts[partIndex].musicPatternName = value
+        case "musicinstrument", "music_instrument", "instrument":
+            document.parts[partIndex].musicInstrumentName = MusicInstrumentCatalog.resolve(value).name
+        case "musictempo", "music_tempo", "tempo", "bpm":
+            document.parts[partIndex].musicTempo = max(1, toNumber(value))
+        case "musicloop", "music_loop", "loop", "looping":
+            document.parts[partIndex].musicLoop = isTruthy(value)
+        case "musicvolume", "music_volume", "volume":
+            document.parts[partIndex].musicVolume = min(1, max(0, toNumber(value)))
+        case "musictracks", "music_tracks", "trackdata", "track_data":
+            document.parts[partIndex].musicTrackData = value
         // Scene3D
         case "imagefilter", "image_filter", "filter":
             document.parts[partIndex].imageFilter = value.lowercased() == "none" ? "" : value.lowercased()
@@ -4810,6 +4955,34 @@ public struct Interpreter: Sendable {
         }
         document.parts[partIndex].chartData = config.toJSON()
         return true
+    }
+
+    private func upsertMusicAsset(
+        pattern: MusicPatternSpec,
+        requestedName: String,
+        document: inout HypeDocument
+    ) -> String {
+        let trimmed = requestedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let assetName = trimmed.isEmpty ? "\(pattern.name).wav" : trimmed
+        let data = MusicPatternRenderer.wavData(for: pattern)
+        let musicTags = ["music", "generated", "audiokit"]
+        if let existing = document.spriteRepository.asset(byName: assetName) {
+            document.spriteRepository.updateAsset(id: existing.id) { asset in
+                asset.kind = .audioClip
+                asset.mimeType = "audio/wav"
+                asset.data = data
+                asset.tags = Array(Set(asset.tags + musicTags)).sorted()
+            }
+        } else {
+            document.spriteRepository.addAsset(SpriteAsset(
+                name: assetName,
+                kind: .audioClip,
+                mimeType: "audio/wav",
+                data: data,
+                tags: musicTags
+            ))
+        }
+        return assetName
     }
 
     /// Convert a HypeTalk value to a number. Non-numeric strings become 0.
@@ -5348,6 +5521,12 @@ public struct Interpreter: Sendable {
         case .animateProperty: return "animateProperty"
         case .playSound: return "playSound"
         case .playStop: return "playStop"
+        case .createMusicPattern: return "createMusicPattern"
+        case .playMusicPattern: return "playMusicPattern"
+        case .stopMusic: return "stopMusic"
+        case .pauseMusic: return "pauseMusic"
+        case .resumeMusic: return "resumeMusic"
+        case .exportMusicPattern: return "exportMusicPattern"
         case .beep: return "beep"
         case .waitDuration: return "waitDuration"
         case .waitUntil: return "waitUntil"

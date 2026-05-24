@@ -93,6 +93,10 @@ public struct MouseHandler: Sendable {
             case "segmented": partType = .segmented
             // Phase 2 media + 3D.
             case "audioRecorder": partType = .audioRecorder
+            case "musicPlayer": partType = .musicPlayer
+            case "pianoKeyboard": partType = .pianoKeyboard
+            case "stepSequencer": partType = .stepSequencer
+            case "musicMixer": partType = .musicMixer
             case "scene3D": partType = .scene3D
             // Phase 3 UI controls.
             case "progressView": partType = .progressView

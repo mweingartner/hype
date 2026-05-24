@@ -378,7 +378,7 @@ extension CardCanvasNSView {
     func accessibilityRole(forPart partId: UUID) -> NSAccessibility.Role {
         guard let part = document.parts.first(where: { $0.id == partId }) else { return .group }
         switch part.partType {
-        case .button, .stepper, .toggle, .link, .menu:
+        case .button, .stepper, .musicPlayer, .toggle, .link, .menu:
             return .button
         case .field, .searchField:
             return .textField
@@ -434,6 +434,12 @@ extension CardCanvasNSView {
             components.append("sceneCount=\(spec.scenes.count)")
             components.append("activeScene=\(spec.activeSceneID.uuidString)")
             components.append("nodeCount=\(spec.activeScene?.allNodes.count ?? 0)")
+        }
+        if [.musicPlayer, .pianoKeyboard, .stepSequencer, .musicMixer].contains(part.partType) {
+            components.append("musicPattern=\(part.musicPatternName)")
+            components.append("musicInstrument=\(part.musicInstrumentName)")
+            components.append("musicTempo=\(part.musicTempo)")
+            components.append("musicLoop=\(part.musicLoop)")
         }
         return components.joined(separator: "; ")
     }

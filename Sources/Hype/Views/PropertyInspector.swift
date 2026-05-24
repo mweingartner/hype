@@ -81,6 +81,7 @@ struct PropertyInspector: View {
                         case .stepper, .slider: numericControlSection(part: part)
                         case .segmented: segmentedSection(part: part)
                         case .audioRecorder: audioRecorderSection(part: part)
+                        case .musicPlayer, .pianoKeyboard, .stepSequencer, .musicMixer: musicControlSection(part: part)
                         case .scene3D: scene3DSection(part: part)
                         case .progressView: progressViewSection(part: part)
                         case .gauge: gaugeSection(part: part)
@@ -1485,6 +1486,24 @@ struct PropertyInspector: View {
                 Text(String(format: "%.1f s", part.audioDuration))
                     .font(.system(size: 10, design: .monospaced))
             }
+        }
+    }
+
+    private func musicControlSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionHeading("Music")
+            propertyRow("Pattern", binding: bindPartString(part.id, \.musicPatternName))
+            propertyRow("Instrument", binding: bindPartString(part.id, \.musicInstrumentName))
+            HStack {
+                Text("Tempo").font(.system(size: 10))
+                Stepper("\(Int(part.musicTempo.rounded())) BPM", value: bindPartDouble(part.id, \.musicTempo), in: 1...320, step: 1)
+                    .font(.system(size: 11))
+            }
+            Toggle("Loop", isOn: bindPartBool(part.id, \.musicLoop))
+            propertyRow("Volume", binding: bindPartDoubleString(part.id, \.musicVolume))
+            Text("Scripts can create stack-contained music with `create music pattern`, play it with `play pattern`, and export it as a portable audio asset.")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
         }
     }
 

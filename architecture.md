@@ -140,7 +140,7 @@ hype-v2/
 │       │   ├── AIContextLibrary.swift     # Safe stack-scoped context ingestion/search model
 │       │   ├── AIScriptingProvider.swift  # Async HypeTalk-facing Ollama abstraction
 │       │   ├── SpeechOutputProvider.swift # HypeCore speech-output protocol
-│       │   ├── HypeTools.swift            # 123 tool schemas (parts, scopes, themes, scenes, 3D gen)
+│       │   ├── HypeTools.swift            # tool schemas (parts, scopes, themes, scenes, music, 3D gen)
 │       │   ├── HypeToolExecutor.swift     # Dispatch tool calls to model mutations (Phase 2 adds 4 Meshy tools)
 │       │   ├── HypeTalkGuide.swift        # System-prompt grammar primer fed to the model
 │       │   ├── HypeTalkScriptValidator.swift # check_script syntax/semantics gate
@@ -180,6 +180,7 @@ hype-v2/
 │       │   ├── ColorWellRenderer.swift
 │       │   ├── Scene3DRenderer.swift
 │       │   ├── AudioRecorderRenderer.swift
+│       │   ├── MusicControlsRenderer.swift
 │       │   ├── STLConverter.swift         # On-the-fly STL → OBJ for SceneKit imports
 │       │   ├── WebPageRenderer.swift      # Edit-mode placeholder
 │       │   ├── VideoRenderer.swift        # Edit-mode placeholder
@@ -360,6 +361,8 @@ public enum PartType: String, Codable, Sendable {
     case button, field, shape, webpage, image, video, chart, spriteArea
     // Framework-backed controls (Apple frameworks hosted as NSView/SwiftUI overlays)
     case calendar, pdf, map, colorWell, audioRecorder, scene3D
+    // Stack-contained music controls (AudioKit-backed at runtime)
+    case musicPlayer, pianoKeyboard, stepSequencer, musicMixer
     // Form controls (AppKit-feel)
     case stepper, slider, toggle, segmented
     // Apple-controls catalog / legacy compatibility cases
@@ -405,6 +408,7 @@ given `partType`. The fields fall into bands:
 | progressView     | `progressValue`, `progressTotal`, `progressIsCircular`, `progressIsIndeterminate`, `progressLabel`, `progressTint`, `progressDecimals` |
 | gauge            | `gaugeValue`, `gaugeMin`, `gaugeMax`, `gaugeStyle`, `gaugeTint`, `gaugeLabel`, `gaugeMinLabel`, `gaugeMaxLabel`, `gaugeDecimals` |
 | audioRecorder    | `audioRecording`, `audioPlaying`, `audioOutputPath`, `audioFormat`, `audioDuration`, `audioEmbedInStack`, `audioData?` |
+| music controls   | `musicPatternName`, `musicInstrumentName`, `musicTempo`, `musicLoop`, `musicVolume`, `musicTrackData` |
 | scene3D          | `scene3DSourceURL`, `scene3DURL`, `scene3DAllowsCameraControl`, `scene3DAutoLighting`, `scene3DAntialiasing`, `scene3DBackground` |
 | divider          | `dividerOrientation`, `dividerThickness`, `dividerColor`                 |
 | **sprite area**  | `sceneSpec` *(JSON-encoded `SpriteAreaSpec`, with legacy `SceneSpec` migration)* |
@@ -440,6 +444,9 @@ also carry payload JSON for exact reconstruction of the value-model graph while
 the schema continues to grow. SQLite `PRAGMA user_version` tracks the schema;
 schema version 2 adds `parts.audio_data` so audio recorder bytes can be stored
 as a real SQLite BLOB while the JSON payload omits duplicate audio bytes.
+Schema version 3 adds normalized `music_patterns`, `music_tracks`, and
+`music_notes` projections for stack-contained AudioKit music while keeping
+`HypeDocument.musicLibrary` as the value-model source of truth.
 
 Interactive saves and undo now flow through
 `HypeDocumentMutationCoordinator` (`Sources/Hype/DocumentMutationCoordinator.swift`).
@@ -486,6 +493,10 @@ allocation cost from per-call to one-time-per-app-launch.
 The SQLite storage layer projects Sprite Area contents into relational
 `sprite_areas`, `scenes`, and `scene_nodes` tables for diagnostics and search,
 while `SceneSpec` / `SpriteAreaSpec` remain the runtime source of truth.
+AudioKit music follows the same declarative rule: `MusicPatternSpec` and
+`MusicTrackSpec` persist in the document/database, and runtime `AudioEngine`,
+sampler, and playback tasks live only behind the `SystemProvider` /
+`AudioKitMusicProvider` boundary.
 
 `DocumentExporter` (Sources/HypeCore/Export/DocumentExporter.swift) provides
 two side outputs: pretty-printed sorted JSON (for inspection / diff) and a
@@ -2049,13 +2060,14 @@ schema struct. The categories:
 | Scope properties (read)   | `get_stack_property`, `get_card_property`, `get_background_property` |
 | Scope properties (write)  | `set_stack_property`, `set_card_property`, `set_background_property` |
 | Scope scripts             | `get_stack_script`, `set_stack_script`, `get_card_script`, `set_card_script`, `get_background_script`, `set_background_script` |
-| Part creation             | `create_button`, `create_field`, `create_label`, `create_shape`, `create_webpage`, `create_video`, `create_chart`, `create_image`, `generate_image`, `create_calendar`, `create_pdf`, `create_map`, `create_color_well`, `create_stepper`, `create_slider`, `create_segmented`, `create_progressview`, `create_gauge`, `create_divider`, `create_audio_recorder`, `create_scene3d` |
+| Part creation             | `create_button`, `create_field`, `create_label`, `create_shape`, `create_webpage`, `create_video`, `create_chart`, `create_image`, `generate_image`, `create_calendar`, `create_pdf`, `create_map`, `create_color_well`, `create_stepper`, `create_slider`, `create_segmented`, `create_progressview`, `create_gauge`, `create_divider`, `create_audio_recorder`, `create_music_player`, `create_piano_keyboard`, `create_step_sequencer`, `create_music_mixer`, `create_scene3d` |
 | Part modification         | `set_part_property` (canonical write surface, accepts ~250 property names + aliases incl. `helpText`, `fontColor`, `textStyle`, `rotation`, `imageFilter`), `delete_part`, `repair_form_controls` |
 | Part introspection        | `get_part_property`, `list_all_properties` (full property dump w/ defaults), `get_card_parts`, `get_background_parts`, `capture_card_image` |
 | Themes                    | `list_themes`, `get_theme`, `create_or_update_theme`, `delete_theme`, `apply_theme` |
 | Charts                    | `set_chart_data_point_color`, `get_chart_data_points` |
 | Maps                      | `add_map_annotation`, `clear_map_annotations` |
 | Images                    | `set_image_filter` |
+| Music                     | `list_music_instruments`, `create_music_pattern`, `list_music_patterns`, `export_music_pattern` |
 | Sprite areas / scenes     | `create_sprite_area`, `infer_sprite_game_template`, `get_sprite_game_template_guide`, `create_sprite_game_template`, `list_sprite_game_templates`, `get_scene_spec`, `apply_scene_diff`, `add_sprite_to_scene`, `add_label_to_scene`, `add_shape_to_scene`, `add_emitter_to_scene`, `add_audio_to_scene`, `add_video_to_scene`, `add_group_to_scene`, `create_tilemap`, `create_basic_tileset_asset`, `classify_asset_as_tileset`, `set_tile`, `fill_tilemap`, `get_tilemap_info`, `create_camera`, `add_joint_to_scene`, `add_constraint_to_scene`, `add_physics_field_to_scene`, `capture_scene_snapshot`, `get_scene_diagnostics`, `list_scene_nodes`, `list_scene_joints`, `list_scene_constraints`, `get_scene_script`, `get_node_script`, `get_node_property`, `set_node_property`, `set_node_script`, `set_scene_script`, `set_physics_body` |
 | Asset repository          | `list_repository_assets`, `import_repository_asset`, `generate_sprite_asset`, `create_basic_tileset_asset`, `web_asset_search`, `web_asset_import` |
 | AI Context Library        | `list_ai_context`, `search_ai_context`, `read_ai_context_item`, `import_context_asset`, `write_ai_context_note` |

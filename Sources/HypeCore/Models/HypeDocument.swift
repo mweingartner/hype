@@ -9,6 +9,9 @@ public struct HypeDocument: Codable, Sendable {
     public var paintLayers: [CardPaintLayer]
     public var constraints: [LayoutConstraint]
     public var spriteRepository: SpriteRepository
+    /// Stack-contained music patterns and track definitions. Runtime audio
+    /// engines project these specs into live AudioKit/AVFoundation objects.
+    public var musicLibrary: MusicLibrary
     /// Stack-scoped, user-curated files/images/directories/notes that the AI can
     /// search through narrow context tools. Stored in the document so whole-stack
     /// build context travels with the stack instead of relying on arbitrary file
@@ -59,6 +62,7 @@ public struct HypeDocument: Codable, Sendable {
         paintLayers: [CardPaintLayer] = [],
         constraints: [LayoutConstraint] = [],
         spriteRepository: SpriteRepository = SpriteRepository(),
+        musicLibrary: MusicLibrary = MusicLibrary(),
         aiContextLibrary: AIContextLibrary = AIContextLibrary(),
         aiPromptHistory: [String] = [],
         scriptGlobals: [String: String] = [:],
@@ -73,6 +77,7 @@ public struct HypeDocument: Codable, Sendable {
         self.paintLayers = paintLayers
         self.constraints = constraints
         self.spriteRepository = spriteRepository
+        self.musicLibrary = musicLibrary
         self.aiContextLibrary = aiContextLibrary
         self.aiPromptHistory = aiPromptHistory
         self.scriptGlobals = scriptGlobals
@@ -83,7 +88,7 @@ public struct HypeDocument: Codable, Sendable {
 
     // Custom decoder for backward compatibility.
     enum CodingKeys: String, CodingKey {
-        case stack, backgrounds, cards, parts, paintLayers, constraints, spriteRepository, aiContextLibrary, aiPromptHistory, defaultBackgroundId
+        case stack, backgrounds, cards, parts, paintLayers, constraints, spriteRepository, musicLibrary, aiContextLibrary, aiPromptHistory, defaultBackgroundId
         case legacyImport
         case themes
         // `scriptGlobals` is NOT in the coding keys — session-only.
@@ -108,6 +113,7 @@ public struct HypeDocument: Codable, Sendable {
         paintLayers = try container.decodeIfPresent([CardPaintLayer].self, forKey: .paintLayers) ?? []
         constraints = try container.decodeIfPresent([LayoutConstraint].self, forKey: .constraints) ?? []
         spriteRepository = try container.decodeIfPresent(SpriteRepository.self, forKey: .spriteRepository) ?? SpriteRepository()
+        musicLibrary = try container.decodeIfPresent(MusicLibrary.self, forKey: .musicLibrary) ?? MusicLibrary()
         aiContextLibrary = try container.decodeIfPresent(AIContextLibrary.self, forKey: .aiContextLibrary) ?? AIContextLibrary()
         aiPromptHistory = try container.decodeIfPresent([String].self, forKey: .aiPromptHistory) ?? []
         defaultBackgroundId = try container.decodeIfPresent(UUID.self, forKey: .defaultBackgroundId)

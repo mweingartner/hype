@@ -28,7 +28,7 @@ public struct ToolState: Sendable {
              // Phase 2 form controls.
              "stepper", "slider", "segmented",
              // Phase 2 media + 3D.
-             "audioRecorder", "scene3D",
+             "audioRecorder", "musicPlayer", "pianoKeyboard", "stepSequencer", "musicMixer", "scene3D",
              // Phase 3 UI controls.
              "progressView", "gauge", "divider":
             return .edit

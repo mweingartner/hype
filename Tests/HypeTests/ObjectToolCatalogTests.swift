@@ -9,7 +9,9 @@ struct ObjectToolCatalogTests {
     func leftPanelHasOneCreationToolPerPartType() throws {
         let expectedOrder = [
             "button", "field", "shape", "image", "webpage", "video", "chart",
-            "calendar", "pdf", "map", "colorWell", "audioRecorder", "scene3D", "spriteArea",
+            "calendar", "pdf", "map", "colorWell", "audioRecorder",
+            "musicPlayer", "pianoKeyboard", "stepSequencer", "musicMixer",
+            "scene3D", "spriteArea",
             "stepper", "slider", "segmented", "progressView", "gauge", "divider",
         ]
         #expect(ObjectToolCatalog.creationTools.map(\.rawValue) == expectedOrder)
@@ -76,7 +78,7 @@ struct ObjectToolCatalogTests {
             "WebKit", "PDFKit", "MapKit", "MKMapView", "AVKit", "AVFoundation",
             "SceneKit", "SpriteKit", "SwiftUI", "NSDatePicker", "NSColorWell",
             "NSStepper", "NSSlider", "NSSegmentedControl", "CoreImage",
-            "FileManager", "Key properties:", "textContent", "pdfURL",
+            "AudioKit", "FileManager", "Key properties:", "textContent", "pdfURL",
             "mapCenterLat", "audioOutputPath", "scene3DSourceURL"
         ]
 

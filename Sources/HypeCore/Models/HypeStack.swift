@@ -11,6 +11,7 @@ public enum PartType: String, Codable, Sendable {
     case calendar, pdf, map, colorWell
     case stepper, slider, toggle, segmented
     case audioRecorder, scene3D
+    case musicPlayer, pianoKeyboard, stepSequencer, musicMixer
     // Phase 3 — Apple controls catalog coverage.
     case progressView, gauge, link, menu, searchField, divider
     /// Sentinel returned by the decoder when an unknown raw value is seen.

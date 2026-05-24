@@ -67,6 +67,10 @@ struct ObjectsMenuCommands: Commands {
                 Button("Map") { NotificationCenter.default.post(name: .selectTool, object: ToolName.map) }
                 Button("Color Well") { NotificationCenter.default.post(name: .selectTool, object: ToolName.colorWell) }
                 Button("Audio Recorder") { NotificationCenter.default.post(name: .selectTool, object: ToolName.audioRecorder) }
+                Button("Music Player") { NotificationCenter.default.post(name: .selectTool, object: ToolName.musicPlayer) }
+                Button("Piano Keyboard") { NotificationCenter.default.post(name: .selectTool, object: ToolName.pianoKeyboard) }
+                Button("Step Sequencer") { NotificationCenter.default.post(name: .selectTool, object: ToolName.stepSequencer) }
+                Button("Music Mixer") { NotificationCenter.default.post(name: .selectTool, object: ToolName.musicMixer) }
                 Button("3D Scene") { NotificationCenter.default.post(name: .selectTool, object: ToolName.scene3D) }
                 Button("Sprite Area") { NotificationCenter.default.post(name: .selectTool, object: ToolName.spriteArea) }
             }

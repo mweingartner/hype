@@ -47,8 +47,9 @@ emitters in the same document, with one unified scripting model.
   (WKWebView), charts (Apple Charts), maps (MapKit), PDFs (PDFKit),
   calendars (EventKit-aware), color wells, steppers, sliders,
   segmented controls, gauges, progress views, dividers, audio
-  recorders (AVFoundation), 3D scene viewers (SceneKit — USDZ native,
-  GLB/FBX via ModelIO, STL via built-in converter), and full SpriteKit
+  recorders (AVFoundation), stack-contained music controls (AudioKit),
+  3D scene viewers (SceneKit — USDZ native, GLB/FBX via ModelIO, STL
+  via built-in converter), and full SpriteKit
   sprite areas — all editable in the same property inspector with the
   same multi-selection bulk editor.
 - **Meshy.ai 3D model generation.** Generate 3D models from text
@@ -134,6 +135,8 @@ uniformly across them.
 `calendar` (EventKit-aware), `pdf` (PDFKit, multi-page nav),
 `map` (MapKit, geocoding via async `mapLocation`),
 `audioRecorder` (AVFoundation, m4a/caf, live duration tick),
+`musicPlayer`, `pianoKeyboard`, `stepSequencer`, `musicMixer`
+(AudioKit-backed music patterns stored inside the stack),
 `scene3D` (SceneKit — USDZ/USD/SCN/DAE/OBJ natively; GLB/PLY/ABC via
 MDLAsset on macOS 13+; FBX via MDLAsset on macOS 13+; STL via built-in
 converter; asset binding via `Part.scene3DAssetRef` + Sprite Repository).
@@ -336,7 +339,7 @@ Every script-storage tool routes the draft through:
 The 127-prompt benchmark suite in
 [`scripts/ai-training/eval/comprehensive_prompts.jsonl`](scripts/ai-training/eval/comprehensive_prompts.jsonl)
 covers introspection, object CRUD, script attachment, network,
-animation, audio, dialog, chunks, control flow, and framework
+animation, audio/music, dialog, chunks, control flow, and framework
 controls. Latest results
 ([`scripts/ai-training/TOURNAMENT_127_RESULTS.md`](scripts/ai-training/TOURNAMENT_127_RESULTS.md)):
 
@@ -552,7 +555,7 @@ Hype/
 │       ├── Theme/                # HypeTheme, BuiltInThemes, ColorContrast
 │       ├── Runtime/              # Browse-mode StackRuntime actor, speech listener provider
 │       ├── Animation/            # `animate the X of Y over N` engine
-│       ├── Audio/                # Sound playback, NAOD note parser
+│       ├── Audio/                # Sound playback, AudioKit music, NAOD note parser
 │       ├── Layout/               # Snap-to-grid, alignment, distribution
 │       ├── Tools/                # Mouse-action layer (paint, draw, select, group)
 │       ├── Sync/                 # SyncService — operation/change-set engine + checkpoints

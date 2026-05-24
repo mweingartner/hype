@@ -241,6 +241,9 @@ public final class SoundPlayer: NSObject, NSSoundDelegate {
         let notes = NoteParser.parse(noteString)
         guard !notes.isEmpty else { currentName = nil; return }
 
+        #if canImport(AudioKit)
+        AudioKitMusicProvider.shared.playNotes(instrument: instrument, noteString: noteString, tempo: tempo)
+        #else
         let waveform = ToneSynthesizer.waveform(for: instrument)
         let synth = ToneSynthesizer()
         toneSynth = synth
@@ -257,6 +260,7 @@ public final class SoundPlayer: NSObject, NSSoundDelegate {
                 }
             }
         }
+        #endif
     }
 
     // MARK: - Control
@@ -266,6 +270,9 @@ public final class SoundPlayer: NSObject, NSSoundDelegate {
         currentSound = nil
         avPlayer?.stop()
         avPlayer = nil
+        #if canImport(AudioKit)
+        AudioKitMusicProvider.shared.stop()
+        #endif
         toneSynth?.stop()
         toneSynth = nil
         currentName = nil
@@ -282,6 +289,9 @@ public final class SoundPlayer: NSObject, NSSoundDelegate {
     public var isPlaying: Bool {
         if let sound = currentSound, sound.isPlaying { return true }
         if let player = avPlayer, player.isPlaying { return true }
+        #if canImport(AudioKit)
+        if AudioKitMusicProvider.shared.musicState == "playing" { return true }
+        #endif
         if let synth = toneSynth, synth.isPlaying { return true }
         return false
     }

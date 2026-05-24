@@ -91,8 +91,12 @@ struct HypeTalkGuideTests {
         for kind in ["recorder", "scene3d"] {
             #expect(text.contains(kind), "guide is missing media/3D control kind '\(kind)'")
         }
+        // AudioKit music controls and commands
+        for kind in ["musicPlayer", "pianoKeyboard", "stepSequencer", "musicMixer", "create_music_pattern", "export_music_pattern"] {
+            #expect(text.contains(kind), "guide is missing music control/tool kind '\(kind)'")
+        }
         // Audio + map property names that postdate the original guide
-        for prop in ["recording", "playing", "outputPath", "selectedDate", "currentPage", "centerLat", "centerLon", "maplocation", "color", "value", "on", "selectedSegment"] {
+        for prop in ["recording", "playing", "outputPath", "musicState", "musicPatterns", "musicInstruments", "selectedDate", "currentPage", "centerLat", "centerLon", "maplocation", "color", "value", "on", "selectedSegment"] {
             #expect(text.contains(prop), "guide is missing framework property '\(prop)'")
         }
     }

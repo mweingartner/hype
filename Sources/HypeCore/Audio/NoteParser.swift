@@ -113,6 +113,20 @@ public enum NoteParser {
         return 440.0 * pow(2.0, offsetFromA4 / 12.0)
     }
 
+    /// MIDI note number for equal-tempered playback engines.
+    /// Middle C (C4) is 60. Rests return nil.
+    public static func midiNoteNumber(for note: Note) -> Int? {
+        guard note.name != .r else { return nil }
+        let semitones: [Note.Name: Int] = [.c: 0, .d: 2, .e: 4, .f: 5, .g: 7, .a: 9, .b: 11, .r: 0]
+        var semitone = semitones[note.name]! + (note.octave + 1) * 12
+        switch note.accidental {
+        case .sharp: semitone += 1
+        case .flat: semitone -= 1
+        case .natural: break
+        }
+        return min(127, max(0, semitone))
+    }
+
     /// Duration in beats (quarter note = 1.0 beat).
     public static func durationInBeats(for note: Note) -> Double {
         let base: Double

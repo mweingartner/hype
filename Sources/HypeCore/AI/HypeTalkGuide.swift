@@ -213,6 +213,7 @@ public enum HypeTalkGuide {
           - **button (style=toggle / checkBox):** hilite (true/false — backs the on/off state of toggle / checkbox styles); the `on` of <kind> "X" is also accepted as an alias for hilite on these styles. (`style=switch` is a deprecated alias that resolves to `toggle`.)
           - **segmented:** segments, selectedSegment
           - **recorder:** recording, playing, duration, outputPath, format (m4a | caf), saveInStack (true/false), audioSize
+          - **musicPlayer / pianoKeyboard / stepSequencer / musicMixer:** musicPattern, instrument, tempo, loop, volume, musicTracks
           - **scene3d:** object (source path — preferred), modelURL (resolved path, legacy alias), allowsCameraControl, autoLighting, antialiasing, background3d
           - **image:** imageFilter, imageFilterIntensity (along with the standard part properties)
           - **progressView:** value (0..total), progressTotal (default 100), progressIsCircular (true/false), progressIsIndeterminate (true/false), progressLabel, progressTint (hex), progressDecimals (alias `decimals` — 0 default, integral steps; raise for fractional precision; same contract as gauge)
@@ -221,7 +222,7 @@ public enum HypeTalkGuide {
           - **button (style=popup):** popupItems (newline-separated labels), textContent (currently-selected label)
           - **field (style=search):** textContent (current search text — use `the text of field "search"`); fields with this style fire `searchChanged` on debounced keystroke and `searchSubmitted` on Return.
           - **divider:** dividerOrientation (horizontal | vertical), dividerThickness (pixels, default 1), dividerColor (hex)
-        **Global properties:** the date, the time, the ticks, the seconds, the mouseLoc (returns "x,y"), the mouseH, the mouseV, the shiftKey, the optionKey, the commandKey, the version.
+        **Global properties:** the date, the time, the ticks, the seconds, the mouseLoc (returns "x,y"), the mouseH, the mouseV, the shiftKey, the optionKey, the commandKey, the version, the musicState, the musicPatterns, the musicInstruments.
 
         ## System & lifecycle messages
 
@@ -472,8 +473,17 @@ public enum HypeTalkGuide {
             wait 2 seconds                           -- same with explicit unit
             wait until the sound is "done"           -- block until playback ends
             put the sound into s                     -- "done" or name of playing sound
-        Note format: NAOD (Name-Accidental-Octave-Duration). Name: c d e f g a b r(rest). Accidental: # or b. Octave: 1-8 (default 4). Duration: w(whole) h(half) q(quarter) e(eighth) s(16th) t(32nd) x(64th). Suffix: .(dotted) 3(triplet). Octave and duration carry forward to next note.
-        System alert sounds: Basso, Blow, Bottle, Frog, Funk, Glass, Hero, Morse, Ping, Pop, Purr, Sosumi, Submarine, Tink. Also supports macOS ToneLibrary alert tones and ringtones (e.g. Sonar, Chime, Bamboo, Aurora, Bloom, Calypso, etc.) by name.
+        Note format: NAOD, e.g. c4q, f#5e, r4q. Durations: w h q e s t x. Suffix: . dotted, 3 triplet. Octave/duration carry forward.
+
+        ## Music (AudioKit-backed, stack-contained)
+            create music pattern "Theme" with instrument "Harpsichord" tempo 120 notes "c4q e4q g4q c5h"
+            play pattern "Theme" loop
+            pause music
+            resume music
+            stop music
+            export pattern "Theme" to audio asset "Theme WAV"
+            put the musicState into field "status"      -- playing, paused, stopped
+        Persisted as stack specs, not live AudioKit. Tools: create_music_pattern, export_music_pattern, create_music_player, create_piano_keyboard, create_step_sequencer, create_music_mixer.
 
         ## Animation (standard parts)
             animate the loc of button "ball" to "400,300" over 0.5

@@ -10,7 +10,8 @@ document semantics.
 ## Product Architecture Guardrails
 
 - Persist document state in self-contained SQLite-backed `.hype` packages. The runtime model remains value typed through `HypeDocument`, `Stack`, `Background`, `Card`, `Part`, `SpriteAreaSpec`, and `SceneSpec`.
-- Do not persist live AppKit, SpriteKit, SceneKit, AVFoundation, or network objects.
+- Do not persist live AppKit, SpriteKit, SceneKit, AVFoundation, AudioKit, or network objects.
+- Persist AudioKit-backed music as declarative patterns/tracks/assets in the stack; reconstruct `AudioEngine`, samplers, players, and playback tasks at runtime through providers.
 - Keep `SceneSpec` and `SpriteAreaSpec` as the source of truth for SpriteKit content; `SceneBridge` projects specs into live SpriteKit nodes.
 - Route HypeTalk through `MessageDispatcher`, `Interpreter`, and `StackRuntime` rather than bypassing the message hierarchy.
 - Preserve HyperCard-style message pass-up: part -> card -> background -> stack -> app, and scene/node -> sprite area -> card -> background -> stack -> app.

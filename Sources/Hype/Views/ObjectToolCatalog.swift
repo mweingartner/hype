@@ -22,6 +22,7 @@ enum ObjectToolCatalog {
 
     static let frameworkTools: [ToolName] = [
         .calendar, .pdf, .map, .colorWell, .audioRecorder,
+        .musicPlayer, .pianoKeyboard, .stepSequencer, .musicMixer,
         .scene3D, .spriteArea,
     ]
 
@@ -68,6 +69,10 @@ enum ObjectToolCatalog {
         case .slider: return .slider
         case .segmented: return .segmented
         case .audioRecorder: return .audioRecorder
+        case .musicPlayer: return .musicPlayer
+        case .pianoKeyboard: return .pianoKeyboard
+        case .stepSequencer: return .stepSequencer
+        case .musicMixer: return .musicMixer
         case .scene3D: return .scene3D
         case .progressView: return .progressView
         case .gauge: return .gauge
@@ -132,6 +137,8 @@ enum ObjectToolCatalog {
             return "You can edit the choice labels, selected choice, script, and hover help."
         case .audioRecorder:
             return "You can start or stop recording, play the last recording, choose the recording format, save recordings inside the stack, attach scripts, and add hover help."
+        case .musicPlayer, .pianoKeyboard, .stepSequencer, .musicMixer:
+            return "You can choose a music pattern, instrument, tempo, looping behavior, volume, attach scripts, and store generated audio inside the stack."
         case .scene3D:
             return "You can choose a model, use a stack asset, adjust viewing controls and background, attach scripts, and add hover help."
         case .progressView:

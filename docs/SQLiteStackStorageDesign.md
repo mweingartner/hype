@@ -34,7 +34,7 @@ SQLite package <-> HypeSQLiteStackStore <-> HypeDocument value graph <-> StackRu
 ```
 
 This avoids leaking SQLite handles, managed objects, AppKit, SpriteKit, SceneKit,
-AVFoundation, or network objects into the persistent model.
+AVFoundation, AudioKit, or network objects into the persistent model.
 
 ## Schema Strategy
 
@@ -54,6 +54,9 @@ The schema uses normalized, queryable tables for the core Hype taxonomy:
 - `sprite_areas`
 - `scenes`
 - `scene_nodes`
+- `music_patterns`
+- `music_tracks`
+- `music_notes`
 - `search_fts`
 
 Rows also carry `payload_json` for exact value-model reconstruction. This is an
@@ -66,6 +69,11 @@ Schema version 2 projects embedded audio recorder content into
 restored from that column on load, and the JSON payload intentionally omits the
 audio bytes to avoid storing the same recording twice.
 
+Schema version 3 projects stack-contained AudioKit music into `music_patterns`,
+`music_tracks`, and `music_notes`. `HypeDocument.musicLibrary` remains the
+source of truth for runtime code; the relational rows make patterns searchable,
+diagnosable, and portable without storing live AudioKit engine state.
+
 ## Search
 
 `search_fts` indexes:
@@ -74,6 +82,7 @@ audio bytes to avoid storing the same recording twice.
 - part text, help, menu, popup, URL, and search fields
 - SpriteKit scene/node names, label text, and scripts
 - asset names, tags, and provenance
+- music pattern names, instruments, notes, and tempo
 - AI context summaries and text chunks
 
 Search is derived data. If it drifts, it can be rebuilt from the relational
