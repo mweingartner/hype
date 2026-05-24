@@ -376,6 +376,14 @@ struct AudioKitMusicTests {
             document: document,
             clickPoint: point(row: 0, column: 0)
         ))
+        let topLeftRepeat = try #require(MusicControlInteraction.playbackRequest(
+            for: sequencer,
+            document: document,
+            clickPoint: CGPoint(
+                x: grid.minX + cellWidth * 0.75,
+                y: grid.minY + cellHeight * 0.25
+            )
+        ))
         let secondRow = try #require(MusicControlInteraction.playbackRequest(
             for: sequencer,
             document: document,
@@ -393,6 +401,7 @@ struct AudioKitMusicTests {
         #expect(topLeft.pattern.tracks.first?.instrument == "Electric Guitar Clean")
         #expect(topLeft.pattern.tempo == 96)
         #expect(topLeft.pattern.tracks.first?.volume == 0.5)
+        #expect(topLeftRepeat.triggerIdentifier == topLeft.triggerIdentifier)
         #expect(topLeft.triggerIdentifier != secondRow.triggerIdentifier)
         #expect(topLeft.triggerIdentifier != topLaterStep.triggerIdentifier)
     }

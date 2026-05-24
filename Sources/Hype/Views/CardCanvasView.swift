@@ -93,27 +93,7 @@ struct CardCanvasView: NSViewRepresentable {
         view.coordinator = context.coordinator
         context.coordinator.nsView = view
 
-        // Wire the part animator's property-change callback so
-        // animations modify the live document and trigger redraws.
-        PartAnimator.shared.onPropertyChange = { [weak view] partId, property, value in
-            guard let nsView = view else { return }
-            guard let coord = nsView.coordinator else { return }
-            coord.applyAnimatedPropertyChange(partId: partId, property: property, value: value)
-            nsView.needsDisplay = true
-        }
-
-        // Wire the GIF animator callbacks.
-        // onFrameChanged: trigger a redraw whenever any GIF advances.
-        GIFAnimator.shared.onFrameChanged = { [weak view] _ in
-            view?.needsDisplay = true
-        }
-        // onAnimationStart / onAnimationEnd: dispatch HypeTalk events.
-        GIFAnimator.shared.onAnimationStart = { [weak view] partId in
-            view?.coordinator?.dispatchMessage("animationStart", to: partId)
-        }
-        GIFAnimator.shared.onAnimationEnd = { [weak view] partId in
-            view?.coordinator?.dispatchMessage("animationEnd", to: partId)
-        }
+        view.installRuntimeAnimatorCallbacks()
 
         return view
     }
@@ -138,6 +118,8 @@ struct CardCanvasView: NSViewRepresentable {
         nsView.paintColor = nsColorFromHex(paintColorHex)
         nsView.pencilRadius = pencilRadius
         nsView.coordinator = context.coordinator
+        context.coordinator.nsView = nsView
+        nsView.installRuntimeAnimatorCallbacks()
         nsView.updateCursor()
         // Reconcile map-part `mapLocation` changes through the
         // shared geocoder. This runs in BOTH browse and edit mode
@@ -1023,6 +1005,45 @@ class CardCanvasNSView: NSView {
         layerContentsRedrawPolicy = .onSetNeedsDisplay
     }
 
+    /// Keep process-wide animation callbacks pointed at the active canvas.
+    ///
+    /// `GIFAnimator` and `PartAnimator` are runtime singletons, while
+    /// SwiftUI may rebuild or update the representable around the same
+    /// document window. Wiring only in `makeNSView` can leave the callbacks
+    /// captured to a stale view; refreshing here from both `makeNSView` and
+    /// `updateNSView` keeps frame ticks invalidating the visible canvas.
+    func installRuntimeAnimatorCallbacks() {
+        PartAnimator.shared.onPropertyChange = { [weak self] partId, property, value in
+            guard let self else { return }
+            guard let coord = self.coordinator else { return }
+            coord.applyAnimatedPropertyChange(partId: partId, property: property, value: value)
+            self.requestRuntimeAnimationRedraw()
+        }
+
+        GIFAnimator.shared.onFrameChanged = { [weak self] _ in
+            self?.requestRuntimeAnimationRedraw()
+        }
+
+        GIFAnimator.shared.onAnimationStart = { [weak self] partId in
+            self?.coordinator?.dispatchMessage("animationStart", to: partId)
+        }
+
+        GIFAnimator.shared.onAnimationEnd = { [weak self] partId in
+            self?.coordinator?.dispatchMessage("animationEnd", to: partId)
+        }
+    }
+
+    func requestRuntimeAnimationRedraw() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.requestRuntimeAnimationRedraw()
+            }
+            return
+        }
+        needsDisplay = true
+        setNeedsDisplay(bounds)
+    }
+
     /// Eraser radius in pixels (adjustable with [ and ] keys).
     var eraserRadius: Int = 10
     /// Spray radius in pixels (adjustable with [ and ] keys when spray tool active).
@@ -1187,10 +1208,11 @@ class CardCanvasNSView: NSView {
     private var mouseStillDownTimer: Timer?
     private var mouseStillDownPartId: UUID?
 
-    // Piano-keyboard drag playback state. Dragging across keys should trigger
-    // each newly-entered key once without replaying the same key continuously.
-    private var activePianoKeyboardDragPartId: UUID?
-    private var lastPianoKeyboardDragTriggerIdentifier: String?
+    // Music-control drag playback state. Dragging across piano keys or step
+    // sequencer cells should trigger each newly-entered target once.
+    private var activeMusicControlDragPartId: UUID?
+    private var lastMusicControlDragTriggerIdentifier: String?
+    private var lastMusicControlDragPoint: CGPoint?
 
     /// The part ID currently auto-hilited by a held mouseDown.
     /// Cleared on mouseUp (or if the mouse drags off the part).
@@ -1685,50 +1707,99 @@ class CardCanvasNSView: NSView {
         }
     }
 
-    private func beginPianoKeyboardDragIfNeeded(part: Part, request: MusicControlPlaybackRequest?) {
-        guard part.partType == .pianoKeyboard,
+    private func beginMusicControlDragIfNeeded(part: Part, request: MusicControlPlaybackRequest?, at point: CGPoint) {
+        guard part.partType == .pianoKeyboard || part.partType == .stepSequencer,
               let trigger = request?.triggerIdentifier,
-              trigger.hasPrefix("keyboard:") else {
-            activePianoKeyboardDragPartId = nil
-            lastPianoKeyboardDragTriggerIdentifier = nil
+              trigger.hasPrefix(dragTriggerPrefix(for: part)) else {
+            activeMusicControlDragPartId = nil
+            lastMusicControlDragTriggerIdentifier = nil
+            lastMusicControlDragPoint = nil
             return
         }
 
-        activePianoKeyboardDragPartId = part.id
-        lastPianoKeyboardDragTriggerIdentifier = trigger
+        activeMusicControlDragPartId = part.id
+        lastMusicControlDragTriggerIdentifier = trigger
+        lastMusicControlDragPoint = point
     }
 
-    private func performDraggedPianoKeyboardAction(at point: CGPoint) -> Bool {
-        guard let partId = activePianoKeyboardDragPartId else { return false }
+    private func performDraggedMusicControlAction(at point: CGPoint) -> Bool {
+        guard let partId = activeMusicControlDragPartId else { return false }
         guard let part = document.parts.first(where: { $0.id == partId }),
-              part.partType == .pianoKeyboard else {
-            activePianoKeyboardDragPartId = nil
-            lastPianoKeyboardDragTriggerIdentifier = nil
+              part.partType == .pianoKeyboard || part.partType == .stepSequencer else {
+            activeMusicControlDragPartId = nil
+            lastMusicControlDragTriggerIdentifier = nil
+            lastMusicControlDragPoint = nil
             return true
         }
 
-        guard let request = MusicControlInteraction.playbackRequest(
-            for: part,
-            document: document,
-            clickPoint: point
-        ),
-              let trigger = request.triggerIdentifier,
-              trigger.hasPrefix("keyboard:") else {
-            // Let re-entering the same key after leaving it retrigger the note.
-            lastPianoKeyboardDragTriggerIdentifier = nil
-            return true
-        }
+        let points = dragPlaybackSamplePoints(from: lastMusicControlDragPoint, to: point, part: part)
+        lastMusicControlDragPoint = point
+        for samplePoint in points {
+            guard let request = MusicControlInteraction.playbackRequest(
+                for: part,
+                document: document,
+                clickPoint: samplePoint
+            ),
+                  let trigger = request.triggerIdentifier,
+                  trigger.hasPrefix(dragTriggerPrefix(for: part)) else {
+                // Let re-entering the same key/cell after leaving it retrigger sound.
+                lastMusicControlDragTriggerIdentifier = nil
+                continue
+            }
 
-        if trigger != lastPianoKeyboardDragTriggerIdentifier {
-            playMusicControlRequest(request)
-            lastPianoKeyboardDragTriggerIdentifier = trigger
+            if trigger != lastMusicControlDragTriggerIdentifier {
+                playMusicControlRequest(request)
+                lastMusicControlDragTriggerIdentifier = trigger
+            }
         }
         return true
     }
 
-    private func endPianoKeyboardDrag() {
-        activePianoKeyboardDragPartId = nil
-        lastPianoKeyboardDragTriggerIdentifier = nil
+    private func dragPlaybackSamplePoints(from previous: CGPoint?, to point: CGPoint, part: Part) -> [CGPoint] {
+        guard let previous else { return [point] }
+
+        let dx = point.x - previous.x
+        let dy = point.y - previous.y
+        let distance = sqrt(dx * dx + dy * dy)
+        let spacing = dragPlaybackSamplingDistance(for: part)
+        let steps = max(1, Int(ceil(distance / max(1, spacing))))
+        return (1...steps).map { index in
+            let t = CGFloat(index) / CGFloat(steps)
+            return CGPoint(x: previous.x + dx * t, y: previous.y + dy * t)
+        }
+    }
+
+    private func dragPlaybackSamplingDistance(for part: Part) -> CGFloat {
+        let rect = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+        switch part.partType {
+        case .pianoKeyboard:
+            let keyboard = MusicControlInteraction.keyboardRect(in: rect)
+            return max(1, keyboard.width / 28)
+        case .stepSequencer:
+            let grid = MusicControlInteraction.stepSequencerGridRect(in: rect)
+            let cellWidth = grid.width / CGFloat(MusicControlInteraction.stepSequencerColumnCount)
+            let cellHeight = grid.height / CGFloat(MusicControlInteraction.stepSequencerRowCount)
+            return max(1, min(cellWidth, cellHeight) / 2)
+        default:
+            return 4
+        }
+    }
+
+    private func dragTriggerPrefix(for part: Part) -> String {
+        switch part.partType {
+        case .pianoKeyboard:
+            return "keyboard:"
+        case .stepSequencer:
+            return "step:"
+        default:
+            return ""
+        }
+    }
+
+    private func endMusicControlDrag() {
+        activeMusicControlDragPartId = nil
+        lastMusicControlDragTriggerIdentifier = nil
+        lastMusicControlDragPoint = nil
     }
 
     @objc private func popupMenuItemSelected(_ sender: NSMenuItem) {
@@ -2434,7 +2505,7 @@ class CardCanvasNSView: NSView {
     // MARK: - Mouse events
 
     override func mouseDown(with event: NSEvent) {
-        endPianoKeyboardDrag()
+        endMusicControlDrag()
 
         // End any active field editing when clicking elsewhere
         if activeFieldEditor != nil {
@@ -2622,7 +2693,7 @@ class CardCanvasNSView: NSView {
             }
             if let part = document.parts.first(where: { $0.id == partId }) {
                 let request = performDefaultMusicControlAction(for: part, at: point)
-                beginPianoKeyboardDragIfNeeded(part: part, request: request)
+                beginMusicControlDragIfNeeded(part: part, request: request, at: point)
             }
             // Auto-hilite for buttons whose `autoHilite` flag is on:
             // toggle hilite=true while the mouse is held so the
@@ -2694,7 +2765,7 @@ class CardCanvasNSView: NSView {
             return
         }
 
-        if performDraggedPianoKeyboardAction(at: point) {
+        if performDraggedMusicControlAction(at: point) {
             return
         }
 
@@ -2778,7 +2849,7 @@ class CardCanvasNSView: NSView {
         mouseStillDownTimer?.invalidate()
         mouseStillDownTimer = nil
         mouseStillDownPartId = nil
-        endPianoKeyboardDrag()
+        endMusicControlDrag()
 
         let point = flippedPoint(for: event)
 

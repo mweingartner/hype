@@ -15,14 +15,15 @@ struct AIProviderParityHarnessTests {
         )
         let clients: [any HypeAIClient] = [
             FakeParityAIClient(providerName: "Ollama", modelName: "qwen3:8b", toolName: "create_button"),
+            FakeParityAIClient(providerName: "llama-swap", modelName: "qwen3:8b", toolName: "create_button"),
             FakeParityAIClient(providerName: "OpenAI", modelName: "gpt-test", toolName: "create_button")
         ]
 
         let results = await harness.runTextScenario(scenario, clients: clients)
 
-        #expect(results.count == 2)
-        #expect(results.map { $0.passed } == [true, true])
-        #expect(results.map(\.providerName) == ["Ollama", "OpenAI"])
+        #expect(results.count == 3)
+        #expect(results.map { $0.passed } == [true, true, true])
+        #expect(results.map(\.providerName) == ["Ollama", "llama-swap", "OpenAI"])
         #expect(results.allSatisfy { $0.toolCallNames == ["create_button"] })
     }
 

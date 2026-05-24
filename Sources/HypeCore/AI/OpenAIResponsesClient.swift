@@ -34,7 +34,9 @@ public actor OpenAIResponsesClient: HypeAIClient {
         }
     }
 
-    private let apiKey: String
+    private let apiKey: String?
+    private let requiresAPIKey: Bool
+    private let providerNameValue: String
     private let model: String
     private let baseURL: URL
     private let session: URLSession
@@ -49,6 +51,31 @@ public actor OpenAIResponsesClient: HypeAIClient {
         logger: HypeLogger = .shared
     ) {
         self.apiKey = apiKey
+        self.requiresAPIKey = true
+        self.providerNameValue = "openai"
+        self.model = model
+        self.baseURL = baseURL
+        self.timeouts = timeouts
+        self.logger = logger
+
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = timeouts.request
+        config.timeoutIntervalForResource = timeouts.resource
+        config.waitsForConnectivity = false
+        self.session = URLSession(configuration: config)
+    }
+
+    public init(
+        openAICompatibleAPIKey apiKey: String?,
+        model: String,
+        baseURL: URL,
+        timeouts: Timeouts = Timeouts(),
+        providerName: String,
+        logger: HypeLogger = .shared
+    ) {
+        self.apiKey = apiKey
+        self.requiresAPIKey = false
+        self.providerNameValue = providerName
         self.model = model
         self.baseURL = baseURL
         self.timeouts = timeouts
@@ -62,14 +89,18 @@ public actor OpenAIResponsesClient: HypeAIClient {
     }
 
     init(
-        apiKey: String,
+        apiKey: String?,
         model: String = HypeAIConfiguration.defaultOpenAIModel,
         baseURL: URL = URL(string: "https://api.openai.com")!,
         timeouts: Timeouts = Timeouts(),
         session: URLSession,
-        logger: HypeLogger = .shared
+        logger: HypeLogger = .shared,
+        requiresAPIKey: Bool = true,
+        providerName: String = "openai"
     ) {
         self.apiKey = apiKey
+        self.requiresAPIKey = requiresAPIKey
+        self.providerNameValue = providerName
         self.model = model
         self.baseURL = baseURL
         self.timeouts = timeouts
@@ -77,7 +108,7 @@ public actor OpenAIResponsesClient: HypeAIClient {
         self.logger = logger
     }
 
-    public nonisolated var providerName: String { "openai" }
+    public nonisolated var providerName: String { providerNameValue }
     public nonisolated var modelName: String { model }
 
     public func availableModels() async throws -> [String] {
@@ -131,7 +162,8 @@ public actor OpenAIResponsesClient: HypeAIClient {
         format: OllamaResponseFormat?,
         modelOverride: String?
     ) async throws -> OllamaChatResponse {
-        guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let trimmedAPIKey = apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !requiresAPIKey || !trimmedAPIKey.isEmpty else {
             throw OpenAIClientError.noAPIKey
         }
         let requestModel = HypeAIConfiguration.normalized(modelOverride) ?? model
@@ -140,7 +172,9 @@ public actor OpenAIResponsesClient: HypeAIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        if !trimmedAPIKey.isEmpty {
+            request.setValue("Bearer \(trimmedAPIKey)", forHTTPHeaderField: "Authorization")
+        }
         request.timeoutInterval = timeouts.request
 
         let body = try Self.requestBodyObject(
@@ -153,7 +187,7 @@ public actor OpenAIResponsesClient: HypeAIClient {
 
         logger.aiInput(
             Self.describeRequest(model: requestModel, messages: messages, tools: tools, format: format),
-            source: "OpenAI"
+            source: providerNameValue
         )
 
         do {
@@ -168,13 +202,13 @@ public actor OpenAIResponsesClient: HypeAIClient {
             let decoded = try Self.decodeResponse(data)
             logger.aiOutput(
                 Self.describeResponse(model: requestModel, response: decoded),
-                source: "OpenAI"
+                source: providerNameValue
             )
             return decoded
         } catch {
             logger.error(
                 "\(endpoint) model=\(requestModel) failed: \(error.localizedDescription)",
-                source: "OpenAI"
+                source: providerNameValue
             )
             throw error
         }

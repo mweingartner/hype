@@ -9,6 +9,7 @@ struct AIPanel: View {
     @State private var isLoading: Bool = false
     @AppStorage(HypeAIConfiguration.providerKey) private var aiProviderRaw = HypeAIProvider.ollama.rawValue
     @AppStorage("ollamaModel") private var ollamaModel = "llama3.2"
+    @AppStorage(HypeAIConfiguration.llamaSwapModelKey) private var llamaSwapModel = HypeAIConfiguration.defaultLlamaSwapModel
     @AppStorage(HypeAIConfiguration.openAIModelKey) private var openAIModel = HypeAIConfiguration.defaultOpenAIModel
 
     var body: some View {
@@ -80,7 +81,9 @@ struct AIPanel: View {
     }
 
     private var modelLabel: String {
-        if aiProviderRaw == HypeAIProvider.openAI.rawValue {
+        if aiProviderRaw == HypeAIProvider.llamaSwap.rawValue {
+            return "llama-swap: \(llamaSwapModel)"
+        } else if aiProviderRaw == HypeAIProvider.openAI.rawValue {
             return "OpenAI: \(openAIModel)"
         }
         return ollamaModel

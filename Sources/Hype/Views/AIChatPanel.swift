@@ -35,6 +35,7 @@ struct AIChatPanel: View {
     @AppStorage("ollamaHost") private var ollamaHost = "localhost"
     @AppStorage("ollamaPort") private var ollamaPort = "11434"
     @AppStorage("ollamaModel") private var ollamaModel = "llama3.2"
+    @AppStorage(HypeAIConfiguration.llamaSwapModelKey) private var llamaSwapModel = HypeAIConfiguration.defaultLlamaSwapModel
     @AppStorage(HypeAIConfiguration.providerKey) private var aiProviderRaw = HypeAIProvider.ollama.rawValue
     @AppStorage(HypeAIConfiguration.openAIModelKey) private var openAIModel = HypeAIConfiguration.defaultOpenAIModel
     @AppStorage(HypeAIConfiguration.speakAssistantResponsesKey) private var speakAssistantResponses = false
@@ -460,6 +461,8 @@ struct AIChatPanel: View {
         switch selectedAIProvider {
         case .ollama:
             return ollamaModel
+        case .llamaSwap:
+            return "llama-swap: \(llamaSwapModel)"
         case .openAI:
             return "OpenAI: \(openAIModel)"
         }
@@ -1385,7 +1388,7 @@ struct AIChatPanel: View {
         // model because its training data had a minimal system prompt
         // rather than the full guide. We detect the tuned model by tag
         // prefix and skip the injection when present.
-        let isTunedHypeTalkModel = selectedAIProvider == .ollama && client.modelName.lowercased().hasPrefix("hypetalk-")
+        let isTunedHypeTalkModel = selectedAIProvider != .openAI && client.modelName.lowercased().hasPrefix("hypetalk-")
         // Inline the guide as literal text only for untrained models.
         // The tuned model already has the guide in its Modelfile SYSTEM
         // block (see scripts/ai-training/src/package.sh) so adding it

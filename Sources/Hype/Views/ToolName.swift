@@ -95,7 +95,7 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .pianoKeyboard:
             return "Place a keyboard-style music control on the card. Click or drag across keys in Browse mode to play notes with the assigned instrument, or trigger music scripts."
         case .stepSequencer:
-            return "Place a grid-style sequencer on the card. Click grid squares in Browse mode to audition individual steps, or use scripts for repeating patterns stored in the stack."
+            return "Place a grid-style sequencer on the card. Click or drag across grid squares in Browse mode to audition individual steps, or use scripts for repeating patterns stored in the stack."
         case .musicMixer:
             return "Place a small mixer on the card. Use it to represent track volume and arrangement controls for stack-contained music."
         case .progressView:

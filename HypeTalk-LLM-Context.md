@@ -148,6 +148,8 @@ put await ollamaModels() into field "out"
 put request "http://localhost:8080/health" into reqId
 ```
 
+`ollama(...)`, `ollamaModels()`, `the aiModels`, and `ask ai` use Hype's selected AI text provider. That provider can be Ollama, llama-swap on a local port, or OpenAI depending on Preferences.
+
 ### Callback forms
 ```
 ask ai "Write a mission briefing" with message "aiFinished"
@@ -344,7 +346,7 @@ set the autoplay of video "intro" to true
 ### Music (AudioKit-backed)
 Music patterns are stored in the stack and projected to AudioKit at runtime.
 Piano Keyboard parts play clicked or dragged-over keys in Browse mode. Step
-Sequencer parts audition individual grid steps when clicked. Music Player and
+Sequencer parts audition clicked or dragged-over grid steps. Music Player and
 Music Mixer parts play their assigned pattern when clicked.
 Use tools first for authoring: `create_music_pattern`, `create_music_player`,
 `create_piano_keyboard`, `create_step_sequencer`, `create_music_mixer`,

@@ -2,6 +2,7 @@ import Foundation
 
 public enum HypeAIProvider: String, CaseIterable, Sendable, Identifiable {
     case ollama
+    case llamaSwap = "llama-swap"
     case openAI = "openai"
 
     public var id: String { rawValue }
@@ -9,6 +10,7 @@ public enum HypeAIProvider: String, CaseIterable, Sendable, Identifiable {
     public var displayName: String {
         switch self {
         case .ollama: return "Ollama"
+        case .llamaSwap: return "llama-swap"
         case .openAI: return "OpenAI"
         }
     }
@@ -62,6 +64,9 @@ public extension HypeAIClient {
 
 public enum HypeAIConfiguration {
     public static let providerKey = "hype.ai.provider"
+    public static let llamaSwapHostKey = "hype.llamaSwap.host"
+    public static let llamaSwapPortKey = "hype.llamaSwap.port"
+    public static let llamaSwapModelKey = "hype.llamaSwap.model"
     public static let openAIModelKey = "hype.openai.model"
     public static let openAIImageModelKey = "hype.openai.imageModel"
     public static let openAITranscriptionModelKey = "hype.openai.transcriptionModel"
@@ -71,6 +76,9 @@ public enum HypeAIConfiguration {
     public static let speakAssistantResponsesKey = "hype.openai.speech.speakAssistantResponses"
 
     public static let defaultOpenAIModel = "gpt-5.2"
+    public static let defaultLlamaSwapHost = "localhost"
+    public static let defaultLlamaSwapPort = "8080"
+    public static let defaultLlamaSwapModel = "model1"
     public static let defaultOpenAIImageModel = "gpt-image-1.5"
     public static let defaultOpenAITranscriptionModel = "gpt-4o-mini-transcribe"
     public static let defaultOpenAITTSModel = "gpt-4o-mini-tts"
@@ -135,6 +143,18 @@ public enum HypeAIConfiguration {
         normalized(defaults.string(forKey: openAIModelKey)) ?? defaultOpenAIModel
     }
 
+    public static func llamaSwapHost(defaults: UserDefaults = .standard) -> String {
+        normalized(defaults.string(forKey: llamaSwapHostKey)) ?? defaultLlamaSwapHost
+    }
+
+    public static func llamaSwapPort(defaults: UserDefaults = .standard) -> String {
+        normalized(defaults.string(forKey: llamaSwapPortKey)) ?? defaultLlamaSwapPort
+    }
+
+    public static func llamaSwapModel(defaults: UserDefaults = .standard) -> String {
+        normalized(defaults.string(forKey: llamaSwapModelKey)) ?? defaultLlamaSwapModel
+    }
+
     public static func openAIImageModel(defaults: UserDefaults = .standard) -> String {
         normalized(defaults.string(forKey: openAIImageModelKey)) ?? defaultOpenAIImageModel
     }
@@ -158,6 +178,14 @@ public enum HypeAIConfiguration {
                 host: normalized(defaults.string(forKey: "ollamaHost")) ?? "localhost",
                 port: normalized(defaults.string(forKey: "ollamaPort")) ?? "11434",
                 model: normalized(defaults.string(forKey: "ollamaModel")) ?? "llama3.2"
+            )
+        case .llamaSwap:
+            let apiKey = try? KeychainStore.getSecret(account: KeychainStore.llamaSwapAPIKeyAccount)
+            return try LlamaSwapClient(
+                host: llamaSwapHost(defaults: defaults),
+                port: llamaSwapPort(defaults: defaults),
+                model: llamaSwapModel(defaults: defaults),
+                apiKey: apiKey
             )
         case .openAI:
             let apiKey = try KeychainStore.getSecret(account: KeychainStore.openAIAPIKeyAccount)

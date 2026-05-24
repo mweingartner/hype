@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Testing
 @testable import Hype
+@testable import HypeCore
 
 /// Regression tests for the live-bug "animated GIFs don't animate; idle
 /// timer doesn't visibly update parts."
@@ -23,9 +24,11 @@ import Testing
 ///      (proven by `set the fillColor of me` working via a different
 ///      SwiftUI binding-refresh path that also triggered re-layout).
 ///
-/// The fix is `view.layerContentsRedrawPolicy = .onSetNeedsDisplay` inside
-/// `CardCanvasNSView.configureForCardCanvasRendering()`. The two tests
-/// below pin this invariant from BOTH angles:
+/// The core fix is `view.layerContentsRedrawPolicy = .onSetNeedsDisplay`
+/// inside `CardCanvasNSView.configureForCardCanvasRendering()`. The active
+/// canvas also refreshes the singleton animation callbacks from both
+/// `makeNSView` and `updateNSView` so frame ticks cannot target a stale view.
+/// The tests below pin these invariants from BOTH angles:
 ///
 ///   - **Structural**: calling the production setup method actually sets
 ///     both `wantsLayer` and `.onSetNeedsDisplay`. Catches any future
@@ -126,23 +129,30 @@ private final class DrawCountingCanvas: CardCanvasNSView {
 }
 
 /// Integration-level regression: a configured `CardCanvasNSView` whose
-/// `needsDisplay = true` is invoked by a closure-style callback (the
-/// pattern `GIFAnimator.onFrameChanged` uses) actually triggers `draw()`.
+/// production `GIFAnimator.onFrameChanged` callback fires actually triggers
+/// `draw()`.
 ///
 /// This is the EXACT shape of the user-reported chick-GIF bug. Before
-/// the fix, the callback ran, `view.needsDisplay = true` returned, and
-/// no draw was scheduled — frames never advanced visibly. The test
-/// reproduces that callback wiring with a counter so any policy
-/// regression resurfaces here too.
+/// the fix, the callback ran, the view invalidation returned, and no draw was
+/// scheduled — frames never advanced visibly. The test uses the production
+/// callback installer with a counter so stale-callback or policy regressions
+/// resurface here too.
 @MainActor
 @Suite("CardCanvasNSView — animator-callback redraw integration")
 struct CardCanvasAnimatorCallbackTests {
 
-    @Test("animator-style closure setting needsDisplay = true triggers draw() on configured view")
-    func animatorCallbackTriggersDraw() async throws {
+    @Test("active canvas GIF callback triggers draw on configured view")
+    func activeCanvasGIFCallbackTriggersDraw() async throws {
         let view = DrawCountingCanvas()
         view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         view.configureForCardCanvasRendering()
+        view.installRuntimeAnimatorCallbacks()
+        defer {
+            GIFAnimator.shared.onFrameChanged = nil
+            GIFAnimator.shared.onAnimationStart = nil
+            GIFAnimator.shared.onAnimationEnd = nil
+            PartAnimator.shared.onPropertyChange = nil
+        }
 
         let window = NSWindow(
             contentRect: view.frame,
@@ -155,16 +165,10 @@ struct CardCanvasAnimatorCallbackTests {
         window.displayIfNeeded()
         let baselineDraws = view.drawCount
 
-        // Mimic the GIFAnimator.onFrameChanged wiring exactly:
-        // a captured-weak-view closure that sets needsDisplay = true.
-        let callback: (UUID) -> Void = { [weak view] _ in
-            view?.needsDisplay = true
-        }
-
         // Fire the "frame advanced" callback three times, runloop-spun
         // between each, exactly as the GIF tick path does.
         for _ in 0..<3 {
-            callback(UUID())
+            GIFAnimator.shared.onFrameChanged?(UUID())
             try await Task.sleep(nanoseconds: 50_000_000)
             view.displayIfNeeded()
         }

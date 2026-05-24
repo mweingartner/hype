@@ -113,6 +113,8 @@ public struct SelectedAIScriptingProvider: AIScriptingProvider, @unchecked Senda
         switch HypeAIConfiguration.selectedProvider(defaults: defaults) {
         case .ollama:
             return HypeAIConfiguration.normalized(defaults.string(forKey: "ollamaModel")) ?? "llama3.2"
+        case .llamaSwap:
+            return HypeAIConfiguration.llamaSwapModel(defaults: defaults)
         case .openAI:
             return HypeAIConfiguration.openAIModel(defaults: defaults)
         }

@@ -5,6 +5,9 @@ struct PreferencesView: View {
     @AppStorage("ollamaHost") private var ollamaHost = "localhost"
     @AppStorage("ollamaPort") private var ollamaPort = "11434"
     @AppStorage("ollamaModel") private var ollamaModel = "llama3.2"
+    @AppStorage(HypeAIConfiguration.llamaSwapHostKey) private var llamaSwapHost = HypeAIConfiguration.defaultLlamaSwapHost
+    @AppStorage(HypeAIConfiguration.llamaSwapPortKey) private var llamaSwapPort = HypeAIConfiguration.defaultLlamaSwapPort
+    @AppStorage(HypeAIConfiguration.llamaSwapModelKey) private var llamaSwapModel = HypeAIConfiguration.defaultLlamaSwapModel
     @AppStorage(HypeAIConfiguration.providerKey) private var aiProviderRaw = HypeAIProvider.ollama.rawValue
     @AppStorage(HypeAIConfiguration.openAIModelKey) private var openAIModel = HypeAIConfiguration.defaultOpenAIModel
     @AppStorage(HypeAIConfiguration.openAIImageModelKey) private var openAIImageModel = HypeAIConfiguration.defaultOpenAIImageModel
@@ -15,8 +18,11 @@ struct PreferencesView: View {
     @AppStorage(HypeAIConfiguration.speakAssistantResponsesKey) private var speakAssistantResponses = false
     @Environment(\.hypeTheme) private var hypeTheme
     @State private var availableModels: [String] = []
+    @State private var llamaSwapAvailableModels: [String] = []
     @State private var isLoading = false
     @State private var connectionStatus = ""
+    @State private var llamaSwapKeyDraft = ""
+    @State private var llamaSwapKeyIsSet = false
     @State private var openAIKeyDraft = ""
     @State private var openAIKeyIsSet = false
     @State private var isTestingOpenAI = false
@@ -122,7 +128,11 @@ struct PreferencesView: View {
             fetchModels()
             pexelsKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.pexelsAPIKeyAccount)
             openAIKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.openAIAPIKeyAccount)
+            llamaSwapKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.llamaSwapAPIKeyAccount)
             meshyKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.meshyAPIKeyAccount)
+        }
+        .onChange(of: aiProviderRaw) { _, _ in
+            fetchModels()
         }
     }
 
@@ -141,6 +151,7 @@ struct PreferencesView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            if aiProviderRaw == HypeAIProvider.ollama.rawValue {
             Section("Ollama Connection") {
                 TextField("Host", text: $ollamaHost)
                 TextField("Port", text: $ollamaPort)
@@ -153,6 +164,43 @@ struct PreferencesView: View {
                         .font(.system(size: 11))
                 }
             }
+            }
+
+            if aiProviderRaw == HypeAIProvider.llamaSwap.rawValue {
+            Section("llama-swap Connection") {
+                TextField("Host", text: $llamaSwapHost)
+                TextField("Port", text: $llamaSwapPort)
+
+                HStack {
+                    SecureField(
+                        llamaSwapKeyIsSet ? "API key stored (optional, tap to replace)" : "Optional API key",
+                        text: $llamaSwapKeyDraft
+                    )
+                    .textFieldStyle(.roundedBorder)
+
+                    Button("Save") { saveLlamaSwapKey() }
+                        .disabled(llamaSwapKeyDraft.isEmpty)
+
+                    if llamaSwapKeyIsSet {
+                        Button("Delete") { deleteLlamaSwapKey() }
+                            .foregroundColor(.red)
+                    }
+                }
+
+                HStack {
+                    Button("Test Connection") { testConnection() }
+                    if isLoading { ProgressView().scaleEffect(0.7) }
+                    Text(connectionStatus)
+                        .foregroundColor(connectionStatus.contains("Connected") ? .green : .red)
+                        .font(.system(size: 11))
+                }
+
+                Text("Hype calls llama-swap through its OpenAI-compatible API: GET /v1/models lists configured models, and the selected model name is sent in each /v1/responses request so llama-swap can load or swap to it.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            }
 
             Section("Model") {
                 if aiProviderRaw == HypeAIProvider.openAI.rawValue {
@@ -161,6 +209,16 @@ struct PreferencesView: View {
                             Text(model).tag(model)
                         }
                     }
+                } else if aiProviderRaw == HypeAIProvider.llamaSwap.rawValue {
+                    Picker("llama-swap Model", selection: $llamaSwapModel) {
+                        if llamaSwapAvailableModels.isEmpty {
+                            Text(llamaSwapModel).tag(llamaSwapModel)
+                        }
+                        ForEach(llamaSwapAvailableModels, id: \.self) { model in
+                            Text(model).tag(model)
+                        }
+                    }
+                    Button("Refresh Models") { fetchModels() }
                 } else {
                     Picker("Ollama Model", selection: $ollamaModel) {
                         if availableModels.isEmpty {
@@ -525,6 +583,29 @@ struct PreferencesView: View {
         }
     }
 
+    private func saveLlamaSwapKey() {
+        guard !llamaSwapKeyDraft.isEmpty else { return }
+        do {
+            try KeychainStore.setSecret(llamaSwapKeyDraft, account: KeychainStore.llamaSwapAPIKeyAccount)
+            llamaSwapKeyDraft = ""
+            llamaSwapKeyIsSet = true
+            connectionStatus = ""
+        } catch {
+            connectionStatus = keychainErrorMessage(for: error)
+        }
+    }
+
+    private func deleteLlamaSwapKey() {
+        do {
+            try KeychainStore.deleteSecret(account: KeychainStore.llamaSwapAPIKeyAccount)
+            llamaSwapKeyIsSet = false
+            llamaSwapKeyDraft = ""
+            connectionStatus = ""
+        } catch {
+            connectionStatus = keychainErrorMessage(for: error)
+        }
+    }
+
     /// Render a Keychain error as a narrow user-facing string.
     ///
     /// `KeychainStoreError.unhandledStatus(OSStatus)` is the usual failure
@@ -606,6 +687,34 @@ struct PreferencesView: View {
         isLoading = true
         connectionStatus = ""
         Task {
+            if aiProviderRaw == HypeAIProvider.llamaSwap.rawValue {
+                do {
+                    let apiKey = try? KeychainStore.getSecret(account: KeychainStore.llamaSwapAPIKeyAccount)
+                    let client = try LlamaSwapClient(
+                        host: llamaSwapHost,
+                        port: llamaSwapPort,
+                        model: llamaSwapModel,
+                        apiKey: apiKey,
+                        timeouts: .init(request: 20, resource: 20)
+                    )
+                    let models = try await client.availableModels()
+                    await MainActor.run {
+                        llamaSwapAvailableModels = models
+                        if !models.isEmpty && !models.contains(llamaSwapModel) {
+                            llamaSwapModel = models[0]
+                        }
+                        connectionStatus = "Connected"
+                        isLoading = false
+                    }
+                } catch {
+                    await MainActor.run {
+                        connectionStatus = "Error: \(error.localizedDescription)"
+                        isLoading = false
+                    }
+                }
+                return
+            }
+
             let urlString = "http://\(ollamaHost):\(ollamaPort)/api/tags"
             guard let url = URL(string: urlString) else {
                 connectionStatus = "Invalid URL"
@@ -712,6 +821,32 @@ struct PreferencesView: View {
     }
 
     private func fetchModels() {
+        if aiProviderRaw == HypeAIProvider.llamaSwap.rawValue {
+            Task {
+                do {
+                    let apiKey = try? KeychainStore.getSecret(account: KeychainStore.llamaSwapAPIKeyAccount)
+                    let client = try LlamaSwapClient(
+                        host: llamaSwapHost,
+                        port: llamaSwapPort,
+                        model: llamaSwapModel,
+                        apiKey: apiKey,
+                        timeouts: .init(request: 20, resource: 20)
+                    )
+                    let models = try await client.availableModels()
+                    await MainActor.run {
+                        llamaSwapAvailableModels = models
+                        if !models.isEmpty && !models.contains(llamaSwapModel) {
+                            llamaSwapModel = models[0]
+                        }
+                    }
+                } catch {
+                    // Silently fail -- models stay empty until user refreshes
+                }
+            }
+            return
+        }
+
+        guard aiProviderRaw == HypeAIProvider.ollama.rawValue else { return }
         let urlString = "http://\(ollamaHost):\(ollamaPort)/api/tags"
         guard let url = URL(string: urlString) else { return }
         Task {

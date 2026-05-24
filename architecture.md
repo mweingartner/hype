@@ -9,8 +9,9 @@ charts, sprite areas), all driven by a HyperTalk-style scripting language
 called **HypeTalk** — and re-grounds it on a contemporary Apple-platforms
 stack: Swift 6, SwiftUI, SpriteKit, Core Graphics, AppKit, WKWebView,
 AVKit, Apple Charts, and a provider-selectable AI authoring loop that can use
-local Ollama models or OpenAI-hosted models, plus OpenAI image generation for
-card/background artwork and Sprite Repository assets.
+local Ollama models, local llama-swap proxies, or OpenAI-hosted models, plus
+OpenAI image generation for card/background artwork and Sprite Repository
+assets.
 
 The single most important architectural decision is the introduction of
 **SpriteKit as the underlying interaction and rendering substrate** for cards.
@@ -133,6 +134,7 @@ hype-v2/
 │       │   └── HypeTalkHighlighter.swift  # Editor syntax highlighting
 │       ├── AI/                     # Provider-backed AI, tool-calling, speech
 │       │   ├── OllamaToolClient.swift     # /api/chat, /api/generate, /api/tags, structured JSON
+│       │   ├── LlamaSwapClient.swift      # local OpenAI-compatible llama-swap proxy
 │       │   ├── OpenAIResponsesClient.swift # /v1/responses text/tool/schema bridge
 │       │   ├── OpenAIImageGenerationClient.swift # /v1/images/generations image bytes for parts/assets
 │       │   ├── OpenAISpeechClient.swift   # /v1/audio transcriptions + speech
@@ -496,11 +498,12 @@ while `SceneSpec` / `SpriteAreaSpec` remain the runtime source of truth.
 AudioKit music follows the same declarative rule: `MusicPatternSpec` and
 `MusicTrackSpec` persist in the document/database, and runtime `AudioEngine`,
 sampler, and playback tasks live only behind the `SystemProvider` /
-`AudioKitMusicProvider` boundary. Music controls convert Browse-mode clicks
-and piano-key drag crossings into temporary `MusicPatternSpec` playback
-requests. Step sequencer grid hits audition the selected row/column step
-instead of replaying one generic pattern. These interactions do not persist
-live engine state or mutate the stack unless a user script does so explicitly.
+`AudioKitMusicProvider` boundary. Music controls convert Browse-mode clicks,
+piano-key drag crossings, and step-sequencer cell drag crossings into temporary
+`MusicPatternSpec` playback requests. Step sequencer grid hits audition the
+selected row/column step instead of replaying one generic pattern. These
+interactions do not persist live engine state or mutate the stack unless a user
+script does so explicitly.
 
 `DocumentExporter` (Sources/HypeCore/Export/DocumentExporter.swift) provides
 two side outputs: pretty-printed sorted JSON (for inspection / diff) and a
@@ -1992,7 +1995,8 @@ Hype's AI integration is now split across five deliberate surfaces:
 - **voice input/output** for speaking requests and optionally hearing replies
 
 The primary AI paths now route through `HypeAIClient`, a provider-neutral
-contract implemented by `OllamaToolClient` and `OpenAIResponsesClient`.
+contract implemented by `OllamaToolClient`, `LlamaSwapClient`, and
+`OpenAIResponsesClient`.
 They still use different contracts because they solve different problems.
 The authoring paths want structured mutations and previews; the scripting path
 wants plain text results or callback completion; speech wants explicit
@@ -2017,6 +2021,17 @@ adapts the same Hype message/tool/schema types onto OpenAI's Responses API:
 - tool results keep their `call_id` pairing so multi-step OpenAI tool loops
   can continue without a provider-specific executor path
 
+`LlamaSwapClient` (Sources/HypeCore/AI/LlamaSwapClient.swift) treats a local
+llama-swap process as an OpenAI-compatible provider:
+
+- `GET /v1/models` lists model IDs configured in llama-swap
+- the selected model ID is sent in the `model` field of `/v1/responses`
+  requests, which is llama-swap's signal to load or swap to that model
+- optional llama-swap API keys are stored in Keychain; unauthenticated local
+  instances work without a key
+- Hype reuses the Responses API message/tool/schema bridge so llama-swap
+  participates in the same tool-calling and AI transaction path as OpenAI
+
 `OpenAIImageGenerationClient`
 (Sources/HypeCore/AI/OpenAIImageGenerationClient.swift) is the image-only
 OpenAI client:
@@ -2040,7 +2055,7 @@ the speech side:
   spoken without putting AVFoundation playback into the interpreter
 
 Preferences store the selected AI provider/model and speech provider/model in
-`UserDefaults`, while OpenAI and Pexels API keys stay in Keychain.
+`UserDefaults`, while OpenAI, llama-swap, and Pexels API keys stay in Keychain.
 
 Tool schemas use OpenAI-style JSON: `{type: "function", function: {name,
 description, parameters: { … JSON Schema … }}}`. The client encodes those

@@ -1,9 +1,10 @@
 import Foundation
 
-/// Guidance text silently provided to the local Ollama model as part of
-/// every chat request.
+/// Guidance text silently provided to the selected AI text provider as part
+/// of every chat request when the provider/model has not already been tuned on
+/// HypeTalk.
 ///
-/// Lives next to `HypeTools` and `OllamaToolClient` so the HypeTalk
+/// Lives next to `HypeTools` and the provider clients so the HypeTalk
 /// language surface that the AI sees is a single source of truth that
 /// can be unit-tested without instantiating a SwiftUI view. Any other AI
 /// entry point that needs to coach a model on writing HypeTalk should
@@ -14,14 +15,13 @@ import Foundation
 /// compact examples that a model can grep by keyword. The complete,
 /// verbose reference lives in `HypeTalk-LLM-Context.md` /
 /// `HyperTalk_Reference.md` in the repo root — this constant is the
-/// curated subset we ship to the model. Roughly ~33 KB / ~8000 tokens
-/// after the 2026 grammar-coverage expansion; kept that size on
+/// curated subset we ship to the model. Kept compact on
 /// purpose so the model has the operator table, constants list,
 /// stub-command list, and full hallucination catalogue inline rather
 /// than relying on guesswork.
 public enum HypeTalkGuide {
 
-    /// The HypeTalk authoring guide embedded on every Ollama chat turn.
+    /// The HypeTalk authoring guide embedded on provider chat turns.
     ///
     /// Sections:
     ///
@@ -426,7 +426,7 @@ public enum HypeTalkGuide {
             set activateListener to false                           -- stop async speech recognition
             answer the activateListener                              -- "true" or "false"
 
-        `say` uses OpenAI text-to-speech when OpenAI speech output is enabled in Hype preferences; otherwise Hype falls back to macOS system text-to-speech. `activateListener` defaults to false for every stack session. When enabled, Hype listens in the background and sends finalized spoken input as `param 1` to `on listen` on the current card. Normal message routing applies: card -> background -> stack -> Hype. Use `pass listen` if the card handler should let the background or stack also handle the same transcript.
+        `say` uses OpenAI text-to-speech if enabled, else macOS TTS. `activateListener` defaults false; when true, Hype sends transcript as `param 1` to `on listen` on card -> background -> stack -> Hype. Use `pass listen` to bubble.
 
             on listen spokenText
               put spokenText into field "lastSpeech"
@@ -447,6 +447,8 @@ public enum HypeTalkGuide {
             put await ollama("Summarize this card") into field "out"
             put await ollamaModels() into field "out"
             put request "http://localhost:8080/health" into reqId
+
+        AI calls use Preferences provider: Ollama, llama-swap, or OpenAI.
 
         **Callback forms**
             ask ai "Write a mission briefing" with message "aiFinished"
@@ -483,8 +485,8 @@ public enum HypeTalkGuide {
             stop music
             export pattern "Theme" to audio asset "Theme WAV"
             put the musicState into field "status"      -- playing, paused, stopped
-        Piano: click/drag keys. Sequencer: click steps. Player: click pattern.
-        Persisted as stack specs, not live AudioKit. Tools: create_music_pattern, export_music_pattern, create_music_player, create_piano_keyboard, create_step_sequencer, create_music_mixer.
+        Piano: click/drag keys. Seq: click/drag steps. Player: click pattern.
+        Stored as stack specs, not live AudioKit. Tools: create_music_pattern, export_music_pattern, create_music_player, create_piano_keyboard, create_step_sequencer, create_music_mixer.
 
         ## Animation (standard parts)
             animate the loc of button "ball" to "400,300" over 0.5

@@ -135,6 +135,11 @@ public extension KeychainStore {
     /// Account identifier for the OpenAI API key.
     static let openAIAPIKeyAccount = "openai.apiKey"
 
+    /// Optional account identifier for llama-swap's bearer token. Many local
+    /// llama-swap instances run without auth; when a user configures `apiKeys`
+    /// in llama-swap, Hype stores that token here instead of in UserDefaults.
+    static let llamaSwapAPIKeyAccount = "llamaSwap.apiKey"
+
     /// Account identifier for the Meshy.ai API key. Stored under the
     /// shared `KeychainStore.service` ("com.hype.webAssets") so it
     /// lives next to the existing AI-provider keys.
