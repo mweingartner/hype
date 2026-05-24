@@ -1,4 +1,112 @@
+import AppKit
 import SwiftUI
+
+private struct ObjectToolHoverHelp: Equatable, Sendable {
+    let title: String
+    let body: String
+
+    var text: String {
+        "\(title)\n\n\(body)"
+    }
+}
+
+private struct ObjectToolFloatingHelpCard: View {
+    let help: ObjectToolHoverHelp
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(help.title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.primary)
+            Text(help.body)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(width: 320, alignment: .leading)
+        .padding(10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.18), radius: 12, x: 0, y: 6)
+        .accessibilityHidden(true)
+    }
+}
+
+@MainActor
+private final class ObjectToolHelpWindowPresenter {
+    static let shared = ObjectToolHelpWindowPresenter()
+
+    private var panel: NSPanel?
+    private var currentHelp: ObjectToolHoverHelp?
+
+    private init() {}
+
+    func show(_ help: ObjectToolHoverHelp) {
+        currentHelp = help
+
+        let host = NSHostingView(rootView: ObjectToolFloatingHelpCard(help: help))
+        let width: CGFloat = 340
+        let fitting = host.fittingSize
+        let height = min(max(fitting.height, 80), 320)
+        host.frame = NSRect(x: 0, y: 0, width: width, height: height)
+
+        let panel = panel ?? makePanel()
+        self.panel = panel
+        panel.contentView = host
+        panel.setContentSize(host.frame.size)
+        panel.setFrameOrigin(frameOrigin(for: host.frame.size, near: NSEvent.mouseLocation))
+        panel.orderFrontRegardless()
+    }
+
+    func hide(_ help: ObjectToolHoverHelp? = nil) {
+        if let help, currentHelp != help {
+            return
+        }
+        currentHelp = nil
+        panel?.orderOut(nil)
+    }
+
+    private func makePanel() -> NSPanel {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 340, height: 120),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.level = .floating
+        panel.ignoresMouseEvents = true
+        panel.hidesOnDeactivate = false
+        panel.collectionBehavior = [.transient, .ignoresCycle, .canJoinAllSpaces]
+        return panel
+    }
+
+    private func frameOrigin(for size: NSSize, near mouse: NSPoint) -> NSPoint {
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
+        let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let margin: CGFloat = 12
+        let cursorGap: CGFloat = 18
+
+        var x = mouse.x + cursorGap
+        var y = mouse.y - size.height - cursorGap
+
+        if x + size.width > visible.maxX - margin {
+            x = mouse.x - size.width - cursorGap
+        }
+        if y < visible.minY + margin {
+            y = mouse.y + cursorGap
+        }
+
+        x = min(max(x, visible.minX + margin), visible.maxX - size.width - margin)
+        y = min(max(y, visible.minY + margin), visible.maxY - size.height - margin)
+        return NSPoint(x: x, y: y)
+    }
+}
 
 /// Slide-out objects/tools panel docked on the left edge of the
 /// stack window. Replaces the legacy top-of-window object toolbar.
@@ -28,8 +136,6 @@ struct ObjectsToolPanel: View {
     @Binding var selectedPartIds: Set<UUID>
     let isRuntimeMode: Bool
 
-    @State private var activeHelp: HoverHelp?
-
     // MARK: - Sizing constants
 
     private static let buttonSize: CGFloat = 36
@@ -37,86 +143,67 @@ struct ObjectsToolPanel: View {
     private static let panelIdealWidth: CGFloat = 60
     private static let panelMaxWidth: CGFloat = 220
 
-    private struct HoverHelp: Equatable {
-        let title: String
-        let body: String
-
-        var text: String {
-            "\(title)\n\n\(body)"
-        }
-    }
-
     var body: some View {
         // Adaptive grid — wraps to 2/3 columns automatically when
         // the user widens the panel via the HSplitView divider.
         let gridItem = GridItem(.adaptive(minimum: 44, maximum: 52), spacing: 4)
 
-        ZStack(alignment: .topLeading) {
-            VStack(spacing: 0) {
-                // 1. Run / Edit toggle — VERTICAL stack so each label is
-                //    fully visible inside the narrow panel. Side-by-side
-                //    layout was clipping both buttons.
-                VStack(spacing: 4) {
-                    modeButton(
-                        title: "Run",
-                        systemImage: "play.fill",
-                        isActive: isRuntimeMode,
-                        help: HoverHelp(
-                            title: "Runtime Mode",
-                            body: "Hides editing chrome (property inspector, sprite repository, AI panel) and runs the stack as the end user experiences it. Toggle with ⇧⌘E."
-                        ),
-                        action: {
-                            if !isRuntimeMode {
-                                NotificationCenter.default.post(name: .toggleRuntimeMode, object: nil)
-                            }
+        VStack(spacing: 0) {
+            // 1. Run / Edit toggle — VERTICAL stack so each label is
+            //    fully visible inside the narrow panel. Side-by-side
+            //    layout was clipping both buttons.
+            VStack(spacing: 4) {
+                modeButton(
+                    title: "Run",
+                    systemImage: "play.fill",
+                    isActive: isRuntimeMode,
+                    help: ObjectToolHoverHelp(
+                        title: "Runtime Mode",
+                        body: "Hides editing chrome (property inspector, sprite repository, AI panel) and runs the stack as the end user experiences it. Toggle with ⇧⌘E."
+                    ),
+                    action: {
+                        if !isRuntimeMode {
+                            NotificationCenter.default.post(name: .toggleRuntimeMode, object: nil)
                         }
-                    )
-
-                    modeButton(
-                        title: "Edit",
-                        systemImage: "pencil",
-                        isActive: !isRuntimeMode,
-                        help: HoverHelp(
-                            title: "Edit Mode",
-                            body: "Restores the property inspector and the full tool palette so you can author the stack. Toggle with ⇧⌘E."
-                        ),
-                        action: {
-                            if isRuntimeMode {
-                                NotificationCenter.default.post(name: .toggleRuntimeMode, object: nil)
-                            }
-                        }
-                    )
-                }
-                .padding(.horizontal, 4)
-                .padding(.top, 6)
-                .padding(.bottom, 4)
-
-                Divider().padding(.horizontal, 4)
-
-                if !isRuntimeMode {
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 8) {
-                            ForEach(Array(ObjectToolCatalog.authoringSections.enumerated()), id: \.offset) { index, section in
-                                if index > 0 {
-                                    sectionDivider
-                                }
-                                toolSection(section.title, tools: section.tools, gridItem: gridItem)
-                            }
-                        }
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 6)
                     }
-                } else {
-                    Spacer().frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
+                )
 
-            if let activeHelp {
-                hoverHelpCard(activeHelp)
-                    .offset(x: Self.panelMinWidth + 8, y: 50)
-                    .transition(.opacity)
-                    .zIndex(10)
-                    .allowsHitTesting(false)
+                modeButton(
+                    title: "Edit",
+                    systemImage: "pencil",
+                    isActive: !isRuntimeMode,
+                    help: ObjectToolHoverHelp(
+                        title: "Edit Mode",
+                        body: "Restores the property inspector and the full tool palette so you can author the stack. Toggle with ⇧⌘E."
+                    ),
+                    action: {
+                        if isRuntimeMode {
+                            NotificationCenter.default.post(name: .toggleRuntimeMode, object: nil)
+                        }
+                    }
+                )
+            }
+            .padding(.horizontal, 4)
+            .padding(.top, 6)
+            .padding(.bottom, 4)
+
+            Divider().padding(.horizontal, 4)
+
+            if !isRuntimeMode {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 8) {
+                        ForEach(Array(ObjectToolCatalog.authoringSections.enumerated()), id: \.offset) { index, section in
+                            if index > 0 {
+                                sectionDivider
+                            }
+                            toolSection(section.title, tools: section.tools, gridItem: gridItem)
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 6)
+                }
+            } else {
+                Spacer().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         // Resizable: HSplitView honours minWidth / idealWidth / maxWidth.
@@ -134,6 +221,11 @@ struct ObjectsToolPanel: View {
             Rectangle()
                 .fill(Color.secondary.opacity(0.3))
                 .frame(width: 1)
+        }
+        .onDisappear {
+            Task { @MainActor in
+                ObjectToolHelpWindowPresenter.shared.hide()
+            }
         }
     }
 
@@ -159,34 +251,14 @@ struct ObjectsToolPanel: View {
         }
     }
 
-    private func setActiveHelp(_ help: HoverHelp, isHovering: Bool) {
-        if isHovering {
-            activeHelp = help
-        } else if activeHelp == help {
-            activeHelp = nil
+    private func setActiveHelp(_ help: ObjectToolHoverHelp, isHovering: Bool) {
+        Task { @MainActor in
+            if isHovering {
+                ObjectToolHelpWindowPresenter.shared.show(help)
+            } else {
+                ObjectToolHelpWindowPresenter.shared.hide(help)
+            }
         }
-    }
-
-    @ViewBuilder
-    private func hoverHelpCard(_ help: HoverHelp) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(help.title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.primary)
-            Text(help.body)
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(width: 300, alignment: .leading)
-        .padding(10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.18), radius: 12, x: 0, y: 6)
-        .accessibilityHidden(true)
     }
 
     // MARK: - Buttons
@@ -196,7 +268,7 @@ struct ObjectsToolPanel: View {
         title: String,
         systemImage: String,
         isActive: Bool,
-        help: HoverHelp,
+        help: ObjectToolHoverHelp,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -226,7 +298,7 @@ struct ObjectsToolPanel: View {
 
     @ViewBuilder
     private func toolButton(_ tool: ToolName) -> some View {
-        let help = HoverHelp(title: tool.displayTitle, body: ObjectToolCatalog.tooltipBody(for: tool))
+        let help = ObjectToolHoverHelp(title: tool.displayTitle, body: ObjectToolCatalog.tooltipBody(for: tool))
 
         Button(action: {
             currentTool = tool

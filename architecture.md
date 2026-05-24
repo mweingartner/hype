@@ -1863,17 +1863,18 @@ the inspector's THEME row.
 
 Hover help text exists for both the tool palette and author-defined controls.
 The tool palette uses a belt-and-suspenders approach: system `NSToolTip`
-support for native macOS/accessibility behavior plus an immediate in-app help
-card so every object type has visible help even when AppKit tooltip tracking is
-delayed or suppressed during fast cursor movement.
+support for native macOS/accessibility behavior plus an immediate floating
+help panel. The floating help is a borderless, non-activating, mouse-ignoring
+`NSPanel` positioned in screen coordinates so it floats above the card canvas,
+inspector, and split-view panes instead of being clipped by the left panel.
 
 Two surfaces:
 
 1. **Tool palette icons.** `ObjectsToolPanel` calls `.help(...)` on every
-   tool button and also tracks hover state to show an in-app help card beside
-   the left palette. Help text comes from `ObjectToolCatalog.tooltipBody(for:)`,
-   so the same catalog that defines the one-canonical-object-per-part-type
-   palette also owns style/property guidance.
+   tool button and also tracks hover state to show the floating help panel.
+   Help text comes from `ObjectToolCatalog.tooltipBody(for:)`, so the same
+   catalog that defines the one-canonical-object-per-part-type palette also
+   owns style/property guidance.
 2. **Per-part `helpText`.** Every `Part` carries a `helpText: String`
    field (default empty). `CardCanvasNSView.updatePartToolTips()` clears
    and re-registers tooltip rects via
