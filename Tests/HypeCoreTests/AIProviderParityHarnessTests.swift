@@ -94,6 +94,12 @@ private struct FakeParityAIClient: HypeAIClient {
     }
 
     func preloadModel() async throws {}
+
+    func chatStream(messages: [OllamaMessage], tools: [OllamaTool]) -> AsyncStream<String> {
+        AsyncStream { continuation in
+            continuation.finish()
+        }
+    }
 }
 
 private struct FakeImageGenerator: HypeImageGenerating {
