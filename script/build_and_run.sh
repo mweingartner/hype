@@ -168,7 +168,7 @@ fi
     <dict>
       <key>UTTypeConformsTo</key>
       <array>
-        <string>public.json</string>
+        <string>com.apple.package</string>
       </array>
       <key>UTTypeDescription</key>
       <string>Hype Stack</string>

@@ -42,6 +42,9 @@ let package = Package(
             path: "Sources/HypeCore",
             resources: [
                 .process("Resources/MeshyAnimationCatalog.json"),
+            ],
+            linkerSettings: [
+                .linkedLibrary("sqlite3"),
             ]
         ),
         .testTarget(

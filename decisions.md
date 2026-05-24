@@ -9,12 +9,13 @@ document semantics.
 
 ## Product Architecture Guardrails
 
-- Persist document state as value types in `HypeDocument`, `Stack`, `Background`, `Card`, `Part`, `SpriteAreaSpec`, and `SceneSpec`.
+- Persist document state in self-contained SQLite-backed `.hype` packages. The runtime model remains value typed through `HypeDocument`, `Stack`, `Background`, `Card`, `Part`, `SpriteAreaSpec`, and `SceneSpec`.
 - Do not persist live AppKit, SpriteKit, SceneKit, AVFoundation, or network objects.
 - Keep `SceneSpec` and `SpriteAreaSpec` as the source of truth for SpriteKit content; `SceneBridge` projects specs into live SpriteKit nodes.
 - Route HypeTalk through `MessageDispatcher`, `Interpreter`, and `StackRuntime` rather than bypassing the message hierarchy.
 - Preserve HyperCard-style message pass-up: part -> card -> background -> stack -> app, and scene/node -> sprite area -> card -> background -> stack -> app.
 - Treat `.hype` stack files as self-contained user documents. User-created content should be persisted in the stack unless there is an explicit architecture-level reason to keep it external.
+- Keep SQLite storage diagnosable: core stack layout, scripts, assets, AI context, SpriteKit scenes/nodes, and search indexes should be inspectable through tables, indexes, and validation views.
 
 ## HypeTalk Behavior Guardrails
 
@@ -44,6 +45,7 @@ document semantics.
 ## References
 
 - `architecture.md`: source of truth for architecture as built.
+- `docs/SQLiteStackStorageDesign.md`: SQLite package storage schema and diagnostics.
 - `AGENTS.md`: agentic harness workflow, verification steps, test commands, deploy commands, and git hygiene.
 - `HypeTalk-LLM-Context.md`: AI-facing HypeTalk guidance.
 - `Sources/HypeCore/AI/HypeTalkGuide.swift`: in-app HypeTalk model guidance.

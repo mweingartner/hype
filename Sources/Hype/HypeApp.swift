@@ -305,24 +305,24 @@ struct HypeDocumentWrapper: FileDocument {
     }
 
     init(configuration: ReadConfiguration) throws {
+        if configuration.file.isDirectory {
+            self.document = try HypeSQLiteStackStore().load(from: configuration.file)
+            return
+        }
+
         guard let data = configuration.file.regularFileContents else {
             throw CocoaError(.fileReadCorruptFile)
         }
-        do {
-            self.document = try JSONDecoder().decode(HypeDocument.self, from: data)
-        } catch {
-            self.document = try HyperCardToHypeConverter().convert(data: data).document
-        }
+        self.document = try HyperCardToHypeConverter().convert(data: data).document
     }
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        let data = try JSONEncoder().encode(document)
-        return FileWrapper(regularFileWithContents: data)
+        try HypeSQLiteStackStore().fileWrapper(for: document)
     }
 }
 
 extension UTType {
-    static let hypeStack = UTType(exportedAs: "com.hype.stack", conformingTo: .json)
+    static let hypeStack = UTType(exportedAs: "com.hype.stack", conformingTo: .package)
     static let hyperCardStack = UTType(importedAs: "com.apple.hypercard.stack", conformingTo: .data)
 }
 

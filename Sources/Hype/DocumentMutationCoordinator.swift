@@ -3,12 +3,13 @@ import Foundation
 import HypeCore
 import SwiftUI
 
-/// Encodes Hype documents in the same persisted form used by FileDocument.
+/// Encodes Hype documents into a deterministic value snapshot for equality.
 ///
-/// The encoder intentionally ignores session-only fields such as
-/// `scriptGlobals` because `HypeDocument` excludes them from CodingKeys. That
-/// makes snapshot comparison match what actually lands on disk and prevents
-/// runtime-only global mutations from polluting undo/save state.
+/// The persisted `.hype` document is SQLite-backed, but undo/coalescing still
+/// needs a cheap value-level equivalence check. `HypeDocument` excludes
+/// session-only fields such as `scriptGlobals` from CodingKeys, so this
+/// comparison prevents runtime-only global mutations from polluting undo/save
+/// state.
 enum HypeDocumentSnapshotCodec {
     static func data(for document: HypeDocument) throws -> Data {
         let encoder = JSONEncoder()
@@ -29,8 +30,10 @@ enum HypeDocumentSnapshotCodec {
 /// yet have been committed through the SwiftUI/NSDocument autosave path.
 final class HypeRecoveryStore {
     let rootDirectory: URL
+    private let store: HypeSQLiteStackStore
 
-    init(rootDirectory: URL? = nil) {
+    init(rootDirectory: URL? = nil, store: HypeSQLiteStackStore = HypeSQLiteStackStore()) {
+        self.store = store
         if let rootDirectory {
             self.rootDirectory = rootDirectory
         } else {
@@ -50,8 +53,7 @@ final class HypeRecoveryStore {
 
     func write(_ document: HypeDocument) throws {
         try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
-        let data = try HypeDocumentSnapshotCodec.data(for: document)
-        try data.write(to: snapshotURL(for: document), options: [.atomic])
+        try store.save(document, toPackageAt: snapshotURL(for: document))
     }
 
     func removeSnapshot(for document: HypeDocument) {

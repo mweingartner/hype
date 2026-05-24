@@ -99,11 +99,11 @@ emitters in the same document, with one unified scripting model.
   the SwiftUI inspector chrome picks up `.regularMaterial` /
   `.thickMaterial` / `.thinMaterial` automatically when the theme
   opts into glass material rendering.
-- **Document-based, value-typed, source-controllable.** `.hype` files
-  are JSON. The model is a single `HypeDocument` aggregate of value
-  types — diffs are readable, undo/redo is trivial, and the file
-  format is forward-compatible (unknown part types decode to a
-  filtered-out sentinel, not a crash).
+- **Document-based, SQLite-backed, value-typed.** `.hype` files are
+  self-contained packages containing `manifest.json` and `stack.sqlite`.
+  The runtime still works with a single `HypeDocument` aggregate of
+  value types, while storage tables index layout, scripts, content,
+  assets, SpriteKit scenes, AI context, and full-text search.
 - **Tested.** 2,075 tests in 230 suites under Swift Testing, all passing
   under the parallel runner in roughly 80 seconds. Coverage spans
   parser, interpreter, tool-call routing, scene serialization,
@@ -236,8 +236,9 @@ SpriteKit as a peer to the classic flat-card model.
 - **Sprite areas.** A `spriteArea` part is a SwiftUI/AppKit-hosted
   `SKView` showing an `SKScene`. The scene's contents are described
   by a `SceneSpec` value type (`Sources/HypeCore/Models/SceneSpec.swift`)
-  that round-trips through JSON in the document. Live nodes are
-  reconstructed from the spec at scene-load time via
+  stored through the stack package's SQLite layer as part of the
+  owning `SpriteAreaSpec`. Live nodes are reconstructed from the spec
+  at scene-load time via
   `SceneBridge.swift`, and a `NodeRegistry` maintains a bidirectional
   UUID ↔ `SKNode` map so HypeTalk can address nodes by name.
 - **Physics.** Every node can carry a `PhysicsBodySpec`
@@ -555,7 +556,7 @@ Hype/
 │       ├── Layout/               # Snap-to-grid, alignment, distribution
 │       ├── Tools/                # Mouse-action layer (paint, draw, select, group)
 │       ├── Sync/                 # SyncService — operation/change-set engine + checkpoints
-│       ├── Export/               # `.hype` ↔ JSON ↔ HTML (paint layers embedded as PNG)
+│       ├── Export/               # Diagnostic JSON export + single-file HTML export
 │       ├── Logging/              # HypeLogger
 │       ├── Navigation/           # Card history, go-back stack
 │       └── Controls/             # Visual-effect catalog, PaintLayer, etc.
@@ -581,10 +582,11 @@ Hype/
    vocabulary verbatim — `Stack`, `Background`, `Card`, `Part`,
    `Handler`, `Message`, `Chunk`. Implicit rules become named objects
    (`PartAnimator`, `MessageDispatcher`, `ScriptDraftRefusal`).
-2. **Value types for the model.** Every persisted entity is a
-   `Codable Sendable` value type. Mutations go through
-   `HypeDocument.updatePart(id:_:)` so undo/redo and Codable round-
-   trip are trivial.
+2. **Value types for the runtime model.** Every authored entity is
+   represented in Swift as a `Codable Sendable` value type. The `.hype`
+   package is SQLite-backed, but UI, runtime, undo, and AI tools still
+   mutate a `HypeDocument` value graph through explicit document
+   mutation boundaries.
 3. **AppKit where SwiftUI is brittle, SwiftUI everywhere else.**
    Heavy interactive surfaces (`CardCanvasView`,
    `HypeFieldEditorCell`, `SpriteAreaHostView`) are

@@ -129,8 +129,7 @@ struct DocumentMutationCoordinatorTests {
 
         coordinator.flushAllAutosaves()
 
-        let snapshotData = try Data(contentsOf: store.snapshotURL(for: wrapper.document))
-        let decoded = try JSONDecoder().decode(HypeDocument.self, from: snapshotData)
+        let decoded = try HypeSQLiteStackStore().load(fromPackageAt: store.snapshotURL(for: wrapper.document))
         #expect(decoded.stack.name == "Recovered Name")
         #expect(autosaveCallCount == 1)
 
@@ -159,8 +158,7 @@ struct DocumentMutationCoordinatorTests {
         updated.document.stack.name = "Immediately Recovered"
         tracked.wrappedValue = updated
 
-        let snapshotData = try Data(contentsOf: store.snapshotURL(for: wrapper.document))
-        let decoded = try JSONDecoder().decode(HypeDocument.self, from: snapshotData)
+        let decoded = try HypeSQLiteStackStore().load(fromPackageAt: store.snapshotURL(for: wrapper.document))
         #expect(decoded.stack.name == "Immediately Recovered")
         #expect(autosaveCallCount == 0)
 
@@ -178,8 +176,7 @@ struct DocumentMutationCoordinatorTests {
 
         try store.write(document)
         let snapshotURL = store.snapshotURL(for: document)
-        let snapshotData = try Data(contentsOf: snapshotURL)
-        let decoded = try JSONDecoder().decode(HypeDocument.self, from: snapshotData)
+        let decoded = try HypeSQLiteStackStore().load(fromPackageAt: snapshotURL)
 
         #expect(decoded.stack.name == "Recovery Test")
         #expect(decoded.stack.width == 1024)

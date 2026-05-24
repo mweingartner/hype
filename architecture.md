@@ -121,6 +121,8 @@ hype-v2/
 │       │   ├── SceneAuthoringSupport.swift # Scene checklists, diagnostics, asset usage
 │       │   ├── MultiSelectionEditing.swift # Common-value + apply-value across selections
 │       │   └── SceneDiff.swift            # Incremental scene patch operations
+│       ├── Storage/                # SQLite-backed .hype package storage
+│       │   └── HypeSQLiteStackStore.swift # Schema, package I/O, FTS search, diagnostics
 │       ├── Script/                 # HypeTalk
 │       │   ├── Token.swift                # 100+ token types (including `animate`)
 │       │   ├── Lexer.swift                # Hand-written tokenizer
@@ -275,12 +277,12 @@ live SpriteKit nodes.
 
 Two arrows are worth highlighting:
 
-1. **Persistence ↔ runtime.** The model is plain `Codable` Swift values
-   serialized as JSON in a `.hype` `FileDocument`. Sprite-area scenes are
-   stored on the part as a JSON-encoded `SpriteAreaSpec`, which owns a named
-   scene registry and migrates legacy single-`SceneSpec` payloads on load. At
-   display time, the bridge layer compiles the active scene into a live
-   `SKNode` tree.
+1. **Persistence ↔ runtime.** The model is plain `Codable` Swift values at
+   runtime, but `.hype` documents are self-contained SQLite packages written
+   by `HypeSQLiteStackStore`. Sprite-area scenes remain authored as
+   `SpriteAreaSpec` / `SceneSpec` values, and the storage layer projects them
+   into searchable relational tables. At display time, the bridge layer
+   compiles the active scene into a live `SKNode` tree.
 2. **Hit test ↔ message dispatch.** A click inside a sprite area is
    converted by `HypeSKScene` from a `CGPoint` to a UUID via the
    `NodeRegistry`, forwarded to `CardCanvasNSView` (the
@@ -321,7 +323,7 @@ A few choices are deliberate:
   (background-scoped), and helpers like `partsForCard(_:)` and
   `partsForBackground(_:)` filter the flat array on demand. This avoids
   copy-of-copy issues, makes draw-order trivial (the array index is the
-  z-order), and keeps the JSON shape diff-friendly.
+  z-order), and keeps undo, AI tool edits, and SQLite reconstruction simple.
 - **All value types.** Every model — `Stack`, `Background`, `Card`, `Part`,
   `SpriteRepository`, `SceneSpec`, `LayoutConstraint`, `SpriteAsset` — is a
   `struct` conforming to `Sendable`. There is no shared mutable state in
@@ -420,22 +422,32 @@ Layered metadata enums (`ButtonStyle`, `FieldStyle`, `ShapeType`,
 
 ### 2.4 Persistence
 
-The whole document is a single JSON blob written through SwiftUI's
-`FileDocument`. `HypeDocumentWrapper` (HypeApp.swift:228) reads/writes via
-`JSONEncoder/JSONDecoder` and exposes `.hype` files via a custom UTType
-`com.hype.stack`. There is no schema migration system: each model's
-`init(from:)` decoder uses `decodeIfPresent` with defaults so newer fields
-load gracefully against older files.
+The document is a self-contained package written through SwiftUI's
+`FileDocument`. `HypeDocumentWrapper` (HypeApp.swift:298) reads/writes `.hype`
+packages via `HypeSQLiteStackStore`, and exposes the custom package UTType
+`com.hype.stack`. A package contains:
+
+```text
+Stack.hype/
+  manifest.json
+  stack.sqlite
+```
+
+`stack.sqlite` is the canonical store. It contains normalized, indexed tables
+for stacks, backgrounds, cards, parts, scripts, assets, AI context, themes,
+paint layers, constraints, SpriteKit areas/scenes/nodes, and FTS search. Rows
+also carry payload JSON for exact reconstruction of the value-model graph while
+the schema continues to grow. SQLite `PRAGMA user_version` tracks the schema.
 
 Interactive saves and undo now flow through
 `HypeDocumentMutationCoordinator` (`Sources/Hype/DocumentMutationCoordinator.swift`).
 `MainContentView` publishes a tracked `Binding<HypeDocumentWrapper>` to the
 canvas, inspector, detached authoring windows, settings bridge, AI panels, and
 menu handlers. Any persistent document mutation that reaches that binding is
-compared in the same sorted-JSON form used for file persistence, registered with
-the active `UndoManager`, written immediately to a local recovery snapshot under
-Application Support, and scheduled for debounced `NSDocument` autosave. App
-resign-active, window close, and terminate all flush pending autosaves.
+compared in a deterministic sorted-JSON value snapshot, registered with the
+active `UndoManager`, written immediately to a local SQLite recovery package
+under Application Support, and scheduled for debounced `NSDocument` autosave.
+App resign-active, window close, and terminate all flush pending autosaves.
 Runtime-only fields
 that are intentionally excluded from `HypeDocument.CodingKeys` (for example
 `scriptGlobals`) do not create persistent undo entries.
@@ -459,7 +471,7 @@ Stack-authored mode flags that affect portability, including
 purely local window geometry, selected AI provider, and API keys remain local
 app preferences or Keychain entries.
 
-For stored-as-string sub-documents — `Part.sceneSpec` (a
+For stored-as-string runtime sub-documents — `Part.sceneSpec` (a
 JSON-encoded `SpriteAreaSpec`), `Part.chartData` (a `ChartConfig`),
 `Part.mapAnnotationsJSON` — `JSONCodec` (Sources/HypeCore/Models/JSONCodec.swift)
 provides a single shared `JSONEncoder` / `JSONDecoder` pair so the model layer
@@ -468,6 +480,10 @@ trip. `Part.spriteAreaSpecModel` is called from many hot paths (every draw
 frame for visible sprite areas, every dispatch that reads or writes a scene
 property, every AI tool that introspects scenes); the shared codec moves the
 allocation cost from per-call to one-time-per-app-launch.
+
+The SQLite storage layer projects Sprite Area contents into relational
+`sprite_areas`, `scenes`, and `scene_nodes` tables for diagnostics and search,
+while `SceneSpec` / `SpriteAreaSpec` remain the runtime source of truth.
 
 `DocumentExporter` (Sources/HypeCore/Export/DocumentExporter.swift) provides
 two side outputs: pretty-printed sorted JSON (for inspection / diff) and a
@@ -524,8 +540,8 @@ designed around untrusted binary input:
 The Hype app exposes this through **File > Import HyperCard Stack...**. The menu
 opens an untyped file picker because original stacks often have no extension or
 arrive as restored classic-Mac files. The selected stack is converted to a
-temporary `.hype` document and opened normally; saving from there writes a
-standard portable `.hype` JSON file.
+temporary Hype document and opened normally; saving from there writes a
+standard portable SQLite-backed `.hype` package.
 
 ---
 
@@ -593,9 +609,9 @@ That means persistence has two layers:
 - **`SpriteAreaSpec`**: area-level defaults and named-scene registry
 - **`SceneSpec`**: one concrete SpriteKit scene description
 
-Because both are plain JSON-backed value types, the authored state remains
-diff-friendly, AI-friendly, undoable, and inspectable, and it survives across
-runs without holding onto live SpriteKit objects.
+Because both are plain value types, the authored state remains AI-friendly,
+undoable, inspectable through SQLite projections, and portable across runs
+without holding onto live SpriteKit objects.
 
 The shape:
 
@@ -1028,7 +1044,7 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
     public var name: String
     public var kind: AssetKind
     public var mimeType: String
-    public var data: Data            // raw bytes embedded in JSON
+    public var data: Data            // raw bytes embedded in the stack package
     public var width: Int
     public var height: Int
     public var tags: [String]
@@ -2353,8 +2369,9 @@ model, parser, interpreter, renderer helpers, and tool executor directly;
 `HypeTests` covers app-facing seams that need AppKit, SpriteKit, or an
 `NSWindow`. Coverage spans:
 
-- **Model & persistence** — Codable round-trip, forward-compat decoding for
-  every value-typed field added since v1, JSON shape stability tests.
+- **Model & persistence** — SQLite package round-trip, FTS search,
+  diagnostics, self-contained asset/context persistence, Codable value-model
+  reconstruction, and forward-compat decoding for value-typed fields.
 - **Script engine** — `ComprehensiveScriptTests`, `ParserCoverage`, expression
   precedence, chunks, `it` lifecycle, control flow, pass-up semantics.
 - **Property dispatch** — `PropertyAuditTests` walks every property exposed
