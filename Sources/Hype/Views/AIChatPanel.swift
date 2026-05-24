@@ -14,7 +14,7 @@ struct AIChatPanel: View {
     /// (system 13pt font with zero text-container inset) plus the
     /// container's 16pt total padding.
     @State private var inputContentHeight: CGFloat = 18
-    @State private var messages: [ChatBubble] = []
+    @State private var transcript = AIChatStreamingTranscript()
     @State private var conversationMessages: [OllamaMessage] = []  // Full context for model
     @State private var isProcessing = false
     /// Set when sendMessage launches `processWithTools` so the user
@@ -22,10 +22,6 @@ struct AIChatPanel: View {
     /// operation" voice command). Cleared when the task completes
     /// or is cancelled.
     @State private var activeChatTask: Task<Void, Never>? = nil
-    /// ID of the currently streaming message bubble for real-time token updates.
-    @State private var streamingBubbleId: UUID?
-    /// Accumulated content for the streaming message (updated in real-time).
-    @State private var streamingContent: String = ""
     /// Speech-to-text controller. Lazily initialized — its
     /// `start()` requests mic + speech-recognition authorization.
     @StateObject private var speechCapture = AISpeechCapture()
@@ -40,49 +36,13 @@ struct AIChatPanel: View {
     @AppStorage("ollamaPort") private var ollamaPort = "11434"
     @AppStorage("ollamaModel") private var ollamaModel = "llama3.2"
     @AppStorage(HypeAIConfiguration.llamaSwapModelKey) private var llamaSwapModel = HypeAIConfiguration.defaultLlamaSwapModel
+    @AppStorage(HypeAIConfiguration.llamaCppModelKey) private var llamaCppModel = HypeAIConfiguration.defaultLlamaCppModel
     @AppStorage(HypeAIConfiguration.providerKey) private var aiProviderRaw = HypeAIProvider.ollama.rawValue
     @AppStorage(HypeAIConfiguration.openAIModelKey) private var openAIModel = HypeAIConfiguration.defaultOpenAIModel
     @AppStorage(HypeAIConfiguration.speakAssistantResponsesKey) private var speakAssistantResponses = false
+    @AppStorage("hype.aiChat.showThinking") private var showThinkingMessages = true
+    @AppStorage("hype.aiChat.showToolCalls") private var showToolCallMessages = true
     @AppStorage("hype.webAssets.provider") private var webAssetProviderRaw = "openverse"
-
-    // MARK: - Chat bubble model
-
-    /// A single chat message bubble, optionally carrying a captured card image for display.
-    private struct ChatBubble: Identifiable, Equatable {
-        let id: UUID = UUID()
-        let role: String
-        let content: String
-        let imageBase64: String?
-        let imagePixelWidth: Int?
-        let imagePixelHeight: Int?
-        let imageCaption: String?
-
-        init(
-            role: String,
-            content: String,
-            imageBase64: String? = nil,
-            imagePixelWidth: Int? = nil,
-            imagePixelHeight: Int? = nil,
-            imageCaption: String? = nil
-        ) {
-            self.role = role
-            self.content = content
-            self.imageBase64 = imageBase64
-            self.imagePixelWidth = imagePixelWidth
-            self.imagePixelHeight = imagePixelHeight
-            self.imageCaption = imageCaption
-        }
-
-        // Equatable ignores `id` so two bubbles with same content compare equal.
-        static func == (lhs: ChatBubble, rhs: ChatBubble) -> Bool {
-            lhs.role == rhs.role &&
-            lhs.content == rhs.content &&
-            lhs.imageBase64 == rhs.imageBase64 &&
-            lhs.imagePixelWidth == rhs.imagePixelWidth &&
-            lhs.imagePixelHeight == rhs.imagePixelHeight &&
-            lhs.imageCaption == rhs.imageCaption
-        }
-    }
 
     // MARK: - Web Asset Search state
 
@@ -155,7 +115,7 @@ struct AIChatPanel: View {
                 Image(systemName: "sparkles")
                 Text("AI Assistant").font(.headline)
                 Spacer()
-                if !messages.isEmpty {
+                if !transcript.messages.isEmpty {
                     Button(action: clearChat) {
                         Image(systemName: "trash")
                             .font(.system(size: 11))
@@ -168,6 +128,24 @@ struct AIChatPanel: View {
                 Text(currentModelDisplay)
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
+                Button {
+                    showThinkingMessages.toggle()
+                } label: {
+                    Image(systemName: showThinkingMessages ? "brain.head.profile.fill" : "brain.head.profile")
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.borderless)
+                .help(showThinkingMessages ? "Hide thinking messages" : "Show thinking messages")
+                .accessibilityLabel(showThinkingMessages ? "Hide thinking messages" : "Show thinking messages")
+                Button {
+                    showToolCallMessages.toggle()
+                } label: {
+                    Image(systemName: showToolCallMessages ? "wrench.and.screwdriver.fill" : "wrench.and.screwdriver")
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.borderless)
+                .help(showToolCallMessages ? "Hide tool calls" : "Show tool calls")
+                .accessibilityLabel(showToolCallMessages ? "Hide tool calls" : "Show tool calls")
             }
             .padding(8)
             // AI Chat header bar — themed to match the toolbar.
@@ -180,17 +158,20 @@ struct AIChatPanel: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(Array(messages.enumerated()), id: \.offset) { idx, msg in
+                        let visibleMessages = transcript.visibleMessages(
+                            showThinking: showThinkingMessages,
+                            showToolCalls: showToolCallMessages
+                        )
+                        ForEach(Array(visibleMessages.enumerated()), id: \.offset) { idx, msg in
                             HStack(alignment: .top) {
                                 if msg.role == "user" { Spacer() }
                                 VStack(alignment: msg.role == "user" ? .trailing : .leading) {
-                                    let displayContent = (streamingBubbleId == msg.id) ? streamingContent : msg.content
-                                    Text(displayContent)
-                                        .font(.system(size: 13))
-                                        .textSelection(.enabled)
-                                        .padding(8)
-                                        .background(bubbleColor(for: msg.role))
-                                        .cornerRadius(8)
+                                    let displayContent = transcript.displayContent(for: msg)
+                                    messageBubbleView(
+                                        msg,
+                                        displayContent: displayContent,
+                                        isStreaming: transcript.streamingMessageId == msg.id
+                                    )
                                     // Thumbnail for captured card images.
                                     if let b64 = msg.imageBase64,
                                        let pngData = Data(base64Encoded: b64),
@@ -270,9 +251,9 @@ struct AIChatPanel: View {
                 }
                 .accessibilityLabel("AI conversation")
                 .accessibilityIdentifier(HypeAccessibilityID.aiMessages)
-                .onChange(of: messages.count) { _, _ in
-                    if !messages.isEmpty {
-                        proxy.scrollTo(messages.count - 1, anchor: .bottom)
+                .onChange(of: transcript.messages.count) { _, _ in
+                    if !transcript.messages.isEmpty {
+                        proxy.scrollTo(transcript.messages.count - 1, anchor: .bottom)
                     }
                 }
             }
@@ -468,8 +449,14 @@ struct AIChatPanel: View {
             return ollamaModel
         case .llamaSwap:
             return "llama-swap: \(llamaSwapModel)"
+        case .llamaCpp:
+            return "llama.cpp: \(llamaCppModel)"
         case .openAI:
             return "OpenAI: \(openAIModel)"
+        case .zAI:
+            return "Z.ai: \(HypeAIConfiguration.zAIModel())"
+        case .miniMax:
+            return "MiniMax: \(HypeAIConfiguration.miniMaxModel())"
         }
     }
 
@@ -494,13 +481,9 @@ struct AIChatPanel: View {
     /// surface its own error if the model is genuinely
     /// unreachable.
     private func preloadModelIfNeeded() {
-        guard selectedAIProvider == .ollama else { return }
-        let host = ollamaHost
-        let port = ollamaPort
-        let model = ollamaModel
         Task.detached {
-            let client = OllamaToolClient(host: host, port: port, model: model)
-            try? await client.preloadModel()
+            let inference = try? HypeAIConfiguration.makeChatInferenceProvider()
+            try? await inference?.preloadModel()
         }
     }
 
@@ -515,7 +498,7 @@ struct AIChatPanel: View {
     }
 
     private func clearChat() {
-        messages.removeAll()
+        transcript.clear()
         conversationMessages.removeAll()
         pendingSceneProposal = nil
         iterationStatus = nil
@@ -537,14 +520,14 @@ struct AIChatPanel: View {
         imagePixelHeight: Int? = nil,
         imageCaption: String? = nil
     ) {
-        messages.append(ChatBubble(
+        transcript.appendMessage(
             role: role,
             content: content,
             imageBase64: imageBase64,
             imagePixelWidth: imagePixelWidth,
             imagePixelHeight: imagePixelHeight,
             imageCaption: imageCaption
-        ))
+        )
         // For logging: if this bubble carries a capture image, the caller is
         // responsible for using HypeLogger directly with a redacted string.
         // Plain bubbles (no image) are safe to log as-is.
@@ -576,6 +559,7 @@ struct AIChatPanel: View {
     /// retints chat bubbles.
     /// - user: theme accent at 15% so the accent color reads as a
     ///   subtle wash, matching the inspector's selected-row tint.
+    /// - thinking: fallback tint for model reasoning/thinking traces.
     /// - tool: kept semantically green at low opacity so tool-call
     ///   results remain visually distinct from chat content.
     /// - assistant (default): the theme's inspector-background tone
@@ -583,9 +567,113 @@ struct AIChatPanel: View {
     private func bubbleColor(for role: String) -> Color {
         switch role {
         case "user": return hypeTheme.accent.swiftUIColor.opacity(0.15)
-        case "thinking": return Color.yellow.opacity(0.12)
+        case "thinking": return Color.purple.opacity(0.12)
         case "tool": return Color.green.opacity(0.1)
         default: return hypeTheme.inspectorBackground.swiftUIColor
+        }
+    }
+
+    @ViewBuilder
+    private func messageBubbleView(
+        _ message: AIChatDisplayMessage,
+        displayContent: String,
+        isStreaming: Bool
+    ) -> some View {
+        if message.role == "thinking" {
+            HStack(alignment: .top, spacing: 8) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.indigo.opacity(0.75), Color.purple.opacity(0.55)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .frame(width: 3)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "brain.head.profile")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text("think")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .tracking(1.1)
+                            .textCase(.uppercase)
+                    }
+                    .foregroundColor(Color.indigo.opacity(0.9))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(
+                        Capsule()
+                            .fill(Color.indigo.opacity(0.12))
+                    )
+
+                    Text(displayContent.replacingOccurrences(of: "Thinking:\n", with: ""))
+                        .font(.system(size: 12, weight: .regular, design: .serif))
+                        .italic()
+                        .foregroundColor(.primary.opacity(0.72))
+                        .lineSpacing(2)
+                        .textSelection(.enabled)
+                }
+            }
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.indigo.opacity(0.10), Color.purple.opacity(0.06)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.indigo.opacity(0.36), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            )
+        } else if let toolCall = AIChatToolCallSummary(message: message) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 5) {
+                    Image(systemName: "wrench.and.screwdriver")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(toolCall.name)
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                }
+                if !toolCall.arguments.isEmpty {
+                    Text(toolCall.arguments)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+            .padding(8)
+            .background(bubbleColor(for: message.role))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.green.opacity(0.35), lineWidth: 1)
+            )
+            .cornerRadius(8)
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(displayContent.isEmpty && isStreaming ? " " : displayContent + (isStreaming ? " ▌" : ""))
+                    .font(.system(size: 13))
+                    .textSelection(.enabled)
+                if isStreaming {
+                    HStack(spacing: 6) {
+                        ProgressView().scaleEffect(0.55)
+                        Text("Streaming response…")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .padding(8)
+            .background(bubbleColor(for: message.role))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isStreaming ? hypeTheme.accent.swiftUIColor.opacity(0.5) : Color.clear, lineWidth: 1)
+            )
+            .cornerRadius(8)
         }
     }
 
@@ -1264,9 +1352,9 @@ struct AIChatPanel: View {
         // Reset the per-turn capture budget counter. Session budget (consumed) is preserved.
         captureBudget.beginTurn()
 
-        let client: any HypeAIClient
+        let inference: any AIChatInferenceProviding
         do {
-            client = try HypeAIConfiguration.makeClient()
+            inference = try HypeAIConfiguration.makeChatInferenceProvider()
         } catch {
             appendMessage(role: "assistant", content: "AI provider is not ready: \(error.localizedDescription)")
             return
@@ -1400,7 +1488,7 @@ struct AIChatPanel: View {
         // model because its training data had a minimal system prompt
         // rather than the full guide. We detect the tuned model by tag
         // prefix and skip the injection when present.
-        let isTunedHypeTalkModel = selectedAIProvider != .openAI && client.modelName.lowercased().hasPrefix("hypetalk-")
+        let isTunedHypeTalkModel = selectedAIProvider != .openAI && inference.modelName.lowercased().hasPrefix("hypetalk-")
         // Inline the guide as literal text only for untrained models.
         // The tuned model already has the guide in its Modelfile SYSTEM
         // block (see scripts/ai-training/src/package.sh) so adding it
@@ -1565,46 +1653,44 @@ struct AIChatPanel: View {
 
                 var streamingMessageId: UUID?
                 var accumulatedText = ""
-                streamingBubbleId = nil
-                streamingContent = ""
+                var response: OllamaChatResponse?
+                transcript.clearStreamingState()
 
-                let streamingClient: (any HypeAIClient)? = client as? OpenAIChatCompletionsClient ?? (client as? OllamaToolClient)
-                if let client = streamingClient {
-                    for await token in client.chatStream(messages: conversationMessages, tools: tools) {
-                        if streamingBubbleId == nil {
-                            let bubble = ChatBubble(role: "assistant", content: "", imageBase64: nil, imagePixelWidth: nil, imagePixelHeight: nil, imageCaption: nil)
-                            streamingBubbleId = bubble.id
-                            messages.append(bubble)
-                            streamingMessageId = bubble.id
+                let request = AIChatInferenceRequest(messages: conversationMessages, tools: tools)
+                let shouldStream = inference.supportsStreaming && tools.isEmpty
+                if shouldStream {
+                    for await token in inference.chatStream(request) {
+                        streamingMessageId = transcript.appendStreamingToken(token)
+                        accumulatedText = transcript.streamingContent
+                    }
+                    if streamingMessageId != nil {
+                        guard let finalizedText = transcript.finishStreamingMessage() else {
+                            return
                         }
-                        accumulatedText += token
-                        streamingContent = accumulatedText
+                        accumulatedText = finalizedText
+                    } else {
+                        transcript.clearStreamingState()
                     }
+                    response = OllamaChatResponse(
+                        message: OllamaMessage(role: "assistant", content: accumulatedText),
+                        done: true
+                    )
                 } else {
-                    let response = try await client.chat(messages: conversationMessages, tools: tools)
-                    accumulatedText = response.message.content ?? ""
-                    appendMessage(role: "assistant", content: accumulatedText)
-                }
-
-                streamingBubbleId = nil
-                streamingContent = ""
-
-                if streamingMessageId != nil {
-                    guard let lastBubbleId = streamingMessageId,
-                          let bubbleIndex = messages.firstIndex(where: { $0.id == lastBubbleId }) else {
-                        return
+                    let chatResponse = try await inference.chat(request)
+                    response = chatResponse
+                    accumulatedText = chatResponse.message.content ?? ""
+                    if !accumulatedText.isEmpty {
+                        appendMessage(role: "assistant", content: accumulatedText)
                     }
-                    messages[bubbleIndex] = ChatBubble(role: "assistant", content: accumulatedText, imageBase64: nil, imagePixelWidth: nil, imagePixelHeight: nil, imageCaption: nil)
+                    transcript.clearStreamingState()
                 }
+
+                guard let response else { return }
 
                 if speakAssistantResponses {
                     speakAssistantText(accumulatedText)
                 }
 
-                let response = OllamaChatResponse(
-                    message: OllamaMessage(role: "assistant", content: accumulatedText),
-                    done: true
-                )
                 appendThinkingIfPresent(from: response.message)
 
                 // Ollama's gemma4 parser extracts structured tool_calls
@@ -1618,8 +1704,16 @@ struct AIChatPanel: View {
                 // get a narrow document-aware repair pass for known
                 // local-model misroutes (e.g. Sprite Area scene script
                 // stored as a generic part script).
-                let assistantMessage = OllamaMessage(role: "assistant", content: accumulatedText)
+                let assistantMessage = response.message
                 let effectiveToolCalls: [OllamaToolCall]? = {
+                    if let structured = HypeAIResponseRepair.repairedToolCalls(
+                        response.message.tool_calls,
+                        userMessage: userMessage,
+                        document: workingDocument,
+                        currentCardId: activeCardId
+                    ), !structured.isEmpty {
+                        return structured
+                    }
                     if let existing = HypeAIResponseRepair.extractToolCalls(from: accumulatedText),
                        !existing.isEmpty {
                         return existing
@@ -1729,7 +1823,7 @@ struct AIChatPanel: View {
                             document: workingDocument,
                             currentCardId: activeCardId,
                             prompt: userMessage,
-                            providerName: client.providerName
+                            providerName: inference.providerName
                         )
                         var doc = workingDocument
                         await transactionRunner.apply(&transaction, to: &doc, currentCardId: activeCardId)
@@ -1759,7 +1853,7 @@ struct AIChatPanel: View {
                             let loopResult = await iterateScriptDraft(
                                 initialRefusal: refusal,
                                 executor: executor,
-                                client: client,
+                                inference: inference,
                                 tools: tools,
                                 activeCardId: activeCardId
                             )
@@ -1868,7 +1962,7 @@ struct AIChatPanel: View {
                         document: workingDocument,
                         currentCardId: activeCardId,
                         prompt: userMessage,
-                        providerName: client.providerName
+                        providerName: inference.providerName
                     )
                     var doc = workingDocument
                     await transactionRunner.apply(&transaction, to: &doc, currentCardId: activeCardId)
@@ -1905,7 +1999,7 @@ struct AIChatPanel: View {
                         let loopResult = await iterateScriptDraft(
                             initialRefusal: refusal,
                             executor: executor,
-                            client: client,
+                            inference: inference,
                             tools: tools,
                             activeCardId: activeCardId
                         )
@@ -1970,7 +2064,7 @@ struct AIChatPanel: View {
     /// - Parameters:
     ///   - initialRefusal: The refusal produced by attempt #1 (the one that triggered iteration).
     ///   - executor: The tool executor already configured for this turn.
-    ///   - client: The Ollama client already configured for this turn.
+    ///   - inference: The chat inference provider already configured for this turn.
     ///   - tools: The tool list used in this turn.
     ///   - activeCardId: The current card UUID (read-only snapshot from the parent loop).
     /// - Returns: A `LoopResult` describing the final state of the iteration.
@@ -1978,7 +2072,7 @@ struct AIChatPanel: View {
     private func iterateScriptDraft(
         initialRefusal: ScriptDraftRefusal,
         executor: HypeToolExecutor,
-        client: any HypeAIClient,
+        inference: any AIChatInferenceProviding,
         tools: [OllamaTool],
         activeCardId: UUID
     ) async -> ScriptDraftCoordinator.LoopResult {
@@ -2000,7 +2094,7 @@ struct AIChatPanel: View {
 
             let response: OllamaChatResponse
             do {
-                response = try await client.chat(messages: conversationMessages, tools: tools)
+                response = try await inference.chat(messages: conversationMessages, tools: tools)
                 appendThinkingIfPresent(from: response.message)
             } catch {
                 let errorMsg = "Error during script iteration: \(error.localizedDescription)"

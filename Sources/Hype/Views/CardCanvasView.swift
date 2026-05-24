@@ -15,32 +15,44 @@ private func nsColorFromHex(_ hex: String) -> NSColor {
     )
 }
 
+private final class AccessibilityHitTestResult: @unchecked Sendable {
+    let value: Any?
+
+    init(_ value: Any?) {
+        self.value = value
+    }
+}
+
 /// AppKit-based dialog provider that shows real NSAlert/NSTextField dialogs.
 final class AppKitDialogProvider: DialogProvider, @unchecked Sendable {
     func showAnswer(prompt: String) -> String {
-        let alert = NSAlert()
-        alert.messageText = prompt
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
-        return "OK"
+        MainActor.assumeIsolated {
+            let alert = NSAlert()
+            alert.messageText = prompt
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return "OK"
+        }
     }
 
     func showAsk(prompt: String) -> String {
-        let alert = NSAlert()
-        alert.messageText = prompt
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
-        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-        input.stringValue = ""
-        alert.accessoryView = input
-        alert.window.initialFirstResponder = input
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            return input.stringValue
+        MainActor.assumeIsolated {
+            let alert = NSAlert()
+            alert.messageText = prompt
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: "Cancel")
+            let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+            input.stringValue = ""
+            alert.accessoryView = input
+            alert.window.initialFirstResponder = input
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
+                return input.stringValue
+            }
+            return ""
         }
-        return ""
     }
 }
 /// Drawing provider that draws to a PaintLayer from script commands.
@@ -1280,28 +1292,30 @@ class CardCanvasNSView: NSView {
     }
 
     override func accessibilityHitTest(_ point: NSPoint) -> Any? {
-        guard let window else { return self }
-        let windowPoint = window.convertPoint(fromScreen: point)
-        let localPoint = convert(windowPoint, from: nil)
-        guard bounds.contains(localPoint) else { return nil }
+        MainActor.assumeIsolated {
+            guard let window else { return AccessibilityHitTestResult(self) }
+            let windowPoint = window.convertPoint(fromScreen: point)
+            let localPoint = convert(windowPoint, from: nil)
+            guard bounds.contains(localPoint) else { return AccessibilityHitTestResult(nil) }
 
-        let cardParts = document.partsForCard(currentCardId)
-        let backgroundParts: [Part]
-        if let card = document.cards.first(where: { $0.id == currentCardId }) {
-            backgroundParts = document.partsForBackground(card.backgroundId)
-        } else {
-            backgroundParts = []
-        }
-        let hitParts = (backgroundParts + cardParts).filter {
-            $0.visible && $0.enabled && $0.partType != .unknown && $0.width > 0 && $0.height > 0
-        }
-        for part in hitParts.reversed() {
-            let rect = NSRect(x: part.left, y: part.top, width: part.width, height: part.height)
-            if rect.contains(localPoint) {
-                return CardCanvasPartAccessibilityElement(canvas: self, partId: part.id)
+            let cardParts = document.partsForCard(currentCardId)
+            let backgroundParts: [Part]
+            if let card = document.cards.first(where: { $0.id == currentCardId }) {
+                backgroundParts = document.partsForBackground(card.backgroundId)
+            } else {
+                backgroundParts = []
             }
-        }
-        return self
+            let hitParts = (backgroundParts + cardParts).filter {
+                $0.visible && $0.enabled && $0.partType != .unknown && $0.width > 0 && $0.height > 0
+            }
+            for part in hitParts.reversed() {
+                let rect = NSRect(x: part.left, y: part.top, width: part.width, height: part.height)
+                if rect.contains(localPoint) {
+                    return AccessibilityHitTestResult(CardCanvasPartAccessibilityElement(canvas: self, partId: part.id))
+                }
+            }
+            return AccessibilityHitTestResult(self)
+        }.value
     }
 
     override func keyDown(with event: NSEvent) {
@@ -2170,17 +2184,19 @@ class CardCanvasNSView: NSView {
     private func startIdleTimer() {
         idleTimer?.invalidate()
         let timer = Timer(timeInterval: Self.idleTimerInterval, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            let toolState = ToolState(currentTool: self.currentTool.rawValue)
-            guard toolState.category == .browse, self.activeFieldEditor == nil else { return }
+            Task { @MainActor in
+                guard let self = self else { return }
+                let toolState = ToolState(currentTool: self.currentTool.rawValue)
+                guard toolState.category == .browse, self.activeFieldEditor == nil else { return }
 
-            let targets = self.idleDispatchTargetsForCurrentCard()
-            guard targets.includeCardTarget || !targets.partIDs.isEmpty else { return }
-            self.coordinator?.dispatchIdleBurst(
-                cardTargetId: self.currentCardId,
-                includeCardTarget: targets.includeCardTarget,
-                partTargetIds: targets.partIDs
-            )
+                let targets = self.idleDispatchTargetsForCurrentCard()
+                guard targets.includeCardTarget || !targets.partIDs.isEmpty else { return }
+                self.coordinator?.dispatchIdleBurst(
+                    cardTargetId: self.currentCardId,
+                    includeCardTarget: targets.includeCardTarget,
+                    partTargetIds: targets.partIDs
+                )
+            }
         }
         timer.tolerance = Self.idleTimerInterval / 4
         RunLoop.main.add(timer, forMode: .common)
@@ -2716,8 +2732,10 @@ class CardCanvasNSView: NSView {
             mouseStillDownPartId = partId
             mouseStillDownTimer?.invalidate()
             mouseStillDownTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-                guard let self = self, let pid = self.mouseStillDownPartId else { return }
-                self.coordinator?.dispatchMessage("mouseStillDown", to: pid)
+                Task { @MainActor in
+                    guard let self = self, let pid = self.mouseStillDownPartId else { return }
+                    self.coordinator?.dispatchMessage("mouseStillDown", to: pid)
+                }
             }
         case .beginDrag(let startX, let startY):
             dragStart = CGPoint(x: startX, y: startY)

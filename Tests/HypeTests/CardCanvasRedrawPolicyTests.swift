@@ -146,12 +146,19 @@ struct CardCanvasAnimatorCallbackTests {
         let view = DrawCountingCanvas()
         view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         view.configureForCardCanvasRendering()
+        let previousFrameChanged = GIFAnimator.shared.onFrameChanged
+        let previousAnimationStart = GIFAnimator.shared.onAnimationStart
+        let previousAnimationEnd = GIFAnimator.shared.onAnimationEnd
+        let previousPropertyChange = PartAnimator.shared.onPropertyChange
         view.installRuntimeAnimatorCallbacks()
+        GIFAnimator.shared.onAnimationStart = previousAnimationStart
+        GIFAnimator.shared.onAnimationEnd = previousAnimationEnd
+        PartAnimator.shared.onPropertyChange = previousPropertyChange
         defer {
-            GIFAnimator.shared.onFrameChanged = nil
-            GIFAnimator.shared.onAnimationStart = nil
-            GIFAnimator.shared.onAnimationEnd = nil
-            PartAnimator.shared.onPropertyChange = nil
+            GIFAnimator.shared.onFrameChanged = previousFrameChanged
+            GIFAnimator.shared.onAnimationStart = previousAnimationStart
+            GIFAnimator.shared.onAnimationEnd = previousAnimationEnd
+            PartAnimator.shared.onPropertyChange = previousPropertyChange
         }
 
         let window = NSWindow(

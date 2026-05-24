@@ -8,8 +8,15 @@ struct PreferencesView: View {
     @AppStorage(HypeAIConfiguration.llamaSwapHostKey) private var llamaSwapHost = HypeAIConfiguration.defaultLlamaSwapHost
     @AppStorage(HypeAIConfiguration.llamaSwapPortKey) private var llamaSwapPort = HypeAIConfiguration.defaultLlamaSwapPort
     @AppStorage(HypeAIConfiguration.llamaSwapModelKey) private var llamaSwapModel = HypeAIConfiguration.defaultLlamaSwapModel
+    @AppStorage(HypeAIConfiguration.llamaCppHostKey) private var llamaCppHost = HypeAIConfiguration.defaultLlamaCppHost
+    @AppStorage(HypeAIConfiguration.llamaCppPortKey) private var llamaCppPort = HypeAIConfiguration.defaultLlamaCppPort
+    @AppStorage(HypeAIConfiguration.llamaCppModelKey) private var llamaCppModel = HypeAIConfiguration.defaultLlamaCppModel
     @AppStorage(HypeAIConfiguration.providerKey) private var aiProviderRaw = HypeAIProvider.ollama.rawValue
     @AppStorage(HypeAIConfiguration.openAIModelKey) private var openAIModel = HypeAIConfiguration.defaultOpenAIModel
+    @AppStorage(HypeAIConfiguration.zAIBaseURLKey) private var zAIBaseURL = HypeAIConfiguration.defaultZAIBaseURL
+    @AppStorage(HypeAIConfiguration.zAIModelKey) private var zAIModel = HypeAIConfiguration.defaultZAIModel
+    @AppStorage(HypeAIConfiguration.miniMaxBaseURLKey) private var miniMaxBaseURL = HypeAIConfiguration.defaultMiniMaxBaseURL
+    @AppStorage(HypeAIConfiguration.miniMaxModelKey) private var miniMaxModel = HypeAIConfiguration.defaultMiniMaxModel
     @AppStorage(HypeAIConfiguration.openAIImageModelKey) private var openAIImageModel = HypeAIConfiguration.defaultOpenAIImageModel
     @AppStorage(HypeAIConfiguration.speechInputProviderKey) private var speechInputProviderRaw = HypeSpeechInputProvider.apple.rawValue
     @AppStorage(HypeAIConfiguration.openAITranscriptionModelKey) private var openAITranscriptionModel = HypeAIConfiguration.defaultOpenAITranscriptionModel
@@ -19,14 +26,25 @@ struct PreferencesView: View {
     @Environment(\.hypeTheme) private var hypeTheme
     @State private var availableModels: [String] = []
     @State private var llamaSwapAvailableModels: [String] = []
+    @State private var llamaCppAvailableModels: [String] = []
+    @State private var zAIAvailableModels: [String] = []
+    @State private var miniMaxAvailableModels: [String] = []
     @State private var isLoading = false
     @State private var connectionStatus = ""
+    @State private var isTestingOllamaDiagnostics = false
+    @State private var ollamaDiagnosticsStatus = ""
     @State private var llamaSwapKeyDraft = ""
     @State private var llamaSwapKeyIsSet = false
     @State private var openAIKeyDraft = ""
     @State private var openAIKeyIsSet = false
+    @State private var zAIKeyDraft = ""
+    @State private var zAIKeyIsSet = false
+    @State private var miniMaxKeyDraft = ""
+    @State private var miniMaxKeyIsSet = false
     @State private var isTestingOpenAI = false
     @State private var openAITestStatus = ""
+    @State private var isTestingHostedProvider = false
+    @State private var hostedProviderTestStatus = ""
     @State private var selectedCategory: PreferenceCategory = .ai
 
     private enum PreferenceCategory: String, CaseIterable, Hashable {
@@ -128,6 +146,8 @@ struct PreferencesView: View {
             fetchModels()
             pexelsKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.pexelsAPIKeyAccount)
             openAIKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.openAIAPIKeyAccount)
+            zAIKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.zAIAPIKeyAccount)
+            miniMaxKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.miniMaxAPIKeyAccount)
             llamaSwapKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.llamaSwapAPIKeyAccount)
             meshyKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.meshyAPIKeyAccount)
         }
@@ -163,6 +183,22 @@ struct PreferencesView: View {
                         .foregroundColor(connectionStatus.contains("Connected") ? .green : .red)
                         .font(.system(size: 11))
                 }
+
+                HStack {
+                    Button("Test Tool + Streaming APIs") { testOllamaProviderDiagnostics() }
+                        .disabled(isTestingOllamaDiagnostics)
+                    if isTestingOllamaDiagnostics { ProgressView().scaleEffect(0.7) }
+                    if !ollamaDiagnosticsStatus.isEmpty {
+                        Text(ollamaDiagnosticsStatus)
+                            .foregroundColor(ollamaDiagnosticsStatus.hasPrefix("OK") ? .green : .red)
+                            .font(.system(size: 11))
+                    }
+                }
+
+                Text("Runs three Ollama checks: native /api/tags + /api/pull + /api/chat tool calls, OpenAI-compatible /v1/chat/completions inference, and streaming response assembly.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             }
 
@@ -202,6 +238,30 @@ struct PreferencesView: View {
             }
             }
 
+            if aiProviderRaw == HypeAIProvider.llamaCpp.rawValue {
+            Section("llama.cpp Connection") {
+                TextField("Host", text: $llamaCppHost)
+                TextField("Port", text: $llamaCppPort)
+
+                HStack {
+                    Button("Test Connection") { testConnection() }
+                    if isLoading { ProgressView().scaleEffect(0.7) }
+                    Text(connectionStatus)
+                        .foregroundColor(connectionStatus.contains("Connected") ? .green : .red)
+                        .font(.system(size: 11))
+                }
+
+                Text("Hype calls llama.cpp through its standard OpenAI-compatible streaming API at /v1/chat/completions. Default port: 8001.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            }
+
+            if aiProviderRaw == HypeAIProvider.zAI.rawValue || aiProviderRaw == HypeAIProvider.miniMax.rawValue {
+                hostedOpenAICompatibleProviderSection
+            }
+
             Section("Model") {
                 if aiProviderRaw == HypeAIProvider.openAI.rawValue {
                     Picker("OpenAI Model", selection: $openAIModel) {
@@ -209,12 +269,38 @@ struct PreferencesView: View {
                             Text(model).tag(model)
                         }
                     }
+                } else if aiProviderRaw == HypeAIProvider.zAI.rawValue {
+                    Picker("Z.ai Model", selection: $zAIModel) {
+                        let models = zAIAvailableModels.isEmpty ? HypeAIConfiguration.zAITextModels : zAIAvailableModels
+                        ForEach(models, id: \.self) { model in
+                            Text(model).tag(model)
+                        }
+                    }
+                    Button("Refresh Models") { fetchModels() }
+                } else if aiProviderRaw == HypeAIProvider.miniMax.rawValue {
+                    Picker("MiniMax Model", selection: $miniMaxModel) {
+                        let models = miniMaxAvailableModels.isEmpty ? HypeAIConfiguration.miniMaxTextModels : miniMaxAvailableModels
+                        ForEach(models, id: \.self) { model in
+                            Text(model).tag(model)
+                        }
+                    }
+                    Button("Refresh Models") { fetchModels() }
                 } else if aiProviderRaw == HypeAIProvider.llamaSwap.rawValue {
                     Picker("llama-swap Model", selection: $llamaSwapModel) {
                         if llamaSwapAvailableModels.isEmpty {
                             Text(llamaSwapModel).tag(llamaSwapModel)
                         }
                         ForEach(llamaSwapAvailableModels, id: \.self) { model in
+                            Text(model).tag(model)
+                        }
+                    }
+                    Button("Refresh Models") { fetchModels() }
+                } else if aiProviderRaw == HypeAIProvider.llamaCpp.rawValue {
+                    Picker("llama.cpp Model", selection: $llamaCppModel) {
+                        if llamaCppAvailableModels.isEmpty {
+                            Text(llamaCppModel).tag(llamaCppModel)
+                        }
+                        ForEach(llamaCppAvailableModels, id: \.self) { model in
                             Text(model).tag(model)
                         }
                     }
@@ -271,6 +357,73 @@ struct PreferencesView: View {
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    private var hostedOpenAICompatibleProviderSection: some View {
+        let isZAI = aiProviderRaw == HypeAIProvider.zAI.rawValue
+        let title = isZAI ? "Z.ai" : "MiniMax"
+        let baseURL = isZAI ? $zAIBaseURL : $miniMaxBaseURL
+        let keyDraft = isZAI ? $zAIKeyDraft : $miniMaxKeyDraft
+        let keyIsSet = isZAI ? zAIKeyIsSet : miniMaxKeyIsSet
+
+        return Section("\(title) Connection") {
+            TextField("Base URL", text: baseURL)
+
+            if keyIsSet {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.seal.fill")
+                        .foregroundColor(.green)
+                    Text("Token saved in Keychain")
+                        .font(.system(size: 11, weight: .semibold))
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(
+                    Capsule()
+                        .fill(Color.green.opacity(0.12))
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(Color.green.opacity(0.35), lineWidth: 1)
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            HStack {
+                SecureField(
+                    keyIsSet ? "Paste replacement API token" : "API token",
+                    text: keyDraft
+                )
+                .textFieldStyle(.roundedBorder)
+
+                Button("Save") { saveHostedProviderKey() }
+                    .disabled(keyDraft.wrappedValue.isEmpty)
+
+                if keyIsSet {
+                    Button("Delete") { deleteHostedProviderKey() }
+                        .foregroundColor(.red)
+                }
+            }
+
+            HStack {
+                Button("Test API + Streaming") { testHostedProviderStreaming() }
+                    .disabled(isTestingHostedProvider || !keyIsSet)
+                if isTestingHostedProvider { ProgressView().scaleEffect(0.7) }
+                if !hostedProviderTestStatus.isEmpty {
+                    Text(hostedProviderTestStatus)
+                        .font(.system(size: 11))
+                        .foregroundColor(hostedProviderTestStatus.hasPrefix("OK") ? .green : .red)
+                }
+            }
+
+            Text("Uses the provider's OpenAI-compatible chat completions API for normal and streaming inference. Tokens are stored in Keychain, not UserDefaults.")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -583,6 +736,116 @@ struct PreferencesView: View {
         }
     }
 
+    private var hostedProviderKeyAccount: String {
+        aiProviderRaw == HypeAIProvider.zAI.rawValue
+            ? KeychainStore.zAIAPIKeyAccount
+            : KeychainStore.miniMaxAPIKeyAccount
+    }
+
+    private func saveHostedProviderKey() {
+        let isZAI = aiProviderRaw == HypeAIProvider.zAI.rawValue
+        let draft = isZAI ? zAIKeyDraft : miniMaxKeyDraft
+        guard !draft.isEmpty else { return }
+        do {
+            try KeychainStore.setSecret(draft, account: hostedProviderKeyAccount)
+            if isZAI {
+                zAIKeyDraft = ""
+                zAIKeyIsSet = true
+            } else {
+                miniMaxKeyDraft = ""
+                miniMaxKeyIsSet = true
+            }
+            hostedProviderTestStatus = ""
+        } catch {
+            hostedProviderTestStatus = keychainErrorMessage(for: error)
+        }
+    }
+
+    private func deleteHostedProviderKey() {
+        do {
+            try KeychainStore.deleteSecret(account: hostedProviderKeyAccount)
+            if aiProviderRaw == HypeAIProvider.zAI.rawValue {
+                zAIKeyIsSet = false
+                zAIKeyDraft = ""
+            } else {
+                miniMaxKeyIsSet = false
+                miniMaxKeyDraft = ""
+            }
+            hostedProviderTestStatus = ""
+        } catch {
+            hostedProviderTestStatus = keychainErrorMessage(for: error)
+        }
+    }
+
+    private func testHostedProviderStreaming() {
+        isTestingHostedProvider = true
+        hostedProviderTestStatus = ""
+        Task {
+            do {
+                let key = try KeychainStore.getSecret(account: hostedProviderKeyAccount)
+                let isZAI = aiProviderRaw == HypeAIProvider.zAI.rawValue
+                let rawBaseURL = isZAI ? zAIBaseURL : miniMaxBaseURL
+                let model = isZAI ? zAIModel : miniMaxModel
+                guard let baseURL = URL(string: rawBaseURL) else {
+                    throw OpenAIChatCompletionsClient.StreamingError.invalidResponse
+                }
+                let client = OpenAIChatCompletionsClient(
+                    configuration: .openAICompatible(
+                        baseURL: baseURL,
+                        apiKey: key,
+                        model: model,
+                        providerName: isZAI ? HypeAIProvider.zAI.rawValue : HypeAIProvider.miniMax.rawValue,
+                        chatCompletionsPath: isZAI ? "chat/completions" : "v1/chat/completions",
+                        modelListPath: isZAI ? "models" : "v1/models"
+                    )
+                )
+                let inference = HypeAIClientChatInferenceProvider(client: client)
+                let models = (try? await client.availableModels()) ?? []
+                let response = try await inference.chat(AIChatInferenceRequest(
+                    messages: [OllamaMessage(role: "user", content: "Reply with exactly: OK")],
+                    tools: []
+                ))
+                let text = response.message.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                guard !text.isEmpty else {
+                    throw OpenAIChatCompletionsClient.StreamingError.invalidResponse
+                }
+                var streamed = ""
+                for await token in inference.chatStream(AIChatInferenceRequest(
+                    messages: [OllamaMessage(role: "user", content: "Reply with exactly: OK")],
+                    tools: []
+                )) {
+                    streamed += token
+                }
+                await MainActor.run {
+                    if !models.isEmpty {
+                        if isZAI {
+                            zAIAvailableModels = models
+                        } else {
+                            miniMaxAvailableModels = models
+                        }
+                    }
+                    hostedProviderTestStatus = streamed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? "Connection failed"
+                        : models.isEmpty
+                            ? "OK: API and streaming responded. Model list unavailable."
+                            : "OK: \(models.count) model(s), API and streaming responded."
+                    isTestingHostedProvider = false
+                }
+            } catch {
+                await MainActor.run {
+                    hostedProviderTestStatus = hostedProviderFailureMessage(for: error)
+                    isTestingHostedProvider = false
+                }
+            }
+        }
+    }
+
+    private func hostedProviderFailureMessage(for error: Error) -> String {
+        let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty else { return "Connection failed" }
+        return "Connection failed: \(String(message.prefix(160)))"
+    }
+
     private func saveLlamaSwapKey() {
         guard !llamaSwapKeyDraft.isEmpty else { return }
         do {
@@ -687,6 +950,37 @@ struct PreferencesView: View {
         isLoading = true
         connectionStatus = ""
         Task {
+            if aiProviderRaw == HypeAIProvider.llamaCpp.rawValue {
+                do {
+                    guard let baseURL = HypeAIConfiguration.localOpenAICompatibleBaseURL(host: llamaCppHost, port: llamaCppPort) else {
+                        throw OpenAIChatCompletionsClient.StreamingError.invalidResponse
+                    }
+                    let client = OpenAIChatCompletionsClient(
+                        configuration: .openAICompatible(
+                            baseURL: baseURL,
+                            model: llamaCppModel,
+                            providerName: HypeAIProvider.llamaCpp.rawValue,
+                            modelListPath: "v1/models"
+                        )
+                    )
+                    let models = try await client.availableModels()
+                    await MainActor.run {
+                        llamaCppAvailableModels = models
+                        if !models.isEmpty && !models.contains(llamaCppModel) {
+                            llamaCppModel = models[0]
+                        }
+                        connectionStatus = "Connected"
+                        isLoading = false
+                    }
+                } catch {
+                    await MainActor.run {
+                        connectionStatus = "Error: \(error.localizedDescription)"
+                        isLoading = false
+                    }
+                }
+                return
+            }
+
             if aiProviderRaw == HypeAIProvider.llamaSwap.rawValue {
                 do {
                     let apiKey = try? KeychainStore.getSecret(account: KeychainStore.llamaSwapAPIKeyAccount)
@@ -715,23 +1009,62 @@ struct PreferencesView: View {
                 return
             }
 
-            let urlString = "http://\(ollamaHost):\(ollamaPort)/api/tags"
-            guard let url = URL(string: urlString) else {
-                connectionStatus = "Invalid URL"
-                isLoading = false
-                return
-            }
             do {
-                let (_, response) = try await URLSession.shared.data(from: url)
-                if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                let client = OllamaToolClient(
+                    host: ollamaHost,
+                    port: ollamaPort,
+                    model: ollamaModel,
+                    timeouts: .quick
+                )
+                let models = try await client.availableModels()
+                await MainActor.run {
+                    availableModels = models
+                    if !models.isEmpty && !models.contains(ollamaModel) {
+                        ollamaModel = models[0]
+                    }
                     connectionStatus = "Connected"
-                } else {
-                    connectionStatus = "Error: unexpected status"
+                    isLoading = false
                 }
             } catch {
-                connectionStatus = "Error: \(error.localizedDescription)"
+                await MainActor.run {
+                    connectionStatus = "Error: \(error.localizedDescription)"
+                    isLoading = false
+                }
             }
-            isLoading = false
+        }
+    }
+
+    private func testOllamaProviderDiagnostics() {
+        isTestingOllamaDiagnostics = true
+        ollamaDiagnosticsStatus = ""
+        Task {
+            let nativeClient = OllamaToolClient(
+                host: ollamaHost,
+                port: ollamaPort,
+                model: ollamaModel,
+                timeouts: .chat
+            )
+            let inferenceClient = OpenAIChatCompletionsClient(
+                configuration: .ollama(host: ollamaHost, port: ollamaPort, model: ollamaModel)
+            )
+            let inference = HypeAIClientChatInferenceProvider(client: inferenceClient)
+            do {
+                let result = try await OllamaProviderDiagnostics().run(
+                    nativeClient: nativeClient,
+                    inferenceProvider: inference,
+                    modelName: ollamaModel
+                )
+                await MainActor.run {
+                    availableModels = result.models
+                    ollamaDiagnosticsStatus = result.summary
+                    isTestingOllamaDiagnostics = false
+                }
+            } catch {
+                await MainActor.run {
+                    ollamaDiagnosticsStatus = "Connection failed"
+                    isTestingOllamaDiagnostics = false
+                }
+            }
         }
     }
 
@@ -821,6 +1154,32 @@ struct PreferencesView: View {
     }
 
     private func fetchModels() {
+        if aiProviderRaw == HypeAIProvider.llamaCpp.rawValue {
+            Task {
+                do {
+                    guard let baseURL = HypeAIConfiguration.localOpenAICompatibleBaseURL(host: llamaCppHost, port: llamaCppPort) else { return }
+                    let client = OpenAIChatCompletionsClient(
+                        configuration: .openAICompatible(
+                            baseURL: baseURL,
+                            model: llamaCppModel,
+                            providerName: HypeAIProvider.llamaCpp.rawValue,
+                            modelListPath: "v1/models"
+                        )
+                    )
+                    let models = try await client.availableModels()
+                    await MainActor.run {
+                        llamaCppAvailableModels = models
+                        if !models.isEmpty && !models.contains(llamaCppModel) {
+                            llamaCppModel = models[0]
+                        }
+                    }
+                } catch {
+                    // Silently fail -- models stay empty until user refreshes.
+                }
+            }
+            return
+        }
+
         if aiProviderRaw == HypeAIProvider.llamaSwap.rawValue {
             Task {
                 do {
@@ -846,15 +1205,57 @@ struct PreferencesView: View {
             return
         }
 
+        if aiProviderRaw == HypeAIProvider.zAI.rawValue || aiProviderRaw == HypeAIProvider.miniMax.rawValue {
+            Task {
+                let isZAI = aiProviderRaw == HypeAIProvider.zAI.rawValue
+                let account = isZAI ? KeychainStore.zAIAPIKeyAccount : KeychainStore.miniMaxAPIKeyAccount
+                do {
+                    let key = try KeychainStore.getSecret(account: account)
+                    let rawBaseURL = isZAI ? zAIBaseURL : miniMaxBaseURL
+                    guard let baseURL = URL(string: rawBaseURL) else { return }
+                    let client = OpenAIChatCompletionsClient(
+                        configuration: .openAICompatible(
+                            baseURL: baseURL,
+                            apiKey: key,
+                            model: isZAI ? zAIModel : miniMaxModel,
+                            providerName: isZAI ? HypeAIProvider.zAI.rawValue : HypeAIProvider.miniMax.rawValue,
+                            chatCompletionsPath: isZAI ? "chat/completions" : "v1/chat/completions",
+                            modelListPath: isZAI ? "models" : "v1/models"
+                        )
+                    )
+                    let models = try await client.availableModels()
+                    await MainActor.run {
+                        if isZAI {
+                            zAIAvailableModels = models
+                            if !models.isEmpty && !models.contains(zAIModel) {
+                                zAIModel = models[0]
+                            }
+                        } else {
+                            miniMaxAvailableModels = models
+                            if !models.isEmpty && !models.contains(miniMaxModel) {
+                                miniMaxModel = models[0]
+                            }
+                        }
+                    }
+                } catch {
+                    // Silently fail -- provider models stay at defaults until user refreshes with a valid token.
+                }
+            }
+            return
+        }
+
         guard aiProviderRaw == HypeAIProvider.ollama.rawValue else { return }
-        let urlString = "http://\(ollamaHost):\(ollamaPort)/api/tags"
-        guard let url = URL(string: urlString) else { return }
         Task {
             do {
-                let (data, _) = try await URLSession.shared.data(from: url)
-                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let models = json["models"] as? [[String: Any]] {
-                    availableModels = models.compactMap { $0["name"] as? String }
+                let client = OllamaToolClient(
+                    host: ollamaHost,
+                    port: ollamaPort,
+                    model: ollamaModel,
+                    timeouts: .quick
+                )
+                let models = try await client.availableModels()
+                await MainActor.run {
+                    availableModels = models
                     if !availableModels.isEmpty && !availableModels.contains(ollamaModel) {
                         ollamaModel = availableModels[0]
                     }

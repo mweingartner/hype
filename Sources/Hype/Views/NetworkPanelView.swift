@@ -316,7 +316,10 @@ struct NetworkPanelView: View {
         }
     }
 
-    private func binding<T>(get: @escaping @Sendable () -> T, set: @escaping @Sendable (T) -> Void) -> Binding<T> {
+    private func binding<T>(
+        get: @escaping @MainActor @Sendable () -> T,
+        set: @escaping @MainActor @Sendable (T) -> Void
+    ) -> Binding<T> {
         Binding(get: get, set: set)
     }
 

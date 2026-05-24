@@ -34,7 +34,7 @@ private struct FailingMeshyProvider: MeshyScriptingProvider {
 private func makeDoc() -> (HypeDocument, UUID, UUID) {
     var doc = HypeDocument.newDocument()
     let cardId = doc.cards[0].id
-    var button = Part(partType: .button, cardId: cardId, name: "TestButton")
+    let button = Part(partType: .button, cardId: cardId, name: "TestButton")
     doc.addPart(button)
     return (doc, cardId, button.id)
 }
@@ -66,14 +66,6 @@ struct StackRuntimeStartMeshyRequestTests {
     @Test("startMeshyRequest success enqueues 3-param callback: id, completed, assetName")
     func successEnqueuesCompletedCallback() async throws {
         let (doc, cardId, buttonId) = makeDoc()
-
-        actor CallbackRecorder {
-            var calls: [(id: String, event: String, asset: String)] = []
-            func record(id: String, event: String, asset: String) {
-                calls.append((id, event, asset))
-            }
-        }
-        let recorder = CallbackRecorder()
 
         // We test via a HypeTalk script that calls `ask meshy` with a message.
         // The runtime will call startMeshyRequest internally and deliver the
@@ -201,4 +193,3 @@ struct StackRuntimeStartMeshyRequestTests {
         await StackRuntimeRegistry.shared.shutdown(stackID: docVar.stack.id)
     }
 }
-

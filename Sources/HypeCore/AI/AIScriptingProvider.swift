@@ -115,8 +115,14 @@ public struct SelectedAIScriptingProvider: AIScriptingProvider, @unchecked Senda
             return HypeAIConfiguration.normalized(defaults.string(forKey: "ollamaModel")) ?? "llama3.2"
         case .llamaSwap:
             return HypeAIConfiguration.llamaSwapModel(defaults: defaults)
+        case .llamaCpp:
+            return HypeAIConfiguration.llamaCppModel(defaults: defaults)
         case .openAI:
             return HypeAIConfiguration.openAIModel(defaults: defaults)
+        case .zAI:
+            return HypeAIConfiguration.zAIModel(defaults: defaults)
+        case .miniMax:
+            return HypeAIConfiguration.miniMaxModel(defaults: defaults)
         }
     }
 

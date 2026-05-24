@@ -347,10 +347,104 @@ struct HypeCLITests {
         #expect((diagnostics["statements"] as? Int ?? 0) > 0)
         #expect((diagnostics["loopIterations"] as? Int ?? 0) == 10)
     }
+
+    @Test func testInferenceSmokeOptionsAreExposed() {
+        let result = runBinary(arguments: ["--help"])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("--inference-smoke"))
+        #expect(result.stdout.contains("--ollama-tool-smoke"))
+        #expect(result.stdout.contains("--ollama-model"))
+    }
+
+    @Test func testSwiftInferenceProviderAdapterBridgesChatContract() async throws {
+        let client = RecordingInferenceClient()
+        let provider = HypeAIClientChatInferenceProvider(client: client)
+        let request = AIChatInferenceRequest(
+            messages: [OllamaMessage(role: "user", content: "Build a button")],
+            tools: []
+        )
+
+        #expect(provider.providerName == "test-provider")
+        #expect(provider.modelName == "test-model")
+        #expect(provider.supportsStreaming)
+        #expect(try await provider.availableModels() == ["test-model"])
+        #expect(try await provider.generate(prompt: "hello", model: nil, system: "system") == "generated: hello")
+
+        try await provider.preloadModel()
+        let response = try await provider.chat(request)
+        var streamed = ""
+        for await token in provider.chatStream(request) {
+            streamed += token
+        }
+
+        #expect(response.message.content == "chat reply")
+        #expect(await client.chatMessageCount() == 1)
+        #expect(await client.didPreloadModel())
+        #expect(streamed == "hello world")
+    }
 }
 
 struct ProcessResult: Sendable {
     let stdout: String
     let stderr: String
     let exitStatus: Int32
+}
+
+private actor RecordingInferenceClient: HypeAIClient {
+    nonisolated let providerName = "test-provider"
+    nonisolated let modelName = "test-model"
+    nonisolated var supportsChatStreaming: Bool { true }
+
+    private var recordedChatMessageCount = 0
+    private var preloaded = false
+
+    func availableModels() async throws -> [String] {
+        ["test-model"]
+    }
+
+    func generate(prompt: String, model: String?, system: String?) async throws -> String {
+        "generated: \(prompt)"
+    }
+
+    func chat(
+        messages: [OllamaMessage],
+        tools: [OllamaTool],
+        format: OllamaResponseFormat?
+    ) async throws -> OllamaChatResponse {
+        recordedChatMessageCount = messages.count
+        return OllamaChatResponse(message: OllamaMessage(role: "assistant", content: "chat reply"), done: true)
+    }
+
+    func structuredChat<Response: Decodable & Sendable>(
+        messages: [OllamaMessage],
+        tools: [OllamaTool],
+        format: OllamaResponseFormat
+    ) async throws -> (response: OllamaChatResponse, decoded: Response) {
+        throw RecordingInferenceError.unsupported
+    }
+
+    func preloadModel() async throws {
+        preloaded = true
+    }
+
+    nonisolated func chatStream(messages: [OllamaMessage], tools: [OllamaTool]) -> AsyncStream<String> {
+        AsyncStream { continuation in
+            continuation.yield("hello")
+            continuation.yield(" world")
+            continuation.finish()
+        }
+    }
+
+    func chatMessageCount() -> Int {
+        recordedChatMessageCount
+    }
+
+    func didPreloadModel() -> Bool {
+        preloaded
+    }
+}
+
+private enum RecordingInferenceError: Error {
+    case unsupported
 }

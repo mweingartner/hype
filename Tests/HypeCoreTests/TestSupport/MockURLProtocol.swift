@@ -14,7 +14,7 @@ import Foundation
 /// Thread-safety: `requestHandler` is a global — tests MUST run serially when
 /// sharing this protocol. Use `@Suite(..., .serialized)` or set the handler
 /// immediately before each test and clear it after.
-final class MockURLProtocol: URLProtocol, @unchecked Sendable {
+final class MockURLProtocol: URLProtocol {
 
     /// The handler to call when a request is made.
     /// Returns `(HTTPURLResponse, Data)` or throws to simulate errors.
@@ -62,7 +62,7 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
 // without requiring cross-suite serialization.
 
 /// Dedicated mock URLProtocol for OpenverseProviderTests.
-final class MockURLProtocolOpenverse: URLProtocol, @unchecked Sendable {
+final class MockURLProtocolOpenverse: URLProtocol {
     nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -86,7 +86,7 @@ final class MockURLProtocolOpenverse: URLProtocol, @unchecked Sendable {
 }
 
 /// Dedicated mock URLProtocol for WikimediaProviderTests.
-final class MockURLProtocolWikimedia: URLProtocol, @unchecked Sendable {
+final class MockURLProtocolWikimedia: URLProtocol {
     nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -110,7 +110,7 @@ final class MockURLProtocolWikimedia: URLProtocol, @unchecked Sendable {
 }
 
 /// Dedicated mock URLProtocol for WebAssetImportPipelineTests.
-final class MockURLProtocolPipeline: URLProtocol, @unchecked Sendable {
+final class MockURLProtocolPipeline: URLProtocol {
     nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -134,7 +134,7 @@ final class MockURLProtocolPipeline: URLProtocol, @unchecked Sendable {
 }
 
 /// Dedicated mock URLProtocol for PexelsProviderTests.
-final class MockURLProtocolPexels: URLProtocol, @unchecked Sendable {
+final class MockURLProtocolPexels: URLProtocol {
     nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -142,6 +142,78 @@ final class MockURLProtocolPexels: URLProtocol, @unchecked Sendable {
         guard let handler = MockURLProtocolPexels.requestHandler else {
             client?.urlProtocol(self, didFailWithError:
                 NSError(domain: "MockURLProtocolPexels", code: -1,
+                        userInfo: [NSLocalizedDescriptionKey: "No handler set"]))
+            return
+        }
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+    override func stopLoading() {}
+}
+
+/// Dedicated mock URLProtocol for OpenAIChatCompletionsClientTests.
+final class MockURLProtocolOpenAIChatCompletions: URLProtocol {
+    nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let handler = MockURLProtocolOpenAIChatCompletions.requestHandler else {
+            client?.urlProtocol(self, didFailWithError:
+                NSError(domain: "MockURLProtocolOpenAIChatCompletions", code: -1,
+                        userInfo: [NSLocalizedDescriptionKey: "No handler set"]))
+            return
+        }
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+    override func stopLoading() {}
+}
+
+/// Dedicated mock URLProtocol for OllamaToolClientNativeAPITests.
+final class MockURLProtocolOllamaToolNative: URLProtocol {
+    nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let handler = MockURLProtocolOllamaToolNative.requestHandler else {
+            client?.urlProtocol(self, didFailWithError:
+                NSError(domain: "MockURLProtocolOllamaToolNative", code: -1,
+                        userInfo: [NSLocalizedDescriptionKey: "No handler set"]))
+            return
+        }
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+    override func stopLoading() {}
+}
+
+/// Dedicated mock URLProtocol for OllamaToolClientConsoleLoggingTests.
+final class MockURLProtocolOllamaToolLogging: URLProtocol {
+    nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let handler = MockURLProtocolOllamaToolLogging.requestHandler else {
+            client?.urlProtocol(self, didFailWithError:
+                NSError(domain: "MockURLProtocolOllamaToolLogging", code: -1,
                         userInfo: [NSLocalizedDescriptionKey: "No handler set"]))
             return
         }

@@ -60,27 +60,25 @@ struct LlamaSwapClientTests {
         #expect(models == ["qwen3-8b", "hypetalk-qwen3:8b-v1"])
     }
 
-    @Test("generate sends /v1/responses with selected model and no Authorization when no key is set")
-    func generateUsesResponsesEndpointAndSelectedModel() async throws {
+    @Test("generate sends OpenAI-compatible chat completions with selected model and no Authorization when no key is set")
+    func generateUsesChatCompletionsEndpointAndSelectedModel() async throws {
         defer { LlamaSwapMockProtocol.requestHandler = nil }
         let session = Self.makeSession()
         LlamaSwapMockProtocol.requestHandler = { request in
-            #expect(request.url?.absoluteString == "http://localhost:8080/v1/responses")
+            #expect(request.url?.absoluteString == "http://localhost:8080/v1/chat/completions")
             #expect(request.httpMethod == "POST")
             #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
             let body = try #require(Self.bodyData(from: request))
             let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
             #expect(object["model"] as? String == "hypetalk-qwen3:8b-v1")
-            #expect(object["store"] as? Bool == false)
+            #expect(object["stream"] as? Bool == false)
 
             let response = """
             {
-              "output": [
+              "choices": [
                 {
-                  "type": "message",
-                  "content": [
-                    { "type": "output_text", "text": "OK" }
-                  ]
+                  "finish_reason": "stop",
+                  "message": { "role": "assistant", "content": "OK" }
                 }
               ]
             }
@@ -142,6 +140,29 @@ struct LlamaSwapClientTests {
         }
 
         #expect(tokens.joined() == "Hello")
+    }
+
+    @Test("host may be an OpenAI /v1 base URL")
+    func v1BaseURLDoesNotDoublePrefixEndpoints() async throws {
+        defer { LlamaSwapMockProtocol.requestHandler = nil }
+        let session = Self.makeSession()
+        LlamaSwapMockProtocol.requestHandler = { request in
+            #expect(request.url?.absoluteString == "http://localhost:8001/v1/models")
+            let body = """
+            { "data": [ { "id": "model1" } ] }
+            """
+            return (Self.response(for: request, status: 200), Data(body.utf8))
+        }
+
+        let client = try LlamaSwapClient(
+            host: "http://localhost:8001/v1",
+            port: "ignored",
+            model: "model1",
+            session: session,
+            logger: HypeLogger(setupFileLogging: false)
+        )
+
+        #expect(try await client.availableModels() == ["model1"])
     }
 
     private static func makeSession() -> URLSession {

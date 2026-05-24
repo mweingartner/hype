@@ -20,6 +20,16 @@ APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
+LOCAL_CODESIGN_DIR="$ROOT_DIR/.hype-codesign"
+LOCAL_CODESIGN_NAME="${HYPE_CODESIGN_IDENTITY:-Hype Local Development Code Signing}"
+LOCAL_CODESIGN_KEYCHAIN="${HYPE_CODESIGN_KEYCHAIN:-$HOME/Library/Keychains/login.keychain-db}"
+LOCAL_CODESIGN_CERT="$LOCAL_CODESIGN_DIR/HypeLocalDevelopmentCodeSigning.crt"
+LOCAL_CODESIGN_KEY="$LOCAL_CODESIGN_DIR/HypeLocalDevelopmentCodeSigning.key"
+LOCAL_CODESIGN_P12="$LOCAL_CODESIGN_DIR/HypeLocalDevelopmentCodeSigning.p12"
+LOCAL_CODESIGN_CONFIG="$LOCAL_CODESIGN_DIR/HypeLocalDevelopmentCodeSigning.cnf"
+LOCAL_CODESIGN_VERSION_FILE="$LOCAL_CODESIGN_DIR/version"
+LOCAL_CODESIGN_ARTIFACT_VERSION="2"
+LOCAL_CODESIGN_PASSWORD="${HYPE_CODESIGN_PASSWORD:-hype-local-development}"
 
 cd "$ROOT_DIR"
 
@@ -86,6 +96,101 @@ run_with_retry() {
     attempts=$((attempts + 1))
     delay_seconds=$((delay_seconds * 2))
   done
+}
+
+codesign_identity_exists() {
+  /usr/bin/security find-identity -v -p codesigning "$LOCAL_CODESIGN_KEYCHAIN" 2>/dev/null \
+    | /usr/bin/grep -Fq "\"$LOCAL_CODESIGN_NAME\""
+}
+
+create_local_codesign_artifact_if_needed() {
+  /bin/mkdir -p "$LOCAL_CODESIGN_DIR"
+  /bin/chmod 700 "$LOCAL_CODESIGN_DIR"
+
+  if [ -f "$LOCAL_CODESIGN_P12" ] \
+    && [ -f "$LOCAL_CODESIGN_CERT" ] \
+    && [ -f "$LOCAL_CODESIGN_VERSION_FILE" ] \
+    && [ "$(/bin/cat "$LOCAL_CODESIGN_VERSION_FILE")" = "$LOCAL_CODESIGN_ARTIFACT_VERSION" ]; then
+    return 0
+  fi
+
+  /bin/rm -f "$LOCAL_CODESIGN_KEY" "$LOCAL_CODESIGN_CERT" "$LOCAL_CODESIGN_P12" "$LOCAL_CODESIGN_CONFIG"
+
+  /bin/cat >"$LOCAL_CODESIGN_CONFIG" <<CONFIG
+[ req ]
+prompt = no
+distinguished_name = req_distinguished_name
+x509_extensions = v3_req
+
+[ req_distinguished_name ]
+commonName = $LOCAL_CODESIGN_NAME
+
+[ v3_req ]
+basicConstraints = critical, CA:false
+keyUsage = critical, digitalSignature
+extendedKeyUsage = codeSigning
+subjectKeyIdentifier = hash
+CONFIG
+
+  /usr/bin/openssl req \
+    -new \
+    -newkey rsa:2048 \
+    -nodes \
+    -keyout "$LOCAL_CODESIGN_KEY" \
+    -x509 \
+    -days 3650 \
+    -out "$LOCAL_CODESIGN_CERT" \
+    -config "$LOCAL_CODESIGN_CONFIG" >/dev/null 2>&1
+
+  /usr/bin/openssl pkcs12 \
+    -export \
+    -out "$LOCAL_CODESIGN_P12" \
+    -inkey "$LOCAL_CODESIGN_KEY" \
+    -in "$LOCAL_CODESIGN_CERT" \
+    -passout "pass:$LOCAL_CODESIGN_PASSWORD" >/dev/null 2>&1
+
+  /bin/chmod 600 "$LOCAL_CODESIGN_KEY" "$LOCAL_CODESIGN_CERT" "$LOCAL_CODESIGN_P12" "$LOCAL_CODESIGN_CONFIG"
+  /bin/echo "$LOCAL_CODESIGN_ARTIFACT_VERSION" >"$LOCAL_CODESIGN_VERSION_FILE"
+  /bin/chmod 600 "$LOCAL_CODESIGN_VERSION_FILE"
+}
+
+ensure_local_codesign_identity() {
+  if codesign_identity_exists; then
+    return 0
+  fi
+
+  create_local_codesign_artifact_if_needed
+
+  /usr/bin/security import "$LOCAL_CODESIGN_P12" \
+    -k "$LOCAL_CODESIGN_KEYCHAIN" \
+    -P "$LOCAL_CODESIGN_PASSWORD" \
+    -T /usr/bin/codesign \
+    -T /usr/bin/security >/dev/null
+
+  /usr/bin/security add-trusted-cert \
+    -d \
+    -r trustRoot \
+    -p codeSign \
+    -k "$LOCAL_CODESIGN_KEYCHAIN" \
+    "$LOCAL_CODESIGN_CERT" >/dev/null 2>&1 || true
+
+  if ! codesign_identity_exists; then
+    log_error "Failed to install local code-signing identity '$LOCAL_CODESIGN_NAME'."
+    log_error "Try opening Keychain Access and trusting $LOCAL_CODESIGN_CERT for code signing, then rerun this script."
+    exit 2
+  fi
+}
+
+sign_app_bundle() {
+  if [ "${HYPE_SKIP_CODESIGN:-0}" = "1" ]; then
+    echo "Skipping code signing because HYPE_SKIP_CODESIGN=1"
+    return 0
+  fi
+
+  ensure_local_codesign_identity
+  echo "Signing $APP_BUNDLE with '$LOCAL_CODESIGN_NAME'"
+  /usr/bin/codesign --force --deep --sign "$LOCAL_CODESIGN_NAME" "$APP_BUNDLE"
+  /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
 }
 
 if [ ! -x "$SWIFT" ]; then
@@ -190,6 +295,8 @@ fi
 </dict>
 </plist>
 PLIST
+
+sign_app_bundle
 
 open_app() {
   /usr/bin/open -n "$APP_BUNDLE"

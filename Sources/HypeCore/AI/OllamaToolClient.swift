@@ -526,6 +526,11 @@ public enum OllamaResponseFormat: @unchecked Sendable {
 
 /// Client for Ollama's chat API with tool support.
 public actor OllamaToolClient: HypeAIClient {
+    private struct PullResponse: Decodable {
+        let status: String?
+        let error: String?
+    }
+
     private let host: String
     private let port: String
     private let model: String
@@ -635,6 +640,34 @@ public actor OllamaToolClient: HypeAIClient {
         }
         let tags = try JSONDecoder().decode(OllamaModelTagsResponse.self, from: data)
         return tags.models.map(\.name)
+    }
+
+    public func pullModel(_ modelName: String? = nil) async throws -> String {
+        let requestedModel = modelName ?? model
+        guard let url = URL(string: "\(baseURL)/api/pull") else {
+            throw OllamaError.requestFailed("Invalid URL")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = timeouts.resource
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "name": requestedModel,
+            "stream": false,
+        ])
+
+        let (data, response) = try await sessionData(for: request, endpoint: "/api/pull")
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode) else {
+            let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw OllamaError.requestFailed(errorText)
+        }
+
+        let decoded = try JSONDecoder().decode(PullResponse.self, from: data)
+        if let error = decoded.error, !error.isEmpty {
+            throw OllamaError.requestFailed(error)
+        }
+        return decoded.status ?? "ok"
     }
 
     /// Wrap `session.data(from:)` to catch `URLError.timedOut` and
@@ -1285,6 +1318,8 @@ public actor OllamaToolClient: HypeAIClient {
 
         _ = try await sessionData(for: request, endpoint: "/api/generate")
     }
+
+    public nonisolated var supportsChatStreaming: Bool { true }
 
     public nonisolated func chatStream(messages: [OllamaMessage], tools: [OllamaTool]) -> AsyncStream<String> {
         let baseURL = self.baseURL

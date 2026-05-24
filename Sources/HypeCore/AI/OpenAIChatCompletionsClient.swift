@@ -5,6 +5,10 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
         public var baseURL: URL
         public var apiKey: String?
         public var model: String
+        public var providerName: String
+        public var chatCompletionsPath: String
+        public var modelListPath: String?
+        public var keepAlive: String?
         public var requestTimeout: TimeInterval
         public var resourceTimeout: TimeInterval
 
@@ -12,12 +16,20 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
             baseURL: URL,
             apiKey: String? = nil,
             model: String,
+            providerName: String? = nil,
+            chatCompletionsPath: String = "v1/chat/completions",
+            modelListPath: String? = nil,
+            keepAlive: String? = nil,
             requestTimeout: TimeInterval = 120,
             resourceTimeout: TimeInterval = 180
         ) {
             self.baseURL = baseURL
             self.apiKey = apiKey
             self.model = model
+            self.providerName = providerName ?? (apiKey == nil ? "ollama" : "openai")
+            self.chatCompletionsPath = chatCompletionsPath
+            self.modelListPath = modelListPath
+            self.keepAlive = keepAlive
             self.requestTimeout = requestTimeout
             self.resourceTimeout = resourceTimeout
         }
@@ -32,7 +44,29 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
             return Configuration(
                 baseURL: baseURL,
                 apiKey: nil,
-                model: model
+                model: model,
+                providerName: "ollama",
+                keepAlive: "30m"
+            )
+        }
+
+        public static func openAICompatible(
+            baseURL: URL,
+            apiKey: String? = nil,
+            model: String,
+            providerName: String,
+            chatCompletionsPath: String = "v1/chat/completions",
+            modelListPath: String? = nil,
+            keepAlive: String? = nil
+        ) -> Configuration {
+            Configuration(
+                baseURL: baseURL,
+                apiKey: apiKey,
+                model: model,
+                providerName: providerName,
+                chatCompletionsPath: chatCompletionsPath,
+                modelListPath: modelListPath,
+                keepAlive: keepAlive
             )
         }
     }
@@ -73,22 +107,63 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
     }
 
     public nonisolated var providerName: String {
-        configuration.apiKey != nil ? "openai" : "ollama"
+        configuration.providerName
     }
 
     public nonisolated var modelName: String {
         configuration.model
     }
 
+    public nonisolated var supportsChatStreaming: Bool { true }
+
     public func availableModels() async throws -> [String] {
-        if configuration.apiKey != nil {
+        if let modelListPath = configuration.modelListPath {
+            return try await fetchOpenAICompatibleModels(path: modelListPath)
+        }
+
+        switch configuration.providerName {
+        case "openai":
             return HypeAIConfiguration.openAITextModels
+        case "z.ai":
+            return HypeAIConfiguration.zAITextModels
+        case "minimax":
+            return HypeAIConfiguration.miniMaxTextModels
+        default:
+            break
         }
         return try await fetchOllamaModels()
     }
 
+    private func fetchOpenAICompatibleModels(path: String) async throws -> [String] {
+        let url = Self.endpoint(path, baseURL: configuration.baseURL)
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 30
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        Self.applyProviderHeaders(to: &request, configuration: configuration)
+        if let apiKey = HypeAIConfiguration.normalized(configuration.apiKey) {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode) else {
+            let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
+            logger.error("Model list request failed: \(Self.describeFailure(response: response, data: data))", source: providerName)
+            throw StreamingError.requestFailed(errorText)
+        }
+
+        struct ModelListResponse: Decodable {
+            struct Model: Decodable {
+                let id: String
+            }
+            let data: [Model]
+        }
+        return try JSONDecoder().decode(ModelListResponse.self, from: data).data.map(\.id)
+    }
+
     private func fetchOllamaModels() async throws -> [String] {
-        let url = configuration.baseURL.appendingPathComponent("/api/tags")
+        let url = Self.endpoint("api/tags", baseURL: configuration.baseURL)
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 30
@@ -111,11 +186,12 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
         ].compactMap { $0 }
 
         let requestModel = overrideModel ?? configuration.model
-        let url = configuration.baseURL.appendingPathComponent("/v1/chat/completions")
+        let url = Self.endpoint(configuration.chatCompletionsPath, baseURL: configuration.baseURL)
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        Self.applyProviderHeaders(to: &request, configuration: configuration)
         if let apiKey = configuration.apiKey {
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
@@ -129,7 +205,9 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
 
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
-            throw StreamingError.requestFailed("Request failed")
+            let failure = Self.describeFailure(response: response, data: data)
+            logger.error("Generate request failed: \(failure)", source: providerName)
+            throw StreamingError.requestFailed(failure)
         }
 
         let decoded = try decodeChatCompletionsResponse(data)
@@ -141,11 +219,12 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
         tools: [OllamaTool],
         format: OllamaResponseFormat?
     ) async throws -> OllamaChatResponse {
-        let url = configuration.baseURL.appendingPathComponent("/v1/chat/completions")
+        let url = Self.endpoint(configuration.chatCompletionsPath, baseURL: configuration.baseURL)
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        Self.applyProviderHeaders(to: &request, configuration: configuration)
         if let apiKey = configuration.apiKey {
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
@@ -153,11 +232,12 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
         let body = try chatCompletionBody(model: configuration.model, messages: messages, tools: tools, stream: false)
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        logger.aiInput(describeChatRequest(model: configuration.model, messages: messages, tools: tools), source: providerName)
+        logger.aiInput(describeChatRequest(url: url, model: configuration.model, messages: messages, tools: tools), source: providerName)
 
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
             let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
+            logger.error("Chat request failed: \(Self.describeFailure(response: response, data: data))", source: providerName)
             throw StreamingError.requestFailed(errorText)
         }
 
@@ -171,12 +251,13 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
         return AsyncStream { continuation in
             Task {
                 do {
-                    let url = config.baseURL.appendingPathComponent("/v1/chat/completions")
+                    let url = Self.endpoint(config.chatCompletionsPath, baseURL: config.baseURL)
 
                     var request = URLRequest(url: url)
                     request.httpMethod = "POST"
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                    Self.applyProviderHeaders(to: &request, configuration: config)
                     if let apiKey = config.apiKey {
                         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
                     }
@@ -187,8 +268,8 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
                         "messages": (try? Self.messagesToOpenAIFormat(from: messages)) ?? []
                     ]
 
-                    if config.apiKey == nil {
-                        body["keep_alive"] = "30m"
+                    if let keepAlive = config.keepAlive {
+                        body["keep_alive"] = keepAlive
                     }
 
                     if !tools.isEmpty {
@@ -281,8 +362,8 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
             "stream": stream
         ]
 
-        if configuration.apiKey == nil {
-            body["keep_alive"] = "30m"
+        if let keepAlive = configuration.keepAlive {
+            body["keep_alive"] = keepAlive
         }
 
         body["messages"] = try Self.messagesToOpenAIFormat(from: messages)
@@ -340,7 +421,10 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
                     var calls: [[String: Any]] = []
                     for call in toolCalls {
                         let callId = call.id ?? "call_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
-                        pendingFunctionCalls.append((callId, call.function.name, call.function.arguments.mapValues { $0 as Any }.map { "\($0.key): \($0.value)" }.joined(separator: ", ") ?? "{}"))
+                        let argumentSummary = call.function.arguments
+                            .map { "\($0.key): \($0.value)" }
+                            .joined(separator: ", ")
+                        pendingFunctionCalls.append((callId, call.function.name, argumentSummary.isEmpty ? "{}" : argumentSummary))
                         calls.append([
                             "id": callId,
                             "type": "function",
@@ -410,10 +494,24 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
         }
 
         var content: String?
+        var thinking: String?
         var toolCalls: [OllamaToolCall] = []
 
         if let message = firstChoice["message"] as? [String: Any] {
             content = message["content"] as? String
+            let taggedThinking = content.map(Self.extractThinkingBlocks)
+            if let taggedThinking {
+                content = taggedThinking.content
+            }
+            let explicitThinking = ["reasoning_content", "thinking", "reasoning"]
+                .compactMap { message[$0] as? String }
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first { !$0.isEmpty }
+            let thinkingText = [explicitThinking, taggedThinking?.thinking]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n\n")
+            thinking = thinkingText.isEmpty ? nil : thinkingText
 
             if let calls = message["tool_calls"] as? [[String: Any]] {
                 for call in calls {
@@ -433,6 +531,7 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
             message: OllamaMessage(
                 role: "assistant",
                 content: content,
+                thinking: thinking,
                 tool_calls: toolCalls.isEmpty ? nil : toolCalls
             ),
             done: true
@@ -460,10 +559,32 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
         return result
     }
 
+    private static func extractThinkingBlocks(from content: String) -> (content: String?, thinking: String?) {
+        var remaining = content
+        var blocks: [String] = []
+
+        while let openRange = remaining.range(of: "<think>", options: [.caseInsensitive]),
+              let closeRange = remaining.range(of: "</think>", options: [.caseInsensitive], range: openRange.upperBound..<remaining.endIndex) {
+            let block = String(remaining[openRange.upperBound..<closeRange.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !block.isEmpty {
+                blocks.append(block)
+            }
+            remaining.removeSubrange(openRange.lowerBound..<closeRange.upperBound)
+        }
+
+        let trimmedContent = remaining.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedThinking = blocks.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return (
+            content: trimmedContent.isEmpty ? nil : trimmedContent,
+            thinking: trimmedThinking.isEmpty ? nil : trimmedThinking
+        )
+    }
+
     public func preloadModel() async throws {
         if configuration.apiKey != nil { return }
 
-        let url = configuration.baseURL.appendingPathComponent("/api/generate")
+        let url = Self.endpoint("api/generate", baseURL: configuration.baseURL)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -491,8 +612,12 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
     }
 
     private func describeChatRequest(model: String, messages: [OllamaMessage], tools: [OllamaTool]) -> String {
+        describeChatRequest(url: Self.endpoint(configuration.chatCompletionsPath, baseURL: configuration.baseURL), model: model, messages: messages, tools: tools)
+    }
+
+    private func describeChatRequest(url: URL, model: String, messages: [OllamaMessage], tools: [OllamaTool]) -> String {
         var lines = [
-            "POST /v1/chat/completions",
+            "POST \(url.absoluteString)",
             "model=\(model)",
             "messages=\(messages.count)",
             "tools=\(tools.map { $0.function.name }.joined(separator: ", "))"
@@ -503,12 +628,36 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
         return lines.joined(separator: "\n")
     }
 
+    private static func describeFailure(response: URLResponse?, data: Data) -> String {
+        let status = (response as? HTTPURLResponse).map { "HTTP \($0.statusCode)" } ?? "No HTTP response"
+        let body = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .prefix(800) ?? ""
+        return body.isEmpty ? status : "\(status): \(body)"
+    }
+
     private func describeChatResponse(_ response: OllamaChatResponse) -> String {
         var lines = ["model=\(modelName)", "done=\(response.done)", "CONTENT: \(response.message.content ?? "(empty)")"]
         if let toolCalls = response.message.tool_calls {
             lines.append("TOOL CALLS: \(toolCalls.map { $0.function.name }.joined(separator: ", "))")
         }
         return lines.joined(separator: "\n")
+    }
+
+    private static func endpoint(_ path: String, baseURL: URL) -> URL {
+        var components = path.split(separator: "/").map(String.init)
+        if baseURL.path.split(separator: "/").last == "v1", components.first == "v1" {
+            components.removeFirst()
+        }
+        return components.reduce(baseURL) { url, component in
+            url.appendingPathComponent(component)
+        }
+    }
+
+    private static func applyProviderHeaders(to request: inout URLRequest, configuration: Configuration) {
+        if configuration.providerName == HypeAIProvider.zAI.rawValue {
+            request.setValue("en-US,en", forHTTPHeaderField: "Accept-Language")
+        }
     }
 }
 
