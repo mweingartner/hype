@@ -116,9 +116,8 @@ private final class ObjectToolHelpWindowPresenter {
 ///    its full width inside the narrow panel — the previous side-by-
 ///    side layout clipped both labels)
 /// 2. Selection / Browse tools
-/// 3. Object-creation tools, grouped by family (basic / framework /
-///    form-controls) with subtle section dividers
-///    and small captions
+/// 3. Object-creation tools, grouped by family (objects / framework)
+///    with subtle section dividers and small captions
 /// 4. Paint-layer tools (pencil, spray, bucket, eraser)
 ///
 /// **Resizable**: the panel uses `minWidth / idealWidth / maxWidth`

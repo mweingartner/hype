@@ -31,15 +31,16 @@ enum ObjectToolCatalog {
         .progressView, .gauge, .divider,
     ]
 
+    static let objectTools: [ToolName] = basicTools + formControlTools
+
     static let paintTools: [ToolName] = [
         .pencil, .spray, .bucket, .eraser,
     ]
 
     static let authoringSections: [ObjectToolSection] = [
         ObjectToolSection(title: "Select", tools: selectionTools),
-        ObjectToolSection(title: "Objects", tools: basicTools),
+        ObjectToolSection(title: "Objects", tools: objectTools),
         ObjectToolSection(title: "Framework", tools: frameworkTools),
-        ObjectToolSection(title: "Form", tools: formControlTools),
         ObjectToolSection(title: "Paint", tools: paintTools),
     ]
 

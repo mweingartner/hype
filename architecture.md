@@ -1800,8 +1800,11 @@ is the catalog: browse, button, field, shape, webpage, image, video,
 chart, spriteArea, framework/form controls, select, pencil, spray, bucket,
 and eraser. `ObjectToolCatalog` (Sources/Hype/Views/ObjectToolCatalog.swift)
 is the left-panel source of truth and exposes one creation tool per canonical
-persisted `PartType`; text annotations, search fields, ovals, and line shapes
-are styles/properties of Field or Shape rather than separate panel tools.
+persisted `PartType`. The left panel groups basic object and form controls under
+one **Objects** section, keeps framework-backed controls in **Framework**, and
+keeps paint-layer tools in **Paint**; text annotations, search fields, ovals,
+and line shapes are styles/properties of Field or Shape rather than separate
+panel tools.
 Tools belong to one of three modes: **browse** (HyperCard's
 Run mode — interactive parts respond to clicks, sprite areas come alive),
 **edit** (parts can be selected, moved, resized, created), and **paint**

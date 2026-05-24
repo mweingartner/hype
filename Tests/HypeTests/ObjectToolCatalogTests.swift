@@ -28,6 +28,22 @@ struct ObjectToolCatalogTests {
         #expect(ObjectToolCatalog.basicTools.filter { ObjectToolCatalog.createdPartType(for: $0) == .shape }.count == 1)
     }
 
+    @Test("left panel combines basic and form controls under Objects without duplicates")
+    func leftPanelCombinesObjectsAndFormControls() throws {
+        let sectionTitles = ObjectToolCatalog.authoringSections.map(\.title)
+        #expect(sectionTitles == ["Select", "Objects", "Framework", "Paint"])
+        #expect(!sectionTitles.contains("Form"))
+
+        let objectsSection = try #require(ObjectToolCatalog.authoringSections.first { $0.title == "Objects" })
+        #expect(objectsSection.tools == ObjectToolCatalog.basicTools + ObjectToolCatalog.formControlTools)
+        #expect(objectsSection.tools.contains(.field))
+        #expect(objectsSection.tools.contains(.stepper))
+        #expect(objectsSection.tools.contains(.progressView))
+
+        let panelTools = ObjectToolCatalog.panelTools
+        #expect(Set(panelTools).count == panelTools.count, "left panel must not expose duplicate tool buttons")
+    }
+
     @Test("legacy duplicate object tools are absent from the panel catalog")
     func legacyDuplicateToolsAreAbsent() {
         let panelToolNames = Set(ObjectToolCatalog.panelTools.map(\.rawValue))
