@@ -2266,7 +2266,7 @@ public struct Parser: Sendable {
         case .card, .background, .field, .button, .stack, .webpage, .image, .video, .sprite, .spritearea, .scene, .request, .connection, .listener:
             return try parseObjectReference()
 
-        case .identifier where ["label", "shape", "audio", "chart", "calendar", "pdf", "map", "colorwell", "color_well", "stepper", "slider", "segmented", "recorder", "audiorecorder", "scene3d", "scene3D", "model3d", "model3D", "progressview", "progress", "gauge", "divider"].contains(current.value.lowercased()):
+        case .identifier where ["label", "shape", "audio", "chart", "calendar", "pdf", "map", "colorwell", "color_well", "stepper", "slider", "segmented", "recorder", "audiorecorder", "musicplayer", "music", "pianokeyboard", "keyboard", "stepsequencer", "sequencer", "musicmixer", "mixer", "scene3d", "scene3D", "model3d", "model3D", "progressview", "progress", "gauge", "divider"].contains(current.value.lowercased()):
             // Scene node types and HypeTalk part types recognized as
             // object references. Two-word kinds ("color well") aren't
             // tokenized as identifiers so we only accept the

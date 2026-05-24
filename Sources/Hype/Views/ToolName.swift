@@ -91,11 +91,11 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .scene3D:
             return "Place a 3D model viewer on the card. Users can inspect models, orbit around them, zoom in, and use stack assets as the displayed object."
         case .musicPlayer:
-            return "Place a music player on the card for songs and loops stored inside the stack. Scripts can create patterns, play them, stop them, and export them as audio assets."
+            return "Place a music player on the card for songs and loops stored inside the stack. Click it in Browse mode to play the assigned pattern, or control it from scripts."
         case .pianoKeyboard:
-            return "Place a keyboard-style music control on the card. Use it to present playable notes, trigger music scripts, or show the instrument assigned to a music pattern."
+            return "Place a keyboard-style music control on the card. Click or drag across keys in Browse mode to play notes with the assigned instrument, or trigger music scripts."
         case .stepSequencer:
-            return "Place a grid-style sequencer on the card. Use it for beats, repeating patterns, and simple composed loops that scripts can store in the stack."
+            return "Place a grid-style sequencer on the card. Click grid squares in Browse mode to audition individual steps, or use scripts for repeating patterns stored in the stack."
         case .musicMixer:
             return "Place a small mixer on the card. Use it to represent track volume and arrangement controls for stack-contained music."
         case .progressView:

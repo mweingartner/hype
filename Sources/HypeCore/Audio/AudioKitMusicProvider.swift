@@ -11,7 +11,7 @@ public final class AudioKitMusicProvider {
 
     private let engine = AudioEngine()
     private let mixer = Mixer(name: "HypeMusicMixer")
-    private var samplers: [String: AppleSampler] = [:]
+    private var activeSamplersByToken: [UUID: [AppleSampler]] = [:]
     private var tasks: [Task<Void, Never>] = []
     private var playbackToken = UUID()
     private var currentName: String?
@@ -39,7 +39,7 @@ public final class AudioKitMusicProvider {
     }
 
     public func playPattern(_ pattern: MusicPatternSpec, loop: Bool? = nil) {
-        stop()
+        stopActivePlayback(stopEngine: false)
         currentName = pattern.name
         paused = false
         playbackToken = UUID()
@@ -48,13 +48,19 @@ public final class AudioKitMusicProvider {
     }
 
     public func stop() {
+        stopActivePlayback(stopEngine: true)
+    }
+
+    private func stopActivePlayback(stopEngine: Bool) {
         playbackToken = UUID()
         tasks.forEach { $0.cancel() }
         tasks.removeAll()
-        for sampler in samplers.values {
-            sampler.resetSampler()
+        for token in Array(activeSamplersByToken.keys) {
+            cleanupSamplers(for: token)
         }
-        engine.stop()
+        if stopEngine {
+            engine.stop()
+        }
         currentName = nil
         paused = false
     }
@@ -81,6 +87,7 @@ public final class AudioKitMusicProvider {
             guard !notes.isEmpty else { continue }
             let descriptor = MusicInstrumentCatalog.resolve(track.instrument)
             let sampler = sampler(for: descriptor)
+            activeSamplersByToken[token, default: []].append(sampler)
             let task = Task { @MainActor [weak self] in
                 guard let self else { return }
                 await self.playTrack(notes: notes, track: track, sampler: sampler, tempo: pattern.tempo, token: token)
@@ -91,10 +98,11 @@ public final class AudioKitMusicProvider {
             guard let self else { return }
             guard await self.sleepForPlayback(seconds: duration, token: token) else { return }
             if loop {
+                self.cleanupSamplers(for: token)
                 self.schedule(pattern, token: token, loop: true)
             } else {
                 self.currentName = nil
-                self.engine.stop()
+                self.cleanupSamplers(for: token)
             }
         }
         tasks.append(completion)
@@ -146,22 +154,39 @@ public final class AudioKitMusicProvider {
         return playbackToken == token && !Task.isCancelled
     }
 
-    private func sampler(for descriptor: MusicInstrumentDescriptor) -> AppleSampler {
-        let key = "\(descriptor.isPercussion ? "p" : "m")\(descriptor.program)"
-        if let sampler = samplers[key] {
-            return sampler
+    private func stopAllNotes(on sampler: AppleSampler) {
+        // resetSampler() clears the loaded DLS program, so stop the active MIDI
+        // notes explicitly before removing this playback sampler.
+        for note in 0...127 {
+            sampler.stop(noteNumber: MIDINoteNumber(note), channel: 0)
         }
+    }
+
+    private func sampler(for descriptor: MusicInstrumentDescriptor) -> AppleSampler {
         let sampler = AppleSampler()
-        let bank = descriptor.isPercussion ? kAUSampler_DefaultPercussionBankMSB : kAUSampler_DefaultMelodicBankMSB
+        loadProgram(for: descriptor, into: sampler)
+        mixer.addInput(sampler)
+        return sampler
+    }
+
+    private func cleanupSamplers(for token: UUID) {
+        guard let samplers = activeSamplersByToken.removeValue(forKey: token) else { return }
+        for sampler in samplers {
+            stopAllNotes(on: sampler)
+            mixer.removeInput(sampler)
+        }
+    }
+
+    private func loadProgram(for descriptor: MusicInstrumentDescriptor, into sampler: AppleSampler) {
+        let bank = descriptor.isPercussion
+            ? kAUSampler_DefaultPercussionBankMSB
+            : kAUSampler_DefaultMelodicBankMSB
         try? sampler.samplerUnit.loadSoundBankInstrument(
             at: dlsURL,
             program: UInt8(max(0, min(127, descriptor.program))),
             bankMSB: UInt8(bank),
             bankLSB: UInt8(kAUSampler_DefaultBankLSB)
         )
-        mixer.addInput(sampler)
-        samplers[key] = sampler
-        return sampler
     }
 
     private func ensureEngineStarted() {

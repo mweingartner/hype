@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 
 public struct MusicLibrary: Codable, Sendable, Equatable {
     public var patterns: [MusicPatternSpec]
@@ -320,6 +323,291 @@ public enum MusicInstrumentCatalog {
         "boing": "synthdrum",
     ]
 }
+
+#if canImport(CoreGraphics)
+public struct MusicControlPlaybackRequest: Sendable, Equatable {
+    public var pattern: MusicPatternSpec
+    public var loop: Bool
+    public var triggerIdentifier: String?
+
+    public init(pattern: MusicPatternSpec, loop: Bool = false, triggerIdentifier: String? = nil) {
+        self.pattern = pattern
+        self.loop = loop
+        self.triggerIdentifier = triggerIdentifier
+    }
+}
+
+public enum MusicControlInteraction {
+    public static let stepSequencerColumnCount = 16
+    public static let stepSequencerRowCount = 4
+
+    private static let whiteNotes = [
+        "c4", "d4", "e4", "f4", "g4", "a4", "b4",
+        "c5", "d5", "e5", "f5", "g5", "a5", "b5",
+    ]
+
+    private static let blackNotes: [(whiteIndex: Int, note: String)] = [
+        (0, "c#4"), (1, "d#4"), (3, "f#4"), (4, "g#4"), (5, "a#4"),
+        (7, "c#5"), (8, "d#5"), (10, "f#5"), (11, "g#5"), (12, "a#5"),
+    ]
+
+    private static let defaultStepNotesByRow = [
+        ["c5", "d5", "e5", "g5", "a5", "g5", "e5", "d5", "c5", "e5", "g5", "a5", "g5", "e5", "d5", "c5"],
+        ["g4", "a4", "b4", "d5", "e5", "d5", "b4", "a4", "g4", "b4", "d5", "e5", "d5", "b4", "a4", "g4"],
+        ["e4", "f4", "g4", "b4", "c5", "b4", "g4", "f4", "e4", "g4", "b4", "c5", "b4", "g4", "f4", "e4"],
+        ["c4", "d4", "e4", "g4", "a4", "g4", "e4", "d4", "c4", "e4", "g4", "a4", "g4", "e4", "d4", "c4"],
+    ]
+
+    public static func playbackRequest(
+        for part: Part,
+        document: HypeDocument,
+        clickPoint: CGPoint
+    ) -> MusicControlPlaybackRequest? {
+        switch part.partType {
+        case .pianoKeyboard:
+            if let note = keyboardNote(at: clickPoint, in: rect(for: part)) {
+                return MusicControlPlaybackRequest(
+                    pattern: singleNotePattern(for: part, note: note),
+                    triggerIdentifier: "keyboard:\(part.id.uuidString):\(note)"
+                )
+            }
+            return boundPatternRequest(for: part, document: document)
+        case .stepSequencer:
+            if let cell = stepSequencerCell(at: clickPoint, in: rect(for: part)) {
+                return stepSequencerRequest(for: part, document: document, cell: cell)
+            }
+            return boundPatternRequest(for: part, document: document) ?? demoPatternRequest(for: part)
+        case .musicPlayer, .musicMixer:
+            return boundPatternRequest(for: part, document: document) ?? demoPatternRequest(for: part)
+        default:
+            return nil
+        }
+    }
+
+    public static func keyboardRect(in partRect: CGRect) -> CGRect {
+        partRect.insetBy(dx: 12, dy: 44)
+    }
+
+    public static func stepSequencerGridRect(in partRect: CGRect) -> CGRect {
+        partRect.insetBy(dx: 12, dy: 44)
+    }
+
+    public static func keyboardNote(at point: CGPoint, in partRect: CGRect) -> String? {
+        let keyboard = keyboardRect(in: partRect)
+        guard keyboard.width > 20, keyboard.height > 18, keyboard.contains(point) else {
+            return nil
+        }
+
+        let keyWidth = keyboard.width / CGFloat(whiteNotes.count)
+        for item in blackNotes {
+            let key = CGRect(
+                x: keyboard.minX + CGFloat(item.whiteIndex + 1) * keyWidth - keyWidth * 0.28,
+                y: keyboard.minY,
+                width: keyWidth * 0.56,
+                height: keyboard.height * 0.62
+            )
+            if key.contains(point) {
+                return item.note
+            }
+        }
+
+        let rawIndex = Int((point.x - keyboard.minX) / keyWidth)
+        let index = min(whiteNotes.count - 1, max(0, rawIndex))
+        return whiteNotes[index]
+    }
+
+    public static func stepSequencerCell(at point: CGPoint, in partRect: CGRect) -> (row: Int, column: Int)? {
+        let grid = stepSequencerGridRect(in: partRect)
+        guard grid.width > 20, grid.height > 18, grid.contains(point) else {
+            return nil
+        }
+
+        let cellWidth = grid.width / CGFloat(stepSequencerColumnCount)
+        let cellHeight = grid.height / CGFloat(stepSequencerRowCount)
+        let column = min(stepSequencerColumnCount - 1, max(0, Int((point.x - grid.minX) / cellWidth)))
+        let row = min(stepSequencerRowCount - 1, max(0, Int((point.y - grid.minY) / cellHeight)))
+        return (row, column)
+    }
+
+    private static func rect(for part: Part) -> CGRect {
+        CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+    }
+
+    private static func boundPatternRequest(for part: Part, document: HypeDocument) -> MusicControlPlaybackRequest? {
+        guard !part.musicPatternName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let pattern = document.musicLibrary.pattern(named: part.musicPatternName) else {
+            return nil
+        }
+        return MusicControlPlaybackRequest(pattern: pattern, loop: part.musicLoop || pattern.loop)
+    }
+
+    private struct StepNoteSelection {
+        var token: String
+        var instrument: String
+        var tempo: Int
+        var volume: Double
+    }
+
+    private static func singleNotePattern(for part: Part, note: String) -> MusicPatternSpec {
+        let noteString = "\(note)e"
+        let instrument = MusicInstrumentCatalog.resolve(part.musicInstrumentName).name
+        return MusicPatternSpec(
+            name: "\(part.name) \(note.uppercased())",
+            tempo: max(1, Int(part.musicTempo.rounded())),
+            tracks: [
+                MusicTrackSpec(
+                    name: "keyboard",
+                    instrument: instrument,
+                    noteString: noteString,
+                    volume: part.musicVolume
+                ),
+            ],
+            notes: noteString
+        )
+    }
+
+    private static func stepSequencerRequest(
+        for part: Part,
+        document: HypeDocument,
+        cell: (row: Int, column: Int)
+    ) -> MusicControlPlaybackRequest {
+        let selection = stepNoteSelection(for: part, document: document, cell: cell)
+        let pattern = MusicPatternSpec(
+            name: "\(part.name) Step \(cell.column + 1), Row \(cell.row + 1)",
+            tempo: selection.tempo,
+            tracks: [
+                MusicTrackSpec(
+                    name: "step \(cell.column + 1)",
+                    instrument: selection.instrument,
+                    noteString: selection.token,
+                    volume: selection.volume
+                ),
+            ],
+            notes: selection.token
+        )
+        return MusicControlPlaybackRequest(
+            pattern: pattern,
+            loop: false,
+            triggerIdentifier: "step:\(part.id.uuidString):\(cell.row):\(cell.column):\(selection.token)"
+        )
+    }
+
+    private static func stepNoteSelection(
+        for part: Part,
+        document: HypeDocument,
+        cell: (row: Int, column: Int)
+    ) -> StepNoteSelection {
+        let defaultInstrument = MusicInstrumentCatalog.resolve(part.musicInstrumentName).name
+        if let trackSelection = stepNoteFromTracks(for: part, document: document, cell: cell, defaultInstrument: defaultInstrument) {
+            return trackSelection
+        }
+
+        let rowNotes = defaultStepNotesByRow[min(cell.row, defaultStepNotesByRow.count - 1)]
+        let note = rowNotes[cell.column % rowNotes.count]
+        return StepNoteSelection(
+            token: "\(note)s",
+            instrument: defaultInstrument,
+            tempo: max(1, Int(part.musicTempo.rounded())),
+            volume: part.musicVolume
+        )
+    }
+
+    private static func stepNoteFromTracks(
+        for part: Part,
+        document: HypeDocument,
+        cell: (row: Int, column: Int),
+        defaultInstrument: String
+    ) -> StepNoteSelection? {
+        let storedTracks = tracks(fromStoredTrackData: part.musicTrackData, defaultInstrument: defaultInstrument)
+        if cell.row < storedTracks.count {
+            let track = storedTracks[cell.row]
+            if let token = noteToken(at: cell.column, in: track.noteString) {
+                return StepNoteSelection(
+                    token: token,
+                    instrument: MusicInstrumentCatalog.resolve(track.instrument).name,
+                    tempo: max(1, Int(part.musicTempo.rounded())),
+                    volume: track.volume
+                )
+            }
+        }
+
+        guard let pattern = document.musicLibrary.pattern(named: part.musicPatternName) else {
+            return nil
+        }
+        let patternTracks = pattern.tracks.isEmpty
+            ? [MusicTrackSpec(name: "melody", instrument: defaultInstrument, noteString: pattern.notes)]
+            : pattern.tracks
+        guard cell.row < patternTracks.count else { return nil }
+
+        let track = patternTracks[cell.row]
+        let notes = track.noteString.isEmpty ? pattern.notes : track.noteString
+        guard let token = noteToken(at: cell.column, in: notes) else { return nil }
+        return StepNoteSelection(
+            token: token,
+            instrument: MusicInstrumentCatalog.resolve(track.instrument).name,
+            tempo: max(1, pattern.tempo),
+            volume: track.volume
+        )
+    }
+
+    private static func noteToken(at index: Int, in noteString: String) -> String? {
+        let tokens = noteString
+            .split(separator: " ", omittingEmptySubsequences: true)
+            .map(String.init)
+            .filter { !NoteParser.parse($0).isEmpty }
+        guard !tokens.isEmpty else { return nil }
+        return tokens[index % tokens.count]
+    }
+
+    private static func tracks(fromStoredTrackData trackData: String, defaultInstrument: String) -> [MusicTrackSpec] {
+        guard let data = trackData.data(using: .utf8),
+              let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return []
+        }
+
+        return array.enumerated().map { index, item in
+            let rawInstrument = (item["instrument"] as? String) ?? defaultInstrument
+            let notes = (item["notes"] as? String)
+                ?? (item["noteString"] as? String)
+                ?? (item["note_string"] as? String)
+                ?? ""
+            let volume = (item["volume"] as? Double)
+                ?? (item["volume"] as? NSNumber)?.doubleValue
+                ?? 1
+            let muted = (item["muted"] as? Bool) ?? false
+            return MusicTrackSpec(
+                name: (item["name"] as? String) ?? "track \(index + 1)",
+                instrument: MusicInstrumentCatalog.resolve(rawInstrument).name,
+                noteString: muted ? "" : notes,
+                volume: volume
+            )
+        }
+    }
+
+    private static func demoPatternRequest(for part: Part) -> MusicControlPlaybackRequest {
+        let instrument = MusicInstrumentCatalog.resolve(part.musicInstrumentName).name
+        let notes = part.partType == .stepSequencer
+            ? "c4s e4s g4s c5s r4s g4s e4s c4s"
+            : "c4e e4e g4e c5q"
+        return MusicControlPlaybackRequest(
+            pattern: MusicPatternSpec(
+                name: "\(part.name) Demo",
+                tempo: max(1, Int(part.musicTempo.rounded())),
+                tracks: [
+                    MusicTrackSpec(
+                        name: "demo",
+                        instrument: instrument,
+                        noteString: notes,
+                        volume: part.musicVolume
+                    ),
+                ],
+                notes: notes
+            ),
+            loop: false
+        )
+    }
+}
+#endif
 
 public enum MusicPatternRenderer {
     public static func wavData(for pattern: MusicPatternSpec, sampleRate: Int = 44_100) -> Data {

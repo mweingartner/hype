@@ -496,7 +496,11 @@ while `SceneSpec` / `SpriteAreaSpec` remain the runtime source of truth.
 AudioKit music follows the same declarative rule: `MusicPatternSpec` and
 `MusicTrackSpec` persist in the document/database, and runtime `AudioEngine`,
 sampler, and playback tasks live only behind the `SystemProvider` /
-`AudioKitMusicProvider` boundary.
+`AudioKitMusicProvider` boundary. Music controls convert Browse-mode clicks
+and piano-key drag crossings into temporary `MusicPatternSpec` playback
+requests. Step sequencer grid hits audition the selected row/column step
+instead of replaying one generic pattern. These interactions do not persist
+live engine state or mutate the stack unless a user script does so explicitly.
 
 `DocumentExporter` (Sources/HypeCore/Export/DocumentExporter.swift) provides
 two side outputs: pretty-printed sorted JSON (for inspection / diff) and a

@@ -1187,6 +1187,11 @@ class CardCanvasNSView: NSView {
     private var mouseStillDownTimer: Timer?
     private var mouseStillDownPartId: UUID?
 
+    // Piano-keyboard drag playback state. Dragging across keys should trigger
+    // each newly-entered key once without replaying the same key continuously.
+    private var activePianoKeyboardDragPartId: UUID?
+    private var lastPianoKeyboardDragTriggerIdentifier: String?
+
     /// The part ID currently auto-hilited by a held mouseDown.
     /// Cleared on mouseUp (or if the mouse drags off the part).
     /// Distinct from `hoveredPartId` — this only fires when the
@@ -1656,6 +1661,74 @@ class CardCanvasNSView: NSView {
         }
         let screenPoint = NSPoint(x: part.left, y: part.top + part.height)
         menu.popUp(positioning: nil, at: screenPoint, in: self)
+    }
+
+    @discardableResult
+    private func performDefaultMusicControlAction(for part: Part, at point: CGPoint) -> MusicControlPlaybackRequest? {
+        guard let request = MusicControlInteraction.playbackRequest(
+            for: part,
+            document: document,
+            clickPoint: point
+        ) else {
+            return nil
+        }
+
+        playMusicControlRequest(request)
+        return request
+    }
+
+    private func playMusicControlRequest(_ request: MusicControlPlaybackRequest) {
+        let provider = AppKitSystemProvider()
+        let snapshot = document
+        Task {
+            await provider.playMusicPattern(request.pattern, loop: request.loop, document: snapshot)
+        }
+    }
+
+    private func beginPianoKeyboardDragIfNeeded(part: Part, request: MusicControlPlaybackRequest?) {
+        guard part.partType == .pianoKeyboard,
+              let trigger = request?.triggerIdentifier,
+              trigger.hasPrefix("keyboard:") else {
+            activePianoKeyboardDragPartId = nil
+            lastPianoKeyboardDragTriggerIdentifier = nil
+            return
+        }
+
+        activePianoKeyboardDragPartId = part.id
+        lastPianoKeyboardDragTriggerIdentifier = trigger
+    }
+
+    private func performDraggedPianoKeyboardAction(at point: CGPoint) -> Bool {
+        guard let partId = activePianoKeyboardDragPartId else { return false }
+        guard let part = document.parts.first(where: { $0.id == partId }),
+              part.partType == .pianoKeyboard else {
+            activePianoKeyboardDragPartId = nil
+            lastPianoKeyboardDragTriggerIdentifier = nil
+            return true
+        }
+
+        guard let request = MusicControlInteraction.playbackRequest(
+            for: part,
+            document: document,
+            clickPoint: point
+        ),
+              let trigger = request.triggerIdentifier,
+              trigger.hasPrefix("keyboard:") else {
+            // Let re-entering the same key after leaving it retrigger the note.
+            lastPianoKeyboardDragTriggerIdentifier = nil
+            return true
+        }
+
+        if trigger != lastPianoKeyboardDragTriggerIdentifier {
+            playMusicControlRequest(request)
+            lastPianoKeyboardDragTriggerIdentifier = trigger
+        }
+        return true
+    }
+
+    private func endPianoKeyboardDrag() {
+        activePianoKeyboardDragPartId = nil
+        lastPianoKeyboardDragTriggerIdentifier = nil
     }
 
     @objc private func popupMenuItemSelected(_ sender: NSMenuItem) {
@@ -2361,6 +2434,8 @@ class CardCanvasNSView: NSView {
     // MARK: - Mouse events
 
     override func mouseDown(with event: NSEvent) {
+        endPianoKeyboardDrag()
+
         // End any active field editing when clicking elsewhere
         if activeFieldEditor != nil {
             endFieldEditing()
@@ -2545,6 +2620,10 @@ class CardCanvasNSView: NSView {
                 showPopupMenu(for: part, at: point)
                 return
             }
+            if let part = document.parts.first(where: { $0.id == partId }) {
+                let request = performDefaultMusicControlAction(for: part, at: point)
+                beginPianoKeyboardDragIfNeeded(part: part, request: request)
+            }
             // Auto-hilite for buttons whose `autoHilite` flag is on:
             // toggle hilite=true while the mouse is held so the
             // renderer can paint the "pressed" state (e.g. shadow-
@@ -2612,6 +2691,10 @@ class CardCanvasNSView: NSView {
             }
 
             needsDisplay = true
+            return
+        }
+
+        if performDraggedPianoKeyboardAction(at: point) {
             return
         }
 
@@ -2695,6 +2778,7 @@ class CardCanvasNSView: NSView {
         mouseStillDownTimer?.invalidate()
         mouseStillDownTimer = nil
         mouseStillDownPartId = nil
+        endPianoKeyboardDrag()
 
         let point = flippedPoint(for: event)
 

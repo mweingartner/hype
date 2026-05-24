@@ -77,7 +77,7 @@ public enum MusicControlsRenderer {
     }
 
     private static func drawKeyboard(ctx: CGContext, rect: CGRect) {
-        let keyboardRect = rect.insetBy(dx: 12, dy: 44)
+        let keyboardRect = MusicControlInteraction.keyboardRect(in: rect)
         guard keyboardRect.width > 20, keyboardRect.height > 18 else { return }
         let whiteKeys = 14
         let keyWidth = keyboardRect.width / CGFloat(whiteKeys)
@@ -102,10 +102,10 @@ public enum MusicControlsRenderer {
     }
 
     private static func drawStepGrid(ctx: CGContext, rect: CGRect) {
-        let grid = rect.insetBy(dx: 12, dy: 44)
+        let grid = MusicControlInteraction.stepSequencerGridRect(in: rect)
         guard grid.width > 20, grid.height > 18 else { return }
-        let columns = 16
-        let rows = 4
+        let columns = MusicControlInteraction.stepSequencerColumnCount
+        let rows = MusicControlInteraction.stepSequencerRowCount
         let cellW = grid.width / CGFloat(columns)
         let cellH = grid.height / CGFloat(rows)
         for row in 0..<rows {

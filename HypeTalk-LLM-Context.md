@@ -343,6 +343,9 @@ set the autoplay of video "intro" to true
 
 ### Music (AudioKit-backed)
 Music patterns are stored in the stack and projected to AudioKit at runtime.
+Piano Keyboard parts play clicked or dragged-over keys in Browse mode. Step
+Sequencer parts audition individual grid steps when clicked. Music Player and
+Music Mixer parts play their assigned pattern when clicked.
 Use tools first for authoring: `create_music_pattern`, `create_music_player`,
 `create_piano_keyboard`, `create_step_sequencer`, `create_music_mixer`,
 `list_music_instruments`, `list_music_patterns`, `export_music_pattern`.

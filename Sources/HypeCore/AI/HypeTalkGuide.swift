@@ -483,6 +483,7 @@ public enum HypeTalkGuide {
             stop music
             export pattern "Theme" to audio asset "Theme WAV"
             put the musicState into field "status"      -- playing, paused, stopped
+        Piano: click/drag keys. Sequencer: click steps. Player: click pattern.
         Persisted as stack specs, not live AudioKit. Tools: create_music_pattern, export_music_pattern, create_music_player, create_piano_keyboard, create_step_sequencer, create_music_mixer.
 
         ## Animation (standard parts)

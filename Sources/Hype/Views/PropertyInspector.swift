@@ -1493,7 +1493,13 @@ struct PropertyInspector: View {
         VStack(alignment: .leading, spacing: 6) {
             sectionHeading("Music")
             propertyRow("Pattern", binding: bindPartString(part.id, \.musicPatternName))
-            propertyRow("Instrument", binding: bindPartString(part.id, \.musicInstrumentName))
+            Picker("Instrument", selection: bindMusicInstrumentName(part.id)) {
+                ForEach(MusicInstrumentCatalog.instruments, id: \.name) { instrument in
+                    Text(instrument.isPercussion ? "\(instrument.name) (Drums)" : instrument.name)
+                        .tag(instrument.name)
+                }
+            }
+            .pickerStyle(.menu)
             HStack {
                 Text("Tempo").font(.system(size: 10))
                 Stepper("\(Int(part.musicTempo.rounded())) BPM", value: bindPartDouble(part.id, \.musicTempo), in: 1...320, step: 1)
@@ -3707,6 +3713,20 @@ struct PropertyInspector: View {
         Binding(
             get: { document.document.parts.first(where: { $0.id == id })?[keyPath: keyPath] ?? "" },
             set: { newValue in document.document.updatePart(id: id) { $0[keyPath: keyPath] = newValue } }
+        )
+    }
+
+    private func bindMusicInstrumentName(_ id: UUID) -> Binding<String> {
+        Binding(
+            get: {
+                let rawValue = document.document.parts.first(where: { $0.id == id })?.musicInstrumentName ?? ""
+                return MusicInstrumentCatalog.resolve(rawValue).name
+            },
+            set: { newValue in
+                document.document.updatePart(id: id) {
+                    $0.musicInstrumentName = MusicInstrumentCatalog.resolve(newValue).name
+                }
+            }
         )
     }
 
