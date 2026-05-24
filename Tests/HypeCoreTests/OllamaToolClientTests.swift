@@ -379,6 +379,185 @@ struct OllamaToolCallFunctionDecodingTests {
         #expect(diff.sceneUpdates?.backgroundColor == "#000000")
     }
 
+    @Test("full OllamaChatResponse decodes adapter-style top-level tool calls")
+    func fullChatResponseWithTopLevelToolCalls() throws {
+        let json = """
+        {
+            "message": {
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "name": "set_card_property",
+                        "arguments": {
+                            "property": "name",
+                            "value": "Home"
+                        }
+                    }
+                ]
+            }
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let response = try JSONDecoder().decode(OllamaChatResponse.self, from: data)
+        #expect(response.done)
+        #expect(response.message.role == "assistant")
+
+        let call = try #require(response.message.tool_calls?.first)
+        #expect(call.id == "call_1")
+        #expect(call.function.name == "set_card_property")
+        #expect(call.function.arguments["property"] == "name")
+        #expect(call.function.arguments["value"] == "Home")
+    }
+
+    @Test("full OllamaChatResponse decodes OpenAI-compatible choices envelope")
+    func fullChatResponseWithOpenAICompatibleChoices() throws {
+        let json = """
+        {
+            "choices": [
+                {
+                    "finish_reason": "tool_calls",
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "function": {
+                                    "name": "set_card_property",
+                                    "arguments": "{\\"property\\":\\"name\\",\\"value\\":\\"Home\\"}"
+                                },
+                                "id": "qwum4rAKt0MekZsk5ZjX441v6MfSWlKy"
+                            }
+                        ]
+                    }
+                }
+            ],
+            "created": 1779580969,
+            "model": "qwen3-coder-next-iq4xs",
+            "object": "chat.completion"
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let response = try JSONDecoder().decode(OllamaChatResponse.self, from: data)
+        #expect(response.done)
+        #expect(response.message.role == "assistant")
+
+        let call = try #require(response.message.tool_calls?.first)
+        #expect(call.id == "qwum4rAKt0MekZsk5ZjX441v6MfSWlKy")
+        #expect(call.function.name == "set_card_property")
+        #expect(call.function.arguments["property"] == "name")
+        #expect(call.function.arguments["value"] == "Home")
+    }
+
+    @Test("full OllamaChatResponse preserves OpenAI-compatible reasoning content")
+    func fullChatResponseWithReasoningContent() throws {
+        let json = """
+        {
+            "choices": [
+                {
+                    "finish_reason": "tool_calls",
+                    "message": {
+                        "role": "assistant",
+                        "reasoning_content": "I should rename the current card before summarizing.",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "type": "function",
+                                "function": {
+                                    "name": "set_card_property",
+                                    "arguments": "{\\"property\\":\\"name\\",\\"value\\":\\"Home\\"}"
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let response = try JSONDecoder().decode(OllamaChatResponse.self, from: data)
+        #expect(response.message.thinking == "I should rename the current card before summarizing.")
+        #expect(response.message.content == nil)
+        #expect(response.message.tool_calls?.first?.function.name == "set_card_property")
+    }
+
+    @Test("OllamaMessage extracts literal think blocks from content")
+    func messageExtractsThinkBlocksFromContent() throws {
+        let json = """
+        {
+            "role": "assistant",
+            "content": "<think>Plan the tool call first.</think>Done."
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let message = try JSONDecoder().decode(OllamaMessage.self, from: data)
+        #expect(message.thinking == "Plan the tool call first.")
+        #expect(message.content == "Done.")
+    }
+
+    @Test("full OllamaChatResponse decodes null function name without failing the whole turn")
+    func fullChatResponseWithNullToolName() throws {
+        let json = """
+        {
+            "done": true,
+            "message": {
+                "role": null,
+                "content": null,
+                "tool_calls": [
+                    {
+                        "function": {
+                            "name": null,
+                            "arguments": null
+                        }
+                    }
+                ]
+            }
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let response = try JSONDecoder().decode(OllamaChatResponse.self, from: data)
+        #expect(response.message.role == "assistant")
+        let call = try #require(response.message.tool_calls?.first)
+        #expect(call.function.name == "")
+        #expect(call.function.arguments.isEmpty)
+    }
+
+    @Test("assistant tool call history encodes OpenAI-compatible type")
+    func assistantToolCallHistoryEncodesType() throws {
+        let message = OllamaMessage(
+            role: "assistant",
+            content: "",
+            tool_calls: [
+                OllamaToolCall(
+                    id: "uw4slDEcUyIOIQXqxfyTDNFtiCehiUuq",
+                    function: OllamaToolCallFunction(
+                        name: "create_sprite_area",
+                        arguments: [
+                            "left": "0",
+                            "height": "600",
+                            "top": "0",
+                            "name": "bouncerArea",
+                            "width": "800",
+                            "scene_name": "main"
+                        ]
+                    )
+                )
+            ]
+        )
+
+        let data = try JSONEncoder().encode(message)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let toolCalls = try #require(object["tool_calls"] as? [[String: Any]])
+        let call = try #require(toolCalls.first)
+
+        #expect(call["type"] as? String == "function")
+        #expect(call["id"] as? String == "uw4slDEcUyIOIQXqxfyTDNFtiCehiUuq")
+        let function = try #require(call["function"] as? [String: Any])
+        #expect(function["name"] as? String == "create_sprite_area")
+    }
+
     // MARK: - Helpers
 
     /// JSON-encode a raw string so it can be embedded as the value of a
