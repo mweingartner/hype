@@ -3389,6 +3389,10 @@ public struct Interpreter: Sendable {
         case "duration":            return formatNumber(part.audioDuration)
         case "outputpath", "output_path", "filepath", "file_path": return part.audioOutputPath
         case "format":              return part.audioFormat
+        case "saveinstack", "save_in_stack", "embedinstack", "embed_in_stack", "embedded", "audioembedded":
+            return part.audioEmbedInStack ? "true" : "false"
+        case "audiosize", "audio_size", "audiodatasize", "audio_data_size":
+            return String(part.audioData?.count ?? 0)
         // Scene3D
         case "imagefilter", "image_filter", "filter": return part.imageFilter
         case "imagefilterintensity", "image_filter_intensity", "filterintensity", "filter_intensity": return formatNumber(part.imageFilterIntensity)
@@ -4490,6 +4494,8 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].audioOutputPath = value
         case "format":
             document.parts[partIndex].audioFormat = value
+        case "saveinstack", "save_in_stack", "embedinstack", "embed_in_stack", "embedded", "audioembedded":
+            document.parts[partIndex].audioEmbedInStack = isTruthy(value)
         // Scene3D
         case "imagefilter", "image_filter", "filter":
             document.parts[partIndex].imageFilter = value.lowercased() == "none" ? "" : value.lowercased()

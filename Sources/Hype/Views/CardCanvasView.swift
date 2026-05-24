@@ -505,11 +505,10 @@ struct CardCanvasView: NSViewRepresentable {
         }
 
         /// Writeback for the audio-recorder host. State changes
-        /// update three fields atomically: recording flag,
-        /// duration, output-file path. Dispatches `recordingStarted`
-        /// or `recordingStopped` on transitions so HypeTalk handlers
-        /// can react.
-        func setPartAudioRecorderState(id: UUID, recording: Bool, playing: Bool, duration: Double, outputPath: String) {
+        /// update recorder state atomically. Dispatches
+        /// `recordingStarted` or `recordingStopped` on transitions so
+        /// HypeTalk handlers can react.
+        func setPartAudioRecorderState(id: UUID, recording: Bool, playing: Bool, duration: Double, outputPath: String, embeddedData: Data?) {
             let prior = parent.document.document.parts.first(where: { $0.id == id })
             let priorRecording = prior?.audioRecording ?? false
             let priorPlaying = prior?.audioPlaying ?? false
@@ -518,6 +517,13 @@ struct CardCanvasView: NSViewRepresentable {
                 $0.audioPlaying = playing
                 $0.audioDuration = duration
                 if !outputPath.isEmpty { $0.audioOutputPath = outputPath }
+                if recording && embeddedData == nil && $0.audioEmbedInStack == false {
+                    $0.audioData = nil
+                }
+                if let embeddedData {
+                    $0.audioData = embeddedData
+                    $0.audioEmbedInStack = true
+                }
             }
             if recording != priorRecording {
                 dispatchMessage(recording ? "recordingStarted" : "recordingStopped", to: id)
@@ -3564,13 +3570,14 @@ class CardCanvasNSView: NSView {
             let host = AudioRecorderHostNSView(frame: frame)
             host.apply(part)
             let partId = part.id
-            host.onStateChange = { [weak self] recording, playing, duration, outputPath in
+            host.onStateChange = { [weak self] recording, playing, duration, outputPath, embeddedData in
                 self?.coordinator?.setPartAudioRecorderState(
                     id: partId,
                     recording: recording,
                     playing: playing,
                     duration: duration,
-                    outputPath: outputPath
+                    outputPath: outputPath,
+                    embeddedData: embeddedData
                 )
             }
             addSubview(host, positioned: .above, relativeTo: nil)

@@ -242,6 +242,14 @@ public struct Part: Identifiable, Codable, Sendable {
     /// false stops. Mutually exclusive with `audioRecording` —
     /// the host stops one before starting the other.
     public var audioPlaying: Bool
+    /// When true, the most recent recording is copied into the stack
+    /// document so the stack remains portable without the external
+    /// output file.
+    public var audioEmbedInStack: Bool
+    /// Embedded bytes for the most recent recording. SQLite packages
+    /// store this in the `parts.audio_data` BLOB column and restore it
+    /// into the runtime model on load.
+    public var audioData: Data?
 
     // ProgressView-specific
     /// Current progress value; 0..progressTotal. Default 0.
@@ -452,6 +460,8 @@ public struct Part: Identifiable, Codable, Sendable {
         self.audioFormat = "m4a"
         self.audioDuration = 0
         self.audioPlaying = false
+        self.audioEmbedInStack = false
+        self.audioData = nil
         self.progressValue = 0
         self.progressTotal = 1.0
         self.progressIsCircular = false
@@ -590,6 +600,8 @@ public struct Part: Identifiable, Codable, Sendable {
         audioFormat = try container.decodeIfPresent(String.self, forKey: .audioFormat) ?? "m4a"
         audioDuration = try container.decodeIfPresent(Double.self, forKey: .audioDuration) ?? 0
         audioPlaying = try container.decodeIfPresent(Bool.self, forKey: .audioPlaying) ?? false
+        audioEmbedInStack = try container.decodeIfPresent(Bool.self, forKey: .audioEmbedInStack) ?? false
+        audioData = try container.decodeIfPresent(Data.self, forKey: .audioData)
         // Scene3D fields — backward-compat optional.
         scene3DURL = try container.decodeIfPresent(String.self, forKey: .scene3DURL) ?? ""
         scene3DAllowsCameraControl = try container.decodeIfPresent(Bool.self, forKey: .scene3DAllowsCameraControl) ?? true

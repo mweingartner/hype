@@ -212,7 +212,7 @@ public enum HypeTalkGuide {
           - **stepper / slider:** value, min, max, step
           - **button (style=toggle / checkBox):** hilite (true/false — backs the on/off state of toggle / checkbox styles); the `on` of <kind> "X" is also accepted as an alias for hilite on these styles. (`style=switch` is a deprecated alias that resolves to `toggle`.)
           - **segmented:** segments, selectedSegment
-          - **recorder:** recording, playing, duration, outputPath, format (m4a | caf)
+          - **recorder:** recording, playing, duration, outputPath, format (m4a | caf), saveInStack (true/false), audioSize
           - **scene3d:** object (source path — preferred), modelURL (resolved path, legacy alias), allowsCameraControl, autoLighting, antialiasing, background3d
           - **image:** imageFilter, imageFilterIntensity (along with the standard part properties)
           - **progressView:** value (0..total), progressTotal (default 100), progressIsCircular (true/false), progressIsIndeterminate (true/false), progressLabel, progressTint (hex), progressDecimals (alias `decimals` — 0 default, integral steps; raise for fractional precision; same contract as gauge)
@@ -793,12 +793,11 @@ public enum HypeTalkGuide {
 
             -- meshy_parse_webhook returns "" on any parse failure.
 
-        **Audio recorder — record, save to a chosen file, play back:**
-            -- Pin the file path BEFORE starting (otherwise a temp file
-            -- under FileManager.temporaryDirectory is auto-generated):
-            set the outputPath of recorder "memo" to "/Users/me/voice-memo.m4a"
+        **Audio recorder — record, embed, play back:**
+            -- Portable stacks should embed the latest recording:
+            set the saveInStack of recorder "memo" to true
+            -- Use outputPath only when an external audio file is intended.
 
-            -- Start / stop recording (toggle from a button handler):
             on mouseUp
               if the recording of recorder "memo" then
                 set the recording of recorder "memo" to false
@@ -807,17 +806,13 @@ public enum HypeTalkGuide {
               end if
             end mouseUp
 
-            -- Play back the most-recent recording:
             set the playing of recorder "memo" to true
-            -- ...stops automatically when the file ends, or:
-            set the playing of recorder "memo" to false
 
-            -- React to lifecycle messages:
             on recordingStarted
               put "Recording..." into field "status"
             end recordingStarted
             on recordingStopped
-              put "Saved " & the outputPath of me into field "status"
+              put "Saved" into field "status"
             end recordingStopped
             on playbackStarted
               put "Playing back" into field "status"
@@ -826,10 +821,8 @@ public enum HypeTalkGuide {
               put "Done" into field "status"
             end playbackStopped
 
-            -- Live polling: `the duration of recorder "X"` ticks every
-            -- 0.1s while recording. `the recording of <r>` and
-            -- `the playing of <r>` return "true"/"false". Format
-            -- ("m4a" or "caf") is set via `the format of recorder "X"`.
+            -- duration ticks while recording; recording/playing/saveInStack
+            -- return true/false; audioSize returns embedded byte count.
 
         **React to a segmented selection:**
             on selectionChanged

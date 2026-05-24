@@ -52,45 +52,45 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .browse:
             return "Default mode for navigating cards and clicking buttons. Switch to Browse when you want to interact with the stack as an end user would, without selecting parts for editing."
         case .button:
-            return "Click-and-drag to draw a button. Buttons fire mouseUp / mouseDown handlers, can navigate cards (\"go next\"), trigger handlers, or run any HypeTalk script. Toggle, link, popup, checkbox, radio, and other variants are button styles."
+            return "Click and drag to draw a button. Buttons can navigate cards, run scripts, open links, show choices, or behave like toggles and checkboxes depending on the style you choose."
         case .field:
-            return "Click-and-drag to draw the one canonical text object: a field. Fields hold editable or locked text, support multi-line content, and emit closeField when their content changes. Transparent text annotations, search fields, secure fields, scrolling fields, and bordered fields are all field styles."
+            return "Click and drag to draw a text field. Fields can show labels, collect user input, support scrolling text, search-style entry, password-style entry, or locked read-only text."
         case .shape:
-            return "Click-and-drag to draw the one canonical vector shape object. Rectangle, rounded rectangle, oval, line, and freeform are shape styles/properties, not separate object types. Configure fillColor, strokeColor, strokeWidth, and cornerRadius from the inspector."
+            return "Click and drag to draw a shape. Use shapes for rectangles, rounded panels, ovals, lines, dividers, highlights, backgrounds, and simple custom artwork."
         case .webpage:
-            return "Embeds a live WebKit view inside the card. Set its URL via the inspector or HypeTalk: `set the url of webpage \"X\" to \"https://...\"`. Renders any web content the system browser supports."
+            return "Place a live web page on the card. Set the address in the inspector or by script, then browse the page directly from your stack."
         case .image:
-            return "Draws an image part. Supports PNG/JPEG/GIF (animated). Optional chroma-key transparency lifts a solid background out of JPEGs. CoreImage filters (sepia, blur, vignette, etc.) can be applied at render time."
+            return "Place a picture or animated image on the card. Images can be filtered, made clickable, inverted on click, or used as visual artwork in a stack."
         case .video:
-            return "Embeds an AVKit video player. Set videoURL via the inspector or HypeTalk. Plays MP4/MOV/QuickTime formats with native controls (play/pause/scrub)."
+            return "Place a movie player on the card. Choose a video file or address, then let users play, pause, and scrub through the movie."
         case .chart:
-            return "Embeds a Swift Charts chart (bar / line / area / point / pie). Configure data via the AI tool `create_chart` or by editing the chart's JSON spec. Live-updating from script writes."
+            return "Place a chart on the card. Charts can show bars, lines, areas, points, or pie slices from data you provide through the inspector, script, or AI tools."
         case .spriteArea:
-            return "A SpriteKit-powered area for 2D physics, animation, and game-style content. Hosts named sprite scenes with nodes, joints, constraints, and physics fields. Author scenes from the AI panel or HypeTalk."
+            return "Place an interactive 2D game or animation area on the card. Use it for sprites, motion, collisions, tile maps, effects, and game templates created by the AI tools."
         case .calendar:
-            return "An NSDatePicker-backed calendar. The user picks dates; HypeTalk reads `the selectedDate of calendar \"name\"` (ISO 8601). Supports min/max bounds and three styles (graphical / textual / clockAndCalendar)."
+            return "Place a date picker or calendar on the card. Users can choose dates, and scripts can read or set the selected date."
         case .pdf:
-            return "A PDFKit-powered viewer for PDF documents. Loads from file paths or http(s) URLs. Programmatic page navigation via `set the currentPage of pdf \"name\" to N`."
+            return "Place a document viewer on the card for PDF files. Users can read pages inside the stack, and scripts can move to a specific page."
         case .map:
-            return "An MKMapView for displaying maps with annotations. Set center coordinates, zoom span, and map type (standard / satellite / hybrid). Drop pins via the AI `add_map_annotation` tool."
+            return "Place a map on the card. Show a location, choose a map style, zoom in or out, and add pins for places you want users to notice."
         case .colorWell:
-            return "An NSColorWell for picking colors. Click opens the macOS color panel; the picked color is read via `the color of colorWell \"name\"` (hex string). Fires colorChanged on user picks."
+            return "Place a color picker or color swatch on the card. Users can choose a color, and scripts can read or update that color."
         case .stepper:
-            return "An NSStepper with optional min/max/step bounds. User clicks ▲/▼ to adjust the value; HypeTalk reads `the value of stepper \"name\"`. Fires valueChanged on each change."
+            return "Place a small up/down value control on the card. Use it when users should increase or decrease a number by fixed steps."
         case .slider:
-            return "An NSSlider with continuous tracking. valueChanged fires during drag (not just on release). Set min/max bounds via the inspector or AI tool. Read with `the value of slider \"name\"`."
+            return "Place a draggable slider on the card. Use it for volume, progress, ratings, settings, or any value within a range."
         case .segmented:
-            return "An NSSegmentedControl for selecting one of N labeled options. Configure labels with `set the segments of segmented \"X\" to \"Day|Week|Month\"`. Read selection with `the selectedSegment of segmented \"name\"`."
+            return "Place a row of choices on the card. Use it for tabs, view modes, filters, or any small set of mutually exclusive options."
         case .audioRecorder:
-            return "An AVFoundation recorder. Setting `the recording of recorder \"X\"` to true starts capturing from the mic; false stops. Live duration updates 10×/sec; output written to m4a or CAF. Fires recordingStarted / recordingStopped."
+            return "Place a recorder on the card so users can capture and play back short audio clips. Turn on Save in Stack when the recording should travel with the stack file."
         case .scene3D:
-            return "A SceneKit view that loads .usdz / .scn / .dae / .obj 3D models. Camera control (orbit / zoom) on by default. Set `the modelURL of scene3d \"name\"` to load a model from disk or URL."
+            return "Place a 3D model viewer on the card. Users can inspect models, orbit around them, zoom in, and use stack assets as the displayed object."
         case .progressView:
-            return "A linear or circular progress indicator. Supports determinate (value/total) and indeterminate spinning modes. Fires progressFinished when value reaches total."
+            return "Place a progress indicator on the card. Use it to show task completion, loading state, or a running process."
         case .gauge:
-            return "A SwiftUI Gauge showing a value within a min/max range. Supports circular and linear styles with optional tint color, center label, and min/max axis labels."
+            return "Place a gauge on the card. Use it to show a value within a range, such as speed, score, capacity, health, or status."
         case .divider:
-            return "A visual separator line. Can be horizontal or vertical with configurable thickness and color. No interaction — purely decorative layout element."
+            return "Place a visual separator line. Use dividers to organize layouts and separate groups of controls."
         case .select:
             return "Selection / move tool. Click a part to select it; drag to move; shift-click to extend the selection. Use the inspector on the right to edit the selected part's properties."
         case .pencil:

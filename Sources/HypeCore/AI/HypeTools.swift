@@ -270,10 +270,11 @@ public struct HypeToolDefinitions {
             Create an audio-recorder control. Setting `recording` to true (via the AI \
             tool, HypeTalk `set the recording of recorder "memo" to true`, or the \
             inspector toggle) starts capturing from the microphone; setting it false \
-            stops. The recorder writes m4a (AAC) by default to a temp file under \
-            FileManager.temporaryDirectory; pass `output_path` to choose where. \
+            stops. Set `save_in_stack` to true when recordings should be embedded \
+            in the stack file for portability; otherwise Hype records to the \
+            output path or an automatically chosen temporary file. \
             HypeTalk reads: `the duration of recorder "X"` (seconds), `the recording \
-            of recorder "X"`, `the outputPath of recorder "X"`. Messages: \
+            of recorder "X"`, `the saveInStack of recorder "X"`. Messages: \
             `recordingStarted` / `recordingStopped`.
             """, params: [
             "name": ("string", "Recorder part name", true),
@@ -283,6 +284,7 @@ public struct HypeToolDefinitions {
             "height": ("string", "Height", true),
             "format": ("string", "'m4a' (AAC, default) or 'caf' (LinearPCM)", false),
             "output_path": ("string", "Absolute file path. Empty = auto-generate.", false),
+            "save_in_stack": ("string", "true to store recordings inside the stack file", false),
             "on_background": ("string", "true to place on background", false),
         ]),
 

@@ -80,21 +80,21 @@ enum ObjectToolCatalog {
     static func styleSummary(for tool: ToolName) -> String? {
         switch tool {
         case .button:
-            return "Styles: \(ButtonStyle.pickerCases.map(\.rawValue).joined(separator: ", "))."
+            return "Common styles: standard push buttons, toggles, checkboxes, radio choices, links, pop-up menus, and icon buttons."
         case .field:
-            return "Styles: \(FieldStyle.allCases.map(\.rawValue).joined(separator: ", ")). Use transparent for text annotations and search for search-entry fields."
+            return "Common styles: bordered entry boxes, transparent labels, scrolling text, search boxes, password-style entry, and list-style fields."
         case .shape:
-            return "Styles: \(ShapeType.allCases.map(\.rawValue).joined(separator: ", "))."
+            return "Common styles: rectangles, rounded rectangles, ovals, straight lines, and editable freeform shapes."
         case .chart:
-            return "Styles: \(ChartType.allCases.map(\.rawValue).joined(separator: ", "))."
+            return "Common styles: bar, line, area, point, and pie charts."
         case .calendar:
-            return "Styles: graphical, textual, clockAndCalendar."
+            return "Common styles: full calendar, compact date entry, and date-with-time entry."
         case .progressView:
-            return "Styles: linear, circular, indeterminate."
+            return "Common styles: horizontal progress bars, circular progress, and indeterminate loading indicators."
         case .gauge:
-            return "Styles: linear, circular."
+            return "Common styles: horizontal gauges and circular gauges."
         case .divider:
-            return "Styles: horizontal, vertical."
+            return "Common styles: horizontal and vertical separator lines."
         default:
             return nil
         }
@@ -103,43 +103,43 @@ enum ObjectToolCatalog {
     static func propertySummary(for tool: ToolName) -> String? {
         switch tool {
         case .button:
-            return "Key properties: script, style, textContent, showName, iconId, popupItems, autoHilite, url, helpText."
+            return "You can edit its label, style, icon, link target, choices, highlight behavior, script, and hover help."
         case .field:
-            return "Key properties: textContent, style, lockText, dontWrap, wideMargins, richText, enterKeyEnabled, textFont, textSize, textStyle, textAlign, fontColor, helpText."
+            return "You can edit its text, style, wrapping, margins, lock state, font, size, color, alignment, script, and hover help."
         case .shape:
-            return "Key properties: shapeType, fillColor, strokeColor, strokeWidth, cornerRadius, rotation, pathData, helpText."
+            return "You can edit its shape, fill, border color, border width, rounded corners, rotation, custom outline, and hover help."
         case .webpage:
-            return "Key properties: url, urlSourceFieldId, helpText."
+            return "You can edit the web address, connect it to a field, and add hover help."
         case .image:
-            return "Key properties: imageData, transparentBackground, invertOnClick, imageFilter, imageFilterIntensity, animated, helpText."
+            return "You can choose the picture, control animation, remove simple backgrounds, apply visual filters, invert on click, and add hover help."
         case .video:
-            return "Key properties: videoURL, helpText."
+            return "You can choose the movie source and add hover help."
         case .chart:
-            return "Key properties: chartData, chartType, title, series, helpText."
+            return "You can edit the data, chart type, title, series, script, and hover help."
         case .spriteArea:
-            return "Key properties: sceneSpec, activeScene, scenes, physics/debug flags, script, helpText."
+            return "You can choose scenes, add sprites and tile maps, configure motion and collisions, run game templates, attach scripts, and add hover help."
         case .calendar:
-            return "Key properties: selectedDate, displayMonth, minDate, maxDate, calendarStyle, helpText."
+            return "You can edit the selected date, visible month, allowed date range, display style, script, and hover help."
         case .pdf:
-            return "Key properties: pdfURL, pdfCurrentPage, pdfDisplayMode, pdfAutoScales, helpText."
+            return "You can choose the document, set the current page, adjust the viewing style, and add hover help."
         case .map:
-            return "Key properties: mapLocation, mapCenterLat, mapCenterLon, mapSpan, mapType, mapAnnotationsJSON, helpText."
+            return "You can set a place or coordinates, choose the zoom and map style, add pins, and add hover help."
         case .colorWell:
-            return "Key properties: colorWellHex, colorWellInteractive, script, helpText."
+            return "You can choose the color, decide whether users can change it, attach a script, and add hover help."
         case .stepper, .slider:
-            return "Key properties: controlValue, controlMin, controlMax, controlStep, script, helpText."
+            return "You can edit the current value, minimum, maximum, step size, script, and hover help."
         case .segmented:
-            return "Key properties: segmentItems, controlValue, script, helpText."
+            return "You can edit the choice labels, selected choice, script, and hover help."
         case .audioRecorder:
-            return "Key properties: audioRecording, audioPlaying, audioOutputPath, audioFormat, audioDuration, script, helpText."
+            return "You can start or stop recording, play the last recording, choose the recording format, save recordings inside the stack, attach scripts, and add hover help."
         case .scene3D:
-            return "Key properties: scene3DSourceURL, scene3DAssetRef, modelURL, allowsCameraControl, autoLighting, antialiasing, background, helpText."
+            return "You can choose a model, use a stack asset, adjust viewing controls and background, attach scripts, and add hover help."
         case .progressView:
-            return "Key properties: progressValue, progressTotal, progressIsCircular, progressIsIndeterminate, progressLabel, progressTint, progressDecimals, helpText."
+            return "You can edit the current progress, total, label, color, display style, precision, script, and hover help."
         case .gauge:
-            return "Key properties: gaugeValue, gaugeMin, gaugeMax, gaugeStyle, gaugeTint, gaugeLabel, gaugeMinLabel, gaugeMaxLabel, gaugeDecimals, helpText."
+            return "You can edit the current value, range, labels, color, display style, precision, script, and hover help."
         case .divider:
-            return "Key properties: dividerOrientation, dividerThickness, dividerColor, helpText."
+            return "You can edit the direction, thickness, color, and hover help."
         case .browse, .select, .pencil, .spray, .bucket, .eraser:
             return nil
         }

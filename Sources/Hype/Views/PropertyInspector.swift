@@ -1448,8 +1448,14 @@ struct PropertyInspector: View {
             sectionHeading("Audio Recorder")
             Toggle("Recording", isOn: bindPartBool(part.id, \.audioRecording))
             Toggle("Playing", isOn: bindPartBool(part.id, \.audioPlaying))
-                .disabled(part.audioOutputPath.isEmpty)
+                .disabled(part.audioOutputPath.isEmpty && part.audioData == nil)
+            Toggle("Save Recordings in Stack", isOn: bindPartBool(part.id, \.audioEmbedInStack))
             Text("Toggle Recording / Playing here, or use the buttons on the part. HypeTalk: `set the recording of recorder \"X\" to true`, `set the playing of recorder \"X\" to true`.")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+            Text(part.audioEmbedInStack
+                 ? "New recordings are stored inside this stack so the stack stays portable."
+                 : "New recordings use the external output path below. Turn on Save Recordings in Stack for portable stacks.")
                 .font(.system(size: 9))
                 .foregroundColor(.secondary)
             HStack {
@@ -1461,10 +1467,19 @@ struct PropertyInspector: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
             }
-            propertyRow("Output Path", binding: bindPartString(part.id, \.audioOutputPath))
-            Text("Empty path = auto-generate under temp directory. Set explicitly to control where the recording is saved (and which file `Play` plays back).")
-                .font(.system(size: 9))
-                .foregroundColor(.secondary)
+            if !part.audioEmbedInStack {
+                propertyRow("Output Path", binding: bindPartString(part.id, \.audioOutputPath))
+                Text("Empty path = Hype chooses a temporary file. Set a path only when you intentionally want a separate audio file.")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+            }
+            if let audioData = part.audioData {
+                HStack {
+                    Text("Stored Audio:").font(.system(size: 10)).foregroundColor(.secondary)
+                    Text(ByteCountFormatter.string(fromByteCount: Int64(audioData.count), countStyle: .file))
+                        .font(.system(size: 10, design: .monospaced))
+                }
+            }
             HStack {
                 Text("Duration:").font(.system(size: 10)).foregroundColor(.secondary)
                 Text(String(format: "%.1f s", part.audioDuration))

@@ -47,29 +47,44 @@ struct ObjectToolCatalogTests {
         }
     }
 
-    @Test("creation tools expose style and property guidance")
-    func creationToolsExposeStyleAndPropertyGuidance() {
+    @Test("creation tools expose user-friendly guidance")
+    func creationToolsExposeUserFriendlyGuidance() {
         for tool in ObjectToolCatalog.creationTools {
             let tooltip = ObjectToolCatalog.tooltipBody(for: tool)
             #expect(!tooltip.isEmpty)
-            #expect(tooltip.contains("Key properties:"), "\(tool.rawValue) must document editable properties")
+            #expect(tooltip.contains("You can") || tooltip.contains("Common styles:"), "\(tool.rawValue) must explain what users can do with it")
         }
 
         let fieldStyleSummary = ObjectToolCatalog.styleSummary(for: .field) ?? ""
-        for style in FieldStyle.allCases {
-            #expect(fieldStyleSummary.contains(style.rawValue), "Field tool must document \(style.rawValue) as a style")
-        }
-        #expect(fieldStyleSummary.contains("transparent for text annotations"))
-        #expect(fieldStyleSummary.contains("search for search-entry fields"))
+        #expect(fieldStyleSummary.contains("transparent labels"))
+        #expect(fieldStyleSummary.contains("search boxes"))
+        #expect(fieldStyleSummary.contains("password-style entry"))
 
         let shapeStyleSummary = ObjectToolCatalog.styleSummary(for: .shape) ?? ""
-        for style in ShapeType.allCases {
-            #expect(shapeStyleSummary.contains(style.rawValue), "Shape tool must document \(style.rawValue) as a style")
-        }
+        #expect(shapeStyleSummary.contains("rounded rectangles"))
+        #expect(shapeStyleSummary.contains("editable freeform shapes"))
 
         let buttonStyleSummary = ObjectToolCatalog.styleSummary(for: .button) ?? ""
-        for style in ButtonStyle.pickerCases {
-            #expect(buttonStyleSummary.contains(style.rawValue), "Button tool must document \(style.rawValue) as a style")
+        #expect(buttonStyleSummary.contains("toggles"))
+        #expect(buttonStyleSummary.contains("checkboxes"))
+        #expect(buttonStyleSummary.contains("pop-up menus"))
+    }
+
+    @Test("hover help does not expose implementation details")
+    func hoverHelpDoesNotExposeImplementationDetails() {
+        let forbiddenTerms = [
+            "WebKit", "PDFKit", "MapKit", "MKMapView", "AVKit", "AVFoundation",
+            "SceneKit", "SpriteKit", "SwiftUI", "NSDatePicker", "NSColorWell",
+            "NSStepper", "NSSlider", "NSSegmentedControl", "CoreImage",
+            "FileManager", "Key properties:", "textContent", "pdfURL",
+            "mapCenterLat", "audioOutputPath", "scene3DSourceURL"
+        ]
+
+        for tool in ObjectToolCatalog.panelTools {
+            let tooltip = ObjectToolCatalog.tooltipBody(for: tool)
+            for term in forbiddenTerms {
+                #expect(!tooltip.contains(term), "\(tool.rawValue) hover help must not expose \(term)")
+            }
         }
     }
 

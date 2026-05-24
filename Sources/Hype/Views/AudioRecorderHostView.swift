@@ -32,13 +32,14 @@ final class AudioRecorderHostNSView: NSView {
     /// changes (started / stopped / duration tick / playback end).
     /// The coordinator writes the values back into the document so
     /// HypeTalk reads stay in sync.
-    var onStateChange: ((_ recording: Bool, _ playing: Bool, _ duration: Double, _ outputPath: String) -> Void)?
+    var onStateChange: ((_ recording: Bool, _ playing: Bool, _ duration: Double, _ outputPath: String, _ embeddedData: Data?) -> Void)?
 
     private var recorder: AVAudioRecorder?
     private var player: AVAudioPlayer?
     private var playerDelegate: PlayerEndDelegate?
     private var tickTimer: Timer?
     private(set) var lastOutputPath: String = ""
+    private var embeddedAudioData: Data?
     private(set) var isRecording = false
     private(set) var isPlaying = false
 
@@ -119,12 +120,22 @@ final class AudioRecorderHostNSView: NSView {
     /// flips so HypeTalk and AI tools can control playback the same
     /// way they control recording.
     func apply(_ part: Part) {
+        pendingFormat = part.audioFormat
+        pendingExplicitPath = part.audioOutputPath
+        pendingEmbedInStack = part.audioEmbedInStack
+        embeddedAudioData = part.audioData
         durationLabel.stringValue = Self.formatDuration(part.audioDuration)
-        if !part.audioOutputPath.isEmpty {
+        if part.audioEmbedInStack, let data = part.audioData, !data.isEmpty {
+            fileNameLabel.stringValue = "Saved in stack"
+        } else if !part.audioOutputPath.isEmpty {
             lastOutputPath = part.audioOutputPath
             fileNameLabel.stringValue = (part.audioOutputPath as NSString).lastPathComponent
-            playButton.isEnabled = !isRecording && FileManager.default.fileExists(atPath: part.audioOutputPath)
+        } else if let data = part.audioData, !data.isEmpty {
+            fileNameLabel.stringValue = "Saved in stack"
+        } else if !isRecording {
+            fileNameLabel.stringValue = ""
         }
+        playButton.isEnabled = !isRecording && canPlayCurrentRecording
         // Recording reconciliation
         if part.audioRecording && !isRecording {
             start(part: part)
@@ -168,22 +179,29 @@ final class AudioRecorderHostNSView: NSView {
     func stop() {
         let finalDuration: Double = recorder?.currentTime ?? 0
         recorder?.stop()
+        let embeddedData = embeddedRecordingDataIfRequested()
         recorder = nil
         tickTimer?.invalidate()
         tickTimer = nil
         isRecording = false
         dotView.isHidden = true
         recordButton.title = "● Record"
-        playButton.isEnabled = FileManager.default.fileExists(atPath: lastOutputPath)
-        onStateChange?(false, isPlaying, finalDuration, lastOutputPath)
+        if let embeddedData {
+            embeddedAudioData = embeddedData
+            fileNameLabel.stringValue = "Saved in stack"
+        }
+        playButton.isEnabled = canPlayCurrentRecording
+        onStateChange?(false, isPlaying, finalDuration, lastOutputPath, embeddedData)
     }
 
     private var pendingFormat: String = "m4a"
     private var pendingExplicitPath: String = ""
+    private var pendingEmbedInStack = false
 
     private func start(part: Part) {
         pendingFormat = part.audioFormat
         pendingExplicitPath = part.audioOutputPath
+        pendingEmbedInStack = part.audioEmbedInStack
         startWithCurrentSettings(partName: part.name)
     }
 
@@ -232,12 +250,12 @@ final class AudioRecorderHostNSView: NSView {
             dotView.isHidden = false
             recordButton.title = "■ Stop"
             playButton.isEnabled = false  // Can't play during record.
-            onStateChange?(true, false, 0, path)
+            onStateChange?(true, false, 0, path, nil)
             tickTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
                 guard let self, let rec = self.recorder, rec.isRecording else { return }
                 let dur = rec.currentTime
                 self.durationLabel.stringValue = Self.formatDuration(dur)
-                self.onStateChange?(true, false, dur, self.lastOutputPath)
+                self.onStateChange?(true, false, dur, self.lastOutputPath, nil)
             }
         } catch {
             HypeLogger.shared.error(
@@ -247,7 +265,7 @@ final class AudioRecorderHostNSView: NSView {
             isRecording = false
             dotView.isHidden = true
             recordButton.title = "● Record"
-            onStateChange?(false, isPlaying, 0, "")
+            onStateChange?(false, isPlaying, 0, "", nil)
         }
     }
 
@@ -257,26 +275,29 @@ final class AudioRecorderHostNSView: NSView {
         // Stop recording if running — can't play and record at once.
         if isRecording { stop() }
 
-        guard !lastOutputPath.isEmpty,
-              FileManager.default.fileExists(atPath: lastOutputPath) else {
+        guard canPlayCurrentRecording else {
             HypeLogger.shared.warn(
-                "AudioRecorder.play: no file at '\(lastOutputPath)'",
+                "AudioRecorder.play: no embedded recording or file at '\(lastOutputPath)'",
                 source: "AudioRecorder"
             )
             // Keep the document's audioPlaying flag honest — clear it.
             isPlaying = false
-            onStateChange?(false, false, 0, lastOutputPath)
+            onStateChange?(false, false, 0, lastOutputPath, nil)
             return
         }
 
-        let url = URL(fileURLWithPath: lastOutputPath)
         do {
-            let p = try AVAudioPlayer(contentsOf: url)
+            let p: AVAudioPlayer
+            if let data = embeddedAudioData, !data.isEmpty {
+                p = try AVAudioPlayer(data: data)
+            } else {
+                p = try AVAudioPlayer(contentsOf: URL(fileURLWithPath: lastOutputPath))
+            }
             let delegate = PlayerEndDelegate { [weak self] in
                 guard let self = self else { return }
                 self.isPlaying = false
                 self.playButton.title = "▶ Play"
-                self.onStateChange?(self.isRecording, false, p.duration, self.lastOutputPath)
+                self.onStateChange?(self.isRecording, false, p.duration, self.lastOutputPath, nil)
             }
             p.delegate = delegate
             p.prepareToPlay()
@@ -285,7 +306,7 @@ final class AudioRecorderHostNSView: NSView {
             playerDelegate = delegate
             isPlaying = true
             playButton.title = "■ Stop"
-            onStateChange?(false, true, p.duration, lastOutputPath)
+            onStateChange?(false, true, p.duration, lastOutputPath, nil)
         } catch {
             HypeLogger.shared.error(
                 "AudioRecorder.play failed for '\(lastOutputPath)': \(error.localizedDescription)",
@@ -293,7 +314,7 @@ final class AudioRecorderHostNSView: NSView {
             )
             isPlaying = false
             playButton.title = "▶ Play"
-            onStateChange?(isRecording, false, 0, lastOutputPath)
+            onStateChange?(isRecording, false, 0, lastOutputPath, nil)
         }
     }
 
@@ -304,10 +325,29 @@ final class AudioRecorderHostNSView: NSView {
         playerDelegate = nil
         isPlaying = false
         playButton.title = "▶ Play"
-        onStateChange?(isRecording, false, dur, lastOutputPath)
+        onStateChange?(isRecording, false, dur, lastOutputPath, nil)
     }
 
     // MARK: - Helpers
+
+    private var canPlayCurrentRecording: Bool {
+        if let embeddedAudioData, !embeddedAudioData.isEmpty { return true }
+        return !lastOutputPath.isEmpty && FileManager.default.fileExists(atPath: lastOutputPath)
+    }
+
+    private func embeddedRecordingDataIfRequested() -> Data? {
+        guard pendingEmbedInStack, !lastOutputPath.isEmpty else { return nil }
+        do {
+            let data = try Data(contentsOf: URL(fileURLWithPath: lastOutputPath))
+            return data.isEmpty ? nil : data
+        } catch {
+            HypeLogger.shared.error(
+                "AudioRecorder.embed failed for '\(lastOutputPath)': \(error.localizedDescription)",
+                source: "AudioRecorder"
+            )
+            return nil
+        }
+    }
 
     private nonisolated static func formatDuration(_ seconds: Double) -> String {
         let total = Int(seconds.rounded())

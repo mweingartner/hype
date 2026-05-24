@@ -762,6 +762,8 @@ public struct HypeToolExecutor: Sendable {
             props.append(String(format: "duration=%.1f", p.audioDuration))
             if !p.audioOutputPath.isEmpty { props.append("outputPath=\(p.audioOutputPath)") }
             props.append("format=\(p.audioFormat)")
+            props.append("saveInStack=\(p.audioEmbedInStack)")
+            if let audioData = p.audioData { props.append("storedBytes=\(audioData.count)") }
         case .scene3D:
             if let ref = p.scene3DAssetRef {
                 props.append("model=\(ref.name)")
@@ -1464,6 +1466,9 @@ public struct HypeToolExecutor: Sendable {
             let fmt = (arguments["format"] ?? "m4a").lowercased()
             part.audioFormat = (fmt == "caf") ? "caf" : "m4a"
             part.audioOutputPath = arguments["output_path"] ?? ""
+            part.audioEmbedInStack = boolArgument(arguments["save_in_stack"])
+                ?? boolArgument(arguments["embed_in_stack"])
+                ?? false
             document.addPart(part)
             let layer = place.backgroundId != nil ? " on background" : ""
             return "Created audio recorder '\(part.name)'\(layer)"
@@ -1698,6 +1703,8 @@ public struct HypeToolExecutor: Sendable {
                 case "playing": document.parts[index].audioPlaying = (value.lowercased() == "true")
                 case "outputpath", "output_path", "filepath", "file_path": document.parts[index].audioOutputPath = value
                 case "format": document.parts[index].audioFormat = value
+                case "saveinstack", "save_in_stack", "embedinstack", "embed_in_stack", "embedded", "audioembedded":
+                    document.parts[index].audioEmbedInStack = boolArgument(value) ?? (value.lowercased() == "true")
                 // Scene3D
                 case "object", "model", "modelasset", "model_asset", "assetname", "asset_name":
                     _ = Scene3DModelBindingResolver.bindModelOrObject(
@@ -2939,6 +2946,8 @@ public struct HypeToolExecutor: Sendable {
             case "duration": return String(part.audioDuration)
             case "outputpath", "output_path", "filepath", "file_path": return part.audioOutputPath
             case "format": return part.audioFormat
+            case "saveinstack", "save_in_stack", "embedinstack", "embed_in_stack", "embedded", "audioembedded": return String(part.audioEmbedInStack)
+            case "audiosize", "audio_size", "audiodatasize", "audio_data_size": return String(part.audioData?.count ?? 0)
             // Scene3D
             case "object", "model":
                 return Scene3DModelBindingResolver.displayModel(for: part)
@@ -5157,6 +5166,8 @@ public struct HypeToolExecutor: Sendable {
             row("duration", String(p.audioDuration), "0")
             row("outputPath", "\"\(p.audioOutputPath)\"", "\"\" (auto temp)")
             row("format", p.audioFormat, "m4a")
+            row("saveInStack", String(p.audioEmbedInStack), "false")
+            row("audioSize", String(p.audioData?.count ?? 0), "0")
         case .scene3D:
             row("object", "\"\(Scene3DModelBindingResolver.displayModel(for: p))\"", "\"\"")
             row("model", "\"\(Scene3DModelBindingResolver.displayModel(for: p))\"", "\"\"")

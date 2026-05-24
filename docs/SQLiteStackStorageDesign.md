@@ -61,6 +61,11 @@ intentional bridge: high-value query fields are relational and indexed now, whil
 sparse type-specific fields remain lossless without prematurely exploding the
 schema for every part subtype.
 
+Schema version 2 projects embedded audio recorder content into
+`parts.audio_data` as a SQLite BLOB. The runtime `Part.audioData` field is
+restored from that column on load, and the JSON payload intentionally omits the
+audio bytes to avoid storing the same recording twice.
+
 ## Search
 
 `search_fts` indexes:

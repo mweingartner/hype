@@ -95,7 +95,7 @@ public enum HypeSQLiteStackStoreError: Error, LocalizedError, Equatable {
 }
 
 public final class HypeSQLiteStackStore {
-    public static let schemaVersion = 1
+    public static let schemaVersion = 2
     public static let manifestFileName = "manifest.json"
     public static let sqliteFileName = "stack.sqlite"
 
@@ -278,7 +278,7 @@ public final class HypeSQLiteStackStore {
         let stack = try decode(Stack.self, from: stackPayload)
         let backgrounds: [Background] = try loadPayloadRows(Background.self, db: db, table: "backgrounds")
         let cards: [Card] = try loadPayloadRows(Card.self, db: db, table: "cards")
-        let parts: [Part] = try loadPayloadRows(Part.self, db: db, table: "parts")
+        let parts: [Part] = try loadParts(db: db)
         let paintLayers: [CardPaintLayer] = try loadPayloadRows(CardPaintLayer.self, db: db, table: "paint_layers")
         let constraints: [LayoutConstraint] = try loadPayloadRows(LayoutConstraint.self, db: db, table: "constraints")
         let assets: [SpriteAsset] = try loadPayloadRows(SpriteAsset.self, db: db, table: "assets")
@@ -409,6 +409,7 @@ public final class HypeSQLiteStackStore {
                 text_content TEXT NOT NULL,
                 help_text TEXT NOT NULL,
                 document_order INTEGER NOT NULL,
+                audio_data BLOB,
                 payload_json TEXT NOT NULL,
                 CHECK ((card_id IS NOT NULL) != (background_id IS NOT NULL))
             ) STRICT
@@ -654,13 +655,15 @@ public final class HypeSQLiteStackStore {
 
         for (index, part) in document.parts.enumerated() {
             let scriptId = try insertScript(ownerType: "part", ownerId: part.id.uuidString, source: part.script, db: db)
+            var payloadPart = part
+            payloadPart.audioData = nil
             try db.execute(
                 """
                 INSERT INTO parts (
                     id, stack_id, card_id, background_id, part_type, name, sort_key, group_id,
                     left, top, width, height, rotation, visible, enabled, hilite, auto_hilite,
-                    script_id, text_content, help_text, document_order, payload_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    script_id, text_content, help_text, document_order, audio_data, payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     .text(part.id.uuidString),
@@ -684,7 +687,8 @@ public final class HypeSQLiteStackStore {
                     .text(part.textContent),
                     .text(part.helpText),
                     .int(Int64(index)),
-                    .text(try encode(part)),
+                    part.audioData.map(SQLiteValue.blob) ?? .null,
+                    .text(try encode(payloadPart)),
                 ]
             )
             let body = [part.textContent, part.helpText, part.script, part.popupItems, part.url, part.searchText, part.menuItems]
@@ -969,6 +973,24 @@ public final class HypeSQLiteStackStore {
         return values
     }
 
+    private func loadParts(db: SQLiteDatabase) throws -> [Part] {
+        let hasAudioDataColumn = try db.columnExists(table: "parts", column: "audio_data")
+        var values: [Part] = []
+        let sql = hasAudioDataColumn
+            ? "SELECT payload_json, audio_data FROM parts ORDER BY document_order"
+            : "SELECT payload_json FROM parts ORDER BY document_order"
+        try db.query(sql) { statement in
+            guard let payload = statement.columnString(0) else { return }
+            var part = try decode(Part.self, from: payload)
+            if hasAudioDataColumn, let data = statement.columnData(1), !data.isEmpty {
+                part.audioData = data
+                part.audioEmbedInStack = true
+            }
+            values.append(part)
+        }
+        return values
+    }
+
     private func encode<T: Encodable>(_ value: T) throws -> String {
         let data = try encoder.encode(value)
         guard let string = String(data: data, encoding: .utf8) else {
@@ -1142,6 +1164,16 @@ private final class SQLiteDatabase {
         return count
     }
 
+    func columnExists(table: String, column: String) throws -> Bool {
+        var exists = false
+        try query("PRAGMA table_info(\(table))") { statement in
+            if statement.columnString(1) == column {
+                exists = true
+            }
+        }
+        return exists
+    }
+
     private func prepare(_ sql: String, _ values: [SQLiteValue]) throws -> SQLiteStatement {
         var pointer: OpaquePointer?
         guard sqlite3_prepare_v2(handle, sql, -1, &pointer, nil) == SQLITE_OK, let pointer else {
@@ -1202,6 +1234,14 @@ private final class SQLiteStatement {
 
     func columnInt64(_ index: Int32) -> Int64 {
         sqlite3_column_int64(raw, index)
+    }
+
+    func columnData(_ index: Int32) -> Data? {
+        guard sqlite3_column_type(raw, index) != SQLITE_NULL else { return nil }
+        let count = Int(sqlite3_column_bytes(raw, index))
+        guard count > 0 else { return Data() }
+        guard let bytes = sqlite3_column_blob(raw, index) else { return nil }
+        return Data(bytes: bytes, count: count)
     }
 }
 

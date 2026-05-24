@@ -404,7 +404,7 @@ given `partType`. The fields fall into bands:
 | segmented        | `segmentItems` *(pipe-separated)*, `controlValue` *(selected index)*     |
 | progressView     | `progressValue`, `progressTotal`, `progressIsCircular`, `progressIsIndeterminate`, `progressLabel`, `progressTint`, `progressDecimals` |
 | gauge            | `gaugeValue`, `gaugeMin`, `gaugeMax`, `gaugeStyle`, `gaugeTint`, `gaugeLabel`, `gaugeMinLabel`, `gaugeMaxLabel`, `gaugeDecimals` |
-| audioRecorder    | `audioRecording`, `audioPlaying`, `audioOutputPath`, `audioFormat`, `audioDuration` |
+| audioRecorder    | `audioRecording`, `audioPlaying`, `audioOutputPath`, `audioFormat`, `audioDuration`, `audioEmbedInStack`, `audioData?` |
 | scene3D          | `scene3DSourceURL`, `scene3DURL`, `scene3DAllowsCameraControl`, `scene3DAutoLighting`, `scene3DAntialiasing`, `scene3DBackground` |
 | divider          | `dividerOrientation`, `dividerThickness`, `dividerColor`                 |
 | **sprite area**  | `sceneSpec` *(JSON-encoded `SpriteAreaSpec`, with legacy `SceneSpec` migration)* |
@@ -437,7 +437,9 @@ Stack.hype/
 for stacks, backgrounds, cards, parts, scripts, assets, AI context, themes,
 paint layers, constraints, SpriteKit areas/scenes/nodes, and FTS search. Rows
 also carry payload JSON for exact reconstruction of the value-model graph while
-the schema continues to grow. SQLite `PRAGMA user_version` tracks the schema.
+the schema continues to grow. SQLite `PRAGMA user_version` tracks the schema;
+schema version 2 adds `parts.audio_data` so audio recorder bytes can be stored
+as a real SQLite BLOB while the JSON payload omits duplicate audio bytes.
 
 Interactive saves and undo now flow through
 `HypeDocumentMutationCoordinator` (`Sources/Hype/DocumentMutationCoordinator.swift`).
@@ -1874,7 +1876,9 @@ Two surfaces:
    tool button and also tracks hover state to show the floating help panel.
    Help text comes from `ObjectToolCatalog.tooltipBody(for:)`, so the same
    catalog that defines the one-canonical-object-per-part-type palette also
-   owns style/property guidance.
+   owns style/property guidance. This text is deliberately user-facing: it
+   describes what authors can do with each object and must not expose backing
+   framework names or internal property identifiers.
 2. **Per-part `helpText`.** Every `Part` carries a `helpText: String`
    field (default empty). `CardCanvasNSView.updatePartToolTips()` clears
    and re-registers tooltip rects via
