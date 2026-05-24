@@ -553,6 +553,12 @@ struct AIChatPanel: View {
         }
     }
 
+    private func appendThinkingIfPresent(from message: OllamaMessage) {
+        guard let thinking = message.thinking?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !thinking.isEmpty else { return }
+        appendMessage(role: "thinking", content: "Thinking:\n\(thinking)")
+    }
+
     private func speakAssistantText(_ content: String) {
         let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
@@ -574,6 +580,7 @@ struct AIChatPanel: View {
     private func bubbleColor(for role: String) -> Color {
         switch role {
         case "user": return hypeTheme.accent.swiftUIColor.opacity(0.15)
+        case "thinking": return Color.yellow.opacity(0.12)
         case "tool": return Color.green.opacity(0.1)
         default: return hypeTheme.inspectorBackground.swiftUIColor
         }
@@ -1595,6 +1602,7 @@ struct AIChatPanel: View {
                     message: OllamaMessage(role: "assistant", content: accumulatedText),
                     done: true
                 )
+                appendThinkingIfPresent(from: response.message)
 
                 // Ollama's gemma4 parser extracts structured tool_calls
                 // from a narrow set of output shapes. Our fine-tuned
@@ -1990,6 +1998,7 @@ struct AIChatPanel: View {
             let response: OllamaChatResponse
             do {
                 response = try await client.chat(messages: conversationMessages, tools: tools)
+                appendThinkingIfPresent(from: response.message)
             } catch {
                 let errorMsg = "Error during script iteration: \(error.localizedDescription)"
                 return ScriptDraftCoordinator.LoopResult(
