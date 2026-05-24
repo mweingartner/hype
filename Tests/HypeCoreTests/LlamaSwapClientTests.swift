@@ -100,6 +100,50 @@ struct LlamaSwapClientTests {
         #expect(text == "OK")
     }
 
+    @Test("chatStream uses OpenAI-compatible streaming endpoint and yields tokens")
+    func chatStreamUsesChatCompletionsEndpoint() async throws {
+        defer { LlamaSwapMockProtocol.requestHandler = nil }
+        let session = Self.makeSession()
+        LlamaSwapMockProtocol.requestHandler = { request in
+            #expect(request.url?.absoluteString == "http://localhost:8080/v1/chat/completions")
+            #expect(request.httpMethod == "POST")
+            #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+            #expect(request.value(forHTTPHeaderField: "Accept") == "text/event-stream")
+            let body = try #require(Self.bodyData(from: request))
+            let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            #expect(object["model"] as? String == "hypetalk-qwen3:8b-v1")
+            #expect(object["stream"] as? Bool == true)
+
+            let response = """
+            data: {"choices":[{"delta":{"content":"Hel"}}]}
+
+            data: {"choices":[{"delta":{"content":"lo"}}]}
+
+            data: [DONE]
+
+            """
+            return (Self.response(for: request, status: 200), Data(response.utf8))
+        }
+
+        let client = try LlamaSwapClient(
+            host: "localhost",
+            port: "8080",
+            model: "hypetalk-qwen3:8b-v1",
+            session: session,
+            logger: HypeLogger(setupFileLogging: false)
+        )
+
+        var tokens: [String] = []
+        for await token in client.chatStream(
+            messages: [OllamaMessage(role: "user", content: "Say hello")],
+            tools: []
+        ) {
+            tokens.append(token)
+        }
+
+        #expect(tokens.joined() == "Hello")
+    }
+
     private static func makeSession() -> URLSession {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [LlamaSwapMockProtocol.self]
