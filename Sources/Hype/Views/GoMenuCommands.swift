@@ -34,9 +34,9 @@ struct GoMenuCommands: Commands {
     }
 }
 
-// MARK: - Objects menu (control / part creation — every PartType)
+// MARK: - Objects menu (control / part creation — canonical PartTypes)
 
-/// One menu item per ToolName that creates a new part. Replaces the
+/// One menu item per canonical ToolName that creates a new part. Replaces the
 /// old "Objects" menu, which had only a handful of entries plus
 /// dead `Card Info…` / `Background Info…` / `Stack Info…` stubs.
 ///
@@ -53,7 +53,6 @@ struct ObjectsMenuCommands: Commands {
                 Button("Field") { NotificationCenter.default.post(name: .selectTool, object: ToolName.field) }
                 Button("Shape") { NotificationCenter.default.post(name: .selectTool, object: ToolName.shape) }
                 Button("Image") { NotificationCenter.default.post(name: .selectTool, object: ToolName.image) }
-                Button("Text Annotation") { NotificationCenter.default.post(name: .selectTool, object: ToolName.text) }
                 Button("Web Page") { NotificationCenter.default.post(name: .selectTool, object: ToolName.webpage) }
                 Button("Video") { NotificationCenter.default.post(name: .selectTool, object: ToolName.video) }
                 Button("Chart") { NotificationCenter.default.post(name: .selectTool, object: ToolName.chart) }
@@ -81,15 +80,9 @@ struct ObjectsMenuCommands: Commands {
                 Button("Stepper") { NotificationCenter.default.post(name: .selectTool, object: ToolName.stepper) }
                 Button("Slider") { NotificationCenter.default.post(name: .selectTool, object: ToolName.slider) }
                 Button("Segmented Control") { NotificationCenter.default.post(name: .selectTool, object: ToolName.segmented) }
-            }
-
-            Divider()
-
-            // Drag-to-create vector shape shortcuts.
-            Group {
-                Button("Rectangle") { NotificationCenter.default.post(name: .selectTool, object: ToolName.rect) }
-                Button("Oval") { NotificationCenter.default.post(name: .selectTool, object: ToolName.oval) }
-                Button("Line") { NotificationCenter.default.post(name: .selectTool, object: ToolName.line) }
+                Button("Progress View") { NotificationCenter.default.post(name: .selectTool, object: ToolName.progressView) }
+                Button("Gauge") { NotificationCenter.default.post(name: .selectTool, object: ToolName.gauge) }
+                Button("Divider") { NotificationCenter.default.post(name: .selectTool, object: ToolName.divider) }
             }
         }
     }

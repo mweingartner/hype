@@ -812,6 +812,8 @@ struct CardCanvasView: NSViewRepresentable {
                 // makes the mutation actually visible.
                 if let modified = result.modifiedDocument {
                     parent.document.document = modified
+                    nsView?.document = modified
+                    nsView?.needsDisplay = true
                 }
                 // Handle "show all cards" — cycle through every card with a delay
                 if result.showAllCards {
@@ -2385,9 +2387,6 @@ class CardCanvasNSView: NSView {
                 let pl = paintLayerForCurrentCard()
                 pl.floodFill(x: x, y: y, color: paintColor)
                 persistPaintLayerForCurrentCard()
-            case .line, .rect, .oval, .text:
-                // These use drag -- just record start point
-                break
             default:
                 break
             }
@@ -2602,9 +2601,6 @@ class CardCanvasNSView: NSView {
             case .eraser:
                 let pl = paintLayerForCurrentCard()
                 pl.erase(cx: x, cy: y, radius: eraserRadius)
-            case .line, .rect, .oval, .text:
-                // Rubber-band preview -- update drag current
-                dragCurrent = point
             default:
                 break
             }
@@ -2707,106 +2703,19 @@ class CardCanvasNSView: NSView {
             return
         }
 
-        // Handle paint tool mouseUp (shape tools create Parts, bitmap tools use PaintLayer)
+        // Handle paint tool mouseUp. Object creation is owned by
+        // canonical edit tools; paint tools mutate only the paint layer.
         if isDragging && ToolState(currentTool: currentTool.rawValue).category == .paint {
-            if let start = dragStart {
-                let x0 = Int(start.x), y0 = Int(start.y)
-                let x1 = Int(point.x), y1 = Int(point.y)
+            switch currentTool {
+            case .pencil:
+                lastPencilPoint = nil
+                persistPaintLayerForCurrentCard()
 
-                switch currentTool {
-                case .line:
-                    let points = [PathPoint(x: Double(x0), y: Double(y0)), PathPoint(x: Double(x1), y: Double(y1))]
-                    let minX = min(Double(x0), Double(x1))
-                    let minY = min(Double(y0), Double(y1))
-                    var newPart = Part(
-                        partType: .shape,
-                        cardId: editingBackground ? nil : currentCardId,
-                        backgroundId: editingBackground ? currentBackgroundId : nil,
-                        name: "Line \(document.parts.count + 1)",
-                        left: minX, top: minY,
-                        width: max(1, abs(Double(x1 - x0))), height: max(1, abs(Double(y1 - y0)))
-                    )
-                    newPart.shapeType = .line
-                    newPart.pathData = points
-                    newPart.strokeColor = "#000000"
-                    newPart.strokeWidth = 2
-                    coordinator?.addPart(newPart)
+            case .spray, .eraser, .bucket:
+                persistPaintLayerForCurrentCard()
 
-                case .rect:
-                    let rx = min(Double(x0), Double(x1)), ry = min(Double(y0), Double(y1))
-                    let rw = abs(Double(x1 - x0)), rh = abs(Double(y1 - y0))
-                    if rw > 3 && rh > 3 {
-                        var newPart = Part(
-                            partType: .shape,
-                            cardId: editingBackground ? nil : currentCardId,
-                            backgroundId: editingBackground ? currentBackgroundId : nil,
-                            name: "Rectangle \(document.parts.count + 1)",
-                            left: rx, top: ry, width: rw, height: rh
-                        )
-                        newPart.shapeType = .rectangle
-                        // Theme-aware defaults: pull stroke + fill
-                        // from the active theme so newly drawn shapes
-                        // visibly match the cardstack's chosen look.
-                        // The cascade-resolver always returns a theme.
-                        let rectTheme = document.effectiveTheme(forCard: currentCardId)
-                        newPart.strokeColor = rectTheme.shapeStrokeDefault.rawDescription.hasPrefix("#")
-                            ? rectTheme.shapeStrokeDefault.rawDescription : "#000000"
-                        newPart.fillColor = rectTheme.shapeFillDefault.rawDescription.hasPrefix("#")
-                            ? rectTheme.shapeFillDefault.rawDescription : "#FFFFFF"
-                        newPart.strokeWidth = max(1.0, rectTheme.strokeWidthThin)
-                        coordinator?.addPart(newPart)
-                    }
-
-                case .oval:
-                    let rx = min(Double(x0), Double(x1)), ry = min(Double(y0), Double(y1))
-                    let rw = abs(Double(x1 - x0)), rh = abs(Double(y1 - y0))
-                    if rw > 3 && rh > 3 {
-                        var newPart = Part(
-                            partType: .shape,
-                            cardId: editingBackground ? nil : currentCardId,
-                            backgroundId: editingBackground ? currentBackgroundId : nil,
-                            name: "Oval \(document.parts.count + 1)",
-                            left: rx, top: ry, width: rw, height: rh
-                        )
-                        newPart.shapeType = .oval
-                        let ovalTheme = document.effectiveTheme(forCard: currentCardId)
-                        newPart.strokeColor = ovalTheme.shapeStrokeDefault.rawDescription.hasPrefix("#")
-                            ? ovalTheme.shapeStrokeDefault.rawDescription : "#000000"
-                        newPart.fillColor = ovalTheme.shapeFillDefault.rawDescription.hasPrefix("#")
-                            ? ovalTheme.shapeFillDefault.rawDescription : "#FFFFFF"
-                        newPart.strokeWidth = max(1.0, ovalTheme.strokeWidthThin)
-                        coordinator?.addPart(newPart)
-                    }
-
-                case .pencil:
-                    // Pencil draws to PaintLayer bitmap — no Part created
-                    lastPencilPoint = nil
-                    persistPaintLayerForCurrentCard()
-
-                case .spray, .eraser, .bucket:
-                    persistPaintLayerForCurrentCard()
-
-                case .text:
-                    // Create a transparent field at the click location
-                    var newField = Part(
-                        partType: .field,
-                        cardId: editingBackground ? nil : currentCardId,
-                        backgroundId: editingBackground ? currentBackgroundId : nil,
-                        name: "Text \(document.partsForCard(currentCardId).count + 1)",
-                        left: Double(x1),
-                        top: Double(y1),
-                        width: 200,
-                        height: 30
-                    )
-                    newField.fieldStyle = .transparent
-                    newField.strokeWidth = 0
-                    newField.lockText = false
-                    coordinator?.addPart(newField)
-                    coordinator?.selectPart(newField.id)
-
-                default:
-                    break
-                }
+            default:
+                break
             }
 
             isDragging = false

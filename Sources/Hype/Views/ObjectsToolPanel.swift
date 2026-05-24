@@ -9,78 +9,26 @@ import SwiftUI
 ///    side layout clipped both labels)
 /// 2. Selection / Browse tools
 /// 3. Object-creation tools, grouped by family (basic / framework /
-///    form-controls / paint shortcuts) with subtle section dividers
+///    form-controls) with subtle section dividers
 ///    and small captions
-/// 4. Paint-layer tools (pencil, spray, bucket, eraser, line)
+/// 4. Paint-layer tools (pencil, spray, bucket, eraser)
 ///
 /// **Resizable**: the panel uses `minWidth / idealWidth / maxWidth`
 /// rather than a fixed `.frame(width:)` so the user can drag the
 /// `HSplitView` divider to widen the panel — the `LazyVGrid` then
 /// reflows to two or three columns automatically (`.adaptive(...)`).
 ///
-/// **Hover help** is delivered via SwiftUI's native `.help(_:)`
-/// modifier, which wraps `NSToolTip`. The previous implementation
-/// used a custom SwiftUI flyout view with `.onHover` plumbing,
-/// debounce timers, and an animated transition. That looked nice on
-/// paper but had three real-world problems:
-///   - the slide-from-leading-edge transition read as the bubble
-///     "flying" in/out, distracting from the content;
-///   - the 0.1s hide delay made the bubble vanish before the user
-///     could read multi-line descriptions;
-///   - `.onHover` inside a `.background(GeometryReader)` was flaky
-///     in practice — depending on layout/animation interactions the
-///     hover events sometimes failed to fire at all, leaving users
-///     with no help bubbles AT ALL.
-///
-/// `NSToolTip` is what every native macOS app uses, and it's what
-/// users expect. It appears after a system-tuned hover delay
-/// (~0.7s, configurable via NSUserDefaults), wraps multi-line
-/// content cleanly, and disappears when the cursor leaves —
-/// without animation, race conditions, or tracking-area gotchas.
+/// **Hover help** is provided twice: native `.help(_:)` for standard
+/// macOS tooltips and an immediate in-app help card. The custom card
+/// avoids the common failure mode where `NSToolTip` tracking is delayed
+/// or suppressed while the user is moving quickly through the palette,
+/// while the native tooltip keeps normal accessibility/platform behavior.
 struct ObjectsToolPanel: View {
     @Binding var currentTool: ToolName
     @Binding var selectedPartIds: Set<UUID>
     let isRuntimeMode: Bool
 
-    // MARK: - Tool grouping
-
-    /// Selection / runtime-vs-edit clicking. Two distinct semantics
-    /// even though the icons sit close to each other in the panel.
-    private static let selectionTools: [ToolName] = [.browse, .select]
-
-    /// Classic HyperCard-feeling object creators: button, field,
-    /// shape, image. Plus the more recent web/video/chart trio.
-    private static let basicTools: [ToolName] = [
-        .button, .field, .shape, .image, .text,
-        .webpage, .video, .chart
-    ]
-
-    /// Framework-backed controls added in 2026 — calendar, PDF, map,
-    /// 3D scene, etc. Grouped together so users can see them as a
-    /// distinct "richer media" family.
-    private static let frameworkTools: [ToolName] = [
-        .calendar, .pdf, .map, .colorWell, .audioRecorder,
-        .scene3D, .spriteArea
-    ]
-
-    /// AppKit form controls. They share a control-value backing
-    /// field and a similar feel.
-    private static let formControlTools: [ToolName] = [
-        .stepper, .slider, .segmented,
-        .progressView, .gauge, .divider
-    ]
-    // .toggle, .link, .menu, .searchField removed in dedup —
-    // create them as button (with .toggle / .link / .popup style)
-    // or field (with .search style) instead.
-
-    /// Drag-to-create vector shape shortcuts (rectangle, oval, line)
-    /// PLUS the raster-paint tools (pencil, spray, bucket, eraser).
-    /// Grouped at the bottom because they're used less often than
-    /// object-creation tools.
-    private static let paintTools: [ToolName] = [
-        .rect, .oval, .line,
-        .pencil, .spray, .bucket, .eraser
-    ]
+    @State private var activeHelp: HoverHelp?
 
     // MARK: - Sizing constants
 
@@ -89,70 +37,86 @@ struct ObjectsToolPanel: View {
     private static let panelIdealWidth: CGFloat = 60
     private static let panelMaxWidth: CGFloat = 220
 
+    private struct HoverHelp: Equatable {
+        let title: String
+        let body: String
+
+        var text: String {
+            "\(title)\n\n\(body)"
+        }
+    }
+
     var body: some View {
         // Adaptive grid — wraps to 2/3 columns automatically when
         // the user widens the panel via the HSplitView divider.
         let gridItem = GridItem(.adaptive(minimum: 44, maximum: 52), spacing: 4)
 
-        VStack(spacing: 0) {
-            // 1. Run / Edit toggle — VERTICAL stack so each label is
-            //    fully visible inside the narrow panel. Side-by-side
-            //    layout was clipping both buttons.
-            VStack(spacing: 4) {
-                modeButton(
-                    title: "Run",
-                    systemImage: "play.fill",
-                    isActive: isRuntimeMode,
-                    helpText: tooltipText(
-                        title: "Runtime Mode",
-                        body: "Hides editing chrome (property inspector, sprite repository, AI panel) and runs the stack as the end user experiences it. Toggle with ⇧⌘E."
-                    ),
-                    action: {
-                        if !isRuntimeMode {
-                            NotificationCenter.default.post(name: .toggleRuntimeMode, object: nil)
+        ZStack(alignment: .topLeading) {
+            VStack(spacing: 0) {
+                // 1. Run / Edit toggle — VERTICAL stack so each label is
+                //    fully visible inside the narrow panel. Side-by-side
+                //    layout was clipping both buttons.
+                VStack(spacing: 4) {
+                    modeButton(
+                        title: "Run",
+                        systemImage: "play.fill",
+                        isActive: isRuntimeMode,
+                        help: HoverHelp(
+                            title: "Runtime Mode",
+                            body: "Hides editing chrome (property inspector, sprite repository, AI panel) and runs the stack as the end user experiences it. Toggle with ⇧⌘E."
+                        ),
+                        action: {
+                            if !isRuntimeMode {
+                                NotificationCenter.default.post(name: .toggleRuntimeMode, object: nil)
+                            }
                         }
-                    }
-                )
+                    )
 
-                modeButton(
-                    title: "Edit",
-                    systemImage: "pencil",
-                    isActive: !isRuntimeMode,
-                    helpText: tooltipText(
-                        title: "Edit Mode",
-                        body: "Restores the property inspector and the full tool palette so you can author the stack. Toggle with ⇧⌘E."
-                    ),
-                    action: {
-                        if isRuntimeMode {
-                            NotificationCenter.default.post(name: .toggleRuntimeMode, object: nil)
+                    modeButton(
+                        title: "Edit",
+                        systemImage: "pencil",
+                        isActive: !isRuntimeMode,
+                        help: HoverHelp(
+                            title: "Edit Mode",
+                            body: "Restores the property inspector and the full tool palette so you can author the stack. Toggle with ⇧⌘E."
+                        ),
+                        action: {
+                            if isRuntimeMode {
+                                NotificationCenter.default.post(name: .toggleRuntimeMode, object: nil)
+                            }
                         }
-                    }
-                )
-            }
-            .padding(.horizontal, 4)
-            .padding(.top, 6)
-            .padding(.bottom, 4)
-
-            Divider().padding(.horizontal, 4)
-
-            if !isRuntimeMode {
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 8) {
-                        toolSection("Select", tools: Self.selectionTools, gridItem: gridItem)
-                        sectionDivider
-                        toolSection("Objects", tools: Self.basicTools, gridItem: gridItem)
-                        sectionDivider
-                        toolSection("Framework", tools: Self.frameworkTools, gridItem: gridItem)
-                        sectionDivider
-                        toolSection("Form", tools: Self.formControlTools, gridItem: gridItem)
-                        sectionDivider
-                        toolSection("Paint", tools: Self.paintTools, gridItem: gridItem)
-                    }
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 6)
+                    )
                 }
-            } else {
-                Spacer().frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, 4)
+                .padding(.top, 6)
+                .padding(.bottom, 4)
+
+                Divider().padding(.horizontal, 4)
+
+                if !isRuntimeMode {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 8) {
+                            ForEach(Array(ObjectToolCatalog.authoringSections.enumerated()), id: \.offset) { index, section in
+                                if index > 0 {
+                                    sectionDivider
+                                }
+                                toolSection(section.title, tools: section.tools, gridItem: gridItem)
+                            }
+                        }
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 6)
+                    }
+                } else {
+                    Spacer().frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+
+            if let activeHelp {
+                hoverHelpCard(activeHelp)
+                    .offset(x: Self.panelMinWidth + 8, y: 50)
+                    .transition(.opacity)
+                    .zIndex(10)
+                    .allowsHitTesting(false)
             }
         }
         // Resizable: HSplitView honours minWidth / idealWidth / maxWidth.
@@ -195,13 +159,34 @@ struct ObjectsToolPanel: View {
         }
     }
 
-    /// Format a tooltip string with a short title on the first line
-    /// followed by a blank line and the body. NSToolTip wraps long
-    /// text automatically (~250pt-wide); the leading title gives a
-    /// quick read of what the icon does even when the body wraps to
-    /// several lines.
-    private func tooltipText(title: String, body: String) -> String {
-        "\(title)\n\n\(body)"
+    private func setActiveHelp(_ help: HoverHelp, isHovering: Bool) {
+        if isHovering {
+            activeHelp = help
+        } else if activeHelp == help {
+            activeHelp = nil
+        }
+    }
+
+    @ViewBuilder
+    private func hoverHelpCard(_ help: HoverHelp) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(help.title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.primary)
+            Text(help.body)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(width: 300, alignment: .leading)
+        .padding(10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.18), radius: 12, x: 0, y: 6)
+        .accessibilityHidden(true)
     }
 
     // MARK: - Buttons
@@ -211,7 +196,7 @@ struct ObjectsToolPanel: View {
         title: String,
         systemImage: String,
         isActive: Bool,
-        helpText: String,
+        help: HoverHelp,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -232,7 +217,8 @@ struct ObjectsToolPanel: View {
             )
         }
         .buttonStyle(.plain)
-        .help(helpText)
+        .help(help.text)
+        .onHover { setActiveHelp(help, isHovering: $0) }
         .accessibilityLabel(title)
         .accessibilityValue(isActive ? "active" : "inactive")
         .accessibilityIdentifier(HypeAccessibilityID.toolbar("mode.\(title.lowercased())"))
@@ -240,6 +226,8 @@ struct ObjectsToolPanel: View {
 
     @ViewBuilder
     private func toolButton(_ tool: ToolName) -> some View {
+        let help = HoverHelp(title: tool.displayTitle, body: ObjectToolCatalog.tooltipBody(for: tool))
+
         Button(action: {
             currentTool = tool
             selectedPartIds = []
@@ -254,7 +242,8 @@ struct ObjectsToolPanel: View {
                 )
         }
         .buttonStyle(.plain)
-        .help(tooltipText(title: tool.displayTitle, body: tool.description))
+        .help(help.text)
+        .onHover { setActiveHelp(help, isHovering: $0) }
         .accessibilityLabel(tool.displayTitle)
         .accessibilityHint(tool.description)
         .accessibilityValue(currentTool == tool ? "selected" : "not selected")

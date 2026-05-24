@@ -314,6 +314,31 @@ struct GIFAnimatorTests {
         #expect(GIFAnimator.shared.isAnimating(partId: id) == false)
     }
 
+    @Test("ensureState autoplay resumes an already-decoded paused GIF")
+    func ensureStateAutoplayResumesPausedGIF() async throws {
+        teardown()
+        defer { teardown() }
+
+        guard let data = makeAnimatorTestGIF(frameCount: 2, delay: 0.1) else {
+            Issue.record("Failed to synthesize GIF")
+            return
+        }
+        let id = UUID()
+
+        GIFAnimator.shared.ensureState(partId: id, imageData: data, autoplay: false)
+        let settled = await waitFor(timeoutMs: 300) {
+            GIFAnimator.shared.hasState(partId: id)
+        }
+        #expect(settled, "State should settle after first ensureState")
+        #expect(GIFAnimator.shared.isAnimating(partId: id) == false)
+
+        GIFAnimator.shared.ensureState(partId: id, imageData: data, autoplay: true)
+        let resumed = await waitFor(timeoutMs: 100) {
+            GIFAnimator.shared.isAnimating(partId: id)
+        }
+        #expect(resumed, "autoplay=true must resume cached GIF state instead of fast-pathing as idle")
+    }
+
     // MARK: 8. Non-looping GIF: onAnimationEnd fires and isAnimating becomes false
 
     @Test("non-looping GIF (loopCount=1) fires onAnimationEnd and stops")

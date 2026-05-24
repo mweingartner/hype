@@ -1777,8 +1777,12 @@ HIG-recommended spacings (8 / 12 / 20 pt) within a 6-point threshold.
 `ToolManager` (Sources/HypeCore/Tools/ToolManager.swift) holds the active
 tool name and the current selection. `ToolName` (Sources/Hype/Views/ToolName.swift)
 is the catalog: browse, button, field, shape, webpage, image, video,
-chart, spriteArea, select, pencil, line, rect, oval, spray, bucket,
-eraser, text. Tools belong to one of three modes: **browse** (HyperCard's
+chart, spriteArea, framework/form controls, select, pencil, spray, bucket,
+and eraser. `ObjectToolCatalog` (Sources/Hype/Views/ObjectToolCatalog.swift)
+is the left-panel source of truth and exposes one creation tool per canonical
+persisted `PartType`; text annotations, search fields, ovals, and line shapes
+are styles/properties of Field or Shape rather than separate panel tools.
+Tools belong to one of three modes: **browse** (HyperCard's
 Run mode — interactive parts respond to clicks, sprite areas come alive),
 **edit** (parts can be selected, moved, resized, created), and **paint**
 (freehand drawing onto the per-card paint layer).
@@ -1855,19 +1859,21 @@ authors edit colors with `NSColorWell`-backed pickers and live preview, save
 the result back into `HypeDocument.themes`, and apply it card-by-card from
 the inspector's THEME row.
 
-### 6.9 Hover help (NSToolTip)
+### 6.9 Hover help
 
-Hover help text — both for the tool palette and for any author-defined
-control — is delivered via the system `NSToolTip` mechanism, not a custom
-SwiftUI flyout. This is what every macOS app uses; the timing, wrapping,
-accessibility, and dismissal behavior all match what users already know.
+Hover help text exists for both the tool palette and author-defined controls.
+The tool palette uses a belt-and-suspenders approach: system `NSToolTip`
+support for native macOS/accessibility behavior plus an immediate in-app help
+card so every object type has visible help even when AppKit tooltip tracking is
+delayed or suppressed during fast cursor movement.
 
 Two surfaces:
 
 1. **Tool palette icons.** `ObjectsToolPanel` calls `.help(...)` on every
-   tool button. Each tool's `displayTitle` and `description` (from
-   `ToolName`) are joined by a blank line and passed verbatim — the system
-   tooltip wraps long lines.
+   tool button and also tracks hover state to show an in-app help card beside
+   the left palette. Help text comes from `ObjectToolCatalog.tooltipBody(for:)`,
+   so the same catalog that defines the one-canonical-object-per-part-type
+   palette also owns style/property guidance.
 2. **Per-part `helpText`.** Every `Part` carries a `helpText: String`
    field (default empty). `CardCanvasNSView.updatePartToolTips()` clears
    and re-registers tooltip rects via

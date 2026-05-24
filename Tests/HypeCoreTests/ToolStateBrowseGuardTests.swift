@@ -65,7 +65,7 @@ struct ToolStateBrowseGuardTests {
         // Sanity: any non-browse tool name (recognised or not)
         // must NOT report .browse, otherwise the idle timer keeps
         // firing on script errors and the fix breaks.
-        let nonBrowse = ["select", "button", "field", "shape", "pencil", "spray", "bucket", "eraser", "text"]
+        let nonBrowse = ["select", "button", "field", "shape", "pencil", "spray", "bucket", "eraser"]
         for name in nonBrowse {
             #expect(ToolState(currentTool: name).category != .browse,
                     "tool '\(name)' must not report .browse category")
@@ -74,7 +74,7 @@ struct ToolStateBrowseGuardTests {
 
     @Test("paint tools sit in the .paint category, also non-browse")
     func paintToolsArePaintCategory() {
-        let paintTools = ["pencil", "line", "rect", "oval", "spray", "bucket", "eraser", "text"]
+        let paintTools = ["pencil", "spray", "bucket", "eraser"]
         for name in paintTools {
             let s = ToolState(currentTool: name)
             #expect(s.category == .paint, "tool '\(name)' should be in .paint category")

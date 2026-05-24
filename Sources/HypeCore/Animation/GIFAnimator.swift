@@ -130,9 +130,31 @@ public final class GIFAnimator: @unchecked Sendable {
         let fp = DataFingerprint(data: imageData)
 
         // Fast path: existing state (GIF or non-GIF sentinel) with
-        // matching fingerprint — nothing to do.
+        // matching fingerprint.
+        //
+        // Important: `ensureState(... autoplay: true)` is also used by
+        // render code when a persisted image part says it should animate.
+        // If the bytes are already decoded but the state is paused, a pure
+        // fingerprint fast-path would leave the GIF parked forever.
         if let existing = fingerprints[partId], existing == fp {
-            return
+            if var state = states[partId] {
+                if autoplay, !state.isRunning {
+                    state.isRunning = true
+                    state.lastFrameTime = CACurrentMediaTime()
+                    states[partId] = state
+                    startTimerIfNeeded()
+                }
+                return
+            }
+
+            if pendingDecode.contains(partId) || existing.isNonGIF {
+                return
+            }
+
+            // Stale fingerprint without installed state: this can happen
+            // after interrupted decode/start paths. Evict and decode again
+            // instead of permanently suppressing playback.
+            fingerprints.removeValue(forKey: partId)
         }
 
         // Avoid re-launching a decode that's already in flight for
@@ -142,7 +164,9 @@ public final class GIFAnimator: @unchecked Sendable {
         // race to install state (Security Finding H-1, post-Builder
         // code review; the original ordering made this guard dead
         // code because it followed `pendingDecode.remove(partId)`).
-        guard !pendingDecode.contains(partId) else { return }
+        guard !pendingDecode.contains(partId) else {
+            return
+        }
 
         // Image data changed: evict stale state.
         states.removeValue(forKey: partId)

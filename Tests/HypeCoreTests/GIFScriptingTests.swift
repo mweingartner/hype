@@ -121,6 +121,18 @@ private func runGIFScript(
     return result
 }
 
+private func waitForGIFRuntimeCondition(
+    timeoutMs: Int = 500,
+    condition: () -> Bool
+) async -> Bool {
+    let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000.0)
+    while Date() < deadline {
+        if condition() { return true }
+        try? await Task.sleep(for: .milliseconds(10))
+    }
+    return condition()
+}
+
 // MARK: - Parser Tests
 
 @Suite("GIF HypeTalk — Parser", .serialized)
@@ -278,6 +290,15 @@ struct GIFParserTests {
         on test
           stop the animation of image "foo"
         end test
+        """))
+    }
+
+    @Test("'set the animated of me to not the animated of me' parses")
+    func parseToggleAnimatedOfMe() {
+        #expect(parses("""
+        on mouseUp
+          set the animated of me to not the animated of me
+        end mouseUp
         """))
     }
 }
@@ -540,6 +561,34 @@ struct GIFInterpreterTests {
                 "animated property should read back as 'true' after set to true")
         let part = result.modifiedDocument?.parts.first { $0.name == "foo" }
         #expect(part?.animated == true, "Part.animated model field should be true after set to true")
+    }
+
+    @Test("image mouseUp script toggles 'the animated of me' and starts GIF playback")
+    func imageMouseUpTogglesAnimatedOfMe() async {
+        var (doc, cardId, imageId, _) = makeGIFTestDoc()
+        defer { GIFAnimator.shared.remove(partId: imageId) }
+
+        doc.updatePart(id: imageId) {
+            $0.animated = false
+        }
+        GIFAnimator.shared.remove(partId: imageId)
+
+        let result = await runGIFScript("""
+        on mouseUp
+          set the animated of me to not the animated of me
+        end mouseUp
+        """, on: &doc, cardId: cardId, targetId: imageId)
+
+        #expect(result.status == .completed,
+                "Exact image-part toggle script should complete without opening script-error flow: \(result.error?.message ?? "")")
+        let image = result.modifiedDocument?.parts.first { $0.id == imageId }
+        #expect(image?.animated == true,
+                "Image part should persist animated=true after its mouseUp script toggles 'me'")
+
+        let running = await waitForGIFRuntimeCondition {
+            GIFAnimator.shared.isAnimating(partId: imageId)
+        }
+        #expect(running, "Toggling animated=true through an image mouseUp script should start GIF playback")
     }
 }
 

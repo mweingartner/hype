@@ -6,11 +6,10 @@ public enum ToolName: String, CaseIterable, Sendable {
     case stepper, slider, segmented, audioRecorder, scene3D
     case progressView, gauge, divider
     case select
-    case pencil, line, rect, oval, spray, bucket, eraser, text
-    // Removed in dedup: .toggle, .link, .menu, .searchField — these
-    // are now created via ButtonStyle.toggle / .link / .popup and
-    // FieldStyle.search on the existing button / field tools, so
-    // the user sees one canonical surface per control type.
+    case pencil, spray, bucket, eraser
+    // Removed in dedup: .toggle, .link, .menu, .searchField, .text,
+    // .rect, .oval, .line — these are now created through canonical
+    // Button / Field / Shape tools and then styled in the inspector.
 
     /// Human-readable title for the fly-out info window.
     var displayTitle: String {
@@ -38,13 +37,9 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .divider: return "Divider"
         case .select: return "Select"
         case .pencil: return "Pencil"
-        case .line: return "Line"
-        case .rect: return "Rectangle"
-        case .oval: return "Oval"
         case .spray: return "Spray"
         case .bucket: return "Bucket Fill"
         case .eraser: return "Eraser"
-        case .text: return "Text Annotation"
         }
     }
 
@@ -57,11 +52,11 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .browse:
             return "Default mode for navigating cards and clicking buttons. Switch to Browse when you want to interact with the stack as an end user would, without selecting parts for editing."
         case .button:
-            return "Click-and-drag to draw a button. Buttons fire mouseUp / mouseDown handlers, can navigate cards (\"go next\"), trigger handlers, or run any HypeTalk script. The most common interactive control."
+            return "Click-and-drag to draw a button. Buttons fire mouseUp / mouseDown handlers, can navigate cards (\"go next\"), trigger handlers, or run any HypeTalk script. Toggle, link, popup, checkbox, radio, and other variants are button styles."
         case .field:
-            return "Click-and-drag to draw a text field. Fields hold editable or locked text, support multi-line content, and emit closeField when their content changes. Read with `the textContent of field \"name\"`."
+            return "Click-and-drag to draw the one canonical text object: a field. Fields hold editable or locked text, support multi-line content, and emit closeField when their content changes. Transparent text annotations, search fields, secure fields, scrolling fields, and bordered fields are all field styles."
         case .shape:
-            return "Draws a vector shape (rectangle, oval, etc.). Configure fillColor, strokeColor, strokeWidth, and cornerRadius from the inspector. Useful for backdrops, dividers, and custom layout decoration."
+            return "Click-and-drag to draw the one canonical vector shape object. Rectangle, rounded rectangle, oval, line, and freeform are shape styles/properties, not separate object types. Configure fillColor, strokeColor, strokeWidth, and cornerRadius from the inspector."
         case .webpage:
             return "Embeds a live WebKit view inside the card. Set its URL via the inspector or HypeTalk: `set the url of webpage \"X\" to \"https://...\"`. Renders any web content the system browser supports."
         case .image:
@@ -100,20 +95,12 @@ public enum ToolName: String, CaseIterable, Sendable {
             return "Selection / move tool. Click a part to select it; drag to move; shift-click to extend the selection. Use the inspector on the right to edit the selected part's properties."
         case .pencil:
             return "Free-form pencil drawing onto the card's paint layer. Adjust the brush size with [ and ] keys. Choose color from the status-bar color picker."
-        case .line:
-            return "Click-drag to draw a straight-line shape part. Held Shift constrains to 0/45/90°."
-        case .rect:
-            return "Click-drag to create a rectangle Shape part (vector, movable, scriptable). Pulls fill/stroke colors from the active theme. For raster paint, use Pencil + Bucket instead."
-        case .oval:
-            return "Click-drag to create an oval Shape part (vector, movable, scriptable). Pulls fill/stroke colors from the active theme. For raster paint, use Pencil + Bucket instead."
         case .spray:
             return "Spray-paint scattering of pixels onto the paint layer. Hold mouse longer for denser fill."
         case .bucket:
             return "Flood-fill the paint layer at the click point. Replaces the contiguous color region under the cursor with the active paint color."
         case .eraser:
             return "Click-drag to erase paint-layer pixels. Adjust eraser size with [ and ] keys."
-        case .text:
-            return "Click to drop a transparent text annotation field at that point. The result is a regular Field part — for editable text, use the Field tool to draw a sized field instead."
         }
     }
 
@@ -142,13 +129,9 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .divider: return "minus"
         case .select: return "cursor.rays"
         case .pencil: return "pencil"
-        case .line: return "line.diagonal"
-        case .rect: return "rectangle.portrait"
-        case .oval: return "circle"
         case .spray: return "aqi.medium"
         case .bucket: return "drop"
         case .eraser: return "eraser"
-        case .text: return "textformat"
         }
     }
 }
