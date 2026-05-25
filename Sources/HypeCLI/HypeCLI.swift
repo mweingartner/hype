@@ -1,6 +1,7 @@
 import Foundation
 import HypeCore
 import ArgumentParser
+import Darwin
 
 @main
 struct HypeCLI: AsyncParsableCommand {
@@ -30,6 +31,9 @@ struct HypeCLI: AsyncParsableCommand {
     @Flag(help: "Run an OpenAI-compatible inference smoke test instead of a HypeTalk script")
     var inferenceSmoke = false
 
+    @Option(help: "Inference smoke provider: openai or openai-compatible")
+    var inferenceProvider: InferenceSmokeProvider = .openAICompatible
+
     @Option(help: "OpenAI-compatible inference base URL, for example http://localhost:8001/v1")
     var inferenceBaseURL: String?
 
@@ -38,6 +42,15 @@ struct HypeCLI: AsyncParsableCommand {
 
     @Option(help: "Prompt to send in the inference smoke test")
     var inferencePrompt = "Reply with OK."
+
+    @Option(help: "Bearer token for inference smoke tests. For OpenAI, this overrides Keychain only for the CLI smoke test.")
+    var inferenceAPIKey: String?
+
+    @Option(help: "Environment variable that contains the bearer token for inference smoke tests")
+    var inferenceAPIKeyEnv: String?
+
+    @Flag(help: "Print non-secret endpoint and header diagnostics before sending the inference smoke request")
+    var inferencePrintDiagnostics = false
 
     @Flag(help: "Run an Ollama tool API smoke test: model query, pull, and tool chat")
     var ollamaToolSmoke = false
@@ -141,30 +154,114 @@ struct HypeCLI: AsyncParsableCommand {
     }
 
     private func runInferenceSmoke() async throws {
-        guard let inferenceBaseURL,
-              let baseURL = URL(string: inferenceBaseURL) else {
-            throw ValidationError("--inference-base-url is required, for example http://localhost:8001/v1")
-        }
+        let inference: any AIChatInferenceProviding
+        switch inferenceProvider {
+        case .openAI:
+            let apiKey: String
+            if let smokeKey = resolvedInferenceAPIKey {
+                apiKey = smokeKey
+            } else {
+                apiKey = try KeychainStore.getSecret(account: KeychainStore.openAIAPIKeyAccount)
+            }
+            let model = resolvedOpenAIInferenceModel
+            if inferencePrintDiagnostics {
+                printOpenAIDiagnostics(apiKey: apiKey, model: model)
+                fflush(stdout)
+            }
+            let client = OpenAIResponsesClient(apiKey: apiKey, model: model)
+            inference = HypeAIClientChatInferenceProvider(client: client)
 
-        let client = OpenAIChatCompletionsClient(
-            configuration: .openAICompatible(
+        case .openAICompatible:
+            guard let inferenceBaseURL,
+                  let baseURL = URL(string: inferenceBaseURL) else {
+                throw ValidationError("--inference-base-url is required for --inference-provider openai-compatible, for example http://localhost:8001/v1")
+            }
+            let configuration = OpenAIChatCompletionsClient.Configuration.openAICompatible(
                 baseURL: baseURL,
-                apiKey: nil,
+                apiKey: resolvedInferenceAPIKey,
                 model: inferenceModel,
                 providerName: "cli-openai-compatible"
             )
-        )
-        let inference = HypeAIClientChatInferenceProvider(client: client)
-        let response = try await inference.chat(AIChatInferenceRequest(
+            if inferencePrintDiagnostics {
+                printOpenAICompatibleDiagnostics(configuration)
+                fflush(stdout)
+            }
+            let client = OpenAIChatCompletionsClient(configuration: configuration)
+            inference = HypeAIClientChatInferenceProvider(client: client)
+        }
+
+        var content = ""
+        for await token in inference.chatStream(AIChatInferenceRequest(
             messages: [OllamaMessage(role: "user", content: inferencePrompt)],
             tools: []
-        ))
+        )) {
+            content += token
+        }
 
-        let content = response.message.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        content = content.trimmingCharacters(in: .whitespacesAndNewlines)
         if content.isEmpty {
             throw ValidationError("Inference response was empty")
         }
         print(content)
+    }
+
+    private var resolvedOpenAIInferenceModel: String {
+        inferenceModel == HypeAIConfiguration.defaultLlamaSwapModel
+            ? HypeAIConfiguration.defaultOpenAIModel
+            : inferenceModel
+    }
+
+    private var resolvedInferenceAPIKey: String? {
+        if let key = normalized(inferenceAPIKey) {
+            return key
+        }
+        if let envName = normalized(inferenceAPIKeyEnv),
+           let value = normalized(ProcessInfo.processInfo.environment[envName]) {
+            return value
+        }
+        return nil
+    }
+
+    private func printOpenAICompatibleDiagnostics(_ configuration: OpenAIChatCompletionsClient.Configuration) {
+        let endpoint = Self.endpoint(configuration.chatCompletionsPath, baseURL: configuration.baseURL)
+        let authState = normalized(configuration.apiKey) == nil ? "none" : "Bearer <redacted>"
+        print("provider: \(configuration.providerName)")
+        print("endpoint: POST \(endpoint.absoluteString)")
+        print("headers: Content-Type=application/json; Authorization=\(authState)")
+        print("model: \(configuration.model)")
+    }
+
+    private func printOpenAIDiagnostics(apiKey: String?, model: String) {
+        let authState = normalized(apiKey) == nil ? "none" : "Bearer <redacted>"
+        let reasoning = OpenAIResponsesClient.reasoningOptions(for: model)
+        print("provider: openai")
+        print("endpoint: POST https://api.openai.com/v1/responses")
+        print("headers: Content-Type=application/json; Accept=text/event-stream; Authorization=\(authState)")
+        print("stream: true")
+        print("model: \(model)")
+        if let reasoning {
+            print("reasoning: effort=\(reasoning.effort); summary=\(reasoning.summary)")
+        } else {
+            print("reasoning: unsupported for model")
+        }
+    }
+
+    private static func endpoint(_ path: String, baseURL: URL) -> URL {
+        var components = path.split(separator: "/").map(String.init)
+        if baseURL.path.split(separator: "/").last == "v1", components.first == "v1" {
+            components.removeFirst()
+        }
+        return components.reduce(baseURL) { url, component in
+            url.appendingPathComponent(component)
+        }
+    }
+
+    private func normalized(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 
     private func runOllamaToolSmoke() async throws {
@@ -220,6 +317,11 @@ struct HypeCLI: AsyncParsableCommand {
         }
         return script
     }
+}
+
+enum InferenceSmokeProvider: String, ExpressibleByArgument {
+    case openAI = "openai"
+    case openAICompatible = "openai-compatible"
 }
 
 enum HypeCLIError: Error, CustomStringConvertible {

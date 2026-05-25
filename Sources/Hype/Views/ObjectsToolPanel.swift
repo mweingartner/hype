@@ -319,5 +319,12 @@ struct ObjectsToolPanel: View {
         .accessibilityHint(tool.description)
         .accessibilityValue(currentTool == tool ? "selected" : "not selected")
         .accessibilityIdentifier(HypeAccessibilityID.tool(tool))
+        .onDrag {
+            ObjectToolHelpWindowPresenter.shared.hide(help)
+            return NSItemProvider(
+                item: tool.rawValue as NSString,
+                typeIdentifier: ObjectToolCatalog.dragPasteboardTypeRaw
+            )
+        }
     }
 }

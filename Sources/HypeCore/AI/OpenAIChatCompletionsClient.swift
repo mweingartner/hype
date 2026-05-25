@@ -141,9 +141,7 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
         request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         Self.applyProviderHeaders(to: &request, configuration: configuration)
-        if let apiKey = HypeAIConfiguration.normalized(configuration.apiKey) {
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        }
+        try Self.applyAuthorizationHeader(to: &request, configuration: configuration)
 
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse,
@@ -192,9 +190,7 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         Self.applyProviderHeaders(to: &request, configuration: configuration)
-        if let apiKey = configuration.apiKey {
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        }
+        try Self.applyAuthorizationHeader(to: &request, configuration: configuration)
 
         let body: [String: Any] = [
             "model": requestModel,
@@ -225,9 +221,7 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         Self.applyProviderHeaders(to: &request, configuration: configuration)
-        if let apiKey = configuration.apiKey {
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        }
+        try Self.applyAuthorizationHeader(to: &request, configuration: configuration)
 
         let body = try chatCompletionBody(model: configuration.model, messages: messages, tools: tools, stream: false)
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -260,8 +254,12 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
                     Self.applyProviderHeaders(to: &request, configuration: config)
-                    if let apiKey = config.apiKey {
-                        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+                    guard let token = Self.authorizationTokenForStreaming(configuration: config) else {
+                        continuation.finish()
+                        return
+                    }
+                    if !token.isEmpty {
+                        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                     }
 
                     var body: [String: Any] = [
@@ -655,6 +653,40 @@ public actor OpenAIChatCompletionsClient: HypeAIClient {
     private static func applyProviderHeaders(to request: inout URLRequest, configuration: Configuration) {
         if configuration.providerName == HypeAIProvider.zAI.rawValue {
             request.setValue("en-US,en", forHTTPHeaderField: "Accept-Language")
+        }
+    }
+
+    private static func applyAuthorizationHeader(to request: inout URLRequest, configuration: Configuration) throws {
+        if let token = try authorizationToken(configuration: configuration) {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+    }
+
+    private static func authorizationToken(configuration: Configuration) throws -> String? {
+        if let token = HypeAIConfiguration.normalized(configuration.apiKey) {
+            return token
+        }
+        if requiresAPIKey(configuration) {
+            throw StreamingError.noAPIKey
+        }
+        return nil
+    }
+
+    private static func authorizationTokenForStreaming(configuration: Configuration) -> String? {
+        if let token = HypeAIConfiguration.normalized(configuration.apiKey) {
+            return token
+        }
+        return requiresAPIKey(configuration) ? nil : ""
+    }
+
+    private static func requiresAPIKey(_ configuration: Configuration) -> Bool {
+        switch configuration.providerName {
+        case HypeAIProvider.openAI.rawValue,
+             HypeAIProvider.zAI.rawValue,
+             HypeAIProvider.miniMax.rawValue:
+            return true
+        default:
+            return false
         }
     }
 }

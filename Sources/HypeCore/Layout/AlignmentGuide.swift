@@ -20,6 +20,9 @@ public enum SnapKind: Sendable, Equatable {
     case center     // aligned to another part's center
     case canvas     // aligned to canvas center
     case spacing    // standard HIG spacing from adjacent part
+    case margin     // standard canvas margin
+    case baseline   // typographic baseline alignment
+    case grid       // 8-point authoring grid
 }
 
 /// Apple HIG standard spacing values (points).
@@ -43,7 +46,9 @@ public struct AlignmentEngine: Sendable {
         movingPart: Part,
         otherParts: [Part],
         canvasWidth: Double,
-        canvasHeight: Double
+        canvasHeight: Double,
+        fineControl: Bool = false,
+        smartSpacing: Bool = false
     ) -> (dx: Double, dy: Double, guides: [SnapGuide]) {
         var guides: [SnapGuide] = []
 
@@ -53,9 +58,13 @@ public struct AlignmentEngine: Sendable {
         var verticalTargets: [(position: Double, kind: SnapKind)] = []
         var horizontalTargets: [(position: Double, kind: SnapKind)] = []
 
-        // Canvas center
+        // Canvas center and authoring margins.
         verticalTargets.append((canvasWidth / 2, .canvas))
         horizontalTargets.append((canvasHeight / 2, .canvas))
+        verticalTargets.append((LayoutGrid.canvasMargin, .margin))
+        verticalTargets.append((canvasWidth - LayoutGrid.canvasMargin, .margin))
+        horizontalTargets.append((LayoutGrid.canvasMargin, .margin))
+        horizontalTargets.append((canvasHeight - LayoutGrid.canvasMargin, .margin))
 
         for other in otherParts {
             let otherRect = PartRect(part: other)
@@ -69,12 +78,20 @@ public struct AlignmentEngine: Sendable {
             horizontalTargets.append((otherRect.bottom, .edge))
             horizontalTargets.append((otherRect.centerY, .center))
 
-            // Spacing targets (standard gaps from edges)
-            for spacing in [HIGSpacing.small, HIGSpacing.medium, HIGSpacing.large] {
-                verticalTargets.append((otherRect.right + spacing, .spacing))
-                verticalTargets.append((otherRect.left - spacing, .spacing))
-                horizontalTargets.append((otherRect.bottom + spacing, .spacing))
-                horizontalTargets.append((otherRect.top - spacing, .spacing))
+            if Self.isTextBearing(other) {
+                horizontalTargets.append((Self.baselineY(for: other), .baseline))
+            }
+
+            // Option-drag smart spacing targets. Plain drag should keep the
+            // stronger grid/edge/baseline behavior and not pull objects into
+            // HIG spacing relationships unless the author asks for affinity.
+            if smartSpacing {
+                for spacing in [HIGSpacing.small, HIGSpacing.medium, HIGSpacing.large] {
+                    verticalTargets.append((otherRect.right + spacing, .spacing))
+                    verticalTargets.append((otherRect.left - spacing, .spacing))
+                    horizontalTargets.append((otherRect.bottom + spacing, .spacing))
+                    horizontalTargets.append((otherRect.top - spacing, .spacing))
+                }
             }
         }
 
@@ -101,12 +118,22 @@ public struct AlignmentEngine: Sendable {
             }
         }
 
+        if bestDx == nil && !fineControl {
+            let gridDx = LayoutGrid.snapDelta(for: movingRect.left)
+            if abs(gridDx) > 0.0001 {
+                bestDx = gridDx
+            }
+        }
+
         // Find best horizontal snap (y-axis) across top edge, bottom edge, and center
-        let movingEdgesH: [(Double, String)] = [
+        var movingEdgesH: [(Double, String)] = [
             (movingRect.top, "top"),
             (movingRect.bottom, "bottom"),
             (movingRect.centerY, "centerY"),
         ]
+        if Self.isTextBearing(movingPart) {
+            movingEdgesH.append((Self.baselineY(for: movingPart), "baseline"))
+        }
 
         var bestDy: Double? = nil
         var bestDyDist: Double = snapThreshold + 1
@@ -123,6 +150,13 @@ public struct AlignmentEngine: Sendable {
             }
         }
 
+        if bestDy == nil && !fineControl {
+            let gridDy = LayoutGrid.snapDelta(for: movingRect.top)
+            if abs(gridDy) > 0.0001 {
+                bestDy = gridDy
+            }
+        }
+
         return (bestDx ?? 0, bestDy ?? 0, guides)
     }
 
@@ -132,7 +166,8 @@ public struct AlignmentEngine: Sendable {
         resizingPart: Part,
         otherParts: [Part],
         canvasWidth: Double,
-        canvasHeight: Double
+        canvasHeight: Double,
+        fineControl: Bool = false
     ) -> (dw: Double, dh: Double, guides: [SnapGuide]) {
         var guides: [SnapGuide] = []
         var dw: Double = 0
@@ -157,7 +192,25 @@ public struct AlignmentEngine: Sendable {
             }
         }
 
+        if dw == 0 && !fineControl {
+            dw = LayoutGrid.snapDelta(for: resizingPart.width)
+        }
+        if dh == 0 && !fineControl {
+            dh = LayoutGrid.snapDelta(for: resizingPart.height)
+        }
+
         return (dw, dh, guides)
+    }
+
+    private static func isTextBearing(_ part: Part) -> Bool {
+        part.partType == .button || part.partType == .field
+    }
+
+    private static func baselineY(for part: Part) -> Double {
+        let textSize = max(8, part.textSize)
+        let approximateAscent = textSize * 0.72
+        let centeredLineTop = part.top + max(0, (part.height - textSize) / 2)
+        return centeredLineTop + approximateAscent
     }
 }
 

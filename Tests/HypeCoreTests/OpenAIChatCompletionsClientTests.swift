@@ -96,6 +96,66 @@ struct OpenAIChatCompletionsClientTests {
         #expect(client.modelName == "qwen3-coder-next-iq4xs")
     }
 
+    @Test("OpenAI chat trims API key before setting bearer auth")
+    func openAIChatTrimsAPIKeyBeforeSettingBearerAuth() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocolOpenAIChatCompletions.self]
+        let session = URLSession(configuration: config)
+        defer { MockURLProtocolOpenAIChatCompletions.requestHandler = nil }
+
+        MockURLProtocolOpenAIChatCompletions.requestHandler = { request in
+            #expect(request.url?.absoluteString == "https://api.openai.com/v1/chat/completions")
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer openai-token")
+            #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            let payload = #"{ "choices": [ { "message": { "role": "assistant", "content": "OK" } } ] }"#
+            return (response, Data(payload.utf8))
+        }
+
+        let client = OpenAIChatCompletionsClient(
+            configuration: .init(
+                baseURL: URL(string: "https://api.openai.com")!,
+                apiKey: "  openai-token \n",
+                model: "gpt-5-mini"
+            ),
+            session: session
+        )
+
+        let result = try await client.chat(messages: [OllamaMessage(role: "user", content: "Hello")], tools: [])
+        #expect(result.message.content == "OK")
+    }
+
+    @Test("OpenAI chat rejects blank API key before network request")
+    func openAIChatRejectsBlankAPIKeyBeforeNetworkRequest() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocolOpenAIChatCompletions.self]
+        let session = URLSession(configuration: config)
+        defer { MockURLProtocolOpenAIChatCompletions.requestHandler = nil }
+
+        MockURLProtocolOpenAIChatCompletions.requestHandler = { request in
+            Issue.record("OpenAI request should not be sent without a usable API key: \(request)")
+            let response = HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!
+            return (response, Data())
+        }
+
+        let client = OpenAIChatCompletionsClient(
+            configuration: .init(
+                baseURL: URL(string: "https://api.openai.com")!,
+                apiKey: "   \n",
+                model: "gpt-5-mini"
+            ),
+            session: session
+        )
+
+        do {
+            _ = try await client.chat(messages: [OllamaMessage(role: "user", content: "Hello")], tools: [])
+            Issue.record("Expected OpenAI chat to reject a blank API key")
+        } catch OpenAIChatCompletionsClient.StreamingError.noAPIKey {
+        } catch {
+            Issue.record("Expected noAPIKey, got \(error)")
+        }
+    }
+
     @Test("chat responses split literal think tags out of assistant content")
     func chatResponseSplitsLiteralThinkTags() async throws {
         let config = URLSessionConfiguration.ephemeral

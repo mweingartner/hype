@@ -144,6 +144,22 @@ struct MouseHandlerTests {
         let result = handler.handleMouseUp(tool: tool, hitPart: nil, dragStart: start, point: end)
         if case .createPart(let partType, let rect, _) = result {
             #expect(partType == .button)
+            #expect(rect.origin.x == 8)
+            #expect(rect.origin.y == 24)
+            #expect(rect.size.width == 104)
+            #expect(rect.size.height == 64)
+        } else {
+            Issue.record("Expected createPart, got \(result)")
+        }
+    }
+
+    @Test func editToolMouseUpWithFineControlDoesNotSnap() {
+        let tool = ToolState(currentTool: "button")
+        let start = CGPoint(x: 10, y: 20)
+        let end = CGPoint(x: 110, y: 80)
+        let result = handler.handleMouseUp(tool: tool, hitPart: nil, dragStart: start, point: end, fineControl: true)
+        if case .createPart(let partType, let rect, _) = result {
+            #expect(partType == .button)
             #expect(rect.origin.x == 10)
             #expect(rect.origin.y == 20)
             #expect(rect.size.width == 100)
@@ -153,15 +169,19 @@ struct MouseHandlerTests {
         }
     }
 
-    @Test func editToolMouseUpTooSmallReturnsNone() {
+    @Test func editToolMouseUpTinyDragCreatesDefaultSizedPart() {
         let tool = ToolState(currentTool: "button")
         let start = CGPoint(x: 10, y: 20)
         let end = CGPoint(x: 12, y: 22)
         let result = handler.handleMouseUp(tool: tool, hitPart: nil, dragStart: start, point: end)
-        if case .none = result {
-            // expected
+        if case .createPart(let partType, let rect, _) = result {
+            #expect(partType == .button)
+            #expect(rect.origin.x == 16)
+            #expect(rect.origin.y == 24)
+            #expect(rect.size.width == 88)
+            #expect(rect.size.height == 24)
         } else {
-            Issue.record("Expected none for tiny rect, got \(result)")
+            Issue.record("Expected default-sized createPart for tiny drag, got \(result)")
         }
     }
 

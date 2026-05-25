@@ -145,7 +145,7 @@ struct PreferencesView: View {
         .onAppear {
             fetchModels()
             pexelsKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.pexelsAPIKeyAccount)
-            openAIKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.openAIAPIKeyAccount)
+            openAIKeyIsSet = hasUsableSecret(account: KeychainStore.openAIAPIKeyAccount)
             zAIKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.zAIAPIKeyAccount)
             miniMaxKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.miniMaxAPIKeyAccount)
             llamaSwapKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.llamaSwapAPIKeyAccount)
@@ -327,7 +327,7 @@ struct PreferencesView: View {
                     .textFieldStyle(.roundedBorder)
 
                     Button("Save") { saveOpenAIKey() }
-                        .disabled(openAIKeyDraft.isEmpty)
+                        .disabled(openAIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                     if openAIKeyIsSet {
                         Button("Delete") { deleteOpenAIKey() }
@@ -714,9 +714,10 @@ struct PreferencesView: View {
     }
 
     private func saveOpenAIKey() {
-        guard !openAIKeyDraft.isEmpty else { return }
+        let trimmedKey = openAIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { return }
         do {
-            try KeychainStore.setSecret(openAIKeyDraft, account: KeychainStore.openAIAPIKeyAccount)
+            try KeychainStore.setSecret(trimmedKey, account: KeychainStore.openAIAPIKeyAccount)
             openAIKeyDraft = ""
             openAIKeyIsSet = true
             openAITestStatus = ""
@@ -734,6 +735,13 @@ struct PreferencesView: View {
         } catch {
             openAITestStatus = keychainErrorMessage(for: error)
         }
+    }
+
+    private func hasUsableSecret(account: String) -> Bool {
+        guard let value = try? KeychainStore.getSecret(account: account) else {
+            return false
+        }
+        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var hostedProviderKeyAccount: String {

@@ -13,6 +13,8 @@ struct ObjectToolSection: Identifiable, Sendable {
 /// Visual variants such as transparent text annotations, search fields, ovals,
 /// and line shapes are styles/properties of Field or Shape, not separate tools.
 enum ObjectToolCatalog {
+    static let dragPasteboardTypeRaw = "com.hype.object-tool"
+
     static let selectionTools: [ToolName] = [.browse, .select]
 
     static let basicTools: [ToolName] = [

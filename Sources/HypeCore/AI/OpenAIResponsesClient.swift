@@ -34,6 +34,16 @@ public actor OpenAIResponsesClient: HypeAIClient {
         }
     }
 
+    public struct ReasoningOptions: Sendable, Equatable {
+        public var effort: String
+        public var summary: String
+
+        public init(effort: String, summary: String = "auto") {
+            self.effort = effort
+            self.summary = summary
+        }
+    }
+
     private let apiKey: String?
     private let requiresAPIKey: Bool
     private let providerNameValue: String
@@ -41,6 +51,7 @@ public actor OpenAIResponsesClient: HypeAIClient {
     private let baseURL: URL
     private let session: URLSession
     private let timeouts: Timeouts
+    private let enablesReasoning: Bool
     private let logger: HypeLogger
 
     public init(
@@ -56,6 +67,7 @@ public actor OpenAIResponsesClient: HypeAIClient {
         self.model = model
         self.baseURL = baseURL
         self.timeouts = timeouts
+        self.enablesReasoning = true
         self.logger = logger
 
         let config = URLSessionConfiguration.ephemeral
@@ -79,6 +91,7 @@ public actor OpenAIResponsesClient: HypeAIClient {
         self.model = model
         self.baseURL = baseURL
         self.timeouts = timeouts
+        self.enablesReasoning = false
         self.logger = logger
 
         let config = URLSessionConfiguration.ephemeral
@@ -96,7 +109,8 @@ public actor OpenAIResponsesClient: HypeAIClient {
         session: URLSession,
         logger: HypeLogger = .shared,
         requiresAPIKey: Bool = true,
-        providerName: String = "openai"
+        providerName: String = "openai",
+        enablesReasoning: Bool = true
     ) {
         self.apiKey = apiKey
         self.requiresAPIKey = requiresAPIKey
@@ -105,6 +119,7 @@ public actor OpenAIResponsesClient: HypeAIClient {
         self.baseURL = baseURL
         self.timeouts = timeouts
         self.session = session
+        self.enablesReasoning = enablesReasoning
         self.logger = logger
     }
 
@@ -162,11 +177,14 @@ public actor OpenAIResponsesClient: HypeAIClient {
         let requiresAPIKey = self.requiresAPIKey
         let modelName = self.model
         let baseURL = self.baseURL
+        let reasoning = self.reasoningOptions(for: self.model)
+        let timeouts = self.timeouts
+        let session = self.session
 
         return AsyncStream { continuation in
             Task {
                 do {
-                    let url = baseURL.appendingPathComponent("/v1/chat/completions")
+                    let url = baseURL.appendingPathComponent("v1").appendingPathComponent("responses")
                     var request = URLRequest(url: url)
                     request.httpMethod = "POST"
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -178,16 +196,16 @@ public actor OpenAIResponsesClient: HypeAIClient {
                         return
                     }
 
-                    let body: [String: Any] = [
-                        "model": modelName,
-                        "stream": true,
-                        "messages": try Self.chatCompletionMessages(from: messages)
-                    ]
+                    let body = try Self.requestBodyObject(
+                        model: modelName,
+                        messages: messages,
+                        tools: tools,
+                        format: nil,
+                        stream: true,
+                        reasoning: reasoning
+                    )
                     request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-                    let config = URLSessionConfiguration.ephemeral
-                    config.timeoutIntervalForRequest = self.timeouts.request
-                    let session = URLSession(configuration: config)
+                    request.timeoutInterval = timeouts.request
 
                     let (bytes, response) = try await session.bytes(for: request)
 
@@ -209,13 +227,11 @@ public actor OpenAIResponsesClient: HypeAIClient {
                                   line.hasPrefix("data: ") else { continue }
 
                             let jsonString = String(line.dropFirst(6))
-                            if jsonString == "[DONE]" {
-                                continuation.finish()
-                                return
-                            }
-
                             if let token = Self.parseStreamToken(jsonString) {
                                 continuation.yield(token)
+                            } else if Self.isStreamFinished(jsonString) {
+                                continuation.finish()
+                                return
                             }
                         }
                     }
@@ -224,9 +240,10 @@ public actor OpenAIResponsesClient: HypeAIClient {
                         for line in remaining.components(separatedBy: "\n") {
                             guard line.hasPrefix("data: ") else { continue }
                             let jsonString = String(line.dropFirst(6))
-                            if jsonString == "[DONE]" { break }
                             if let token = Self.parseStreamToken(jsonString) {
                                 continuation.yield(token)
+                            } else if Self.isStreamFinished(jsonString) {
+                                break
                             }
                         }
                     }
@@ -242,48 +259,21 @@ public actor OpenAIResponsesClient: HypeAIClient {
     private static func parseStreamToken(_ jsonString: String) -> String? {
         guard let data = jsonString.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let choices = json["choices"] as? [[String: Any]],
-              let first = choices.first,
-              let delta = first["delta"] as? [String: Any],
-              let content = delta["content"] as? String else {
+              json["type"] as? String == "response.output_text.delta",
+              let delta = json["delta"] as? String else {
             return nil
         }
-        return content
+        return delta
     }
 
-    private static func chatCompletionMessages(from ollamaMessages: [OllamaMessage]) throws -> [[String: Any]] {
-        var messages: [[String: Any]] = []
-
-        for message in ollamaMessages {
-            switch message.role {
-            case "system":
-                messages.append(["role": "system", "content": message.content ?? ""])
-            case "user":
-                messages.append(["role": "user", "content": message.content ?? ""])
-            case "assistant":
-                var msg: [String: Any] = ["role": "assistant"]
-                if let content = message.content { msg["content"] = content }
-                if let toolCalls = message.tool_calls {
-                    msg["tool_calls"] = toolCalls.map { call in
-                        [
-                            "id": call.id ?? "call_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))",
-                            "type": "function",
-                            "function": [
-                                "name": call.function.name,
-                                "arguments": Self.jsonString(from: call.function.arguments) ?? "{}"
-                            ]
-                        ]
-                    }
-                }
-                messages.append(msg)
-            case "tool":
-                messages.append(["role": "tool", "content": message.content ?? ""])
-            default:
-                messages.append(["role": "user", "content": message.content ?? ""])
-            }
+    private static func isStreamFinished(_ jsonString: String) -> Bool {
+        if jsonString == "[DONE]" { return true }
+        guard let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = json["type"] as? String else {
+            return false
         }
-
-        return messages
+        return type == "response.completed" || type == "error"
     }
 
     private func chat(
@@ -311,7 +301,8 @@ public actor OpenAIResponsesClient: HypeAIClient {
             model: requestModel,
             messages: messages,
             tools: tools,
-            format: format
+            format: format,
+            reasoning: reasoningOptions(for: requestModel)
         )
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -358,16 +349,25 @@ public actor OpenAIResponsesClient: HypeAIClient {
         model: String,
         messages: [OllamaMessage],
         tools: [OllamaTool],
-        format: OllamaResponseFormat?
+        format: OllamaResponseFormat?,
+        stream: Bool = false,
+        reasoning: ReasoningOptions? = nil
     ) throws -> [String: Any] {
         let converted = try responsesInput(from: messages)
         var body: [String: Any] = [
             "model": model,
             "input": converted.input,
-            "store": false
+            "store": false,
+            "stream": stream
         ]
         if !converted.instructions.isEmpty {
             body["instructions"] = converted.instructions.joined(separator: "\n\n")
+        }
+        if let reasoning {
+            body["reasoning"] = [
+                "effort": reasoning.effort,
+                "summary": reasoning.summary
+            ]
         }
         if !tools.isEmpty {
             body["tools"] = tools.map(responsesTool)
@@ -520,6 +520,7 @@ public actor OpenAIResponsesClient: HypeAIClient {
         }
 
         var textParts: [String] = []
+        var reasoningSummaryParts: [String] = []
         var toolCalls: [OllamaToolCall] = []
 
         for item in output {
@@ -535,6 +536,15 @@ public actor OpenAIResponsesClient: HypeAIClient {
                         }
                     }
                 }
+            case "reasoning":
+                if let summary = item["summary"] as? [[String: Any]] {
+                    for part in summary {
+                        if let text = part["text"] as? String,
+                           !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            reasoningSummaryParts.append(text)
+                        }
+                    }
+                }
             case "function_call":
                 guard let name = item["name"] as? String else { continue }
                 let arguments = item["arguments"] as? String ?? "{}"
@@ -547,10 +557,14 @@ public actor OpenAIResponsesClient: HypeAIClient {
         }
 
         let content = textParts.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        let reasoningSummary = reasoningSummaryParts
+            .joined(separator: "\n\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         return OllamaChatResponse(
             message: OllamaMessage(
                 role: "assistant",
                 content: content.isEmpty ? nil : content,
+                thinking: reasoningSummary.isEmpty ? nil : reasoningSummary,
                 tool_calls: toolCalls.isEmpty ? nil : toolCalls
             ),
             done: true
@@ -633,5 +647,27 @@ public actor OpenAIResponsesClient: HypeAIClient {
             return nil
         }
         return String(data: data, encoding: .utf8)
+    }
+
+    private nonisolated func reasoningOptions(for model: String) -> ReasoningOptions? {
+        guard enablesReasoning else { return nil }
+        return Self.reasoningOptions(for: model)
+    }
+
+    public static func reasoningOptions(for model: String) -> ReasoningOptions? {
+        let normalized = model
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !normalized.isEmpty else { return nil }
+        let supportsReasoning = normalized.hasPrefix("gpt-5")
+            || normalized.hasPrefix("o1")
+            || normalized.hasPrefix("o3")
+            || normalized.hasPrefix("o4")
+        guard supportsReasoning else { return nil }
+
+        let effort = normalized.contains("-pro") || normalized.hasSuffix("pro")
+            ? "high"
+            : "medium"
+        return ReasoningOptions(effort: effort, summary: "auto")
     }
 }

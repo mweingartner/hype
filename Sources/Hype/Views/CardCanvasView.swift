@@ -979,6 +979,8 @@ private class PassthroughSKView: SKView {
 }
 
 class CardCanvasNSView: NSView {
+    private static let objectToolPasteboardType = NSPasteboard.PasteboardType(ObjectToolCatalog.dragPasteboardTypeRaw)
+
     struct ToolTipDescriptor: Equatable {
         let partId: UUID
         let rect: NSRect
@@ -1015,6 +1017,7 @@ class CardCanvasNSView: NSView {
     func configureForCardCanvasRendering() {
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
+        registerForDraggedTypes([Self.objectToolPasteboardType])
     }
 
     /// Keep process-wide animation callbacks pointed at the active canvas.
@@ -1186,6 +1189,10 @@ class CardCanvasNSView: NSView {
     private var isDragging = false
     private var draggedPartId: UUID?
     private var resizeHandle: ResizeHandle = .none
+    private var dragInitialBounds: PartBounds?
+    private var appliedDragTranslation = CGSize.zero
+    private var paletteDragTool: ToolName?
+    private var paletteDragPoint: CGPoint?
 
     // Constraint linking state
     private var isConstraintDragging = false
@@ -1402,12 +1409,13 @@ class CardCanvasNSView: NSView {
             }
         }
 
-        // Arrow keys: nudge selected parts (1px, or 5px with Shift)
+        // Arrow keys: nudge selected parts on the 8-point authoring grid.
+        // Holding Shift is the deliberate pixel-precision override.
         guard !selectedPartIds.isEmpty else {
             super.keyDown(with: event)
             return
         }
-        let nudge: Double = event.modifierFlags.contains(.shift) ? 5 : 1
+        let nudge: Double = event.modifierFlags.contains(.shift) ? LayoutGrid.fineNudge : LayoutGrid.standardNudge
         switch event.keyCode {
         case 123: // Left arrow
             coordinator?.moveParts(ids: selectedPartIds, dx: -nudge, dy: 0)
@@ -1439,6 +1447,13 @@ class CardCanvasNSView: NSView {
             return
         }
         super.keyUp(with: event)
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        if isDragging || draggedPartId != nil || resizeHandle != .none || paletteDragTool != nil {
+            needsDisplay = true
+        }
+        super.flagsChanged(with: event)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -1529,7 +1544,7 @@ class CardCanvasNSView: NSView {
             drawAlignmentGuides(ctx: ctx)
         }
 
-        // Draw constraint rubber band during Option+drag
+        // Draw constraint rubber band during explicit Control+Option+drag.
         if isConstraintDragging, let sourceId = constraintSourcePartId,
            let sourceEdge = constraintSourceEdge,
            let endPoint = constraintDragEnd,
@@ -1606,8 +1621,14 @@ class CardCanvasNSView: NSView {
             ctx.stroke(bounds.insetBy(dx: 1.5, dy: 1.5))
         }
 
-        // Draw rubber-band rectangle
-        if isDragging, let start = dragStart, let current = dragCurrent {
+        // Draw drag-to-place ghost for creation tools, otherwise keep the
+        // existing rubber band for marquee selection.
+        if let paletteDragTool, let paletteDragPoint {
+            drawCreationGhost(tool: paletteDragTool, dragStart: nil, current: paletteDragPoint, fineControl: NSEvent.modifierFlags.contains(.shift))
+        } else if isDragging, let start = dragStart, let current = dragCurrent,
+                  let toolSpec = PartCreationDefaults.toolSpec(for: currentTool.rawValue) {
+            drawCreationGhost(toolSpec: toolSpec, dragStart: start, current: current, fineControl: NSEvent.modifierFlags.contains(.shift))
+        } else if isDragging, let start = dragStart, let current = dragCurrent {
             drawRubberBand(start: start, current: current)
         }
     }
@@ -1673,6 +1694,39 @@ class CardCanvasNSView: NSView {
         // Semi-transparent fill from the theme's selectionFill.
         ctx.setFillColor(theme.selectionFill.nsColor.cgColor)
         ctx.fill(rect)
+    }
+
+    private func drawCreationGhost(tool: ToolName, dragStart: CGPoint?, current: CGPoint, fineControl: Bool) {
+        guard let toolSpec = PartCreationDefaults.toolSpec(for: tool.rawValue) else { return }
+        drawCreationGhost(toolSpec: toolSpec, dragStart: dragStart, current: current, fineControl: fineControl)
+    }
+
+    private func drawCreationGhost(toolSpec: PartCreationToolSpec, dragStart: CGPoint?, current: CGPoint, fineControl: Bool) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        var rect = PartCreationDefaults.creationRect(
+            for: toolSpec.partType,
+            dragStart: dragStart,
+            currentPoint: current,
+            fineControl: fineControl
+        )
+        rect = snappedCreationRect(rect, partType: toolSpec.partType, fineControl: fineControl, smartSpacing: NSEvent.modifierFlags.contains(.option))
+
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: 4), blur: 8, color: NSColor.black.withAlphaComponent(0.22).cgColor)
+        let path = CGPath(roundedRect: rect, cornerWidth: 7, cornerHeight: 7, transform: nil)
+        ctx.setFillColor(NSColor.controlAccentColor.withAlphaComponent(0.10).cgColor)
+        ctx.addPath(path)
+        ctx.fillPath()
+        ctx.restoreGState()
+
+        ctx.saveGState()
+        ctx.setStrokeColor(NSColor.controlAccentColor.withAlphaComponent(0.75).cgColor)
+        ctx.setLineWidth(1.5)
+        ctx.setLineDash(phase: 0, lengths: [6, 4])
+        ctx.addPath(path)
+        ctx.strokePath()
+        ctx.setLineDash(phase: 0, lengths: [])
+        ctx.restoreGState()
     }
 
     // MARK: - Inline Field Editing
@@ -2518,6 +2572,82 @@ class CardCanvasNSView: NSView {
         }
     }
 
+    // MARK: - Object Palette Dragging
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        updatePaletteDrag(from: sender) ? .copy : []
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        updatePaletteDrag(from: sender) ? .copy : []
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        paletteDragTool = nil
+        paletteDragPoint = nil
+        activeGuides = []
+        needsDisplay = true
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        paletteTool(from: sender.draggingPasteboard) != nil
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let tool = paletteTool(from: sender.draggingPasteboard) else {
+            return false
+        }
+        let point = convert(sender.draggingLocation, from: nil)
+        _ = commitCreationTool(tool, dragStart: nil, at: point, modifierFlags: NSEvent.modifierFlags)
+        paletteDragTool = nil
+        paletteDragPoint = nil
+        activeGuides = []
+        needsDisplay = true
+        return true
+    }
+
+    override func concludeDragOperation(_ sender: NSDraggingInfo?) {
+        paletteDragTool = nil
+        paletteDragPoint = nil
+        activeGuides = []
+        needsDisplay = true
+    }
+
+    private func updatePaletteDrag(from sender: NSDraggingInfo) -> Bool {
+        guard let tool = paletteTool(from: sender.draggingPasteboard),
+              let toolSpec = PartCreationDefaults.toolSpec(for: tool.rawValue) else {
+            return false
+        }
+        let point = convert(sender.draggingLocation, from: nil)
+        let fineControl = NSEvent.modifierFlags.contains(.shift)
+        let smartSpacing = NSEvent.modifierFlags.contains(.option)
+        let rect = PartCreationDefaults.creationRect(
+            for: toolSpec.partType,
+            dragStart: nil,
+            currentPoint: point,
+            fineControl: fineControl
+        )
+        paletteDragTool = tool
+        paletteDragPoint = point
+        activeGuides = creationSnap(
+            for: rect,
+            partType: toolSpec.partType,
+            fineControl: fineControl,
+            smartSpacing: smartSpacing
+        ).guides
+        needsDisplay = true
+        return true
+    }
+
+    private func paletteTool(from pasteboard: NSPasteboard) -> ToolName? {
+        guard let raw = pasteboard.string(forType: Self.objectToolPasteboardType),
+              let tool = ToolName(rawValue: raw),
+              PartCreationDefaults.toolSpec(for: raw) != nil else {
+            return nil
+        }
+        return tool
+    }
+
     // MARK: - Mouse events
 
     override func mouseDown(with event: NSEvent) {
@@ -2582,8 +2712,11 @@ class CardCanvasNSView: NSView {
             hitPart = nil
         }
 
-        // Option+click on a part in select/edit mode → start constraint drag
-        if event.modifierFlags.contains(.option), let part = hitPart {
+        // Control+Option+click creates explicit layout constraints. Plain
+        // Option is reserved for smart-spacing affinity during ordinary drags.
+        if event.modifierFlags.contains(.option),
+           event.modifierFlags.contains(.control),
+           let part = hitPart {
             isConstraintDragging = true
             constraintSourcePartId = part.id
             constraintSourceEdge = nearestEdge(of: part, to: point)
@@ -2639,6 +2772,8 @@ class CardCanvasNSView: NSView {
                     resizeHandle = handle
                     dragStart = point
                     draggedPartId = unit.ids.first
+                    dragInitialBounds = unit.bounds
+                    appliedDragTranslation = .zero
                     return
                 }
             }
@@ -2663,18 +2798,27 @@ class CardCanvasNSView: NSView {
                 if toggleSelection {
                     if selectedPartIds.contains(part.id) {
                         coordinator?.removeFromSelection(part.id)
+                        selectedPartIds.subtract(document.expandedGroupSelection([part.id]))
                     } else {
                         coordinator?.addToSelection(part.id)
+                        selectedPartIds.formUnion(document.expandedGroupSelection([part.id]))
                     }
                 } else if !selectedPartIds.contains(part.id) {
                     coordinator?.selectPart(part.id)
+                    selectedPartIds = document.expandedGroupSelection([part.id])
                 }
                 resizeHandle = .none
                 draggedPartId = part.id
                 dragStart = point
+                let prospectiveSelection = selectedPartIds.contains(part.id)
+                    ? selectedPartIds
+                    : document.expandedGroupSelection([part.id])
+                dragInitialBounds = selectionBounds(for: prospectiveSelection)
+                appliedDragTranslation = .zero
             } else {
                 // Clicked on EMPTY space — start marquee selection
                 coordinator?.selectPart(nil)
+                selectedPartIds = []
                 dragStart = point
                 dragCurrent = point
                 isDragging = true
@@ -2689,9 +2833,12 @@ class CardCanvasNSView: NSView {
         switch result {
         case .selectPart(let id):
             coordinator?.selectPart(id)
+            selectedPartIds = document.expandedGroupSelection([id])
             resizeHandle = .none
             draggedPartId = id
             dragStart = point
+            dragInitialBounds = selectionBounds(for: [id])
+            appliedDragTranslation = .zero
         case .deselectAll:
             coordinator?.selectPart(nil)
         case .sendMessage(let partId, let message):
@@ -2787,6 +2934,9 @@ class CardCanvasNSView: NSView {
             return
         }
 
+        let fineControl = event.modifierFlags.contains(.shift)
+        let smartSpacing = event.modifierFlags.contains(.option)
+
         if let partId = draggedPartId, let start = dragStart {
             let dx = Double(point.x - start.x)
             let dy = Double(point.y - start.y)
@@ -2795,55 +2945,56 @@ class CardCanvasNSView: NSView {
                 // Resize the selected unit. For groups, every member scales
                 // proportionally inside the group bounds.
                 coordinator?.beginCoalescedCanvasMutation(actionName: "Resize Objects")
-                let oldBounds = unit.bounds
-                let newBounds = resizedBounds(oldBounds, handle: resizeHandle, dx: dx, dy: dy)
+                let originalBounds = dragInitialBounds ?? unit.bounds
+                let currentBounds = unit.bounds
+                var newBounds = resizedBounds(originalBounds, handle: resizeHandle, dx: dx, dy: dy)
                 let otherParts = allOtherParts(excluding: unit.ids)
                 let proposedPart = proxyPart(for: newBounds)
                 let snap = alignmentEngine.computeResizeSnap(
                     resizingPart: proposedPart,
                     otherParts: otherParts,
                     canvasWidth: Double(bounds.width),
-                    canvasHeight: Double(bounds.height)
+                    canvasHeight: Double(bounds.height),
+                    fineControl: fineControl
                 )
+                newBounds = applyingResizeSnap(to: newBounds, handle: resizeHandle, dw: snap.dw, dh: snap.dh)
                 activeGuides = snap.guides
                 if let coordinator {
                     coordinator.performContinuousCanvasMutation {
-                        coordinator.resizeParts(ids: unit.ids, from: oldBounds, to: newBounds)
+                        coordinator.resizeParts(ids: unit.ids, from: currentBounds, to: newBounds)
                     }
                 }
             } else if expandedSelection.contains(partId) {
                 let units = currentSelectionUnits()
-                if units.count == 1, let unit = units.first {
-                    // Move a single selection unit (one part or one group)
-                    // with normal alignment snapping.
+                let movingIds = units.count == 1 ? (units.first?.ids ?? expandedSelection) : expandedSelection
+                let originalBounds = dragInitialBounds
+                    ?? selectionBounds(for: movingIds)
+                    ?? (units.first?.bounds)
+                if let originalBounds {
                     coordinator?.beginCoalescedCanvasMutation(actionName: "Move Objects")
-                    let otherParts = allOtherParts(excluding: unit.ids)
-                    var proposedPart = proxyPart(for: unit.bounds)
+                    let otherParts = allOtherParts(excluding: movingIds)
+                    var proposedPart = proxyPart(for: originalBounds)
                     proposedPart.left += dx
                     proposedPart.top += dy
                     let snap = alignmentEngine.computeMoveSnap(
                         movingPart: proposedPart,
                         otherParts: otherParts,
                         canvasWidth: Double(bounds.width),
-                        canvasHeight: Double(bounds.height)
+                        canvasHeight: Double(bounds.height),
+                        fineControl: fineControl,
+                        smartSpacing: smartSpacing
                     )
+                    let targetDx = dx + snap.dx
+                    let targetDy = dy + snap.dy
+                    let incrementalDx = targetDx - Double(appliedDragTranslation.width)
+                    let incrementalDy = targetDy - Double(appliedDragTranslation.height)
                     activeGuides = snap.guides
-                    if let coordinator {
+                    if let coordinator, abs(incrementalDx) > 0.0001 || abs(incrementalDy) > 0.0001 {
                         coordinator.performContinuousCanvasMutation {
-                            coordinator.moveParts(ids: unit.ids, dx: dx + snap.dx, dy: dy + snap.dy)
+                            coordinator.moveParts(ids: movingIds, dx: incrementalDx, dy: incrementalDy)
                         }
+                        appliedDragTranslation = CGSize(width: targetDx, height: targetDy)
                     }
-                } else {
-                    // Move all selected units by the same delta. This keeps
-                    // multi-select behavior stable and avoids one unit's snap
-                    // pulling the others unexpectedly.
-                    coordinator?.beginCoalescedCanvasMutation(actionName: "Move Objects")
-                    if let coordinator {
-                        coordinator.performContinuousCanvasMutation {
-                            coordinator.moveParts(ids: expandedSelection, dx: dx, dy: dy)
-                        }
-                    }
-                    activeGuides = []
                 }
             } else {
                 coordinator?.beginCoalescedCanvasMutation(actionName: "Move Object")
@@ -2854,10 +3005,18 @@ class CardCanvasNSView: NSView {
                 }
                 activeGuides = []
             }
-            dragStart = point
             needsDisplay = true
         } else if isDragging {
             dragCurrent = point
+            if let toolSpec = PartCreationDefaults.toolSpec(for: currentTool.rawValue), let start = dragStart {
+                let rect = PartCreationDefaults.creationRect(
+                    for: toolSpec.partType,
+                    dragStart: start,
+                    currentPoint: point,
+                    fineControl: fineControl
+                )
+                activeGuides = creationSnap(for: rect, partType: toolSpec.partType, fineControl: fineControl, smartSpacing: smartSpacing).guides
+            }
             needsDisplay = true
         }
     }
@@ -2878,6 +3037,9 @@ class CardCanvasNSView: NSView {
             constraintSourcePartId = nil
             constraintSourceEdge = nil
             constraintDragEnd = nil
+            dragStart = nil
+            dragInitialBounds = nil
+            appliedDragTranslation = .zero
             needsDisplay = true
             return
         }
@@ -2900,6 +3062,8 @@ class CardCanvasNSView: NSView {
             isDragging = false
             dragStart = nil
             dragCurrent = nil
+            dragInitialBounds = nil
+            appliedDragTranslation = .zero
             needsDisplay = true
             return
         }
@@ -2922,6 +3086,8 @@ class CardCanvasNSView: NSView {
             isDragging = false
             dragStart = nil
             dragCurrent = nil
+            dragInitialBounds = nil
+            appliedDragTranslation = .zero
             needsDisplay = true
             return
         }
@@ -2932,6 +3098,8 @@ class CardCanvasNSView: NSView {
             )
             draggedPartId = nil
             dragStart = nil
+            dragInitialBounds = nil
+            appliedDragTranslation = .zero
             resizeHandle = .none
             activeGuides = []
             needsDisplay = true
@@ -3011,33 +3179,17 @@ class CardCanvasNSView: NSView {
         toolState.selectedPartId = selectedPartIds.first
 
         let cgDragStart: CGPoint? = dragStart
-        let result = mouseHandler.handleMouseUp(tool: toolState, hitPart: hitPart, dragStart: cgDragStart, point: point)
+        let result = mouseHandler.handleMouseUp(
+            tool: toolState,
+            hitPart: hitPart,
+            dragStart: cgDragStart,
+            point: point,
+            fineControl: event.modifierFlags.contains(.shift)
+        )
 
         switch result {
-        case .createPart(let partType, let rect, let extras):
-            var newPart = Part(
-                partType: partType,
-                cardId: editingBackground ? nil : currentCardId,
-                backgroundId: editingBackground ? currentBackgroundId : nil,
-                left: rect.origin.x,
-                top: rect.origin.y,
-                width: rect.size.width,
-                height: rect.size.height
-            )
-            newPart.name = "\(partType.rawValue.capitalized) \(document.partsForCard(currentCardId).count + 1)"
-            if let shapeTypeStr = extras["shapeType"], let shapeType = ShapeType(rawValue: shapeTypeStr) {
-                newPart.shapeType = shapeType
-            }
-            // Set default SceneSpec for new spriteArea parts
-            if partType == .spriteArea {
-                let defaultAreaSpec = SpriteAreaSpec(
-                    defaultSceneNamed: "main",
-                    fallbackSize: SizeSpec(width: Double(newPart.width), height: Double(newPart.height))
-                )
-                newPart.setSpriteAreaSpec(defaultAreaSpec)
-            }
-            coordinator?.addPart(newPart)
-            coordinator?.selectPart(newPart.id)
+        case .createPart(_, _, _):
+            _ = commitCreationTool(currentTool, dragStart: dragStart, at: point, modifierFlags: event.modifierFlags)
         case .sendMessage(let partId, let message):
             coordinator?.dispatchMessage(message, to: partId)
         default:
@@ -3048,6 +3200,9 @@ class CardCanvasNSView: NSView {
         isDragging = false
         dragStart = nil
         dragCurrent = nil
+        dragInitialBounds = nil
+        appliedDragTranslation = .zero
+        activeGuides = []
         needsDisplay = true
     }
 
@@ -4482,6 +4637,109 @@ class CardCanvasNSView: NSView {
         return point
     }
 
+    @discardableResult
+    func commitCreationTool(
+        _ tool: ToolName,
+        dragStart: CGPoint? = nil,
+        at point: CGPoint,
+        modifierFlags: NSEvent.ModifierFlags = []
+    ) -> UUID? {
+        guard let toolSpec = PartCreationDefaults.toolSpec(for: tool.rawValue) else {
+            return nil
+        }
+
+        let fineControl = modifierFlags.contains(.shift)
+        let smartSpacing = modifierFlags.contains(.option)
+        let baseRect = PartCreationDefaults.creationRect(
+            for: toolSpec.partType,
+            dragStart: dragStart,
+            currentPoint: point,
+            fineControl: fineControl
+        )
+        let rect = creationSnap(
+            for: baseRect,
+            partType: toolSpec.partType,
+            fineControl: fineControl,
+            smartSpacing: smartSpacing
+        ).rect
+
+        var newPart = Part(
+            partType: toolSpec.partType,
+            cardId: editingBackground ? nil : currentCardId,
+            backgroundId: editingBackground ? currentBackgroundId : nil,
+            left: rect.origin.x,
+            top: rect.origin.y,
+            width: rect.size.width,
+            height: rect.size.height
+        )
+        newPart.name = "\(toolSpec.partType.rawValue.capitalized) \(allVisibleParts().count + 1)"
+        if let shapeTypeStr = toolSpec.extras["shapeType"], let shapeType = ShapeType(rawValue: shapeTypeStr) {
+            newPart.shapeType = shapeType
+        }
+        if toolSpec.partType == .spriteArea {
+            let defaultAreaSpec = SpriteAreaSpec(
+                defaultSceneNamed: "main",
+                fallbackSize: SizeSpec(width: Double(newPart.width), height: Double(newPart.height))
+            )
+            newPart.setSpriteAreaSpec(defaultAreaSpec)
+        }
+
+        coordinator?.addPart(newPart)
+        coordinator?.selectPart(newPart.id)
+        if let updatedDocument = coordinator?.parent.document.document {
+            document = updatedDocument
+        }
+        selectedPartIds = document.expandedGroupSelection([newPart.id])
+        currentTool = .select
+        activeGuides = []
+        NotificationCenter.default.post(name: .selectTool, object: ToolName.select)
+        return newPart.id
+    }
+
+    private func creationSnap(
+        for rect: CGRect,
+        partType: PartType,
+        fineControl: Bool,
+        smartSpacing: Bool
+    ) -> (rect: CGRect, guides: [SnapGuide]) {
+        var proposedPart = Part(
+            partType: partType,
+            cardId: editingBackground ? nil : currentCardId,
+            backgroundId: editingBackground ? currentBackgroundId : nil,
+            left: rect.origin.x,
+            top: rect.origin.y,
+            width: rect.size.width,
+            height: rect.size.height
+        )
+        proposedPart.textSize = 14
+        let snap = alignmentEngine.computeMoveSnap(
+            movingPart: proposedPart,
+            otherParts: allVisibleParts(),
+            canvasWidth: Double(bounds.width),
+            canvasHeight: Double(bounds.height),
+            fineControl: fineControl,
+            smartSpacing: smartSpacing
+        )
+        var snapped = rect
+        snapped.origin.x += snap.dx
+        snapped.origin.y += snap.dy
+        return (snapped, snap.guides)
+    }
+
+    private func snappedCreationRect(
+        _ rect: CGRect,
+        partType: PartType,
+        fineControl: Bool,
+        smartSpacing: Bool
+    ) -> CGRect {
+        creationSnap(
+            for: rect,
+            partType: partType,
+            fineControl: fineControl,
+            smartSpacing: smartSpacing
+        ).rect
+    }
+
     /// Get all visible parts on the current card/background (respects editing mode).
     private func allVisibleParts() -> [Part] {
         let cardParts = document.partsForCard(currentCardId)
@@ -4513,6 +4771,10 @@ class CardCanvasNSView: NSView {
             bgParts = []
         }
         return (cardParts + bgParts).filter { !excludedIds.contains($0.id) }
+    }
+
+    private func selectionBounds(for ids: Set<UUID>) -> PartBounds? {
+        PartBounds.union(document.parts.filter { ids.contains($0.id) })
     }
 
     private func currentSelectionUnits() -> [PartSelectionUnit] {
@@ -4569,6 +4831,28 @@ class CardCanvasNSView: NSView {
         }
 
         return PartBounds(left: left, top: top, width: width, height: height)
+    }
+
+    private func applyingResizeSnap(to bounds: PartBounds, handle: ResizeHandle, dw: Double, dh: Double) -> PartBounds {
+        var result = bounds
+
+        if handle.affectsWidth, abs(dw) > 0.0001 {
+            let right = result.right
+            result.width = max(10, result.width + dw)
+            if handle.anchorsRightEdge {
+                result.left = right - result.width
+            }
+        }
+
+        if handle.affectsHeight, abs(dh) > 0.0001 {
+            let bottom = result.bottom
+            result.height = max(10, result.height + dh)
+            if handle.anchorsBottomEdge {
+                result.top = bottom - result.height
+            }
+        }
+
+        return result
     }
 
     private func proxyPart(for bounds: PartBounds) -> Part {
@@ -4775,6 +5059,9 @@ class CardCanvasNSView: NSView {
             case .center:  color = NSColor.systemPurple.withAlphaComponent(0.6)
             case .canvas:  color = NSColor.systemRed.withAlphaComponent(0.4)
             case .spacing: color = NSColor.systemGreen.withAlphaComponent(0.5)
+            case .margin:  color = NSColor.systemOrange.withAlphaComponent(0.5)
+            case .baseline: color = NSColor.systemTeal.withAlphaComponent(0.55)
+            case .grid:    color = NSColor.systemGray.withAlphaComponent(0.35)
             }
 
             ctx.setStrokeColor(color.cgColor)
@@ -4792,6 +5079,44 @@ class CardCanvasNSView: NSView {
             ctx.strokePath()
 
             ctx.restoreGState()
+        }
+    }
+}
+
+private extension CardCanvasNSView.ResizeHandle {
+    var affectsWidth: Bool {
+        switch self {
+        case .topLeft, .topRight, .rightCenter, .bottomRight, .bottomLeft, .leftCenter:
+            return true
+        case .topCenter, .bottomCenter, .none:
+            return false
+        }
+    }
+
+    var affectsHeight: Bool {
+        switch self {
+        case .topLeft, .topCenter, .topRight, .bottomRight, .bottomCenter, .bottomLeft:
+            return true
+        case .rightCenter, .leftCenter, .none:
+            return false
+        }
+    }
+
+    var anchorsRightEdge: Bool {
+        switch self {
+        case .topLeft, .bottomLeft, .leftCenter:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var anchorsBottomEdge: Bool {
+        switch self {
+        case .topLeft, .topCenter, .topRight:
+            return true
+        default:
+            return false
         }
     }
 }

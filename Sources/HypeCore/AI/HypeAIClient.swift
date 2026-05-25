@@ -272,13 +272,7 @@ public enum HypeAIConfiguration {
             )
         case .openAI:
             let apiKey = try KeychainStore.getSecret(account: KeychainStore.openAIAPIKeyAccount)
-            return OpenAIChatCompletionsClient(
-                configuration: .init(
-                    baseURL: URL(string: "https://api.openai.com")!,
-                    apiKey: apiKey,
-                    model: openAIModel(defaults: defaults)
-                )
-            )
+            return OpenAIResponsesClient(apiKey: apiKey, model: openAIModel(defaults: defaults))
         case .zAI:
             let apiKey = try KeychainStore.getSecret(account: KeychainStore.zAIAPIKeyAccount)
             guard let baseURL = URL(string: zAIBaseURL(defaults: defaults)) else {

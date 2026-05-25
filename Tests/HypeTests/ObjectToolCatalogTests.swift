@@ -26,6 +26,7 @@ struct ObjectToolCatalogTests {
         #expect(toolByPartType.keys.sorted() == expectedOrder.sorted())
         #expect(ObjectToolCatalog.basicTools.filter { ObjectToolCatalog.createdPartType(for: $0) == .field }.count == 1)
         #expect(ObjectToolCatalog.basicTools.filter { ObjectToolCatalog.createdPartType(for: $0) == .shape }.count == 1)
+        #expect(ObjectToolCatalog.dragPasteboardTypeRaw == "com.hype.object-tool")
     }
 
     @Test("left panel combines basic and form controls under Objects without duplicates")

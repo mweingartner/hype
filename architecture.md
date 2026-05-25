@@ -1788,9 +1788,28 @@ both left and right edges are constrained on the same axis, the part is
 by more than 0.5 points are reported back, so the solver is cheap to run.
 
 `AlignmentEngine` / `SnapGuide` (Sources/HypeCore/Layout/AlignmentGuide.swift)
-provide live drag-time snap guides: the solver computes alignment
-candidates against other parts' edges and centers, the canvas center, and
-HIG-recommended spacings (8 / 12 / 20 pt) within a 6-point threshold.
+provide live drag-time snap guides. Snapping is an **authoring affordance**:
+it mutates absolute `Part.left/top/width/height` values only and never creates
+or rewrites persisted `LayoutConstraint` rows. Explicit constraint authoring is
+still a separate Control+Option drag path. This keeps manual drag/drop behavior
+predictable and prevents accidental responsive-layout rules from being baked
+into user documents.
+
+The layout authoring grid lives in `LayoutGrid`
+(Sources/HypeCore/Layout/LayoutGrid.swift). Normal object movement and resizing
+snap to an 8-point grid; holding Shift disables grid snapping for 1-point
+pixel-precision movement/resizing. Arrow-key nudging mirrors this rule:
+Arrow moves selected objects by 8 points, Shift+Arrow moves them by 1 point.
+`PartCreationDefaults` centralizes HIG-oriented default control sizes and the
+canonical creation-tool-to-`PartType` mapping so the object palette, menu
+commands, mouse handling, and tests all use the same rules.
+
+`AlignmentEngine` computes higher-affinity targets for edges, centers, canvas
+center, 20-point canvas margins, and typographic baselines for text-bearing
+parts. Holding Option during a move enables Smart Spacing: the moving object
+also seeks 8 / 12 / 20 point gaps from neighboring objects and shows spacing
+guides. Grid snapping fills in only when no stronger guide is active on that
+axis.
 
 ### 6.6 Tools
 
@@ -1812,12 +1831,25 @@ Run mode — interactive parts respond to clicks, sprite areas come alive),
 
 `MouseHandler` (Sources/HypeCore/Tools/MouseAction.swift) is a stateless
 utility that turns a mouse-down/drag/up sequence into a `MouseActionResult`
-based on the active tool: select a part, create a part by drag-out
-(rect ≥ 5×5 px), move a selection, send a HypeTalk `mouseDown` to a
-part, or begin a paint stroke. The result is interpreted by the
-canvas/coordinator. In browse mode, those interaction results are forwarded to
-`StackRuntime` so HypeTalk handlers, async callbacks, `idle`, and SpriteKit
-messages all share one serialized execution path.
+based on the active tool: select a part, create a part, move a selection, send
+a HypeTalk `mouseDown` to a part, or begin a paint stroke. Creation tools now
+support both explicit drag-out rectangles and click/tiny-drag default-size
+placement. Explicit drag rectangles snap origin and size to the 8-point grid
+unless Shift is held; tiny drags use the HIG-oriented default size from
+`PartCreationDefaults`.
+
+The left object palette also supports drag-to-place. Pressing and dragging a
+creation tool does not instantiate a live part immediately; `CardCanvasNSView`
+registers the palette pasteboard type, shows a translucent elevated ghost at
+the prospective snapped location, then creates the real `Part` on drop. The
+newly-created part is selected, existing selections are cleared, resize handles
+are shown, and the active tool reverts to Select. This path creates only the
+part model (plus the normal default `SpriteAreaSpec` for sprite areas); it does
+not create layout constraints.
+
+In browse mode, mouse interaction results are forwarded to `StackRuntime` so
+HypeTalk handlers, async callbacks, `idle`, and SpriteKit messages all share
+one serialized execution path.
 
 The **paint layer** is a small RGBA bitmap stored per card,
 implemented in `PaintLayer.swift` (Sources/HypeCore/Controls/PaintLayer.swift)
@@ -1999,7 +2031,8 @@ Hype's AI integration is now split across five deliberate surfaces:
 
 The primary AI paths now route through `HypeAIClient`, a provider-neutral
 contract implemented by `OllamaToolClient`, `LlamaSwapClient`, and
-`OpenAIResponsesClient`.
+`OpenAIResponsesClient`, with `OpenAIChatCompletionsClient` used for
+OpenAI-compatible local and third-party providers.
 They still use different contracts because they solve different problems.
 The authoring paths want structured mutations and previews; the scripting path
 wants plain text results or callback completion; speech wants explicit
@@ -2019,6 +2052,14 @@ distinct architectural roles:
 adapts the same Hype message/tool/schema types onto OpenAI's Responses API:
 
 - `/v1/responses` for plain text, tool calls, and JSON-schema guided output
+- hosted OpenAI text requests use the Responses API rather than Chat
+  Completions so GPT-5/o-series reasoning models can use the API surface
+  OpenAI recommends for reasoning workloads
+- streaming OpenAI chat uses `stream: true`, `Accept: text/event-stream`, and
+  `response.output_text.delta` SSE events from `/v1/responses`
+- reasoning-capable OpenAI models receive a `reasoning` object with
+  `summary: "auto"` so Hype can expose provider reasoning summaries as the
+  local `thinking` transcript metadata
 - OpenAI function-call items are converted to Hype's existing
   `OllamaToolCall` shape before reaching `HypeToolExecutor`
 - tool results keep their `call_id` pairing so multi-step OpenAI tool loops
@@ -2028,12 +2069,14 @@ adapts the same Hype message/tool/schema types onto OpenAI's Responses API:
 llama-swap process as an OpenAI-compatible provider:
 
 - `GET /v1/models` lists model IDs configured in llama-swap
-- the selected model ID is sent in the `model` field of `/v1/responses`
-  requests, which is llama-swap's signal to load or swap to that model
+- the selected model ID is sent in the `model` field of
+  `/v1/chat/completions` requests, which is llama-swap's signal to load or
+  swap to that model
 - optional llama-swap API keys are stored in Keychain; unauthenticated local
   instances work without a key
-- Hype reuses the Responses API message/tool/schema bridge so llama-swap
-  participates in the same tool-calling and AI transaction path as OpenAI
+- Hype reuses the OpenAI-compatible Chat Completions message/tool/schema
+  bridge for llama-swap, llama.cpp, Z.ai, and MiniMax so local proxies stay
+  compatible without inheriting hosted-OpenAI-only Responses features
 
 `OpenAIImageGenerationClient`
 (Sources/HypeCore/AI/OpenAIImageGenerationClient.swift) is the image-only

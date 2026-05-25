@@ -38,7 +38,9 @@ public struct MouseHandler: Sendable {
                 }
                 return .deselectAll
             }
-            // For button/field/shape/webpage tools, start drag-to-create
+            // For creation tools, start drag-to-place/create. The final rect
+            // is resolved on mouseUp so a click can still create a HIG-sized
+            // default part.
             return .beginDrag(startX: Double(point.x), startY: Double(point.y))
 
         case .paint:
@@ -51,7 +53,8 @@ public struct MouseHandler: Sendable {
         tool: ToolState,
         hitPart: Part?,
         dragStart: CGPoint?,
-        point: CGPoint
+        point: CGPoint,
+        fineControl: Bool = false
     ) -> MouseActionResult {
         switch tool.category {
         case .browse:
@@ -63,51 +66,16 @@ public struct MouseHandler: Sendable {
         case .edit:
             guard tool.currentTool != "select" else { return .none }
             guard let start = dragStart else { return .none }
-            let rect = CGRect(
-                x: min(Double(start.x), Double(point.x)),
-                y: min(Double(start.y), Double(point.y)),
-                width: abs(Double(point.x - start.x)),
-                height: abs(Double(point.y - start.y))
-            )
-            guard rect.width > 5 && rect.height > 5 else { return .none }
-
-            let partType: PartType
-            var extras: [String: String] = [:]
-            switch tool.currentTool {
-            case "button": partType = .button
-            case "field": partType = .field
-            case "shape": partType = .shape; extras["shapeType"] = "rectangle"
-            case "webpage": partType = .webpage
-            case "image": partType = .image
-            case "video": partType = .video
-            case "chart": partType = .chart
-            case "spriteArea": partType = .spriteArea
-            // Phase 1 framework controls.
-            case "calendar": partType = .calendar
-            case "pdf": partType = .pdf
-            case "map": partType = .map
-            case "colorWell": partType = .colorWell
-            // Phase 2 form controls.
-            case "stepper": partType = .stepper
-            case "slider": partType = .slider
-            case "segmented": partType = .segmented
-            // Phase 2 media + 3D.
-            case "audioRecorder": partType = .audioRecorder
-            case "musicPlayer": partType = .musicPlayer
-            case "pianoKeyboard": partType = .pianoKeyboard
-            case "stepSequencer": partType = .stepSequencer
-            case "musicMixer": partType = .musicMixer
-            case "scene3D": partType = .scene3D
-            // Phase 3 UI controls.
-            case "progressView": partType = .progressView
-            case "gauge": partType = .gauge
-            case "divider": partType = .divider
-            // .toggle / .link / .menu / .searchField removed in
-            // dedup — those are now button (with .toggle / .link
-            // / .popup style) or field (with .search style).
-            default: return .none
+            guard let spec = PartCreationDefaults.toolSpec(for: tool.currentTool) else {
+                return .none
             }
-            return .createPart(partType, rect, extras)
+            let rect = PartCreationDefaults.creationRect(
+                for: spec.partType,
+                dragStart: start,
+                currentPoint: point,
+                fineControl: fineControl
+            )
+            return .createPart(spec.partType, rect, spec.extras)
 
         case .paint:
             return .none

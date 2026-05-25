@@ -9,9 +9,10 @@ Hype is a native macOS authoring tool in the spirit of Apple's HyperCard
 driven by a HyperTalk-style scripting language called **HypeTalk** —
 and re-grounds it on a contemporary Apple-platforms stack: Swift 6,
 SwiftUI, SpriteKit, Core Graphics, AppKit, WKWebView, AVKit, Apple
-Charts, and a **dual-provider AI authoring loop** that supports both
-local **Ollama** models (the default — no network egress) and optional
-**OpenAI** models (frontier quality, image generation, speech I/O)
+Charts, and a provider-neutral **AI authoring loop** that supports
+local **Ollama** models (the default — no network egress), optional
+hosted **OpenAI** models (Responses API, image generation, speech I/O),
+and OpenAI-compatible local/model-proxy endpoints such as llama-swap
 through one unified tool-calling contract.
 
 This repository contains the full source for the desktop application,
@@ -52,6 +53,14 @@ emitters in the same document, with one unified scripting model.
   via built-in converter), and full SpriteKit
   sprite areas — all editable in the same property inspector with the
   same multi-selection bulk editor.
+- **Xcode-like layout authoring.** Drag tools from the Objects palette
+  onto a card or background and Hype shows a translucent placement
+  ghost instead of creating a live part immediately. Drops, moves, and
+  resizes snap to an 8-point authoring grid; Shift temporarily disables
+  snapping for 1-point precision; Arrow keys move by 8 points and
+  Shift+Arrow by 1 point. Option-drag enables Smart Spacing guides for
+  8 / 12 / 20 point gaps, while explicit responsive constraints remain
+  a separate Control+Option authoring gesture.
 - **Meshy.ai 3D model generation.** Generate 3D models from text
   prompts, reference images, or multi-image captures directly inside
   Hype. Models land in the Sprite Repository as self-contained `model3D`
@@ -76,14 +85,15 @@ emitters in the same document, with one unified scripting model.
   sprites, physics bodies, joints, particle emitters, tile maps,
   cameras — and HypeTalk handlers route to scene nodes through the
   same message-passing chain as classic parts.
-- **AI authoring with tool-calling — Ollama OR OpenAI.** Hype drives the
+- **AI authoring with tool-calling — local or hosted.** Hype drives the
   document via 125+ structured tools (`create_button`, `set_card_script`,
   `add_sprite_to_scene`, `apply_scene_diff`, `generate_image`,
   `generate_3d_model_from_text`, …) routed
-  through a single `HypeAIClient` contract with two concrete providers:
-  local Ollama (default, no network egress) and optional OpenAI
-  (frontier-model quality, image generation, speech). Every model output
-  goes through a validating tool surface with a parser-level script gate,
+  through a single `HypeAIClient` contract. Hosted OpenAI uses
+  `/v1/responses` with streaming and reasoning summaries where the
+  selected model supports them; OpenAI-compatible local/proxy providers
+  use chat-completions streaming for broad compatibility. Every model
+  output goes through a validating tool surface with a parser-level script gate,
   retry loop, reference-resolution pass, and a transaction layer that
   previews each turn against a draft document so you can apply / cancel /
   roll back before any mutation touches the live stack. A 127-prompt
@@ -105,7 +115,7 @@ emitters in the same document, with one unified scripting model.
   The runtime still works with a single `HypeDocument` aggregate of
   value types, while storage tables index layout, scripts, content,
   assets, SpriteKit scenes, AI context, and full-text search.
-- **Tested.** 2,075 tests in 230 suites under Swift Testing, all passing
+- **Tested.** 2,208 tests in 247 suites under Swift Testing, all passing
   under the parallel runner in roughly 80 seconds. Coverage spans
   parser, interpreter, tool-call routing, scene serialization,
   rendering geometry (per-pixel sampling), theme cascade, async
@@ -271,8 +281,8 @@ HypeTalk's `set the model of scene3d "X" to "<asset-name>"` smart resolver.
 
 ## AI authoring
 
-Hype's AI Chat panel supports **two providers** — local Ollama
-(default, no network egress) and **optional OpenAI**. Both share
+Hype's AI Chat panel supports local Ollama (default, no network egress),
+hosted OpenAI, and OpenAI-compatible local/proxy providers. All share
 the same tool-calling contract through a single
 [`HypeAIClient`](Sources/HypeCore/AI/HypeAIClient.swift)
 abstraction. The provider is a preference: pick whichever you
@@ -281,7 +291,8 @@ trust for the task at hand.
 | Provider | Where requests go | When to pick it |
 |---|---|---|
 | **Ollama** (default) | `localhost:11434` — local model on your machine | Stays offline; document state, prompts, and tool calls never leave the box; best with `granite4.1:30b` or similarly capable local models |
-| **OpenAI** (opt-in) | OpenAI Responses API (`/v1/responses`), Images (`/v1/images/generations`), Audio (`/v1/audio/speech` + transcriptions) | When you want frontier-model quality, image generation, or higher-quality speech I/O. Set `OPENAI_API_KEY` in Hype Preferences. |
+| **OpenAI** (opt-in) | OpenAI Responses API (`/v1/responses` with streaming), Images (`/v1/images/generations`), Audio (`/v1/audio/speech` + transcriptions) | When you want frontier-model quality, image generation, reasoning summaries, or higher-quality speech I/O. Set the OpenAI API key in Hype Preferences. |
+| **OpenAI-compatible / llama-swap** | Local or network proxy exposing `/v1/chat/completions` and `/v1/models` | When you want local model swapping or hosted-compatible third-party models without routing through hosted OpenAI. Configure the base URL, model, and optional bearer token in Preferences. |
 
 Switching providers is a one-line change in Preferences → AI;
 the system prompt (`HypeTalkGuide.llmContext`) and the tool
@@ -465,6 +476,27 @@ themes live on `HypeDocument.themes` and travel with the file.
 
 ---
 
+## Layout authoring
+
+Hype's card/background canvas uses an authoring-time layout system rather
+than implicit constraints:
+
+- Dragging a creation tool from the Objects palette shows an elevated ghost
+  at the proposed drop location; the real `Part` is created only on drop.
+- Newly dropped parts use HIG-oriented default sizes when the drag is tiny,
+  or an explicit user-drawn rect when the drag is large enough to define one.
+- Normal drops, moves, and resizes snap to the 8-point grid. Holding Shift
+  disables grid snapping for pixel-level placement and resizing.
+- Arrow-key nudging mirrors the mouse model: Arrow = 8 points,
+  Shift+Arrow = 1 point.
+- Option-drag enables Smart Spacing against neighboring objects and shows
+  8 / 12 / 20 point spacing guides.
+- Snapping updates absolute part geometry only. It does **not** create
+  persisted `LayoutConstraint` rows; explicit responsive constraints are
+  created through the separate Control+Option drag gesture.
+
+---
+
 ## Build & install
 
 ### Requirements
@@ -513,7 +545,7 @@ swift run Hype
 ### Run the test suite
 
 ```bash
-scripts/test.sh                    # 2,075 tests in 230 suites, ~80 seconds
+scripts/test.sh                    # 2,208 tests in 247 suites, ~80 seconds
 scripts/test.sh --filter HypeTalk  # subset by Suite or Test name
 scripts/test.sh --no-parallel      # serial runner — fallback for debugging
 ```

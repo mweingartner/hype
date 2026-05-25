@@ -53,6 +53,34 @@ struct CardCanvasGroupingInteractionTests {
         return (state, first.id, second.id, coordinator, nsView)
     }
 
+    private func emptyCanvasFixture() -> (CanvasState, UUID, CardCanvasView.Coordinator, CardCanvasNSView) {
+        let document = HypeDocument.newDocument(name: "Creation Canvas")
+        let cardId = document.sortedCards[0].id
+        let state = CanvasState(document: document)
+        let canvasView = CardCanvasView(
+            document: Binding(
+                get: { state.wrapper },
+                set: { state.wrapper = $0 }
+            ),
+            currentCardId: cardId,
+            currentTool: .button,
+            selectedPartIds: Binding(
+                get: { state.selectedPartIds },
+                set: { state.selectedPartIds = $0 }
+            ),
+            editingBackground: false
+        )
+
+        let coordinator = CardCanvasView.Coordinator(parent: canvasView)
+        let nsView = CardCanvasNSView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        nsView.document = state.wrapper.document
+        nsView.currentCardId = cardId
+        nsView.currentTool = .button
+        nsView.coordinator = coordinator
+        coordinator.nsView = nsView
+        return (state, cardId, coordinator, nsView)
+    }
+
     @Test("selecting one group member selects the whole group")
     func selectingGroupedMemberExpandsSelection() throws {
         let (state, firstId, secondId, coordinator, _) = try groupedFixture()
@@ -62,8 +90,57 @@ struct CardCanvasGroupingInteractionTests {
         #expect(state.selectedPartIds == [firstId, secondId])
     }
 
-    @Test("shift arrow nudges every grouped member through canvas key handling")
-    func shiftArrowNudgesWholeGroup() throws {
+    @Test("dropping a creation tool creates a snapped default-sized part, selects it, and does not create constraints")
+    func commitCreationToolCreatesSelectedPartWithoutConstraints() throws {
+        let (state, cardId, coordinator, nsView) = emptyCanvasFixture()
+
+        let createdId = try #require(nsView.commitCreationTool(.button, at: CGPoint(x: 13, y: 21)))
+        let part = try #require(state.wrapper.document.part(byId: createdId))
+        withExtendedLifetime(coordinator) {}
+        #expect(part.cardId == cardId)
+        #expect(part.partType == .button)
+        #expect(part.left == 20)
+        #expect(part.top == 20)
+        #expect(part.width == 88)
+        #expect(part.height == 24)
+        #expect(state.selectedPartIds == [createdId])
+        #expect(state.wrapper.document.constraints.isEmpty)
+        #expect(nsView.currentTool == .select)
+    }
+
+    @Test("arrow nudges every grouped member by the 8-point grid through canvas key handling")
+    func arrowNudgesWholeGroupByGridUnit() throws {
+        let (state, firstId, secondId, coordinator, nsView) = try groupedFixture()
+        state.selectedPartIds = [firstId]
+        nsView.selectedPartIds = [firstId]
+        let rightArrow = String(UnicodeScalar(UInt32(NSRightArrowFunctionKey))!)
+
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: rightArrow,
+            charactersIgnoringModifiers: rightArrow,
+            isARepeat: false,
+            keyCode: 124
+        ))
+
+        withExtendedLifetime(coordinator) {
+            nsView.keyDown(with: event)
+        }
+
+        let first = try #require(state.wrapper.document.part(byId: firstId))
+        let second = try #require(state.wrapper.document.part(byId: secondId))
+        #expect(first.left == 18)
+        #expect(second.left == 88)
+        #expect(state.selectedPartIds == [firstId, secondId])
+    }
+
+    @Test("shift arrow micro-nudges every grouped member by one point")
+    func shiftArrowMicroNudgesWholeGroup() throws {
         let (state, firstId, secondId, coordinator, nsView) = try groupedFixture()
         state.selectedPartIds = [firstId]
         nsView.selectedPartIds = [firstId]
@@ -88,8 +165,8 @@ struct CardCanvasGroupingInteractionTests {
 
         let first = try #require(state.wrapper.document.part(byId: firstId))
         let second = try #require(state.wrapper.document.part(byId: secondId))
-        #expect(first.left == 15)
-        #expect(second.left == 85)
+        #expect(first.left == 11)
+        #expect(second.left == 81)
         #expect(state.selectedPartIds == [firstId, secondId])
     }
 

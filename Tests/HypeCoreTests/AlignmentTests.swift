@@ -68,7 +68,8 @@ struct AlignmentTests {
         let moving = makePart(left: 209, top: 100)
         let result = engine.computeMoveSnap(
             movingPart: moving, otherParts: [other],
-            canvasWidth: 800, canvasHeight: 600
+            canvasWidth: 800, canvasHeight: 600,
+            smartSpacing: true
         )
         // Target = 200 + 8 = 208, moving left = 209, so dx = -1
         #expect(result.dx == -1)
@@ -77,14 +78,17 @@ struct AlignmentTests {
 
     @Test func noSnapBeyondThreshold() {
         let other = makePart(left: 200, top: 200, width: 100, height: 50)
-        // Moving part is far from any alignment (edges, centers, spacing, and canvas center)
+        // Moving part is far from any alignment (edges, centers, spacing, and canvas center).
+        // Shift/fine-control mode disables the 8-point grid so this remains
+        // a pure threshold test.
         // Moving: left=30, top=30, right=130, bottom=80, centerX=80, centerY=55
         // Other: left=200, top=200, right=300, bottom=250, centerX=250, centerY=225
         // Canvas center: (75, 55) — avoid that too. Use large canvas.
         let moving = makePart(left: 30, top: 30, width: 100, height: 50)
         let result = engine.computeMoveSnap(
             movingPart: moving, otherParts: [other],
-            canvasWidth: 2000, canvasHeight: 2000
+            canvasWidth: 2000, canvasHeight: 2000,
+            fineControl: true
         )
         #expect(result.dx == 0)
         #expect(result.dy == 0)
