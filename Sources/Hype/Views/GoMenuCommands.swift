@@ -313,6 +313,10 @@ extension Notification.Name {
     /// (for the card). `MainContentView` listens and opens the
     /// script editor via `openScriptEditorWindow`.
     static let openPartScriptEditor = Notification.Name("openPartScriptEditor")
+    /// Posted by a clickable console-log script error action. Unlike
+    /// `.showScriptError`, this presents the editor in the current
+    /// document window instead of opening a detached script window.
+    static let openScriptErrorLink = Notification.Name("openScriptErrorLink")
     /// Reveal a node inside a Sprite Area inspector. `userInfo` carries
     /// `partId`, `sceneId`, and `nodeId`.
     static let revealSpriteNode = Notification.Name("revealSpriteNode")

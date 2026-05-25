@@ -86,32 +86,28 @@ public struct Lexer: Sendable {
                 continue
             }
 
-            // Line continuation: backslash immediately before newline.
-            if ch == "\\" && pos + 1 < source.count && source[pos + 1] == "\n" {
-                pos += 2
-                currentLine += 1
+            // Line continuation: backslash immediately before any supported newline.
+            if ch == "\\" && pos + 1 < source.count && isLineBreak(source[pos + 1]) {
+                pos += 1
+                consumeLineBreak()
                 continue
             }
 
             // Comments: -- to end of line.
             if ch == "-" && pos + 1 < source.count && source[pos + 1] == "-" {
-                while pos < source.count && source[pos] != "\n" {
+                while pos < source.count && !isLineBreak(source[pos]) {
                     pos += 1
                 }
                 continue
             }
 
             // Newlines.
-            if ch == "\n" || ch == "\r" {
+            if isLineBreak(ch) {
                 // Collapse consecutive newlines into one token.
                 if let last = tokens.last, last.type != .newline {
                     tokens.append(Token(type: .newline, value: "\\n", line: currentLine))
                 }
-                if ch == "\r" && pos + 1 < source.count && source[pos + 1] == "\n" {
-                    pos += 1
-                }
-                currentLine += 1
-                pos += 1
+                consumeLineBreak()
                 continue
             }
 
@@ -165,6 +161,19 @@ public struct Lexer: Sendable {
 
     // MARK: - Scanning helpers
 
+    private func isLineBreak(_ ch: Character) -> Bool {
+        ch == "\n" || ch == "\r"
+    }
+
+    private mutating func consumeLineBreak() {
+        if pos < source.count && source[pos] == "\r" && pos + 1 < source.count && source[pos + 1] == "\n" {
+            pos += 2
+        } else {
+            pos += 1
+        }
+        currentLine += 1
+    }
+
     /// Check if a character is any kind of double quote (straight or curly).
     private func isQuote(_ ch: Character) -> Bool {
         ch == "\"" || ch == "\u{201C}" || ch == "\u{201D}"
@@ -174,7 +183,7 @@ public struct Lexer: Sendable {
         pos += 1 // skip opening quote (straight or curly)
         var result: [Character] = []
         while pos < source.count && !isQuote(source[pos]) {
-            if source[pos] == "\n" {
+            if isLineBreak(source[pos]) {
                 break // unterminated string at newline
             }
             result.append(source[pos])

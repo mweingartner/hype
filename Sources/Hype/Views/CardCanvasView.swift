@@ -952,11 +952,89 @@ struct CardCanvasView: NSViewRepresentable {
             } else {
                 userInfo["target"] = ScriptTarget.stack
             }
+            let actionURL = scriptErrorActionURL(
+                target: userInfo["target"] as? ScriptTarget,
+                err: err,
+                document: doc
+            )
+            if let actionURL {
+                userInfo["url"] = actionURL
+            }
+            HypeLogger.shared.scriptError(
+                err,
+                source: "Script",
+                context: scriptErrorContext(target: userInfo["target"] as? ScriptTarget, document: doc),
+                actionURL: actionURL
+            )
             NotificationCenter.default.post(
                 name: .showScriptError,
                 object: nil,
                 userInfo: userInfo
             )
+        }
+
+        private func scriptErrorContext(target: ScriptTarget?, document: HypeDocument) -> String {
+            guard let target else { return document.stack.name }
+            switch target {
+            case .part(let id):
+                if let part = document.parts.first(where: { $0.id == id }) {
+                    return "\(part.partType.rawValue) \"\(part.name)\""
+                }
+            case .card(let id):
+                if let card = document.cards.first(where: { $0.id == id }) {
+                    return "card \"\(card.name)\""
+                }
+            case .background(let id):
+                if let background = document.backgrounds.first(where: { $0.id == id }) {
+                    return "background \"\(background.name)\""
+                }
+            case .scene:
+                return "SpriteKit scene script"
+            case .node:
+                return "SpriteKit node script"
+            case .stack:
+                return "stack \"\(document.stack.name)\""
+            case .hype:
+                return "Hype app script"
+            }
+            return document.stack.name
+        }
+
+        private func scriptErrorActionURL(target: ScriptTarget?, err: ScriptError, document: HypeDocument) -> URL? {
+            guard let target else { return nil }
+            var items = [
+                URLQueryItem(name: "stack", value: document.stack.id.uuidString),
+                URLQueryItem(name: "line", value: "\(err.line)"),
+                URLQueryItem(name: "message", value: err.message),
+            ]
+            switch target {
+            case .part(let id):
+                items.append(URLQueryItem(name: "target", value: "part"))
+                items.append(URLQueryItem(name: "id", value: id.uuidString))
+            case .card(let id):
+                items.append(URLQueryItem(name: "target", value: "card"))
+                items.append(URLQueryItem(name: "id", value: id.uuidString))
+            case .background(let id):
+                items.append(URLQueryItem(name: "target", value: "background"))
+                items.append(URLQueryItem(name: "id", value: id.uuidString))
+            case .scene(let partId, let sceneId):
+                items.append(URLQueryItem(name: "target", value: "scene"))
+                items.append(URLQueryItem(name: "partId", value: partId.uuidString))
+                items.append(URLQueryItem(name: "id", value: sceneId.uuidString))
+            case .node(let partId, let nodeId):
+                items.append(URLQueryItem(name: "target", value: "node"))
+                items.append(URLQueryItem(name: "partId", value: partId.uuidString))
+                items.append(URLQueryItem(name: "id", value: nodeId.uuidString))
+            case .stack:
+                items.append(URLQueryItem(name: "target", value: "stack"))
+            case .hype:
+                items.append(URLQueryItem(name: "target", value: "hype"))
+            }
+            var components = URLComponents()
+            components.scheme = "hype"
+            components.host = "script-error"
+            components.queryItems = items
+            return components.url
         }
 
         private func dispatchThroughRuntime(

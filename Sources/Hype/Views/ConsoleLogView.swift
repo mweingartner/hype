@@ -128,10 +128,31 @@ struct ConsoleLogView: View {
             }
 
             // Message (selectable)
-            Text(entry.message)
-                .foregroundColor(.primary)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.message)
+                    .foregroundColor(.primary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                let references = hypeReferences(for: entry)
+                if !references.isEmpty {
+                    HStack(spacing: 8) {
+                        ForEach(references, id: \.absoluteString) { url in
+                            Button(hypeReferenceTitle(for: url, fallback: entry.actionTitle)) {
+                                NotificationCenter.default.post(
+                                    name: .openScriptErrorLink,
+                                    object: nil,
+                                    userInfo: ["url": url]
+                                )
+                            }
+                            .buttonStyle(.link)
+                            .font(.system(size: 11))
+                            .help(url.absoluteString)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 1)
     }
@@ -149,6 +170,45 @@ struct ConsoleLogView: View {
         let df = DateFormatter()
         df.dateFormat = "HH:mm:ss.SSS"
         return df.string(from: date)
+    }
+
+    private func hypeReferences(for entry: LogEntry) -> [URL] {
+        var urls: [URL] = []
+        if let url = entry.actionURL {
+            urls.append(url)
+        }
+        for url in embeddedHypeReferences(in: entry.message) where !urls.contains(url) {
+            urls.append(url)
+        }
+        return urls
+    }
+
+    private func embeddedHypeReferences(in message: String) -> [URL] {
+        let pattern = #"hype://[^\s|<>"']+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let nsRange = NSRange(message.startIndex..<message.endIndex, in: message)
+        return regex.matches(in: message, range: nsRange).compactMap { match in
+            guard let range = Range(match.range, in: message) else { return nil }
+            var raw = String(message[range])
+            let trailingPunctuation: Set<Character> = [")", "]", ".", ","]
+            while let last = raw.last, trailingPunctuation.contains(last) {
+                raw.removeLast()
+            }
+            return URL(string: raw)
+        }
+    }
+
+    private func hypeReferenceTitle(for url: URL, fallback: String?) -> String {
+        switch url.host {
+        case "script-error", "script":
+            return fallback ?? "Open script"
+        case "card":
+            return "Go to card"
+        case "object":
+            return "Reveal object"
+        default:
+            return "Open reference"
+        }
     }
 
     // MARK: - Actions
