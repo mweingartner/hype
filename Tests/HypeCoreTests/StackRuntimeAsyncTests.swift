@@ -258,6 +258,54 @@ struct StackRuntimeAsyncTests {
         #expect(outputText(from: updated, fieldID: fieldID) == "done")
     }
 
+    @Test("wait duration defaults to HyperCard ticks")
+    func waitDurationDefaultsToTicks() async {
+        let clock = RecordingClock()
+        let (doc, cardId, buttonId, fieldID) = makeRuntimeDocument(buttonScript: """
+        on mouseUp
+          wait 120
+          wait for 30 ticks
+          wait 1 second
+          put "done" into field "output"
+        end mouseUp
+        """)
+
+        let runtime = await StackRuntimeRegistry.shared.runtime(
+            for: doc,
+            configuration: runtimeConfiguration(clock: clock)
+        )
+        let result = await runtime.dispatchAndWait("mouseUp", params: [], targetId: buttonId, currentCardId: cardId)
+        let updated = result.modifiedDocument ?? doc
+        await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
+
+        #expect(result.status == .completed)
+        #expect(await clock.sleeps == [2, 0.5, 1])
+        #expect(outputText(from: updated, fieldID: fieldID) == "done")
+    }
+
+    @Test("wait while exits when condition is false")
+    func waitWhileFalseCompletesWithoutSleeping() async {
+        let clock = RecordingClock()
+        let (doc, cardId, buttonId, fieldID) = makeRuntimeDocument(buttonScript: """
+        on mouseUp
+          wait while false
+          put "done" into field "output"
+        end mouseUp
+        """)
+
+        let runtime = await StackRuntimeRegistry.shared.runtime(
+            for: doc,
+            configuration: runtimeConfiguration(clock: clock)
+        )
+        let result = await runtime.dispatchAndWait("mouseUp", params: [], targetId: buttonId, currentCardId: cardId)
+        let updated = result.modifiedDocument ?? doc
+        await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
+
+        #expect(result.status == .completed)
+        #expect(await clock.sleeps == [])
+        #expect(outputText(from: updated, fieldID: fieldID) == "done")
+    }
+
     @Test("wait followed by send to me is queued instead of nesting synchronously")
     func waitThenSendToMeQueuesTimerLoop() async {
         let clock = RecordingClock()

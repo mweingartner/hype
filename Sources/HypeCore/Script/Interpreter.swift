@@ -600,6 +600,35 @@ public struct Interpreter: Sendable {
         try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
     }
 
+    private func waitDurationSeconds(from value: Double, unit: WaitDurationUnit) -> TimeInterval {
+        switch unit {
+        case .ticks:
+            return value / 60.0
+        case .seconds:
+            return value
+        }
+    }
+
+    private enum HyperCardTimeStyle {
+        case short
+        case long
+        case english
+    }
+
+    private func formatHyperCardTime(style: HyperCardTimeStyle) -> String {
+        let formatter = DateFormatter()
+        switch style {
+        case .short:
+            formatter.timeStyle = .short
+        case .long:
+            formatter.timeStyle = .medium
+        case .english:
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "h:mm:ss a"
+        }
+        return formatter.string(from: Date())
+    }
+
     private func isActivateListenerProperty(_ property: String) -> Bool {
         switch property.lowercased().replacingOccurrences(of: "_", with: "") {
         case "activatelistener", "speechlistener", "listeneractive":
@@ -1672,9 +1701,9 @@ public struct Interpreter: Sendable {
             }
             await context.systemProvider.beep(count: count)
 
-        case .waitDuration(let expr):
+        case .waitDuration(let expr, let unit):
             let val = try await evaluate(expr, env: &env, document: document, context: context)
-            let seconds = toNumber(val)
+            let seconds = waitDurationSeconds(from: toNumber(val), unit: unit)
             if seconds > 0 {
                 if let runtime = context.runtimeProvider {
                     try await runtime.sleep(seconds: min(seconds, 300))
@@ -1684,13 +1713,16 @@ public struct Interpreter: Sendable {
                 env.deferNextSelfSend = true
             }
 
-        case .waitUntil(let condition):
+        case .waitCondition(let condition, let mode):
             // Poll the condition every 50ms, cap at 30 seconds.
             let maxWait = 30.0
             let start = Date()
             while Date().timeIntervalSince(start) < maxWait {
                 let condVal = try await evaluate(condition, env: &env, document: document, context: context)
-                if isTruthy(condVal) { break }
+                let truthy = isTruthy(condVal)
+                if (mode == .untilTrue && truthy) || (mode == .whileTrue && !truthy) {
+                    break
+                }
                 if let runtime = context.runtimeProvider {
                     try await runtime.sleep(seconds: 0.05)
                 } else {
@@ -2960,9 +2992,7 @@ public struct Interpreter: Sendable {
             formatter.dateStyle = .medium
             return formatter.string(from: Date())
         case "time":
-            let formatter = DateFormatter()
-            formatter.timeStyle = .medium
-            return formatter.string(from: Date())
+            return formatHyperCardTime(style: .short)
         case "ticks":
             return String(Int(Date().timeIntervalSince1970 * 60))
         case "seconds":
@@ -3180,10 +3210,13 @@ public struct Interpreter: Sendable {
                 let formatter = DateFormatter()
                 formatter.dateStyle = .medium
                 return formatter.string(from: Date())
-            case "time":
-                let formatter = DateFormatter()
-                formatter.timeStyle = .medium
-                return formatter.string(from: Date())
+            case "time", "shorttime", "short time", "abbrevtime", "abbrev time",
+                 "abbreviatedtime", "abbreviated time", "abbrtime", "abbr time":
+                return formatHyperCardTime(style: .short)
+            case "longtime", "long time":
+                return formatHyperCardTime(style: .long)
+            case "englishtime", "english time":
+                return formatHyperCardTime(style: .english)
             case "ticks":
                 return String(Int(Date().timeIntervalSince1970 * 60))
             case "seconds":
@@ -5866,7 +5899,7 @@ public struct Interpreter: Sendable {
         case .stopAppleMusic: return "stopAppleMusic"
         case .beep: return "beep"
         case .waitDuration: return "waitDuration"
-        case .waitUntil: return "waitUntil"
+        case .waitCondition: return "waitCondition"
         case .createCard: return "createCard"
         case .createBackground: return "createBackground"
         case .createButton: return "createButton"

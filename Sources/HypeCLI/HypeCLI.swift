@@ -943,15 +943,6 @@ private struct ScriptSemanticValidator {
 
     private func sourceCompatibilityIssues(_ source: String) -> [ScriptSemanticIssue] {
         var issues: [ScriptSemanticIssue] = []
-        if matches(source, pattern: #"(?im)^\s*wait\s+\d+(?:\.\d+)?\s*$"#) {
-            issues.append(issue("wait-unit", "`wait N` has no unit; Hype interprets it as seconds, while imported HyperTalk often intended ticks."))
-        }
-        if matches(source, pattern: #"(?im)^\s*wait\s+\d+(?:\.\d+)?\s+ticks?\b"#) {
-            issues.append(issue("wait-ticks", "`wait ... ticks` parses, but Hype currently executes wait durations as seconds."))
-        }
-        if matches(source, pattern: #"(?im)^\s*wait\s+\d+(?:\.\d+)?\s+secs?\b"#) {
-            issues.append(issue("wait-sec-token", "`sec` after `wait` is parsed as a separate no-op token; use `second` or `seconds`."))
-        }
         if matches(source, pattern: #"(?im)^\s*visual\s+effect\s+.+\b(?:fast|slow|very fast|very slow)\b"#) {
             issues.append(issue("visual-speed", "HyperCard visual-effect speed words such as `fast`/`slow` are not translated to Hype transition durations."))
         }
@@ -1022,8 +1013,8 @@ private struct ScriptSemanticValidator {
             issues += expressionIssues(source, owner: owner, functionNames: functionNames)
             issues += expressionIssues(target, owner: owner, functionNames: functionNames)
         case .get(let expression), .go(let expression), .returnValue(let expression),
-             .say(let expression), .activateListener(let expression), .waitDuration(let expression),
-             .waitUntil(let expression), .deleteObject(let expression), .findText(let expression),
+             .say(let expression), .activateListener(let expression), .waitDuration(let expression, _),
+             .waitCondition(let expression, _), .deleteObject(let expression), .findText(let expression),
              .selectObject(let expression), .sortCards(let expression), .hideObject(let expression),
              .showObject(let expression), .openStack(let expression), .editScriptOf(let expression),
              .startUsing(let expression), .stopUsing(let expression), .startAnimation(let expression),

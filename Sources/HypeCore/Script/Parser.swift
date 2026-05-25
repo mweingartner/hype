@@ -2048,24 +2048,54 @@ public struct Parser: Sendable {
 
     private mutating func parseWaitStatement() throws -> Statement {
         _ = try expect(.wait)
+
+        if current.type == .identifier && current.value.lowercased() == "for" {
+            _ = advance()
+        }
+
         // wait until <condition>
         if current.type == .identifier && current.value.lowercased() == "until" {
             _ = advance()
             let condition = try parseExpression()
             skipNewlines()
-            return .waitUntil(condition)
+            return .waitCondition(condition, mode: .untilTrue)
         }
-        // wait <duration> [seconds|ticks]
+
+        // wait while <condition>
+        if current.type == .identifier && current.value.lowercased() == "while" {
+            _ = advance()
+            let condition = try parseExpression()
+            skipNewlines()
+            return .waitCondition(condition, mode: .whileTrue)
+        }
+
+        // wait [for] <duration> [seconds|ticks]
+        // HyperCard defaults to ticks when the unit is omitted.
         let duration = try parseExpression()
-        // Optionally consume a trailing "seconds" or "ticks" unit keyword
-        if current.type == .identifier {
-            let unit = current.value.lowercased()
-            if unit == "seconds" || unit == "second" || unit == "ticks" || unit == "tick" {
+        var unit: WaitDurationUnit = .ticks
+        if isWaitSecondsUnit(current) {
+            unit = .seconds
+            _ = advance()
+        } else if current.type == .identifier {
+            let value = current.value.lowercased()
+            if value == "ticks" || value == "tick" {
+                unit = .ticks
                 _ = advance()
             }
         }
         skipNewlines()
-        return .waitDuration(duration)
+        return .waitDuration(duration, unit: unit)
+    }
+
+    private func isWaitSecondsUnit(_ token: Token) -> Bool {
+        if token.type == .second {
+            return true
+        }
+        guard token.type == .identifier else {
+            return false
+        }
+        let value = token.value.lowercased()
+        return value == "seconds" || value == "secs" || value == "sec"
     }
 
     /// Parse: `animate [the] <property> of <target> to <value> over <duration> [seconds]`
@@ -2761,6 +2791,20 @@ public struct Parser: Sendable {
             break
         }
 
+        // `the short time`, `the abbrev time`, `the long time`,
+        // `the English time`. Keep the adjective attached to the
+        // global property so the interpreter can choose the right
+        // formatter.
+        if current.type == .identifier,
+           isTimeAdjective(current.value),
+           pos + 1 < tokens.count,
+           tokens[pos + 1].type == .identifier,
+           tokens[pos + 1].value.lowercased() == "time" {
+            let adjective = advance().value
+            _ = advance() // time
+            return .propertyAccess("\(adjective) time", nil)
+        }
+
         // `the tile at <col>,<row> of tilemap "X"` — read a single
         // cell from a tile map. We intercept the `.tile` token here
         // so it isn't mistaken for a generic property name, and so
@@ -2811,6 +2855,15 @@ public struct Parser: Sendable {
 
         // `the <property>` (global property like `the date`, `the time`)
         return .propertyAccess(property, nil)
+    }
+
+    private func isTimeAdjective(_ value: String) -> Bool {
+        switch value.lowercased() {
+        case "short", "abbrev", "abbreviated", "abbr", "long", "english":
+            return true
+        default:
+            return false
+        }
     }
 
     private mutating func parseObjectReference() throws -> Expression {

@@ -377,7 +377,7 @@ public struct HypeTalkScriptValidator: Sendable {
             failures += checkExpression(target, context: context)
             failures += checkExpression(toValue, context: context)
             failures += checkExpression(duration, context: context)
-        case .waitUntil(let expr):
+        case .waitDuration(let expr, _), .waitCondition(let expr, _):
             failures += checkExpression(expr, context: context)
         case .returnValue(let expr):
             failures += checkExpression(expr, context: context)
