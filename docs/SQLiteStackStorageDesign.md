@@ -8,9 +8,9 @@ Example.hype/
   stack.sqlite
 ```
 
-`manifest.json` identifies the package format and schema version and stores the
-SHA-256 checksum of `stack.sqlite`. `stack.sqlite` is the canonical store for
-stack content.
+`manifest.json` identifies the package format, SQLite schema version, document
+model version, and SHA-256 checksum of `stack.sqlite`. `stack.sqlite` is the
+canonical store for stack content.
 
 ## Goals
 
@@ -73,6 +73,37 @@ Schema version 3 projects stack-contained AudioKit music into `music_patterns`,
 `music_tracks`, and `music_notes`. `HypeDocument.musicLibrary` remains the
 source of truth for runtime code; the relational rows make patterns searchable,
 diagnosable, and portable without storing live AudioKit engine state.
+
+## Document Version Migrations
+
+SQLite schema version and document model version are separate:
+
+- `PRAGMA user_version` / `HypeSQLiteStackStore.schemaVersion` tracks table
+  shape.
+- `HypeDocument.currentDocumentVersion` tracks breaking changes to persisted
+  value-model payloads and Codable keys.
+- `manifest.json.documentVersion` and `document_values.documentVersion` record
+  the document model version written by the saving build.
+
+Loads, searches, and validation first verify the manifest checksum against the
+source database, then copy `stack.sqlite` to a temporary location and run
+incremental migration hooks before decoding payload JSON. This keeps older user
+documents openable without mutating the source package; the package is only
+rewritten when the user saves it.
+
+When making a breaking document change:
+
+1. Bump `HypeDocument.currentDocumentVersion`.
+2. Add a migration hook in `HypeSQLiteStackStore` from the previous version to
+   the new version.
+3. Update `HypeSQLiteManifest`/`document_values` tests for the version.
+4. Add a regression fixture or synthetic downgraded package test proving older
+   documents load to the new model.
+5. Document the migration in `architecture.md`, `decisions.md`, and this file.
+
+Document version 2 renamed the stack-local repository model from
+`spriteRepository` to `assetRepository`; the v1->v2 hook rewrites persisted JSON
+keys before any model decoding occurs.
 
 ## Search
 

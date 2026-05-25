@@ -23,6 +23,26 @@ Meaningful changes should follow this sequence:
 
 For review-only tasks, do not edit files unless the user asks for implementation.
 
+## Document Breaking Changes
+
+When a change breaks persisted `.hype` document shape, follow the versioned
+migration workflow instead of adding silent decoder fallbacks:
+
+1. Read the persistence sections in `architecture.md`, `decisions.md`, and
+   `docs/SQLiteStackStorageDesign.md`.
+2. Bump `HypeDocument.currentDocumentVersion`.
+3. Add an incremental migration hook in `HypeSQLiteStackStore` that migrates old
+   SQLite payloads before model decoding.
+4. Store the new version in both `manifest.json.documentVersion` and
+   `document_values.documentVersion`.
+5. Add tests that save or synthesize an older package and prove load/search or
+   validation migrates it on a temporary copy.
+6. Update `architecture.md`, `decisions.md`, and
+   `docs/SQLiteStackStorageDesign.md` with the version and migration behavior.
+
+Migration hooks must not rewrite user `.hype` packages during load. The source
+package changes only when the user explicitly saves.
+
 ## Product Decisions And Guardrails
 
 `decisions.md` owns durable guidance for how Hype should behave. Do not duplicate
@@ -65,6 +85,7 @@ PATH=/usr/bin:/bin:/usr/sbin:/sbin:/Applications/Codex.app/Contents/Resources ./
 
 - `decisions.md`: product behavior guardrails and durable build decisions.
 - `architecture.md`: full architecture, subsystem map, persistence/runtime boundaries, feature gaps.
+- `docs/SQLiteStackStorageDesign.md`: SQLite package schema, document versioning, and migration workflow.
 - `README.md`: setup, run/test commands, project overview.
 - `docs/HyperCardImportAndXCMDCompatibility.md`: HyperCard import and XCMD/XFCN emulation rules.
 - `TestStacks/PacmanAccessibilityTestbed.hype`: deterministic SpriteKit/accessibility smoke-test stack.

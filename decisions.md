@@ -26,6 +26,8 @@ document semantics.
 - Preserve HyperCard-style message pass-up: part -> card -> background -> stack -> app, and scene/node -> sprite area -> card -> background -> stack -> app.
 - Treat `.hype` stack files as self-contained user documents. User-created content should be persisted in the stack unless there is an explicit architecture-level reason to keep it external.
 - Keep SQLite storage diagnosable: core stack layout, scripts, assets, AI context, SpriteKit scenes/nodes, and search indexes should be inspectable through tables, indexes, and validation views.
+- Breaking document-model changes must bump `HypeDocument.currentDocumentVersion`, write the new version into `manifest.json` and `document_values`, and add a forward migration hook in `HypeSQLiteStackStore` before any old payloads are decoded.
+- Migrations run on a temporary database copy during load/search/validation. Opening an older stack must not rewrite the user's source package until the user explicitly saves it.
 
 ## HypeTalk Behavior Guardrails
 
