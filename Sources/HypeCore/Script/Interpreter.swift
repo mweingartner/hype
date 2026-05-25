@@ -1012,10 +1012,18 @@ public struct Interpreter: Sendable {
             // Try to resolve destination to a card UUID.
             if let uuid = UUID(uuidString: destValue) {
                 navigationTarget = uuid
+                HypeLogger.shared.info(
+                    "go \(destValue) from card \(context.currentCardId.uuidString) resolved direct id \(uuid.uuidString)",
+                    source: "HypeTalk Runtime"
+                )
             } else {
                 // Try to find by name or navigation keyword.
                 let resolved = resolveNavigation(destValue, document: document, currentCardId: context.currentCardId)
                 navigationTarget = resolved
+                HypeLogger.shared.info(
+                    "go \(destValue) from card \(context.currentCardId.uuidString) resolved \(resolved?.uuidString ?? "nil")",
+                    source: "HypeTalk Runtime"
+                )
             }
 
         case .ifThenElse(let cond, let thenBlock, let elseBlock):
@@ -1703,12 +1711,19 @@ public struct Interpreter: Sendable {
 
         case .waitDuration(let expr, let unit):
             let val = try await evaluate(expr, env: &env, document: document, context: context)
-            let seconds = waitDurationSeconds(from: toNumber(val), unit: unit)
+            let numericValue = toNumber(val)
+            let seconds = waitDurationSeconds(from: numericValue, unit: unit)
             if seconds > 0 {
+                let cappedSeconds = min(seconds, 300)
+                let unitName = unit == .ticks ? "ticks" : "seconds"
+                HypeLogger.shared.info(
+                    "wait \(formatNumber(numericValue)) \(unitName) -> \(formatNumber(seconds))s (sleep \(formatNumber(cappedSeconds))s)",
+                    source: "HypeTalk Runtime"
+                )
                 if let runtime = context.runtimeProvider {
-                    try await runtime.sleep(seconds: min(seconds, 300))
+                    try await runtime.sleep(seconds: cappedSeconds)
                 } else {
-                    try await sleepOutsideRuntime(seconds: min(seconds, 300))
+                    try await sleepOutsideRuntime(seconds: cappedSeconds)
                 }
                 env.deferNextSelfSend = true
             }

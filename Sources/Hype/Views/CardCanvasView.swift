@@ -813,6 +813,7 @@ struct CardCanvasView: NSViewRepresentable {
             completion: (@MainActor () -> Void)? = nil
         ) {
             let cardId = parent.currentCardId
+            logButtonPressIfNeeded(message: message, partId: partId, currentCardId: cardId, mouseX: mouseX, mouseY: mouseY)
             dispatchThroughRuntime(
                 message: message,
                 params: params,
@@ -822,6 +823,29 @@ struct CardCanvasView: NSViewRepresentable {
                 mouseY: mouseY,
                 scriptContext: scriptContext,
                 completion: completion
+            )
+        }
+
+        private func logButtonPressIfNeeded(
+            message: String,
+            partId: UUID,
+            currentCardId: UUID,
+            mouseX: Double,
+            mouseY: Double
+        ) {
+            guard message.caseInsensitiveCompare("mouseUp") == .orderedSame else { return }
+            let snapshot = parent.document.document
+            guard let part = snapshot.parts.first(where: { $0.id == partId }),
+                  part.partType == .button else { return }
+            let card = snapshot.cards.first(where: { $0.id == currentCardId })
+            let buttonName = part.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cardName = card?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let scriptState = part.script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "empty script" : "script chars=\(part.script.count)"
+            let title = buttonName.isEmpty ? "button id \(part.id.uuidString)" : "button \"\(buttonName)\""
+            let cardTitle = cardName.isEmpty ? "card id \(currentCardId.uuidString)" : "card \"\(cardName)\""
+            HypeLogger.shared.info(
+                "\(title) pressed on \(cardTitle) at x=\(Int(mouseX.rounded())), y=\(Int(mouseY.rounded())) (\(scriptState))",
+                source: "Button Press"
             )
         }
 
