@@ -1355,9 +1355,8 @@ class CardCanvasNSView: NSView {
     // Alignment snap guides currently visible
     private var activeGuides: [SnapGuide] = []
 
-    // Idle timer for dispatching idle messages in browse mode
-    private var idleTimer: Timer?
-    private static let idleTimerInterval: TimeInterval = 1.0 / 60.0
+    // Fixed-rate HypeTalk tick loop for dispatching idle messages in browse mode.
+    private var idleTickTask: Task<Void, Never>?
     private var idleDispatchTargetSignature = ""
     private var idleDispatchCachedPartIDs: [UUID] = []
     private var idleDispatchCachedIncludesCard = true
@@ -1606,8 +1605,8 @@ class CardCanvasNSView: NSView {
         }
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
 
-        // Ensure idle timer is running (may not start from updateTrackingAreas alone)
-        if idleTimer == nil { startIdleTimer() }
+        // Ensure the HypeTalk tick loop is running (may not start from updateTrackingAreas alone).
+        if idleTickTask == nil { startIdleTimer() }
 
         // Skip drawing the part being edited inline — the NSTextField overlay replaces it.
         //
@@ -2478,30 +2477,45 @@ class CardCanvasNSView: NSView {
     }
 
     private func startIdleTimer() {
-        idleTimer?.invalidate()
-        let timer = Timer(timeInterval: Self.idleTimerInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self = self else { return }
-                let toolState = ToolState(currentTool: self.currentTool.rawValue)
-                guard toolState.category == .browse, self.activeFieldEditor == nil else { return }
+        idleTickTask?.cancel()
+        idleTickTask = Task { @MainActor [weak self] in
+            var schedule = HypeTalkTickSchedule()
+            while !Task.isCancelled {
+                let delay = schedule.delayBeforeNextTick(now: Date.timeIntervalSinceReferenceDate)
+                if delay > 0 {
+                    do {
+                        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    } catch {
+                        break
+                    }
+                } else {
+                    await Task.yield()
+                }
 
-                let targets = self.idleDispatchTargetsForCurrentCard()
-                guard targets.includeCardTarget || !targets.partIDs.isEmpty else { return }
-                self.coordinator?.dispatchIdleBurst(
-                    cardTargetId: self.currentCardId,
-                    includeCardTarget: targets.includeCardTarget,
-                    partTargetIds: targets.partIDs
-                )
+                guard !Task.isCancelled else { break }
+                self?.dispatchIdleTickIfNeeded()
+                schedule.recordTickCompleted(at: Date.timeIntervalSinceReferenceDate)
             }
         }
-        timer.tolerance = Self.idleTimerInterval / 4
-        RunLoop.main.add(timer, forMode: .common)
-        idleTimer = timer
+    }
+
+    @MainActor
+    private func dispatchIdleTickIfNeeded() {
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        guard toolState.category == .browse, activeFieldEditor == nil else { return }
+
+        let targets = idleDispatchTargetsForCurrentCard()
+        guard targets.includeCardTarget || !targets.partIDs.isEmpty else { return }
+        coordinator?.dispatchIdleBurst(
+            cardTargetId: currentCardId,
+            includeCardTarget: targets.includeCardTarget,
+            partTargetIds: targets.partIDs
+        )
     }
 
     private func stopIdleTimer() {
-        idleTimer?.invalidate()
-        idleTimer = nil
+        idleTickTask?.cancel()
+        idleTickTask = nil
     }
 
     // MARK: - Card-Level SpriteKit Transition
