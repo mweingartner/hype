@@ -517,9 +517,15 @@ public struct Interpreter: Sendable {
 
         do {
             for stmt in handler.body {
-                try await executeStatement(stmt, env: &env, document: &document,
-                                           context: context, instructionCount: &instructionCount,
-                                           navigationTarget: &navigationTarget, handler: handler)
+                try await executeStatementAndPublish(
+                    stmt,
+                    env: &env,
+                    document: &document,
+                    context: context,
+                    instructionCount: &instructionCount,
+                    navigationTarget: &navigationTarget,
+                    handler: handler
+                )
             }
         } catch ControlSignal.passMessage {
             document.scriptGlobals = env.globals
@@ -563,6 +569,28 @@ public struct Interpreter: Sendable {
         return ExecutionResult(status: .completed, returnValue: env.it,
                                modifiedDocument: document, navigationTarget: navigationTarget,
                                visualEffect: visualEffect, visualEffectDuration: veDuration)
+    }
+
+    private func executeStatementAndPublish(
+        _ stmt: Statement,
+        env: inout Environment,
+        document: inout HypeDocument,
+        context: ExecutionContext,
+        instructionCount: inout Int,
+        navigationTarget: inout UUID?,
+        handler: Handler
+    ) async throws {
+        try await executeStatement(
+            stmt,
+            env: &env,
+            document: &document,
+            context: context,
+            instructionCount: &instructionCount,
+            navigationTarget: &navigationTarget,
+            handler: handler
+        )
+        document.scriptGlobals = env.globals
+        await context.runtimeProvider?.publishDocument(document)
     }
 
     private func blockingWait<T: Sendable>(_ operation: @escaping @Sendable () async -> T) -> T {
@@ -1042,15 +1070,15 @@ public struct Interpreter: Sendable {
             let condValue = try await evaluate(cond, env: &env, document: document, context: context)
             if isTruthy(condValue) {
                 for s in thenBlock {
-                    try await executeStatement(s, env: &env, document: &document, context: context,
-                                         instructionCount: &instructionCount,
-                                         navigationTarget: &navigationTarget, handler: handler)
+                    try await executeStatementAndPublish(s, env: &env, document: &document, context: context,
+                                                         instructionCount: &instructionCount,
+                                                         navigationTarget: &navigationTarget, handler: handler)
                 }
             } else if let elseStmts = elseBlock {
                 for s in elseStmts {
-                    try await executeStatement(s, env: &env, document: &document, context: context,
-                                         instructionCount: &instructionCount,
-                                         navigationTarget: &navigationTarget, handler: handler)
+                    try await executeStatementAndPublish(s, env: &env, document: &document, context: context,
+                                                         instructionCount: &instructionCount,
+                                                         navigationTarget: &navigationTarget, handler: handler)
                 }
             }
 
@@ -1061,9 +1089,9 @@ public struct Interpreter: Sendable {
                 context.profiler?.recordLoopIteration("repeatCount")
                 do {
                     for s in body {
-                        try await executeStatement(s, env: &env, document: &document, context: context,
-                                             instructionCount: &instructionCount,
-                                             navigationTarget: &navigationTarget, handler: handler)
+                        try await executeStatementAndPublish(s, env: &env, document: &document, context: context,
+                                                             instructionCount: &instructionCount,
+                                                             navigationTarget: &navigationTarget, handler: handler)
                     }
                 } catch ControlSignal.exitRepeat {
                     break
@@ -1079,9 +1107,9 @@ public struct Interpreter: Sendable {
                 context.profiler?.recordLoopIteration("repeatWhile")
                 do {
                     for s in body {
-                        try await executeStatement(s, env: &env, document: &document, context: context,
-                                             instructionCount: &instructionCount,
-                                             navigationTarget: &navigationTarget, handler: handler)
+                        try await executeStatementAndPublish(s, env: &env, document: &document, context: context,
+                                                             instructionCount: &instructionCount,
+                                                             navigationTarget: &navigationTarget, handler: handler)
                     }
                 } catch ControlSignal.exitRepeat {
                     break
@@ -1101,9 +1129,9 @@ public struct Interpreter: Sendable {
                 env.setVariableKey(varKey, String(i))
                 do {
                     for s in body {
-                        try await executeStatement(s, env: &env, document: &document, context: context,
-                                             instructionCount: &instructionCount,
-                                             navigationTarget: &navigationTarget, handler: handler)
+                        try await executeStatementAndPublish(s, env: &env, document: &document, context: context,
+                                                             instructionCount: &instructionCount,
+                                                             navigationTarget: &navigationTarget, handler: handler)
                     }
                 } catch ControlSignal.exitRepeat {
                     break

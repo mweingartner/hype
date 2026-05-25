@@ -307,6 +307,8 @@ final class BenchmarkRuntime: ScriptRuntimeProviding, @unchecked Sendable {
 
     func navigateToCard(_ cardId: UUID) async {}
 
+    func publishDocument(_ document: HypeDocument) async {}
+
     func enqueueMessage(
         _ message: String,
         params: [Value],

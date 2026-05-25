@@ -192,6 +192,7 @@ public struct TCPConnectionSpec: Sendable {
 public protocol ScriptRuntimeProviding: Sendable {
     func sleep(seconds: TimeInterval) async throws
     func navigateToCard(_ cardId: UUID) async
+    func publishDocument(_ document: HypeDocument) async
     func enqueueMessage(
         _ message: String,
         params: [Value],
@@ -576,6 +577,22 @@ public actor StackRuntime: ScriptRuntimeProviding {
         // the card change before a long-running script emits another
         // navigation. Without this, many `go` commands in one handler
         // can coalesce into a single visible update.
+        try? await Task.sleep(nanoseconds: 16_666_667)
+    }
+
+    public func publishDocument(_ updatedDocument: HypeDocument) async {
+        document = updatedDocument
+        let stackId = updatedDocument.stack.id
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .stackRuntimeDocumentDidChange,
+                object: nil,
+                userInfo: [
+                    "stackId": stackId,
+                    "document": updatedDocument,
+                ]
+            )
+        }
         try? await Task.sleep(nanoseconds: 16_666_667)
     }
 
