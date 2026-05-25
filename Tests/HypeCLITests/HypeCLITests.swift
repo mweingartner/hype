@@ -361,6 +361,46 @@ struct HypeCLITests {
         #expect(!stackSource.contains("\r"))
     }
 
+    @Test func testValidateScriptsReportsSemanticImportIssues() throws {
+        var document = HypeDocument.newDocument(name: "Semantic Validation Fixture")
+        let cardId = try #require(document.cards.first?.id)
+        var button = Part(partType: .button, cardId: cardId, name: "Run")
+        button.script = """
+        on mouseUp
+          visual effect dissolve fast
+          wait 30
+          play "MachineHum"
+          goNext
+        end mouseUp
+
+        on goNext
+          go next
+        end goNext
+        """
+        document.parts.append(button)
+
+        let packageURL = scriptDir.appendingPathComponent("SemanticValidationFixture.hype", isDirectory: true)
+        let exportURL = scriptDir.appendingPathComponent("semantic-scripts", isDirectory: true)
+        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
+
+        let result = runBinary(arguments: [
+            "--validate-scripts", packageURL.path,
+            "--export-scripts", exportURL.path,
+        ])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("warning\tbutton\tRun"))
+        #expect(result.stdout.contains("bare line is evaluated as a variable"))
+        #expect(result.stdout.contains("not translated to Hype transition durations"))
+        #expect(result.stdout.contains("has no embedded audio asset"))
+
+        let summary = try String(contentsOf: exportURL.appendingPathComponent("summary.txt"), encoding: .utf8)
+        #expect(summary.contains("warning\t1"))
+        let scriptsJSON = try String(contentsOf: exportURL.appendingPathComponent("scripts.json"), encoding: .utf8)
+        #expect(scriptsJSON.contains("bare-handler-call"))
+        #expect(scriptsJSON.contains("sound-asset"))
+    }
+
     @Test func testPowerOperator() {
         let result = runHypetalkScript("""
         on main
