@@ -165,23 +165,11 @@ public struct HyperCardImportOptions: Sendable {
 }
 
 public enum LegacyHyperTalkScript {
-    public static func importedForHypeTalkRuntime(_ script: String) -> String {
-        let normalized = normalizedSource(script)
-        guard !normalized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return ""
-        }
-        guard parsesAsNativeHypeTalk(normalized) else {
-            return disabledForHypeTalkRuntime(normalized)
-        }
-        return [
-            "-- Imported HyperCard script accepted as native HypeTalk.",
-            "-- Review behavior before relying on full HyperCard compatibility.",
-            normalized,
-        ].joined(separator: "\n")
-    }
-
     public static func disabledForHypeTalkRuntime(_ script: String) -> String {
-        let normalized = normalizedSource(script)
+        let normalized = script
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\0"))
         guard !normalized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return ""
         }
@@ -192,25 +180,6 @@ public enum LegacyHyperTalkScript {
         let body = normalized.split(separator: "\n", omittingEmptySubsequences: false)
             .map { "-- \($0)" }
         return (header + body).joined(separator: "\n")
-    }
-
-    private static func normalizedSource(_ script: String) -> String {
-        script
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .trimmingCharacters(in: CharacterSet(charactersIn: "\0"))
-    }
-
-    private static func parsesAsNativeHypeTalk(_ script: String) -> Bool {
-        do {
-            var lexer = Lexer(source: script)
-            let tokens = lexer.tokenize()
-            var parser = Parser(tokens: tokens)
-            _ = try parser.parse()
-            return true
-        } catch {
-            return false
-        }
     }
 }
 
