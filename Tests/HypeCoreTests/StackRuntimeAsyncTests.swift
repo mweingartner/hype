@@ -283,6 +283,55 @@ struct StackRuntimeAsyncTests {
         #expect(outputText(from: updated, fieldID: fieldID) == "done")
     }
 
+    @Test("bare wait 30 sleeps for half a second")
+    func bareWaitThirtySleepsForHalfSecond() async {
+        let clock = RecordingClock()
+        let (doc, cardId, buttonId, fieldID) = makeRuntimeDocument(buttonScript: """
+        on mouseUp
+          wait 30
+          put "done" into field "output"
+        end mouseUp
+        """)
+
+        let runtime = await StackRuntimeRegistry.shared.runtime(
+            for: doc,
+            configuration: runtimeConfiguration(clock: clock)
+        )
+        let result = await runtime.dispatchAndWait("mouseUp", params: [], targetId: buttonId, currentCardId: cardId)
+        let updated = result.modifiedDocument ?? doc
+        await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
+
+        #expect(result.status == .completed)
+        #expect(await clock.sleeps == [0.5])
+        #expect(outputText(from: updated, fieldID: fieldID) == "done")
+    }
+
+    @Test("classic nextCard aliases navigate to the next card")
+    func classicNextCardAliasesNavigate() async {
+        var doc = HypeDocument.newDocument(name: "Classic Nav Test")
+        let _ = doc.addCard()
+        let sorted = doc.sortedCards
+        let card1 = sorted[0]
+        let card2 = sorted[1]
+        var button = Part(partType: .button, cardId: card1.id, name: "Next")
+        button.script = """
+        on mouseUp
+          nextCard
+        end mouseUp
+        """
+        doc.addPart(button)
+
+        let runtime = await StackRuntimeRegistry.shared.runtime(
+            for: doc,
+            configuration: runtimeConfiguration()
+        )
+        let result = await runtime.dispatchAndWait("mouseUp", params: [], targetId: button.id, currentCardId: card1.id)
+        await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
+
+        #expect(result.status == .completed)
+        #expect(result.navigationTarget == card2.id)
+    }
+
     @Test("wait while exits when condition is false")
     func waitWhileFalseCompletesWithoutSleeping() async {
         let clock = RecordingClock()

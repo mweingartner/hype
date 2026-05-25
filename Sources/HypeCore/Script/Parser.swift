@@ -283,6 +283,14 @@ public struct Parser: Sendable {
                 let expr = try parseExpression()
                 skipNewlines()
                 return .expressionStatement(expr)
+            case "nextcard":
+                _ = advance()
+                skipNewlines()
+                return .go(destination: .literal("next"))
+            case "prevcard", "previouscard":
+                _ = advance()
+                skipNewlines()
+                return .go(destination: .literal("previous"))
             case "pause":
                 if isAppleMusicPhrase(startingAt: 1) {
                     return try parsePauseAppleMusicStatement()
@@ -690,6 +698,11 @@ public struct Parser: Sendable {
 
     private mutating func parseNextStatement() throws -> Statement {
         _ = try expect(.next)
+        if current.type == .card {
+            _ = advance()
+            skipNewlines()
+            return .go(destination: .literal("next"))
+        }
         _ = try expect(.repeat)
         skipNewlines()
         return .nextRepeat
