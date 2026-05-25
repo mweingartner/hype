@@ -111,6 +111,31 @@ struct HyperCardImportTests {
         #expect(try parsedHandlerCount(button.script) == 0)
     }
 
+    @Test("stackimport package imports converted sounds as playable audio assets")
+    func stackimportPackageImportsConvertedSoundsAsAudioAssets() throws {
+        let wav = Data("RIFF----WAVEfmt ".utf8)
+        let packageFiles: [String: Data] = [
+            "project.json": Data("""
+            {"sourceFileName":"Squirt Sample","stackFile":"stack_-1.json","blocks":[],"fonts":[]}
+            """.utf8),
+            "stack_-1.json": Data("""
+            {"name":"Squirt Sample","cardWidth":512,"cardHeight":342,"script":"","pages":[{"cardIds":[100]}],"layers":[{"kind":"card","id":100,"file":"card_100.json"}]}
+            """.utf8),
+            "card_100.json": Data("""
+            {"id":100,"bitmap":null,"name":"Frame","script":"","parts":[],"contents":[]}
+            """.utf8),
+            "sounds/Squirt%203.1_snd_128_MachineHum.wav": wav,
+            "sounds/Squirt%203.1_snd_129_Red%20Alert.wav": wav,
+        ]
+
+        let result = try StackImportPackageConverter().convert(packageFiles: packageFiles)
+        let assets = result.document.assetRepository.assets.filter { $0.kind == .audioClip }
+
+        #expect(assets.count == 2)
+        #expect(result.document.assetRepository.asset(byName: "MachineHum")?.mimeType == "audio/wav")
+        #expect(result.document.assetRepository.asset(byName: "Red Alert")?.data == wav)
+    }
+
     @Test("parser accepts classic XCMD command syntax")
     func parserAcceptsExternalCommandSyntax() throws {
         let script = try parse("""

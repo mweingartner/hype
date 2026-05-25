@@ -115,6 +115,7 @@ public struct StackImportPackageConverter: Sendable {
         }
 
         applyCardFieldContents(from: cardFiles, reader: reader, decoder: decoder, cardIdMap: cardIdMap, to: &document)
+        appendAudioAssets(from: reader, to: &document)
 
         let blockSummary = project.blocks.map {
             HyperCardBlockSummary(type: $0.type, count: 1, totalBytes: $0.size ?? 0)
@@ -235,6 +236,42 @@ public struct StackImportPackageConverter: Sendable {
         document.parts.append(part)
     }
 
+    private func appendAudioAssets(from reader: XSTKPackageReader, to document: inout HypeDocument) {
+        var importedNames = Set(document.assetRepository.assets
+            .filter { $0.kind == .audioClip }
+            .map { $0.name.lowercased() })
+        for path in reader.allPaths.sorted() where path.lowercased().hasSuffix(".wav") {
+            guard let data = try? reader.data(for: path), !data.isEmpty else { continue }
+            let name = audioAssetName(from: path)
+            guard !name.isEmpty, importedNames.insert(name.lowercased()).inserted else { continue }
+            document.assetRepository.addAsset(Asset(
+                name: name,
+                kind: .audioClip,
+                mimeType: "audio/wav",
+                data: data,
+                tags: ["hypercard-import", "sound-resource"]
+            ))
+        }
+    }
+
+    private func audioAssetName(from path: String) -> String {
+        let stem = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        let components = stem.split(separator: "_", omittingEmptySubsequences: false)
+        if components.count >= 3, components[0].lowercased() == "snd", Int(components[1]) != nil {
+            return decodedAudioAssetName(components.dropFirst(2).joined(separator: "_"))
+        }
+        if let sndIndex = components.firstIndex(where: { $0.lowercased() == "snd" }),
+           components.count > components.index(sndIndex, offsetBy: 2),
+           Int(components[components.index(after: sndIndex)]) != nil {
+            return decodedAudioAssetName(components.suffix(from: components.index(sndIndex, offsetBy: 2)).joined(separator: "_"))
+        }
+        return decodedAudioAssetName(stem)
+    }
+
+    private func decodedAudioAssetName(_ name: String) -> String {
+        (name.removingPercentEncoding ?? name).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func applyCardFieldContents(
         from cardFiles: [(legacyId: Int, path: String, model: XSTKLayer)],
         reader: XSTKPackageReader,
@@ -334,11 +371,30 @@ public struct StackImportPackageConverter: Sendable {
 }
 
 private protocol XSTKPackageReader {
+    var allPaths: [String] { get }
     func data(for path: String) throws -> Data
 }
 
 private struct FileSystemXSTKPackageReader: XSTKPackageReader {
     var packageURL: URL
+
+    var allPaths: [String] {
+        guard let enumerator = FileManager.default.enumerator(
+            at: packageURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        let root = packageURL.path + "/"
+        var paths: [String] = []
+        for case let url as URL in enumerator {
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
+            let path = url.path
+            paths.append(path.hasPrefix(root) ? String(path.dropFirst(root.count)) : url.lastPathComponent)
+        }
+        return paths
+    }
 
     func data(for path: String) throws -> Data {
         try Data(contentsOf: packageURL.appendingPathComponent(path))
@@ -347,6 +403,10 @@ private struct FileSystemXSTKPackageReader: XSTKPackageReader {
 
 private struct InMemoryXSTKPackageReader: XSTKPackageReader {
     var files: [String: Data]
+
+    var allPaths: [String] {
+        Array(files.keys)
+    }
 
     func data(for path: String) throws -> Data {
         let normalized = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
