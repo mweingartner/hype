@@ -591,12 +591,16 @@ public actor StackRuntime: ScriptRuntimeProviding {
 
     public func startAIRequest(prompt: String, model: String?, callbackMessage: String, owner: RuntimeOwnerContext) async throws -> UUID {
         let id = UUID()
+        let aiProvider = RuntimeAwareAIScriptingProvider(
+            baseProvider: configuration.aiProvider,
+            document: document
+        )
         requests[id] = RequestState(
             id: id,
             kind: .ai,
             state: "pending",
             method: "AI",
-            url: model ?? configuration.aiProvider.currentModel(),
+            url: model ?? aiProvider.currentModel(),
             headers: [:],
             body: "",
             statusCode: nil,
@@ -606,7 +610,7 @@ public actor StackRuntime: ScriptRuntimeProviding {
         let speechOutputProvider = configuration.speechOutputProvider
         Task {
             do {
-                let response = try await self.configuration.aiProvider.generate(prompt: prompt, model: model)
+                let response = try await aiProvider.generate(prompt: prompt, model: model)
                 await speechOutputProvider.speakAIResponse(response, source: "HypeTalk AI")
                 if var request = self.requests[id] {
                     request.state = "completed"

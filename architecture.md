@@ -11,7 +11,9 @@ stack: Swift 6, SwiftUI, SpriteKit, Core Graphics, AppKit, WKWebView,
 AVKit, Apple Charts, and a provider-selectable AI authoring loop that can use
 local Ollama models, local llama-swap proxies, or OpenAI-hosted models, plus
 OpenAI image generation for card/background artwork and Sprite Repository
-assets.
+assets. Deployed non-macOS runtimes use a separate runtime AI policy that
+prefers Apple's built-in on-device Foundation Models where the target platform
+supports them.
 
 The single most important architectural decision is the introduction of
 **SpriteKit as the underlying interaction and rendering substrate** for cards.
@@ -110,6 +112,8 @@ hype-v2/
 │       │   ├── Background.swift           # Background metadata + script + themeName
 │       │   ├── Card.swift                 # Card metadata + script + themeName
 │       │   ├── Part.swift                 # The "everything part" struct (60+ fields)
+│       │   ├── TargetPlatform.swift       # Deployment targets, device profiles, part availability
+│       │   ├── RuntimeAISettings.swift    # Deployed-runtime AI policy and safe tool flags
 │       │   ├── PartGrouping.swift         # Flat groupId-based authoring groups
 │       │   ├── TextStyleFlags.swift       # Bold/italic/underline/strikethrough parser/emitter
 │       │   ├── JSONCodec.swift            # Shared JSONEncoder/Decoder for stored-as-string fields
@@ -139,6 +143,8 @@ hype-v2/
 │       │   ├── OpenAIImageGenerationClient.swift # /v1/images/generations image bytes for parts/assets
 │       │   ├── OpenAISpeechClient.swift   # /v1/audio transcriptions + speech
 │       │   ├── HypeAIClient.swift         # Provider-neutral client/config factory
+│       │   ├── RuntimeAIProvider.swift    # Target-aware deployed-runtime AI provider bridge
+│       │   ├── RuntimeAIToolCatalog.swift # Narrow runtime-safe AI tool descriptors/executor
 │       │   ├── AIContextLibrary.swift     # Safe stack-scoped context ingestion/search model
 │       │   ├── AIScriptingProvider.swift  # Async HypeTalk-facing Ollama abstraction
 │       │   ├── SpeechOutputProvider.swift # HypeCore speech-output protocol
@@ -208,6 +214,7 @@ hype-v2/
 │       ├── Layout/
 │       │   ├── LayoutConstraint.swift     # Edge-to-edge responsive constraints
 │       │   ├── ConstraintSolver.swift     # Iterative solver
+│       │   ├── LayoutResolver.swift       # Target profile projection + safe-area geometry
 │       │   └── AlignmentGuide.swift       # Snap guides
 │       ├── Tools/
 │       │   ├── ToolManager.swift          # Active tool / selection
@@ -219,7 +226,9 @@ hype-v2/
 │       ├── Sync/
 │       │   └── SyncService.swift          # Transport-neutral live-sync engine
 │       └── Export/
-│           └── DocumentExporter.swift     # JSON / single-file HTML export
+│           ├── DocumentExporter.swift     # JSON / single-file HTML export
+│           ├── DeploymentAppIntentDescriptor.swift # Runtime App Intent descriptors
+│           └── StackDeploymentPlanner.swift # Runtime-only platform deployment plans
 ├── TestStacks/
 │   └── PacmanAccessibilityTestbed.hype # Generated SpriteKit-heavy UI automation stack
 ├── Tests/HypeCoreTests/            # Model, script, async runtime, AI, export
@@ -275,6 +284,8 @@ live SpriteKit nodes.
 │               (CoordinateConverter: top-left ↔ bottom-left, deg ↔ rad)   │
 │    AI       : HypeAIClient (Ollama/OpenAI) → SceneAuthoringAssistant /   │
 │               AIScriptingProvider / HypeToolExecutor                     │
+│               RuntimeAIProviderResolver → Apple Foundation Models for    │
+│               supported non-macOS deployed runtimes                      │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -286,6 +297,11 @@ Two arrows are worth highlighting:
    `SpriteAreaSpec` / `SceneSpec` values, and the storage layer projects them
    into searchable relational tables. At display time, the bridge layer
    compiles the active scene into a live `SKNode` tree.
+   Stack deployment targets are also document data: `StackDeploymentTargets`
+   records the selected target platforms, primary design target, and whether
+   the new-stack target prompt has been acknowledged. `RuntimeAISettings`
+   records the deployed-runtime AI policy, safe runtime tool allowlist, and
+   transcript preference separately from local authoring preferences.
 2. **Hit test ↔ message dispatch.** A click inside a sprite area is
    converted by `HypeSKScene` from a `CGPoint` to a UUID via the
    `NodeRegistry`, forwarded to `CardCanvasNSView` (the
@@ -340,7 +356,7 @@ A few choices are deliberate:
 
 ```
 HypeDocument
-  ├── Stack            (id, name, width × height, createdAt, modifiedAt, script)
+  ├── Stack            (id, name, width × height, target platforms, runtime AI, script)
   ├── Backgrounds[]    (sortKey, name, script)            ← shared visual templates
   ├── Cards[]          (sortKey, name, marked, backgroundId, script)
   ├── Parts[]          (cardId? or backgroundId?, see §2.3)
@@ -353,6 +369,13 @@ Stacks default to 800 × 600. A `Background` is a template; many cards may
 share one background, and parts placed on the background appear on every
 card that uses it (this is the classic HyperCard reuse mechanism). A
 `Card` always belongs to exactly one background.
+
+New stacks default to macOS as the selected target platform but must ask the
+creator to confirm/select deployment targets before normal authoring continues.
+The target taxonomy is `macOS`, `iPhone`, `iPad`, and `tvOS`; iPhone and iPad
+are distinct because their default form factors and safe-area/layout behavior
+are meaningfully different. Existing decoded stacks that predate this field
+load as acknowledged macOS-only stacks for compatibility.
 
 `PartType` (Sources/HypeCore/Models/HypeStack.swift:9) is the discriminator
 and has grown well beyond the original eight kinds:
@@ -460,6 +483,16 @@ Schema version 3 adds normalized `music_patterns`, `music_tracks`, and
 MusicKit references and queue metadata. These tables persist only stable Apple
 Music IDs plus metadata snapshots; licensed catalog/library audio remains
 external and is never embedded in the `.hype` package.
+Schema version 5 adds normalized `deployment_targets` projections for the
+stack's selected target platforms, primary target, prompt acknowledgement, and
+standard device profile metadata. The `Stack.deploymentTargets` value remains
+the reconstruction source of truth; the table exists for diagnostics, search,
+and export tooling.
+Schema version 6 adds normalized `runtime_ai_settings` projections for the
+stack's deployed-runtime AI provider policy, runtime-safe side-effect tool
+gate, allowlisted tool names, fallback text, and transcript persistence flag.
+`Stack.runtimeAISettings` remains the reconstruction source of truth; the table
+is for diagnostics and target-runtime export validation.
 
 Interactive saves and undo now flow through
 `HypeDocumentMutationCoordinator` (`Sources/Hype/DocumentMutationCoordinator.swift`).
@@ -489,7 +522,7 @@ the undo stack. AI transaction application and script/runtime side effects pass
 through the same binding path, so accepted multi-tool edits and HypeTalk
 document mutations participate in the same save/undo pipeline as manual edits.
 Stack-authored mode flags that affect portability, including
-`Stack.runtimeModeEnabled`, live in the stack model rather than `UserDefaults`;
+`Stack.runtimeModeEnabled` and `Stack.runtimeAISettings`, live in the stack model rather than `UserDefaults`;
 purely local window geometry, selected AI provider, and API keys remain local
 app preferences or Keychain entries.
 
@@ -1358,6 +1391,20 @@ The runtime owns:
 - a FIFO callback/event queue
 - published runtime status snapshots for the UI
 
+Hype has two AI lanes. The macOS authoring lane remains provider-selectable
+through `HypeAIClient` (`Ollama`, `llama-swap`, `llama.cpp`, OpenAI, Z.ai,
+MiniMax) and can use broad authoring tools through `HypeToolExecutor`.
+The deployed-runtime lane is target-aware and intentionally narrower:
+`RuntimeAwareAIScriptingProvider` keeps macOS on the selected authoring provider
+but routes non-macOS runtime-mode `ask ai` calls through
+`RuntimeAIProviderResolver`. iPhone and iPad resolve to
+`AppleFoundationModelsRuntimeProvider`, guarded by `canImport(FoundationModels)`
+and OS/model availability checks. tvOS resolves to `UnavailableRuntimeAIProvider`
+until Apple exposes a supported on-device language-model runtime there.
+`RuntimeAIToolCatalog` only exposes read-only runtime tools by default; any
+side-effect tool requires both `allowRuntimeSideEffectTools` and an explicit
+allowlist entry in `Stack.runtimeAISettings`.
+
 That ownership boundary matters because it gives HypeTalk a place to suspend
 without freezing the app or violating message order. `wait`, `wait until`,
 `await …`, async AI completions, HTTP replies, listener events, and socket
@@ -1825,12 +1872,42 @@ Arrow moves selected objects by 8 points, Shift+Arrow moves them by 1 point.
 canonical creation-tool-to-`PartType` mapping so the object palette, menu
 commands, mouse handling, and tests all use the same rules.
 
+Target-aware layout begins with `HypeDeviceProfileCatalog`,
+`PartAvailabilityCatalog`, and `LayoutResolver`. A device profile supplies the
+logical target size, safe areas, and input model. The object panel filters
+creation controls using strict selected-target intersection: a control appears
+only when it is usable on every platform selected for the stack. `LayoutResolver`
+projects persisted part geometry and explicit constraints into a target profile
+without storing live platform views. The View menu's **Emulate Target Device**
+command constrains the canvas to a standard target profile; edits made while
+emulating are ordinary document edits and are saved immediately through the
+same mutation path as non-emulated edits.
+
 `AlignmentEngine` computes higher-affinity targets for edges, centers, canvas
 center, 20-point canvas margins, and typographic baselines for text-bearing
 parts. Holding Option during a move enables Smart Spacing: the moving object
 also seeks 8 / 12 / 20 point gaps from neighboring objects and shows spacing
 guides. Grid snapping fills in only when no stronger guide is active on that
 axis.
+
+### 6.5.1 Deployment runtime
+
+Deployment planning is modeled by `StackDeploymentPlanner`. The current
+implemented shell is macOS-first, but the plan object already distinguishes
+macOS standalone, iPhone runtime shell, iPad runtime shell, and tvOS runtime
+shell outputs. Deployed stacks are runtime-only: no object palette, property
+inspector, script editor, AI/debug panels, or edit-mode toggle are included in
+the deployed runtime shell. The planner prepares a runtime document by enabling
+`stack.runtimeModeEnabled` and clearing session-only script globals without
+mutating the source stack.
+
+Each deployment plan also carries a runtime AI policy. Automatic policy maps
+iPhone and iPad runtime shells to Apple Foundation Models, maps tvOS to disabled
+until a supported Apple on-device model exists for that target, and leaves
+macOS on the existing authoring-provider path. iPhone/iPad plans expose App
+Intent descriptors for opening cards, sending stack messages, asking stack AI,
+and searching stack content; these descriptors are export metadata for future
+target shell generation, not authoring UI.
 
 ### 6.6 Tools
 

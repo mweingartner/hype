@@ -94,4 +94,47 @@ struct StackPropertyTests {
         #expect(result.modifiedDocument?.stack.runtimeModeEnabled == true)
         #expect(result.modifiedDocument?.stack.webAssetsAllowed == true)
     }
+
+    @Test func stackRuntimeAISettingsAreScriptable() async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        doc.cards[0].script = """
+        on openCard
+          set the runtimeAIProviderPolicy of stack to "appleFoundationModels"
+          set the runtimeAIToolsAllowed of stack to true
+          set the runtimeAIAllowedTools of stack to "set_runtime_variable"
+          set the runtimeAIPersistTranscript of stack to true
+        end openCard
+        """
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
+            message: "openCard", params: [], targetId: cardId,
+            document: doc, currentCardId: cardId
+        ) }
+        #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
+        #expect(result.modifiedDocument?.stack.runtimeAISettings.providerPolicy == .appleFoundationModels)
+        #expect(result.modifiedDocument?.stack.runtimeAISettings.allowRuntimeSideEffectTools == true)
+        #expect(result.modifiedDocument?.stack.runtimeAISettings.allowedToolNames == ["set_runtime_variable"])
+        #expect(result.modifiedDocument?.stack.runtimeAISettings.persistTranscript == true)
+    }
+
+    @Test func runtimeAIStatusPropertiesAndResetSessionParse() async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        var field = Part(partType: .field, cardId: cardId, name: "output")
+        doc.addPart(field)
+        doc.cards[0].script = """
+        on openCard
+          reset ai session
+          put the aiProvider & "|" & the aiAvailable into field "output"
+        end openCard
+        """
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
+            message: "openCard", params: [], targetId: cardId,
+            document: doc, currentCardId: cardId,
+            aiProvider: StubAIScriptingProvider(model: "authoring-model", response: "authoring response")
+        ) }
+        #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
+        let output = result.modifiedDocument?.parts.first { $0.name == "output" }
+        #expect(output?.textContent == "Authoring Provider|true")
+    }
 }

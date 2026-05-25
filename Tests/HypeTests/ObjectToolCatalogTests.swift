@@ -48,6 +48,27 @@ struct ObjectToolCatalogTests {
         #expect(Set(panelTools).count == panelTools.count, "left panel must not expose duplicate tool buttons")
     }
 
+    @Test("left panel filters creation controls by selected deployment targets")
+    func leftPanelFiltersCreationControlsByTargetIntersection() throws {
+        let macTools = ObjectToolCatalog.creationTools(for: [.macOS])
+        #expect(macTools == ObjectToolCatalog.creationTools)
+
+        let tvTools = ObjectToolCatalog.creationTools(for: [.macOS, .tvOS])
+        #expect(tvTools.contains(.button))
+        #expect(tvTools.contains(.spriteArea))
+        #expect(tvTools.contains(.scene3D))
+        #expect(!tvTools.contains(.field))
+        #expect(!tvTools.contains(.audioRecorder))
+        #expect(!tvTools.contains(.pianoKeyboard))
+
+        let sections = ObjectToolCatalog.authoringSections(for: [.macOS, .tvOS])
+        let panelTools = sections.flatMap(\.tools)
+        #expect(panelTools.contains(.browse))
+        #expect(panelTools.contains(.select))
+        #expect(panelTools.contains(.button))
+        #expect(!panelTools.contains(.field))
+    }
+
     @Test("legacy duplicate object tools are absent from the panel catalog")
     func legacyDuplicateToolsAreAbsent() {
         let panelToolNames = Set(ObjectToolCatalog.panelTools.map(\.rawValue))

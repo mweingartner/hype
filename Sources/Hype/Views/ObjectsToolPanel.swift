@@ -1,4 +1,5 @@
 import AppKit
+import HypeCore
 import SwiftUI
 
 private struct ObjectToolHoverHelp: Equatable, Sendable {
@@ -341,6 +342,7 @@ struct ObjectsToolPanel: View {
     @Binding var currentTool: ToolName
     @Binding var selectedPartIds: Set<UUID>
     let isRuntimeMode: Bool
+    let targetPlatforms: [HypeTargetPlatform]
 
     // MARK: - Sizing constants
 
@@ -398,7 +400,7 @@ struct ObjectsToolPanel: View {
             if !isRuntimeMode {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 8) {
-                        ForEach(Array(ObjectToolCatalog.authoringSections.enumerated()), id: \.offset) { index, section in
+                        ForEach(Array(ObjectToolCatalog.authoringSections(for: targetPlatforms).enumerated()), id: \.offset) { index, section in
                             if index > 0 {
                                 sectionDivider
                             }

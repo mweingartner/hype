@@ -177,6 +177,31 @@ struct ViewMenuCommands: Commands {
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
 
+            Menu("Emulate Target Device") {
+                Button("Off") {
+                    NotificationCenter.default.post(name: .setTargetEmulation, object: nil, userInfo: ["profileId": ""])
+                }
+                Divider()
+                Button("macOS Default Card") {
+                    NotificationCenter.default.post(name: .setTargetEmulation, object: nil, userInfo: ["profileId": "macos-default"])
+                }
+                Button("iPhone Portrait") {
+                    NotificationCenter.default.post(name: .setTargetEmulation, object: nil, userInfo: ["profileId": "iphone-portrait"])
+                }
+                Button("iPhone Landscape") {
+                    NotificationCenter.default.post(name: .setTargetEmulation, object: nil, userInfo: ["profileId": "iphone-landscape"])
+                }
+                Button("iPad Portrait") {
+                    NotificationCenter.default.post(name: .setTargetEmulation, object: nil, userInfo: ["profileId": "ipad-portrait"])
+                }
+                Button("iPad Landscape") {
+                    NotificationCenter.default.post(name: .setTargetEmulation, object: nil, userInfo: ["profileId": "ipad-landscape"])
+                }
+                Button("tvOS 1080p") {
+                    NotificationCenter.default.post(name: .setTargetEmulation, object: nil, userInfo: ["profileId": "tvos-1080p"])
+                }
+            }
+
             Button("Show AI Assistant") {
                 NotificationCenter.default.post(name: .toggleAI, object: nil)
             }
@@ -237,6 +262,7 @@ extension Notification.Name {
     static let openAIContextLibrary = Notification.Name("openAIContextLibrary")
     static let toggleRuntimeMode = Notification.Name("toggleRuntimeMode")
     static let toggleObjectsPanel = Notification.Name("toggleObjectsPanel")
+    static let setTargetEmulation = Notification.Name("setTargetEmulation")
     static let haltAIChat = Notification.Name("haltAIChat")
     /// Posted by `CardCanvasView.Coordinator` when a HypeTalk runtime
     /// or parse error is surfaced during dispatch. `userInfo` contains:

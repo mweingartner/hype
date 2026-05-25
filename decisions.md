@@ -11,6 +11,11 @@ document semantics.
 
 - Persist document state in self-contained SQLite-backed `.hype` packages. The runtime model remains value typed through `HypeDocument`, `Stack`, `Background`, `Card`, `Part`, `SpriteAreaSpec`, and `SceneSpec`.
 - Do not persist live AppKit, SpriteKit, SceneKit, AVFoundation, AudioKit, or network objects.
+- New stacks must ask for target platforms before normal authoring continues. The default selection is macOS, but iPhone, iPad, and tvOS are first-class selectable targets; iPad is not treated as just a large iPhone.
+- The object palette must show only creation controls that work across every selected target platform. If a target runtime lacks a safe implementation for a control, hide that control from the creation panel rather than letting the user build a non-deployable stack by accident.
+- Target-device emulation is an authoring view over the same document. Edits made while emulating are immediate normal document edits and autosave/undo should treat them like any other edit.
+- Deployed stacks are runtime-only. Standalone exported apps must not expose edit mode, object palettes, property inspectors, script editor windows, AI/debug panels, or authoring-only preferences unless a future explicit runtime-authoring product mode is designed.
+- Deployed non-macOS runtime scripts must prefer Apple built-in AI support through the runtime AI provider layer where available. iPhone and iPad default to Apple Foundation Models; tvOS must degrade gracefully until Apple exposes a supported on-device language-model runtime there. Do not embed OpenAI/Ollama/local-model endpoints or API keys in deployed non-macOS runtime defaults.
 - Persist AudioKit-backed music as declarative patterns/tracks/assets in the stack; reconstruct `AudioEngine`, samplers, players, and playback tasks at runtime through providers.
 - Keep `SceneSpec` and `SpriteAreaSpec` as the source of truth for SpriteKit content; `SceneBridge` projects specs into live SpriteKit nodes.
 - Route HypeTalk through `MessageDispatcher`, `Interpreter`, and `StackRuntime` rather than bypassing the message hierarchy.
@@ -33,6 +38,7 @@ document semantics.
 - Expand AI context through explicit, auditable tools rather than by adding large dynamic catalogs, private libraries, or broad project data directly to the prompt window.
 - Keep core deterministic creation offline. Optional OpenAI, Ollama, Meshy, web, or image-generation passes must not be required for baseline local template creation.
 - Treat provider integrations as user-controlled side effects. Respect existing preferences, keychain handling, hostname allowlists, and stack-level opt-in gates.
+- Keep deployed-runtime AI tools separate from authoring tools. Runtime AI may read runtime-safe stack/card/object context by default; any side-effect tool must be explicitly allowlisted by stack runtime AI settings.
 - For stack context memory, use the stack-scoped AI context library and avoid secrets, API keys, credentials, or private tokens.
 - Tool changes need schema coverage and execution-path tests.
 - AI transactions should preserve preview/apply/rollback semantics where applicable.

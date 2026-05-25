@@ -166,7 +166,7 @@ public enum HypeTalkGuide {
 
         **Part properties:** name, id, left, top, width, height, right, bottom, loc, rect, visible, enabled, hilite, style, script, textFont, textSize, textAlign, textStyle, fontColor (alias textColor / color), textContent, fillColor, strokeColor, strokeWidth, cornerRadius, showName, autoHilite, lockText, url, helpText (aliases tooltip / help — hover bubble shown in browse mode).
         **Sprite-node properties:** loc, size, width, height, rotation, alpha, xScale, yScale, zPosition, hidden, text, fontName, fontSize, fontColor, textStyle, fillColor, strokeColor, lineWidth, velocity, angularVelocity, density, friction, restitution, damping, dynamic, affectedByGravity, birthRate, particleLifetime, particleSpeed, particleColor, particleScale, emissionAngle, volume, loop, autoplay, target, zoom.
-        **Scope properties:** stack supports name, script, theme, defaultFont, width, height, webAssetsAllowed, runtimeMode, aiContextCloudSharingAllowed, aiContextCount, aiContextSummary. Card supports name, marked, script, background, theme, effectiveTheme. Background supports name, script, theme, cardCount. `this card`, `current card`, `this background`, `current background`, and `this stack` are valid scope references.
+        **Scope properties:** stack supports name, script, theme, defaultFont, width, height, webAssetsAllowed, runtimeMode, runtimeAI* settings, aiContext*. Card: name, marked, script, background, theme, effectiveTheme. Background: name, script, theme, cardCount. `this card`, `current card`, `this background`, `current background`, and `this stack` are valid scope references.
 
         ## AI Context Library
         Users can attach stack-scoped files, folders, images, examples, and rules notes to the AI Context Library. Scripts can inspect the library summary but cannot read arbitrary attached file bytes directly:
@@ -448,7 +448,7 @@ public enum HypeTalkGuide {
             put await ollamaModels() into field "out"
             put request "http://localhost:8080/health" into reqId
 
-        AI calls use Preferences provider: Ollama, llama-swap, or OpenAI.
+        AI calls use Preferences provider while authoring. Deployed non-macOS `ask ai`: iPhone/iPad prefer Apple Foundation Models; tvOS may be unavailable. Check `aiAvailable`, `aiProvider`, `aiStatus`, `aiCapabilities`; `reset ai session` is valid.
 
         **Callback forms**
             ask ai "Write a mission briefing" with message "aiFinished"
@@ -1141,12 +1141,13 @@ public enum HypeTalkGuide {
         - Names are case-insensitive in lookup but case is preserved on display; match the object's actual name when referring to it.
         - Use `global <name>` before reading or writing a shared variable inside a handler, or use a top-level `global name1, name2` prelude before all handlers. Globals persist across idle ticks and handler calls for the life of the stack session, so `on idle / global counter / add 1 to counter / end idle` actually increments `counter` over time.
         - Be explicit about async intent. Use `await ...` for one-shot async results you need immediately. Use `with message "handlerName"` for long-lived jobs, listeners, and streaming/network callbacks.
-        - Treat any request that touches a sprite area, scene, or sprite node as SpriteKit scene authoring first, not as generic part scripting.
-        - For SpriteKit motion, bouncing, gravity, and collision behavior, prefer native physics bodies, restitution, velocity, and actions. Do not simulate these with `on idle` or `on frameUpdate` unless the user explicitly asks for custom script-driven movement.
-        - If a SpriteKit request needs input handling, use handlers like `keyDown`, `keyUp`, `beginContact`, or `endContact` to adjust physics state or actions instead of manually updating loc every frame.
+        - Treat sprite-area, scene, or sprite-node requests as SpriteKit scene authoring first, not generic part scripting.
+        - For target compatibility, call `list_target_profiles` / `get_part_target_availability`; deployed apps are runtime-only and non-macOS `ask ai` uses Apple built-in AI where available.
+        - For SpriteKit motion/collisions, prefer native physics bodies, restitution, velocity, and actions. Do not simulate with `idle` / `frameUpdate` unless asked.
+        - For SpriteKit input, use `keyDown`, `keyUp`, `beginContact`, or `endContact` instead of manually updating loc every frame.
         - `me` refers to the script-owning part: `the loc of me`, `set the rotation of me to 45`. Shapes support a `rotation` property (degrees clockwise).
         - Prefer the commands listed above. Do not invent new verbs or SpriteKit method calls — if something is not shown here, it is probably not supported.
-        - When unsure about layout, alignment, spacing, or whether your last change rendered correctly, call `capture_card_image` to receive a screenshot of the current card on your next turn.
+        - When unsure about layout or rendering, call `capture_card_image`.
 
         ## MANDATORY: validate scripts with `check_script` before storing
         You MUST call the `check_script` tool on every HypeTalk script before

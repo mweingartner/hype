@@ -313,6 +313,13 @@ attached to the stack) is included in cloud requests. Local
 Ollama can use context unconditionally; OpenAI cannot until both
 flags are set.
 
+Deployed-runtime AI is a separate path from macOS authoring AI. Runtime-mode
+`ask ai` scripts on iPhone and iPad are routed through the stack's
+`RuntimeAISettings` and prefer Apple Foundation Models on devices where Apple
+Intelligence and the on-device model are available. tvOS currently degrades to
+an unavailable runtime AI provider. Deployed non-macOS runtime shells do not
+carry OpenAI keys, Ollama hosts, or local model endpoints by default.
+
 ### Tool-calling architecture
 
 The model never types HypeTalk into your document directly. Every
@@ -499,6 +506,26 @@ than implicit constraints:
   persisted `LayoutConstraint` rows; explicit responsive constraints are
   created through the separate Control+Option drag gesture.
 
+## Target platforms and runtime deployment
+
+New stacks ask which deployment targets they should support. macOS is selected
+by default; iPhone, iPad, and tvOS are distinct targets because their form
+factors, safe areas, and input models differ.
+
+- The Objects panel filters creation controls to the strict intersection of
+  the selected targets, so a stack cannot accidentally depend on a control that
+  one of its runtime targets cannot provide.
+- View → Emulate Target Device constrains the canvas to a standard target
+  profile such as iPhone Portrait, iPad Landscape, or tvOS 1080p. Edits made
+  while emulating are normal document edits and save immediately.
+- Deployment planning is macOS-first today, with iPhone, iPad, and tvOS runtime
+  shell metadata in place. Deployed apps are runtime-only and do not include
+  edit mode, authoring panels, AI/debug panels, or script-editor UI.
+- Non-macOS runtime AI is target-aware: iPhone and iPad plans default runtime
+  script AI to Apple Foundation Models, tvOS marks runtime AI unavailable until
+  Apple provides a supported on-device model there, and macOS keeps the
+  authoring-provider path.
+
 ---
 
 ## Build & install
@@ -587,7 +614,7 @@ Hype/
 │       ├── Script/               # Lexer, Parser, AST, Interpreter, MessageDispatcher (`say`, `on listen`, `send to`)
 │       ├── Rendering/            # Per-control CG renderers + GlassRenderer + FieldTextLayout
 │       ├── SpriteKit/            # Scene bridge + native-card Button/Field/Shape/Image/Paint nodes
-│       ├── AI/                   # HypeAIClient (Ollama + OpenAI), tools, validator, fixer, EditTransaction, ContextLibrary, ProviderParityHarness, Image + Speech clients
+│       ├── AI/                   # HypeAIClient, RuntimeAIProvider, tools, validator, transactions, context, image + speech clients
 │       ├── Theme/                # HypeTheme, BuiltInThemes, ColorContrast
 │       ├── Runtime/              # Browse-mode StackRuntime actor, speech listener provider
 │       ├── Animation/            # `animate the X of Y over N` engine

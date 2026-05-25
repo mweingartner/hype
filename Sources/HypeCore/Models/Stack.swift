@@ -56,6 +56,22 @@ public struct Stack: Identifiable, Codable, Sendable {
     /// instead of inheriting whatever the last local editor window used.
     public var runtimeModeEnabled: Bool
 
+    /// The deployment target contract for this stack.
+    ///
+    /// New stacks default to macOS but must ask the user to confirm/select
+    /// targets before normal authoring continues. Existing decoded stacks that
+    /// predate this field default to macOS with the prompt already acknowledged
+    /// so older documents do not get blocked by the new wizard.
+    public var deploymentTargets: StackDeploymentTargets
+
+    /// Runtime AI policy for standalone/deployed stack runtimes.
+    ///
+    /// This is intentionally separate from the macOS authoring assistant's
+    /// provider preferences. Non-macOS deployed targets use this policy to
+    /// prefer Apple on-device AI when available and to avoid shipping editor
+    /// API keys or local model endpoints inside a runtime app.
+    public var runtimeAISettings: RuntimeAISettings
+
     /// The stack-level theme name. NEVER nil — the cascade
     /// (card → background → stack) needs a guaranteed terminating
     /// reference, so newly-created stacks default to
@@ -73,6 +89,8 @@ public struct Stack: Identifiable, Codable, Sendable {
         case meshyEnabled
         case appleMusicAllowed
         case runtimeModeEnabled
+        case deploymentTargets
+        case runtimeAISettings
         case themeName
     }
 
@@ -91,6 +109,8 @@ public struct Stack: Identifiable, Codable, Sendable {
         meshyEnabled: Bool = false,
         appleMusicAllowed: Bool = false,
         runtimeModeEnabled: Bool = false,
+        deploymentTargets: StackDeploymentTargets = .macOSDefault(selectionPromptAcknowledged: false),
+        runtimeAISettings: RuntimeAISettings = .defaultRuntime,
         themeName: String = "System"
     ) {
         self.id = id
@@ -107,6 +127,8 @@ public struct Stack: Identifiable, Codable, Sendable {
         self.meshyEnabled = meshyEnabled
         self.appleMusicAllowed = appleMusicAllowed
         self.runtimeModeEnabled = runtimeModeEnabled
+        self.deploymentTargets = deploymentTargets
+        self.runtimeAISettings = runtimeAISettings
         self.themeName = themeName
     }
 
@@ -131,6 +153,14 @@ public struct Stack: Identifiable, Codable, Sendable {
         appleMusicAllowed = try c.decodeIfPresent(Bool.self, forKey: .appleMusicAllowed) ?? false
         // Backward-compatible: pre-runtime-mode stacks open in edit mode.
         runtimeModeEnabled = try c.decodeIfPresent(Bool.self, forKey: .runtimeModeEnabled) ?? false
+        // Backward-compatible: existing stacks are macOS-only and should not be
+        // forced through the new-stack target wizard on first open.
+        deploymentTargets = try c.decodeIfPresent(StackDeploymentTargets.self, forKey: .deploymentTargets)
+            ?? .macOSDefault(selectionPromptAcknowledged: true)
+        deploymentTargets.normalize()
+        runtimeAISettings = try c.decodeIfPresent(RuntimeAISettings.self, forKey: .runtimeAISettings)
+            ?? .defaultRuntime
+        runtimeAISettings.normalize()
         // Backward-compatible: pre-theme stacks default to "System".
         themeName = try c.decodeIfPresent(String.self, forKey: .themeName) ?? "System"
     }

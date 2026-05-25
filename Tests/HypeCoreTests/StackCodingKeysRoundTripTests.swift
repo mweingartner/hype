@@ -32,6 +32,7 @@ struct StackCodingKeysRoundTripTests {
         #expect(stack.webAssetsAllowed == false)
         #expect(stack.aiContextCloudSharingAllowed == false)
         #expect(stack.runtimeModeEnabled == false)
+        #expect(stack.runtimeAISettings.providerPolicy == .automatic)
         #expect(stack.name == "My Stack")
     }
 
@@ -111,7 +112,13 @@ struct StackCodingKeysRoundTripTests {
             networkManifest: StackNetworkManifest(),
             webAssetsAllowed: true,
             aiContextCloudSharingAllowed: true,
-            runtimeModeEnabled: true
+            runtimeModeEnabled: true,
+            runtimeAISettings: RuntimeAISettings(
+                providerPolicy: .appleFoundationModels,
+                allowRuntimeSideEffectTools: true,
+                allowedToolNames: ["set_runtime_variable"],
+                persistTranscript: true
+            )
         )
 
         let encoder = JSONEncoder()
@@ -131,6 +138,10 @@ struct StackCodingKeysRoundTripTests {
         #expect(decoded.webAssetsAllowed == true)
         #expect(decoded.aiContextCloudSharingAllowed == true)
         #expect(decoded.runtimeModeEnabled == true)
+        #expect(decoded.runtimeAISettings.providerPolicy == .appleFoundationModels)
+        #expect(decoded.runtimeAISettings.allowRuntimeSideEffectTools)
+        #expect(decoded.runtimeAISettings.allowedToolNames == ["set_runtime_variable"])
+        #expect(decoded.runtimeAISettings.persistTranscript)
     }
 
     @Test("Stack with webAssetsAllowed=false round-trips through JSON")
@@ -155,6 +166,7 @@ struct StackCodingKeysRoundTripTests {
         #expect(stack.webAssetsAllowed == false)
         #expect(stack.aiContextCloudSharingAllowed == false)
         #expect(stack.runtimeModeEnabled == false)
+        #expect(stack.runtimeAISettings.providerPolicy == .automatic)
     }
 
     @Test("Stack default init sets all other fields to expected defaults")

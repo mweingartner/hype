@@ -34,6 +34,21 @@ private func findCardCanvas(in view: NSView?) -> CardCanvasNSView? {
     return nil
 }
 
+private struct TargetCanvasFrameModifier: ViewModifier {
+    let stack: Stack
+    let emulatedProfile: HypeDeviceProfile?
+
+    func body(content: Content) -> some View {
+        if let emulatedProfile {
+            content
+                .frame(width: CGFloat(emulatedProfile.width), height: CGFloat(emulatedProfile.height))
+        } else {
+            content
+                .frame(minWidth: CGFloat(stack.width), minHeight: CGFloat(stack.height))
+        }
+    }
+}
+
 struct MainContentView: View {
     @Binding var document: HypeDocumentWrapper
     @Environment(\.undoManager) private var undoManager
@@ -47,6 +62,8 @@ struct MainContentView: View {
     @State private var showRepository: Bool = false
     @State private var showNetworkPanel: Bool = false
     @State private var runtimeStatus = RuntimeStatusSnapshot(requests: [], listeners: [], connections: [])
+    @State private var showTargetSelectionSheet: Bool = false
+    @State private var emulatedProfileId: String?
 
     /// Whether the slide-out objects panel is open. Toggled via the
     /// Tools menu (⇧⌘O) or the toolbar button. Persisted so users
@@ -78,6 +95,11 @@ struct MainContentView: View {
         document.document.stack.runtimeModeEnabled
     }
 
+    private var emulatedProfile: HypeDeviceProfile? {
+        guard let emulatedProfileId else { return nil }
+        return HypeDeviceProfileCatalog.profile(id: emulatedProfileId)
+    }
+
     /// Resolve the currently-active theme through the cascade so
     /// every downstream view sees a consistent value via
     /// `@Environment(\.hypeTheme)`. Card → background → stack →
@@ -92,6 +114,9 @@ struct MainContentView: View {
             .onAppear {
                 HypeDocumentMutationCoordinator.shared.noteDocumentOpened(document.document)
                 currentCardId = document.document.sortedCards.first?.id
+                if !document.document.stack.deploymentTargets.selectionPromptAcknowledged && !isRuntimeMode {
+                    showTargetSelectionSheet = true
+                }
                 refreshRuntimeStatus()
                 if let cardId = currentCardId {
                     Task {
@@ -170,7 +195,8 @@ struct MainContentView: View {
                 ObjectsToolPanel(
                     currentTool: $currentTool,
                     selectedPartIds: $selectedPartIds,
-                    isRuntimeMode: isRuntimeMode
+                    isRuntimeMode: isRuntimeMode,
+                    targetPlatforms: document.document.stack.deploymentTargets.selectedPlatforms
                 )
                 .accessibilityIdentifier(HypeAccessibilityID.objectsPanel)
             }
@@ -257,8 +283,24 @@ struct MainContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .toggleObjectsPanel)) { _ in
             objectsPanelVisible.toggle()
         }
+        .onChange(of: document.document.stack.deploymentTargets.selectedPlatforms) { _, platforms in
+            if let partType = ObjectToolCatalog.createdPartType(for: currentTool),
+               !PartAvailabilityCatalog.supports(partType, across: platforms) {
+                currentTool = .select
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .setTargetEmulation)) { notification in
+            let profileId = notification.userInfo?["profileId"] as? String
+            emulatedProfileId = profileId?.isEmpty == false ? profileId : nil
+            Task { @MainActor in
+                resolveConstraints()
+            }
+        }
         .sheet(isPresented: $showNetworkPanel) {
             NetworkPanelView(document: trackedDocumentBinding, runtimeStatus: runtimeStatus)
+        }
+        .sheet(isPresented: $showTargetSelectionSheet) {
+            StackTargetSelectionSheet(document: trackedDocumentBinding)
         }
     }
 
@@ -277,10 +319,7 @@ struct MainContentView: View {
                 pencilRadius: Int(pencilRadius)
             )
             .accessibilityIdentifier(HypeAccessibilityID.canvas(cardId: currentCardId ?? document.document.sortedCards.first?.id ?? document.document.stack.id))
-            .frame(
-                minWidth: CGFloat(document.document.stack.width),
-                minHeight: CGFloat(document.document.stack.height)
-            )
+            .modifier(TargetCanvasFrameModifier(stack: document.document.stack, emulatedProfile: emulatedProfile))
             // Canvas margin — the area visible when the window
             // is larger than the card. Pulls from the active
             // theme's canvasMargin so a Sunset theme tints the
@@ -488,7 +527,8 @@ struct MainContentView: View {
         } else {
             bgIndicator = ""
         }
-        return "\(name) -- \(index + 1) of \(count)\(bgIndicator)"
+        let emulationIndicator = emulatedProfile.map { " -- Emulating \($0.displayName)" } ?? ""
+        return "\(name) -- \(index + 1) of \(count)\(bgIndicator)\(emulationIndicator)"
     }
 
     private var toolModeText: String {
@@ -626,6 +666,10 @@ private struct NavigationHandlers: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: .selectTool)) { notification in
                 guard let tool = notification.object as? ToolName else { return }
+                if let partType = ObjectToolCatalog.createdPartType(for: tool),
+                   !PartAvailabilityCatalog.supports(partType, across: document.document.stack.deploymentTargets.selectedPlatforms) {
+                    return
+                }
                 currentTool = tool
                 let preserveSelection = notification.userInfo?[ToolSelectionNotification.preserveSelectionUserInfoKey] as? Bool ?? false
                 if !preserveSelection {

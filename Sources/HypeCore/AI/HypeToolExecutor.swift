@@ -2350,7 +2350,37 @@ public struct HypeToolExecutor: Sendable {
             let cardCount = document.cards.count
             let bgNames = document.backgrounds.map(\.name).joined(separator: ", ")
             let currentCard = document.cards.first(where: { $0.id == currentCardId })
-            return "Stack '\(document.stack.name)': \(cardCount) cards, size: \(document.stack.width)x\(document.stack.height), backgrounds: [\(bgNames)], current card: \(currentCard?.name ?? "unnamed")"
+            let targetNames = document.stack.deploymentTargets.selectedPlatforms.map(\.displayName).joined(separator: ", ")
+            return "Stack '\(document.stack.name)': \(cardCount) cards, size: \(document.stack.width)x\(document.stack.height), targets: [\(targetNames)], backgrounds: [\(bgNames)], current card: \(currentCard?.name ?? "unnamed")"
+
+        case "list_target_profiles":
+            var targets = document.stack.deploymentTargets
+            targets.normalize()
+            var lines: [String] = [
+                "Selected targets: \(targets.selectedPlatforms.map(\.displayName).joined(separator: ", "))",
+                "Primary target: \(targets.primaryPlatform.displayName)",
+                "Prompt acknowledged: \(targets.selectionPromptAcknowledged)",
+                "Profiles:",
+            ]
+            for profile in targets.selectedProfiles {
+                lines.append("- \(profile.id): \(profile.displayName), \(profile.width)x\(profile.height), platform=\(profile.platform.displayName), input=\(profile.inputModel.rawValue), safeArea=\(profile.safeArea.top),\(profile.safeArea.left),\(profile.safeArea.bottom),\(profile.safeArea.right)")
+            }
+            lines.append("Only create controls that are compatible with every selected target.")
+            return lines.joined(separator: "\n")
+
+        case "get_part_target_availability":
+            let rawPartType = arguments["part_type"] ?? ""
+            guard let partType = PartType(rawValue: rawPartType) else {
+                return "Unknown part_type '\(rawPartType)'. Use list_all_properties or the object palette catalog for valid part types."
+            }
+            let supportsAll = PartAvailabilityCatalog.supports(partType, across: document.stack.deploymentTargets.selectedPlatforms)
+            var lines = ["\(partType.rawValue): \(supportsAll ? "available" : "not available") across selected targets"]
+            for platform in document.stack.deploymentTargets.selectedPlatforms {
+                let support = PartAvailabilityCatalog.support(for: partType, on: platform)
+                let suffix = support.reason.isEmpty ? "" : " — \(support.reason)"
+                lines.append("- \(platform.displayName): \(support.availability.rawValue)\(suffix)")
+            }
+            return lines.joined(separator: "\n")
 
         case "get_stack_property":
             let property = arguments["property"] ?? ""
@@ -2369,6 +2399,18 @@ public struct HypeToolExecutor: Sendable {
                 return String(document.stack.webAssetsAllowed)
             case "runtimemode", "runtime_mode", "runtimemodeenabled", "runtime_mode_enabled":
                 return String(document.stack.runtimeModeEnabled)
+            case "runtimeaiproviderpolicy", "runtime_ai_provider_policy", "aiproviderpolicy":
+                return document.stack.runtimeAISettings.providerPolicy.rawValue
+            case "runtimeaitoolsallowed", "runtime_ai_tools_allowed":
+                return String(document.stack.runtimeAISettings.allowRuntimeSideEffectTools)
+            case "runtimeaiallowedtools", "runtime_ai_allowed_tools":
+                return document.stack.runtimeAISettings.allowedToolNames.joined(separator: ",")
+            case "runtimeaipersisttranscript", "runtime_ai_persist_transcript":
+                return String(document.stack.runtimeAISettings.persistTranscript)
+            case "targetplatforms", "target_platforms":
+                return document.stack.deploymentTargets.selectedPlatforms.map(\.rawValue).joined(separator: ",")
+            case "primarytargetplatform", "primary_target_platform":
+                return document.stack.deploymentTargets.primaryPlatform.rawValue
             case "aicontextcount", "ai_context_count", "contextcount", "context_count":
                 return String(document.aiContextLibrary.itemCount)
             case "aicontextsummary", "ai_context_summary", "contextsummary", "context_summary":
@@ -2384,7 +2426,7 @@ public struct HypeToolExecutor: Sendable {
             case "theme":
                 return document.stack.themeName
             default:
-                return "Unknown stack property '\(property)'. Valid: id, name, width, height, defaultFont, webAssetsAllowed, runtimeMode, aiContextCount, aiContextSummary, aiContextCloudSharingAllowed, cardCount, backgroundCount, script, theme"
+                return "Unknown stack property '\(property)'. Valid: id, name, width, height, defaultFont, webAssetsAllowed, runtimeMode, runtimeAIProviderPolicy, runtimeAIToolsAllowed, runtimeAIAllowedTools, runtimeAIPersistTranscript, targetPlatforms, primaryTargetPlatform, aiContextCount, aiContextSummary, aiContextCloudSharingAllowed, cardCount, backgroundCount, script, theme"
             }
 
         case "get_card_property":
@@ -4182,11 +4224,46 @@ public struct HypeToolExecutor: Sendable {
                 document.stack.aiContextCloudSharingAllowed = (value.lowercased() == "true")
             case "runtimemode", "runtime_mode", "runtimemodeenabled", "runtime_mode_enabled":
                 document.stack.runtimeModeEnabled = (value.lowercased() == "true")
+            case "runtimeaiproviderpolicy", "runtime_ai_provider_policy", "aiproviderpolicy":
+                guard let policy = RuntimeAIProviderPolicy.parse(value) else {
+                    return "Invalid value for runtimeAIProviderPolicy: '\(value)' (expected automatic, appleFoundationModels, or disabled)"
+                }
+                document.stack.runtimeAISettings.providerPolicy = policy
+            case "runtimeaitoolsallowed", "runtime_ai_tools_allowed":
+                document.stack.runtimeAISettings.allowRuntimeSideEffectTools = (value.lowercased() == "true")
+            case "runtimeaiallowedtools", "runtime_ai_allowed_tools":
+                document.stack.runtimeAISettings.allowedToolNames = value
+                    .split(separator: ",")
+                    .map { String($0) }
+                document.stack.runtimeAISettings.normalize()
+            case "runtimeaipersisttranscript", "runtime_ai_persist_transcript":
+                document.stack.runtimeAISettings.persistTranscript = (value.lowercased() == "true")
+            case "targetplatforms", "target_platforms":
+                let platforms = value
+                    .split(separator: ",")
+                    .compactMap { HypeTargetPlatform(rawValue: $0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                guard !platforms.isEmpty else {
+                    return "Invalid value for targetPlatforms: '\(value)' (expected comma-separated values from macOS, iPhone, iPad, tvOS)"
+                }
+                document.stack.deploymentTargets = StackDeploymentTargets(
+                    selectedPlatforms: platforms,
+                    primaryPlatform: document.stack.deploymentTargets.primaryPlatform,
+                    selectionPromptAcknowledged: true,
+                    supportedOrientations: document.stack.deploymentTargets.supportedOrientations
+                )
+            case "primarytargetplatform", "primary_target_platform":
+                guard let platform = HypeTargetPlatform(rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+                    return "Invalid value for primaryTargetPlatform: '\(value)' (expected macOS, iPhone, iPad, or tvOS)"
+                }
+                guard document.stack.deploymentTargets.selectedPlatforms.contains(platform) else {
+                    return "Primary target \(platform.rawValue) is not in targetPlatforms"
+                }
+                document.stack.deploymentTargets.primaryPlatform = platform
             case "theme", "themename", "theme_name":
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 document.stack.themeName = trimmed.isEmpty ? BuiltInThemes.fallbackName : trimmed
             default:
-                return "Unknown stack property '\(property)'. Valid: width, height, name, defaultFont, webAssetsAllowed, runtimeMode, aiContextCloudSharingAllowed, theme"
+                return "Unknown stack property '\(property)'. Valid: width, height, name, defaultFont, webAssetsAllowed, runtimeMode, runtimeAIProviderPolicy, runtimeAIToolsAllowed, runtimeAIAllowedTools, runtimeAIPersistTranscript, targetPlatforms, primaryTargetPlatform, aiContextCloudSharingAllowed, theme"
             }
             return "Set \(property) of stack to \(value)"
 

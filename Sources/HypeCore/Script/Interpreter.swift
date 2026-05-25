@@ -862,6 +862,19 @@ public struct Interpreter: Sendable {
                         document.stack.aiContextCloudSharingAllowed = isTruthy(value)
                     case "runtimemode", "runtime_mode", "runtimemodeenabled", "runtime_mode_enabled":
                         document.stack.runtimeModeEnabled = isTruthy(value)
+                    case "runtimeaiproviderpolicy", "runtime_ai_provider_policy", "aiproviderpolicy":
+                        if let policy = RuntimeAIProviderPolicy.parse(value) {
+                            document.stack.runtimeAISettings.providerPolicy = policy
+                        }
+                    case "runtimeaitoolsallowed", "runtime_ai_tools_allowed":
+                        document.stack.runtimeAISettings.allowRuntimeSideEffectTools = isTruthy(value)
+                    case "runtimeaiallowedtools", "runtime_ai_allowed_tools":
+                        document.stack.runtimeAISettings.allowedToolNames = value
+                            .split(separator: ",")
+                            .map { String($0) }
+                        document.stack.runtimeAISettings.normalize()
+                    case "runtimeaipersisttranscript", "runtime_ai_persist_transcript":
+                        document.stack.runtimeAISettings.persistTranscript = isTruthy(value)
                     case "theme", "themename", "theme_name":
                         // Empty / `the empty` resets to the built-in
                         // fallback so the cascade always terminates.
@@ -1063,7 +1076,7 @@ public struct Interpreter: Sendable {
                 )
                 env.it = requestID.uuidString
             } else {
-                env.it = try await generateAIResponse(prompt: promptText, model: modelName, context: context)
+                env.it = try await generateAIResponse(prompt: promptText, model: modelName, document: document, context: context)
             }
 
         case .askMeshy(let promptExpr, let styleExpr, let modelExpr, let callbackExpr):
@@ -2413,9 +2426,18 @@ public struct Interpreter: Sendable {
             try await executeStopAnimation(targetExpr: targetExpr, env: &env, document: document, context: context)
             #endif
 
+        case .resetCmd(let expr):
+            if let expr {
+                let target = try await evaluate(expr, env: &env, document: document, context: context)
+                if target.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ai session" {
+                    env.it = "ok"
+                    env.result = "ok"
+                }
+            }
+
         // Phase 2: Stub commands (recognized but no-op)
         case .push, .pop, .clickAt, .doMenuCmd, .disableCmd, .enableCmd,
-             .helpCmd, .debugCmd, .dialCmd, .resetCmd, .printCmd, .readCmd, .writeCmd,
+             .helpCmd, .debugCmd, .dialCmd, .printCmd, .readCmd, .writeCmd,
              .runCmd, .startUsing, .stopUsing,
              .copyTemplate, .exportPaint, .importPaint:
             break
@@ -2823,9 +2845,13 @@ public struct Interpreter: Sendable {
     private func generateAIResponse(
         prompt: String,
         model: String?,
+        document: HypeDocument,
         context: ExecutionContext
     ) async throws -> Value {
-        let response = try await context.aiProvider.generate(prompt: prompt, model: model)
+        let response = try await RuntimeAwareAIScriptingProvider(
+            baseProvider: context.aiProvider,
+            document: document
+        ).generate(prompt: prompt, model: model)
         await context.speechOutputProvider.speakAIResponse(response, source: "HypeTalk AI")
         return response
     }
@@ -2902,9 +2928,9 @@ public struct Interpreter: Sendable {
         case "ollama":
             switch args.count {
             case 1:
-                return try await generateAIResponse(prompt: args[0], model: nil, context: context)
+                return try await generateAIResponse(prompt: args[0], model: nil, document: context.document, context: context)
             case 2:
-                return try await generateAIResponse(prompt: args[1], model: args[0], context: context)
+                return try await generateAIResponse(prompt: args[1], model: args[0], document: context.document, context: context)
             default:
                 return ""
             }
@@ -3080,9 +3106,27 @@ public struct Interpreter: Sendable {
         if target == nil {
             switch lower {
             case "aimodel", "currentaimodel", "ollamamodel":
-                return context.aiProvider.currentModel()
+                return RuntimeAwareAIScriptingProvider(
+                    baseProvider: context.aiProvider,
+                    document: document
+                ).currentModel()
             case "aimodels", "availableaimodels", "ollamamodels":
-                return try await context.aiProvider.availableModels().joined(separator: "\n")
+                return try await RuntimeAwareAIScriptingProvider(
+                    baseProvider: context.aiProvider,
+                    document: document
+                ).availableModels().joined(separator: "\n")
+            case "aiavailable":
+                let status = await RuntimeAIStatusResolver.status(baseProvider: context.aiProvider, document: document)
+                return String(status.availability.isAvailable)
+            case "aiprovider":
+                let status = await RuntimeAIStatusResolver.status(baseProvider: context.aiProvider, document: document)
+                return status.providerName
+            case "aistatus":
+                let status = await RuntimeAIStatusResolver.status(baseProvider: context.aiProvider, document: document)
+                return status.availability.message
+            case "aicapabilities":
+                let status = await RuntimeAIStatusResolver.status(baseProvider: context.aiProvider, document: document)
+                return status.capabilities.map(\.rawValue).joined(separator: "\n")
             case "activatelistener", "speechlistener", "listeneractive":
                 return (await context.runtimeProvider?.isSpeechListenerActive()) == true ? "true" : "false"
             case "date":
@@ -3295,6 +3339,14 @@ public struct Interpreter: Sendable {
                 return String(document.stack.aiContextCloudSharingAllowed)
             case "runtimemode", "runtime_mode", "runtimemodeenabled", "runtime_mode_enabled":
                 return String(document.stack.runtimeModeEnabled)
+            case "runtimeaiproviderpolicy", "runtime_ai_provider_policy", "aiproviderpolicy":
+                return document.stack.runtimeAISettings.providerPolicy.rawValue
+            case "runtimeaitoolsallowed", "runtime_ai_tools_allowed":
+                return String(document.stack.runtimeAISettings.allowRuntimeSideEffectTools)
+            case "runtimeaiallowedtools", "runtime_ai_allowed_tools":
+                return document.stack.runtimeAISettings.allowedToolNames.joined(separator: ",")
+            case "runtimeaipersisttranscript", "runtime_ai_persist_transcript":
+                return String(document.stack.runtimeAISettings.persistTranscript)
             // Theme is non-optional on the stack — always returns a name.
             case "theme", "themename", "theme_name":
                 return document.stack.themeName

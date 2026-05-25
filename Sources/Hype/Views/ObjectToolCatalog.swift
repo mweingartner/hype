@@ -60,6 +60,26 @@ enum ObjectToolCatalog {
         authoringSections.flatMap(\.tools)
     }
 
+    static func authoringSections(for targetPlatforms: [HypeTargetPlatform]) -> [ObjectToolSection] {
+        authoringSections.compactMap { section in
+            let filteredTools = section.tools.filter { tool in
+                guard let partType = createdPartType(for: tool) else {
+                    return true
+                }
+                return PartAvailabilityCatalog.supports(partType, across: targetPlatforms)
+            }
+            guard !filteredTools.isEmpty else { return nil }
+            return ObjectToolSection(title: section.title, tools: filteredTools)
+        }
+    }
+
+    static func creationTools(for targetPlatforms: [HypeTargetPlatform]) -> [ToolName] {
+        creationTools.filter { tool in
+            guard let partType = createdPartType(for: tool) else { return false }
+            return PartAvailabilityCatalog.supports(partType, across: targetPlatforms)
+        }
+    }
+
     static func createdPartType(for tool: ToolName) -> PartType? {
         switch tool {
         case .button: return .button

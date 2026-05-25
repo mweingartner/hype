@@ -1474,6 +1474,14 @@ public struct Parser: Sendable {
 
     private mutating func parseResetStatement() throws -> Statement {
         _ = try expect(.reset)
+        if current.type == .ai {
+            _ = advance()
+            if current.type == .identifier && current.value.lowercased() == "session" {
+                _ = advance()
+            }
+            skipNewlines()
+            return .resetCmd(.literal("ai session"))
+        }
         if current.type == .newline || current.type == .eof {
             skipNewlines()
             return .resetCmd(nil)

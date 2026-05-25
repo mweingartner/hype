@@ -26,6 +26,8 @@ struct HypeDocumentSelfContainedPersistenceTests {
         let diagnostics = try store.validate(packageURL: packageURL)
         #expect(diagnostics.isHealthy)
         #expect(diagnostics.tableCounts["stacks"] == 1)
+        #expect(diagnostics.tableCounts["deployment_targets"] == 2)
+        #expect(diagnostics.tableCounts["runtime_ai_settings"] == 1)
         #expect(diagnostics.tableCounts["parts"] == 2)
         #expect((diagnostics.tableCounts["scripts"] ?? 0) >= 5)
         #expect((diagnostics.tableCounts["scene_nodes"] ?? 0) >= 2)
@@ -38,6 +40,10 @@ struct HypeDocumentSelfContainedPersistenceTests {
         #expect(decoded.stack.aiContextCloudSharingAllowed)
         #expect(decoded.stack.meshyEnabled)
         #expect(decoded.stack.runtimeModeEnabled)
+        #expect(decoded.stack.deploymentTargets.selectedPlatforms == [.macOS, .iPad])
+        #expect(decoded.stack.deploymentTargets.selectionPromptAcknowledged)
+        #expect(decoded.stack.runtimeAISettings.providerPolicy == .appleFoundationModels)
+        #expect(decoded.stack.runtimeAISettings.allowedToolNames == ["set_runtime_variable"])
         #expect(decoded.backgrounds.first?.script == document.backgrounds[0].script)
         #expect(decoded.cards.first?.script == document.cards[0].script)
         #expect(decoded.parts.first { $0.name == "btn_start" }?.script.contains("startGame") == true)
@@ -126,6 +132,18 @@ struct HypeDocumentSelfContainedPersistenceTests {
         document.stack.aiContextCloudSharingAllowed = true
         document.stack.meshyEnabled = true
         document.stack.runtimeModeEnabled = true
+        document.stack.deploymentTargets = StackDeploymentTargets(
+            selectedPlatforms: [.macOS, .iPad],
+            primaryPlatform: .macOS,
+            selectionPromptAcknowledged: true
+        )
+        document.stack.runtimeAISettings = RuntimeAISettings(
+            providerPolicy: .appleFoundationModels,
+            allowRuntimeSideEffectTools: true,
+            allowedToolNames: ["set_runtime_variable"],
+            unavailableFallbackText: "Runtime AI is unavailable.",
+            persistTranscript: false
+        )
         document.backgrounds[0].script = "on openBackground\n  pass openBackground\nend openBackground"
         document.cards[0].script = "on openCard\n  pass openCard\nend openCard"
         document.aiPromptHistory = ["create a maze game", "add ghosts"]

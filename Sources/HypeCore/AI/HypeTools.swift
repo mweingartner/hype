@@ -883,6 +883,16 @@ public struct HypeToolDefinitions {
         // duplicate the makeTool declarations here. Both batches
         // hit the same dispatcher in HypeToolExecutor.
         makeTool(name: "get_stack_info", description: "Get information about the current stack: card count, background names, current card.", params: [:]),
+        makeTool(name: "list_target_profiles", description: """
+            List the stack's selected deployment targets, primary target, and standard device profiles. \
+            Use this before creating layouts or controls when target compatibility matters.
+            """, params: [:]),
+        makeTool(name: "get_part_target_availability", description: """
+            Check whether a part/control type is usable across the stack's selected deployment targets. \
+            Use this before creating controls that may be platform-specific.
+            """, params: [
+            "part_type": ("string", "Part type such as button, field, spriteArea, scene3D, audioRecorder, pianoKeyboard, or appleMusicBrowser.", true),
+        ]),
         makeTool(name: "get_card_parts", description: "List all parts on the current card with their properties.", params: [:]),
 
         // ------------------------------------------------------------------
@@ -1436,12 +1446,13 @@ public struct HypeToolDefinitions {
             control the canvas size in points. `defaultFont` applies to new parts. \
             `webAssetsAllowed` toggles the stack's AI web-asset search permission. \
             `runtimeMode` controls whether the stack opens in end-user runtime mode. \
+            `runtimeAIProviderPolicy` is automatic, appleFoundationModels, or disabled for deployed runtimes. \
             `aiContextCloudSharingAllowed` controls whether attached AI Context Library snippets \
             may be sent to cloud model providers for this stack. \
             `theme` accepts any theme name from `list_themes`; empty value resets to the fallback theme. \
             Use this instead of set_part_property — the stack is not a part.
             """, params: [
-            "property": ("string", "Property name: width, height, name, defaultFont, webAssetsAllowed, runtimeMode, aiContextCloudSharingAllowed, theme", true),
+            "property": ("string", "Property name: width, height, name, defaultFont, webAssetsAllowed, runtimeMode, runtimeAIProviderPolicy, runtimeAIToolsAllowed, runtimeAIAllowedTools, runtimeAIPersistTranscript, aiContextCloudSharingAllowed, theme", true),
             "value": ("string", "New value (numeric for width/height, string for name/defaultFont)", true),
         ]),
 
@@ -1547,7 +1558,9 @@ public struct HypeToolDefinitions {
 
         makeTool(name: "get_stack_property", description: """
             Read a stack-level property: name, width, height, defaultFont, script, theme, \
-            webAssetsAllowed, runtimeMode, aiContextCount, aiContextSummary, aiContextCloudSharingAllowed. \
+            webAssetsAllowed, runtimeMode, targetPlatforms, primaryTargetPlatform, \
+            runtimeAIProviderPolicy, runtimeAIToolsAllowed, runtimeAIAllowedTools, runtimeAIPersistTranscript, \
+            aiContextCount, aiContextSummary, aiContextCloudSharingAllowed. \
             Use this instead of get_stack_info when you only need one field.
             """, params: [
             "property": ("string", "Property name to read", true),
@@ -1759,6 +1772,8 @@ public struct HypeToolDefinitions {
             "list_all_cards",
             "list_backgrounds",
             "get_stack_info",
+            "list_target_profiles",
+            "get_part_target_availability",
             // Basic part creation and mutation
             "create_button",
             "create_field",

@@ -8,11 +8,14 @@ public protocol AIScriptingProvider: Sendable {
 
 public enum AIScriptingProviderError: Error, LocalizedError, Sendable {
     case requestTimedOut
+    case providerUnavailable(String)
 
     public var errorDescription: String? {
         switch self {
         case .requestTimedOut:
             return "Timed out waiting for the AI provider"
+        case .providerUnavailable(let message):
+            return message
         }
     }
 }

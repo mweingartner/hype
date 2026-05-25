@@ -148,7 +148,7 @@ put await ollamaModels() into field "out"
 put request "http://localhost:8080/health" into reqId
 ```
 
-`ollama(...)`, `ollamaModels()`, `the aiModels`, and `ask ai` use Hype's selected AI text provider. That provider can be Ollama, llama-swap on a local port, or OpenAI depending on Preferences.
+`ollama(...)`, `ollamaModels()`, `the aiModels`, and `ask ai` use Hype's selected AI text provider while authoring on macOS. In deployed runtime mode on non-macOS targets, `ask ai` is target-aware: iPhone and iPad prefer Apple Foundation Models, and tvOS returns an unavailable status until Apple provides supported built-in model access there. Use `the aiAvailable`, `the aiProvider`, `the aiStatus`, and `the aiCapabilities` before relying on runtime AI. `reset ai session` is accepted and resets/acknowledges the runtime AI session boundary.
 
 ### Callback forms
 ```
@@ -325,6 +325,20 @@ create tilemap "map" columns 20 rows 15 tilesize 32 with tileset "terrain"
 set tile 5,3 of tilemap "map" to 2
 put the columns of tilemap "map" into cols
 ```
+
+### Target Platforms
+
+Stacks have selected deployment targets: macOS, iPhone, iPad, and tvOS. New
+stacks default to macOS but ask the user to confirm/select targets. The object
+palette is filtered to controls that work across every selected target, and
+deployed apps are runtime-only. When creating content, prefer controls that are
+compatible with the stack's selected targets; do not assume macOS-only controls
+are available for iPhone, iPad, or tvOS stacks.
+
+Runtime AI settings are stack properties: `runtimeAIProviderPolicy`
+(`automatic`, `appleFoundationModels`, `disabled`), `runtimeAIToolsAllowed`,
+`runtimeAIAllowedTools`, and `runtimeAIPersistTranscript`. Keep deployed-runtime
+AI tools narrow; side-effect tools require explicit allowlisting.
 
 ### Emitter Properties
 ```

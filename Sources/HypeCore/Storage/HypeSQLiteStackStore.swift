@@ -95,7 +95,7 @@ public enum HypeSQLiteStackStoreError: Error, LocalizedError, Equatable {
 }
 
 public final class HypeSQLiteStackStore {
-    public static let schemaVersion = 4
+    public static let schemaVersion = 6
     public static let manifestFileName = "manifest.json"
     public static let sqliteFileName = "stack.sqlite"
 
@@ -209,7 +209,8 @@ public final class HypeSQLiteStackStore {
             "assets", "ai_context_sources", "ai_context_items",
             "sprite_areas", "scenes", "scene_nodes", "themes",
             "paint_layers", "constraints", "music_patterns", "music_tracks",
-            "music_notes", "apple_music_items", "apple_music_queues", "search_fts",
+            "music_notes", "apple_music_items", "apple_music_queues",
+            "deployment_targets", "runtime_ai_settings", "search_fts",
         ]
         var tableCounts: [String: Int] = [:]
         for table in tableNames {
@@ -362,6 +363,33 @@ public final class HypeSQLiteStackStore {
                 ai_context_cloud_allowed INTEGER NOT NULL,
                 meshy_enabled INTEGER NOT NULL,
                 script_id TEXT,
+                payload_json TEXT NOT NULL
+            ) STRICT
+            """)
+        try db.execute("""
+            CREATE TABLE deployment_targets (
+                stack_id TEXT NOT NULL REFERENCES stacks(id) ON DELETE CASCADE,
+                platform TEXT NOT NULL,
+                primary_target INTEGER NOT NULL,
+                prompt_acknowledged INTEGER NOT NULL,
+                profile_id TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                width INTEGER NOT NULL,
+                height INTEGER NOT NULL,
+                input_model TEXT NOT NULL,
+                document_order INTEGER NOT NULL,
+                payload_json TEXT NOT NULL,
+                PRIMARY KEY (stack_id, platform)
+            ) STRICT
+            """)
+        try db.execute("""
+            CREATE TABLE runtime_ai_settings (
+                stack_id TEXT PRIMARY KEY REFERENCES stacks(id) ON DELETE CASCADE,
+                provider_policy TEXT NOT NULL,
+                allow_side_effect_tools INTEGER NOT NULL,
+                allowed_tools_text TEXT NOT NULL,
+                unavailable_fallback_text TEXT NOT NULL,
+                persist_transcript INTEGER NOT NULL,
                 payload_json TEXT NOT NULL
             ) STRICT
             """)
@@ -645,11 +673,15 @@ public final class HypeSQLiteStackStore {
         try db.execute("CREATE INDEX idx_music_tracks_pattern_sort ON music_tracks(pattern_id, document_order)")
         try db.execute("CREATE INDEX idx_apple_music_items_lookup ON apple_music_items(stack_id, item_kind, id)")
         try db.execute("CREATE INDEX idx_apple_music_queues_name ON apple_music_queues(stack_id, name COLLATE NOCASE)")
+        try db.execute("CREATE INDEX idx_deployment_targets_stack ON deployment_targets(stack_id, document_order)")
+        try db.execute("CREATE INDEX idx_runtime_ai_settings_policy ON runtime_ai_settings(provider_policy)")
         try db.execute("CREATE VIEW v_card_layout AS SELECT cards.name AS card, parts.name AS part, parts.part_type, parts.left, parts.top, parts.width, parts.height, parts.document_order FROM cards JOIN parts ON parts.card_id = cards.id")
         try db.execute("CREATE VIEW v_object_scripts AS SELECT owner_type, owner_id, parse_status, substr(source, 1, 160) AS preview FROM scripts")
         try db.execute("CREATE VIEW v_missing_asset_refs AS SELECT scene_nodes.id AS node_id, scene_nodes.name, scene_nodes.asset_id FROM scene_nodes LEFT JOIN assets ON assets.id = scene_nodes.asset_id WHERE scene_nodes.asset_id IS NOT NULL AND assets.id IS NULL")
         try db.execute("CREATE VIEW v_music_patterns AS SELECT music_patterns.name AS pattern, music_patterns.tempo, music_tracks.name AS track, music_tracks.instrument, music_tracks.document_order FROM music_patterns LEFT JOIN music_tracks ON music_tracks.pattern_id = music_patterns.id")
         try db.execute("CREATE VIEW v_apple_music_items AS SELECT title, artist, album, source_kind, item_kind, id FROM apple_music_items")
+        try db.execute("CREATE VIEW v_deployment_targets AS SELECT stacks.name AS stack, deployment_targets.platform, deployment_targets.display_name, deployment_targets.width, deployment_targets.height, deployment_targets.primary_target FROM deployment_targets JOIN stacks ON stacks.id = deployment_targets.stack_id")
+        try db.execute("CREATE VIEW v_runtime_ai_settings AS SELECT stacks.name AS stack, runtime_ai_settings.provider_policy, runtime_ai_settings.allow_side_effect_tools, runtime_ai_settings.allowed_tools_text, runtime_ai_settings.persist_transcript FROM runtime_ai_settings JOIN stacks ON stacks.id = runtime_ai_settings.stack_id")
     }
 
     private func insertDocument(_ document: HypeDocument, db: SQLiteDatabase) throws {
@@ -680,6 +712,8 @@ public final class HypeSQLiteStackStore {
             ]
         )
         try insertSearch(objectType: "stack", objectId: document.stack.id.uuidString, title: document.stack.name, body: document.stack.script, tags: "stack", db: db)
+        try insertDeploymentTargets(document.stack.deploymentTargets, stackId: document.stack.id, db: db)
+        try insertRuntimeAISettings(document.stack.runtimeAISettings, stackId: document.stack.id, db: db)
 
         try storeDocumentValue(document.aiPromptHistory, key: "aiPromptHistory", db: db)
         if let defaultBackgroundId = document.defaultBackgroundId {
@@ -1056,6 +1090,59 @@ public final class HypeSQLiteStackStore {
                 .text(queue.repeatMode),
                 .int(Int64(documentOrder)),
                 .text(try encode(queue)),
+            ]
+        )
+    }
+
+    private func insertDeploymentTargets(_ targets: StackDeploymentTargets, stackId: UUID, db: SQLiteDatabase) throws {
+        var normalized = targets
+        normalized.normalize()
+        for (index, platform) in normalized.selectedPlatforms.enumerated() {
+            let profile = HypeDeviceProfileCatalog.defaultProfile(for: platform)
+            try db.execute(
+                """
+                INSERT INTO deployment_targets (
+                    stack_id, platform, primary_target, prompt_acknowledged,
+                    profile_id, display_name, width, height, input_model,
+                    document_order, payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    .text(stackId.uuidString),
+                    .text(platform.rawValue),
+                    .int((platform == normalized.primaryPlatform).sqliteInt),
+                    .int(normalized.selectionPromptAcknowledged.sqliteInt),
+                    .text(profile.id),
+                    .text(profile.displayName),
+                    .int(Int64(profile.width)),
+                    .int(Int64(profile.height)),
+                    .text(profile.inputModel.rawValue),
+                    .int(Int64(index)),
+                    .text(try encode(profile)),
+                ]
+            )
+        }
+    }
+
+    private func insertRuntimeAISettings(_ settings: RuntimeAISettings, stackId: UUID, db: SQLiteDatabase) throws {
+        var normalized = settings
+        normalized.normalize()
+        try db.execute(
+            """
+            INSERT INTO runtime_ai_settings (
+                stack_id, provider_policy, allow_side_effect_tools,
+                allowed_tools_text, unavailable_fallback_text,
+                persist_transcript, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                .text(stackId.uuidString),
+                .text(normalized.providerPolicy.rawValue),
+                .int(normalized.allowRuntimeSideEffectTools.sqliteInt),
+                .text(normalized.allowedToolNames.joined(separator: ",")),
+                .text(normalized.unavailableFallbackText),
+                .int(normalized.persistTranscript.sqliteInt),
+                .text(try encode(normalized)),
             ]
         )
     }
