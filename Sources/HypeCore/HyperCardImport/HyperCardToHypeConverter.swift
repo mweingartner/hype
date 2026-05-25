@@ -53,7 +53,7 @@ public struct HyperCardToHypeConverter: Sendable {
         var document = HypeDocument.newDocument(name: stackInfo.name)
         document.stack.width = stackInfo.width
         document.stack.height = stackInfo.height
-        document.stack.script = stackInfo.script
+        document.stack.script = disabledLegacyScript(stackInfo.script)
         document.stack.defaultFont = fontTable.values.first ?? document.stack.defaultFont
         document.backgrounds = []
         document.cards = []
@@ -67,7 +67,7 @@ public struct HyperCardToHypeConverter: Sendable {
                 stackId: document.stack.id,
                 name: importedBackground.name.isEmpty ? "Background \(index + 1)" : importedBackground.name,
                 sortKey: String(format: "a%06d", index),
-                script: importedBackground.script
+                script: disabledLegacyScript(importedBackground.script)
             )
             document.backgrounds.append(bg)
             backgroundIdMap[importedBackground.legacyID] = bg.id
@@ -92,7 +92,7 @@ public struct HyperCardToHypeConverter: Sendable {
                 name: importedCard.name.isEmpty ? "Card \(index + 1)" : importedCard.name,
                 sortKey: String(format: "a%06d", index),
                 marked: importedCard.marked,
-                script: importedCard.script
+                script: disabledLegacyScript(importedCard.script)
             )
             document.cards.append(card)
             cardIdMap[importedCard.legacyID] = card.id
@@ -132,6 +132,12 @@ public struct HyperCardToHypeConverter: Sendable {
         let externalResources = externalResources(from: resources)
         if !externalResources.isEmpty {
             unsupported.append("Original XCMD/XFCN native code is not executed. Hype uses a Swift emulation registry and reports unsupported externals at runtime.")
+        }
+        if [document.stack.script].contains(where: { !$0.isEmpty }) ||
+            document.backgrounds.contains(where: { !$0.script.isEmpty }) ||
+            document.cards.contains(where: { !$0.script.isEmpty }) ||
+            document.parts.contains(where: { !$0.script.isEmpty }) {
+            warnings.append("Imported HyperCard scripts are preserved as comments and disabled until translated to native HypeTalk.")
         }
 
         let importedScripts = [document.stack.script].filter { !$0.isEmpty }.count +
@@ -384,7 +390,7 @@ public struct HyperCardToHypeConverter: Sendable {
         if !imported.textFont.isEmpty { part.textFont = imported.textFont }
         part.textSize = imported.textSize
         part.textStyle = imported.textStyle
-        part.script = imported.script
+        part.script = disabledLegacyScript(imported.script)
 
         switch imported.kind {
         case .button:
@@ -397,6 +403,10 @@ public struct HyperCardToHypeConverter: Sendable {
             part.textAlign = .left
         }
         return part
+    }
+
+    private func disabledLegacyScript(_ script: String) -> String {
+        LegacyHyperTalkScript.disabledForHypeTalkRuntime(script)
     }
 
     private func orderCards(_ cards: [ImportedCard], blocks: [HyperCardBlock]) -> [ImportedCard] {

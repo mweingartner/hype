@@ -31,8 +31,11 @@ struct HyperCardImportTests {
         #expect(document.cards[0].script.contains("on openCard"))
         #expect(document.parts.contains { $0.name == "Card Field" && $0.textContent == "hello from card" })
         #expect(document.parts.contains { $0.name == "BG Button" && $0.script.contains("on mouseUp") })
+        #expect(try parsedHandlerCount(document.stack.script) == 0)
+        #expect(try parsedHandlerCount(document.cards[0].script) == 0)
         #expect(document.legacyImport?.embeddedDataFork == data)
         #expect(result.report.importedScripts >= 3)
+        #expect(result.report.warnings.contains { $0.contains("disabled until translated") })
     }
 
     @Test("resource fork parser discovers XCMD resources")
@@ -58,6 +61,54 @@ struct HyperCardImportTests {
         #expect(external.name == "AddColor")
         #expect(external.emulationStatus == .knownUnsupported)
         #expect(result.report.unsupportedFeatures.contains { $0.contains("XCMD/XFCN") })
+    }
+
+    @Test("stackimport C importer converts a real stackimport fixture")
+    func stackimportCImporterConvertsFixture() throws {
+        let fixture = URL(fileURLWithPath: "../stackimport/Resources.stak").standardizedFileURL
+        guard FileManager.default.fileExists(atPath: fixture.path) else {
+            return
+        }
+
+        let result = try StackImportCImporter().importStack(at: fixture)
+        let document = result.document
+
+        #expect(document.stack.name == "Resources.stak")
+        #expect(document.stack.width == 480)
+        #expect(document.stack.height == 296)
+        #expect(document.backgrounds.count == 1)
+        #expect(document.cards.count == 10)
+        #expect(document.parts.contains { $0.partType == .image && $0.imageData != nil })
+        #expect(document.parts.contains { $0.partType == .button && $0.script.contains("goTopic") })
+        let importedScripts = [document.stack.script] + document.backgrounds.map(\.script) + document.cards.map(\.script) + document.parts.map(\.script)
+        for script in importedScripts where !script.isEmpty {
+            #expect(try parsedHandlerCount(script) == 0)
+        }
+        #expect(document.legacyImport?.embeddedDataFork?.isEmpty == false)
+    }
+
+    @Test("stackimport package keeps unnamed graphical buttons unlabeled")
+    func stackimportPackageKeepsUnnamedGraphicalButtonsUnlabeled() throws {
+        let packageFiles: [String: Data] = [
+            "project.json": Data("""
+            {"sourceFileName":"Squirt Sample","stackFile":"stack_-1.json","blocks":[],"fonts":[]}
+            """.utf8),
+            "stack_-1.json": Data("""
+            {"name":"Squirt Sample","cardWidth":512,"cardHeight":342,"script":"","pages":[{"cardIds":[100]}],"layers":[{"kind":"card","id":100,"file":"card_100.json"}]}
+            """.utf8),
+            "card_100.json": Data("""
+            {"id":100,"bitmap":null,"name":"Frame","script":"","parts":[{"id":1,"type":"button","style":"transparent","showName":true,"autoHighlight":false,"rect":{"left":0,"top":0,"right":512,"bottom":342},"name":"","script":"on mouseUp\\rgo next\\rend mouseUp"}],"contents":[]}
+            """.utf8),
+        ]
+
+        let result = try StackImportPackageConverter().convert(packageFiles: packageFiles)
+        let button = try #require(result.document.parts.first { $0.partType == .button })
+
+        #expect(button.name == "Button 1")
+        #expect(button.showName == false)
+        #expect(button.buttonStyle == .transparent)
+        #expect(button.script.contains("-- go next"))
+        #expect(try parsedHandlerCount(button.script) == 0)
     }
 
     @Test("parser accepts classic XCMD command syntax")
@@ -131,6 +182,10 @@ struct HyperCardImportTests {
         var lexer = Lexer(source: source)
         var parser = Parser(tokens: lexer.tokenize())
         return try parser.parse()
+    }
+
+    private func parsedHandlerCount(_ source: String) throws -> Int {
+        try parse(source).handlers.count
     }
 }
 

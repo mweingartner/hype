@@ -164,6 +164,25 @@ public struct HyperCardImportOptions: Sendable {
     }
 }
 
+public enum LegacyHyperTalkScript {
+    public static func disabledForHypeTalkRuntime(_ script: String) -> String {
+        let normalized = script
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\0"))
+        guard !normalized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return ""
+        }
+        let header = [
+            "-- Imported HyperCard script preserved for reference.",
+            "-- Disabled until translated to native HypeTalk.",
+        ]
+        let body = normalized.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { "-- \($0)" }
+        return (header + body).joined(separator: "\n")
+    }
+}
+
 public enum HyperCardImportError: Error, LocalizedError, Sendable, Equatable {
     case emptyInput
     case inputTooLarge(Int)
@@ -175,6 +194,8 @@ public enum HyperCardImportError: Error, LocalizedError, Sendable, Equatable {
     case notHyperCardStack
     case malformedResourceFork(String)
     case unsupportedArchive(String)
+    case stackimportFailed(String)
+    case generatedPackageInvalid(String)
 
     public var errorDescription: String? {
         switch self {
@@ -198,6 +219,10 @@ public enum HyperCardImportError: Error, LocalizedError, Sendable, Equatable {
             return "The resource fork is malformed: \(detail)"
         case .unsupportedArchive(let detail):
             return "Archive import is not implemented for this file: \(detail)"
+        case .stackimportFailed(let detail):
+            return "The stackimport C importer failed: \(detail)"
+        case .generatedPackageInvalid(let detail):
+            return "The stackimport package is invalid: \(detail)"
         }
     }
 }

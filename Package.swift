@@ -47,6 +47,7 @@ let package = Package(
         .target(
             name: "HypeCore",
             dependencies: [
+                "CStackImport",
                 .product(name: "AudioKit", package: "AudioKit"),
             ],
             path: "Sources/HypeCore",
@@ -55,7 +56,13 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
+                .linkedLibrary("c++"),
+                .unsafeFlags(["-L../stackimport/build-capi"]),
             ]
+        ),
+        .systemLibrary(
+            name: "CStackImport",
+            path: "Sources/CStackImport"
         ),
         .testTarget(
             name: "HypeCoreTests",
