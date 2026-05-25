@@ -128,7 +128,8 @@ struct ConsoleLogView: View {
                 Text(entry.source)
                     .foregroundColor(.purple)
                     .lineLimit(1)
-                    .frame(width: 80, alignment: .leading)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(width: 128, alignment: .leading)
             }
 
             // Message (selectable)

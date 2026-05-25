@@ -841,12 +841,26 @@ struct CardCanvasView: NSViewRepresentable {
             let buttonName = part.name.trimmingCharacters(in: .whitespacesAndNewlines)
             let cardName = card?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let scriptState = part.script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "empty script" : "script chars=\(part.script.count)"
-            let title = buttonName.isEmpty ? "button id \(part.id.uuidString)" : "button \"\(buttonName)\""
-            let cardTitle = cardName.isEmpty ? "card id \(currentCardId.uuidString)" : "card \"\(cardName)\""
+            let title = buttonName.isEmpty ? "button" : "button \"\(buttonName)\""
+            let cardTitle = cardName.isEmpty ? cardDisplayName(currentCardId) : "card \"\(cardName)\""
             HypeLogger.shared.info(
                 "\(title) pressed on \(cardTitle) at x=\(Int(mouseX.rounded())), y=\(Int(mouseY.rounded())) (\(scriptState))",
                 source: "Button Press"
             )
+        }
+
+        private func cardDisplayName(_ cardId: UUID) -> String {
+            let document = parent.document.document
+            if let card = document.cards.first(where: { $0.id == cardId }) {
+                let name = card.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !name.isEmpty {
+                    return "card \"\(name)\""
+                }
+            }
+            if let index = document.sortedCards.firstIndex(where: { $0.id == cardId }) {
+                return "card \(index + 1)"
+            }
+            return "card"
         }
 
         private func cardReferenceURL(cardId: UUID) -> URL? {
@@ -904,11 +918,12 @@ struct CardCanvasView: NSViewRepresentable {
                 }
                 // Handle navigation (e.g., go next card)
                 if let navTarget = result.navigationTarget {
+                    let cardTitle = cardDisplayName(navTarget)
                     HypeLogger.shared.log(
                         .info,
-                        "navigate to \(navTarget.uuidString.prefix(8))... effect=\(result.visualEffect ?? "nil") dur=\(result.visualEffectDuration ?? -1) nsView=\(nsView != nil ? "ok" : "NIL")",
+                        "navigate to \(cardTitle) effect=\(result.visualEffect ?? "nil") dur=\(result.visualEffectDuration ?? -1) nsView=\(nsView != nil ? "ok" : "NIL")",
                         source: "Navigation",
-                        actionTitle: "Go to card",
+                        actionTitle: "Go to \(cardTitle)",
                         actionURL: cardReferenceURL(cardId: navTarget)
                     )
                     if let effectName = result.visualEffect, !effectName.isEmpty {

@@ -332,6 +332,34 @@ struct StackRuntimeAsyncTests {
         #expect(result.navigationTarget == card2.id)
     }
 
+    @Test("repeated go next advances from the last navigation target")
+    func repeatedGoNextAdvancesFromLastNavigationTarget() async {
+        var doc = HypeDocument.newDocument(name: "Repeated Nav Test")
+        let _ = doc.addCard()
+        let _ = doc.addCard()
+        let sorted = doc.sortedCards
+        let card1 = sorted[0]
+        let card3 = sorted[2]
+        var button = Part(partType: .button, cardId: card1.id, name: "Next Twice")
+        button.script = """
+        on mouseUp
+          go next
+          go next
+        end mouseUp
+        """
+        doc.addPart(button)
+
+        let runtime = await StackRuntimeRegistry.shared.runtime(
+            for: doc,
+            configuration: runtimeConfiguration()
+        )
+        let result = await runtime.dispatchAndWait("mouseUp", params: [], targetId: button.id, currentCardId: card1.id)
+        await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
+
+        #expect(result.status == .completed)
+        #expect(result.navigationTarget == card3.id)
+    }
+
     @Test("wait while exits when condition is false")
     func waitWhileFalseCompletesWithoutSleeping() async {
         let clock = RecordingClock()

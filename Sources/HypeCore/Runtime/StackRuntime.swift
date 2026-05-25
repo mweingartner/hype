@@ -191,6 +191,7 @@ public struct TCPConnectionSpec: Sendable {
 
 public protocol ScriptRuntimeProviding: Sendable {
     func sleep(seconds: TimeInterval) async throws
+    func navigateToCard(_ cardId: UUID) async
     func enqueueMessage(
         _ message: String,
         params: [Value],
@@ -565,6 +566,10 @@ public actor StackRuntime: ScriptRuntimeProviding {
 
     public func sleep(seconds: TimeInterval) async throws {
         try await configuration.clock.sleep(seconds: seconds)
+    }
+
+    public func navigateToCard(_ cardId: UUID) async {
+        NotificationCenter.default.post(name: Notification.Name("navigateToCard"), object: cardId)
     }
 
     public func setSpeechListenerActive(_ active: Bool, owner: RuntimeOwnerContext) async throws {

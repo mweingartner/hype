@@ -1009,21 +1009,33 @@ public struct Interpreter: Sendable {
 
         case .go(let dest):
             let destValue = try await evaluate(dest, env: &env, document: document, context: context)
+            let sourceCardId = navigationTarget ?? context.currentCardId
             // Try to resolve destination to a card UUID.
             if let uuid = UUID(uuidString: destValue) {
                 navigationTarget = uuid
-                HypeLogger.shared.info(
-                    "go \(destValue) from card \(context.currentCardId.uuidString) resolved direct id \(uuid.uuidString)",
-                    source: "HypeTalk Runtime"
+                HypeLogger.shared.log(
+                    .info,
+                    "go direct card id from \(cardLogLabel(sourceCardId, document: document)) resolved \(cardLogLabel(uuid, document: document))",
+                    source: "HypeTalk Runtime",
+                    actionTitle: cardActionTitle(uuid, document: document),
+                    actionURL: cardReferenceURL(stackId: document.stack.id, cardId: uuid)
                 )
+                await context.runtimeProvider?.navigateToCard(uuid)
             } else {
                 // Try to find by name or navigation keyword.
-                let resolved = resolveNavigation(destValue, document: document, currentCardId: context.currentCardId)
+                let resolved = resolveNavigation(destValue, document: document, currentCardId: sourceCardId)
                 navigationTarget = resolved
-                HypeLogger.shared.info(
-                    "go \(destValue) from card \(context.currentCardId.uuidString) resolved \(resolved?.uuidString ?? "nil")",
-                    source: "HypeTalk Runtime"
+                let targetLabel = resolved.map { cardLogLabel($0, document: document) } ?? "no card"
+                HypeLogger.shared.log(
+                    .info,
+                    "go \(destValue) from \(cardLogLabel(sourceCardId, document: document)) resolved \(targetLabel)",
+                    source: "HypeTalk Runtime",
+                    actionTitle: resolved.map { cardActionTitle($0, document: document) },
+                    actionURL: resolved.flatMap { cardReferenceURL(stackId: document.stack.id, cardId: $0) }
                 )
+                if let resolved {
+                    await context.runtimeProvider?.navigateToCard(resolved)
+                }
             }
 
         case .ifThenElse(let cond, let thenBlock, let elseBlock):
@@ -4351,6 +4363,35 @@ public struct Interpreter: Sendable {
             }
             return nil
         }
+    }
+
+    private func cardLogLabel(_ cardId: UUID, document: HypeDocument) -> String {
+        guard let card = document.cards.first(where: { $0.id == cardId }) else {
+            return "unknown card"
+        }
+        let trimmedName = card.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedName.isEmpty {
+            return "card \"\(trimmedName)\""
+        }
+        if let index = document.sortedCards.firstIndex(where: { $0.id == cardId }) {
+            return "card \(index + 1)"
+        }
+        return "card"
+    }
+
+    private func cardActionTitle(_ cardId: UUID, document: HypeDocument) -> String {
+        "Go to \(cardLogLabel(cardId, document: document))"
+    }
+
+    private func cardReferenceURL(stackId: UUID, cardId: UUID) -> URL? {
+        var components = URLComponents()
+        components.scheme = "hype"
+        components.host = "card"
+        components.queryItems = [
+            URLQueryItem(name: "stack", value: stackId.uuidString),
+            URLQueryItem(name: "id", value: cardId.uuidString),
+        ]
+        return components.url
     }
 
     // MARK: - Helpers
