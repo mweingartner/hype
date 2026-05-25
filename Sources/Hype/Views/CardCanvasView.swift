@@ -2599,12 +2599,14 @@ class CardCanvasNSView: NSView {
 
         isTransitioning = true
 
+        let usesInSceneFlip = effect == .flipHorizontal || effect == .flipVertical
+
         // Render the current card as a texture BEFORE hiding
         // embedded subviews — renderToImage only captures the
         // CGContext-drawn content (buttons, fields, shapes, text),
         // not the NSView overlays. The texture is a complete-enough
         // representation of the card for the transition.
-        let currentNativePartIds = CardSKScene.nativeRenderablePartIds(document: document, cardId: currentCardId)
+        let currentNativePartIds = usesInSceneFlip ? [] : CardSKScene.nativeRenderablePartIds(document: document, cardId: currentCardId)
         let currentImage = renderer.renderToImage(document: document, cardId: currentCardId, size: size, nativePartIds: currentNativePartIds)
         HypeLogger.shared.debug("Current card rendered: \(Int(currentImage.size.width))×\(Int(currentImage.size.height))", source: "Transition")
 
@@ -2623,16 +2625,29 @@ class CardCanvasNSView: NSView {
 
         HypeLogger.shared.debug("SKView frame=\(skView.frame), superview=\(skView.superview != nil), window=\(skView.window != nil)", source: "Transition")
 
+        // Pre-render the new card texture
+        let newNativePartIds = usesInSceneFlip ? [] : CardSKScene.nativeRenderablePartIds(document: document, cardId: newCardId)
+        let newImage = renderer.renderToImage(document: document, cardId: newCardId, size: size, nativePartIds: newNativePartIds)
+        HypeLogger.shared.debug("New card rendered: \(Int(newImage.size.width))×\(Int(newImage.size.height))", source: "Transition")
+
+        if usesInSceneFlip {
+            performSafeFlipTransition(
+                in: skView,
+                currentImage: currentImage,
+                newImage: newImage,
+                cardSize: size,
+                effect: effect,
+                duration: dur
+            )
+            scheduleTransitionCleanup(duration: dur)
+            return true
+        }
+
         let currentScene = CardSKScene(cardSize: size)
         currentScene.updateCardTexture(currentImage)
         currentScene.updateNativeContent(document: document, cardId: currentCardId)
         skView.presentScene(currentScene)
         HypeLogger.shared.debug("Presented currentScene, skView.scene=\(skView.scene != nil)", source: "Transition")
-
-        // Pre-render the new card texture
-        let newNativePartIds = CardSKScene.nativeRenderablePartIds(document: document, cardId: newCardId)
-        let newImage = renderer.renderToImage(document: document, cardId: newCardId, size: size, nativePartIds: newNativePartIds)
-        HypeLogger.shared.debug("New card rendered: \(Int(newImage.size.width))×\(Int(newImage.size.height))", source: "Transition")
 
         let newScene = CardSKScene(cardSize: size)
         newScene.updateCardTexture(newImage)
@@ -2649,15 +2664,67 @@ class CardCanvasNSView: NSView {
             skView.presentScene(newScene, transition: transition)
         }
 
-        // Cleanup after transition
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.cleanupDelay(forTransitionDuration: dur)) { [weak self] in
+        scheduleTransitionCleanup(duration: dur)
+        return true
+    }
+
+    private func performSafeFlipTransition(
+        in skView: SKView,
+        currentImage: NSImage,
+        newImage: NSImage,
+        cardSize: CGSize,
+        effect: HypeCore.VisualEffect,
+        duration: TimeInterval
+    ) {
+        let scene = SKScene(size: cardSize)
+        scene.scaleMode = .resizeFill
+        scene.backgroundColor = .white
+
+        let currentNode = SKSpriteNode(texture: SKTexture(image: currentImage), size: cardSize)
+        currentNode.position = CGPoint(x: cardSize.width / 2, y: cardSize.height / 2)
+        currentNode.zPosition = 1
+        scene.addChild(currentNode)
+
+        let newNode = SKSpriteNode(texture: SKTexture(image: newImage), size: cardSize)
+        newNode.position = CGPoint(x: cardSize.width / 2, y: cardSize.height / 2)
+        newNode.zPosition = 2
+        newNode.isHidden = true
+        scene.addChild(newNode)
+
+        skView.presentScene(scene)
+        HypeLogger.shared.debug("Presented safe flip scene, skView.scene=\(skView.scene != nil)", source: "Transition")
+
+        let halfDuration = max(duration / 2, 0)
+        let shrink: SKAction
+        let grow: SKAction
+        switch effect {
+        case .flipVertical:
+            shrink = .scaleY(to: 0.001, duration: halfDuration)
+            grow = .scaleY(to: 1, duration: halfDuration)
+            newNode.yScale = 0.001
+        default:
+            shrink = .scaleX(to: 0.001, duration: halfDuration)
+            grow = .scaleX(to: 1, duration: halfDuration)
+            newNode.xScale = 0.001
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.transitionPrimingDelay) {
+            currentNode.run(shrink) {
+                currentNode.isHidden = true
+                newNode.isHidden = false
+                newNode.run(grow)
+            }
+        }
+    }
+
+    private func scheduleTransitionCleanup(duration: TimeInterval) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.cleanupDelay(forTransitionDuration: duration)) { [weak self] in
             HypeLogger.shared.info("Transition complete — hiding SKView, resuming draw()", source: "Transition")
             self?.isTransitioning = false
             self?.cardSKView?.isHidden = true
             self?.cardScene = nil
             self?.needsDisplay = true
         }
-        return true
     }
 
     /// Convert a HyperCard-style VisualEffect into an SKTransition.
