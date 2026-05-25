@@ -74,6 +74,7 @@ public enum PartCreationDefaults {
         case "pianoKeyboard": return PartCreationToolSpec(partType: .pianoKeyboard)
         case "stepSequencer": return PartCreationToolSpec(partType: .stepSequencer)
         case "musicMixer": return PartCreationToolSpec(partType: .musicMixer)
+        case "appleMusicBrowser": return PartCreationToolSpec(partType: .appleMusicBrowser)
         case "scene3D": return PartCreationToolSpec(partType: .scene3D)
         case "progressView": return PartCreationToolSpec(partType: .progressView)
         case "gauge": return PartCreationToolSpec(partType: .gauge)
@@ -114,7 +115,7 @@ public enum PartCreationDefaults {
             return PartDefaultSize(width: 240, height: 72)
         case .pianoKeyboard:
             return PartDefaultSize(width: 320, height: 96)
-        case .stepSequencer, .musicMixer:
+        case .stepSequencer, .musicMixer, .appleMusicBrowser, .musicQueue:
             return PartDefaultSize(width: 320, height: 180)
         case .gauge:
             return PartDefaultSize(width: 160, height: 60)

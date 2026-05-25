@@ -452,6 +452,15 @@ extension CardCanvasNSView {
             components.append("musicInstrument=\(part.musicInstrumentName)")
             components.append("musicTempo=\(part.musicTempo)")
             components.append("musicLoop=\(part.musicLoop)")
+        } else if part.partType == .appleMusicBrowser {
+            components.append("musicKitSearch=\(part.musicSearchTerm)")
+            components.append("musicKitScope=\(part.musicSearchScope)")
+            components.append("musicKitType=\(part.musicSourceType)")
+            if !part.musicSourceID.isEmpty {
+                components.append("musicKitSelection=\(part.musicSourceKind):\(part.musicSourceType):\(part.musicSourceID)")
+            }
+        } else if part.partType == .musicQueue {
+            components.append("musicQueueData=\(part.musicQueueData)")
         }
         return components.joined(separator: "; ")
     }

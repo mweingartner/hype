@@ -5,9 +5,31 @@ import CoreGraphics
 
 public struct MusicLibrary: Codable, Sendable, Equatable {
     public var patterns: [MusicPatternSpec]
+    /// Apple Music references are external licensed catalog/library items.
+    /// They persist as IDs + metadata snapshots only; Hype never embeds the
+    /// protected audio bytes in a stack.
+    public var appleMusicItems: [AppleMusicItemRef]
+    public var appleMusicQueues: [AppleMusicQueueSpec]
 
-    public init(patterns: [MusicPatternSpec] = []) {
+    private enum CodingKeys: String, CodingKey {
+        case patterns, appleMusicItems, appleMusicQueues
+    }
+
+    public init(
+        patterns: [MusicPatternSpec] = [],
+        appleMusicItems: [AppleMusicItemRef] = [],
+        appleMusicQueues: [AppleMusicQueueSpec] = []
+    ) {
         self.patterns = patterns
+        self.appleMusicItems = appleMusicItems
+        self.appleMusicQueues = appleMusicQueues
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        patterns = try container.decodeIfPresent([MusicPatternSpec].self, forKey: .patterns) ?? []
+        appleMusicItems = try container.decodeIfPresent([AppleMusicItemRef].self, forKey: .appleMusicItems) ?? []
+        appleMusicQueues = try container.decodeIfPresent([AppleMusicQueueSpec].self, forKey: .appleMusicQueues) ?? []
     }
 
     public func pattern(named name: String) -> MusicPatternSpec? {
@@ -20,6 +42,34 @@ public struct MusicLibrary: Codable, Sendable, Equatable {
             patterns[index] = pattern
         } else {
             patterns.append(pattern)
+        }
+    }
+
+    public func appleMusicItem(id: String, kind: AppleMusicItemKind? = nil) -> AppleMusicItemRef? {
+        let needle = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        return appleMusicItems.reversed().first {
+            $0.id == needle && (kind == nil || $0.kind == kind)
+        }
+    }
+
+    public mutating func upsertAppleMusicItem(_ item: AppleMusicItemRef) {
+        if let index = appleMusicItems.firstIndex(where: { $0.id == item.id && $0.kind == item.kind && $0.source == item.source }) {
+            appleMusicItems[index] = item
+        } else {
+            appleMusicItems.append(item)
+        }
+    }
+
+    public func appleMusicQueue(named name: String) -> AppleMusicQueueSpec? {
+        let needle = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return appleMusicQueues.reversed().first { $0.name.lowercased() == needle }
+    }
+
+    public mutating func upsertAppleMusicQueue(_ queue: AppleMusicQueueSpec) {
+        if let index = appleMusicQueues.firstIndex(where: { $0.name.caseInsensitiveCompare(queue.name) == .orderedSame }) {
+            appleMusicQueues[index] = queue
+        } else {
+            appleMusicQueues.append(queue)
         }
     }
 }
@@ -327,11 +377,18 @@ public enum MusicInstrumentCatalog {
 #if canImport(CoreGraphics)
 public struct MusicControlPlaybackRequest: Sendable, Equatable {
     public var pattern: MusicPatternSpec
+    public var appleMusicItem: AppleMusicItemRef?
     public var loop: Bool
     public var triggerIdentifier: String?
 
-    public init(pattern: MusicPatternSpec, loop: Bool = false, triggerIdentifier: String? = nil) {
+    public init(
+        pattern: MusicPatternSpec,
+        appleMusicItem: AppleMusicItemRef? = nil,
+        loop: Bool = false,
+        triggerIdentifier: String? = nil
+    ) {
         self.pattern = pattern
+        self.appleMusicItem = appleMusicItem
         self.loop = loop
         self.triggerIdentifier = triggerIdentifier
     }
@@ -379,13 +436,23 @@ public enum MusicControlInteraction {
             return boundPatternRequest(for: part, document: document) ?? demoPatternRequest(for: part)
         case .musicPlayer, .musicMixer:
             return boundPatternRequest(for: part, document: document) ?? demoPatternRequest(for: part)
+        case .appleMusicBrowser, .musicQueue:
+            return nil
         default:
             return nil
         }
     }
 
     public static func keyboardRect(in partRect: CGRect) -> CGRect {
-        partRect.insetBy(dx: 12, dy: 44)
+        let horizontalInset: CGFloat = 12
+        let titleHeight: CGFloat = 44
+        let bottomInset: CGFloat = 12
+        return CGRect(
+            x: partRect.minX + horizontalInset,
+            y: partRect.minY + titleHeight,
+            width: max(0, partRect.width - horizontalInset * 2),
+            height: max(0, partRect.height - titleHeight - bottomInset)
+        )
     }
 
     public static func stepSequencerGridRect(in partRect: CGRect) -> CGRect {

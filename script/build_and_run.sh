@@ -264,6 +264,8 @@ fi
   <string>$MIN_SYSTEM_VERSION</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>Hype uses the microphone for voice input in the AI Chat panel (transcribed locally and sent to your AI model as text) and for recording audio into Audio Recorder parts in your stacks.</string>
+  <key>NSAppleMusicUsageDescription</key>
+  <string>Hype uses Apple Music access only when you enable it, authorize MusicKit, and use a stack that requests catalog or library music references for playback.</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
   <key>NSSpeechRecognitionUsageDescription</key>

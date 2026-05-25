@@ -43,6 +43,12 @@ public struct Stack: Identifiable, Codable, Sendable {
     /// `webAssetsAllowed`).
     public var meshyEnabled: Bool
 
+    /// Whether Apple Music catalog/library access is enabled for this stack.
+    /// This gates MusicKit AI tools and HypeTalk commands because the user's
+    /// Apple Music library and playback state are personal data and externally
+    /// licensed content.
+    public var appleMusicAllowed: Bool
+
     /// Whether this stack should open in end-user runtime mode.
     ///
     /// This is stack data, not an application preference: a stack distributed
@@ -65,6 +71,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         case webAssetsAllowed
         case aiContextCloudSharingAllowed
         case meshyEnabled
+        case appleMusicAllowed
         case runtimeModeEnabled
         case themeName
     }
@@ -82,6 +89,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         webAssetsAllowed: Bool = false,
         aiContextCloudSharingAllowed: Bool = false,
         meshyEnabled: Bool = false,
+        appleMusicAllowed: Bool = false,
         runtimeModeEnabled: Bool = false,
         themeName: String = "System"
     ) {
@@ -97,6 +105,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         self.webAssetsAllowed = webAssetsAllowed
         self.aiContextCloudSharingAllowed = aiContextCloudSharingAllowed
         self.meshyEnabled = meshyEnabled
+        self.appleMusicAllowed = appleMusicAllowed
         self.runtimeModeEnabled = runtimeModeEnabled
         self.themeName = themeName
     }
@@ -119,6 +128,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         // Defaults to false (opt-in), matching the existing privacy-on-by-default
         // pattern for webAssetsAllowed.
         meshyEnabled = try c.decodeIfPresent(Bool.self, forKey: .meshyEnabled) ?? false
+        appleMusicAllowed = try c.decodeIfPresent(Bool.self, forKey: .appleMusicAllowed) ?? false
         // Backward-compatible: pre-runtime-mode stacks open in edit mode.
         runtimeModeEnabled = try c.decodeIfPresent(Bool.self, forKey: .runtimeModeEnabled) ?? false
         // Backward-compatible: pre-theme stacks default to "System".

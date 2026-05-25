@@ -95,7 +95,7 @@ public enum HypeSQLiteStackStoreError: Error, LocalizedError, Equatable {
 }
 
 public final class HypeSQLiteStackStore {
-    public static let schemaVersion = 3
+    public static let schemaVersion = 4
     public static let manifestFileName = "manifest.json"
     public static let sqliteFileName = "stack.sqlite"
 
@@ -208,11 +208,14 @@ public final class HypeSQLiteStackStore {
             "stacks", "backgrounds", "cards", "parts", "scripts",
             "assets", "ai_context_sources", "ai_context_items",
             "sprite_areas", "scenes", "scene_nodes", "themes",
-            "paint_layers", "constraints", "search_fts",
+            "paint_layers", "constraints", "music_patterns", "music_tracks",
+            "music_notes", "apple_music_items", "apple_music_queues", "search_fts",
         ]
         var tableCounts: [String: Int] = [:]
         for table in tableNames {
-            tableCounts[table] = try db.scalarInt("SELECT COUNT(*) FROM \(table)")
+            tableCounts[table] = try db.tableExists(table)
+                ? try db.scalarInt("SELECT COUNT(*) FROM \(table)")
+                : 0
         }
         let missingAssetRefs = try db.countRows("""
             SELECT scene_nodes.id
@@ -482,6 +485,34 @@ public final class HypeSQLiteStackStore {
             ) STRICT
             """)
         try db.execute("""
+            CREATE TABLE apple_music_items (
+                id TEXT PRIMARY KEY,
+                stack_id TEXT NOT NULL REFERENCES stacks(id) ON DELETE CASCADE,
+                source_kind TEXT NOT NULL,
+                item_kind TEXT NOT NULL,
+                title TEXT NOT NULL,
+                artist TEXT NOT NULL,
+                album TEXT NOT NULL,
+                artwork_url TEXT NOT NULL,
+                duration REAL,
+                storefront TEXT NOT NULL,
+                document_order INTEGER NOT NULL,
+                payload_json TEXT NOT NULL
+            ) STRICT
+            """)
+        try db.execute("""
+            CREATE TABLE apple_music_queues (
+                id TEXT PRIMARY KEY,
+                stack_id TEXT NOT NULL REFERENCES stacks(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                item_count INTEGER NOT NULL,
+                shuffle INTEGER NOT NULL,
+                repeat_mode TEXT NOT NULL,
+                document_order INTEGER NOT NULL,
+                payload_json TEXT NOT NULL
+            ) STRICT
+            """)
+        try db.execute("""
             CREATE TABLE ai_context_sources (
                 id TEXT PRIMARY KEY,
                 stack_id TEXT NOT NULL REFERENCES stacks(id) ON DELETE CASCADE,
@@ -612,10 +643,13 @@ public final class HypeSQLiteStackStore {
         try db.execute("CREATE INDEX idx_assets_name ON assets(stack_id, name COLLATE NOCASE)")
         try db.execute("CREATE INDEX idx_music_patterns_name ON music_patterns(stack_id, name COLLATE NOCASE)")
         try db.execute("CREATE INDEX idx_music_tracks_pattern_sort ON music_tracks(pattern_id, document_order)")
+        try db.execute("CREATE INDEX idx_apple_music_items_lookup ON apple_music_items(stack_id, item_kind, id)")
+        try db.execute("CREATE INDEX idx_apple_music_queues_name ON apple_music_queues(stack_id, name COLLATE NOCASE)")
         try db.execute("CREATE VIEW v_card_layout AS SELECT cards.name AS card, parts.name AS part, parts.part_type, parts.left, parts.top, parts.width, parts.height, parts.document_order FROM cards JOIN parts ON parts.card_id = cards.id")
         try db.execute("CREATE VIEW v_object_scripts AS SELECT owner_type, owner_id, parse_status, substr(source, 1, 160) AS preview FROM scripts")
         try db.execute("CREATE VIEW v_missing_asset_refs AS SELECT scene_nodes.id AS node_id, scene_nodes.name, scene_nodes.asset_id FROM scene_nodes LEFT JOIN assets ON assets.id = scene_nodes.asset_id WHERE scene_nodes.asset_id IS NOT NULL AND assets.id IS NULL")
         try db.execute("CREATE VIEW v_music_patterns AS SELECT music_patterns.name AS pattern, music_patterns.tempo, music_tracks.name AS track, music_tracks.instrument, music_tracks.document_order FROM music_patterns LEFT JOIN music_tracks ON music_tracks.pattern_id = music_patterns.id")
+        try db.execute("CREATE VIEW v_apple_music_items AS SELECT title, artist, album, source_kind, item_kind, id FROM apple_music_items")
     }
 
     private func insertDocument(_ document: HypeDocument, db: SQLiteDatabase) throws {
@@ -774,6 +808,16 @@ public final class HypeSQLiteStackStore {
                 .map { "\($0.name) \($0.instrument)\n\($0.noteString)" }
                 .joined(separator: "\n")
             try insertSearch(objectType: "music_pattern", objectId: pattern.id.uuidString, title: pattern.name, body: body, tags: "music pattern", db: db)
+        }
+        for (index, item) in document.musicLibrary.appleMusicItems.enumerated() {
+            try insertAppleMusicItem(item, stackId: document.stack.id, documentOrder: index, db: db)
+            let body = [item.artistSnapshot, item.albumSnapshot, item.encodedSource].filter { !$0.isEmpty }.joined(separator: "\n")
+            try insertSearch(objectType: "apple_music_item", objectId: item.id, title: item.titleSnapshot, body: body, tags: "apple music \(item.kind.rawValue) \(item.source.rawValue)", db: db)
+        }
+        for (index, queue) in document.musicLibrary.appleMusicQueues.enumerated() {
+            try insertAppleMusicQueue(queue, stackId: document.stack.id, documentOrder: index, db: db)
+            let body = queue.items.map { "\($0.titleSnapshot) \($0.artistSnapshot)" }.joined(separator: "\n")
+            try insertSearch(objectType: "apple_music_queue", objectId: queue.id.uuidString, title: queue.name, body: body, tags: "apple music queue", db: db)
         }
 
         for (index, source) in document.aiContextLibrary.sources.enumerated() {
@@ -971,6 +1015,51 @@ public final class HypeSQLiteStackStore {
         }
     }
 
+    private func insertAppleMusicItem(_ item: AppleMusicItemRef, stackId: UUID, documentOrder: Int, db: SQLiteDatabase) throws {
+        try db.execute(
+            """
+            INSERT INTO apple_music_items (
+                id, stack_id, source_kind, item_kind, title, artist, album, artwork_url,
+                duration, storefront, document_order, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                .text(item.id),
+                .text(stackId.uuidString),
+                .text(item.source.rawValue),
+                .text(item.kind.rawValue),
+                .text(item.titleSnapshot),
+                .text(item.artistSnapshot),
+                .text(item.albumSnapshot),
+                .text(item.artworkURLSnapshot),
+                item.durationSnapshot.map { .double($0) } ?? .null,
+                .text(item.storefront),
+                .int(Int64(documentOrder)),
+                .text(try encode(item)),
+            ]
+        )
+    }
+
+    private func insertAppleMusicQueue(_ queue: AppleMusicQueueSpec, stackId: UUID, documentOrder: Int, db: SQLiteDatabase) throws {
+        try db.execute(
+            """
+            INSERT INTO apple_music_queues (
+                id, stack_id, name, item_count, shuffle, repeat_mode, document_order, payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                .text(queue.id.uuidString),
+                .text(stackId.uuidString),
+                .text(queue.name),
+                .int(Int64(queue.items.count)),
+                .int(queue.shuffle.sqliteInt),
+                .text(queue.repeatMode),
+                .int(Int64(documentOrder)),
+                .text(try encode(queue)),
+            ]
+        )
+    }
+
     private func insertSceneNodes(_ nodes: [HypeNodeSpec], sceneId: UUID, parentNodeId: UUID?, db: SQLiteDatabase) throws {
         for (index, node) in nodes.enumerated() {
             let scriptId = try insertScript(ownerType: "scene_node", ownerId: node.id.uuidString, source: node.script, db: db)
@@ -1099,7 +1188,13 @@ public final class HypeSQLiteStackStore {
             return try loadDocumentValue(MusicLibrary.self, key: "musicLibrary", db: db) ?? MusicLibrary()
         }
         let patterns: [MusicPatternSpec] = try loadPayloadRows(MusicPatternSpec.self, db: db, table: "music_patterns")
-        return MusicLibrary(patterns: patterns)
+        let appleMusicItems: [AppleMusicItemRef] = try db.tableExists("apple_music_items")
+            ? loadPayloadRows(AppleMusicItemRef.self, db: db, table: "apple_music_items")
+            : (try loadDocumentValue(MusicLibrary.self, key: "musicLibrary", db: db)?.appleMusicItems ?? [])
+        let appleMusicQueues: [AppleMusicQueueSpec] = try db.tableExists("apple_music_queues")
+            ? loadPayloadRows(AppleMusicQueueSpec.self, db: db, table: "apple_music_queues")
+            : (try loadDocumentValue(MusicLibrary.self, key: "musicLibrary", db: db)?.appleMusicQueues ?? [])
+        return MusicLibrary(patterns: patterns, appleMusicItems: appleMusicItems, appleMusicQueues: appleMusicQueues)
     }
 
     private func encode<T: Encodable>(_ value: T) throws -> String {

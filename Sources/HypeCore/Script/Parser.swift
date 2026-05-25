@@ -68,6 +68,35 @@ public struct Parser: Sendable {
         return tokens[index]
     }
 
+    private func isAppleMusicPhrase(startingAt offset: Int = 0) -> Bool {
+        guard let first = peek(offset),
+              first.type == .identifier else { return false }
+        let value = first.value.lowercased()
+        if value == "applemusic" { return true }
+        guard value == "apple",
+              let second = peek(offset + 1),
+              second.type == .identifier else { return false }
+        return second.value.lowercased() == "music"
+    }
+
+    @discardableResult
+    private mutating func consumeAppleMusicPhrase() -> Bool {
+        guard current.type == .identifier else { return false }
+        let value = current.value.lowercased()
+        if value == "applemusic" {
+            _ = advance()
+            return true
+        }
+        if value == "apple",
+           peek(1)?.type == .identifier,
+           peek(1)?.value.lowercased() == "music" {
+            _ = advance()
+            _ = advance()
+            return true
+        }
+        return false
+    }
+
     // MARK: - Top-level
 
     /// Parse the full script into handler declarations.
@@ -255,15 +284,35 @@ public struct Parser: Sendable {
                 skipNewlines()
                 return .expressionStatement(expr)
             case "pause":
+                if isAppleMusicPhrase(startingAt: 1) {
+                    return try parsePauseAppleMusicStatement()
+                }
                 if peek(1)?.type == .identifier && peek(1)?.value.lowercased() == "music" {
                     return try parsePauseMusicStatement()
                 }
                 return try parsePauseSceneStatement()
             case "resume":
+                if isAppleMusicPhrase(startingAt: 1) {
+                    return try parseResumeAppleMusicStatement()
+                }
                 if peek(1)?.type == .identifier && peek(1)?.value.lowercased() == "music" {
                     return try parseResumeMusicStatement()
                 }
                 return try parseResumeSceneStatement()
+            case "authorize":
+                if isAppleMusicPhrase(startingAt: 1) {
+                    return try parseAuthorizeAppleMusicStatement()
+                }
+                let expr = try parseExpression()
+                skipNewlines()
+                return .expressionStatement(expr)
+            case "search":
+                if isAppleMusicPhrase(startingAt: 1) {
+                    return try parseSearchAppleMusicStatement()
+                }
+                let expr = try parseExpression()
+                skipNewlines()
+                return .expressionStatement(expr)
             case "loop":
                 if peek(1)?.type == .identifier && peek(1)?.value.lowercased() == "pattern" {
                     return try parseLoopMusicPatternStatement()
@@ -1696,6 +1745,10 @@ public struct Parser: Sendable {
 
     private mutating func parseStopStatement() throws -> Statement {
         _ = try expect(.stop)
+        if consumeAppleMusicPhrase() {
+            skipNewlines()
+            return .stopAppleMusic
+        }
         if current.type == .identifier && current.value.lowercased() == "music" {
             _ = advance()
             skipNewlines()
@@ -1800,6 +1853,15 @@ public struct Parser: Sendable {
             skipNewlines()
             return .playMusicPattern(name: name, loop: loop)
         }
+        // play appleMusic song|album|playlist|station "id"
+        // play apple music song|album|playlist|station "id"
+        if consumeAppleMusicPhrase() {
+            let typeToken = current.type == .identifier ? current.value : "song"
+            if current.type == .identifier { _ = advance() }
+            let id = try parseExpression()
+            skipNewlines()
+            return .playAppleMusic(source: MusicSourceKind.appleMusicCatalog.rawValue, itemType: typeToken, id: id)
+        }
         // play <soundExpr> [tempo N] [<notesExpr>]
         let sound = try parseExpression()
         var tempo: Expression? = nil
@@ -1890,6 +1952,66 @@ public struct Parser: Sendable {
         _ = advance() // music
         skipNewlines()
         return .resumeMusic
+    }
+
+    private mutating func parseAuthorizeAppleMusicStatement() throws -> Statement {
+        _ = advance() // authorize
+        _ = consumeAppleMusicPhrase()
+        skipNewlines()
+        return .authorizeAppleMusic
+    }
+
+    private mutating func parseSearchAppleMusicStatement() throws -> Statement {
+        _ = advance() // search
+        _ = consumeAppleMusicPhrase()
+        var scope = AppleMusicSearchScope.catalog.rawValue
+        if current.type == .identifier && current.value.lowercased() == "library" {
+            scope = AppleMusicSearchScope.library.rawValue
+            _ = advance()
+        }
+        if current.type == .identifier && current.value.lowercased() == "for" {
+            _ = advance()
+        }
+        let term = try parseExpression()
+        var itemType: String?
+        var limit: Expression?
+        while current.type != .newline && current.type != .eof {
+            switch current.value.lowercased() {
+            case "type", "kind":
+                _ = advance()
+                if current.type != .newline && current.type != .eof {
+                    itemType = current.value
+                    _ = advance()
+                }
+            case "scope":
+                _ = advance()
+                if current.type != .newline && current.type != .eof {
+                    scope = current.value
+                    _ = advance()
+                }
+            case "limit":
+                _ = advance()
+                limit = try parsePrimary()
+            default:
+                _ = advance()
+            }
+        }
+        skipNewlines()
+        return .searchAppleMusic(term: term, scope: scope, itemType: itemType, limit: limit)
+    }
+
+    private mutating func parsePauseAppleMusicStatement() throws -> Statement {
+        _ = advance() // pause
+        _ = consumeAppleMusicPhrase()
+        skipNewlines()
+        return .pauseAppleMusic
+    }
+
+    private mutating func parseResumeAppleMusicStatement() throws -> Statement {
+        _ = advance() // resume
+        _ = consumeAppleMusicPhrase()
+        skipNewlines()
+        return .resumeAppleMusic
     }
 
     private mutating func parseWaitStatement() throws -> Statement {
@@ -2266,7 +2388,7 @@ public struct Parser: Sendable {
         case .card, .background, .field, .button, .stack, .webpage, .image, .video, .sprite, .spritearea, .scene, .request, .connection, .listener:
             return try parseObjectReference()
 
-        case .identifier where ["label", "shape", "audio", "chart", "calendar", "pdf", "map", "colorwell", "color_well", "stepper", "slider", "segmented", "recorder", "audiorecorder", "musicplayer", "music", "pianokeyboard", "keyboard", "stepsequencer", "sequencer", "musicmixer", "mixer", "scene3d", "scene3D", "model3d", "model3D", "progressview", "progress", "gauge", "divider"].contains(current.value.lowercased()):
+        case .identifier where ["label", "shape", "audio", "chart", "calendar", "pdf", "map", "colorwell", "color_well", "stepper", "slider", "segmented", "recorder", "audiorecorder", "musicplayer", "music", "pianokeyboard", "keyboard", "stepsequencer", "sequencer", "musicmixer", "mixer", "applemusicbrowser", "musicbrowser", "musicqueue", "scene3d", "scene3D", "model3d", "model3D", "progressview", "progress", "gauge", "divider"].contains(current.value.lowercased()):
             // Scene node types and HypeTalk part types recognized as
             // object references. Two-word kinds ("color well") aren't
             // tokenized as identifiers so we only accept the

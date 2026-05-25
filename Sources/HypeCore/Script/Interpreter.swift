@@ -66,6 +66,15 @@ public protocol SystemProvider: Sendable {
     func pauseMusic() async
     func resumeMusic() async
     func currentMusicState() async -> String
+    func appleMusicAuthorizationStatus() async -> AppleMusicAuthorizationState
+    func authorizeAppleMusic() async -> AppleMusicAuthorizationState
+    func appleMusicCapabilities() async -> AppleMusicCapabilities
+    func searchAppleMusic(_ request: AppleMusicSearchRequest) async throws -> [AppleMusicItemRef]
+    func playAppleMusic(_ item: AppleMusicItemRef, engine: AppleMusicPlaybackEngine) async throws
+    func pauseAppleMusic(engine: AppleMusicPlaybackEngine) async
+    func resumeAppleMusic(engine: AppleMusicPlaybackEngine) async throws
+    func stopAppleMusic(engine: AppleMusicPlaybackEngine) async
+    func currentAppleMusicState(engine: AppleMusicPlaybackEngine) async -> String
 }
 
 public extension SystemProvider {
@@ -79,6 +88,15 @@ public extension SystemProvider {
     func pauseMusic() async {}
     func resumeMusic() async {}
     func currentMusicState() async -> String { "stopped" }
+    func appleMusicAuthorizationStatus() async -> AppleMusicAuthorizationState { .unavailable }
+    func authorizeAppleMusic() async -> AppleMusicAuthorizationState { .unavailable }
+    func appleMusicCapabilities() async -> AppleMusicCapabilities { AppleMusicCapabilities() }
+    func searchAppleMusic(_ request: AppleMusicSearchRequest) async throws -> [AppleMusicItemRef] { throw AppleMusicProviderError.unavailable }
+    func playAppleMusic(_ item: AppleMusicItemRef, engine: AppleMusicPlaybackEngine) async throws { throw AppleMusicProviderError.unavailable }
+    func pauseAppleMusic(engine: AppleMusicPlaybackEngine) async {}
+    func resumeAppleMusic(engine: AppleMusicPlaybackEngine) async throws { throw AppleMusicProviderError.unavailable }
+    func stopAppleMusic(engine: AppleMusicPlaybackEngine) async {}
+    func currentAppleMusicState(engine: AppleMusicPlaybackEngine) async -> String { "unavailable" }
 }
 
 /// Default system provider that does nothing (used when no UI is available).
@@ -1505,6 +1523,74 @@ public struct Interpreter: Sendable {
             env.it = "playing"
             env.result = "playing"
 
+        case .authorizeAppleMusic:
+            guard document.stack.appleMusicAllowed else {
+                throw ScriptError(message: "Apple Music is disabled for this stack", line: handler.line, handler: handler.name)
+            }
+            let status = await context.systemProvider.authorizeAppleMusic()
+            env.it = status.rawValue
+            env.result = status.rawValue
+
+        case .searchAppleMusic(let termExpr, let scopeRaw, let itemTypeRaw, let limitExpr):
+            guard document.stack.appleMusicAllowed else {
+                throw ScriptError(message: "Apple Music is disabled for this stack", line: handler.line, handler: handler.name)
+            }
+            let term = try await evaluate(termExpr, env: &env, document: document, context: context)
+            let limit = limitExpr == nil
+                ? 10
+                : max(1, Int(toNumber(try await evaluate(limitExpr!, env: &env, document: document, context: context))))
+            let scope = AppleMusicSearchScope(rawValue: scopeRaw.lowercased()) ?? .catalog
+            let kinds = itemTypeRaw.flatMap { AppleMusicItemKind.parse($0) }.map { [$0] }
+                ?? [.song, .album, .artist, .playlist, .station]
+            let request = AppleMusicSearchRequest(term: term, scope: scope, itemKinds: kinds, limit: limit)
+            do {
+                let refs = try await context.systemProvider.searchAppleMusic(request)
+                for ref in refs {
+                    document.musicLibrary.upsertAppleMusicItem(ref)
+                }
+                let encoded = encodeAppleMusicRefs(refs)
+                env.it = encoded
+                env.result = encoded
+            } catch {
+                throw ScriptError(message: "Apple Music search failed: \(error.localizedDescription)", line: handler.line, handler: handler.name)
+            }
+
+        case .playAppleMusic(let sourceRaw, let itemTypeRaw, let idExpr):
+            guard document.stack.appleMusicAllowed else {
+                throw ScriptError(message: "Apple Music is disabled for this stack", line: handler.line, handler: handler.name)
+            }
+            let id = try await evaluate(idExpr, env: &env, document: document, context: context)
+            let source = MusicSourceKind.parse(sourceRaw)
+            let kind = AppleMusicItemKind.parse(itemTypeRaw) ?? .song
+            let ref = document.musicLibrary.appleMusicItem(id: id, kind: kind)
+                ?? AppleMusicItemRef(id: id, kind: kind, source: source, titleSnapshot: id)
+            do {
+                try await context.systemProvider.playAppleMusic(ref, engine: .application)
+                env.it = ref.encodedSource
+                env.result = ref.encodedSource
+            } catch {
+                throw ScriptError(message: "Apple Music playback failed: \(error.localizedDescription)", line: handler.line, handler: handler.name)
+            }
+
+        case .stopAppleMusic:
+            await context.systemProvider.stopAppleMusic(engine: .application)
+            env.it = "stopped"
+            env.result = "stopped"
+
+        case .pauseAppleMusic:
+            await context.systemProvider.pauseAppleMusic(engine: .application)
+            env.it = "paused"
+            env.result = "paused"
+
+        case .resumeAppleMusic:
+            do {
+                try await context.systemProvider.resumeAppleMusic(engine: .application)
+                env.it = "playing"
+                env.result = "playing"
+            } catch {
+                throw ScriptError(message: "Apple Music resume failed: \(error.localizedDescription)", line: handler.line, handler: handler.name)
+            }
+
         case .exportMusicPattern(let nameExpr, let assetNameExpr):
             let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
             let assetNameValue = try await evaluate(assetNameExpr, env: &env, document: document, context: context)
@@ -2930,6 +3016,19 @@ public struct Interpreter: Sendable {
             return await context.systemProvider.currentSoundName()
         case "musicstate":
             return await context.systemProvider.currentMusicState()
+        case "applemusicstate":
+            return await context.systemProvider.currentAppleMusicState(engine: .application)
+        case "applemusicauthorization", "applemusicstatus":
+            return await context.systemProvider.appleMusicAuthorizationStatus().rawValue
+        case "applemusiccapabilities":
+            let caps = await context.systemProvider.appleMusicCapabilities()
+            return [
+                "authorization=\(caps.authorization.rawValue)",
+                "canPlayCatalogContent=\(caps.canPlayCatalogContent)",
+                "canBecomeSubscriber=\(caps.canBecomeSubscriber)",
+                "hasCloudLibraryEnabled=\(caps.hasCloudLibraryEnabled)",
+                "supportsLibraryMutation=\(caps.supportsLibraryMutation)"
+            ].joined(separator: "\n")
         case "musicpatterns":
             return context.document.musicLibrary.patterns.map(\.name).joined(separator: "\n")
         case "musicinstruments":
@@ -3034,6 +3133,19 @@ public struct Interpreter: Sendable {
                 return await context.systemProvider.currentSoundName()
             case "musicstate":
                 return await context.systemProvider.currentMusicState()
+            case "applemusicstate":
+                return await context.systemProvider.currentAppleMusicState(engine: .application)
+            case "applemusicauthorization", "applemusicstatus":
+                return await context.systemProvider.appleMusicAuthorizationStatus().rawValue
+            case "applemusiccapabilities":
+                let caps = await context.systemProvider.appleMusicCapabilities()
+                return [
+                    "authorization=\(caps.authorization.rawValue)",
+                    "canPlayCatalogContent=\(caps.canPlayCatalogContent)",
+                    "canBecomeSubscriber=\(caps.canBecomeSubscriber)",
+                    "hasCloudLibraryEnabled=\(caps.hasCloudLibraryEnabled)",
+                    "supportsLibraryMutation=\(caps.supportsLibraryMutation)"
+                ].joined(separator: "\n")
             case "musicpatterns":
                 return document.musicLibrary.patterns.map(\.name).joined(separator: "\n")
             case "musicinstruments":
@@ -3505,6 +3617,30 @@ public struct Interpreter: Sendable {
             return formatNumber(part.musicVolume)
         case "musictracks", "music_tracks", "trackdata", "track_data":
             return part.musicTrackData
+        case "musicsource", "music_source":
+            return part.musicSourceKind == MusicSourceKind.hypePattern.rawValue
+                ? part.musicPatternName
+                : [part.musicSourceKind, part.musicSourceType, part.musicSourceID].joined(separator: ":")
+        case "musicsourcekind", "music_source_kind", "sourcekind", "source_kind":
+            return part.musicSourceKind
+        case "applemusicid", "apple_music_id", "musicid", "music_id":
+            return part.musicSourceID
+        case "applemusictype", "apple_music_type", "musictype", "music_type":
+            return part.musicSourceType
+        case "applemusictitle", "apple_music_title", "musictitle", "music_title":
+            return part.musicSourceTitle
+        case "applemusicartist", "apple_music_artist", "musicartist", "music_artist":
+            return part.musicSourceArtist
+        case "applemusicalbum", "apple_music_album", "musicalbum", "music_album":
+            return part.musicSourceAlbum
+        case "artwork", "artworkurl", "artwork_url", "musicartwork", "music_artwork":
+            return part.musicArtworkURL
+        case "musicqueue", "music_queue", "queuedata", "queue_data":
+            return part.musicQueueData
+        case "musicsearchterm", "music_search_term", "searchterm", "search_term":
+            return part.musicSearchTerm
+        case "musicsearchscope", "music_search_scope", "searchscope", "search_scope":
+            return part.musicSearchScope
         // Scene3D
         case "imagefilter", "image_filter", "filter": return part.imageFilter
         case "imagefilterintensity", "image_filter_intensity", "filterintensity", "filter_intensity": return formatNumber(part.imageFilterIntensity)
@@ -3943,6 +4079,14 @@ public struct Interpreter: Sendable {
             if let part = document.parts.first(where: { $0.partType == .musicMixer && $0.name.lowercased() == identifier.lowercased() }) {
                 return part.id.uuidString
             }
+        case "applemusicbrowser", "musicbrowser":
+            if let part = document.parts.first(where: { $0.partType == .appleMusicBrowser && $0.name.lowercased() == identifier.lowercased() }) {
+                return part.id.uuidString
+            }
+        case "musicqueue":
+            if let part = document.parts.first(where: { $0.partType == .musicQueue && $0.name.lowercased() == identifier.lowercased() }) {
+                return part.id.uuidString
+            }
         // `link`, `menu`, `searchfield` once had their own PartType
         // values; `Part.init(from:)` (Part.swift:610-648) migrates
         // any decoded part with those types to its canonical form
@@ -4087,6 +4231,8 @@ public struct Interpreter: Sendable {
         case "pianokeyboard", "keyboard": targetType = .pianoKeyboard
         case "stepsequencer", "sequencer": targetType = .stepSequencer
         case "musicmixer", "mixer": targetType = .musicMixer
+        case "applemusicbrowser", "musicbrowser": targetType = .appleMusicBrowser
+        case "musicqueue": targetType = .musicQueue
         case "scene3d", "model3d": targetType = .scene3D
         case "progressview", "progress": targetType = .progressView
         case "gauge": targetType = .gauge
@@ -4641,6 +4787,39 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].musicVolume = min(1, max(0, toNumber(value)))
         case "musictracks", "music_tracks", "trackdata", "track_data":
             document.parts[partIndex].musicTrackData = value
+        case "musicsource", "music_source":
+            if let ref = AppleMusicItemRef.decodeSource(value) {
+                document.parts[partIndex].musicSourceKind = ref.source.rawValue
+                document.parts[partIndex].musicSourceType = ref.kind.rawValue
+                document.parts[partIndex].musicSourceID = ref.id
+                document.parts[partIndex].musicSourceTitle = ref.titleSnapshot
+                document.parts[partIndex].musicSourceArtist = ref.artistSnapshot
+                document.parts[partIndex].musicSourceAlbum = ref.albumSnapshot
+                document.parts[partIndex].musicArtworkURL = ref.artworkURLSnapshot
+            } else {
+                document.parts[partIndex].musicSourceKind = MusicSourceKind.hypePattern.rawValue
+                document.parts[partIndex].musicPatternName = value
+            }
+        case "musicsourcekind", "music_source_kind", "sourcekind", "source_kind":
+            document.parts[partIndex].musicSourceKind = MusicSourceKind.parse(value).rawValue
+        case "applemusicid", "apple_music_id", "musicid", "music_id":
+            document.parts[partIndex].musicSourceID = value
+        case "applemusictype", "apple_music_type", "musictype", "music_type":
+            document.parts[partIndex].musicSourceType = AppleMusicItemKind.parse(value)?.rawValue ?? value
+        case "applemusictitle", "apple_music_title", "musictitle", "music_title":
+            document.parts[partIndex].musicSourceTitle = value
+        case "applemusicartist", "apple_music_artist", "musicartist", "music_artist":
+            document.parts[partIndex].musicSourceArtist = value
+        case "applemusicalbum", "apple_music_album", "musicalbum", "music_album":
+            document.parts[partIndex].musicSourceAlbum = value
+        case "artwork", "artworkurl", "artwork_url", "musicartwork", "music_artwork":
+            document.parts[partIndex].musicArtworkURL = value
+        case "musicqueue", "music_queue", "queuedata", "queue_data":
+            document.parts[partIndex].musicQueueData = value
+        case "musicsearchterm", "music_search_term", "searchterm", "search_term":
+            document.parts[partIndex].musicSearchTerm = value
+        case "musicsearchscope", "music_search_scope", "searchscope", "search_scope":
+            document.parts[partIndex].musicSearchScope = AppleMusicSearchScope(rawValue: value.lowercased())?.rawValue ?? AppleMusicSearchScope.catalog.rawValue
         // Scene3D
         case "imagefilter", "image_filter", "filter":
             document.parts[partIndex].imageFilter = value.lowercased() == "none" ? "" : value.lowercased()
@@ -4983,6 +5162,16 @@ public struct Interpreter: Sendable {
             ))
         }
         return assetName
+    }
+
+    private func encodeAppleMusicRefs(_ refs: [AppleMusicItemRef]) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(refs),
+              let json = String(data: data, encoding: .utf8) else {
+            return refs.map(\.encodedSource).joined(separator: "\n")
+        }
+        return json
     }
 
     /// Convert a HypeTalk value to a number. Non-numeric strings become 0.
@@ -5527,6 +5716,12 @@ public struct Interpreter: Sendable {
         case .pauseMusic: return "pauseMusic"
         case .resumeMusic: return "resumeMusic"
         case .exportMusicPattern: return "exportMusicPattern"
+        case .authorizeAppleMusic: return "authorizeAppleMusic"
+        case .searchAppleMusic: return "searchAppleMusic"
+        case .playAppleMusic: return "playAppleMusic"
+        case .pauseAppleMusic: return "pauseAppleMusic"
+        case .resumeAppleMusic: return "resumeAppleMusic"
+        case .stopAppleMusic: return "stopAppleMusic"
         case .beep: return "beep"
         case .waitDuration: return "waitDuration"
         case .waitUntil: return "waitUntil"

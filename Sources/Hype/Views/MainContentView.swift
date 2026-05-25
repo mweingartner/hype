@@ -627,7 +627,10 @@ private struct NavigationHandlers: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .selectTool)) { notification in
                 guard let tool = notification.object as? ToolName else { return }
                 currentTool = tool
-                selectedPartIds = []
+                let preserveSelection = notification.userInfo?[ToolSelectionNotification.preserveSelectionUserInfoKey] as? Bool ?? false
+                if !preserveSelection {
+                    selectedPartIds = []
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .navigateToCard)) { notification in
                 guard let cardId = notification.object as? UUID else { return }

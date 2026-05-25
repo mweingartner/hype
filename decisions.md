@@ -30,6 +30,7 @@ document semantics.
 
 - Keep AI authoring deterministic where tools exist. Prefer validated tools and templates over freehand raw script or node edits.
 - Keep model prompts concise and source-grounded. Large catalogs should be discoverable through tools rather than always injected into the system prompt.
+- Expand AI context through explicit, auditable tools rather than by adding large dynamic catalogs, private libraries, or broad project data directly to the prompt window.
 - Keep core deterministic creation offline. Optional OpenAI, Ollama, Meshy, web, or image-generation passes must not be required for baseline local template creation.
 - Treat provider integrations as user-controlled side effects. Respect existing preferences, keychain handling, hostname allowlists, and stack-level opt-in gates.
 - For stack context memory, use the stack-scoped AI context library and avoid secrets, API keys, credentials, or private tokens.

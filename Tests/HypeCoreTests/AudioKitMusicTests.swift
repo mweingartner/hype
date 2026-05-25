@@ -15,6 +15,18 @@ struct AudioKitMusicTests {
         case state
     }
 
+    private enum AppleMusicEvent: Equatable, Sendable {
+        case authorize
+        case capabilities
+        case search(term: String, scope: String, kinds: [String], limit: Int)
+        case play(String)
+        case playQueue(String)
+        case pause
+        case resume
+        case stop
+        case state
+    }
+
     private actor RecordingMusicProvider: SystemProvider {
         private var events: [MusicEvent] = []
 
@@ -40,6 +52,151 @@ struct AudioKitMusicTests {
         }
 
         func recordedEvents() -> [MusicEvent] {
+            events
+        }
+    }
+
+    private actor RecordingAppleMusicProvider: AppleMusicProviding {
+        nonisolated var isAvailable: Bool { true }
+
+        private var events: [AppleMusicEvent] = []
+        private let results: [AppleMusicItemRef]
+
+        init(results: [AppleMusicItemRef]) {
+            self.results = results
+        }
+
+        func authorizationStatus() async -> AppleMusicAuthorizationState {
+            .authorized
+        }
+
+        func requestAuthorization() async -> AppleMusicAuthorizationState {
+            events.append(.authorize)
+            return .authorized
+        }
+
+        func capabilities() async -> AppleMusicCapabilities {
+            events.append(.capabilities)
+            return AppleMusicCapabilities(
+                authorization: .authorized,
+                canPlayCatalogContent: true,
+                canBecomeSubscriber: false,
+                hasCloudLibraryEnabled: true,
+                supportsLibraryMutation: false,
+                storefront: "us"
+            )
+        }
+
+        func search(_ request: AppleMusicSearchRequest) async throws -> [AppleMusicItemRef] {
+            events.append(.search(
+                term: request.term,
+                scope: request.scope.rawValue,
+                kinds: request.itemKinds.map(\.rawValue),
+                limit: request.limit
+            ))
+            return Array(results.prefix(request.limit))
+        }
+
+        func play(_ item: AppleMusicItemRef, engine: AppleMusicPlaybackEngine) async throws {
+            events.append(.play(item.encodedSource))
+        }
+
+        func playQueue(_ queue: AppleMusicQueueSpec, engine: AppleMusicPlaybackEngine) async throws {
+            events.append(.playQueue(queue.name))
+        }
+
+        func pause(engine: AppleMusicPlaybackEngine) async {
+            events.append(.pause)
+        }
+
+        func resume(engine: AppleMusicPlaybackEngine) async throws {
+            events.append(.resume)
+        }
+
+        func stop(engine: AppleMusicPlaybackEngine) async {
+            events.append(.stop)
+        }
+
+        func skipToNext(engine: AppleMusicPlaybackEngine) async throws {}
+
+        func skipToPrevious(engine: AppleMusicPlaybackEngine) async throws {}
+
+        func currentPlaybackState(engine: AppleMusicPlaybackEngine) async -> String {
+            events.append(.state)
+            return "playing"
+        }
+
+        func rawAPIRequest(path: String, method: String, body: Data?) async throws -> Data {
+            Data("{}".utf8)
+        }
+
+        func createPlaylist(name: String, description: String?, items: [AppleMusicItemRef]) async throws -> AppleMusicItemRef {
+            throw AppleMusicProviderError.unsupported("Playlist mutation is unavailable in tests.")
+        }
+
+        func add(_ item: AppleMusicItemRef, toPlaylist playlist: AppleMusicItemRef?) async throws {
+            throw AppleMusicProviderError.unsupported("Library mutation is unavailable in tests.")
+        }
+
+        func recordedEvents() -> [AppleMusicEvent] {
+            events
+        }
+    }
+
+    private actor RecordingAppleMusicSystemProvider: SystemProvider {
+        private var events: [AppleMusicEvent] = []
+        private let results: [AppleMusicItemRef]
+
+        init(results: [AppleMusicItemRef]) {
+            self.results = results
+        }
+
+        func authorizeAppleMusic() async -> AppleMusicAuthorizationState {
+            events.append(.authorize)
+            return .authorized
+        }
+
+        func appleMusicAuthorizationStatus() async -> AppleMusicAuthorizationState {
+            .authorized
+        }
+
+        func appleMusicCapabilities() async -> AppleMusicCapabilities {
+            events.append(.capabilities)
+            return AppleMusicCapabilities(authorization: .authorized, canPlayCatalogContent: true)
+        }
+
+        func searchAppleMusic(_ request: AppleMusicSearchRequest) async throws -> [AppleMusicItemRef] {
+            events.append(.search(
+                term: request.term,
+                scope: request.scope.rawValue,
+                kinds: request.itemKinds.map(\.rawValue),
+                limit: request.limit
+            ))
+            return Array(results.prefix(request.limit))
+        }
+
+        func playAppleMusic(_ item: AppleMusicItemRef, engine: AppleMusicPlaybackEngine) async throws {
+            events.append(.play(item.encodedSource))
+        }
+
+        func pauseAppleMusic(engine: AppleMusicPlaybackEngine) async {
+            events.append(.pause)
+        }
+
+        func resumeAppleMusic(engine: AppleMusicPlaybackEngine) async throws {
+            events.append(.resume)
+        }
+
+        func stopAppleMusic(engine: AppleMusicPlaybackEngine) async {
+            events.append(.stop)
+        }
+
+        func currentAppleMusicState(engine: AppleMusicPlaybackEngine) async -> String {
+            events.append(.state)
+            return "playing"
+        }
+
+        func recordedEvents() -> [AppleMusicEvent] {
             events
         }
     }
@@ -93,6 +250,22 @@ struct AudioKitMusicTests {
           answer the musicState
           answer the musicPatterns
           answer the musicInstruments
+          authorize appleMusic
+          search appleMusic for "Miles Davis" type songs limit 10
+          play appleMusic song "123456789"
+          pause appleMusic
+          resume appleMusic
+          stop appleMusic
+          authorize apple music
+          search apple music library for "Kind of Blue" kind album limit 5
+          play apple music album "album123"
+          pause apple music
+          resume apple music
+          stop apple music
+          set the musicSource of musicPlayer "Theme Player" to "appleMusicCatalog:song:123456789"
+          answer the appleMusicState
+          answer the appleMusicAuthorization
+          answer the appleMusicCapabilities
         end mouseUp
         """))
     }
@@ -213,6 +386,53 @@ struct AudioKitMusicTests {
         #expect(pattern.tracks.first?.noteString == "c4q d4q e4q")
     }
 
+    @Test("Apple Music references and queues round-trip through SQLite")
+    func appleMusicSQLiteRoundTrip() throws {
+        let store = HypeSQLiteStackStore()
+        let packageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AppleMusic-\(UUID().uuidString).hype", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: packageURL) }
+
+        var document = HypeDocument.newDocument(name: "Apple Music Stack")
+        document.stack.appleMusicAllowed = true
+        let item = AppleMusicItemRef(
+            id: "song123",
+            kind: .song,
+            source: .appleMusicCatalog,
+            titleSnapshot: "So What",
+            artistSnapshot: "Miles Davis",
+            albumSnapshot: "Kind of Blue",
+            artworkURLSnapshot: "https://example.invalid/art.jpg",
+            durationSnapshot: 545,
+            storefront: "us"
+        )
+        document.musicLibrary.upsertAppleMusicItem(item)
+        document.musicLibrary.upsertAppleMusicQueue(AppleMusicQueueSpec(name: "Jazz Queue", items: [item]))
+
+        var player = Part(partType: .musicPlayer, cardId: document.cards[0].id, name: "Apple Player")
+        player.musicSourceKind = item.source.rawValue
+        player.musicSourceType = item.kind.rawValue
+        player.musicSourceID = item.id
+        player.musicSourceTitle = item.titleSnapshot
+        player.musicSourceArtist = item.artistSnapshot
+        player.musicSourceAlbum = item.albumSnapshot
+        player.musicArtworkURL = item.artworkURLSnapshot
+        document.addPart(player)
+
+        try store.save(document, toPackageAt: packageURL)
+        let loaded = try store.load(fromPackageAt: packageURL)
+
+        #expect(loaded.stack.appleMusicAllowed == true)
+        let loadedItem = try #require(loaded.musicLibrary.appleMusicItem(id: "song123", kind: .song))
+        #expect(loadedItem.titleSnapshot == "So What")
+        #expect(loadedItem.artistSnapshot == "Miles Davis")
+        #expect(loaded.musicLibrary.appleMusicQueue(named: "Jazz Queue")?.items.first?.id == "song123")
+        let loadedPlayer = try #require(loaded.parts.first { $0.name == "Apple Player" })
+        #expect(loadedPlayer.musicSourceKind == MusicSourceKind.appleMusicCatalog.rawValue)
+        #expect(loadedPlayer.musicSourceID == "song123")
+        #expect(loadedPlayer.musicSourceTitle == "So What")
+    }
+
     @Test("AI tools create patterns, controls, and portable audio assets")
     func aiTools() async throws {
         var document = HypeDocument.newDocument(name: "Music Tools")
@@ -258,6 +478,157 @@ struct AudioKitMusicTests {
         #expect(document.spriteRepository.asset(byName: "Theme WAV")?.mimeType == "audio/wav")
     }
 
+    @Test("AI Apple Music tools require opt-in, preserve privacy, and bind playback references")
+    func aiAppleMusicTools() async throws {
+        let resultItem = AppleMusicItemRef(
+            id: "song123",
+            kind: .song,
+            source: .appleMusicCatalog,
+            titleSnapshot: "So What",
+            artistSnapshot: "Miles Davis",
+            albumSnapshot: "Kind of Blue"
+        )
+        let provider = RecordingAppleMusicProvider(results: [resultItem])
+        let executor = HypeToolExecutor(
+            webAssetSession: nil,
+            webAssetClient: nil,
+            webAssetPipeline: nil,
+            appleMusicProvider: provider
+        )
+        var document = HypeDocument.newDocument(name: "Music Tools")
+        let cardId = document.cards[0].id
+
+        var response = await executor.execute(
+            toolName: "search_apple_music",
+            arguments: ["query": "Miles Davis"],
+            document: &document,
+            currentCardId: cardId
+        )
+        #expect(response.contains("disabled for this stack"))
+
+        document.stack.appleMusicAllowed = true
+        response = await executor.execute(
+            toolName: "search_apple_music",
+            arguments: [
+                "query": "Miles Davis",
+                "scope": "library",
+            ],
+            document: &document,
+            currentCardId: cardId
+        )
+        #expect(response.contains("include_private_library_context=true"))
+        #expect(await provider.recordedEvents().isEmpty)
+
+        response = await executor.execute(
+            toolName: "search_apple_music",
+            arguments: [
+                "query": "Miles Davis",
+                "types": "song",
+                "limit": "1",
+            ],
+            document: &document,
+            currentCardId: cardId
+        )
+        #expect(response.contains("appleMusicCatalog:song:song123"))
+        #expect(document.musicLibrary.appleMusicItem(id: "song123", kind: .song)?.titleSnapshot == "So What")
+
+        _ = await executor.execute(
+            toolName: "create_apple_music_browser",
+            arguments: [
+                "name": "Miles Search",
+                "left": "10", "top": "20", "width": "280", "height": "90",
+                "query": "Miles Davis",
+                "types": "song",
+            ],
+            document: &document,
+            currentCardId: cardId
+        )
+        let searchControl = try #require(document.parts.first { $0.partType == .appleMusicBrowser })
+        #expect(searchControl.musicSearchTerm == "Miles Davis")
+        #expect(searchControl.musicSourceType == "song")
+
+        response = await executor.execute(
+            toolName: "set_apple_music_selection",
+            arguments: [
+                "player_name": "Miles Search",
+                "item_id": "song123",
+                "item_type": "song",
+                "source": "appleMusicCatalog",
+            ],
+            document: &document,
+            currentCardId: cardId
+        )
+        #expect(response.contains("So What"))
+
+        response = await executor.execute(
+            toolName: "play_apple_music",
+            arguments: [
+                "item_id": "song123",
+                "item_type": "song",
+                "source": "appleMusicCatalog",
+            ],
+            document: &document,
+            currentCardId: cardId
+        )
+        #expect(response.contains("Playing Apple Music song"))
+        let events = await provider.recordedEvents()
+        #expect(events.contains(.search(term: "Miles Davis", scope: "catalog", kinds: ["song"], limit: 1)))
+        #expect(events.contains(.play("appleMusicCatalog:song:song123")))
+    }
+
+    @Test("Interpreter dispatches Apple Music commands through the system provider")
+    func interpreterAppleMusicLifecycle() async throws {
+        let item = AppleMusicItemRef(
+            id: "song123",
+            kind: .song,
+            source: .appleMusicCatalog,
+            titleSnapshot: "So What",
+            artistSnapshot: "Miles Davis"
+        )
+        var document = HypeDocument.newDocument(name: "Apple Music Script")
+        document.stack.appleMusicAllowed = true
+        let cardId = document.cards[0].id
+        document.addPart(Part(partType: .field, cardId: cardId, name: "status"))
+        document.cards[0].script = """
+        on openCard
+          authorize apple music
+          search apple music for "Miles Davis" type song limit 1
+          play apple music song "song123"
+          pause apple music
+          resume apple music
+          put the appleMusicState into field "status"
+          stop apple music
+        end openCard
+        """
+
+        let provider = RecordingAppleMusicSystemProvider(results: [item])
+        let runtime = StackRuntime(
+            document: document,
+            configuration: StackRuntimeConfiguration(systemProvider: provider)
+        )
+        let result = await runtime.dispatchAndWait(
+            "openCard",
+            params: [],
+            targetId: cardId,
+            currentCardId: cardId
+        )
+
+        #expect(result.status == .completed)
+        let modified = try #require(result.modifiedDocument)
+        #expect(modified.musicLibrary.appleMusicItem(id: "song123", kind: .song)?.titleSnapshot == "So What")
+        #expect(modified.parts.first(where: { $0.name == "status" })?.textContent == "playing")
+        let events = await provider.recordedEvents()
+        #expect(events == [
+            .authorize,
+            .search(term: "Miles Davis", scope: "catalog", kinds: ["song"], limit: 1),
+            .play("appleMusicCatalog:song:song123"),
+            .pause,
+            .resume,
+            .state,
+            .stop,
+        ])
+    }
+
     @Test("Tool catalog exposes music tools to the card authoring surface")
     func toolCatalogIncludesMusic() {
         let names = Set(HypeToolDefinitions.cardControlAuthoringTools.map(\.function.name))
@@ -269,6 +640,18 @@ struct AudioKitMusicTests {
         #expect(names.contains("create_piano_keyboard"))
         #expect(names.contains("create_step_sequencer"))
         #expect(names.contains("create_music_mixer"))
+        #expect(names.contains("get_apple_music_capabilities"))
+        #expect(names.contains("authorize_apple_music"))
+        #expect(names.contains("search_apple_music"))
+        #expect(names.contains("set_apple_music_selection"))
+        #expect(!names.contains("set_music_player_source"))
+        #expect(names.contains("play_apple_music"))
+        #expect(names.contains("play_music_player"))
+        #expect(names.contains("pause_apple_music"))
+        #expect(names.contains("resume_apple_music"))
+        #expect(names.contains("stop_apple_music"))
+        #expect(names.contains("create_apple_music_browser"))
+        #expect(!names.contains("create_music_queue"))
     }
 
     #if canImport(CoreGraphics)
@@ -306,6 +689,35 @@ struct AudioKitMusicTests {
         #expect(blackRequest.pattern.tracks.first?.noteString == "c#4e")
         #expect(whiteRequest.triggerIdentifier != blackRequest.triggerIdentifier)
         #expect(whiteRequest.triggerIdentifier?.contains("keyboard:") == true)
+    }
+
+    @Test("default piano keyboard size has a visible playable key area")
+    func defaultPianoKeyboardSizeIsPlayable() throws {
+        let document = HypeDocument.newDocument(name: "Default Keyboard")
+        let size = PartCreationDefaults.defaultSize(for: .pianoKeyboard)
+        let keyboard = Part(
+            partType: .pianoKeyboard,
+            cardId: document.cards[0].id,
+            name: "Keys",
+            left: 10,
+            top: 20,
+            width: size.width,
+            height: size.height
+        )
+        let keyRect = MusicControlInteraction.keyboardRect(
+            in: CGRect(x: keyboard.left, y: keyboard.top, width: keyboard.width, height: keyboard.height)
+        )
+
+        #expect(keyRect.width > 20)
+        #expect(keyRect.height > 18)
+
+        let request = try #require(MusicControlInteraction.playbackRequest(
+            for: keyboard,
+            document: document,
+            clickPoint: CGPoint(x: keyRect.minX + 4, y: keyRect.midY)
+        ))
+        #expect(request.pattern.tracks.first?.noteString == "c4e")
+        #expect(request.triggerIdentifier?.contains("keyboard:") == true)
     }
 
     @Test("Piano Keyboard drag targets identify key changes")
@@ -474,6 +886,67 @@ struct AudioKitMusicTests {
         #expect(request.pattern.name == "Theme")
         #expect(request.pattern.tracks.first?.instrument == "Flute")
         #expect(request.loop == true)
+    }
+
+    @Test("AudioKit music players ignore Apple Music references during browse playback")
+    func audioKitMusicPlayerIgnoresAppleMusicReference() throws {
+        var document = HypeDocument.newDocument(name: "Apple Music Player")
+        document.stack.appleMusicAllowed = true
+        let item = AppleMusicItemRef(
+            id: "song123",
+            kind: .song,
+            source: .appleMusicCatalog,
+            titleSnapshot: "So What",
+            artistSnapshot: "Miles Davis"
+        )
+        document.musicLibrary.upsertAppleMusicItem(item)
+        var player = Part(
+            partType: .musicPlayer,
+            cardId: document.cards[0].id,
+            name: "Apple Player",
+            left: 0,
+            top: 0,
+            width: 240,
+            height: 100
+        )
+        player.musicSourceKind = item.source.rawValue
+        player.musicSourceType = item.kind.rawValue
+        player.musicSourceID = item.id
+        player.musicSourceTitle = item.titleSnapshot
+        player.musicSourceArtist = item.artistSnapshot
+
+        let request = try #require(MusicControlInteraction.playbackRequest(
+            for: player,
+            document: document,
+            clickPoint: CGPoint(x: 20, y: 60)
+        ))
+        #expect(request.appleMusicItem == nil)
+        #expect(request.pattern.name == "Apple Player Demo")
+        #expect(request.loop == false)
+    }
+
+    @Test("MusicKit Search controls do not masquerade as AudioKit playback controls")
+    func musicKitSearchControlDoesNotCreateAudioKitPlaybackRequest() throws {
+        var document = HypeDocument.newDocument(name: "MusicKit Search")
+        var search = Part(
+            partType: .appleMusicBrowser,
+            cardId: document.cards[0].id,
+            name: "Miles Search",
+            left: 0,
+            top: 0,
+            width: 320,
+            height: 120
+        )
+        search.musicSearchTerm = "Miles Davis"
+        search.musicSourceType = AppleMusicItemKind.song.rawValue
+        search.musicSearchScope = AppleMusicSearchScope.catalog.rawValue
+        document.addPart(search)
+
+        #expect(MusicControlInteraction.playbackRequest(
+            for: search,
+            document: document,
+            clickPoint: CGPoint(x: 20, y: 60)
+        ) == nil)
     }
 
     @Test("AudioKit piano-key playback uses fresh loaded samplers")

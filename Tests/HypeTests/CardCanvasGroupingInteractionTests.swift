@@ -108,6 +108,37 @@ struct CardCanvasGroupingInteractionTests {
         #expect(nsView.currentTool == .select)
     }
 
+    @Test("rapid shift placement keeps the creation tool active and accumulates selection")
+    func rapidCreationPlacementKeepsToolAndAccumulatedSelection() throws {
+        let (state, cardId, coordinator, nsView) = emptyCanvasFixture()
+
+        let firstId = try #require(nsView.commitCreationTool(
+            .button,
+            at: CGPoint(x: 13, y: 21),
+            modifierFlags: [.shift],
+            mode: .appendSelectionKeepPlacementTool
+        ))
+        let secondId = try #require(nsView.commitCreationTool(
+            .button,
+            at: CGPoint(x: 125, y: 21),
+            modifierFlags: [.shift],
+            mode: .appendSelectionKeepPlacementTool
+        ))
+        withExtendedLifetime(coordinator) {}
+
+        let first = try #require(state.wrapper.document.part(byId: firstId))
+        let second = try #require(state.wrapper.document.part(byId: secondId))
+        #expect(first.cardId == cardId)
+        #expect(second.cardId == cardId)
+        #expect(first.partType == .button)
+        #expect(second.partType == .button)
+        #expect(first.left == 13)
+        #expect(second.left == 125)
+        #expect(state.selectedPartIds == [firstId, secondId])
+        #expect(nsView.currentTool == .button)
+        #expect(state.wrapper.document.constraints.isEmpty)
+    }
+
     @Test("arrow nudges every grouped member by the 8-point grid through canvas key handling")
     func arrowNudgesWholeGroupByGridUnit() throws {
         let (state, firstId, secondId, coordinator, nsView) = try groupedFixture()

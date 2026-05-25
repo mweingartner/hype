@@ -980,6 +980,10 @@ private class PassthroughSKView: SKView {
 
 class CardCanvasNSView: NSView {
     private static let objectToolPasteboardType = NSPasteboard.PasteboardType(ObjectToolCatalog.dragPasteboardTypeRaw)
+    private static let objectToolPasteboardTypes: [NSPasteboard.PasteboardType] = [
+        objectToolPasteboardType,
+        .string,
+    ]
 
     struct ToolTipDescriptor: Equatable {
         let partId: UUID
@@ -994,12 +998,18 @@ class CardCanvasNSView: NSView {
         case spray(radius: Int, colorToken: String)
     }
 
+    enum CreationCommitMode: Equatable {
+        case replaceSelectionAndSelectTool
+        case appendSelectionKeepPlacementTool
+    }
+
     var document: HypeDocument = HypeDocument()
     var currentCardId: UUID = UUID()
     var currentTool: ToolName = .browse
     var selectedPartIds: Set<UUID> = []
     var editingBackground: Bool = false
     weak var coordinator: CardCanvasView.Coordinator?
+    var musicControlPlaybackHandler: ((MusicControlPlaybackRequest, HypeDocument) -> Void)?
 
     /// Configure the layer-backing and redraw policy required for the
     /// card canvas to behave correctly. Both `wantsLayer = true` (so
@@ -1017,7 +1027,7 @@ class CardCanvasNSView: NSView {
     func configureForCardCanvasRendering() {
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
-        registerForDraggedTypes([Self.objectToolPasteboardType])
+        registerForDraggedTypes(Self.objectToolPasteboardTypes)
     }
 
     /// Keep process-wide animation callbacks pointed at the active canvas.
@@ -1768,10 +1778,19 @@ class CardCanvasNSView: NSView {
     }
 
     private func playMusicControlRequest(_ request: MusicControlPlaybackRequest) {
+        if let musicControlPlaybackHandler {
+            musicControlPlaybackHandler(request, document)
+            return
+        }
+
         let provider = AppKitSystemProvider()
         let snapshot = document
         Task {
-            await provider.playMusicPattern(request.pattern, loop: request.loop, document: snapshot)
+            if let appleMusicItem = request.appleMusicItem, snapshot.stack.appleMusicAllowed {
+                try? await provider.playAppleMusic(appleMusicItem, engine: .application)
+            } else {
+                await provider.playMusicPattern(request.pattern, loop: request.loop, document: snapshot)
+            }
         }
     }
 
@@ -2590,15 +2609,21 @@ class CardCanvasNSView: NSView {
     }
 
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        paletteTool(from: sender.draggingPasteboard) != nil
+        Self.paletteTool(from: sender.draggingPasteboard) != nil
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let tool = paletteTool(from: sender.draggingPasteboard) else {
+        guard let tool = Self.paletteTool(from: sender.draggingPasteboard) else {
             return false
         }
         let point = convert(sender.draggingLocation, from: nil)
-        _ = commitCreationTool(tool, dragStart: nil, at: point, modifierFlags: NSEvent.modifierFlags)
+        _ = commitCreationTool(
+            tool,
+            dragStart: nil,
+            at: point,
+            modifierFlags: NSEvent.modifierFlags,
+            mode: .replaceSelectionAndSelectTool
+        )
         paletteDragTool = nil
         paletteDragPoint = nil
         activeGuides = []
@@ -2614,7 +2639,7 @@ class CardCanvasNSView: NSView {
     }
 
     private func updatePaletteDrag(from sender: NSDraggingInfo) -> Bool {
-        guard let tool = paletteTool(from: sender.draggingPasteboard),
+        guard let tool = Self.paletteTool(from: sender.draggingPasteboard),
               let toolSpec = PartCreationDefaults.toolSpec(for: tool.rawValue) else {
             return false
         }
@@ -2639,13 +2664,15 @@ class CardCanvasNSView: NSView {
         return true
     }
 
-    private func paletteTool(from pasteboard: NSPasteboard) -> ToolName? {
-        guard let raw = pasteboard.string(forType: Self.objectToolPasteboardType),
-              let tool = ToolName(rawValue: raw),
-              PartCreationDefaults.toolSpec(for: raw) != nil else {
-            return nil
+    static func paletteTool(from pasteboard: NSPasteboard) -> ToolName? {
+        for type in objectToolPasteboardTypes {
+            guard let payload = pasteboard.string(forType: type),
+                  let tool = ObjectToolCatalog.toolName(fromDragPayload: payload) else {
+                continue
+            }
+            return tool
         }
-        return tool
+        return nil
     }
 
     // MARK: - Mouse events
@@ -2697,10 +2724,15 @@ class CardCanvasNSView: NSView {
 
         let rawHitPart = renderer.partAtPoint(point, document: document, cardId: currentCardId)
 
-        // Filter hit part based on editing mode: only allow selecting parts
-        // on the layer being edited.
+        let toolCheck = ToolState(currentTool: currentTool.rawValue)
+
+        // Filter hit parts only for edit-mode authoring. Browse mode must hit
+        // the topmost visible card or background part so background controls
+        // remain playable after switching to runtime mode.
         let hitPart: Part?
-        if let part = rawHitPart {
+        if toolCheck.category == .browse {
+            hitPart = rawHitPart
+        } else if let part = rawHitPart {
             if editingBackground && part.cardId != nil {
                 hitPart = nil  // Can't select card parts when editing background
             } else if !editingBackground && part.backgroundId != nil && part.cardId == nil {
@@ -2727,8 +2759,6 @@ class CardCanvasNSView: NSView {
         }
 
         // Double-click on a part in browse mode → dispatch message and open properties
-        let toolCheck = ToolState(currentTool: currentTool.rawValue)
-
         // Cmd+click in browse mode: open script editor for the
         // topmost part under the cursor, regardless of editing
         // mode. Uses rawHitPart (not the editing-mode-filtered
@@ -3189,7 +3219,15 @@ class CardCanvasNSView: NSView {
 
         switch result {
         case .createPart(_, _, _):
-            _ = commitCreationTool(currentTool, dragStart: dragStart, at: point, modifierFlags: event.modifierFlags)
+            let rapidPlacement = event.modifierFlags.contains(.shift)
+                && !isExplicitCreationDrag(from: dragStart, to: point)
+            _ = commitCreationTool(
+                currentTool,
+                dragStart: dragStart,
+                at: point,
+                modifierFlags: event.modifierFlags,
+                mode: rapidPlacement ? .appendSelectionKeepPlacementTool : .replaceSelectionAndSelectTool
+            )
         case .sendMessage(let partId, let message):
             coordinator?.dispatchMessage(message, to: partId)
         default:
@@ -4642,7 +4680,8 @@ class CardCanvasNSView: NSView {
         _ tool: ToolName,
         dragStart: CGPoint? = nil,
         at point: CGPoint,
-        modifierFlags: NSEvent.ModifierFlags = []
+        modifierFlags: NSEvent.ModifierFlags = [],
+        mode: CreationCommitMode = .replaceSelectionAndSelectTool
     ) -> UUID? {
         guard let toolSpec = PartCreationDefaults.toolSpec(for: tool.rawValue) else {
             return nil
@@ -4685,15 +4724,40 @@ class CardCanvasNSView: NSView {
         }
 
         coordinator?.addPart(newPart)
-        coordinator?.selectPart(newPart.id)
+        switch mode {
+        case .replaceSelectionAndSelectTool:
+            coordinator?.selectPart(newPart.id)
+        case .appendSelectionKeepPlacementTool:
+            coordinator?.addToSelection(newPart.id)
+        }
         if let updatedDocument = coordinator?.parent.document.document {
             document = updatedDocument
         }
-        selectedPartIds = document.expandedGroupSelection([newPart.id])
-        currentTool = .select
+        switch mode {
+        case .replaceSelectionAndSelectTool:
+            selectedPartIds = document.expandedGroupSelection([newPart.id])
+            currentTool = .select
+        case .appendSelectionKeepPlacementTool:
+            selectedPartIds.formUnion(document.expandedGroupSelection([newPart.id]))
+            currentTool = tool
+        }
         activeGuides = []
-        NotificationCenter.default.post(name: .selectTool, object: ToolName.select)
+        if mode == .replaceSelectionAndSelectTool {
+            NotificationCenter.default.post(
+                name: .selectTool,
+                object: ToolName.select,
+                userInfo: [ToolSelectionNotification.preserveSelectionUserInfoKey: true]
+            )
+        }
         return newPart.id
+    }
+
+    private func isExplicitCreationDrag(from start: CGPoint?, to point: CGPoint) -> Bool {
+        guard let start else { return false }
+        let dx = Double(abs(point.x - start.x))
+        let dy = Double(abs(point.y - start.y))
+        return dx >= LayoutGrid.explicitCreationDragThreshold
+            || dy >= LayoutGrid.explicitCreationDragThreshold
     }
 
     private func creationSnap(

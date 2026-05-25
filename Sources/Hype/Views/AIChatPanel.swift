@@ -1382,7 +1382,11 @@ struct AIChatPanel: View {
             webAssetClient: webAssetClient,
             webAssetPipeline: webAssetPipeline,
             imageGenerationClient: imageGenerationClient,
-            meshyClientFactory: meshyClientFactory
+            meshyClientFactory: meshyClientFactory,
+            appleMusicProvider: workingDocument.stack.appleMusicAllowed
+                && UserDefaults.standard.bool(forKey: AppleMusicConfiguration.enabledKey)
+                ? AppleMusicProviderFactory.makeDefault()
+                : nil
         )
 
         // Get current stack context

@@ -23,6 +23,8 @@ struct PreferencesView: View {
     @AppStorage(HypeAIConfiguration.openAITTSModelKey) private var openAITTSModel = HypeAIConfiguration.defaultOpenAITTSModel
     @AppStorage(HypeAIConfiguration.openAIVoiceKey) private var openAIVoice = HypeAIConfiguration.defaultOpenAIVoice
     @AppStorage(HypeAIConfiguration.speakAssistantResponsesKey) private var speakAssistantResponses = false
+    @AppStorage(AppleMusicConfiguration.enabledKey) private var appleMusicEnabled = false
+    @AppStorage(AppleMusicConfiguration.playbackEngineKey) private var appleMusicPlaybackEngine = AppleMusicConfiguration.defaultPlaybackEngine.rawValue
     @Environment(\.hypeTheme) private var hypeTheme
     @State private var availableModels: [String] = []
     @State private var llamaSwapAvailableModels: [String] = []
@@ -45,6 +47,8 @@ struct PreferencesView: View {
     @State private var openAITestStatus = ""
     @State private var isTestingHostedProvider = false
     @State private var hostedProviderTestStatus = ""
+    @State private var appleMusicStatus = "Not checked"
+    @State private var isCheckingAppleMusic = false
     @State private var selectedCategory: PreferenceCategory = .ai
 
     private enum PreferenceCategory: String, CaseIterable, Hashable {
@@ -429,6 +433,34 @@ struct PreferencesView: View {
 
     private var integrationSettings: some View {
         settingsForm {
+            Section("Apple Music") {
+                Toggle("Enable Apple Music in Hype", isOn: $appleMusicEnabled)
+                    .help("Allow Hype to use MusicKit after the user authorizes Apple Music access.")
+
+                Toggle("Enable for Current Stack", isOn: currentStackAppleMusicBinding)
+                    .disabled(document == nil || !appleMusicEnabled)
+                    .help("Allow this stack's scripts and AI tools to search or play Apple Music references.")
+
+                Picker("Playback", selection: $appleMusicPlaybackEngine) {
+                    Text("Hype app player").tag(AppleMusicPlaybackEngine.application.rawValue)
+                }
+                .disabled(!appleMusicEnabled)
+
+                HStack {
+                    Button("Authorize / Check") { checkAppleMusicAuthorization() }
+                        .disabled(isCheckingAppleMusic || !appleMusicEnabled)
+                    if isCheckingAppleMusic { ProgressView().scaleEffect(0.7) }
+                    Text(appleMusicStatus)
+                        .font(.system(size: 11))
+                        .foregroundColor(appleMusicStatus.hasPrefix("OK") ? .green : .secondary)
+                }
+
+                Text("Apple Music items are stored as catalog or library references only. Hype-created AudioKit music can be embedded in the stack; protected Apple Music audio is never copied into the .hype file.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             // MARK: - Meshy.ai section
 
             Section("Meshy.ai (3D model generation)") {
@@ -686,6 +718,33 @@ struct PreferencesView: View {
                 document = wrapper
             }
         )
+    }
+
+    private var currentStackAppleMusicBinding: Binding<Bool> {
+        Binding(
+            get: { document?.document.stack.appleMusicAllowed ?? false },
+            set: { newValue in
+                guard var wrapper = document else { return }
+                wrapper.document.stack.appleMusicAllowed = newValue
+                document = wrapper
+            }
+        )
+    }
+
+    private func checkAppleMusicAuthorization() {
+        isCheckingAppleMusic = true
+        appleMusicStatus = "Checking..."
+        Task {
+            let provider = AppleMusicProviderFactory.makeDefault()
+            let status = await provider.requestAuthorization()
+            let caps = await provider.capabilities()
+            await MainActor.run {
+                appleMusicStatus = status == .authorized
+                    ? "OK: authorized, catalog playback=\(caps.canPlayCatalogContent)"
+                    : "Apple Music: \(status.rawValue)"
+                isCheckingAppleMusic = false
+            }
+        }
     }
 
     // MARK: - Pexels Key Management

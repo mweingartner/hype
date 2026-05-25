@@ -7,6 +7,10 @@ struct ObjectToolSection: Identifiable, Sendable {
     let tools: [ToolName]
 }
 
+enum ToolSelectionNotification {
+    static let preserveSelectionUserInfoKey = "preserveSelection"
+}
+
 /// Canonical left-panel catalog.
 ///
 /// The panel intentionally exposes one creation tool per persisted part type.
@@ -14,6 +18,7 @@ struct ObjectToolSection: Identifiable, Sendable {
 /// and line shapes are styles/properties of Field or Shape, not separate tools.
 enum ObjectToolCatalog {
     static let dragPasteboardTypeRaw = "com.hype.object-tool"
+    static let dragStringPrefix = "hype-object-tool:"
 
     static let selectionTools: [ToolName] = [.browse, .select]
 
@@ -25,6 +30,7 @@ enum ObjectToolCatalog {
     static let frameworkTools: [ToolName] = [
         .calendar, .pdf, .map, .colorWell, .audioRecorder,
         .musicPlayer, .pianoKeyboard, .stepSequencer, .musicMixer,
+        .appleMusicBrowser,
         .scene3D, .spriteArea,
     ]
 
@@ -76,13 +82,32 @@ enum ObjectToolCatalog {
         case .pianoKeyboard: return .pianoKeyboard
         case .stepSequencer: return .stepSequencer
         case .musicMixer: return .musicMixer
+        case .appleMusicBrowser: return .appleMusicBrowser
         case .scene3D: return .scene3D
         case .progressView: return .progressView
         case .gauge: return .gauge
         case .divider: return .divider
-        case .browse, .select, .pencil, .spray, .bucket, .eraser:
+        case .musicQueue, .browse, .select, .pencil, .spray, .bucket, .eraser:
             return nil
         }
+    }
+
+    static func dragPayload(for tool: ToolName) -> String {
+        "\(dragStringPrefix)\(tool.rawValue)"
+    }
+
+    static func toolName(fromDragPayload payload: String) -> ToolName? {
+        let rawValue: String
+        if payload.hasPrefix(dragStringPrefix) {
+            rawValue = String(payload.dropFirst(dragStringPrefix.count))
+        } else {
+            rawValue = payload
+        }
+        guard let tool = ToolName(rawValue: rawValue),
+              PartCreationDefaults.toolSpec(for: tool.rawValue) != nil else {
+            return nil
+        }
+        return tool
     }
 
     static func styleSummary(for tool: ToolName) -> String? {
@@ -141,7 +166,11 @@ enum ObjectToolCatalog {
         case .audioRecorder:
             return "You can start or stop recording, play the last recording, choose the recording format, save recordings inside the stack, attach scripts, and add hover help."
         case .musicPlayer, .pianoKeyboard, .stepSequencer, .musicMixer:
-            return "You can choose a music pattern, instrument, tempo, looping behavior, volume, attach scripts, and store generated audio inside the stack."
+            return "You can choose a stack-contained Hype music pattern, instrument, tempo, looping behavior, volume, attach scripts, and store generated audio inside the stack."
+        case .appleMusicBrowser:
+            return "You can choose catalog or library search scope, enter search text, choose the music item type, store selected IDs in the stack, and attach scripts."
+        case .musicQueue:
+            return "Legacy queue controls remain readable in older stacks. New stacks should use AudioKit controls for stack-contained music and MusicKit Search for Apple Music lookup."
         case .scene3D:
             return "You can choose a model, use a stack asset, adjust viewing controls and background, attach scripts, and add hover help."
         case .progressView:

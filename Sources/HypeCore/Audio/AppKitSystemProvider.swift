@@ -10,7 +10,11 @@ import AppKit
 /// back on the invoking thread. Keep the actor hop here so every dispatch path
 /// uses the same safe bridge.
 public struct AppKitSystemProvider: SystemProvider, Sendable {
-    public init() {}
+    private let appleMusicProvider: any AppleMusicProviding
+
+    public init(appleMusicProvider: (any AppleMusicProviding)? = nil) {
+        self.appleMusicProvider = appleMusicProvider ?? AppleMusicProviderFactory.makeDefault()
+    }
 
     public func beep(count: Int) async {
         await MainActor.run {
@@ -93,6 +97,42 @@ public struct AppKitSystemProvider: SystemProvider, Sendable {
             SoundPlayer.shared.soundName == "done" ? "stopped" : "playing"
             #endif
         }
+    }
+
+    public func appleMusicAuthorizationStatus() async -> AppleMusicAuthorizationState {
+        await appleMusicProvider.authorizationStatus()
+    }
+
+    public func authorizeAppleMusic() async -> AppleMusicAuthorizationState {
+        await appleMusicProvider.requestAuthorization()
+    }
+
+    public func appleMusicCapabilities() async -> AppleMusicCapabilities {
+        await appleMusicProvider.capabilities()
+    }
+
+    public func searchAppleMusic(_ request: AppleMusicSearchRequest) async throws -> [AppleMusicItemRef] {
+        try await appleMusicProvider.search(request)
+    }
+
+    public func playAppleMusic(_ item: AppleMusicItemRef, engine: AppleMusicPlaybackEngine) async throws {
+        try await appleMusicProvider.play(item, engine: engine)
+    }
+
+    public func pauseAppleMusic(engine: AppleMusicPlaybackEngine) async {
+        await appleMusicProvider.pause(engine: engine)
+    }
+
+    public func resumeAppleMusic(engine: AppleMusicPlaybackEngine) async throws {
+        try await appleMusicProvider.resume(engine: engine)
+    }
+
+    public func stopAppleMusic(engine: AppleMusicPlaybackEngine) async {
+        await appleMusicProvider.stop(engine: engine)
+    }
+
+    public func currentAppleMusicState(engine: AppleMusicPlaybackEngine) async -> String {
+        await appleMusicProvider.currentPlaybackState(engine: engine)
     }
 }
 #endif

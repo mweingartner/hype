@@ -4,7 +4,7 @@ public enum ToolName: String, CaseIterable, Sendable {
     case browse, button, field, shape, webpage, image, video, chart, spriteArea
     case calendar, pdf, map, colorWell
     case stepper, slider, segmented, audioRecorder, scene3D
-    case musicPlayer, pianoKeyboard, stepSequencer, musicMixer
+    case musicPlayer, pianoKeyboard, stepSequencer, musicMixer, appleMusicBrowser, musicQueue
     case progressView, gauge, divider
     case select
     case pencil, spray, bucket, eraser
@@ -37,6 +37,8 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .pianoKeyboard: return "Piano Keyboard"
         case .stepSequencer: return "Step Sequencer"
         case .musicMixer: return "Music Mixer"
+        case .appleMusicBrowser: return "MusicKit Search"
+        case .musicQueue: return "Music Queue (Legacy)"
         case .progressView: return "Progress View"
         case .gauge: return "Gauge"
         case .divider: return "Divider"
@@ -91,13 +93,17 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .scene3D:
             return "Place a 3D model viewer on the card. Users can inspect models, orbit around them, zoom in, and use stack assets as the displayed object."
         case .musicPlayer:
-            return "Place a music player on the card for songs and loops stored inside the stack. Click it in Browse mode to play the assigned pattern, or control it from scripts."
+            return "Place a music player on the card for songs and loops stored inside the stack. Click it in Browse mode to play the assigned Hype music pattern, or control it from scripts."
         case .pianoKeyboard:
             return "Place a keyboard-style music control on the card. Click or drag across keys in Browse mode to play notes with the assigned instrument, or trigger music scripts."
         case .stepSequencer:
             return "Place a grid-style sequencer on the card. Click or drag across grid squares in Browse mode to audition individual steps, or use scripts for repeating patterns stored in the stack."
         case .musicMixer:
             return "Place a small mixer on the card. Use it to represent track volume and arrangement controls for stack-contained music."
+        case .appleMusicBrowser:
+            return "Place a simple MusicKit search control on the card. Users specify catalog or library search criteria and the music item type after Apple Music access is enabled and authorized."
+        case .musicQueue:
+            return "Legacy music queue control retained for older stacks. New stacks should use AudioKit music controls for stack-contained music and the MusicKit Search control for Apple Music lookup."
         case .progressView:
             return "Place a progress indicator on the card. Use it to show task completion, loading state, or a running process."
         case .gauge:
@@ -141,6 +147,8 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .pianoKeyboard: return "pianokeys"
         case .stepSequencer: return "square.grid.4x3.fill"
         case .musicMixer: return "slider.horizontal.3"
+        case .appleMusicBrowser: return "music.mic"
+        case .musicQueue: return "music.note.list"
         case .progressView: return "chart.bar.xaxis"
         case .gauge: return "gauge"
         case .divider: return "minus"

@@ -21,6 +21,10 @@ public struct HypeToolExecutor: Sendable {
     /// factory reads the Keychain fresh on each call so key rotation is respected.
     /// `nil` means the Meshy AI tools will build a real `MeshyAIClient` directly.
     public let meshyClientFactory: (@Sendable () throws -> MeshyClient)?
+    /// Optional Apple Music provider. Nil keeps MusicKit disabled for deterministic
+    /// local/test execution; production injects the MusicKit-backed provider only
+    /// when the stack and preferences opt in.
+    public let appleMusicProvider: (any AppleMusicProviding)?
 
     // MARK: - Initializers
 
@@ -32,6 +36,7 @@ public struct HypeToolExecutor: Sendable {
         self.webAssetPipeline = nil
         self.imageGenerationClient = nil
         self.meshyClientFactory = nil
+        self.appleMusicProvider = nil
     }
 
     /// Full initializer with web-asset and Meshy dependencies wired in.
@@ -48,13 +53,15 @@ public struct HypeToolExecutor: Sendable {
         webAssetClient: (any WebAssetSearchClient)?,
         webAssetPipeline: WebAssetImportPipeline?,
         imageGenerationClient: (any HypeImageGenerating)? = nil,
-        meshyClientFactory: (@Sendable () throws -> MeshyClient)? = nil
+        meshyClientFactory: (@Sendable () throws -> MeshyClient)? = nil,
+        appleMusicProvider: (any AppleMusicProviding)? = nil
     ) {
         self.webAssetSession = webAssetSession
         self.webAssetClient = webAssetClient
         self.webAssetPipeline = webAssetPipeline
         self.imageGenerationClient = imageGenerationClient
         self.meshyClientFactory = meshyClientFactory
+        self.appleMusicProvider = appleMusicProvider
     }
 
     /// Heuristic: does the given asset name contain a substring
@@ -764,8 +771,11 @@ public struct HypeToolExecutor: Sendable {
             props.append("format=\(p.audioFormat)")
             props.append("saveInStack=\(p.audioEmbedInStack)")
             if let audioData = p.audioData { props.append("storedBytes=\(audioData.count)") }
-        case .musicPlayer, .pianoKeyboard, .stepSequencer, .musicMixer:
+        case .musicPlayer, .pianoKeyboard, .stepSequencer, .musicMixer, .appleMusicBrowser, .musicQueue:
             if !p.musicPatternName.isEmpty { props.append("musicPattern=\(p.musicPatternName)") }
+            if p.musicSourceKind != MusicSourceKind.hypePattern.rawValue {
+                props.append("musicSource=\([p.musicSourceKind, p.musicSourceType, p.musicSourceID].joined(separator: ":"))")
+            }
             props.append("instrument=\(p.musicInstrumentName)")
             props.append("tempo=\(p.musicTempo)")
             props.append("loop=\(p.musicLoop)")
@@ -1516,6 +1526,151 @@ public struct HypeToolExecutor: Sendable {
                 return "\(pattern.name): \(pattern.tempo) BPM, loop=\(pattern.loop), tracks=\(pattern.tracks.count), instruments=\(instruments)"
             }.joined(separator: "\n")
 
+        case "get_apple_music_capabilities":
+            guard document.stack.appleMusicAllowed else {
+                return "Apple Music is disabled for this stack. Enable it in Preferences before using Apple Music catalog or library tools."
+            }
+            guard let provider = appleMusicProvider else {
+                return "Apple Music provider is not configured."
+            }
+            let caps = await provider.capabilities()
+            return [
+                "authorization=\(caps.authorization.rawValue)",
+                "canPlayCatalogContent=\(caps.canPlayCatalogContent)",
+                "canBecomeSubscriber=\(caps.canBecomeSubscriber)",
+                "hasCloudLibraryEnabled=\(caps.hasCloudLibraryEnabled)",
+                "supportsLibraryMutation=\(caps.supportsLibraryMutation)",
+                caps.lastError.isEmpty ? nil : "lastError=\(caps.lastError)"
+            ].compactMap { $0 }.joined(separator: "\n")
+
+        case "authorize_apple_music":
+            guard document.stack.appleMusicAllowed else {
+                return "Apple Music is disabled for this stack. Enable it in Preferences first."
+            }
+            guard let provider = appleMusicProvider else {
+                return "Apple Music provider is not configured."
+            }
+            let status = await provider.requestAuthorization()
+            return "Apple Music authorization: \(status.rawValue)"
+
+        case "search_apple_music":
+            guard document.stack.appleMusicAllowed else {
+                return "Apple Music is disabled for this stack. Enable it in Preferences before searching catalog or library."
+            }
+            guard let provider = appleMusicProvider else {
+                return "Apple Music provider is not configured."
+            }
+            let term = arguments["query"] ?? arguments["term"] ?? ""
+            guard !term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return "Apple Music search requires query."
+            }
+            let scope = AppleMusicSearchScope(rawValue: (arguments["scope"] ?? "catalog").lowercased()) ?? .catalog
+            if scope == .library && !(boolArgument(arguments["include_private_library_context"]) ?? false) {
+                return "Apple Music library search requires include_private_library_context=true because library contents are private user data."
+            }
+            let kinds = parseAppleMusicKinds(arguments["types"] ?? arguments["type"] ?? "")
+            let limit = max(1, min(50, Int(arguments["limit"] ?? "") ?? 10))
+            do {
+                let refs = try await provider.search(AppleMusicSearchRequest(term: term, scope: scope, itemKinds: kinds, limit: limit))
+                refs.forEach { document.musicLibrary.upsertAppleMusicItem($0) }
+                return formatAppleMusicItems(refs)
+            } catch {
+                return "Apple Music search failed: \(error.localizedDescription)"
+            }
+
+        case "set_apple_music_selection", "set_music_player_source":
+            let playerName = arguments["player_name"] ?? arguments["name"] ?? ""
+            guard let idx = scopedPartIndex(named: playerName, currentCardId: currentCardId, in: document),
+                  document.parts[idx].partType == .appleMusicBrowser else {
+                return "MusicKit Search control '\(playerName)' not found"
+            }
+            let source = MusicSourceKind.parse(arguments["source"] ?? arguments["source_kind"] ?? "appleMusicCatalog")
+            let kind = AppleMusicItemKind.parse(arguments["item_type"] ?? arguments["type"] ?? "") ?? .song
+            let id = arguments["item_id"] ?? arguments["id"] ?? ""
+            guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return "set_apple_music_selection requires item_id."
+            }
+            let ref = document.musicLibrary.appleMusicItem(id: id, kind: kind)
+                ?? AppleMusicItemRef(
+                    id: id,
+                    kind: kind,
+                    source: source,
+                    titleSnapshot: arguments["title"] ?? id,
+                    artistSnapshot: arguments["artist"] ?? "",
+                    albumSnapshot: arguments["album"] ?? "",
+                    artworkURLSnapshot: arguments["artwork_url"] ?? ""
+                )
+            document.musicLibrary.upsertAppleMusicItem(ref)
+            applyAppleMusicRef(ref, to: &document.parts[idx])
+            return "Set MusicKit Search '\(document.parts[idx].name)' to \(ref.kind.rawValue) '\(ref.titleSnapshot)' (\(ref.encodedSource))"
+
+        case "play_apple_music":
+            guard document.stack.appleMusicAllowed else { return "Apple Music is disabled for this stack." }
+            guard let provider = appleMusicProvider else { return "Apple Music provider is not configured." }
+            let source = MusicSourceKind.parse(arguments["source"] ?? arguments["source_kind"] ?? "appleMusicCatalog")
+            let kind = AppleMusicItemKind.parse(arguments["item_type"] ?? arguments["type"] ?? "") ?? .song
+            let id = arguments["item_id"] ?? arguments["id"] ?? ""
+            guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return "play_apple_music requires item_id."
+            }
+            let ref = document.musicLibrary.appleMusicItem(id: id, kind: kind)
+                ?? AppleMusicItemRef(
+                    id: id,
+                    kind: kind,
+                    source: source,
+                    titleSnapshot: arguments["title"] ?? id
+                )
+            document.musicLibrary.upsertAppleMusicItem(ref)
+            do {
+                try await provider.play(ref, engine: .application)
+                return "Playing Apple Music \(ref.kind.rawValue) '\(ref.titleSnapshot)'"
+            } catch {
+                return "Apple Music playback failed: \(error.localizedDescription)"
+            }
+
+        case "play_music_player":
+            let playerName = arguments["player_name"] ?? arguments["name"] ?? ""
+            guard let idx = scopedPartIndex(named: playerName, currentCardId: currentCardId, in: document),
+                  document.parts[idx].partType == .musicPlayer else {
+                return "Music player '\(playerName)' not found"
+            }
+            let part = document.parts[idx]
+            guard let pattern = document.musicLibrary.pattern(named: part.musicPatternName) else {
+                return "Music player '\(part.name)' has no playable Hype pattern."
+            }
+            return "Music player '\(part.name)' is bound to stack pattern '\(pattern.name)'. Browse-mode playback will use AudioKit."
+
+        case "pause_apple_music":
+            guard let provider = appleMusicProvider else { return "Apple Music provider is not configured." }
+            await provider.pause(engine: .application)
+            return "Paused Apple Music"
+
+        case "resume_apple_music":
+            guard let provider = appleMusicProvider else { return "Apple Music provider is not configured." }
+            do {
+                try await provider.resume(engine: .application)
+                return "Resumed Apple Music"
+            } catch {
+                return "Apple Music resume failed: \(error.localizedDescription)"
+            }
+
+        case "stop_apple_music":
+            guard let provider = appleMusicProvider else { return "Apple Music provider is not configured." }
+            await provider.stop(engine: .application)
+            return "Stopped Apple Music"
+
+        case "create_apple_music_browser":
+            return createMusicControl(
+                partType: .appleMusicBrowser,
+                defaultName: "MusicKit Search",
+                arguments: arguments,
+                document: &document,
+                currentCardId: currentCardId
+            )
+
+        case "create_music_queue":
+            return "Music Queue creation is deprecated. Use create_music_player for AudioKit patterns or create_apple_music_browser for MusicKit search."
+
         case "export_music_pattern":
             let patternName = arguments["name"] ?? ""
             guard let pattern = document.musicLibrary.pattern(named: patternName) else {
@@ -1809,6 +1964,34 @@ public struct HypeToolExecutor: Sendable {
                     document.parts[index].musicVolume = min(1, max(0, Double(value) ?? 1))
                 case "musictracks", "music_tracks", "trackdata", "track_data":
                     document.parts[index].musicTrackData = value
+                case "musicsource", "music_source":
+                    if let ref = AppleMusicItemRef.decodeSource(value) {
+                        applyAppleMusicRef(ref, to: &document.parts[index])
+                        document.musicLibrary.upsertAppleMusicItem(ref)
+                    } else {
+                        document.parts[index].musicSourceKind = MusicSourceKind.hypePattern.rawValue
+                        document.parts[index].musicPatternName = value
+                    }
+                case "musicsourcekind", "music_source_kind", "sourcekind", "source_kind":
+                    document.parts[index].musicSourceKind = MusicSourceKind.parse(value).rawValue
+                case "applemusicid", "apple_music_id", "musicid", "music_id":
+                    document.parts[index].musicSourceID = value
+                case "applemusictype", "apple_music_type", "musictype", "music_type":
+                    document.parts[index].musicSourceType = AppleMusicItemKind.parse(value)?.rawValue ?? value
+                case "applemusictitle", "apple_music_title", "musictitle", "music_title":
+                    document.parts[index].musicSourceTitle = value
+                case "applemusicartist", "apple_music_artist", "musicartist", "music_artist":
+                    document.parts[index].musicSourceArtist = value
+                case "applemusicalbum", "apple_music_album", "musicalbum", "music_album":
+                    document.parts[index].musicSourceAlbum = value
+                case "artwork", "artworkurl", "artwork_url", "musicartwork", "music_artwork":
+                    document.parts[index].musicArtworkURL = value
+                case "musicqueue", "music_queue", "queuedata", "queue_data":
+                    document.parts[index].musicQueueData = value
+                case "musicsearchterm", "music_search_term", "searchterm", "search_term":
+                    document.parts[index].musicSearchTerm = value
+                case "musicsearchscope", "music_search_scope", "searchscope", "search_scope":
+                    document.parts[index].musicSearchScope = AppleMusicSearchScope(rawValue: value.lowercased())?.rawValue ?? AppleMusicSearchScope.catalog.rawValue
                 // Scene3D
                 case "object", "model", "modelasset", "model_asset", "assetname", "asset_name":
                     _ = Scene3DModelBindingResolver.bindModelOrObject(
@@ -3075,6 +3258,30 @@ public struct HypeToolExecutor: Sendable {
                 return String(part.musicVolume)
             case "musictracks", "music_tracks", "trackdata", "track_data":
                 return part.musicTrackData
+            case "musicsource", "music_source":
+                return part.musicSourceKind == MusicSourceKind.hypePattern.rawValue
+                    ? part.musicPatternName
+                    : [part.musicSourceKind, part.musicSourceType, part.musicSourceID].joined(separator: ":")
+            case "musicsourcekind", "music_source_kind", "sourcekind", "source_kind":
+                return part.musicSourceKind
+            case "applemusicid", "apple_music_id", "musicid", "music_id":
+                return part.musicSourceID
+            case "applemusictype", "apple_music_type", "musictype", "music_type":
+                return part.musicSourceType
+            case "applemusictitle", "apple_music_title", "musictitle", "music_title":
+                return part.musicSourceTitle
+            case "applemusicartist", "apple_music_artist", "musicartist", "music_artist":
+                return part.musicSourceArtist
+            case "applemusicalbum", "apple_music_album", "musicalbum", "music_album":
+                return part.musicSourceAlbum
+            case "artwork", "artworkurl", "artwork_url", "musicartwork", "music_artwork":
+                return part.musicArtworkURL
+            case "musicqueue", "music_queue", "queuedata", "queue_data":
+                return part.musicQueueData
+            case "musicsearchterm", "music_search_term", "searchterm", "search_term":
+                return part.musicSearchTerm
+            case "musicsearchscope", "music_search_scope", "searchscope", "search_scope":
+                return part.musicSearchScope
             // Scene3D
             case "object", "model":
                 return Scene3DModelBindingResolver.displayModel(for: part)
@@ -4877,9 +5084,79 @@ public struct HypeToolExecutor: Sendable {
         part.musicLoop = boolArgument(arguments["loop"]) ?? false
         part.musicVolume = min(1, max(0, Double(arguments["volume"] ?? "1") ?? 1))
         part.musicTrackData = arguments["tracks_json"] ?? ""
+        part.musicSearchTerm = arguments["query"] ?? arguments["search_term"] ?? ""
+        part.musicSearchScope = AppleMusicSearchScope(rawValue: (arguments["scope"] ?? "catalog").lowercased())?.rawValue ?? AppleMusicSearchScope.catalog.rawValue
+        if partType == .appleMusicBrowser {
+            part.musicPatternName = ""
+            part.musicSourceKind = part.musicSearchScope == AppleMusicSearchScope.library.rawValue
+                ? MusicSourceKind.appleMusicLibrary.rawValue
+                : MusicSourceKind.appleMusicCatalog.rawValue
+            part.musicSourceType = parseAppleMusicKinds(arguments["types"] ?? arguments["type"] ?? arguments["item_type"] ?? "").first?.rawValue
+                ?? AppleMusicItemKind.song.rawValue
+            part.musicInstrumentName = ""
+            part.musicTempo = 120
+            part.musicLoop = false
+            part.musicVolume = 1
+            part.musicTrackData = ""
+        } else {
+            part.musicSourceKind = MusicSourceKind.hypePattern.rawValue
+            part.musicSourceID = ""
+            part.musicSourceType = AppleMusicItemKind.song.rawValue
+            part.musicSourceTitle = ""
+            part.musicSourceArtist = ""
+            part.musicSourceAlbum = ""
+            part.musicArtworkURL = ""
+            part.musicSearchTerm = ""
+            part.musicSearchScope = AppleMusicSearchScope.catalog.rawValue
+        }
+        if let sourceID = arguments["item_id"] ?? arguments["apple_music_id"], !sourceID.isEmpty {
+            guard partType == .appleMusicBrowser else {
+                document.addPart(part)
+                let layer = place.backgroundId != nil ? " on background" : ""
+                return "Created \(partType.rawValue) '\(part.name)'\(layer). Ignored Apple Music item_id because AudioKit controls play stack-contained patterns only."
+            }
+            let source = MusicSourceKind.parse(arguments["source"] ?? arguments["source_kind"] ?? "appleMusicCatalog")
+            let kind = AppleMusicItemKind.parse(arguments["item_type"] ?? arguments["type"] ?? "") ?? .song
+            let ref = AppleMusicItemRef(
+                id: sourceID,
+                kind: kind,
+                source: source,
+                titleSnapshot: arguments["title"] ?? sourceID,
+                artistSnapshot: arguments["artist"] ?? "",
+                albumSnapshot: arguments["album"] ?? "",
+                artworkURLSnapshot: arguments["artwork_url"] ?? ""
+            )
+            document.musicLibrary.upsertAppleMusicItem(ref)
+            applyAppleMusicRef(ref, to: &part)
+        }
         document.addPart(part)
         let layer = place.backgroundId != nil ? " on background" : ""
         return "Created \(partType.rawValue) '\(part.name)'\(layer)"
+    }
+
+    private func applyAppleMusicRef(_ ref: AppleMusicItemRef, to part: inout Part) {
+        part.musicSourceKind = ref.source.rawValue
+        part.musicSourceType = ref.kind.rawValue
+        part.musicSourceID = ref.id
+        part.musicSourceTitle = ref.titleSnapshot
+        part.musicSourceArtist = ref.artistSnapshot
+        part.musicSourceAlbum = ref.albumSnapshot
+        part.musicArtworkURL = ref.artworkURLSnapshot
+    }
+
+    private func parseAppleMusicKinds(_ raw: String) -> [AppleMusicItemKind] {
+        let kinds = raw
+            .split { $0 == "," || $0 == "|" || $0 == " " || $0 == "\n" }
+            .compactMap { AppleMusicItemKind.parse(String($0)) }
+        return kinds.isEmpty ? [.song, .album, .artist, .playlist, .station] : kinds
+    }
+
+    private func formatAppleMusicItems(_ refs: [AppleMusicItemRef]) -> String {
+        guard !refs.isEmpty else { return "No Apple Music results." }
+        return refs.map { ref in
+            let artist = ref.artistSnapshot.isEmpty ? "" : " — \(ref.artistSnapshot)"
+            return "\(ref.encodedSource) | \(ref.titleSnapshot)\(artist)"
+        }.joined(separator: "\n")
     }
 
     // MARK: - Scene-node helpers
@@ -5392,13 +5669,16 @@ public struct HypeToolExecutor: Sendable {
             row("format", p.audioFormat, "m4a")
             row("saveInStack", String(p.audioEmbedInStack), "false")
             row("audioSize", String(p.audioData?.count ?? 0), "0")
-        case .musicPlayer, .pianoKeyboard, .stepSequencer, .musicMixer:
+        case .musicPlayer, .pianoKeyboard, .stepSequencer, .musicMixer, .appleMusicBrowser, .musicQueue:
             row("musicPattern", "\"\(p.musicPatternName)\"", "\"\"")
             row("instrument", "\"\(p.musicInstrumentName)\"", "\"Acoustic Grand Piano\"")
             row("tempo", String(p.musicTempo), "120")
             row("loop", String(p.musicLoop), "false")
             row("volume", String(p.musicVolume), "1.0")
             row("musicTracks", "\"\(p.musicTrackData.prefix(80))\(p.musicTrackData.count > 80 ? "..." : "")\"", "\"\" (JSON)")
+            row("musicSource", "\"\([p.musicSourceKind, p.musicSourceType, p.musicSourceID].joined(separator: ":"))\"", "hypePattern")
+            row("appleMusicTitle", "\"\(p.musicSourceTitle)\"", "\"\"")
+            row("appleMusicArtist", "\"\(p.musicSourceArtist)\"", "\"\"")
         case .scene3D:
             row("object", "\"\(Scene3DModelBindingResolver.displayModel(for: p))\"", "\"\"")
             row("model", "\"\(Scene3DModelBindingResolver.displayModel(for: p))\"", "\"\"")

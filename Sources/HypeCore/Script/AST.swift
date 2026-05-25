@@ -178,6 +178,12 @@ public indirect enum Statement: Sendable {
     case pauseMusic
     case resumeMusic
     case exportMusicPattern(name: Expression, assetName: Expression)
+    case authorizeAppleMusic
+    case searchAppleMusic(term: Expression, scope: String, itemType: String?, limit: Expression?)
+    case playAppleMusic(source: String, itemType: String, id: Expression)
+    case pauseAppleMusic
+    case resumeAppleMusic
+    case stopAppleMusic
     case beep(Expression?)
     // Wait commands
     case waitDuration(Expression)

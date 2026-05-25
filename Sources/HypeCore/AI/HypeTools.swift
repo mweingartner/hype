@@ -311,6 +311,93 @@ public struct HypeToolDefinitions {
 
         makeTool(name: "list_music_patterns", description: "List stack-contained music patterns and their instruments/tempo.", params: [:]),
 
+        makeTool(name: "get_apple_music_capabilities", description: """
+            Report MusicKit authorization, subscription, and library capabilities. Use before \
+            Apple Music catalog/library playback. Apple Music content remains an external \
+            licensed reference; do not claim it is embedded in the stack.
+            """, params: [:]),
+
+        makeTool(name: "authorize_apple_music", description: """
+            Ask the user to authorize Apple Music access. Only call after the user asks to use \
+            Apple Music; library access is private and stack/preference gated.
+            """, params: [:]),
+
+        makeTool(name: "search_apple_music", description: """
+            Search Apple Music catalog or, with explicit include_private_library_context=true, \
+            the user's library. Results are returned as encoded references like \
+            appleMusicCatalog:song:ID. Use this tool instead of expanding the prompt with \
+            Apple Music catalog or library context.
+            """, params: [
+            "query": ("string", "Search text such as an artist, song, album, playlist, or station name.", true),
+            "scope": ("string", "catalog (default) or library. Library searches require include_private_library_context=true.", false),
+            "types": ("string", "Comma-separated kinds: song, album, artist, playlist, station, musicVideo. Defaults to broad catalog types.", false),
+            "limit": ("string", "1...50 result limit. Default 10.", false),
+            "include_private_library_context": ("string", "Required true for library searches because library contents are private user data.", false),
+        ]),
+
+        makeTool(name: "set_apple_music_selection", description: """
+            Bind a MusicKit Search control to an Apple Music item reference returned by \
+            search_apple_music. AudioKit musicPlayer controls play stack-contained Hype \
+            patterns only. This stores only item IDs and metadata snapshots, never protected \
+            audio bytes.
+            """, params: [
+            "player_name": ("string", "Name of the MusicKit Search control to bind.", true),
+            "item_id": ("string", "Apple Music item ID.", true),
+            "item_type": ("string", "song, album, playlist, or station.", true),
+            "source": ("string", "appleMusicCatalog, appleMusicLibrary, appleMusicPlaylist, or appleMusicStation.", false),
+            "title": ("string", "Optional title snapshot.", false),
+            "artist": ("string", "Optional artist/curator snapshot.", false),
+            "album": ("string", "Optional album snapshot.", false),
+            "artwork_url": ("string", "Optional artwork URL snapshot.", false),
+        ]),
+
+        makeTool(name: "set_music_player_source", description: """
+            Deprecated compatibility alias for set_apple_music_selection. Do not use this \
+            for new requests.
+            """, params: [
+            "player_name": ("string", "Name of the MusicKit Search control to bind.", true),
+            "item_id": ("string", "Apple Music item ID.", true),
+            "item_type": ("string", "song, album, playlist, or station.", true),
+            "source": ("string", "appleMusicCatalog, appleMusicLibrary, appleMusicPlaylist, or appleMusicStation.", false),
+            "title": ("string", "Optional title snapshot.", false),
+            "artist": ("string", "Optional artist/curator snapshot.", false),
+            "album": ("string", "Optional album snapshot.", false),
+            "artwork_url": ("string", "Optional artwork URL snapshot.", false),
+        ]),
+
+        makeTool(name: "play_music_player", description: "Play an AudioKit music player control bound to a stack-contained Hype music pattern.", params: [
+            "player_name": ("string", "Music player control name.", true),
+        ]),
+
+        makeTool(name: "play_apple_music", description: """
+            Play an Apple Music item reference returned by search_apple_music through MusicKit. \
+            Requires Apple Music to be enabled for the stack and authorized by the user.
+            """, params: [
+            "item_id": ("string", "Apple Music item ID.", true),
+            "item_type": ("string", "song, album, playlist, or station.", true),
+            "source": ("string", "appleMusicCatalog or appleMusicLibrary. Defaults to appleMusicCatalog.", false),
+            "title": ("string", "Optional title snapshot.", false),
+        ]),
+
+        makeTool(name: "pause_apple_music", description: "Pause Apple Music playback started by Hype.", params: [:]),
+        makeTool(name: "resume_apple_music", description: "Resume Apple Music playback started by Hype.", params: [:]),
+        makeTool(name: "stop_apple_music", description: "Stop Apple Music playback started by Hype.", params: [:]),
+
+        makeTool(name: "create_apple_music_browser", description: """
+            Create a simple MusicKit Search control for catalog or library lookup. The control \
+            stores search scope, music item type, search text, and selected item references only.
+            """, params: [
+            "name": ("string", "Control name", true),
+            "left": ("string", "X position", true),
+            "top": ("string", "Y position", true),
+            "width": ("string", "Width", true),
+            "height": ("string", "Height", true),
+            "query": ("string", "Initial search text.", false),
+            "scope": ("string", "catalog or library.", false),
+            "types": ("string", "song, album, artist, playlist, station, or musicVideo. First valid value is stored on the control.", false),
+            "on_background": ("string", "true to place on background", false),
+        ]),
+
         makeTool(name: "export_music_pattern", description: """
             Render a named music pattern to a WAV audio asset in the sprite repository so \
             the stack stays portable and the result can be used by `play "assetName"` or \
@@ -1702,6 +1789,16 @@ public struct HypeToolDefinitions {
             "list_music_instruments",
             "create_music_pattern",
             "list_music_patterns",
+            "get_apple_music_capabilities",
+            "authorize_apple_music",
+            "search_apple_music",
+            "set_apple_music_selection",
+            "play_apple_music",
+            "play_music_player",
+            "pause_apple_music",
+            "resume_apple_music",
+            "stop_apple_music",
+            "create_apple_music_browser",
             "export_music_pattern",
             "create_music_player",
             "create_piano_keyboard",
@@ -1797,6 +1894,8 @@ public struct HypeToolDefinitions {
             "create_music_pattern",
             "list_music_patterns",
             "export_music_pattern",
+            "get_apple_music_capabilities",
+            "search_apple_music",
             // Node read/write
             "list_scene_nodes",
             "list_scene_joints",

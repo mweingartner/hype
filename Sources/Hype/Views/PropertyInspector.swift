@@ -81,7 +81,9 @@ struct PropertyInspector: View {
                         case .stepper, .slider: numericControlSection(part: part)
                         case .segmented: segmentedSection(part: part)
                         case .audioRecorder: audioRecorderSection(part: part)
-                        case .musicPlayer, .pianoKeyboard, .stepSequencer, .musicMixer: musicControlSection(part: part)
+                        case .musicPlayer, .pianoKeyboard, .stepSequencer, .musicMixer: audioKitMusicControlSection(part: part)
+                        case .appleMusicBrowser: musicKitSearchSection(part: part)
+                        case .musicQueue: legacyMusicQueueSection(part: part)
                         case .scene3D: scene3DSection(part: part)
                         case .progressView: progressViewSection(part: part)
                         case .gauge: gaugeSection(part: part)
@@ -1489,9 +1491,9 @@ struct PropertyInspector: View {
         }
     }
 
-    private func musicControlSection(part: Part) -> some View {
+    private func audioKitMusicControlSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            sectionHeading("Music")
+            sectionHeading("Synth Music")
             propertyRow("Pattern", binding: bindPartString(part.id, \.musicPatternName))
             Picker("Instrument", selection: bindMusicInstrumentName(part.id)) {
                 ForEach(MusicInstrumentCatalog.instruments, id: \.name) { instrument in
@@ -1507,7 +1509,38 @@ struct PropertyInspector: View {
             }
             Toggle("Loop", isOn: bindPartBool(part.id, \.musicLoop))
             propertyRow("Volume", binding: bindPartDoubleString(part.id, \.musicVolume))
-            Text("Scripts can create stack-contained music with `create music pattern`, play it with `play pattern`, and export it as a portable audio asset.")
+            Text("Synth controls play stack-contained Hype music patterns. Use MusicKit Search for Apple Music catalog or library lookup.")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private func musicKitSearchSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionHeading("MusicKit Search")
+            propertyRow("Search", binding: bindPartString(part.id, \.musicSearchTerm))
+            Picker("Search Scope", selection: bindPartString(part.id, \.musicSearchScope)) {
+                Text("Catalog").tag(AppleMusicSearchScope.catalog.rawValue)
+                Text("Library").tag(AppleMusicSearchScope.library.rawValue)
+            }
+            .pickerStyle(.menu)
+            Picker("Music Type", selection: bindPartString(part.id, \.musicSourceType)) {
+                ForEach(AppleMusicItemKind.allCases, id: \.rawValue) { kind in
+                    Text(kind.rawValue).tag(kind.rawValue)
+                }
+            }
+            .pickerStyle(.menu)
+            Text("MusicKit stores Apple Music IDs and metadata snapshots only. It does not embed protected Apple Music audio in the stack.")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private func legacyMusicQueueSection(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionHeading("Legacy Music Queue")
+            propertyRow("Queue Data", binding: bindPartString(part.id, \.musicQueueData))
+            Text("This legacy queue remains readable for older stacks. New stacks should use synth controls for stack music and MusicKit Search for Apple Music lookup.")
                 .font(.system(size: 9))
                 .foregroundColor(.secondary)
         }

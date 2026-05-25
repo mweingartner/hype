@@ -108,6 +108,212 @@ private final class ObjectToolHelpWindowPresenter {
     }
 }
 
+private struct ObjectToolDragButton: NSViewRepresentable {
+    let tool: ToolName
+    let isActive: Bool
+    let help: ObjectToolHoverHelp
+    let buttonSize: CGFloat
+    let onSelect: () -> Void
+
+    func makeNSView(context: Context) -> ObjectToolDragButtonNSView {
+        ObjectToolDragButtonNSView(
+            tool: tool,
+            isActive: isActive,
+            help: help,
+            onSelect: onSelect
+        )
+    }
+
+    func updateNSView(_ nsView: ObjectToolDragButtonNSView, context: Context) {
+        nsView.configure(
+            tool: tool,
+            isActive: isActive,
+            help: help,
+            onSelect: onSelect
+        )
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: ObjectToolDragButtonNSView, context: Context) -> CGSize? {
+        CGSize(width: buttonSize, height: buttonSize)
+    }
+}
+
+private final class ObjectToolDragButtonNSView: NSView, NSDraggingSource {
+    private let imageView = NSImageView()
+    private var tool: ToolName
+    private var isActiveTool: Bool
+    private var help: ObjectToolHoverHelp
+    private var onSelect: () -> Void
+    private var mouseDownPoint: NSPoint?
+    private var mouseDownEvent: NSEvent?
+    private var didBeginDrag = false
+    private var hoverTrackingArea: NSTrackingArea?
+
+    init(tool: ToolName, isActive: Bool, help: ObjectToolHoverHelp, onSelect: @escaping () -> Void) {
+        self.tool = tool
+        self.isActiveTool = isActive
+        self.help = help
+        self.onSelect = onSelect
+        super.init(frame: NSRect(x: 0, y: 0, width: 36, height: 36))
+        wantsLayer = true
+        imageView.imageScaling = .scaleProportionallyDown
+        addSubview(imageView)
+        configure(tool: tool, isActive: isActive, help: help, onSelect: onSelect)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isFlipped: Bool { true }
+    override var intrinsicContentSize: NSSize { NSSize(width: 36, height: 36) }
+
+    func configure(tool: ToolName, isActive: Bool, help: ObjectToolHoverHelp, onSelect: @escaping () -> Void) {
+        self.tool = tool
+        self.isActiveTool = isActive
+        self.help = help
+        self.onSelect = onSelect
+        imageView.image = NSImage(systemSymbolName: tool.systemImageName, accessibilityDescription: tool.displayTitle)
+        imageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: isActive ? .semibold : .regular)
+        imageView.contentTintColor = isActive ? .controlAccentColor : .labelColor
+        toolTip = nil
+        setAccessibilityIdentifier(HypeAccessibilityID.tool(tool))
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(tool.displayTitle)
+        setAccessibilityHelp(tool.description)
+        setAccessibilityValue(isActive ? "selected" : "not selected")
+        needsDisplay = true
+    }
+
+    override func layout() {
+        super.layout()
+        let imageSize: CGFloat = 18
+        imageView.frame = NSRect(
+            x: (bounds.width - imageSize) / 2,
+            y: (bounds.height - imageSize) / 2,
+            width: imageSize,
+            height: imageSize
+        )
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        hoverTrackingArea = area
+        addTrackingArea(area)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        ObjectToolHelpWindowPresenter.shared.show(help)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        ObjectToolHelpWindowPresenter.shared.hide(help)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        mouseDownPoint = convert(event.locationInWindow, from: nil)
+        mouseDownEvent = event
+        didBeginDrag = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard !didBeginDrag,
+              let start = mouseDownPoint,
+              let downEvent = mouseDownEvent else {
+            return
+        }
+
+        let point = convert(event.locationInWindow, from: nil)
+        let dx = point.x - start.x
+        let dy = point.y - start.y
+        guard hypot(dx, dy) >= 3 else {
+            return
+        }
+
+        didBeginDrag = true
+        ObjectToolHelpWindowPresenter.shared.hide(help)
+        onSelect()
+
+        let pasteboardItem = NSPasteboardItem()
+        pasteboardItem.setString(
+            ObjectToolCatalog.dragPayload(for: tool),
+            forType: NSPasteboard.PasteboardType(ObjectToolCatalog.dragPasteboardTypeRaw)
+        )
+        pasteboardItem.setString(ObjectToolCatalog.dragPayload(for: tool), forType: .string)
+
+        let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
+        draggingItem.setDraggingFrame(bounds.insetBy(dx: 2, dy: 2), contents: draggingPreviewImage())
+        beginDraggingSession(with: [draggingItem], event: downEvent, source: self)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if !didBeginDrag {
+            onSelect()
+        }
+        didBeginDrag = false
+        mouseDownPoint = nil
+        mouseDownEvent = nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard isActiveTool else { return }
+        NSColor.controlAccentColor.withAlphaComponent(0.15).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill()
+    }
+
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        .copy
+    }
+
+    func ignoreModifierKeys(for session: NSDraggingSession) -> Bool {
+        false
+    }
+
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        didBeginDrag = false
+        mouseDownPoint = nil
+        mouseDownEvent = nil
+    }
+
+    private func draggingPreviewImage() -> NSImage {
+        let size = bounds.size == .zero ? NSSize(width: 36, height: 36) : bounds.size
+        let image = NSImage(size: size)
+        image.lockFocus()
+        NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
+        let rect = NSRect(origin: .zero, size: size).insetBy(dx: 2, dy: 2)
+        NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
+        NSColor.controlAccentColor.withAlphaComponent(0.65).setStroke()
+        let outline = NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7)
+        outline.lineWidth = 1.5
+        outline.stroke()
+        if let symbol = NSImage(systemSymbolName: tool.systemImageName, accessibilityDescription: tool.displayTitle) {
+            symbol.lockFocus()
+            NSColor.controlAccentColor.set()
+            symbol.unlockFocus()
+            let symbolSize = NSSize(width: 18, height: 18)
+            let symbolRect = NSRect(
+                x: (size.width - symbolSize.width) / 2,
+                y: (size.height - symbolSize.height) / 2,
+                width: symbolSize.width,
+                height: symbolSize.height
+            )
+            symbol.draw(in: symbolRect, from: .zero, operation: .sourceOver, fraction: 0.95)
+        }
+        image.unlockFocus()
+        return image
+    }
+}
+
 /// Slide-out objects/tools panel docked on the left edge of the
 /// stack window. Replaces the legacy top-of-window object toolbar.
 ///
@@ -125,11 +331,12 @@ private final class ObjectToolHelpWindowPresenter {
 /// `HSplitView` divider to widen the panel — the `LazyVGrid` then
 /// reflows to two or three columns automatically (`.adaptive(...)`).
 ///
-/// **Hover help** is provided twice: native `.help(_:)` for standard
-/// macOS tooltips and an immediate in-app help card. The custom card
-/// avoids the common failure mode where `NSToolTip` tracking is delayed
-/// or suppressed while the user is moving quickly through the palette,
-/// while the native tooltip keeps normal accessibility/platform behavior.
+/// **Hover help** uses one visible surface: an immediate floating help
+/// card owned by `ObjectToolHelpWindowPresenter`. Native `.help(_:)` /
+/// `NSToolTip` wiring is intentionally avoided for these same controls
+/// because running both surfaces produces duplicate bubbles. Accessibility
+/// labels, hints, and values still expose the same guidance to assistive
+/// technologies without creating a second visual tooltip.
 struct ObjectsToolPanel: View {
     @Binding var currentTool: ToolName
     @Binding var selectedPartIds: Set<UUID>
@@ -288,9 +495,9 @@ struct ObjectsToolPanel: View {
             )
         }
         .buttonStyle(.plain)
-        .help(help.text)
         .onHover { setActiveHelp(help, isHovering: $0) }
         .accessibilityLabel(title)
+        .accessibilityHint(help.body)
         .accessibilityValue(isActive ? "active" : "inactive")
         .accessibilityIdentifier(HypeAccessibilityID.toolbar("mode.\(title.lowercased())"))
     }
@@ -299,32 +506,42 @@ struct ObjectsToolPanel: View {
     private func toolButton(_ tool: ToolName) -> some View {
         let help = ObjectToolHoverHelp(title: tool.displayTitle, body: ObjectToolCatalog.tooltipBody(for: tool))
 
-        Button(action: {
-            currentTool = tool
-            selectedPartIds = []
-        }) {
-            Image(systemName: tool.systemImageName)
-                .font(.system(size: 14))
-                .foregroundColor(currentTool == tool ? .accentColor : .primary)
-                .frame(width: Self.buttonSize, height: Self.buttonSize)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(currentTool == tool ? Color.accentColor.opacity(0.15) : Color.clear)
-                )
-        }
-        .buttonStyle(.plain)
-        .help(help.text)
-        .onHover { setActiveHelp(help, isHovering: $0) }
-        .accessibilityLabel(tool.displayTitle)
-        .accessibilityHint(tool.description)
-        .accessibilityValue(currentTool == tool ? "selected" : "not selected")
-        .accessibilityIdentifier(HypeAccessibilityID.tool(tool))
-        .onDrag {
-            ObjectToolHelpWindowPresenter.shared.hide(help)
-            return NSItemProvider(
-                item: tool.rawValue as NSString,
-                typeIdentifier: ObjectToolCatalog.dragPasteboardTypeRaw
+        if ObjectToolCatalog.createdPartType(for: tool) != nil {
+            ObjectToolDragButton(
+                tool: tool,
+                isActive: currentTool == tool,
+                help: help,
+                buttonSize: Self.buttonSize,
+                onSelect: {
+                    currentTool = tool
+                    selectedPartIds = []
+                }
             )
+            .frame(width: Self.buttonSize, height: Self.buttonSize)
+            .accessibilityLabel(tool.displayTitle)
+            .accessibilityHint(tool.description)
+            .accessibilityValue(currentTool == tool ? "selected" : "not selected")
+            .accessibilityIdentifier(HypeAccessibilityID.tool(tool))
+        } else {
+            Button(action: {
+                currentTool = tool
+                selectedPartIds = []
+            }) {
+                Image(systemName: tool.systemImageName)
+                    .font(.system(size: 14))
+                    .foregroundColor(currentTool == tool ? .accentColor : .primary)
+                    .frame(width: Self.buttonSize, height: Self.buttonSize)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(currentTool == tool ? Color.accentColor.opacity(0.15) : Color.clear)
+                    )
+            }
+            .buttonStyle(.plain)
+            .onHover { setActiveHelp(help, isHovering: $0) }
+            .accessibilityLabel(tool.displayTitle)
+            .accessibilityHint(tool.description)
+            .accessibilityValue(currentTool == tool ? "selected" : "not selected")
+            .accessibilityIdentifier(HypeAccessibilityID.tool(tool))
         }
     }
 }

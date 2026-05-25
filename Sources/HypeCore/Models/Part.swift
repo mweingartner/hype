@@ -251,7 +251,7 @@ public struct Part: Identifiable, Codable, Sendable {
     /// into the runtime model on load.
     public var audioData: Data?
 
-    // Music-control-specific (AudioKit-backed at runtime)
+    // Music-control-specific (AudioKit-backed at runtime, MusicKit by reference)
     /// Name of the stack music pattern this control manipulates.
     public var musicPatternName: String
     /// Default instrument name for keyboard / pattern creation controls.
@@ -264,6 +264,24 @@ public struct Part: Identifiable, Codable, Sendable {
     public var musicVolume: Double
     /// JSON or newline/pipe encoded control data for sequencer and mixer UIs.
     public var musicTrackData: String
+    /// Source backing this music control: Hype pattern, Apple Music catalog,
+    /// Apple Music library, playlist, or station. Stored as a string for
+    /// forward-compatible document decoding.
+    public var musicSourceKind: String
+    /// Apple Music item ID or queue name. This is a reference only; audio bytes
+    /// remain external licensed content.
+    public var musicSourceID: String
+    /// Apple Music item type such as song, album, playlist, or station.
+    public var musicSourceType: String
+    /// Metadata snapshots for offline display and diagnostics.
+    public var musicSourceTitle: String
+    public var musicSourceArtist: String
+    public var musicSourceAlbum: String
+    public var musicArtworkURL: String
+    /// Stored queue/search metadata for Apple Music browser and queue controls.
+    public var musicQueueData: String
+    public var musicSearchTerm: String
+    public var musicSearchScope: String
 
     // ProgressView-specific
     /// Current progress value; 0..progressTotal. Default 0.
@@ -482,6 +500,20 @@ public struct Part: Identifiable, Codable, Sendable {
         self.musicLoop = false
         self.musicVolume = 1
         self.musicTrackData = ""
+        self.musicSourceKind = MusicSourceKind.hypePattern.rawValue
+        self.musicSourceID = ""
+        self.musicSourceType = AppleMusicItemKind.song.rawValue
+        self.musicSourceTitle = ""
+        self.musicSourceArtist = ""
+        self.musicSourceAlbum = ""
+        self.musicArtworkURL = ""
+        self.musicQueueData = ""
+        self.musicSearchTerm = ""
+        self.musicSearchScope = AppleMusicSearchScope.catalog.rawValue
+        if partType == .appleMusicBrowser {
+            self.musicSourceKind = MusicSourceKind.appleMusicCatalog.rawValue
+            self.musicInstrumentName = ""
+        }
         self.progressValue = 0
         self.progressTotal = 1.0
         self.progressIsCircular = false
@@ -629,6 +661,16 @@ public struct Part: Identifiable, Codable, Sendable {
         musicLoop = try container.decodeIfPresent(Bool.self, forKey: .musicLoop) ?? false
         musicVolume = try container.decodeIfPresent(Double.self, forKey: .musicVolume) ?? 1
         musicTrackData = try container.decodeIfPresent(String.self, forKey: .musicTrackData) ?? ""
+        musicSourceKind = try container.decodeIfPresent(String.self, forKey: .musicSourceKind) ?? MusicSourceKind.hypePattern.rawValue
+        musicSourceID = try container.decodeIfPresent(String.self, forKey: .musicSourceID) ?? ""
+        musicSourceType = try container.decodeIfPresent(String.self, forKey: .musicSourceType) ?? AppleMusicItemKind.song.rawValue
+        musicSourceTitle = try container.decodeIfPresent(String.self, forKey: .musicSourceTitle) ?? ""
+        musicSourceArtist = try container.decodeIfPresent(String.self, forKey: .musicSourceArtist) ?? ""
+        musicSourceAlbum = try container.decodeIfPresent(String.self, forKey: .musicSourceAlbum) ?? ""
+        musicArtworkURL = try container.decodeIfPresent(String.self, forKey: .musicArtworkURL) ?? ""
+        musicQueueData = try container.decodeIfPresent(String.self, forKey: .musicQueueData) ?? ""
+        musicSearchTerm = try container.decodeIfPresent(String.self, forKey: .musicSearchTerm) ?? ""
+        musicSearchScope = try container.decodeIfPresent(String.self, forKey: .musicSearchScope) ?? AppleMusicSearchScope.catalog.rawValue
         // Scene3D fields — backward-compat optional.
         scene3DURL = try container.decodeIfPresent(String.self, forKey: .scene3DURL) ?? ""
         scene3DAllowsCameraControl = try container.decodeIfPresent(Bool.self, forKey: .scene3DAllowsCameraControl) ?? true

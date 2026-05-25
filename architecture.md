@@ -1,6 +1,6 @@
 # Hype Architecture
 
-> A snapshot of the current implementation as of 2026-05-16.
+> A snapshot of the current implementation as of 2026-05-25.
 
 Hype is a modern, macOS-native re-imagining of HyperCard. It preserves the
 HyperCard mental model — **stacks** of **cards** built on shared **backgrounds**,
@@ -363,8 +363,9 @@ public enum PartType: String, Codable, Sendable {
     case button, field, shape, webpage, image, video, chart, spriteArea
     // Framework-backed controls (Apple frameworks hosted as NSView/SwiftUI overlays)
     case calendar, pdf, map, colorWell, audioRecorder, scene3D
-    // Stack-contained music controls (AudioKit-backed at runtime)
+    // Music controls (AudioKit stack patterns plus one MusicKit search surface)
     case musicPlayer, pianoKeyboard, stepSequencer, musicMixer
+    case appleMusicBrowser, musicQueue
     // Form controls (AppKit-feel)
     case stepper, slider, toggle, segmented
     // Apple-controls catalog / legacy compatibility cases
@@ -380,6 +381,12 @@ migrate at `Part.init(from:)` time to `button` (with `.toggle`, `.link`,
 `.popup` style) or `field` (with `.search` style). New authoring paths should
 create those canonical button/field forms rather than writing the legacy
 part-type cases.
+
+`musicQueue` is also retained as a readable legacy part type, but it is no
+longer exposed as a new authoring control or AI creation tool. New stacks use
+AudioKit controls (`musicPlayer`, `pianoKeyboard`, `stepSequencer`,
+`musicMixer`) for stack-contained synthesized music and `appleMusicBrowser`
+as the single simple MusicKit search-criteria control.
 
 ### 2.3 Part: the "everything" struct
 
@@ -410,7 +417,7 @@ given `partType`. The fields fall into bands:
 | progressView     | `progressValue`, `progressTotal`, `progressIsCircular`, `progressIsIndeterminate`, `progressLabel`, `progressTint`, `progressDecimals` |
 | gauge            | `gaugeValue`, `gaugeMin`, `gaugeMax`, `gaugeStyle`, `gaugeTint`, `gaugeLabel`, `gaugeMinLabel`, `gaugeMaxLabel`, `gaugeDecimals` |
 | audioRecorder    | `audioRecording`, `audioPlaying`, `audioOutputPath`, `audioFormat`, `audioDuration`, `audioEmbedInStack`, `audioData?` |
-| music controls   | `musicPatternName`, `musicInstrumentName`, `musicTempo`, `musicLoop`, `musicVolume`, `musicTrackData` |
+| music controls   | `musicPatternName`, `musicInstrumentName`, `musicTempo`, `musicLoop`, `musicVolume`, `musicTrackData`, `musicSourceKind`, `musicSourceID`, `musicSourceType`, `musicSourceTitle`, `musicSourceArtist`, `musicSourceAlbum`, `musicArtworkURL`, `musicQueueData`, `musicSearchTerm`, `musicSearchScope` |
 | scene3D          | `scene3DSourceURL`, `scene3DURL`, `scene3DAllowsCameraControl`, `scene3DAutoLighting`, `scene3DAntialiasing`, `scene3DBackground` |
 | divider          | `dividerOrientation`, `dividerThickness`, `dividerColor`                 |
 | **sprite area**  | `sceneSpec` *(JSON-encoded `SpriteAreaSpec`, with legacy `SceneSpec` migration)* |
@@ -448,7 +455,11 @@ schema version 2 adds `parts.audio_data` so audio recorder bytes can be stored
 as a real SQLite BLOB while the JSON payload omits duplicate audio bytes.
 Schema version 3 adds normalized `music_patterns`, `music_tracks`, and
 `music_notes` projections for stack-contained AudioKit music while keeping
-`HypeDocument.musicLibrary` as the value-model source of truth.
+`HypeDocument.musicLibrary` as the value-model source of truth. Schema version
+4 adds normalized `apple_music_items` and `apple_music_queues` projections for
+MusicKit references and queue metadata. These tables persist only stable Apple
+Music IDs plus metadata snapshots; licensed catalog/library audio remains
+external and is never embedded in the `.hype` package.
 
 Interactive saves and undo now flow through
 `HypeDocumentMutationCoordinator` (`Sources/Hype/DocumentMutationCoordinator.swift`).
@@ -498,12 +509,22 @@ while `SceneSpec` / `SpriteAreaSpec` remain the runtime source of truth.
 AudioKit music follows the same declarative rule: `MusicPatternSpec` and
 `MusicTrackSpec` persist in the document/database, and runtime `AudioEngine`,
 sampler, and playback tasks live only behind the `SystemProvider` /
-`AudioKitMusicProvider` boundary. Music controls convert Browse-mode clicks,
-piano-key drag crossings, and step-sequencer cell drag crossings into temporary
-`MusicPatternSpec` playback requests. Step sequencer grid hits audition the
-selected row/column step instead of replaying one generic pattern. These
-interactions do not persist live engine state or mutate the stack unless a user
-script does so explicitly.
+`AudioKitMusicProvider` boundary. MusicKit / Apple Music integration is a
+separate provider path in `AppleMusicProvider`: the stack can store selected
+catalog/library IDs, item kinds, titles, artist/album snapshots, artwork URLs,
+search terms, and queue metadata, but playback and search require user
+preference enablement, stack-level opt-in (`Stack.appleMusicAllowed`), MusicKit
+authorization, and a runtime provider. This preserves stack portability without
+misrepresenting protected Apple Music audio as stack-contained content.
+
+Music controls convert Browse-mode clicks, piano-key drag crossings, and
+step-sequencer cell drag crossings into temporary `MusicPatternSpec` playback
+requests or Apple Music item references. Step sequencer grid hits audition the
+selected row/column step instead of replaying one generic pattern. Piano
+keyboard geometry reserves a title/subtitle band at the top and a small bottom
+inset rather than using symmetric vertical insets, so the default-sized control
+has a visible and hit-testable key bed. These interactions do not persist live
+engine/player state or mutate the stack unless a user script does so explicitly.
 
 `DocumentExporter` (Sources/HypeCore/Export/DocumentExporter.swift) provides
 two side outputs: pretty-printed sorted JSON (for inspection / diff) and a
@@ -1839,13 +1860,19 @@ unless Shift is held; tiny drags use the HIG-oriented default size from
 `PartCreationDefaults`.
 
 The left object palette also supports drag-to-place. Pressing and dragging a
-creation tool does not instantiate a live part immediately; `CardCanvasNSView`
-registers the palette pasteboard type, shows a translucent elevated ghost at
-the prospective snapped location, then creates the real `Part` on drop. The
-newly-created part is selected, existing selections are cleared, resize handles
-are shown, and the active tool reverts to Select. This path creates only the
-part model (plus the normal default `SpriteAreaSpec` for sprite areas); it does
-not create layout constraints.
+creation tool does not instantiate a live part immediately; the SwiftUI palette
+uses a narrow AppKit drag-source bridge so mouse-down / hold / drag gestures
+produce a reliable pasteboard drag into `CardCanvasNSView`. The canvas registers
+both the Hype-specific object-tool pasteboard type and a string fallback, shows
+a translucent elevated ghost at the prospective snapped location, then creates
+the real `Part` on drop. A normal click placement or palette drop selects the
+new part, clears the previous selection, shows resize handles, and reverts the
+active tool to Select. Shift-click placement is the rapid-repeat path: it
+creates another default-sized part of the active tool at the clicked point,
+keeps the active creation tool selected, and appends each newly-created part to
+the selection so shared attributes can be edited together in the inspector. This
+path creates only the part model (plus the normal default `SpriteAreaSpec` for
+sprite areas); it does not create layout constraints.
 
 In browse mode, mouse interaction results are forwarded to `StackRuntime` so
 HypeTalk handlers, async callbacks, `idle`, and SpriteKit messages all share
@@ -2114,7 +2141,7 @@ directly into typed Swift structs.
 
 ### 7.2 Tool surface: `HypeTools`
 
-`HypeTools` (Sources/HypeCore/AI/HypeTools.swift) declares 125 tool
+`HypeTools` (Sources/HypeCore/AI/HypeTools.swift) declares the AI tool
 schemas in one place using a small `makeTool(...)` builder that turns a
 `[String: (type, description, required)]` parameter map into a complete
 schema struct. The categories:
@@ -2125,14 +2152,14 @@ schema struct. The categories:
 | Scope properties (read)   | `get_stack_property`, `get_card_property`, `get_background_property` |
 | Scope properties (write)  | `set_stack_property`, `set_card_property`, `set_background_property` |
 | Scope scripts             | `get_stack_script`, `set_stack_script`, `get_card_script`, `set_card_script`, `get_background_script`, `set_background_script` |
-| Part creation             | `create_button`, `create_field`, `create_label`, `create_shape`, `create_webpage`, `create_video`, `create_chart`, `create_image`, `generate_image`, `create_calendar`, `create_pdf`, `create_map`, `create_color_well`, `create_stepper`, `create_slider`, `create_segmented`, `create_progressview`, `create_gauge`, `create_divider`, `create_audio_recorder`, `create_music_player`, `create_piano_keyboard`, `create_step_sequencer`, `create_music_mixer`, `create_scene3d` |
+| Part creation             | `create_button`, `create_field`, `create_label`, `create_shape`, `create_webpage`, `create_video`, `create_chart`, `create_image`, `generate_image`, `create_calendar`, `create_pdf`, `create_map`, `create_color_well`, `create_stepper`, `create_slider`, `create_segmented`, `create_progressview`, `create_gauge`, `create_divider`, `create_audio_recorder`, `create_music_player`, `create_piano_keyboard`, `create_step_sequencer`, `create_music_mixer`, `create_apple_music_browser`, `create_scene3d` |
 | Part modification         | `set_part_property` (canonical write surface, accepts ~250 property names + aliases incl. `helpText`, `fontColor`, `textStyle`, `rotation`, `imageFilter`), `delete_part`, `repair_form_controls` |
 | Part introspection        | `get_part_property`, `list_all_properties` (full property dump w/ defaults), `get_card_parts`, `get_background_parts`, `capture_card_image` |
 | Themes                    | `list_themes`, `get_theme`, `create_or_update_theme`, `delete_theme`, `apply_theme` |
 | Charts                    | `set_chart_data_point_color`, `get_chart_data_points` |
 | Maps                      | `add_map_annotation`, `clear_map_annotations` |
 | Images                    | `set_image_filter` |
-| Music                     | `list_music_instruments`, `create_music_pattern`, `list_music_patterns`, `export_music_pattern` |
+| Music                     | `list_music_instruments`, `create_music_pattern`, `list_music_patterns`, `export_music_pattern`, `get_apple_music_capabilities`, `authorize_apple_music`, `search_apple_music`, `set_apple_music_selection`, `play_apple_music`, `play_music_player`, `pause_apple_music`, `resume_apple_music`, `stop_apple_music` |
 | Sprite areas / scenes     | `create_sprite_area`, `infer_sprite_game_template`, `get_sprite_game_template_guide`, `create_sprite_game_template`, `list_sprite_game_templates`, `get_scene_spec`, `apply_scene_diff`, `add_sprite_to_scene`, `add_label_to_scene`, `add_shape_to_scene`, `add_emitter_to_scene`, `add_audio_to_scene`, `add_video_to_scene`, `add_group_to_scene`, `create_tilemap`, `create_basic_tileset_asset`, `classify_asset_as_tileset`, `set_tile`, `fill_tilemap`, `get_tilemap_info`, `create_camera`, `add_joint_to_scene`, `add_constraint_to_scene`, `add_physics_field_to_scene`, `capture_scene_snapshot`, `get_scene_diagnostics`, `list_scene_nodes`, `list_scene_joints`, `list_scene_constraints`, `get_scene_script`, `get_node_script`, `get_node_property`, `set_node_property`, `set_node_script`, `set_scene_script`, `set_physics_body` |
 | Asset repository          | `list_repository_assets`, `import_repository_asset`, `generate_sprite_asset`, `create_basic_tileset_asset`, `web_asset_search`, `web_asset_import` |
 | AI Context Library        | `list_ai_context`, `search_ai_context`, `read_ai_context_item`, `import_context_asset`, `write_ai_context_note` |
@@ -2447,6 +2474,10 @@ active tool) drives a number of behavioural switches:
 This separation keeps the editor lightweight and predictable, and avoids
 running physics, JavaScript, and open network services inside the editor
 surface.
+
+Browse-mode hit testing uses the raw topmost visible card or background part.
+The card/background layer filter applies only to edit-mode selection so
+background controls remain playable after switching a stack into runtime mode.
 
 ### 8.4 Testing
 

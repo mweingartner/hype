@@ -24,6 +24,10 @@ public enum MusicControlsRenderer {
             drawStepGrid(ctx: ctx, rect: rect)
         case .musicMixer:
             drawMixer(ctx: ctx, rect: rect)
+        case .appleMusicBrowser:
+            drawBrowser(ctx: ctx, part: part, rect: rect)
+        case .musicQueue:
+            drawQueue(ctx: ctx, part: part, rect: rect)
         default:
             drawPlayer(ctx: ctx, part: part, rect: rect)
         }
@@ -38,10 +42,23 @@ public enum MusicControlsRenderer {
         case .pianoKeyboard: title = "Piano Keyboard"
         case .stepSequencer: title = "Step Sequencer"
         case .musicMixer: title = "Music Mixer"
+        case .appleMusicBrowser: title = "MusicKit Search"
+        case .musicQueue: title = "Music Queue"
         default: title = "Music Player"
         }
-        let pattern = part.musicPatternName.isEmpty ? "No pattern" : part.musicPatternName
-        let subtitle = "\(pattern)  \(part.musicInstrumentName)  \(Int(part.musicTempo.rounded())) BPM"
+        let subtitle: String
+        if kind == .appleMusicBrowser {
+            let query = part.musicSearchTerm.trimmingCharacters(in: .whitespacesAndNewlines)
+            let type = part.musicSourceType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? AppleMusicItemKind.song.rawValue
+                : part.musicSourceType
+            subtitle = "\(part.musicSearchScope) \(type)" + (query.isEmpty ? "" : "  \"\(query)\"")
+        } else if kind == .musicQueue {
+            subtitle = part.musicQueueData.isEmpty ? "Legacy queue" : part.musicQueueData
+        } else {
+            let pattern = part.musicPatternName.isEmpty ? "No pattern" : part.musicPatternName
+            subtitle = "\(pattern)  \(part.musicInstrumentName)  \(Int(part.musicTempo.rounded())) BPM"
+        }
         let titleAttrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
             .foregroundColor: NSColor.labelColor,
@@ -139,6 +156,45 @@ public enum MusicControlsRenderer {
             let knobY = mixer.maxY - CGFloat(index + 1) * mixer.height / CGFloat(strips + 1)
             ctx.setFillColor(NSColor.controlAccentColor.cgColor)
             ctx.fillEllipse(in: CGRect(x: x - 7, y: knobY - 7, width: 14, height: 14))
+        }
+    }
+
+    private static func drawBrowser(ctx: CGContext, part: Part, rect: CGRect) {
+        let search = rect.insetBy(dx: 16, dy: 48)
+        let field = CGRect(x: search.minX, y: search.minY, width: search.width, height: 28)
+        ctx.setFillColor(NSColor.textBackgroundColor.cgColor)
+        ctx.addPath(CGPath(roundedRect: field, cornerWidth: 6, cornerHeight: 6, transform: nil))
+        ctx.fillPath()
+        ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+        ctx.stroke(field)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
+        let query = part.musicSearchTerm.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = query.isEmpty ? "Search Apple Music..." : query
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11),
+            .foregroundColor: query.isEmpty ? NSColor.placeholderTextColor : NSColor.labelColor,
+        ]
+        (text as NSString).draw(at: CGPoint(x: field.minX + 8, y: field.minY + 7), withAttributes: attrs)
+        let chips = "\(part.musicSearchScope)  \(part.musicSourceType)"
+        (chips as NSString).draw(
+            at: CGPoint(x: search.minX, y: field.maxY + 14),
+            withAttributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]
+        )
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    private static func drawQueue(ctx: CGContext, part: Part, rect: CGRect) {
+        let queue = rect.insetBy(dx: 16, dy: 48)
+        let rows = 4
+        for index in 0..<rows {
+            let y = queue.minY + CGFloat(index) * 26
+            ctx.setFillColor((index == 0 ? NSColor.controlAccentColor.withAlphaComponent(0.45) : NSColor.quaternaryLabelColor).cgColor)
+            ctx.addPath(CGPath(roundedRect: CGRect(x: queue.minX, y: y, width: queue.width, height: 20), cornerWidth: 5, cornerHeight: 5, transform: nil))
+            ctx.fillPath()
         }
     }
 }

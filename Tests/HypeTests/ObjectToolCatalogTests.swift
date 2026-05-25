@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import HypeCore
 import Testing
@@ -11,6 +12,7 @@ struct ObjectToolCatalogTests {
             "button", "field", "shape", "image", "webpage", "video", "chart",
             "calendar", "pdf", "map", "colorWell", "audioRecorder",
             "musicPlayer", "pianoKeyboard", "stepSequencer", "musicMixer",
+            "appleMusicBrowser",
             "scene3D", "spriteArea",
             "stepper", "slider", "segmented", "progressView", "gauge", "divider",
         ]
@@ -26,6 +28,7 @@ struct ObjectToolCatalogTests {
         #expect(toolByPartType.keys.sorted() == expectedOrder.sorted())
         #expect(ObjectToolCatalog.basicTools.filter { ObjectToolCatalog.createdPartType(for: $0) == .field }.count == 1)
         #expect(ObjectToolCatalog.basicTools.filter { ObjectToolCatalog.createdPartType(for: $0) == .shape }.count == 1)
+        #expect(ObjectToolCatalog.createdPartType(for: .musicQueue) == nil)
         #expect(ObjectToolCatalog.dragPasteboardTypeRaw == "com.hype.object-tool")
     }
 
@@ -64,6 +67,37 @@ struct ObjectToolCatalogTests {
             #expect(!tooltip.isEmpty, "\(tool.rawValue) must provide hover help text")
             #expect(tooltip.contains(tool.description), "\(tool.rawValue) hover help must include the tool description")
         }
+    }
+
+    @Test("creation-tool drag payloads round-trip and reject non-creation tools")
+    func creationToolDragPayloadsRoundTrip() {
+        for tool in ObjectToolCatalog.creationTools {
+            let payload = ObjectToolCatalog.dragPayload(for: tool)
+            #expect(payload.hasPrefix(ObjectToolCatalog.dragStringPrefix))
+            #expect(ObjectToolCatalog.toolName(fromDragPayload: payload) == tool)
+            #expect(ObjectToolCatalog.toolName(fromDragPayload: tool.rawValue) == tool)
+        }
+
+        #expect(ObjectToolCatalog.toolName(fromDragPayload: ObjectToolCatalog.dragPayload(for: .browse)) == nil)
+        #expect(ObjectToolCatalog.toolName(fromDragPayload: "hype-object-tool:notARealTool") == nil)
+        #expect(ObjectToolCatalog.toolName(fromDragPayload: "notARealTool") == nil)
+    }
+
+    @MainActor
+    @Test("canvas palette pasteboard accepts custom and string drag payloads")
+    func canvasPalettePasteboardAcceptsSupportedPayloads() {
+        let customPasteboard = NSPasteboard(name: NSPasteboard.Name("hype-object-tool-custom-test-\(UUID().uuidString)"))
+        customPasteboard.clearContents()
+        customPasteboard.setString(
+            ObjectToolCatalog.dragPayload(for: .button),
+            forType: NSPasteboard.PasteboardType(ObjectToolCatalog.dragPasteboardTypeRaw)
+        )
+        #expect(CardCanvasNSView.paletteTool(from: customPasteboard) == .button)
+
+        let stringPasteboard = NSPasteboard(name: NSPasteboard.Name("hype-object-tool-string-test-\(UUID().uuidString)"))
+        stringPasteboard.clearContents()
+        stringPasteboard.setString(ObjectToolCatalog.dragPayload(for: .field), forType: .string)
+        #expect(CardCanvasNSView.paletteTool(from: stringPasteboard) == .field)
     }
 
     @Test("creation tools expose user-friendly guidance")
@@ -105,6 +139,18 @@ struct ObjectToolCatalogTests {
                 #expect(!tooltip.contains(term), "\(tool.rawValue) hover help must not expose \(term)")
             }
         }
+    }
+
+    @Test("left panel hover help uses one visible bubble surface")
+    func leftPanelHoverHelpUsesOneVisibleBubbleSurface() throws {
+        let source = try String(contentsOf: packageRoot()
+            .appendingPathComponent("Sources/Hype/Views/ObjectsToolPanel.swift"), encoding: .utf8)
+
+        #expect(source.contains("ObjectToolHelpWindowPresenter.shared.show(help)"))
+        #expect(source.contains("ObjectToolHelpWindowPresenter.shared.hide(help)"))
+        #expect(!source.contains(".help(help.text)"))
+        #expect(!source.contains("toolTip = help.text"))
+        #expect(source.contains("toolTip = nil"))
     }
 
     @Test("Objects menu does not reintroduce duplicate field or shape creation commands")

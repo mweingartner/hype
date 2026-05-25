@@ -197,7 +197,11 @@ struct SpriteRepositoryAIChatView: View {
             webAssetClient: webAssetClient,
             webAssetPipeline: webAssetPipeline,
             imageGenerationClient: imageGenerationClient,
-            meshyClientFactory: meshyClientFactory
+            meshyClientFactory: meshyClientFactory,
+            appleMusicProvider: document.document.stack.appleMusicAllowed
+                && UserDefaults.standard.bool(forKey: AppleMusicConfiguration.enabledKey)
+                ? AppleMusicProviderFactory.makeDefault()
+                : nil
         )
         let aiContextToolsEnabled = !document.document.aiContextLibrary.items.isEmpty
             && (selectedAIProvider != .openAI || document.document.stack.aiContextCloudSharingAllowed)

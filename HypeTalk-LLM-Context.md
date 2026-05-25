@@ -364,6 +364,27 @@ put the musicPatterns into field "songs"
 put the musicInstruments into field "instruments"
 ```
 
+### Apple Music (MusicKit references)
+Apple Music is separate from AudioKit. AudioKit controls (`musicPlayer`,
+`pianoKeyboard`, `stepSequencer`, `musicMixer`) play stack-contained Hype
+patterns only. Use the single MusicKit Search control for Apple Music catalog
+or library search criteria. Hype stores Apple Music IDs and metadata snapshots,
+not protected audio bytes. Use tools first: `get_apple_music_capabilities`,
+`authorize_apple_music`, `search_apple_music`, `set_apple_music_selection`,
+`play_apple_music`, `create_apple_music_browser`. Do not expand the base prompt
+with Apple Music catalog/library context; query it through tools.
+
+```hypertalk
+authorize appleMusic
+search appleMusic for "Miles Davis" type songs limit 10
+play appleMusic song "123456789"
+pause appleMusic
+resume appleMusic
+stop appleMusic
+set the musicSource of musicPlayer "Player" to "appleMusicCatalog:song:123456789"
+put the appleMusicAuthorization into field "status"
+```
+
 ### Mouse Tracking in Scenes
 ```
 on mouseWithin
