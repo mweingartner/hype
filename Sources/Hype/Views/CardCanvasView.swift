@@ -849,6 +849,17 @@ struct CardCanvasView: NSViewRepresentable {
             )
         }
 
+        private func cardReferenceURL(cardId: UUID) -> URL? {
+            var components = URLComponents()
+            components.scheme = "hype"
+            components.host = "card"
+            components.queryItems = [
+                URLQueryItem(name: "stack", value: parent.document.document.stack.id.uuidString),
+                URLQueryItem(name: "id", value: cardId.uuidString),
+            ]
+            return components.url
+        }
+
         func dispatchIdleBurst(cardTargetId: UUID, includeCardTarget: Bool, partTargetIds: [UUID]) {
             let snapshot = parent.document.document
             let config = runtimeConfiguration()
@@ -893,7 +904,13 @@ struct CardCanvasView: NSViewRepresentable {
                 }
                 // Handle navigation (e.g., go next card)
                 if let navTarget = result.navigationTarget {
-                    HypeLogger.shared.info("navigate to \(navTarget.uuidString.prefix(8))… effect=\(result.visualEffect ?? "nil") dur=\(result.visualEffectDuration ?? -1) nsView=\(nsView != nil ? "ok" : "NIL")", source: "Navigation")
+                    HypeLogger.shared.log(
+                        .info,
+                        "navigate to \(navTarget.uuidString.prefix(8))... effect=\(result.visualEffect ?? "nil") dur=\(result.visualEffectDuration ?? -1) nsView=\(nsView != nil ? "ok" : "NIL")",
+                        source: "Navigation",
+                        actionTitle: "Go to card",
+                        actionURL: cardReferenceURL(cardId: navTarget)
+                    )
                     if let effectName = result.visualEffect, !effectName.isEmpty {
                         let effect = HypeCore.VisualEffect.fromName(effectName)
                         if effect != .none {
