@@ -413,7 +413,7 @@ public enum SpriteGameTemplateCatalog {
         Customization workflow:
         - For visual changes, prefer set_node_property for colors/textures/visibility and generate_sprite_asset only as an optional second pass.
         - For mechanics, inspect the generated node names and update the existing scene script rather than replacing it blindly.
-        - Keep user-provided assets stack-local through the Sprite Repository.
+        - Keep user-provided assets stack-local through the Asset Repository.
         - Validate any new or replacement HypeTalk with check_script before storage.
         """
 

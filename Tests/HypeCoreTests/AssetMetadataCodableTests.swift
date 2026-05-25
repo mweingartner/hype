@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import HypeCore
 
-/// Tests for `SpriteAsset` rigging/animation metadata round-trip (Phase 3).
-@Suite("SpriteAsset — rigging and animation metadata Codable (Phase 3)")
-struct SpriteAssetMetadataCodableTests {
+/// Tests for `Asset` rigging/animation metadata round-trip (Phase 3).
+@Suite("Asset — rigging and animation metadata Codable (Phase 3)")
+struct AssetMetadataCodableTests {
 
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
@@ -14,8 +14,8 @@ struct SpriteAssetMetadataCodableTests {
     private func makeRiggedAsset(
         isRigged: Bool = false,
         animationActionId: Int? = nil
-    ) -> SpriteAsset {
-        SpriteAsset(
+    ) -> Asset {
+        Asset(
             id: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!,
             name: "test-model.glb",
             kind: .model3D,
@@ -34,7 +34,7 @@ struct SpriteAssetMetadataCodableTests {
     func isRiggedTrueRoundTrips() throws {
         let original = makeRiggedAsset(isRigged: true)
         let data = try encoder.encode(original)
-        let decoded = try decoder.decode(SpriteAsset.self, from: data)
+        let decoded = try decoder.decode(Asset.self, from: data)
 
         #expect(decoded.isRigged == true)
         #expect(decoded.animationActionId == nil)
@@ -44,7 +44,7 @@ struct SpriteAssetMetadataCodableTests {
     func isRiggedFalseRoundTrips() throws {
         let original = makeRiggedAsset(isRigged: false)
         let data = try encoder.encode(original)
-        let decoded = try decoder.decode(SpriteAsset.self, from: data)
+        let decoded = try decoder.decode(Asset.self, from: data)
 
         #expect(decoded.isRigged == false)
     }
@@ -55,7 +55,7 @@ struct SpriteAssetMetadataCodableTests {
     func animationActionIdRoundTrips() throws {
         let original = makeRiggedAsset(isRigged: true, animationActionId: 42)
         let data = try encoder.encode(original)
-        let decoded = try decoder.decode(SpriteAsset.self, from: data)
+        let decoded = try decoder.decode(Asset.self, from: data)
 
         #expect(decoded.isRigged == true)
         #expect(decoded.animationActionId == 42)
@@ -65,7 +65,7 @@ struct SpriteAssetMetadataCodableTests {
 
     @Test("legacy JSON without isRigged/animationActionId decodes with false/nil defaults")
     func legacyJsonDecodesWithDefaults() throws {
-        // A minimal SpriteAsset JSON as it would have been saved before Phase 3.
+        // A minimal Asset JSON as it would have been saved before Phase 3.
         let legacyJson = """
         {
           "id": "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
@@ -78,7 +78,7 @@ struct SpriteAssetMetadataCodableTests {
         }
         """.data(using: .utf8)!
 
-        let asset = try decoder.decode(SpriteAsset.self, from: legacyJson)
+        let asset = try decoder.decode(Asset.self, from: legacyJson)
 
         #expect(asset.isRigged == false,
                 "Pre-Phase-3 document must decode isRigged as false (backward compat)")
@@ -98,7 +98,7 @@ struct SpriteAssetMetadataCodableTests {
         #expect(json["isRigged"] as? Bool == true)
 
         // And it must survive a round-trip.
-        let reloaded = try decoder.decode(SpriteAsset.self, from: encoded)
+        let reloaded = try decoder.decode(Asset.self, from: encoded)
         #expect(reloaded.isRigged == true)
     }
 
@@ -122,7 +122,7 @@ struct SpriteAssetMetadataCodableTests {
         }
         """.data(using: .utf8)!
 
-        let asset = try decoder.decode(SpriteAsset.self, from: inconsistentJson)
+        let asset = try decoder.decode(Asset.self, from: inconsistentJson)
 
         #expect(asset.animationActionId == 55)
         #expect(asset.isRigged == true,

@@ -21,7 +21,7 @@ enum HypeAccessibilityID {
     static let scriptEditorCommands = "hype.scriptEditor.commands"
     static let scriptEditorText = "hype.scriptEditor.text"
     static let scriptEditorAI = "hype.scriptEditor.ai"
-    static let spriteRepository = "hype.window.spriteRepository"
+    static let assetRepository = "hype.window.assetRepository"
     static let aiContextLibrary = "hype.window.aiContextLibrary"
     static let preferences = "hype.window.preferences"
 

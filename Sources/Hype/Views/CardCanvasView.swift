@@ -4470,7 +4470,7 @@ class CardCanvasNSView: NSView {
             if let existing = scene3DViews[part.id] {
                 existing.isHidden = false
                 existing.frame = frame
-                existing.apply(part, repository: document.spriteRepository)
+                existing.apply(part, repository: document.assetRepository)
                 continue
             }
             let host = Scene3DHostNSView(frame: frame)
@@ -4478,7 +4478,7 @@ class CardCanvasNSView: NSView {
             host.onLoadFailed = { [weak self] reason in
                 self?.coordinator?.dispatchScene3DLoadFailed(id: partId, reason: reason)
             }
-            host.apply(part, repository: document.spriteRepository)
+            host.apply(part, repository: document.assetRepository)
             addSubview(host, positioned: .above, relativeTo: nil)
             scene3DViews[part.id] = host
         }
@@ -4714,7 +4714,7 @@ class CardCanvasNSView: NSView {
                             spec: spec,
                             previousSpec: previousSpec,
                             to: scene,
-                            repository: document.spriteRepository
+                            repository: document.assetRepository
                         )
                         if needsRebuild {
                             rebuildSpriteScene(for: part, in: existingSKView)
@@ -4860,7 +4860,7 @@ class CardCanvasNSView: NSView {
         refreshFrameUpdateDispatchPayload(for: part, sceneId: sceneEntry.id, scene: spec)
 
         // Build the scene from spec
-        let repository = document.spriteRepository
+        let repository = document.assetRepository
         bridge.apply(spec: spec, to: scene, repository: repository)
 
         // Apply transparency BEFORE presentScene so the very first

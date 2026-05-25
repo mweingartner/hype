@@ -2195,11 +2195,11 @@ public struct Interpreter: Sendable {
                 : nil
             let spriteAsset: (assetRef: AssetRef, size: SizeSpec)? = {
                 guard let assetName,
-                      let asset = document.spriteRepository.asset(byName: assetName) else {
+                      let asset = document.assetRepository.asset(byName: assetName) else {
                     return nil
                 }
                 return (
-                    assetRef: document.spriteRepository.assetRef(for: asset),
+                    assetRef: document.assetRepository.assetRef(for: asset),
                     size: SizeSpec(width: Double(asset.width), height: Double(asset.height))
                 )
             }()
@@ -2353,11 +2353,11 @@ public struct Interpreter: Sendable {
             let tilesetName: String? = tilesetExpr != nil ? try await evaluate(tilesetExpr!, env: &env, document: document, context: context) : nil
             let tileMapAsset: (assetRef: AssetRef, tileColumns: Int, tileWidth: Double, tileHeight: Double, isTileSet: Bool)? = {
                 guard let tilesetName,
-                      let asset = document.spriteRepository.asset(byName: tilesetName) else {
+                      let asset = document.assetRepository.asset(byName: tilesetName) else {
                     return nil
                 }
                 return (
-                    assetRef: document.spriteRepository.assetRef(for: asset),
+                    assetRef: document.assetRepository.assetRef(for: asset),
                     tileColumns: asset.tileColumns,
                     tileWidth: Double(asset.tileWidth),
                     tileHeight: Double(asset.tileHeight),
@@ -5088,7 +5088,7 @@ public struct Interpreter: Sendable {
             _ = Scene3DModelBindingResolver.bindModelOrObject(
                 value: value,
                 to: &document.parts[partIndex],
-                repository: document.spriteRepository,
+                repository: document.assetRepository,
                 resolvePath: { resolveScene3DPath($0, partId: partId, context: context) }
             )
         case "model":
@@ -5096,7 +5096,7 @@ public struct Interpreter: Sendable {
             _ = Scene3DModelBindingResolver.bindModelOrObject(
                 value: value,
                 to: &document.parts[partIndex],
-                repository: document.spriteRepository,
+                repository: document.assetRepository,
                 resolvePath: { resolveScene3DPath($0, partId: partId, context: context) }
             )
         case "modelurl", "model_url", "sceneurl", "scene_url":
@@ -5403,15 +5403,15 @@ public struct Interpreter: Sendable {
         let assetName = trimmed.isEmpty ? "\(pattern.name).wav" : trimmed
         let data = MusicPatternRenderer.wavData(for: pattern)
         let musicTags = ["music", "generated", "audiokit"]
-        if let existing = document.spriteRepository.asset(byName: assetName) {
-            document.spriteRepository.updateAsset(id: existing.id) { asset in
+        if let existing = document.assetRepository.asset(byName: assetName) {
+            document.assetRepository.updateAsset(id: existing.id) { asset in
                 asset.kind = .audioClip
                 asset.mimeType = "audio/wav"
                 asset.data = data
                 asset.tags = Array(Set(asset.tags + musicTags)).sorted()
             }
         } else {
-            document.spriteRepository.addAsset(SpriteAsset(
+            document.assetRepository.addAsset(Asset(
                 name: assetName,
                 kind: .audioClip,
                 mimeType: "audio/wav",

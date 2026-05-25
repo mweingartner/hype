@@ -101,7 +101,7 @@ public struct RemeshAndRetextureFlow: Sendable {
         options: RemeshOptions,
         existingAssetNames: Set<String>,
         onProgress: Generate3DJob.ProgressHandler? = nil
-    ) async throws -> SpriteAsset {
+    ) async throws -> Asset {
 
         // Pre-flight: validate polycount (second layer of C5 defense).
         guard (100...300_000).contains(options.targetPolycount) else {
@@ -196,7 +196,7 @@ public struct RemeshAndRetextureFlow: Sendable {
         options: RetextureOptions,
         existingAssetNames: Set<String>,
         onProgress: Generate3DJob.ProgressHandler? = nil
-    ) async throws -> SpriteAsset {
+    ) async throws -> Asset {
 
         // Step 1: POST /retexture.
         let request = MeshyRetextureRequest(

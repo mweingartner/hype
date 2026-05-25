@@ -103,10 +103,10 @@ private func makeEnabledDoc() -> HypeDocument {
     return HypeDocument(stack: stack)
 }
 
-/// Build a `SpriteAsset` with Meshy provenance so the executor's attribution
+/// Build a `Asset` with Meshy provenance so the executor's attribution
 /// check (`providerIdentifier == "meshy"` and non-empty `taskId`) passes.
-private func makeMeshyAsset(name: String, taskId: String = "parent_task_001") -> SpriteAsset {
-    var asset = SpriteAsset(name: name, data: Data(repeating: 0x47, count: 64))
+private func makeMeshyAsset(name: String, taskId: String = "parent_task_001") -> Asset {
+    var asset = Asset(name: name, data: Data(repeating: 0x47, count: 64))
     asset.kind = .model3D
     asset.provenance = AssetProvenance(
         origin: .aiGenerated,
@@ -132,11 +132,11 @@ private func makeExecutor(stub: MultiImageStubMeshyClient) -> HypeToolExecutor {
 
 // MARK: - PNG stub image
 
-private func makePNGAsset(name: String) -> SpriteAsset {
+private func makePNGAsset(name: String) -> Asset {
     // 8-byte PNG header + enough body to pass MIME validation.
     let pngBytes = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
         + Array(repeating: 0x42, count: 64))
-    var asset = SpriteAsset(name: name, data: pngBytes)
+    var asset = Asset(name: name, data: pngBytes)
     asset.kind = .imageTexture
     return asset
 }
@@ -164,7 +164,7 @@ struct GenerateFromImagesBoundaryTests {
 
         // Either a gate refusal (no keychain key in CI) or the 'images' empty check.
         #expect(!result.isEmpty)
-        #expect(doc.spriteRepository.assets.isEmpty, "Document must not be mutated on validation error")
+        #expect(doc.assetRepository.assets.isEmpty, "Document must not be mutated on validation error")
         // Security: result must not echo API keys, raw paths, or response bytes.
         #expect(!result.contains("sk-"), "Result must not echo API key prefix")
         let createCount = await stub.multiImageCreateCount
@@ -189,7 +189,7 @@ struct GenerateFromImagesBoundaryTests {
 
         // Gate fires first (no keychain) OR count-validation fires — either is correct.
         #expect(!result.isEmpty)
-        #expect(doc.spriteRepository.assets.isEmpty, "Document must not be mutated on validation error")
+        #expect(doc.assetRepository.assets.isEmpty, "Document must not be mutated on validation error")
         let createCount = await stub.multiImageCreateCount
         #expect(createCount == 0, "create call must not be made for 1-image input")
     }
@@ -202,8 +202,8 @@ struct GenerateFromImagesBoundaryTests {
         let cardId = doc.sortedCards.first?.id ?? UUID()
 
         // Populate repo with two PNG assets so the asset: refs resolve.
-        doc.spriteRepository.addAsset(makePNGAsset(name: "front.png"))
-        doc.spriteRepository.addAsset(makePNGAsset(name: "side.png"))
+        doc.assetRepository.addAsset(makePNGAsset(name: "front.png"))
+        doc.assetRepository.addAsset(makePNGAsset(name: "side.png"))
 
         let stub = MultiImageStubMeshyClient(taskFactResponse: .successStub())
         let executor = makeExecutor(stub: stub)
@@ -222,13 +222,13 @@ struct GenerateFromImagesBoundaryTests {
             // Gate fired before we could inject the stub — this is acceptable
             // in the CI environment. The important assertion is the negative:
             // no document mutation, no create call.
-            #expect(doc.spriteRepository.assets.count == 2, "Only the two seed assets must remain on gate refusal")
+            #expect(doc.assetRepository.assets.count == 2, "Only the two seed assets must remain on gate refusal")
         } else {
             // Stub was injected; generation completed.
             let createCount = await stub.multiImageCreateCount
             #expect(createCount == 1, "Exactly one multiImage create call for 2-image input")
             // At least one model3D asset was added.
-            let model3DAssets = doc.spriteRepository.assets.filter { $0.kind == .model3D }
+            let model3DAssets = doc.assetRepository.assets.filter { $0.kind == .model3D }
             #expect(!model3DAssets.isEmpty, "A model3D asset must be added to the repository on success")
             // H1: result must not echo raw image bytes or base64 content.
             #expect(!result.contains("iVBOR"), "Result must not echo base64 image data")
@@ -243,7 +243,7 @@ struct GenerateFromImagesBoundaryTests {
         let cardId = doc.sortedCards.first?.id ?? UUID()
 
         for name in ["front.png", "back.png", "left.png", "right.png"] {
-            doc.spriteRepository.addAsset(makePNGAsset(name: name))
+            doc.assetRepository.addAsset(makePNGAsset(name: name))
         }
 
         let stub = MultiImageStubMeshyClient(taskFactResponse: .successStub())
@@ -260,7 +260,7 @@ struct GenerateFromImagesBoundaryTests {
         // Gate bypass path: stub injected, so no keychain check.
         if result.contains("Set your Meshy API key") || result.contains("not enabled") {
             // CI gate fired; count-validation cannot be observed but document is clean.
-            let assetCount = doc.spriteRepository.assets.count
+            let assetCount = doc.assetRepository.assets.count
             #expect(assetCount == 4, "Only seed assets remain on gate refusal")
         } else {
             let createCount = await stub.multiImageCreateCount
@@ -288,7 +288,7 @@ struct GenerateFromImagesBoundaryTests {
         )
 
         #expect(!result.isEmpty)
-        #expect(doc.spriteRepository.assets.isEmpty, "Document must not be mutated for 5-image input")
+        #expect(doc.assetRepository.assets.isEmpty, "Document must not be mutated for 5-image input")
         let createCount = await stub.multiImageCreateCount
         #expect(createCount == 0, "No create call must be made for 5-image input")
         // Security: must not echo raw asset names past the prefix.
@@ -308,7 +308,7 @@ struct GenerateFromImagesBoundaryTests {
         let cardId = doc.sortedCards.first?.id ?? UUID()
 
         // Only 'front.png' is in the repo; 'missing.png' is not.
-        doc.spriteRepository.addAsset(makePNGAsset(name: "front.png"))
+        doc.assetRepository.addAsset(makePNGAsset(name: "front.png"))
 
         let stub = MultiImageStubMeshyClient()
         let executor = makeExecutor(stub: stub)
@@ -323,7 +323,7 @@ struct GenerateFromImagesBoundaryTests {
         // Behaviour contract: an error string is returned.
         #expect(!result.isEmpty, "An error must be returned when one image cannot be resolved")
         // No model3D assets were added — partial failure is not acceptable.
-        let newAssets = doc.spriteRepository.assets.filter { $0.kind == .model3D }
+        let newAssets = doc.assetRepository.assets.filter { $0.kind == .model3D }
         #expect(newAssets.isEmpty, "No model3D asset must be added when any image ref fails to resolve")
         // No create was called.
         let createCount = await stub.multiImageCreateCount
@@ -371,10 +371,10 @@ struct RemeshToolFailureModeTests {
             let cardId = doc.sortedCards.first?.id ?? UUID()
 
             // Asset exists but has no Meshy attribution.
-            var asset = SpriteAsset(name: "imported.glb", data: Data(repeating: 0x47, count: 64))
+            var asset = Asset(name: "imported.glb", data: Data(repeating: 0x47, count: 64))
             asset.kind = .model3D
             // No provenance set → attribution.taskId will be empty.
-            doc.spriteRepository.addAsset(asset)
+            doc.assetRepository.addAsset(asset)
 
             let stub = MultiImageStubMeshyClient()
             let executor = makeExecutor(stub: stub)
@@ -388,7 +388,7 @@ struct RemeshToolFailureModeTests {
 
             #expect(result.contains("wasn't generated by Meshy"), "Error must identify the Meshy-only constraint. Got: \(result)")
             // Document must be unchanged.
-            #expect(doc.spriteRepository.assets.count == 1, "No new asset must be added on attribution failure")
+            #expect(doc.assetRepository.assets.count == 1, "No new asset must be added on attribution failure")
             let remeshCount = await stub.remeshCreateCount
             #expect(remeshCount == 0, "remesh create must not be called when attribution check fails")
         }
@@ -402,7 +402,7 @@ struct RemeshToolFailureModeTests {
             var doc = makeEnabledDoc()
             let cardId = doc.sortedCards.first?.id ?? UUID()
 
-            var asset = SpriteAsset(name: "openverse-model.glb", data: Data(repeating: 0x47, count: 64))
+            var asset = Asset(name: "openverse-model.glb", data: Data(repeating: 0x47, count: 64))
             asset.kind = .model3D
             asset.provenance = AssetProvenance(
                 origin: .webSearch,
@@ -411,7 +411,7 @@ struct RemeshToolFailureModeTests {
                     taskId: "some_task_id"
                 )
             )
-            doc.spriteRepository.addAsset(asset)
+            doc.assetRepository.addAsset(asset)
 
             let stub = MultiImageStubMeshyClient()
             let executor = makeExecutor(stub: stub)
@@ -436,7 +436,7 @@ struct RemeshToolFailureModeTests {
         try await withTestMeshyKey {
             var doc = makeEnabledDoc()
             let cardId = doc.sortedCards.first?.id ?? UUID()
-            doc.spriteRepository.addAsset(makeMeshyAsset(name: "barrel.glb"))
+            doc.assetRepository.addAsset(makeMeshyAsset(name: "barrel.glb"))
 
             let stub = MultiImageStubMeshyClient()
             let executor = makeExecutor(stub: stub)
@@ -449,7 +449,7 @@ struct RemeshToolFailureModeTests {
             )
 
             #expect(result.contains("100") || result.contains("must be an integer"), "Error must cite the valid range. Got: \(result)")
-            #expect(doc.spriteRepository.assets.count == 1, "No new asset added on polycount validation failure")
+            #expect(doc.assetRepository.assets.count == 1, "No new asset added on polycount validation failure")
             let remeshCount = await stub.remeshCreateCount
             #expect(remeshCount == 0)
         }
@@ -462,7 +462,7 @@ struct RemeshToolFailureModeTests {
         try await withTestMeshyKey {
             var doc = makeEnabledDoc()
             let cardId = doc.sortedCards.first?.id ?? UUID()
-            doc.spriteRepository.addAsset(makeMeshyAsset(name: "barrel.glb"))
+            doc.assetRepository.addAsset(makeMeshyAsset(name: "barrel.glb"))
 
             let stub = MultiImageStubMeshyClient()
             let executor = makeExecutor(stub: stub)
@@ -475,7 +475,7 @@ struct RemeshToolFailureModeTests {
             )
 
             #expect(result.contains("300") || result.contains("must be an integer"), "Error must cite the valid range. Got: \(result)")
-            #expect(doc.spriteRepository.assets.count == 1, "No new asset added on polycount validation failure")
+            #expect(doc.assetRepository.assets.count == 1, "No new asset added on polycount validation failure")
             let remeshCount = await stub.remeshCreateCount
             #expect(remeshCount == 0)
         }
@@ -488,7 +488,7 @@ struct RemeshToolFailureModeTests {
         try await withTestMeshyKey {
             var doc = makeEnabledDoc()
             let cardId = doc.sortedCards.first?.id ?? UUID()
-            doc.spriteRepository.addAsset(makeMeshyAsset(name: "barrel.glb"))
+            doc.assetRepository.addAsset(makeMeshyAsset(name: "barrel.glb"))
 
             let failedFact = MeshyPolledFact.failedStub(taskId: "internal_remesh_task_id", message: "Topology error")
             let stub = MultiImageStubMeshyClient(taskFactResponse: failedFact)
@@ -511,7 +511,7 @@ struct RemeshToolFailureModeTests {
             // Security: raw response bytes must not appear.
             #expect(!result.contains("0x"), "Raw response bytes must not be echoed")
             // Document must not have grown.
-            let model3D = doc.spriteRepository.assets.filter { $0.kind == .model3D }
+            let model3D = doc.assetRepository.assets.filter { $0.kind == .model3D }
             #expect(model3D.count <= 1, "Failed remesh must not add new assets")
         }
     }
@@ -529,7 +529,7 @@ struct RemeshToolFailureModeTests {
         try await withTestMeshyKey {
             var doc = makeEnabledDoc()
             let cardId = doc.sortedCards.first?.id ?? UUID()
-            doc.spriteRepository.addAsset(makeMeshyAsset(name: "barrel.glb"))
+            doc.assetRepository.addAsset(makeMeshyAsset(name: "barrel.glb"))
 
             let failedFact = MeshyPolledFact.failedStub(message: "Topology error")
             let stub = MultiImageStubMeshyClient(taskFactResponse: failedFact)
@@ -593,9 +593,9 @@ struct RetextureToolFailureModeTests {
             var doc = makeEnabledDoc()
             let cardId = doc.sortedCards.first?.id ?? UUID()
 
-            var asset = SpriteAsset(name: "imported.glb", data: Data(repeating: 0x47, count: 64))
+            var asset = Asset(name: "imported.glb", data: Data(repeating: 0x47, count: 64))
             asset.kind = .model3D
-            doc.spriteRepository.addAsset(asset)
+            doc.assetRepository.addAsset(asset)
 
             let stub = MultiImageStubMeshyClient()
             let executor = makeExecutor(stub: stub)
@@ -611,7 +611,7 @@ struct RetextureToolFailureModeTests {
             )
 
             #expect(result.contains("wasn't generated by Meshy"), "Error must identify the Meshy-only constraint. Got: \(result)")
-            #expect(doc.spriteRepository.assets.count == 1, "No new asset added on attribution failure")
+            #expect(doc.assetRepository.assets.count == 1, "No new asset added on attribution failure")
             let retexCount = await stub.retextureCreateCount
             #expect(retexCount == 0)
         }
@@ -624,7 +624,7 @@ struct RetextureToolFailureModeTests {
         try await withTestMeshyKey {
             var doc = makeEnabledDoc()
             let cardId = doc.sortedCards.first?.id ?? UUID()
-            doc.spriteRepository.addAsset(makeMeshyAsset(name: "barrel.glb"))
+            doc.assetRepository.addAsset(makeMeshyAsset(name: "barrel.glb"))
 
             let stub = MultiImageStubMeshyClient()
             let executor = makeExecutor(stub: stub)
@@ -641,7 +641,7 @@ struct RetextureToolFailureModeTests {
 
             #expect(!result.isEmpty)
             #expect(result.contains("style_prompt"), "Error must mention 'style_prompt'. Got: \(result)")
-            #expect(doc.spriteRepository.assets.count == 1, "No new asset added on empty style_prompt")
+            #expect(doc.assetRepository.assets.count == 1, "No new asset added on empty style_prompt")
             let retexCount = await stub.retextureCreateCount
             #expect(retexCount == 0, "retexture create must not be called for empty style_prompt")
         }
@@ -654,7 +654,7 @@ struct RetextureToolFailureModeTests {
         try await withTestMeshyKey {
             var doc = makeEnabledDoc()
             let cardId = doc.sortedCards.first?.id ?? UUID()
-            doc.spriteRepository.addAsset(makeMeshyAsset(name: "barrel.glb"))
+            doc.assetRepository.addAsset(makeMeshyAsset(name: "barrel.glb"))
 
             let stub = MultiImageStubMeshyClient()
             let executor = makeExecutor(stub: stub)
@@ -683,7 +683,7 @@ struct RetextureToolFailureModeTests {
         try await withTestMeshyKey {
             var doc = makeEnabledDoc()
             let cardId = doc.sortedCards.first?.id ?? UUID()
-            doc.spriteRepository.addAsset(makeMeshyAsset(name: "barrel.glb"))
+            doc.assetRepository.addAsset(makeMeshyAsset(name: "barrel.glb"))
 
             let failedFact = MeshyPolledFact.failedStub(taskId: "internal_retex_task_id", message: "Style prompt rejected")
             let stub = MultiImageStubMeshyClient(taskFactResponse: failedFact)
@@ -705,7 +705,7 @@ struct RetextureToolFailureModeTests {
             // Security: internal task ID must not be echoed to the AI.
             #expect(!result.contains("internal_retex_task_id"), "Internal task IDs must not be echoed. Got: \(result)")
             #expect(!result.contains("0x"), "Raw response bytes must not be echoed")
-            let model3D = doc.spriteRepository.assets.filter { $0.kind == .model3D }
+            let model3D = doc.assetRepository.assets.filter { $0.kind == .model3D }
             #expect(model3D.count <= 1, "Failed retexture must not add new assets")
         }
     }

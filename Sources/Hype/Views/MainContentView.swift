@@ -276,13 +276,13 @@ struct MainContentView: View {
                     Divider()
 
                     Button(action: {
-                        openSpriteRepositoryWindow(document: trackedDocumentBinding)
+                        openAssetRepositoryWindow(document: trackedDocumentBinding)
                     }) {
                         Image(systemName: "tray.2")
                     }
-                    .help("Sprite Repository")
-                    .accessibilityLabel("Sprite Repository")
-                    .accessibilityIdentifier(HypeAccessibilityID.toolbar("spriteRepository"))
+                    .help("Asset Repository")
+                    .accessibilityLabel("Asset Repository")
+                    .accessibilityIdentifier(HypeAccessibilityID.toolbar("assetRepository"))
 
                     Button(action: {
                         openAIContextLibraryWindow(document: trackedDocumentBinding)
@@ -638,6 +638,7 @@ struct MainContentView: View {
 
     private func runtimeConfiguration() -> StackRuntimeConfiguration {
         StackRuntimeConfiguration(
+            systemProvider: AppKitSystemProvider(),
             aiProvider: SelectedAIScriptingProvider(),
             meshyProvider: LiveMeshyScriptingProvider(),
             speechOutputProvider: OpenAISpeechOutputProvider.shared,
@@ -941,14 +942,14 @@ private struct NavigationHandlers: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .toggleAI)) { _ in
                 showAI.toggle()
             }
-            .onReceive(NotificationCenter.default.publisher(for: .openSpriteRepository)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .openAssetRepository)) { _ in
                 // The menu/shortcut no longer toggles a sheet —
                 // it opens (or surfaces) the detached browser
-                // window. openSpriteRepositoryWindow is idempotent:
+                // window. openAssetRepositoryWindow is idempotent:
                 // a second invocation re-orders the existing
                 // window to the front instead of creating a
                 // duplicate.
-                openSpriteRepositoryWindow(document: $document)
+                openAssetRepositoryWindow(document: $document)
             }
             .onReceive(NotificationCenter.default.publisher(for: .showAllCards)) { _ in
                 cycleAllCards()
@@ -1105,6 +1106,7 @@ private struct NavigationHandlers: ViewModifier {
         let runtime = await StackRuntimeRegistry.shared.runtime(
             for: snapshot,
             configuration: StackRuntimeConfiguration(
+                systemProvider: AppKitSystemProvider(),
                 aiProvider: SelectedAIScriptingProvider(),
                 meshyProvider: LiveMeshyScriptingProvider(),
                 speechOutputProvider: OpenAISpeechOutputProvider.shared,

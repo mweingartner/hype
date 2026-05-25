@@ -241,7 +241,7 @@ public struct HypeToolDefinitions {
         ]),
 
         makeTool(name: "create_scene3d", description: """
-            Create a 3D scene viewer (SceneKit). Loads embedded Sprite Repository `model3D` \
+            Create a 3D scene viewer (SceneKit). Loads embedded Asset Repository `model3D` \
             assets by name, or `.usdz`, `.usd`, `.scn`, `.dae`, `.obj`, `.stl`, `.ply`, `.abc`, \
             `.fbx` from a local file path or http(s) URL. `.stl` files are auto-converted to `.obj` \
             on import (cached by SHA-256 of file contents). Repository GLB assets render through \
@@ -255,7 +255,7 @@ public struct HypeToolDefinitions {
             "top": ("string", "Y position", true),
             "width": ("string", "Width", true),
             "height": ("string", "Height", true),
-            "model_asset_name": ("string", "Name of a model3D asset in the Sprite Repository. Preferred when using generated Meshy assets.", false),
+            "model_asset_name": ("string", "Name of a model3D asset in the Asset Repository. Preferred when using generated Meshy assets.", false),
             "model": ("string", "model3D asset name, path, or URL. Asset names are resolved first.", false),
             "object": ("string", "model3D asset name, path, or URL. Paths accept .usdz, .usd, .scn, .dae, .obj, .stl, .ply, .abc, .fbx. Repository GLB assets render through a USDZ companion.", false),
             "model_url": ("string", "Explicit path/URL alias for object. Clears repository asset binding.", false),
@@ -404,7 +404,7 @@ public struct HypeToolDefinitions {
         ]),
 
         makeTool(name: "export_music_pattern", description: """
-            Render a named music pattern to a WAV audio asset in the sprite repository so \
+            Render a named music pattern to a WAV audio asset in the asset repository so \
             the stack stays portable and the result can be used by `play "assetName"` or \
             SpriteKit audio nodes.
             """, params: [
@@ -714,7 +714,7 @@ public struct HypeToolDefinitions {
             The result is stored as kind=tileSet with tileWidth/tileHeight/tileColumns \
             metadata already set, so it can be used directly with create_tilemap.
             """, params: [
-            "asset_name": ("string", "Sprite Repository asset name. Defaults to hype_arcade_maze_tiles.", false),
+            "asset_name": ("string", "Asset Repository asset name. Defaults to hype_arcade_maze_tiles.", false),
             "style": ("string", "Visual style hint, currently neon/default.", false),
             "tile_size": ("string", "Tile size in pixels, 8...128. Defaults to 32.", false),
         ]),
@@ -731,7 +731,7 @@ public struct HypeToolDefinitions {
             scaled into tile 0 instead of cropping the top-left corner. \
             Safe to call multiple times to re-classify with different tile sizes.
             """, params: [
-            "asset_name": ("string", "Name of the asset in the sprite repository to classify", true),
+            "asset_name": ("string", "Name of the asset in the asset repository to classify", true),
             "tile_width": ("string", "Width of a single tile in pixels (required, > 0)", true),
             "tile_height": ("string", "Height of a single tile in pixels (required, > 0)", true),
             "tile_columns": ("string", "Number of tile columns in a real sprite sheet. Omit for AI-generated single-tile images.", false),
@@ -780,13 +780,13 @@ public struct HypeToolDefinitions {
         makeTool(name: "get_scene_diagnostics", description: "Get diagnostic information about a sprite scene including errors and warnings.", params: [
             "sprite_area_name": ("string", "Name of the sprite area", true),
         ]),
-        makeTool(name: "list_repository_assets", description: "List all sprite assets in the stack's Sprite Repository.", params: [:]),
-        makeTool(name: "import_repository_asset", description: "Import an image file into the Sprite Repository as a named asset.", params: [
+        makeTool(name: "list_repository_assets", description: "List all sprite assets in the stack's Asset Repository.", params: [:]),
+        makeTool(name: "import_repository_asset", description: "Import an image file into the Asset Repository as a named asset.", params: [
             "name": ("string", "Asset name", true),
             "file_path": ("string", "Absolute path to PNG/JPG image file", true),
         ]),
         makeTool(name: "generate_sprite_asset", description: """
-            Generate a new sprite image asset through the configured OpenAI image model and add it to the Sprite Repository. \
+            Generate a new sprite image asset through the configured OpenAI image model and add it to the Asset Repository. \
             Use this when the user asks to create, add, draw, or generate a sprite/library/repository asset that looks like something. \
             Do not call this tool unless the user has provided the desired sprite asset name; if the name is missing, ask a follow-up question first.
             """, params: [
@@ -818,7 +818,7 @@ public struct HypeToolDefinitions {
             show_legend, show_grid. \
             Scene3D parts also accept: object, model, modelAsset, assetName, modelURL, \
             modelSource, allowsCameraControl, autoLighting, antialiasing, sceneBackground. \
-            Use model/modelAsset/assetName for Sprite Repository model3D assets; Hype accepts \
+            Use model/modelAsset/assetName for Asset Repository model3D assets; Hype accepts \
             exact asset names and extensionless stems, then renders GLB assets through their USDZ \
             companion when present. Use modelURL only for explicit file paths/URLs. \
             If the named part is a Sprite Area and property is script, this routes to the active \
@@ -1297,14 +1297,14 @@ public struct HypeToolDefinitions {
             "scene_name": ("string", "Optional scene name; defaults to active scene", false),
         ]),
 
-        makeTool(name: "create_image", description: "Create an image part on the current card or its background. Either file_path (load from disk) or asset_name (reference sprite repository) should be provided.", params: [
+        makeTool(name: "create_image", description: "Create an image part on the current card or its background. Either file_path (load from disk) or asset_name (reference asset repository) should be provided.", params: [
             "name": ("string", "Image part name", true),
             "left": ("string", "X position", true),
             "top": ("string", "Y position", true),
             "width": ("string", "Width in points", true),
             "height": ("string", "Height in points", true),
             "file_path": ("string", "Absolute path to an image file on disk", false),
-            "asset_name": ("string", "Name of an asset already in the Sprite Repository", false),
+            "asset_name": ("string", "Name of an asset already in the Asset Repository", false),
             "on_background": ("string", "'true' to place on the background (shared across cards)", false),
         ]),
         // ------------------------------------------------------------------
@@ -1312,24 +1312,24 @@ public struct HypeToolDefinitions {
         // ------------------------------------------------------------------
 
         makeTool(name: "list_3d_models", description: """
-            List every 3D model asset (kind == .model3D) currently in the Sprite Repository. \
+            List every 3D model asset (kind == .model3D) currently in the Asset Repository. \
             Returns one line per asset: name=<n> id=<uuid> size=<bytes>B. \
             Returns "(no 3D models in repository)" when there are none. \
             Use this before calling a generate_3d_model_* tool to avoid regenerating a model the user already has.
             """, params: [:]),
 
         makeTool(name: "bind_3d_model_to_scene3d", description: """
-            Bind an existing Sprite Repository model3D asset to an existing scene3D part. \
+            Bind an existing Asset Repository model3D asset to an existing scene3D part. \
             Use this when the model already exists and the user asks to place, show, assign, \
             or swap it in a 3D viewer. This does not call Meshy and does not consume credits.
             """, params: [
             "scene3d_part_name": ("string", "Name of the existing scene3D part", true),
-            "model_asset_name":  ("string", "Name of an existing model3D asset in the Sprite Repository", true),
+            "model_asset_name":  ("string", "Name of an existing model3D asset in the Asset Repository", true),
         ]),
 
         makeTool(name: "generate_3d_model_from_text", description: """
             Generate a 3D model from a text prompt using Meshy.ai and add it to the \
-            Sprite Repository as a model3D asset. Optionally also place a scene3D part \
+            Asset Repository as a model3D asset. Optionally also place a scene3D part \
             on the current card or background referencing the new asset (when place_on_card='true').
 
             Generation takes ~60–120 seconds; the tool blocks while the Meshy task runs. \
@@ -1370,7 +1370,7 @@ public struct HypeToolDefinitions {
             Allowed formats: PNG and JPEG. Cap: 10 MB. Generation: ~90–150 s; 5-min cap.
             """, params: [
             "image_path":        ("string", "Absolute path to a PNG/JPEG image on disk", false),
-            "image_asset_name":  ("string", "Name of an existing image asset in the Sprite Repository", false),
+            "image_asset_name":  ("string", "Name of an existing image asset in the Asset Repository", false),
             "image_base64":      ("string", "Raw base64 image bytes (or data: URI), max 10 MB", false),
             "asset_name":        ("string", "Optional repository base name chosen by the user. Hype appends .glb/.usdz/.fbx.", false),
             "ai_model":          ("string", "meshy-6 (default) | meshy-5 | meshy-4 | latest", false),
@@ -1418,7 +1418,7 @@ public struct HypeToolDefinitions {
         ]),
 
         makeTool(name: "remesh_3d_model", description: """
-            Remesh an existing model3D asset in the Sprite Repository — reduces or \
+            Remesh an existing model3D asset in the Asset Repository — reduces or \
             increases polygon count while preserving the model's shape and textures. \
             Useful when a generated model is too high-poly for use in a real-time scene \
             OR when the user wants a quad-topology rebuild.
@@ -1821,18 +1821,18 @@ public struct HypeToolDefinitions {
         makeTool(name: "read_ai_context_item", description: """
             Read a single AI Context Library item by item_id. Text items return bounded \
             content chunks. Image items return metadata and summary only; use \
-            import_context_asset to copy image bytes into the Sprite Repository.
+            import_context_asset to copy image bytes into the Asset Repository.
             """, params: [
             "item_id": ("string", "Opaque item ID returned by list_ai_context or search_ai_context", true),
             "max_chars": ("string", "Maximum text characters to return, 1000-20000. Default 12000.", false),
         ]),
         makeTool(name: "import_context_asset", description: """
-            Import an image asset from the AI Context Library into the Sprite Repository. \
+            Import an image asset from the AI Context Library into the Asset Repository. \
             Use this before placing an attached image on a card/background or using it as \
             a SpriteKit sprite. The asset_name is the repository display name.
             """, params: [
             "item_id": ("string", "Opaque item ID for an image context item", true),
-            "asset_name": ("string", "Sprite Repository asset name. Use short ASCII names like 'player' or 'enemy_ship'.", true),
+            "asset_name": ("string", "Asset Repository asset name. Use short ASCII names like 'player' or 'enemy_ship'.", true),
             "kind": ("string", "Optional asset kind: imageTexture, spriteSheet, tileSet", false),
         ]),
         makeTool(name: "write_ai_context_note", description: """
@@ -2202,11 +2202,11 @@ public struct HypeToolDefinitions {
         return allowed.contains($0.function.name)
     }
 
-    /// Tool surface used by the Sprite Repository chat panel.
+    /// Tool surface used by the Asset Repository chat panel.
     ///
     /// This is intentionally repository-only so a sprite-library prompt
     /// cannot mutate card layout or scripts through the wrong surface.
-    public static let spriteRepositoryAuthoringTools: [OllamaTool] = allTools.filter {
+    public static let assetRepositoryAuthoringTools: [OllamaTool] = allTools.filter {
         let allowed = Set([
             "list_repository_assets",
             "import_repository_asset",
@@ -2216,7 +2216,7 @@ public struct HypeToolDefinitions {
             "write_ai_context_note",
             // Phase 3/4: 3D model generation and transformation tools.
             // Meshy-generated model3D assets are repository assets (kind=model3D)
-            // so they are fully within the "only work on Sprite Repository assets" rule.
+            // so they are fully within the "only work on Asset Repository assets" rule.
             "generate_3d_model_from_text",
             "generate_3d_model_from_image",
             "generate_3d_model_from_images",
@@ -2249,7 +2249,7 @@ public struct HypeToolDefinitions {
             name: "import_web_asset",
             description: """
                 Download and install a web-asset candidate (from a prior search_web_for_sprite \
-                call) into the stack's Sprite Repository. The asset_name is used as the asset's \
+                call) into the stack's Asset Repository. The asset_name is used as the asset's \
                 display name — use short ASCII names like "dragon" or "background_sky". \
                 Attribution is automatically added to the stack script.
                 """,

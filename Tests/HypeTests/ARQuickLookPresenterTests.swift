@@ -71,7 +71,7 @@ struct ARQuickLookPresenterTests {
             osVersion: { true }
         )
 
-        let imageAsset = SpriteAsset(
+        let imageAsset = Asset(
             name: "photo.png",
             kind: .imageTexture,
             mimeType: "image/png",
@@ -108,7 +108,7 @@ struct ARQuickLookPresenterTests {
         )
 
         let assetID = UUID()
-        let usdzAsset = SpriteAsset(
+        let usdzAsset = Asset(
             id: assetID,
             name: "model.usdz",
             kind: .model3D,
@@ -152,7 +152,7 @@ struct ARQuickLookPresenterTests {
         )
 
         let assetID = UUID()
-        let glbAsset = SpriteAsset(
+        let glbAsset = Asset(
             id: assetID,
             name: "robot.glb",
             kind: .model3D,
@@ -194,7 +194,7 @@ struct ARQuickLookPresenterTests {
             osVersion: { true }
         )
 
-        let fbxAsset = SpriteAsset(
+        let fbxAsset = Asset(
             name: "character.fbx",
             kind: .model3D,
             mimeType: "model/fbx",
@@ -224,7 +224,7 @@ struct ARQuickLookPresenterTests {
             osVersion: { false }   // Simulates macOS 12
         )
 
-        let glbAsset = SpriteAsset(
+        let glbAsset = Asset(
             name: "model.glb",
             kind: .model3D,
             mimeType: "model/gltf-binary",
@@ -252,7 +252,7 @@ struct ARQuickLookPresenterTests {
             osVersion: { false }   // Simulates macOS 12
         )
 
-        let usdzAsset = SpriteAsset(
+        let usdzAsset = Asset(
             name: "model.usdz",
             kind: .model3D,
             mimeType: "model/vnd.usdz+zip",
@@ -379,7 +379,7 @@ struct ARQuickLookPresenterTests {
             osVersion: { true }
         )
 
-        let glbAsset = SpriteAsset(
+        let glbAsset = Asset(
             name: "broken.glb",
             kind: .model3D,
             mimeType: "model/gltf-binary",

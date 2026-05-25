@@ -114,12 +114,12 @@ public struct SceneDiagnosticsReport: Codable, Sendable, Equatable {
     }
 }
 
-public enum SpriteAssetUsageRole: String, Codable, Sendable, Equatable {
+public enum AssetUsageRole: String, Codable, Sendable, Equatable {
     case nodeTexture
     case tileSet
 }
 
-public struct SpriteAssetUsage: Identifiable, Codable, Sendable, Equatable {
+public struct AssetUsage: Identifiable, Codable, Sendable, Equatable {
     public var id: String { "\(sceneId.uuidString):\(nodeId.uuidString):\(role.rawValue)" }
     public var assetId: UUID
     public var partId: UUID
@@ -129,7 +129,7 @@ public struct SpriteAssetUsage: Identifiable, Codable, Sendable, Equatable {
     public var nodeId: UUID
     public var nodeName: String
     public var nodeType: NodeType
-    public var role: SpriteAssetUsageRole
+    public var role: AssetUsageRole
 
     public init(
         assetId: UUID,
@@ -140,7 +140,7 @@ public struct SpriteAssetUsage: Identifiable, Codable, Sendable, Equatable {
         nodeId: UUID,
         nodeName: String,
         nodeType: NodeType,
-        role: SpriteAssetUsageRole
+        role: AssetUsageRole
     ) {
         self.assetId = assetId
         self.partId = partId
@@ -165,7 +165,7 @@ public extension SceneSpec {
         return ids
     }
 
-    func authoringChecklist(using repository: SpriteRepository) -> [SceneChecklistItem] {
+    func authoringChecklist(using repository: AssetRepository) -> [SceneChecklistItem] {
         let nodes = allNodes
         let missingAssetRefs = nodes.filter {
             guard let ref = $0.assetRef else { return false }
@@ -229,7 +229,7 @@ public extension SceneSpec {
         ]
     }
 
-    func diagnostics(using repository: SpriteRepository) -> SceneDiagnosticsReport {
+    func diagnostics(using repository: AssetRepository) -> SceneDiagnosticsReport {
         let nodes = allNodes
         let referencedIDs = Array(referencedAssetIDs).sorted { $0.uuidString < $1.uuidString }
         var issues: [SceneDiagnosticIssue] = []
@@ -298,15 +298,15 @@ public extension SceneSpec {
 }
 
 public extension HypeDocument {
-    func spriteAssetUsages(for assetId: UUID) -> [SpriteAssetUsage] {
-        var usages: [SpriteAssetUsage] = []
+    func assetUsages(for assetId: UUID) -> [AssetUsage] {
+        var usages: [AssetUsage] = []
         for part in parts where part.partType == .spriteArea {
             guard let areaSpec = part.spriteAreaSpecModel else { continue }
             let partName = part.name.isEmpty ? "Sprite Area" : part.name
             for entry in areaSpec.scenes {
                 for node in entry.scene.allNodes {
                     if node.assetRef?.id == assetId {
-                        usages.append(SpriteAssetUsage(
+                        usages.append(AssetUsage(
                             assetId: assetId,
                             partId: part.id,
                             partName: partName,
@@ -319,7 +319,7 @@ public extension HypeDocument {
                         ))
                     }
                     if node.tileMapSpec?.tileSetAssetRef?.id == assetId {
-                        usages.append(SpriteAssetUsage(
+                        usages.append(AssetUsage(
                             assetId: assetId,
                             partId: part.id,
                             partName: partName,

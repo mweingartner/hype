@@ -105,7 +105,7 @@ struct MeshyToolExecutorTests {
 
         #expect(result.contains("Meshy is not enabled"))
         // Gate refusal must NOT mutate the document.
-        #expect(doc.spriteRepository.assets.isEmpty)
+        #expect(doc.assetRepository.assets.isEmpty)
         // Gate refusal must NOT invoke meshyClientFactory.
         let wasCalled = await stub.wasCalled
         #expect(!wasCalled)
@@ -139,7 +139,7 @@ struct MeshyToolExecutorTests {
         )
         // Either gate refusal or empty prompt error — both are valid given test env.
         #expect(!result.isEmpty)
-        #expect(doc.spriteRepository.assets.isEmpty)
+        #expect(doc.assetRepository.assets.isEmpty)
     }
 
     // MARK: (c) list_3d_models returns empty when no model3D assets
@@ -166,9 +166,9 @@ struct MeshyToolExecutorTests {
         var doc = makeDocument()
         let cardId = makeCardId(in: doc)
 
-        var model = SpriteAsset(name: "barrel.glb", data: Data(repeating: 0x42, count: 1024))
+        var model = Asset(name: "barrel.glb", data: Data(repeating: 0x42, count: 1024))
         model.kind = .model3D
-        doc.spriteRepository.addAsset(model)
+        doc.assetRepository.addAsset(model)
 
         let executor = HypeToolExecutor()
         let result = await executor.execute(
@@ -190,9 +190,9 @@ struct MeshyToolExecutorTests {
 
         // Add 60 model3D assets.
         for i in 0..<60 {
-            var model = SpriteAsset(name: "model\(i).glb", data: Data(repeating: 0x42, count: 64))
+            var model = Asset(name: "model\(i).glb", data: Data(repeating: 0x42, count: 64))
             model.kind = .model3D
-            doc.spriteRepository.addAsset(model)
+            doc.assetRepository.addAsset(model)
         }
 
         let executor = HypeToolExecutor()
@@ -215,9 +215,9 @@ struct MeshyToolExecutorTests {
         var doc = makeDocument()
         let cardId = makeCardId(in: doc)
         let secret = String(repeating: "X", count: 50)
-        var model = SpriteAsset(name: "secret.glb", data: Data(secret.utf8))
+        var model = Asset(name: "secret.glb", data: Data(secret.utf8))
         model.kind = .model3D
-        doc.spriteRepository.addAsset(model)
+        doc.assetRepository.addAsset(model)
 
         let executor = HypeToolExecutor()
         let result = await executor.execute(
@@ -256,9 +256,9 @@ struct MeshyToolExecutorTests {
     func createScene3DBindsRepositoryModel() async throws {
         var doc = makeDocument()
         let cardId = makeCardId(in: doc)
-        var model = SpriteAsset(name: "barrel.glb", data: Data(repeating: 0x42, count: 64))
+        var model = Asset(name: "barrel.glb", data: Data(repeating: 0x42, count: 64))
         model.kind = .model3D
-        doc.spriteRepository.addAsset(model)
+        doc.assetRepository.addAsset(model)
 
         let executor = HypeToolExecutor()
         let result = await executor.execute(
@@ -285,9 +285,9 @@ struct MeshyToolExecutorTests {
     func setPartPropertyModelBindsAssetAndReadsBack() async throws {
         var doc = makeDocument()
         let cardId = makeCardId(in: doc)
-        var model = SpriteAsset(name: "ship.glb", data: Data(repeating: 0x42, count: 64))
+        var model = Asset(name: "ship.glb", data: Data(repeating: 0x42, count: 64))
         model.kind = .model3D
-        doc.spriteRepository.addAsset(model)
+        doc.assetRepository.addAsset(model)
         doc.addPart(Part(partType: .scene3D, cardId: cardId, name: "viewer"))
 
         let executor = HypeToolExecutor()
@@ -320,9 +320,9 @@ struct MeshyToolExecutorTests {
     func bind3DModelToolBindsExistingAsset() async throws {
         var doc = makeDocument()
         let cardId = makeCardId(in: doc)
-        var model = SpriteAsset(name: "creature.glb", data: Data(repeating: 0x42, count: 64))
+        var model = Asset(name: "creature.glb", data: Data(repeating: 0x42, count: 64))
         model.kind = .model3D
-        doc.spriteRepository.addAsset(model)
+        doc.assetRepository.addAsset(model)
         doc.addPart(Part(partType: .scene3D, cardId: cardId, name: "viewer"))
 
         let executor = HypeToolExecutor()
@@ -383,7 +383,7 @@ struct MeshyToolExecutorTests {
         )
         // The tool refuses the path before any read; document is untouched.
         #expect(result.hasPrefix("import_repository_asset:"))
-        #expect(doc.spriteRepository.assets.isEmpty)
+        #expect(doc.assetRepository.assets.isEmpty)
         // The raw path MUST NOT appear in the result string (H1-style invariant
         // extended to this tool — error strings never echo AI-supplied paths).
         #expect(!result.contains("/etc/passwd"))
@@ -408,7 +408,7 @@ struct MeshyToolExecutorTests {
         // (The error message may legitimately reference "absolute path" rules.)
         #expect(!result.contains("/etc/passwd"))
         #expect(!result.contains("../../"))
-        #expect(doc.spriteRepository.assets.isEmpty)
+        #expect(doc.assetRepository.assets.isEmpty)
     }
 
     // MARK: (i) H1: generate_3d_model_from_image result string does not contain raw path
@@ -447,7 +447,7 @@ struct MeshyToolExecutorTests {
         )
         // Either gate refusal or validation error — both are valid.
         #expect(!result.isEmpty)
-        #expect(doc.spriteRepository.assets.isEmpty)
+        #expect(doc.assetRepository.assets.isEmpty)
     }
 
     // MARK: (k) generate_3d_model_from_images with 5 refs returns validation error
@@ -466,7 +466,7 @@ struct MeshyToolExecutorTests {
             currentCardId: cardId
         )
         #expect(!result.isEmpty)
-        #expect(doc.spriteRepository.assets.isEmpty)
+        #expect(doc.assetRepository.assets.isEmpty)
     }
 
     // MARK: (l) Gate refusal does not call meshyClientFactory

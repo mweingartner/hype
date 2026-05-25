@@ -140,7 +140,7 @@ public final class SoundPlayer: NSObject, NSSoundDelegate {
     /// 3. HyperCard built-in name → system sound mapping
     ///    ("boing"→Frog, "harpsichord"→Hero, "flute"→Purr).
     ///
-    /// 4. SpriteRepository `.audioClip` asset by name.
+    /// 4. AssetRepository `.audioClip` asset by name.
     ///
     /// 5. File path fallback.
     public func play(name: String, document: HypeDocument? = nil) {
@@ -170,9 +170,9 @@ public final class SoundPlayer: NSObject, NSSoundDelegate {
             return
         }
 
-        // 4. SpriteRepository audio asset
+        // 4. AssetRepository audio asset
         if let doc = document,
-           let asset = doc.spriteRepository.assets.first(where: {
+           let asset = doc.assetRepository.assets.first(where: {
                $0.name.lowercased() == name.lowercased() && $0.kind == .audioClip
            }) {
             let tempDir = FileManager.default.temporaryDirectory

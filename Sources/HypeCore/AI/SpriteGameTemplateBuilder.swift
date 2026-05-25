@@ -135,7 +135,7 @@ public enum SpriteGameTemplateBuilder {
         name: String = "hype_arcade_maze_tiles",
         style: String = "neon",
         tileSize: Int = defaultPacmanTileSize
-    ) throws -> SpriteAsset {
+    ) throws -> Asset {
         let safeTileSize = max(8, min(tileSize, 128))
         let columns = 4
         let width = safeTileSize * columns
@@ -143,7 +143,7 @@ public enum SpriteGameTemplateBuilder {
         let data = try makePNGAsset(name: name, width: width, height: height) { rect in
             drawMazeTileSheet(in: rect, tileSize: safeTileSize, style: style)
         }
-        return SpriteAsset(
+        return Asset(
             name: name,
             kind: .tileSet,
             mimeType: "image/png",
@@ -174,7 +174,7 @@ public enum SpriteGameTemplateBuilder {
     }
 
     @discardableResult
-    public static func upsertAsset(_ asset: SpriteAsset, in repository: inout SpriteRepository) -> SpriteAsset {
+    public static func upsertAsset(_ asset: Asset, in repository: inout AssetRepository) -> Asset {
         let needle = asset.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if let index = repository.assets.firstIndex(where: { $0.name.lowercased() == needle }) {
             var replacement = asset
@@ -198,15 +198,15 @@ public enum SpriteGameTemplateBuilder {
 
         let tiles = upsertAsset(
             try createBasicMazeTilesetAsset(name: "hype_pacman_maze_tiles", style: "neon"),
-            in: &document.spriteRepository
+            in: &document.assetRepository
         )
-        let pacman = upsertAsset(try makePacmanAsset(), in: &document.spriteRepository)
-        let blinky = upsertAsset(try makeGhostAsset(name: "hype_pacman_ghost_blinky", colorHex: "#FF3030"), in: &document.spriteRepository)
-        let pinky = upsertAsset(try makeGhostAsset(name: "hype_pacman_ghost_pinky", colorHex: "#FF77C8"), in: &document.spriteRepository)
-        let inky = upsertAsset(try makeGhostAsset(name: "hype_pacman_ghost_inky", colorHex: "#35E3FF"), in: &document.spriteRepository)
-        let clyde = upsertAsset(try makeGhostAsset(name: "hype_pacman_ghost_clyde", colorHex: "#FF9D28"), in: &document.spriteRepository)
-        let pellet = upsertAsset(try makePelletAsset(name: "hype_pacman_pellet", colorHex: "#FFDFA3", diameter: 8), in: &document.spriteRepository)
-        let powerPellet = upsertAsset(try makePelletAsset(name: "hype_pacman_power_pellet", colorHex: "#FFFFFF", diameter: 18), in: &document.spriteRepository)
+        let pacman = upsertAsset(try makePacmanAsset(), in: &document.assetRepository)
+        let blinky = upsertAsset(try makeGhostAsset(name: "hype_pacman_ghost_blinky", colorHex: "#FF3030"), in: &document.assetRepository)
+        let pinky = upsertAsset(try makeGhostAsset(name: "hype_pacman_ghost_pinky", colorHex: "#FF77C8"), in: &document.assetRepository)
+        let inky = upsertAsset(try makeGhostAsset(name: "hype_pacman_ghost_inky", colorHex: "#35E3FF"), in: &document.assetRepository)
+        let clyde = upsertAsset(try makeGhostAsset(name: "hype_pacman_ghost_clyde", colorHex: "#FF9D28"), in: &document.assetRepository)
+        let pellet = upsertAsset(try makePelletAsset(name: "hype_pacman_pellet", colorHex: "#FFDFA3", diameter: 8), in: &document.assetRepository)
+        let powerPellet = upsertAsset(try makePelletAsset(name: "hype_pacman_power_pellet", colorHex: "#FFFFFF", diameter: 18), in: &document.assetRepository)
 
         let maze = makePacmanMaze(columns: 24, rows: 17)
         let tileSize = Double(defaultPacmanTileSize)
@@ -218,7 +218,7 @@ public enum SpriteGameTemplateBuilder {
             rows: maze.rows,
             tileWidth: tileSize,
             tileHeight: tileSize,
-            tileSetAssetRef: document.spriteRepository.assetRef(for: tiles),
+            tileSetAssetRef: document.assetRepository.assetRef(for: tiles),
             tileSetColumns: tiles.tileColumns,
             tileData: tileData
         )
@@ -264,7 +264,7 @@ public enum SpriteGameTemplateBuilder {
                 nodes.append(spriteNode(
                     name: String(format: "pellet_%03d", pelletCount),
                     asset: pellet,
-                    repository: document.spriteRepository,
+                    repository: document.assetRepository,
                     col: col,
                     row: row,
                     tileSize: tileSize,
@@ -292,7 +292,7 @@ public enum SpriteGameTemplateBuilder {
             nodes.append(spriteNode(
                 name: "power_pellet_\(powerPelletCount)",
                 asset: powerPellet,
-                repository: document.spriteRepository,
+                repository: document.assetRepository,
                 col: cell.col,
                 row: cell.row,
                 tileSize: tileSize,
@@ -316,7 +316,7 @@ public enum SpriteGameTemplateBuilder {
         nodes.append(spriteNode(
             name: "pacmanPlayer",
             asset: pacman,
-            repository: document.spriteRepository,
+            repository: document.assetRepository,
             col: 1,
             row: maze.rows - 2,
             tileSize: tileSize,
@@ -325,7 +325,7 @@ public enum SpriteGameTemplateBuilder {
             physics: playerPhysics()
         ))
 
-        let ghostSpecs: [(String, SpriteAsset, Int, Int, Double, Double)] = [
+        let ghostSpecs: [(String, Asset, Int, Int, Double, Double)] = [
             ("ghost_blinky", blinky, 11, 8, 120, 0),
             ("ghost_pinky", pinky, 12, 8, -120, 0),
             ("ghost_inky", inky, 10, 8, 0, 120),
@@ -335,7 +335,7 @@ public enum SpriteGameTemplateBuilder {
             nodes.append(spriteNode(
                 name: name,
                 asset: asset,
-                repository: document.spriteRepository,
+                repository: document.assetRepository,
                 col: col,
                 row: row,
                 tileSize: tileSize,
@@ -385,13 +385,13 @@ public enum SpriteGameTemplateBuilder {
             throw SpriteGameTemplateError.invalidSpriteAreaIndex
         }
 
-        let platform = upsertAsset(try makePlatformerPlatformAsset(), in: &document.spriteRepository)
-        let hero = upsertAsset(try makePlatformerHeroAsset(), in: &document.spriteRepository)
-        let barrel = upsertAsset(try makePlatformerBarrelAsset(), in: &document.spriteRepository)
-        let rival = upsertAsset(try makePlatformerRivalAsset(), in: &document.spriteRepository)
-        let prize = upsertAsset(try makePlatformerPrizeAsset(), in: &document.spriteRepository)
-        let ladder = upsertAsset(try makePlatformerLadderAsset(), in: &document.spriteRepository)
-        let hammer = upsertAsset(try makePlatformerHammerAsset(), in: &document.spriteRepository)
+        let platform = upsertAsset(try makePlatformerPlatformAsset(), in: &document.assetRepository)
+        let hero = upsertAsset(try makePlatformerHeroAsset(), in: &document.assetRepository)
+        let barrel = upsertAsset(try makePlatformerBarrelAsset(), in: &document.assetRepository)
+        let rival = upsertAsset(try makePlatformerRivalAsset(), in: &document.assetRepository)
+        let prize = upsertAsset(try makePlatformerPrizeAsset(), in: &document.assetRepository)
+        let ladder = upsertAsset(try makePlatformerLadderAsset(), in: &document.assetRepository)
+        let hammer = upsertAsset(try makePlatformerHammerAsset(), in: &document.assetRepository)
 
         let sceneSize = defaultPlatformerSceneSize
         var nodes: [HypeNodeSpec] = []
@@ -450,7 +450,7 @@ public enum SpriteGameTemplateBuilder {
             nodes.append(spriteNode(
                 name: name,
                 asset: platform,
-                repository: document.spriteRepository,
+                repository: document.assetRepository,
                 position: PointSpec(x: x, y: y),
                 size: SizeSpec(width: width, height: height),
                 z: 10,
@@ -485,7 +485,7 @@ public enum SpriteGameTemplateBuilder {
             nodes.append(spriteNode(
                 name: name,
                 asset: ladder,
-                repository: document.spriteRepository,
+                repository: document.assetRepository,
                 position: PointSpec(x: x, y: y),
                 size: SizeSpec(width: 42, height: height),
                 z: 16,
@@ -501,7 +501,7 @@ public enum SpriteGameTemplateBuilder {
             nodes.append(spriteNode(
                 name: name,
                 asset: hammer,
-                repository: document.spriteRepository,
+                repository: document.assetRepository,
                 position: PointSpec(x: x, y: y),
                 size: SizeSpec(width: 34, height: 34),
                 z: 37,
@@ -512,7 +512,7 @@ public enum SpriteGameTemplateBuilder {
         var hammerSwing = spriteNode(
             name: "hammerSwing",
             asset: hammer,
-            repository: document.spriteRepository,
+            repository: document.assetRepository,
             position: PointSpec(x: -120, y: -120),
             size: SizeSpec(width: 42, height: 42),
             z: 45,
@@ -524,7 +524,7 @@ public enum SpriteGameTemplateBuilder {
         nodes.append(spriteNode(
             name: "hero",
             asset: hero,
-            repository: document.spriteRepository,
+            repository: document.assetRepository,
             position: PointSpec(x: 82, y: 516),
             size: SizeSpec(width: 38, height: 46),
             z: 35,
@@ -533,7 +533,7 @@ public enum SpriteGameTemplateBuilder {
         nodes.append(spriteNode(
             name: "rival",
             asset: rival,
-            repository: document.spriteRepository,
+            repository: document.assetRepository,
             position: PointSpec(x: 112, y: 102),
             size: SizeSpec(width: 70, height: 62),
             z: 34,
@@ -542,7 +542,7 @@ public enum SpriteGameTemplateBuilder {
         nodes.append(spriteNode(
             name: "goal_prize",
             asset: prize,
-            repository: document.spriteRepository,
+            repository: document.assetRepository,
             position: PointSpec(x: 702, y: 62),
             size: SizeSpec(width: 44, height: 44),
             z: 36,
@@ -560,7 +560,7 @@ public enum SpriteGameTemplateBuilder {
             nodes.append(spriteNode(
                 name: name,
                 asset: barrel,
-                repository: document.spriteRepository,
+                repository: document.assetRepository,
                 position: PointSpec(x: x, y: y),
                 size: SizeSpec(width: 34, height: 34),
                 z: 32,
@@ -668,12 +668,12 @@ public enum SpriteGameTemplateBuilder {
             throw SpriteGameTemplateError.invalidSpriteAreaIndex
         }
 
-        let player = upsertAsset(try makeTemplateAsset(templateID: descriptor.id, role: "player", colorHex: "#2EC4FF"), in: &document.spriteRepository)
-        let enemy = upsertAsset(try makeTemplateAsset(templateID: descriptor.id, role: "enemy", colorHex: "#FF4D6D"), in: &document.spriteRepository)
-        let pickup = upsertAsset(try makeTemplateAsset(templateID: descriptor.id, role: "pickup", colorHex: "#FFD166"), in: &document.spriteRepository)
-        let goal = upsertAsset(try makeTemplateAsset(templateID: descriptor.id, role: "goal", colorHex: "#8AF64E"), in: &document.spriteRepository)
-        let projectile = upsertAsset(try makeTemplateAsset(templateID: descriptor.id, role: "projectile", colorHex: "#FFFFFF"), in: &document.spriteRepository)
-        let block = upsertAsset(try makeTemplateAsset(templateID: descriptor.id, role: "block", colorHex: "#5FFBFF"), in: &document.spriteRepository)
+        let player = upsertAsset(try makeTemplateAsset(templateID: descriptor.id, role: "player", colorHex: "#2EC4FF"), in: &document.assetRepository)
+        let enemy = upsertAsset(try makeTemplateAsset(templateID: descriptor.id, role: "enemy", colorHex: "#FF4D6D"), in: &document.assetRepository)
+        let pickup = upsertAsset(try makeTemplateAsset(templateID: descriptor.id, role: "pickup", colorHex: "#FFD166"), in: &document.assetRepository)
+        let goal = upsertAsset(try makeTemplateAsset(templateID: descriptor.id, role: "goal", colorHex: "#8AF64E"), in: &document.assetRepository)
+        let projectile = upsertAsset(try makeTemplateAsset(templateID: descriptor.id, role: "projectile", colorHex: "#FFFFFF"), in: &document.assetRepository)
+        let block = upsertAsset(try makeTemplateAsset(templateID: descriptor.id, role: "block", colorHex: "#5FFBFF"), in: &document.assetRepository)
         var assets = [player, enemy, pickup, goal, projectile, block]
 
         let size = descriptor.defaultSceneSize
@@ -684,16 +684,16 @@ public enum SpriteGameTemplateBuilder {
         nodes.append(contentsOf: templateBounds(size: size))
 
         if templateUsesTileMap(descriptor.id) {
-            let tiles = upsertAsset(try createBasicMazeTilesetAsset(name: "hype_\(descriptor.id)_tiles", style: "template", tileSize: 32), in: &document.spriteRepository)
+            let tiles = upsertAsset(try createBasicMazeTilesetAsset(name: "hype_\(descriptor.id)_tiles", style: "template", tileSize: 32), in: &document.assetRepository)
             assets.append(tiles)
-            nodes.append(templateTileMapNode(asset: tiles, repository: document.spriteRepository, size: size))
+            nodes.append(templateTileMapNode(asset: tiles, repository: document.assetRepository, size: size))
         }
 
         nodes.append(contentsOf: templateDecorNodes(for: descriptor.id, size: size))
         nodes.append(spriteNode(
             name: "player",
             asset: player,
-            repository: document.spriteRepository,
+            repository: document.assetRepository,
             position: templatePlayerStart(for: descriptor.id, size: size),
             size: SizeSpec(width: 38, height: 38),
             z: 40,
@@ -702,7 +702,7 @@ public enum SpriteGameTemplateBuilder {
         nodes.append(spriteNode(
             name: "enemy_1",
             asset: enemy,
-            repository: document.spriteRepository,
+            repository: document.assetRepository,
             position: PointSpec(x: size.width * 0.68, y: size.height * 0.52),
             size: SizeSpec(width: 36, height: 36),
             z: 35,
@@ -711,7 +711,7 @@ public enum SpriteGameTemplateBuilder {
         nodes.append(spriteNode(
             name: "enemy_2",
             asset: enemy,
-            repository: document.spriteRepository,
+            repository: document.assetRepository,
             position: PointSpec(x: size.width * 0.42, y: size.height * 0.34),
             size: SizeSpec(width: 32, height: 32),
             z: 34,
@@ -720,7 +720,7 @@ public enum SpriteGameTemplateBuilder {
         nodes.append(spriteNode(
             name: "pickup_1",
             asset: pickup,
-            repository: document.spriteRepository,
+            repository: document.assetRepository,
             position: PointSpec(x: size.width * 0.28, y: size.height * 0.42),
             size: SizeSpec(width: 28, height: 28),
             z: 33,
@@ -729,7 +729,7 @@ public enum SpriteGameTemplateBuilder {
         nodes.append(spriteNode(
             name: "pickup_2",
             asset: pickup,
-            repository: document.spriteRepository,
+            repository: document.assetRepository,
             position: PointSpec(x: size.width * 0.58, y: size.height * 0.68),
             size: SizeSpec(width: 28, height: 28),
             z: 33,
@@ -738,7 +738,7 @@ public enum SpriteGameTemplateBuilder {
         nodes.append(spriteNode(
             name: "goal",
             asset: goal,
-            repository: document.spriteRepository,
+            repository: document.assetRepository,
             position: PointSpec(x: size.width - 72, y: 92),
             size: SizeSpec(width: 42, height: 42),
             z: 33,
@@ -747,7 +747,7 @@ public enum SpriteGameTemplateBuilder {
         var projectileNode = spriteNode(
             name: "projectile_1",
             asset: projectile,
-            repository: document.spriteRepository,
+            repository: document.assetRepository,
             position: PointSpec(x: -120, y: -120),
             size: SizeSpec(width: 18, height: 18),
             z: 50,
@@ -760,7 +760,7 @@ public enum SpriteGameTemplateBuilder {
             nodes.append(spriteNode(
                 name: "tower_1",
                 asset: block,
-                repository: document.spriteRepository,
+                repository: document.assetRepository,
                 position: PointSpec(x: size.width * 0.5, y: size.height * 0.44),
                 size: SizeSpec(width: 44, height: 44),
                 z: 32,
@@ -862,7 +862,7 @@ public enum SpriteGameTemplateBuilder {
         ].contains(id)
     }
 
-    private static func templateTileMapNode(asset: SpriteAsset, repository: SpriteRepository, size: SizeSpec) -> HypeNodeSpec {
+    private static func templateTileMapNode(asset: Asset, repository: AssetRepository, size: SizeSpec) -> HypeNodeSpec {
         let columns = 16
         let rows = 12
         var tileData = Array(repeating: Array(repeating: 0, count: columns), count: rows)
@@ -1188,7 +1188,7 @@ public enum SpriteGameTemplateBuilder {
         """
     }
 
-    private static func makeTemplateAsset(templateID: String, role: String, colorHex: String) throws -> SpriteAsset {
+    private static func makeTemplateAsset(templateID: String, role: String, colorHex: String) throws -> Asset {
         let name = "hype_\(templateID)_\(role)"
         let data = try makePNGAsset(name: name, width: 64, height: 64) { rect in
             #if canImport(AppKit)
@@ -1239,7 +1239,7 @@ public enum SpriteGameTemplateBuilder {
             }
             #endif
         }
-        return SpriteAsset(
+        return Asset(
             name: name,
             kind: .imageTexture,
             mimeType: "image/png",
@@ -1372,8 +1372,8 @@ public enum SpriteGameTemplateBuilder {
 
     private static func spriteNode(
         name: String,
-        asset: SpriteAsset,
-        repository: SpriteRepository,
+        asset: Asset,
+        repository: AssetRepository,
         col: Int,
         row: Int,
         tileSize: Double,
@@ -1447,8 +1447,8 @@ public enum SpriteGameTemplateBuilder {
 
     private static func spriteNode(
         name: String,
-        asset: SpriteAsset,
-        repository: SpriteRepository,
+        asset: Asset,
+        repository: AssetRepository,
         position: PointSpec,
         size: SizeSpec,
         z: Double,
@@ -1840,7 +1840,7 @@ public enum SpriteGameTemplateBuilder {
         """
     }
 
-    private static func makePacmanAsset() throws -> SpriteAsset {
+    private static func makePacmanAsset() throws -> Asset {
         let data = try makePNGAsset(name: "hype_pacman_player", width: 64, height: 64) { rect in
             #if canImport(AppKit)
             NSColor.clear.setFill()
@@ -1856,7 +1856,7 @@ public enum SpriteGameTemplateBuilder {
             mouth.fill()
             #endif
         }
-        return SpriteAsset(
+        return Asset(
             name: "hype_pacman_player",
             kind: .imageTexture,
             mimeType: "image/png",
@@ -1867,7 +1867,7 @@ public enum SpriteGameTemplateBuilder {
         )
     }
 
-    private static func makeGhostAsset(name: String, colorHex: String) throws -> SpriteAsset {
+    private static func makeGhostAsset(name: String, colorHex: String) throws -> Asset {
         let data = try makePNGAsset(name: name, width: 64, height: 64) { rect in
             #if canImport(AppKit)
             NSColor.clear.setFill()
@@ -1885,7 +1885,7 @@ public enum SpriteGameTemplateBuilder {
             NSBezierPath(ovalIn: NSRect(x: rect.minX + 40, y: rect.minY + 38, width: 5, height: 6)).fill()
             #endif
         }
-        return SpriteAsset(
+        return Asset(
             name: name,
             kind: .imageTexture,
             mimeType: "image/png",
@@ -1896,7 +1896,7 @@ public enum SpriteGameTemplateBuilder {
         )
     }
 
-    private static func makePelletAsset(name: String, colorHex: String, diameter: Int) throws -> SpriteAsset {
+    private static func makePelletAsset(name: String, colorHex: String, diameter: Int) throws -> Asset {
         let size = max(8, diameter + 6)
         let data = try makePNGAsset(name: name, width: size, height: size) { rect in
             #if canImport(AppKit)
@@ -1906,7 +1906,7 @@ public enum SpriteGameTemplateBuilder {
             NSBezierPath(ovalIn: rect.insetBy(dx: 3, dy: 3)).fill()
             #endif
         }
-        return SpriteAsset(
+        return Asset(
             name: name,
             kind: .imageTexture,
             mimeType: "image/png",
@@ -1917,7 +1917,7 @@ public enum SpriteGameTemplateBuilder {
         )
     }
 
-    private static func makePlatformerPlatformAsset() throws -> SpriteAsset {
+    private static func makePlatformerPlatformAsset() throws -> Asset {
         let data = try makePNGAsset(name: "hype_barrel_platform", width: 96, height: 24) { rect in
             #if canImport(AppKit)
             nsColor(hex: "#3B1D4F").setFill()
@@ -1933,7 +1933,7 @@ public enum SpriteGameTemplateBuilder {
             line.stroke()
             #endif
         }
-        return SpriteAsset(
+        return Asset(
             name: "hype_barrel_platform",
             kind: .imageTexture,
             mimeType: "image/png",
@@ -1944,7 +1944,7 @@ public enum SpriteGameTemplateBuilder {
         )
     }
 
-    private static func makePlatformerHeroAsset() throws -> SpriteAsset {
+    private static func makePlatformerHeroAsset() throws -> Asset {
         let data = try makePNGAsset(name: "hype_barrel_hero", width: 64, height: 80) { rect in
             #if canImport(AppKit)
             NSColor.clear.setFill()
@@ -1965,7 +1965,7 @@ public enum SpriteGameTemplateBuilder {
             legs.stroke()
             #endif
         }
-        return SpriteAsset(
+        return Asset(
             name: "hype_barrel_hero",
             kind: .imageTexture,
             mimeType: "image/png",
@@ -1976,7 +1976,7 @@ public enum SpriteGameTemplateBuilder {
         )
     }
 
-    private static func makePlatformerBarrelAsset() throws -> SpriteAsset {
+    private static func makePlatformerBarrelAsset() throws -> Asset {
         let data = try makePNGAsset(name: "hype_barrel_hazard", width: 64, height: 64) { rect in
             #if canImport(AppKit)
             NSColor.clear.setFill()
@@ -1997,7 +1997,7 @@ public enum SpriteGameTemplateBuilder {
             rim.stroke()
             #endif
         }
-        return SpriteAsset(
+        return Asset(
             name: "hype_barrel_hazard",
             kind: .imageTexture,
             mimeType: "image/png",
@@ -2008,7 +2008,7 @@ public enum SpriteGameTemplateBuilder {
         )
     }
 
-    private static func makePlatformerRivalAsset() throws -> SpriteAsset {
+    private static func makePlatformerRivalAsset() throws -> Asset {
         let data = try makePNGAsset(name: "hype_barrel_rival", width: 96, height: 80) { rect in
             #if canImport(AppKit)
             NSColor.clear.setFill()
@@ -2025,7 +2025,7 @@ public enum SpriteGameTemplateBuilder {
             NSBezierPath(ovalIn: NSRect(x: 55, y: 53, width: 4, height: 4)).fill()
             #endif
         }
-        return SpriteAsset(
+        return Asset(
             name: "hype_barrel_rival",
             kind: .imageTexture,
             mimeType: "image/png",
@@ -2036,7 +2036,7 @@ public enum SpriteGameTemplateBuilder {
         )
     }
 
-    private static func makePlatformerPrizeAsset() throws -> SpriteAsset {
+    private static func makePlatformerPrizeAsset() throws -> Asset {
         let data = try makePNGAsset(name: "hype_barrel_trophy", width: 64, height: 64) { rect in
             #if canImport(AppKit)
             NSColor.clear.setFill()
@@ -2058,7 +2058,7 @@ public enum SpriteGameTemplateBuilder {
             rightHandle.stroke()
             #endif
         }
-        return SpriteAsset(
+        return Asset(
             name: "hype_barrel_trophy",
             kind: .imageTexture,
             mimeType: "image/png",
@@ -2069,7 +2069,7 @@ public enum SpriteGameTemplateBuilder {
         )
     }
 
-    private static func makePlatformerLadderAsset() throws -> SpriteAsset {
+    private static func makePlatformerLadderAsset() throws -> Asset {
         let data = try makePNGAsset(name: "hype_barrel_ladder", width: 48, height: 96) { rect in
             #if canImport(AppKit)
             NSColor.clear.setFill()
@@ -2090,7 +2090,7 @@ public enum SpriteGameTemplateBuilder {
             }
             #endif
         }
-        return SpriteAsset(
+        return Asset(
             name: "hype_barrel_ladder",
             kind: .imageTexture,
             mimeType: "image/png",
@@ -2101,7 +2101,7 @@ public enum SpriteGameTemplateBuilder {
         )
     }
 
-    private static func makePlatformerHammerAsset() throws -> SpriteAsset {
+    private static func makePlatformerHammerAsset() throws -> Asset {
         let data = try makePNGAsset(name: "hype_barrel_hammer", width: 64, height: 64) { rect in
             #if canImport(AppKit)
             NSColor.clear.setFill()
@@ -2126,7 +2126,7 @@ public enum SpriteGameTemplateBuilder {
             NSBezierPath(ovalIn: NSRect(x: rect.minX + 12, y: rect.minY + 8, width: 12, height: 12)).fill()
             #endif
         }
-        return SpriteAsset(
+        return Asset(
             name: "hype_barrel_hammer",
             kind: .imageTexture,
             mimeType: "image/png",

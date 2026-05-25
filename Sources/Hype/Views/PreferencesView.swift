@@ -356,7 +356,7 @@ struct PreferencesView: View {
                     }
                 }
 
-                Text("Used when the AI generates images for cards, backgrounds, or Sprite Repository assets. This works even when Ollama is the selected chat provider.")
+                Text("Used when the AI generates images for cards, backgrounds, or Asset Repository assets. This works even when Ollama is the selected chat provider.")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -466,7 +466,7 @@ struct PreferencesView: View {
             Section("Meshy.ai (3D model generation)") {
                 Toggle("Enable for Current Stack", isOn: currentStackMeshyEnabledBinding)
                     .disabled(document == nil)
-                    .help("Allow the AI assistant and the Sprite Repository to generate 3D models using your Meshy.ai credits for this stack.")
+                    .help("Allow the AI assistant and the Asset Repository to generate 3D models using your Meshy.ai credits for this stack.")
 
                 HStack {
                     SecureField(

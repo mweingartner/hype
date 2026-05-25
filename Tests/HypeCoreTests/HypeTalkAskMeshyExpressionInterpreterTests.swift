@@ -160,12 +160,12 @@ struct HypeTalkAskMeshyExpressionInterpreterTests {
         let provider = SuccessfulMeshyProvider(assetName: "wooden-barrel.glb")
 
         // Add a model3D asset to the repository so the resolver can find it.
-        let asset = SpriteAsset(
+        let asset = Asset(
             name: "wooden-barrel.glb",
             kind: .model3D,
             mimeType: "model/gltf-binary"
         )
-        doc.spriteRepository.addAsset(asset)
+        doc.assetRepository.addAsset(asset)
 
         // Add a scene3D part to the card.
         let viewer = Part(partType: .scene3D, cardId: cardId, name: "Viewer")

@@ -135,14 +135,14 @@ private func makeSucceededAnimFact(taskId: String = "anim_lifecycle_001") -> Mes
     )
 }
 
-private func makeMeshySourceAsset(name: String = "hero", taskId: String = "src_task_001") -> SpriteAsset {
+private func makeMeshySourceAsset(name: String = "hero", taskId: String = "src_task_001") -> Asset {
     let attribution = AssetAttribution(providerIdentifier: "meshy", taskId: taskId)
     let provenance = AssetProvenance(
         origin: .aiGenerated,
         searchQuery: "hero character",
         attribution: attribution
     )
-    return SpriteAsset(
+    return Asset(
         name: name,
         kind: .model3D,
         mimeType: "model/gltf-binary",

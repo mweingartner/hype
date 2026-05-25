@@ -35,7 +35,7 @@ public struct Stack: Identifiable, Codable, Sendable {
     /// stack. Defaults to `false`, including for stacks created before Meshy
     /// support shipped (backward-compatible decode). Toggled in Preferences
     /// → Meshy.ai → Enable for Current Stack, or via the first-run prompt
-    /// raised by the Sprite Repository's "Generate 3D…" button.
+    /// raised by the Asset Repository's "Generate 3D…" button.
     ///
     /// Gates BOTH the Generate-3D sheet AND any future Meshy AI tool surface
     /// (Phase 2 adds `generate_3d_model_from_text` etc., which must check

@@ -3,7 +3,7 @@ import HypeCore
 
 /// Window opener for the Theme Designer.
 ///
-/// Mirrors the pattern used by `openSpriteRepositoryWindow` and
+/// Mirrors the pattern used by `openAssetRepositoryWindow` and
 /// `openScriptEditorWindow` in `PropertyInspector.swift`: a top-level
 /// `@MainActor` function constructs an `NSWindow`, embeds the SwiftUI
 /// view via `NSHostingView`, and stores a strong reference in a
@@ -15,7 +15,7 @@ import HypeCore
 /// the user wants to keep open while they tweak cards on the canvas.
 /// A modal sheet would block the canvas; a popover would dismiss the
 /// moment focus moves elsewhere. A separate window also mirrors the
-/// Sprite Repository window so the app stays internally consistent.
+/// Asset Repository window so the app stays internally consistent.
 ///
 /// The window is keyed to the focused document by stack id. Opening
 /// the designer for a different document opens a second window so

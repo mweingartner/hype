@@ -358,6 +358,7 @@ struct NetworkPanelView: View {
     private func toggleListener(_ listener: SavedNetworkListener) {
         let snapshot = document.document
         let configuration = StackRuntimeConfiguration(
+            systemProvider: AppKitSystemProvider(),
             aiProvider: SelectedAIScriptingProvider(),
             speechOutputProvider: OpenAISpeechOutputProvider.shared,
             speechListenerProvider: RuntimeSpeechListenerProvider.shared

@@ -6,7 +6,7 @@ import Foundation
 ///
 /// Builds the right `MeshyAIClient` POST, spins up a `MeshyTaskMonitor`,
 /// streams progress to an optional callback, and returns the imported
-/// `SpriteAsset`s via `Meshy3DAssetImporter`. Both the `Generate3DSheet`
+/// `Asset`s via `Meshy3DAssetImporter`. Both the `Generate3DSheet`
 /// SwiftUI view and the AI tool executor use this type — it is the single
 /// well-tested code path for all Meshy generation.
 ///
@@ -123,14 +123,14 @@ public struct Generate3DJob: Sendable {
     ///   - existingAssetNames: Names already in the repository (for dedup).
     ///   - onProgress: Optional progress callback. Use for AI-tool
     ///     `logger.aiOutput` reporting and sheet UI updates.
-    /// - Returns: The imported `SpriteAsset`s. First is always the primary GLB.
+    /// - Returns: The imported `Asset`s. First is always the primary GLB.
     /// - Throws: `MeshyError` on any pipeline failure.
     public func run(
         kind: Kind,
         options: Options,
         existingAssetNames: Set<String>,
         onProgress: ProgressHandler? = nil
-    ) async throws -> [SpriteAsset] {
+    ) async throws -> [Asset] {
         try validate(options: options)
 
         // Step 1: Build request and POST to Meshy.
@@ -198,7 +198,7 @@ public struct Generate3DJob: Sendable {
 
     /// POST the appropriate request and return `(taskId, taskKind, monitorPrompt)`.
     ///
-    /// The `monitorPrompt` flows into `SpriteAsset.provenance.searchQuery`.
+    /// The `monitorPrompt` flows into `Asset.provenance.searchQuery`.
     /// For image inputs it is a safe descriptor — NEVER a raw file path (M4).
     private func createTask(
         kind: Kind,

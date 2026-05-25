@@ -39,7 +39,7 @@ reconstructions, rigged characters, animated characters — directly
 inside the app and use them in stacks without leaving the
 authoring loop. Concretely:
 
-- **Sprite Repository** can hold 3D models (`AssetKind.model3D`) the
+- **Asset Repository** can hold 3D models (`AssetKind.model3D`) the
   same way it holds image textures, sprite sheets, and audio clips.
 - **`scene3D` part** can be filled from any repository model in one
   click; provenance (model name, prompt, license, credits consumed)
@@ -114,7 +114,7 @@ Look on macOS / iOS prefers).
 Five existing surfaces are the right joins; we should not
 reinvent any of them.
 
-### 3.1 `SpriteRepository` gains a `model3D` asset kind
+### 3.1 `AssetRepository` gains a `model3D` asset kind
 
 Today `AssetKind` covers `imageTexture`, `spriteSheet`, `tileSet`,
 `audioClip`, `videoClip`, `particlePreset`, `placeholderAsset`. We
@@ -143,7 +143,7 @@ public var scene3DURL: String           // existing — resolved path after form
 ```
 
 When `scene3DAssetRef` is set, the renderer / SceneKit host resolves
-the bytes through `SpriteRepository.asset(byId:)`, writes them to a
+the bytes through `AssetRepository.asset(byId:)`, writes them to a
 short-lived cache file under
 `~/Library/Caches/com.hype.app/scene3d-cache/<assetId>.<ext>`, and
 loads them. Same lifecycle and same security boundary as
@@ -151,7 +151,7 @@ loads them. Same lifecycle and same security boundary as
 source-file SHA. The path stays self-contained — a `.hype` file
 that uses Meshy-generated assets is portable to another machine.
 
-### 3.3 Sprite Repository window gains a "Generate 3D…" affordance
+### 3.3 Asset Repository window gains a "Generate 3D…" affordance
 
 The repository window already has Import (`+`), Tileset Import,
 and the recently-added Transparent Background action. We add a
@@ -224,7 +224,7 @@ Sources/HypeCore/AI/MeshyAIClient.swift                # Core HTTP client (HypeA
 Sources/HypeCore/AI/MeshyTaskMonitor.swift             # Async polling + SSE streaming
 Sources/HypeCore/AI/MeshyModels.swift                  # Codable structs for request/response
 Sources/HypeCore/AI/MeshyError.swift                   # Typed errors (rate-limited, insufficient credit, etc.)
-Sources/HypeCore/AI/Meshy3DAssetImporter.swift         # task_id → SpriteAsset (writes bytes to repository)
+Sources/HypeCore/AI/Meshy3DAssetImporter.swift         # task_id → Asset (writes bytes to repository)
 Sources/Hype/Views/Generate3DSheet.swift               # The three-tab generation UI
 Sources/Hype/Views/PreferencesView+Meshy.swift         # Preferences section additions
 Tests/HypeCoreTests/MeshyAIClientTests.swift           # Encoding/decoding, retry, status polling
@@ -235,14 +235,14 @@ Tests/HypeTests/Generate3DSheetTests.swift             # SwiftUI sheet input val
 
 ### Modified
 ```
-Sources/HypeCore/Models/SpriteRepository.swift         # Add AssetKind.model3D + provenance fields
+Sources/HypeCore/Models/AssetRepository.swift         # Add AssetKind.model3D + provenance fields
 Sources/HypeCore/Models/Part.swift                     # Add scene3DAssetRef: AssetRef?
 Sources/HypeCore/Models/AssetRef.swift                 # No change expected
 Sources/HypeCore/AI/HypeTools.swift                    # Three new tool schemas
 Sources/HypeCore/AI/HypeToolExecutor.swift             # Dispatch the new tools through Meshy3DAssetImporter
-Sources/HypeCore/AI/AIEditTransaction.swift            # Delta tracking already covers spriteRepository — confirm
+Sources/HypeCore/AI/AIEditTransaction.swift            # Delta tracking already covers assetRepository — confirm
 Sources/Hype/Views/PreferencesView.swift               # Inline the new Meshy section
-Sources/Hype/Views/SpriteRepositoryView.swift          # "Generate 3D…" button + sheet host
+Sources/Hype/Views/AssetRepositoryView.swift          # "Generate 3D…" button + sheet host
 Sources/Hype/Views/PropertyInspector.swift             # scene3D section: From Repository popup
 Sources/HypeCore/AI/WebAssetSearch/KeychainStore.swift # Add a meshyAPIKeyAccount constant
 Sources/HypeCore/AI/HypeTalkGuide.swift                # Document new tool surface
@@ -287,7 +287,7 @@ files. Comparable to the OpenAI provider integration in size.
 │  Meshy3DAssetImporter                │
 │   • download GLB bytes               │
 │   • optionally download USDZ bytes   │
-│   • create SpriteAsset               │
+│   • create Asset               │
 │     (kind=.model3D, provenance=.aiGenerated) │
 │   • return AssetRef                  │
 └──────────────┬───────────────────────┘
@@ -343,7 +343,7 @@ canceling the whole transaction cancels the Meshy task too.
 
 - GLB bytes are downloaded to a temp file in
   `~/Library/Caches/com.hype.app/meshy-staging/<taskId>.glb`,
-  read into `Data`, written into `SpriteAsset.data`, and the temp
+  read into `Data`, written into `Asset.data`, and the temp
   file is deleted.
 - The cache directory has a 200 MB ceiling enforced via
   size-based eviction (oldest first).
@@ -354,7 +354,7 @@ canceling the whole transaction cancels the Meshy task too.
 
 ## 6. UI design
 
-### 6.1 Sprite Repository — Generate 3D button
+### 6.1 Asset Repository — Generate 3D button
 
 A small **3D Cube + Sparkle** icon goes next to the existing
 "+ Import" / "Import Tileset" buttons in the repository toolbar.
@@ -546,7 +546,7 @@ Three new entries in `HypeTools.allTools`:
 ```swift
 makeTool(name: "generate_3d_model_from_text", description: """
     Generate a 3D model from a text prompt using Meshy.ai. Returns the new asset's
-    name in the Sprite Repository. Always runs inside an AIEditTransaction so the
+    name in the Asset Repository. Always runs inside an AIEditTransaction so the
     user can preview before applying. Default formats: GLB only. PBR textures are
     on by default (refine pass). Requires the user's Meshy API key to be set in
     Preferences; tool will return an error otherwise.
@@ -561,7 +561,7 @@ makeTool(name: "generate_3d_model_from_text", description: """
 
 makeTool(name: "generate_3d_model_from_image", description: """
     Generate a 3D model from a single image. The image is either an existing
-    Sprite Repository asset (pass image_asset_name) or a URL (pass image_url).
+    Asset Repository asset (pass image_asset_name) or a URL (pass image_url).
     Returns the new asset's name. Same Meshy.ai prerequisites as
     generate_3d_model_from_text.
     """, params: [
@@ -574,7 +574,7 @@ makeTool(name: "generate_3d_model_from_image", description: """
 makeTool(name: "generate_3d_model_from_images", description: """
     Generate a 3D model from 1–4 images of the same object from different angles.
     Higher fidelity than single-image when multiple views are available. Names
-    are looked up in the Sprite Repository. Returns the new asset's name.
+    are looked up in the Asset Repository. Returns the new asset's name.
     """, params: [
     "image_asset_names": ("array",  "1–4 image asset names", true),
     "ai_model":          ("string", "meshy-5 | meshy-6 | latest", false),
@@ -585,7 +585,7 @@ Plus one read-side tool:
 
 ```swift
 makeTool(name: "list_3d_models", description: """
-    Lists every model3D asset in the Sprite Repository, including provenance
+    Lists every model3D asset in the Asset Repository, including provenance
     (which prompt or images created it, when, and how many credits it cost).
     Use before generate_3d_model_from_text to avoid regenerating something the
     user already has.
@@ -632,11 +632,11 @@ Following the same control gates used by the existing
 
 ### Phase 1 — Foundations (text-to-3D, sync via polling, no AI)
 - `MeshyAIClient` + `MeshyTaskMonitor` + `MeshyModels` + `MeshyError`
-- `AssetKind.model3D` in `SpriteRepository`
+- `AssetKind.model3D` in `AssetRepository`
 - `Meshy3DAssetImporter`
 - Preferences: API key entry, Keychain storage, balance display
 - `scene3DAssetRef` on `Part`
-- Sprite Repository: "Generate 3D…" button, text-to-3D tab only
+- Asset Repository: "Generate 3D…" button, text-to-3D tab only
 - `scene3D` inspector: "From Repository…" popup
 - Acceptance: a stack saved with a generated GLB reopens with the
   same model visible; key persists across launches.
@@ -685,7 +685,7 @@ the first user-visible feature in Phase 1.
 - `MeshyTaskMonitorTests` — state machine: pending → in-progress
   → succeeded; cancel from each state; timeout after 10 min;
   polling fallback when SSE returns 404.
-- `Meshy3DAssetImporterTests` — task result → `SpriteAsset` with
+- `Meshy3DAssetImporterTests` — task result → `Asset` with
   the right kind, mimeType, provenance, data bytes; rollback path
   deletes the asset.
 - `KeychainStoreTests` — extended with `meshyAPIKeyAccount` set /
@@ -724,7 +724,7 @@ where they conflict.
 
 1. **Embed GLB/USDZ/FBX bytes in `.hype`.** Stacks remain
    all-encompassing and self-sufficient. Audio precedent applies:
-   model bytes live in `SpriteRepository` keyed by content hash.
+   model bytes live in `AssetRepository` keyed by content hash.
 
 2. **Per-stack model cache only.** No global
    `~/Library/Application Support/Hype/MeshyCache`. Reinforces (1)
@@ -779,7 +779,7 @@ Three implementation options were considered:
   **Chosen.**
 
 For Phase 1, FBX support means:
-- `SpriteRepository.AssetKind.model3D` accepts FBX file extension
+- `AssetRepository.AssetKind.model3D` accepts FBX file extension
   and content type.
 - `scene3D` part loads FBX through `Scene3DAssetLoader.load(_:)`
   (new file) which centralises the format → SCN-graph mapping.
@@ -807,12 +807,12 @@ For Phase 1, FBX support means:
 ## 13. Summary
 
 Meshy.ai slots cleanly into Hype's existing seams:
-`SpriteRepository` already stores arbitrary bytes; `scene3D`
+`AssetRepository` already stores arbitrary bytes; `scene3D`
 already loads GLB / USDZ / OBJ; `KeychainStore` already keeps API
 keys; `AIEditTransaction` already gates preview-then-apply; the
 AI tool surface already has a `generate_image` precedent. The
 delivery is four phases, each independently shippable, with the
-visible win — Generate-3D-from-text inside the Sprite Repository
+visible win — Generate-3D-from-text inside the Asset Repository
 — landing in Phase 1.
 
 The biggest implementation risk is the long-running async lifecycle

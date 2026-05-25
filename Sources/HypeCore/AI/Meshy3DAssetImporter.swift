@@ -3,14 +3,14 @@ import Foundation
 // MARK: - Meshy3DAssetImporter
 
 /// Downloads a completed Meshy task's model bytes and converts them into
-/// one or more `SpriteAsset` values of `kind == .model3D`.
+/// one or more `Asset` values of `kind == .model3D`.
 ///
 /// The caller is responsible for inserting the returned assets into
-/// `document.spriteRepository`. The first asset in the returned array is
+/// `document.assetRepository`. The first asset in the returned array is
 /// always the primary GLB; subsequent entries are optional USDZ / FBX.
 ///
 /// Threading: all downloads happen on the `client` actor. The returned
-/// `[SpriteAsset]` is value-typed and safe to write on the main actor.
+/// `[Asset]` is value-typed and safe to write on the main actor.
 public struct Meshy3DAssetImporter: Sendable {
 
     // MARK: - Options
@@ -51,7 +51,7 @@ public struct Meshy3DAssetImporter: Sendable {
     // MARK: - Public API
 
     /// Download the GLB (always) and optional USDZ / FBX, then build
-    /// `SpriteAsset` values for each successfully downloaded format.
+    /// `Asset` values for each successfully downloaded format.
     ///
     /// - If the GLB download fails, this method throws.
     /// - If an optional format (USDZ / FBX) fails, it is omitted from the
@@ -62,15 +62,15 @@ public struct Meshy3DAssetImporter: Sendable {
     ///   - result: The completed task result from `MeshyTaskMonitor`.
     ///   - existingAssetNames: Names already in the repository (for dedup).
     ///   - options: Name-derivation options.
-    /// - Returns: An array of `SpriteAsset` values. The first is always the
+    /// - Returns: An array of `Asset` values. The first is always the
     ///   primary GLB asset.
     public func importTask(
         result: MeshyTaskResult,
         existingAssetNames: Set<String>,
         options: DefaultOptions = DefaultOptions()
-    ) async throws -> [SpriteAsset] {
+    ) async throws -> [Asset] {
 
-        var assets: [SpriteAsset] = []
+        var assets: [Asset] = []
         var usedNames: Set<String> = existingAssetNames
 
         // Always download the primary GLB.
@@ -129,7 +129,7 @@ public struct Meshy3DAssetImporter: Sendable {
         return assets
     }
 
-    /// Build a `SpriteAsset` for a single downloaded format. Public for
+    /// Build a `Asset` for a single downloaded format. Public for
     /// test access — lets tests exercise asset-construction without hitting
     /// the network.
     ///
@@ -142,7 +142,7 @@ public struct Meshy3DAssetImporter: Sendable {
     ///   - isRigged: Phase 3 — true for rigged and animated assets.
     ///   - animationActionId: Phase 3 — the Meshy action id, when applicable.
     ///   - extraTags: Phase 3 — additional tags appended to the base set.
-    /// - Returns: A `SpriteAsset` with `kind == .model3D`.
+    /// - Returns: A `Asset` with `kind == .model3D`.
     public static func buildAsset(
         from data: Data,
         format: MeshyOutputFormat,
@@ -152,10 +152,10 @@ public struct Meshy3DAssetImporter: Sendable {
         isRigged: Bool = false,
         animationActionId: Int? = nil,
         extraTags: [String] = []
-    ) -> SpriteAsset {
+    ) -> Asset {
         let uniqueName = deduplicate(name: suggestedName, against: existingNames)
         let baseTags = ["meshy", "ai-generated", format.rawValue, "format:\(format.rawValue)"]
-        return SpriteAsset(
+        return Asset(
             id: UUID(),
             name: uniqueName,
             kind: .model3D,
@@ -179,7 +179,7 @@ public struct Meshy3DAssetImporter: Sendable {
     // MARK: - Phase 3: Rigging import
 
     /// Download the rigged GLB and optional basic walk/run clips, then build
-    /// `SpriteAsset` values for each successfully downloaded resource.
+    /// `Asset` values for each successfully downloaded resource.
     ///
     /// - Parameters:
     ///   - result: The completed rigging task result.
@@ -189,7 +189,7 @@ public struct Meshy3DAssetImporter: Sendable {
     ///   - sourcePrompt: Prompt / description for provenance (usually the
     ///     source asset's provenance.searchQuery).
     ///   - options: Name-derivation options.
-    /// - Returns: An array of `SpriteAsset` values with `isRigged = true`.
+    /// - Returns: An array of `Asset` values with `isRigged = true`.
     ///   First is always the primary rigged GLB; subsequent entries are
     ///   optional basic walk/run clips.
     /// - Throws: `MeshyError` if the primary GLB download fails.
@@ -199,8 +199,8 @@ public struct Meshy3DAssetImporter: Sendable {
         existingAssetNames: Set<String>,
         sourcePrompt: String = "",
         options: DefaultOptions = DefaultOptions()
-    ) async throws -> [SpriteAsset] {
-        var assets: [SpriteAsset] = []
+    ) async throws -> [Asset] {
+        var assets: [Asset] = []
         var usedNames: Set<String> = existingAssetNames
 
         let provenance = makeRigProvenance(result: result, sourcePrompt: sourcePrompt)
@@ -267,7 +267,7 @@ public struct Meshy3DAssetImporter: Sendable {
 
     // MARK: - Phase 3: Animation import
 
-    /// Download the animated GLB and build a `SpriteAsset` with
+    /// Download the animated GLB and build a `Asset` with
     /// `isRigged = true` and `animationActionId = actionId.value`.
     ///
     /// - Parameters:
@@ -278,7 +278,7 @@ public struct Meshy3DAssetImporter: Sendable {
     ///   - existingAssetNames: Names already in the repository (for dedup).
     ///   - sourcePrompt: Prompt / description for provenance.
     ///   - options: Name-derivation options.
-    /// - Returns: A single `SpriteAsset` with `isRigged = true` and
+    /// - Returns: A single `Asset` with `isRigged = true` and
     ///   `animationActionId` set.
     /// - Throws: `MeshyError` if the GLB download fails.
     public func importAnimationTask(
@@ -289,7 +289,7 @@ public struct Meshy3DAssetImporter: Sendable {
         existingAssetNames: Set<String>,
         sourcePrompt: String = "",
         options: DefaultOptions = DefaultOptions()
-    ) async throws -> SpriteAsset {
+    ) async throws -> Asset {
         let provenance = makeRigProvenance(result: result, sourcePrompt: sourcePrompt)
         let baseName = sourceAssetName.isEmpty ? "model" : sourceAssetName
         // Derive a file-system-safe action name.
@@ -315,7 +315,7 @@ public struct Meshy3DAssetImporter: Sendable {
 
     // MARK: - Phase 4: Remesh import
 
-    /// Download the remeshed GLB and build a `SpriteAsset` whose
+    /// Download the remeshed GLB and build a `Asset` whose
     /// `provenance.attribution.parentTaskId` points to the source task.
     ///
     /// **Security (C7):** the returned asset has `providerIdentifier == "meshy"`,
@@ -338,7 +338,7 @@ public struct Meshy3DAssetImporter: Sendable {
         sourcePrompt: String,
         existingAssetNames: Set<String>,
         options: DefaultOptions = DefaultOptions()
-    ) async throws -> SpriteAsset {
+    ) async throws -> Asset {
         let provenance = makeRemeshProvenance(result: result, sourceTaskId: sourceTaskId, sourcePrompt: sourcePrompt)
         let baseName = sourceAssetName.isEmpty ? "model" : sourceAssetName
 
@@ -360,7 +360,7 @@ public struct Meshy3DAssetImporter: Sendable {
 
     // MARK: - Phase 4: Retexture import
 
-    /// Download the retextured GLB and build a `SpriteAsset` whose
+    /// Download the retextured GLB and build a `Asset` whose
     /// `provenance.attribution.parentTaskId` points to the source task.
     ///
     /// **Security (C7):** same provenance contract as `importRemeshTask`.
@@ -383,7 +383,7 @@ public struct Meshy3DAssetImporter: Sendable {
         newStylePrompt: String,
         existingAssetNames: Set<String>,
         options: DefaultOptions = DefaultOptions()
-    ) async throws -> SpriteAsset {
+    ) async throws -> Asset {
         let provenance = makeRetextureProvenance(
             result: result,
             sourceTaskId: sourceTaskId,

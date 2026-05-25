@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import HypeCore
 
-/// Tests that `AssetProvenance` and `SpriteAsset` encoding/decoding are backward-
+/// Tests that `AssetProvenance` and `Asset` encoding/decoding are backward-
 /// compatible: legacy JSON without `provenance` decodes to nil, and new format
 /// round-trips correctly.
 @Suite("AssetProvenance Codable — backward-compatibility and round-trip")
@@ -32,8 +32,8 @@ struct AssetProvenanceCodableTests {
         )
     }
 
-    private func makeSpriteAsset(provenance: AssetProvenance? = nil) -> SpriteAsset {
-        SpriteAsset(
+    private func makeAsset(provenance: AssetProvenance? = nil) -> Asset {
+        Asset(
             id: UUID(uuidString: "12345678-1234-1234-1234-123456789ABC")!,
             name: "test_asset",
             kind: .imageTexture,
@@ -54,9 +54,9 @@ struct AssetProvenanceCodableTests {
 
     // MARK: - Legacy JSON decoding (provenance absent)
 
-    @Test("decoding legacy SpriteAsset JSON without provenance key produces nil provenance")
+    @Test("decoding legacy Asset JSON without provenance key produces nil provenance")
     func legacyJSONNilProvenance() throws {
-        // Simulate a pre-web-asset SpriteAsset JSON with no provenance field
+        // Simulate a pre-web-asset Asset JSON with no provenance field
         let legacyJSON = """
         {
             "id": "12345678-1234-1234-1234-123456789ABC",
@@ -76,7 +76,7 @@ struct AssetProvenanceCodableTests {
         }
         """
         let data = legacyJSON.data(using: .utf8)!
-        let asset = try JSONDecoder().decode(SpriteAsset.self, from: data)
+        let asset = try JSONDecoder().decode(Asset.self, from: data)
         #expect(asset.provenance == nil)
         #expect(asset.name == "old_asset")
     }
@@ -103,7 +103,7 @@ struct AssetProvenanceCodableTests {
         }
         """
         let data = json.data(using: .utf8)!
-        let asset = try JSONDecoder().decode(SpriteAsset.self, from: data)
+        let asset = try JSONDecoder().decode(Asset.self, from: data)
         #expect(asset.provenance == nil)
     }
 
@@ -129,12 +129,12 @@ struct AssetProvenanceCodableTests {
         #expect(abs(decoded.importedAt.timeIntervalSince1970 - 1700000000) < 1.0)
     }
 
-    // MARK: - SpriteAsset round-trip with provenance
+    // MARK: - Asset round-trip with provenance
 
-    @Test("SpriteAsset with provenance round-trips correctly")
+    @Test("Asset with provenance round-trips correctly")
     func spriteAssetWithProvenanceRoundTrip() throws {
         let provenance = makeProvenance()
-        let original = makeSpriteAsset(provenance: provenance)
+        let original = makeAsset(provenance: provenance)
 
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -142,7 +142,7 @@ struct AssetProvenanceCodableTests {
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let decoded = try decoder.decode(SpriteAsset.self, from: encoded)
+        let decoded = try decoder.decode(Asset.self, from: encoded)
 
         #expect(decoded.provenance != nil)
         #expect(decoded.provenance?.origin == .webSearch)
@@ -153,11 +153,11 @@ struct AssetProvenanceCodableTests {
         #expect(decoded.width == 100)
     }
 
-    @Test("SpriteAsset without provenance round-trips with nil provenance")
+    @Test("Asset without provenance round-trips with nil provenance")
     func spriteAssetWithoutProvenanceRoundTrip() throws {
-        let original = makeSpriteAsset(provenance: nil)
+        let original = makeAsset(provenance: nil)
         let encoded = try JSONEncoder().encode(original)
-        let decoded = try JSONDecoder().decode(SpriteAsset.self, from: encoded)
+        let decoded = try JSONDecoder().decode(Asset.self, from: encoded)
         #expect(decoded.provenance == nil)
     }
 

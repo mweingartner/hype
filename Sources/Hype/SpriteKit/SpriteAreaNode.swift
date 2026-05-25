@@ -39,7 +39,7 @@ final class SpriteAreaNode: SKNode {
     required init?(coder: NSCoder) { fatalError("not used") }
 
     /// Apply a SceneSpec to this area's content, building nodes from the spec.
-    func applySpec(_ spec: SceneSpec, repository: SpriteRepository) {
+    func applySpec(_ spec: SceneSpec, repository: AssetRepository) {
         contentNode.removeAllChildren()
         bridge.registry.clear()
 
@@ -49,7 +49,7 @@ final class SpriteAreaNode: SKNode {
         }
     }
 
-    func updateFromPart(_ part: Part, repository: SpriteRepository) {
+    func updateFromPart(_ part: Part, repository: AssetRepository) {
         position = CGPoint(x: part.left, y: -part.top)
         isHidden = !part.visible
         guard let spec = part.activeSceneSpec else {

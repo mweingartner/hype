@@ -16,7 +16,7 @@ package enum Scene3DExecutorBranches {
     package static func executeListModel3DAssets(
         document: HypeDocument
     ) -> String {
-        let models = document.spriteRepository.assets
+        let models = document.assetRepository.assets
             .filter { $0.kind == .model3D }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 
@@ -34,7 +34,7 @@ package enum Scene3DExecutorBranches {
             return row
         }
         if models.count > cap {
-            lines.append("… and \(models.count - cap) more — use the Sprite Repository to see all.")
+            lines.append("… and \(models.count - cap) more — use the Asset Repository to see all.")
         }
         return lines.joined(separator: "\n")
     }
@@ -63,14 +63,14 @@ package enum Scene3DExecutorBranches {
         guard document.parts[index].partType == .scene3D else {
             return "Part '\(partName)' is a \(document.parts[index].partType.rawValue), not a scene3D part."
         }
-        guard let asset = document.spriteRepository.asset(byName: assetName) else {
-            return "3D model asset '\(assetName)' not found in the Sprite Repository."
+        guard let asset = document.assetRepository.asset(byName: assetName) else {
+            return "3D model asset '\(assetName)' not found in the Asset Repository."
         }
         guard asset.kind == .model3D else {
             return "Asset '\(assetName)' is \(asset.kind.rawValue), not model3D."
         }
 
-        document.parts[index].scene3DAssetRef = document.spriteRepository.assetRef(for: asset)
+        document.parts[index].scene3DAssetRef = document.assetRepository.assetRef(for: asset)
         document.parts[index].scene3DSourceURL = ""
         document.parts[index].scene3DURL = ""
         return "Bound model3D asset '\(asset.name)' to scene3D part '\(document.parts[index].name)'."
@@ -131,8 +131,8 @@ package enum Scene3DExecutorBranches {
             hardTimeout: 300,   // 5-min cap for AI tool path.
             context: context
         )
-        let existing = Set(document.spriteRepository.assets.map(\.name))
-        let assets: [SpriteAsset]
+        let existing = Set(document.assetRepository.assets.map(\.name))
+        let assets: [Asset]
         do {
             assets = try await job.run(
                 kind: .text(prompt: prompt, artStyle: artStyle),
@@ -142,7 +142,7 @@ package enum Scene3DExecutorBranches {
             )
         } catch let error as MeshyError {
             if case .timedOut = error {
-                return "Meshy generation timed out after 5 minutes. The Meshy task may still be running — check your dashboard. The Generate 3D sheet (Sprite Repository → Generate 3D) supports the full 30-minute wait."
+                return "Meshy generation timed out after 5 minutes. The Meshy task may still be running — check your dashboard. The Generate 3D sheet (Asset Repository → Generate 3D) supports the full 30-minute wait."
             }
             return "Meshy generation failed: \(error.errorDescription ?? "unknown error")."
         } catch is CancellationError {
@@ -153,13 +153,13 @@ package enum Scene3DExecutorBranches {
 
         // Step E: Integration (F in plan).
         for asset in assets {
-            document.spriteRepository.addAsset(asset)
+            document.assetRepository.addAsset(asset)
         }
         guard let primary = assets.first else {
             return "Meshy generation failed: no assets were imported."
         }
 
-        var result = "Generated 3D model '\(primary.name)' and added to the Sprite Repository."
+        var result = "Generated 3D model '\(primary.name)' and added to the Asset Repository."
         if let partResult = placeScene3DPartIfRequested(
             arguments: arguments,
             document: &document,
@@ -208,7 +208,7 @@ package enum Scene3DExecutorBranches {
         // Resolve and validate the image input.
         let resolved: MeshyImageInput.Resolved
         do {
-            resolved = try imageInput.resolve(in: document.spriteRepository)
+            resolved = try imageInput.resolve(in: document.assetRepository)
         } catch let error as MeshyError {
             return "Image validation failed: \(error.errorDescription ?? "unknown error")."
         } catch {
@@ -235,8 +235,8 @@ package enum Scene3DExecutorBranches {
             hardTimeout: 300,
             context: context
         )
-        let existing = Set(document.spriteRepository.assets.map(\.name))
-        let assets: [SpriteAsset]
+        let existing = Set(document.assetRepository.assets.map(\.name))
+        let assets: [Asset]
         do {
             assets = try await job.run(
                 kind: .singleImage(image: resolved),
@@ -246,7 +246,7 @@ package enum Scene3DExecutorBranches {
             )
         } catch let error as MeshyError {
             if case .timedOut = error {
-                return "Meshy generation timed out after 5 minutes. The Meshy task may still be running — check your dashboard. The Generate 3D sheet (Sprite Repository → Generate 3D) supports the full 30-minute wait."
+                return "Meshy generation timed out after 5 minutes. The Meshy task may still be running — check your dashboard. The Generate 3D sheet (Asset Repository → Generate 3D) supports the full 30-minute wait."
             }
             return "Meshy generation failed: \(error.errorDescription ?? "unknown error")."
         } catch is CancellationError {
@@ -256,14 +256,14 @@ package enum Scene3DExecutorBranches {
         }
 
         for asset in assets {
-            document.spriteRepository.addAsset(asset)
+            document.assetRepository.addAsset(asset)
         }
         guard let primary = assets.first else {
             return "Meshy generation failed: no assets were imported."
         }
 
         // H1: result string uses asset name only — never sourceDescriptor.
-        var result = "Generated 3D model '\(primary.name)' from image and added to the Sprite Repository."
+        var result = "Generated 3D model '\(primary.name)' from image and added to the Asset Repository."
         if let partResult = placeScene3DPartIfRequested(
             arguments: arguments,
             document: &document,
@@ -328,7 +328,7 @@ package enum Scene3DExecutorBranches {
         var resolvedImages: [MeshyImageInput.Resolved] = []
         for input in inputs {
             do {
-                let resolved = try input.resolve(in: document.spriteRepository)
+                let resolved = try input.resolve(in: document.assetRepository)
                 resolvedImages.append(resolved)
             } catch let error as MeshyError {
                 return "Image validation failed: \(error.errorDescription ?? "unknown error")."
@@ -364,8 +364,8 @@ package enum Scene3DExecutorBranches {
             hardTimeout: 300,
             context: context
         )
-        let existing = Set(document.spriteRepository.assets.map(\.name))
-        let assets: [SpriteAsset]
+        let existing = Set(document.assetRepository.assets.map(\.name))
+        let assets: [Asset]
         do {
             assets = try await job.run(
                 kind: .multiImage(images: resolvedImages),
@@ -375,7 +375,7 @@ package enum Scene3DExecutorBranches {
             )
         } catch let error as MeshyError {
             if case .timedOut = error {
-                return "Meshy generation timed out after 5 minutes. The Meshy task may still be running — check your dashboard. The Generate 3D sheet (Sprite Repository → Generate 3D) supports the full 30-minute wait."
+                return "Meshy generation timed out after 5 minutes. The Meshy task may still be running — check your dashboard. The Generate 3D sheet (Asset Repository → Generate 3D) supports the full 30-minute wait."
             }
             return "Meshy generation failed: \(error.errorDescription ?? "unknown error")."
         } catch is CancellationError {
@@ -385,14 +385,14 @@ package enum Scene3DExecutorBranches {
         }
 
         for asset in assets {
-            document.spriteRepository.addAsset(asset)
+            document.assetRepository.addAsset(asset)
         }
         guard let primary = assets.first else {
             return "Meshy generation failed: no assets were imported."
         }
 
         // H1: result string uses asset name only — never sourceDescriptors.
-        var result = "Generated 3D model '\(primary.name)' from \(resolvedImages.count) images and added to the Sprite Repository."
+        var result = "Generated 3D model '\(primary.name)' from \(resolvedImages.count) images and added to the Asset Repository."
         if let partResult = placeScene3DPartIfRequested(
             arguments: arguments,
             document: &document,
@@ -425,8 +425,8 @@ package enum Scene3DExecutorBranches {
         guard !sourceAssetName.isEmpty else {
             return "remesh_3d_model requires 'source_asset_name'."
         }
-        guard let sourceAsset = document.spriteRepository.assets.first(where: { $0.name == sourceAssetName }) else {
-            return "remesh_3d_model: asset '\(sourceAssetName)' not found in the Sprite Repository."
+        guard let sourceAsset = document.assetRepository.assets.first(where: { $0.name == sourceAssetName }) else {
+            return "remesh_3d_model: asset '\(sourceAssetName)' not found in the Asset Repository."
         }
         let sourceTaskId = sourceAsset.provenance?.attribution.taskId ?? ""
         guard !sourceTaskId.isEmpty,
@@ -464,9 +464,9 @@ package enum Scene3DExecutorBranches {
             hardTimeout: 300
         )
         let sourcePrompt = sourceAsset.provenance?.searchQuery ?? ""
-        let existingNames = Set(document.spriteRepository.assets.map(\.name))
+        let existingNames = Set(document.assetRepository.assets.map(\.name))
 
-        let asset: SpriteAsset
+        let asset: Asset
         do {
             asset = try await flow.runRemesh(
                 sourceTaskId: sourceTaskId,
@@ -488,9 +488,9 @@ package enum Scene3DExecutorBranches {
         }
 
         // Step E: Install asset into document (AIEditTransaction captures this).
-        document.spriteRepository.addAsset(asset)
+        document.assetRepository.addAsset(asset)
 
-        var result = "Remeshed '\(sourceAssetName)' to \(targetPolycount) polygons. New asset '\(asset.name)' added to the Sprite Repository."
+        var result = "Remeshed '\(sourceAssetName)' to \(targetPolycount) polygons. New asset '\(asset.name)' added to the Asset Repository."
         if let partResult = placeScene3DPartIfRequested(
             arguments: arguments,
             document: &document,
@@ -523,8 +523,8 @@ package enum Scene3DExecutorBranches {
         guard !sourceAssetName.isEmpty else {
             return "retexture_3d_model requires 'source_asset_name'."
         }
-        guard let sourceAsset = document.spriteRepository.assets.first(where: { $0.name == sourceAssetName }) else {
-            return "retexture_3d_model: asset '\(sourceAssetName)' not found in the Sprite Repository."
+        guard let sourceAsset = document.assetRepository.assets.first(where: { $0.name == sourceAssetName }) else {
+            return "retexture_3d_model: asset '\(sourceAssetName)' not found in the Asset Repository."
         }
         let sourceTaskId = sourceAsset.provenance?.attribution.taskId ?? ""
         guard !sourceTaskId.isEmpty,
@@ -568,9 +568,9 @@ package enum Scene3DExecutorBranches {
             hardTimeout: 300
         )
         let sourcePrompt = sourceAsset.provenance?.searchQuery ?? ""
-        let existingNames = Set(document.spriteRepository.assets.map(\.name))
+        let existingNames = Set(document.assetRepository.assets.map(\.name))
 
-        let asset: SpriteAsset
+        let asset: Asset
         do {
             asset = try await flow.runRetexture(
                 sourceTaskId: sourceTaskId,
@@ -593,9 +593,9 @@ package enum Scene3DExecutorBranches {
         }
 
         // Step E: Install asset into document (AIEditTransaction captures this).
-        document.spriteRepository.addAsset(asset)
+        document.assetRepository.addAsset(asset)
 
-        var result = "Retextured '\(sourceAssetName)' with style '\(stylePromptRaw.prefix(80))'. New asset '\(asset.name)' added to the Sprite Repository."
+        var result = "Retextured '\(sourceAssetName)' with style '\(stylePromptRaw.prefix(80))'. New asset '\(asset.name)' added to the Asset Repository."
         if let partResult = placeScene3DPartIfRequested(
             arguments: arguments,
             document: &document,
@@ -650,7 +650,7 @@ package enum Scene3DExecutorBranches {
         arguments: [String: String],
         document: inout HypeDocument,
         currentCardId: UUID,
-        primaryAsset: SpriteAsset,
+        primaryAsset: Asset,
         context: HypeToolExecutor
     ) -> String? {
         guard (arguments["place_on_card"] ?? "").lowercased() == "true" else {
@@ -672,7 +672,7 @@ package enum Scene3DExecutorBranches {
             width: Double(arguments["width"] ?? "400") ?? 400,
             height: Double(arguments["height"] ?? "300") ?? 300
         )
-        part.scene3DAssetRef = document.spriteRepository.assetRef(for: primaryAsset)
+        part.scene3DAssetRef = document.assetRepository.assetRef(for: primaryAsset)
         document.addPart(part)
         let layer = place.backgroundId != nil ? " on background" : ""
         return "Created scene3D part '\(safePartName)'\(layer) referencing '\(primaryAsset.name)'."

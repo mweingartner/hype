@@ -12,7 +12,7 @@ import Foundation
 /// strip (because the renderer fell back to `tileSetColumns = 1`).
 ///
 /// The fix was twofold:
-///   1. `SpriteAsset` gained a `.tileSet` AssetKind and tile
+///   1. `Asset` gained a `.tileSet` AssetKind and tile
 ///      metadata fields (`tileWidth`, `tileHeight`, `tileColumns`,
 ///      `tileRows`) so an image can be classified once and reused.
 ///   2. `Interpreter.createTileMap` and `HypeToolExecutor.create_tilemap`
@@ -25,11 +25,11 @@ import Foundation
 @Suite("Tile map support", .serialized)
 struct TileMapTests {
 
-    // MARK: - SpriteAsset model
+    // MARK: - Asset model
 
-    @Test("SpriteAsset defaults tile metadata to zero")
+    @Test("Asset defaults tile metadata to zero")
     func tileMetadataDefaultsZero() {
-        let asset = SpriteAsset(name: "img", kind: .imageTexture)
+        let asset = Asset(name: "img", kind: .imageTexture)
         #expect(asset.tileWidth == 0)
         #expect(asset.tileHeight == 0)
         #expect(asset.tileColumns == 0)
@@ -37,11 +37,11 @@ struct TileMapTests {
         #expect(asset.isTileSet == false)
     }
 
-    @Test("SpriteAsset isTileSet requires kind == .tileSet AND non-zero metadata")
+    @Test("Asset isTileSet requires kind == .tileSet AND non-zero metadata")
     func isTileSetRequiresFullMetadata() {
         // kind alone is not enough — the renderer needs the grid
         // dimensions to slice the sheet.
-        var asset = SpriteAsset(name: "x", kind: .tileSet)
+        var asset = Asset(name: "x", kind: .tileSet)
         #expect(asset.isTileSet == false, "kind=.tileSet with zero metadata should not count as classified")
 
         asset.tileWidth = 32
@@ -53,9 +53,9 @@ struct TileMapTests {
         #expect(asset.isTileSet == true, "kind=.tileSet with full metadata should report as classified")
     }
 
-    @Test("SpriteAsset encodes and decodes tile metadata round-trip")
+    @Test("Asset encodes and decodes tile metadata round-trip")
     func tileMetadataRoundTrip() throws {
-        let original = SpriteAsset(
+        let original = Asset(
             name: "grass_tiles",
             kind: .tileSet,
             width: 256,
@@ -66,7 +66,7 @@ struct TileMapTests {
             tileRows: 2
         )
         let encoded = try JSONEncoder().encode(original)
-        let decoded = try JSONDecoder().decode(SpriteAsset.self, from: encoded)
+        let decoded = try JSONDecoder().decode(Asset.self, from: encoded)
         #expect(decoded.kind == .tileSet)
         #expect(decoded.tileWidth == 32)
         #expect(decoded.tileHeight == 32)
@@ -75,7 +75,7 @@ struct TileMapTests {
         #expect(decoded.isTileSet == true)
     }
 
-    @Test("SpriteAsset decoder is backward-compatible with pre-tile-metadata documents")
+    @Test("Asset decoder is backward-compatible with pre-tile-metadata documents")
     func decoderBackwardCompat() throws {
         // Minimal JSON shape from an older document that never had
         // tileWidth/tileHeight/tileColumns/tileRows fields. The
@@ -96,7 +96,7 @@ struct TileMapTests {
         }
         """
         let data = legacyJson.data(using: .utf8)!
-        let asset = try JSONDecoder().decode(SpriteAsset.self, from: data)
+        let asset = try JSONDecoder().decode(Asset.self, from: data)
         #expect(asset.name == "old_image")
         #expect(asset.width == 128)
         #expect(asset.tileWidth == 0)
@@ -129,13 +129,13 @@ struct TileMapTests {
     @Test("classify_asset_as_tileset sets kind and tile metadata")
     func classifyAssetTool() async {
         var doc = HypeDocument.newDocument(name: "Tile Test")
-        let asset = SpriteAsset(
+        let asset = Asset(
             name: "grass_sheet",
             kind: .imageTexture,
             width: 256,
             height: 64
         )
-        doc.spriteRepository.addAsset(asset)
+        doc.assetRepository.addAsset(asset)
         let cardId = doc.cards[0].id
         let executor = HypeToolExecutor()
         let result = await executor.execute(
@@ -149,7 +149,7 @@ struct TileMapTests {
             currentCardId: cardId
         )
         #expect(result.contains("Classified"))
-        let reloaded = doc.spriteRepository.asset(byName: "grass_sheet")!
+        let reloaded = doc.assetRepository.asset(byName: "grass_sheet")!
         #expect(reloaded.kind == .tileSet)
         #expect(reloaded.tileWidth == 32)
         #expect(reloaded.tileHeight == 32)
@@ -162,7 +162,7 @@ struct TileMapTests {
     @Test("classify_asset_as_tileset treats generated single tile art as one tile")
     func classifyGeneratedSingleTileArtAsOneTile() async {
         var doc = HypeDocument.newDocument(name: "Tile Test")
-        let asset = SpriteAsset(
+        let asset = Asset(
             name: "maze_tile_wall",
             kind: .imageTexture,
             width: 1024,
@@ -173,7 +173,7 @@ struct TileMapTests {
                 searchQuery: "Top-down maze wall tile for a Pac-Man style maze, seamless 32x32 tile appearance"
             )
         )
-        doc.spriteRepository.addAsset(asset)
+        doc.assetRepository.addAsset(asset)
         let cardId = doc.cards[0].id
         let executor = HypeToolExecutor()
 
@@ -189,7 +189,7 @@ struct TileMapTests {
         )
 
         #expect(result.contains("AI-generated single tile"))
-        let reloaded = doc.spriteRepository.asset(byName: "maze_tile_wall")!
+        let reloaded = doc.assetRepository.asset(byName: "maze_tile_wall")!
         #expect(reloaded.kind == .tileSet)
         #expect(reloaded.tileWidth == 32)
         #expect(reloaded.tileHeight == 32)
@@ -200,7 +200,7 @@ struct TileMapTests {
     @Test("classify_asset_as_tileset honors explicit tile_columns and tile_rows")
     func classifyAssetExplicitGrid() async {
         var doc = HypeDocument.newDocument(name: "Tile Test")
-        doc.spriteRepository.addAsset(SpriteAsset(
+        doc.assetRepository.addAsset(Asset(
             name: "weird_sheet",
             width: 128,
             height: 64
@@ -219,7 +219,7 @@ struct TileMapTests {
             document: &doc,
             currentCardId: cardId
         )
-        let reloaded = doc.spriteRepository.asset(byName: "weird_sheet")!
+        let reloaded = doc.assetRepository.asset(byName: "weird_sheet")!
         #expect(reloaded.tileColumns == 3, "explicit tile_columns must override auto-derivation")
         #expect(reloaded.tileRows == 1)
     }
@@ -227,7 +227,7 @@ struct TileMapTests {
     @Test("classify_asset_as_tileset rejects tile_width = 0")
     func classifyAssetRejectsZeroSize() async {
         var doc = HypeDocument.newDocument(name: "Tile Test")
-        doc.spriteRepository.addAsset(SpriteAsset(name: "x", width: 32, height: 32))
+        doc.assetRepository.addAsset(Asset(name: "x", width: 32, height: 32))
         let cardId = doc.cards[0].id
         let result = await HypeToolExecutor().execute(
             toolName: "classify_asset_as_tileset",
@@ -246,7 +246,7 @@ struct TileMapTests {
         let cardId = doc.cards[0].id
 
         // Add a classified tileset asset to the repository.
-        doc.spriteRepository.addAsset(SpriteAsset(
+        doc.assetRepository.addAsset(Asset(
             name: "grass",
             kind: .tileSet,
             width: 256,
@@ -303,7 +303,7 @@ struct TileMapTests {
     func createTilemapExpandsSceneSizeToMap() async {
         var doc = HypeDocument.newDocument(name: "Tile Test")
         let cardId = doc.cards[0].id
-        doc.spriteRepository.addAsset(SpriteAsset(
+        doc.assetRepository.addAsset(Asset(
             name: "maze_tiles",
             kind: .tileSet,
             width: 1024,
@@ -353,7 +353,7 @@ struct TileMapTests {
     func addSpriteDefaultsGeneratedAssetToGameSize() async {
         var doc = HypeDocument.newDocument(name: "Tile Test")
         let cardId = doc.cards[0].id
-        doc.spriteRepository.addAsset(SpriteAsset(
+        doc.assetRepository.addAsset(Asset(
             name: "power_pellet",
             kind: .imageTexture,
             mimeType: "image/png",
@@ -443,7 +443,7 @@ struct TileMapTests {
     func createTilemapWarnsOnUnclassified() async {
         var doc = HypeDocument.newDocument(name: "Tile Test")
         let cardId = doc.cards[0].id
-        doc.spriteRepository.addAsset(SpriteAsset(
+        doc.assetRepository.addAsset(Asset(
             name: "raw_sheet",
             kind: .imageTexture,
             width: 256,
@@ -475,7 +475,7 @@ struct TileMapTests {
     private func docWithEmptyTileMap() async -> (HypeDocument, UUID) {
         var doc = HypeDocument.newDocument(name: "Tile Test")
         let cardId = doc.cards[0].id
-        doc.spriteRepository.addAsset(SpriteAsset(
+        doc.assetRepository.addAsset(Asset(
             name: "ts",
             kind: .tileSet,
             width: 128,
@@ -595,7 +595,7 @@ struct TileMapTests {
     func hypetalkCreateTilemapPullsColumns() {
         var doc = HypeDocument.newDocument(name: "Tile Test")
         let cardId = doc.cards[0].id
-        doc.spriteRepository.addAsset(SpriteAsset(
+        doc.assetRepository.addAsset(Asset(
             name: "grass",
             kind: .tileSet,
             width: 256,
@@ -704,7 +704,7 @@ struct TileMapTests {
     func setGetTileRoundTrips() {
         var doc = HypeDocument.newDocument(name: "Tile Test")
         let cardId = doc.cards[0].id
-        doc.spriteRepository.addAsset(SpriteAsset(
+        doc.assetRepository.addAsset(Asset(
             name: "ts",
             kind: .tileSet,
             width: 128,
@@ -753,7 +753,7 @@ struct TileMapTests {
     func hypetalkCreateTilemapExpandsSceneSizeToMap() {
         var doc = HypeDocument.newDocument(name: "Tile Test")
         let cardId = doc.cards[0].id
-        doc.spriteRepository.addAsset(SpriteAsset(
+        doc.assetRepository.addAsset(Asset(
             name: "maze_tiles",
             kind: .tileSet,
             width: 1024,
@@ -798,7 +798,7 @@ struct TileMapTests {
     func hypetalkFillTilemapPaintsAll() {
         var doc = HypeDocument.newDocument(name: "Tile Test")
         let cardId = doc.cards[0].id
-        doc.spriteRepository.addAsset(SpriteAsset(
+        doc.assetRepository.addAsset(Asset(
             name: "ts", kind: .tileSet,
             width: 128, height: 32,
             tileWidth: 32, tileHeight: 32,
@@ -834,7 +834,7 @@ struct TileMapTests {
     func hypetalkClearTilemap() {
         var doc = HypeDocument.newDocument(name: "Tile Test")
         let cardId = doc.cards[0].id
-        doc.spriteRepository.addAsset(SpriteAsset(
+        doc.assetRepository.addAsset(Asset(
             name: "ts", kind: .tileSet,
             width: 128, height: 32,
             tileWidth: 32, tileHeight: 32,
@@ -869,7 +869,7 @@ struct TileMapTests {
     func tileAtOOBReturnsMinus1() {
         var doc = HypeDocument.newDocument(name: "Tile Test")
         let cardId = doc.cards[0].id
-        doc.spriteRepository.addAsset(SpriteAsset(
+        doc.assetRepository.addAsset(Asset(
             name: "ts", kind: .tileSet,
             width: 128, height: 32,
             tileWidth: 32, tileHeight: 32,

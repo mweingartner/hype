@@ -101,7 +101,7 @@ public struct RigAndAnimateFlow: Sendable {
         options: RiggingOptions,
         existingAssetNames: Set<String>,
         onProgress: Generate3DJob.ProgressHandler? = nil
-    ) async throws -> (assets: [SpriteAsset], rigTaskId: String) {
+    ) async throws -> (assets: [Asset], rigTaskId: String) {
 
         // Step 1: POST /rigging.
         let request = MeshyRiggingRequest(
@@ -189,7 +189,7 @@ public struct RigAndAnimateFlow: Sendable {
         options: AnimationOptions,
         existingAssetNames: Set<String>,
         onProgress: Generate3DJob.ProgressHandler? = nil
-    ) async throws -> SpriteAsset {
+    ) async throws -> Asset {
 
         // Step 1: POST /animations.
         let request = MeshyAnimationRequest(

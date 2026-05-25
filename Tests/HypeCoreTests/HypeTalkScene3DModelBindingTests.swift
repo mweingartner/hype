@@ -16,13 +16,13 @@ private func makeDocWithScene3DAndAsset(assetName: String = "wooden-barrel.glb")
     let viewer = Part(partType: .scene3D, cardId: cardId, name: "Viewer")
     doc.addPart(viewer)
 
-    // A model3D asset in the Sprite Repository.
-    let asset = SpriteAsset(
+    // A model3D asset in the Asset Repository.
+    let asset = Asset(
         name: assetName,
         kind: .model3D,
         mimeType: "model/gltf-binary"
     )
-    doc.spriteRepository.addAsset(asset)
+    doc.assetRepository.addAsset(asset)
 
     return (doc, cardId, btn.id, viewer.id)
 }
@@ -120,8 +120,8 @@ struct HypeTalkScene3DModelBindingTests {
 
         var docVar = doc
         // Pre-bind the asset ref directly.
-        let asset = docVar.spriteRepository.asset(byName: "barrel.glb")!
-        let assetRef = docVar.spriteRepository.assetRef(for: asset)
+        let asset = docVar.assetRepository.asset(byName: "barrel.glb")!
+        let assetRef = docVar.assetRepository.assetRef(for: asset)
         docVar.updatePart(id: viewerId) { $0.scene3DAssetRef = assetRef }
 
         let script = """

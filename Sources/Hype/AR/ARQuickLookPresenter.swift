@@ -168,9 +168,9 @@ public final class ARQuickLookPresenter: NSObject {
     /// USDZ assets open directly; GLB assets are converted on a background
     /// task before presentation.
     ///
-    /// - Parameter asset: A `model3D` asset from the Sprite Repository.
+    /// - Parameter asset: A `model3D` asset from the Asset Repository.
     /// - Throws: `ARQuickLookError`.
-    public func present(asset: SpriteAsset) async throws {
+    public func present(asset: Asset) async throws {
         let stagedPath = try await stageAsset(asset)
 
         // Retain the staged URL for the QLPreviewPanelDataSource callbacks.
@@ -194,7 +194,7 @@ public final class ARQuickLookPresenter: NSObject {
     /// - Parameter asset: A `model3D` asset.
     /// - Returns: The URL of the staged USDZ file in the cache directory.
     /// - Throws: `ARQuickLookError`.
-    func stageAsset(_ asset: SpriteAsset) async throws -> URL {
+    func stageAsset(_ asset: Asset) async throws -> URL {
         guard asset.kind == .model3D else {
             throw ARQuickLookError.unsupportedAssetKind(kind: asset.kind.rawValue)
         }

@@ -2,25 +2,26 @@ import SwiftUI
 import HypeCore
 import UniformTypeIdentifiers
 
-/// A SwiftUI view for browsing, importing, and managing sprite assets in the repository.
+/// A SwiftUI view for browsing, importing, and managing stack assets in the repository.
 ///
 /// Presentation is handled by the caller. The legacy pattern
-/// (`.sheet(isPresented:) { SpriteRepositoryView(document:) }`)
+/// (`.sheet(isPresented:) { AssetRepositoryView(document:) }`)
 /// stays supported — dismiss is inferred from the environment when
 /// `onDone` is nil. When the view is hosted in a standalone NSWindow
-/// via `openSpriteRepositoryWindow`, the caller passes an `onDone`
+/// via `openAssetRepositoryWindow`, the caller passes an `onDone`
 /// closure that closes the window instead, since `@Environment(\.dismiss)`
 /// doesn't reach NSHostingView contexts.
-struct SpriteRepositoryView: View {
+struct AssetRepositoryView: View {
     @Binding var document: HypeDocumentWrapper
     /// Optional close callback. When non-nil, the Done button calls
     /// this instead of the SwiftUI `dismiss` environment action. Used
-    /// by `openSpriteRepositoryWindow` to close the detached window.
+    /// by `openAssetRepositoryWindow` to close the detached window.
     var onDone: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.hypeTheme) private var hypeTheme
     @State private var selectedAssetIds: Set<UUID> = []
     @State private var searchText: String = ""
+    @State private var selectedCategory: AssetCategory = .all
     @State private var editingNameId: UUID? = nil
     @State private var editingName: String = ""
     /// Local copy of the selected asset's name for the TextField.
@@ -47,7 +48,7 @@ struct SpriteRepositoryView: View {
     // MARK: - Rig & Animate state (Phase 3)
     /// Source asset for the Rig & Animate sheet. Set to non-nil to trigger
     /// the `.sheet(item:)` presentation of `RigAndAnimateCoordinator`.
-    @State private var rigAndAnimateSourceAsset: SpriteAsset? = nil
+    @State private var rigAndAnimateSourceAsset: Asset? = nil
 
     // MARK: - Remesh & Retexture state (Phase 4)
     /// Selection driving `RemeshAndRetextureCoordinator`. Non-nil opens the sheet.
@@ -69,19 +70,21 @@ struct SpriteRepositoryView: View {
     private struct RemeshOrRetextureSelection: Identifiable {
         /// The asset id is stable and unique — use it as the selection id.
         var id: UUID { asset.id }
-        let asset: SpriteAsset
+        let asset: Asset
         let mode: RemeshAndRetextureCoordinator.Mode
     }
 
-    private var filteredAssets: [SpriteAsset] {
-        if searchText.isEmpty { return document.document.spriteRepository.assets }
-        return document.document.spriteRepository.assets.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText)
-        }
+    private var filteredAssets: [Asset] {
+        document.document.assetRepository.searchAssets(named: searchText, category: selectedCategory)
+    }
+
+    private var assetCountsByCategory: [AssetCategory: Int] {
+        Dictionary(grouping: document.document.assetRepository.assets, by: { $0.kind.category })
+            .mapValues(\.count)
     }
 
     /// Dispatch the close action: prefer the explicit `onDone`
-    /// callback (set by `openSpriteRepositoryWindow`) and fall back
+    /// callback (set by `openAssetRepositoryWindow`) and fall back
     /// to SwiftUI's environment dismiss for legacy sheet-based
     /// presentations.
     private func dismissAction() {
@@ -92,13 +95,20 @@ struct SpriteRepositoryView: View {
         }
     }
 
+    private func categoryLabel(_ category: AssetCategory) -> String {
+        if category == .all {
+            return "\(category.displayName) \(document.document.assetRepository.assets.count)"
+        }
+        return "\(category.displayName) \(assetCountsByCategory[category, default: 0])"
+    }
+
     var body: some View {
         HSplitView {
             // Left: asset grid
             VStack(spacing: 0) {
                 // Toolbar
                 HStack {
-                    Text("Sprite Repository").font(.headline)
+                    Text("Asset Repository").font(.headline)
                     Spacer()
                     Button(action: importAsset) {
                         Image(systemName: "plus")
@@ -134,10 +144,20 @@ struct SpriteRepositoryView: View {
                 }
                 .padding(8)
 
-                // Search
+                // Search and type filter
                 TextField("Search assets...", text: $searchText)
                     .textFieldStyle(.roundedBorder)
                     .padding(.horizontal, 8)
+
+                Picker("Asset Type", selection: $selectedCategory) {
+                    ForEach(AssetCategory.allCases, id: \.self) { category in
+                        Text(categoryLabel(category)).tag(category)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(.horizontal, 8)
+                .padding(.top, 6)
 
                 // Grid with multi-select
                 ScrollView {
@@ -165,7 +185,7 @@ struct SpriteRepositoryView: View {
 
                 // Status bar
                 HStack {
-                    Text("\(document.document.spriteRepository.assets.count) assets")
+                    Text("\(document.document.assetRepository.assets.count) assets")
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
                     if selectedAssetIds.count > 1 {
@@ -185,7 +205,7 @@ struct SpriteRepositoryView: View {
                 Group {
                     if selectedAssetIds.count == 1,
                        let assetId = selectedAssetIds.first,
-                       let asset = document.document.spriteRepository.asset(byId: assetId) {
+                       let asset = document.document.assetRepository.asset(byId: assetId) {
                         assetDetailPanel(asset)
                     } else if selectedAssetIds.count > 1 {
                         multiSelectionPanel
@@ -201,7 +221,7 @@ struct SpriteRepositoryView: View {
 
                 Divider()
 
-                SpriteRepositoryAIChatView(
+                AssetRepositoryAIChatView(
                     document: $document,
                     selectedAssetIds: $selectedAssetIds
                 )
@@ -226,12 +246,12 @@ struct SpriteRepositoryView: View {
             // selected asset's current values.
             if newValue.count == 1,
                let id = newValue.first,
-               let asset = document.document.spriteRepository.asset(byId: id) {
+               let asset = document.document.assetRepository.asset(byId: id) {
                 assetNameDraft = asset.name
                 seedTilesetState(from: asset)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .selectSpriteRepositoryAsset)) { notification in
+        .onReceive(NotificationCenter.default.publisher(for: .selectAssetRepositoryAsset)) { notification in
             guard let assetId = notification.userInfo?["assetId"] as? UUID else { return }
             selectedAssetIds = [assetId]
         }
@@ -294,7 +314,7 @@ struct SpriteRepositoryView: View {
     // MARK: - Thumbnail
 
     @ViewBuilder
-    private func assetThumbnail(_ asset: SpriteAsset) -> some View {
+    private func assetThumbnail(_ asset: Asset) -> some View {
         let isSelected = selectedAssetIds.contains(asset.id)
         VStack(spacing: 4) {
             ZStack(alignment: .topTrailing) {
@@ -307,6 +327,16 @@ struct SpriteRepositoryView: View {
                     Image(systemName: "waveform")
                         .font(.system(size: 32))
                         .foregroundColor(.purple)
+                        .frame(width: 64, height: 64)
+                } else if asset.kind == .videoClip {
+                    Image(systemName: "film")
+                        .font(.system(size: 32))
+                        .foregroundColor(.blue)
+                        .frame(width: 64, height: 64)
+                } else if asset.kind == .particlePreset {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 32))
+                        .foregroundColor(.orange)
                         .frame(width: 64, height: 64)
                 } else if let img = NSImage(data: asset.data) {
                     Image(nsImage: img)
@@ -357,7 +387,7 @@ struct SpriteRepositoryView: View {
     // MARK: - Single Asset Detail Panel
 
     @ViewBuilder
-    private func assetDetailPanel(_ asset: SpriteAsset) -> some View {
+    private func assetDetailPanel(_ asset: Asset) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
                 // Preview
@@ -386,6 +416,36 @@ struct SpriteRepositoryView: View {
                         .frame(maxWidth: .infinity, maxHeight: 100)
                         .background(Color.gray.opacity(0.1))
                         .cornerRadius(4)
+                } else if asset.kind == .videoClip {
+                    VStack(spacing: 6) {
+                        Image(systemName: "film")
+                            .font(.system(size: 48))
+                            .foregroundColor(.blue)
+                        Text("Video")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        Text(ByteCountFormatter.string(fromByteCount: Int64(asset.data.count), countStyle: .file))
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: 100)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(4)
+                } else if asset.kind == .particlePreset {
+                    VStack(spacing: 6) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 48))
+                            .foregroundColor(.orange)
+                        Text("Particle Preset")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        Text(ByteCountFormatter.string(fromByteCount: Int64(asset.data.count), countStyle: .file))
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: 100)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(4)
                 } else if let img = NSImage(data: asset.data) {
                     // Tag the Image with the data's byte count so
                     // SwiftUI gives it a fresh identity whenever the
@@ -426,7 +486,7 @@ struct SpriteRepositoryView: View {
                             // thumbnail label updates in real time,
                             // but via a debounced path that doesn't
                             // fight the TextField's own state.
-                            document.document.spriteRepository.updateAsset(id: asset.id) { $0.name = newVal }
+                            document.document.assetRepository.updateAsset(id: asset.id) { $0.name = newVal }
                         }
                 }
 
@@ -650,10 +710,10 @@ struct SpriteRepositoryView: View {
                     .buttonStyle(.plain)
 
                     Button(role: .destructive, action: {
-                        document.document.spriteRepository.removeAsset(id: asset.id)
+                    document.document.assetRepository.removeAsset(id: asset.id)
                         selectedAssetIds.remove(asset.id)
                         // Regenerate attribution block whenever a web-sourced asset is removed.
-                        let webAssets = document.document.spriteRepository.assets.filter {
+                        let webAssets = document.document.assetRepository.assets.filter {
                             $0.provenance?.origin == .webSearch
                         }
                         document.document.stack.script = StackScriptAttributionSync.sync(
@@ -813,7 +873,7 @@ struct SpriteRepositoryView: View {
     private func commitAssetName(assetId: UUID) {
         let trimmed = assetNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        document.document.spriteRepository.updateAsset(id: assetId) { $0.name = trimmed }
+        document.document.assetRepository.updateAsset(id: assetId) { $0.name = trimmed }
     }
 
     // MARK: - Actions
@@ -834,7 +894,7 @@ struct SpriteRepositoryView: View {
 
     private func deleteSelected() {
         for id in selectedAssetIds {
-            document.document.spriteRepository.removeAsset(id: id)
+            document.document.assetRepository.removeAsset(id: id)
         }
         selectedAssetIds.removeAll()
     }
@@ -842,7 +902,7 @@ struct SpriteRepositoryView: View {
     private func duplicateSelected() {
         let ids = selectedAssetIds
         for id in ids {
-            if let asset = document.document.spriteRepository.asset(byId: id) {
+            if let asset = document.document.assetRepository.asset(byId: id) {
                 duplicateAsset(asset)
             }
         }
@@ -855,7 +915,7 @@ struct SpriteRepositoryView: View {
     /// audio-only.
     private var selectedImageAssetCount: Int {
         selectedAssetIds.reduce(0) { count, id in
-            guard let asset = document.document.spriteRepository.asset(byId: id) else { return count }
+            guard let asset = document.document.assetRepository.asset(byId: id) else { return count }
             return Self.isImageKind(asset.kind) ? count + 1 : count
         }
     }
@@ -889,23 +949,23 @@ struct SpriteRepositoryView: View {
     /// stays consistent.
     private func makeSelectedImagesTransparent() {
         for id in selectedAssetIds {
-            guard let asset = document.document.spriteRepository.asset(byId: id),
+            guard let asset = document.document.assetRepository.asset(byId: id),
                   Self.isImageKind(asset.kind),
                   let pngData = ImageChromaKey.makeTransparentPNG(from: asset.data)
             else { continue }
-            document.document.spriteRepository.updateAsset(id: id) { mut in
+            document.document.assetRepository.updateAsset(id: id) { mut in
                 mut.data = pngData
                 mut.mimeType = "image/png"
             }
         }
     }
 
-    private func duplicateAsset(_ asset: SpriteAsset) {
+    private func duplicateAsset(_ asset: Asset) {
         var copy = asset
         copy.id = UUID()
         copy.name = asset.name + " copy"
         // Ensure unique name
-        let existingNames = Set(document.document.spriteRepository.assets.map(\.name))
+        let existingNames = Set(document.document.assetRepository.assets.map(\.name))
         var name = copy.name
         var counter = 2
         while existingNames.contains(name) {
@@ -913,17 +973,17 @@ struct SpriteRepositoryView: View {
             counter += 1
         }
         copy.name = name
-        document.document.spriteRepository.addAsset(copy)
+        document.document.assetRepository.addAsset(copy)
     }
 
     // MARK: - Slicing
 
     /// Slice an asset into a grid of columns x rows, generating AssetSlice entries.
-    private func sliceAsset(_ asset: SpriteAsset, columns: Int, rows: Int) {
+    private func sliceAsset(_ asset: Asset, columns: Int, rows: Int) {
         guard columns > 0, rows > 0, asset.width > 0, asset.height > 0 else { return }
         let frameW = asset.width / columns
         let frameH = asset.height / rows
-        document.document.spriteRepository.updateAsset(id: asset.id) { asset in
+        document.document.assetRepository.updateAsset(id: asset.id) { asset in
             asset.slices.removeAll()
             var idx = 0
             for r in 0..<rows {
@@ -940,10 +1000,10 @@ struct SpriteRepositoryView: View {
     }
 
     /// Create an AnimationClip from all slices of the given asset.
-    private func createClipFromSlices(_ asset: SpriteAsset) {
+    private func createClipFromSlices(_ asset: Asset) {
         let sliceIds = asset.slices.map(\.id)
         let clip = AnimationClip(name: "\(asset.name)_anim", frameSliceIds: sliceIds, fps: clipFps, loops: true)
-        document.document.spriteRepository.updateAsset(id: asset.id) { $0.animationClips.append(clip) }
+        document.document.assetRepository.updateAsset(id: asset.id) { $0.animationClips.append(clip) }
     }
 
     // MARK: - Tileset classification
@@ -958,7 +1018,7 @@ struct SpriteRepositoryView: View {
     /// starting tile size. Otherwise we keep the user's last
     /// values. Any guess is non-binding — the user still has to
     /// click "Classify as Tileset" to commit.
-    private func seedTilesetState(from asset: SpriteAsset) {
+    private func seedTilesetState(from asset: Asset) {
         tilesetEditingAssetId = asset.id
         if asset.isTileSet {
             tilesetW = asset.tileWidth
@@ -995,7 +1055,7 @@ struct SpriteRepositoryView: View {
     /// User clicks the button when they already know the tile
     /// size but want Hype to figure out how many tiles that
     /// implies.
-    private func autoDetectTileset(_ asset: SpriteAsset) {
+    private func autoDetectTileset(_ asset: Asset) {
         guard tilesetW > 0, tilesetH > 0, asset.width > 0, asset.height > 0 else { return }
         tilesetCols = max(1, asset.width / tilesetW)
         tilesetRows = max(1, asset.height / tilesetH)
@@ -1005,7 +1065,7 @@ struct SpriteRepositoryView: View {
     /// flip its kind to `.tileSet`. After this the asset is
     /// ready to be referenced by `createTileMap` with
     /// multi-column rendering working correctly.
-    private func classifyAsTileset(_ asset: SpriteAsset) {
+    private func classifyAsTileset(_ asset: Asset) {
         guard tilesetW > 0, tilesetH > 0 else { return }
         // Derive any missing columns/rows from image dimensions
         // on commit too, so a user who only sets Tile W/H and
@@ -1014,7 +1074,7 @@ struct SpriteRepositoryView: View {
         var rows = tilesetRows
         if cols <= 0, asset.width > 0 { cols = max(1, asset.width / tilesetW) }
         if rows <= 0, asset.height > 0 { rows = max(1, asset.height / tilesetH) }
-        document.document.spriteRepository.updateAsset(id: asset.id) { mut in
+        document.document.assetRepository.updateAsset(id: asset.id) { mut in
             mut.kind = .tileSet
             mut.tileWidth = tilesetW
             mut.tileHeight = tilesetH
@@ -1029,8 +1089,8 @@ struct SpriteRepositoryView: View {
     /// `.imageTexture` and the tile metadata is zeroed out.
     /// Useful if the user picked wrong tile dimensions and wants
     /// to start over.
-    private func unclassifyTileset(_ asset: SpriteAsset) {
-        document.document.spriteRepository.updateAsset(id: asset.id) { mut in
+    private func unclassifyTileset(_ asset: Asset) {
+        document.document.assetRepository.updateAsset(id: asset.id) { mut in
             mut.kind = .imageTexture
             mut.tileWidth = 0
             mut.tileHeight = 0
@@ -1042,62 +1102,25 @@ struct SpriteRepositoryView: View {
     // MARK: - Asset Usage Tracking
 
     /// Find all usages of an asset across all named scenes in the document.
-    private func findAssetUsages(assetId: UUID) -> [SpriteAssetUsage] {
-        document.document.spriteAssetUsages(for: assetId)
+    private func findAssetUsages(assetId: UUID) -> [AssetUsage] {
+        document.document.assetUsages(for: assetId)
     }
 
     // MARK: - Import
 
     private func importAsset() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.png, .jpeg, .mp3, .wav, .aiff, .mpeg4Audio]
+        panel.allowedContentTypes = Self.importableAssetContentTypes
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
+        panel.message = "Select image, audio, video, 3D model, or particle assets"
         panel.begin { response in
             guard response == .OK else { return }
             var lastImportedId: UUID?
             for url in panel.urls {
-                guard let data = try? Data(contentsOf: url) else { continue }
-                let name = url.deletingPathExtension().lastPathComponent
-                let ext = url.pathExtension.lowercased()
-                let isAudio = ["mp3", "wav", "aiff", "m4a", "caf"].contains(ext)
-
-                if isAudio {
-                    let mimeType: String
-                    switch ext {
-                    case "mp3": mimeType = "audio/mpeg"
-                    case "wav": mimeType = "audio/wav"
-                    case "aiff": mimeType = "audio/aiff"
-                    case "m4a": mimeType = "audio/mp4"
-                    case "caf": mimeType = "audio/x-caf"
-                    default: mimeType = "audio/mpeg"
-                    }
-                    let asset = SpriteAsset(
-                        name: name,
-                        kind: .audioClip,
-                        mimeType: mimeType,
-                        data: data,
-                        width: 0,
-                        height: 0
-                    )
-                    document.document.spriteRepository.addAsset(asset)
-                    lastImportedId = asset.id
-                } else {
-                    guard let image = NSImage(data: data) else { continue }
-                    let kind: AssetKind = HypeToolExecutor.filenameLooksLikeTileset(name)
-                        ? .tileSet
-                        : .imageTexture
-                    let asset = SpriteAsset(
-                        name: name,
-                        kind: kind,
-                        mimeType: ext == "png" ? "image/png" : "image/jpeg",
-                        data: data,
-                        width: Int(image.size.width),
-                        height: Int(image.size.height)
-                    )
-                    document.document.spriteRepository.addAsset(asset)
-                    lastImportedId = asset.id
-                }
+                guard let asset = Self.makeImportedAsset(from: url) else { continue }
+                document.document.assetRepository.addAsset(asset)
+                lastImportedId = asset.id
             }
             // Auto-select the last imported asset so its detail
             // panel is immediately visible. For tileset-hinted
@@ -1122,7 +1145,7 @@ struct SpriteRepositoryView: View {
         panel.allowedContentTypes = [.png, .jpeg]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
-        panel.message = "Select tileset sprite sheet image(s)"
+        panel.message = "Select tileset image assets"
         panel.begin { response in
             guard response == .OK else { return }
             var lastImportedId: UUID?
@@ -1131,7 +1154,7 @@ struct SpriteRepositoryView: View {
                 let name = url.deletingPathExtension().lastPathComponent
                 let ext = url.pathExtension.lowercased()
                 guard let image = NSImage(data: data) else { continue }
-                let asset = SpriteAsset(
+                let asset = Asset(
                     name: name,
                     kind: .tileSet,
                     mimeType: ext == "png" ? "image/png" : "image/jpeg",
@@ -1139,7 +1162,7 @@ struct SpriteRepositoryView: View {
                     width: Int(image.size.width),
                     height: Int(image.size.height)
                 )
-                document.document.spriteRepository.addAsset(asset)
+                document.document.assetRepository.addAsset(asset)
                 lastImportedId = asset.id
             }
             // Auto-select so the TILESET section in the detail
@@ -1154,6 +1177,100 @@ struct SpriteRepositoryView: View {
             if lastImportedId != nil {
                 HypeDocumentMutationCoordinator.shared.flushAllAutosaves()
             }
+        }
+    }
+
+    private static var importableAssetContentTypes: [UTType] {
+        let builtIns: [UTType?] = [
+            .png, .jpeg, .gif, UTType(filenameExtension: "webp"),
+            .mp3, .wav, .aiff, .mpeg4Audio, UTType(filenameExtension: "caf"),
+            .mpeg4Movie, .movie, .quickTimeMovie,
+            UTType(filenameExtension: "glb"), UTType(filenameExtension: "usdz"),
+            UTType(filenameExtension: "usd"), UTType(filenameExtension: "scn"),
+            UTType(filenameExtension: "dae"), UTType(filenameExtension: "obj"),
+            UTType(filenameExtension: "stl"), UTType(filenameExtension: "ply"),
+            UTType(filenameExtension: "abc"), UTType(filenameExtension: "fbx"),
+            UTType(filenameExtension: "sks")
+        ]
+        return builtIns.compactMap { $0 }
+    }
+
+    private static func makeImportedAsset(from url: URL) -> Asset? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let name = url.deletingPathExtension().lastPathComponent
+        let ext = url.pathExtension.lowercased()
+
+        if let audioMime = audioMimeType(forExtension: ext) {
+            return Asset(name: name, kind: .audioClip, mimeType: audioMime, data: data)
+        }
+
+        if let videoMime = videoMimeType(forExtension: ext) {
+            return Asset(name: name, kind: .videoClip, mimeType: videoMime, data: data)
+        }
+
+        if let modelMime = modelMimeType(forExtension: ext) {
+            return Asset(name: name, kind: .model3D, mimeType: modelMime, data: data)
+        }
+
+        if ext == "sks" {
+            return Asset(name: name, kind: .particlePreset, mimeType: "application/x-spritekit-particle", data: data)
+        }
+
+        guard let image = NSImage(data: data) else { return nil }
+        let kind: AssetKind = HypeToolExecutor.filenameLooksLikeTileset(name) ? .tileSet : .imageTexture
+        return Asset(
+            name: name,
+            kind: kind,
+            mimeType: imageMimeType(forExtension: ext),
+            data: data,
+            width: Int(image.size.width),
+            height: Int(image.size.height)
+        )
+    }
+
+    private static func imageMimeType(forExtension ext: String) -> String {
+        switch ext {
+        case "jpg", "jpeg": return "image/jpeg"
+        case "gif": return "image/gif"
+        case "webp": return "image/webp"
+        case "svg": return "image/svg+xml"
+        default: return "image/png"
+        }
+    }
+
+    private static func audioMimeType(forExtension ext: String) -> String? {
+        switch ext {
+        case "mp3": return "audio/mpeg"
+        case "wav": return "audio/wav"
+        case "aif", "aiff": return "audio/aiff"
+        case "m4a": return "audio/mp4"
+        case "caf": return "audio/x-caf"
+        default: return nil
+        }
+    }
+
+    private static func videoMimeType(forExtension ext: String) -> String? {
+        switch ext {
+        case "mp4", "m4v": return "video/mp4"
+        case "mov": return "video/quicktime"
+        default: return nil
+        }
+    }
+
+    private static func modelMimeType(forExtension ext: String) -> String? {
+        switch ext {
+        case "glb": return "model/gltf-binary"
+        case "gltf": return "model/gltf+json"
+        case "usdz": return "model/vnd.usdz+zip"
+        case "usd": return "model/vnd.usd"
+        case "fbx": return "model/vnd.autodesk.fbx"
+        case "obj": return "model/obj"
+        case "stl": return "model/stl"
+        case "dae": return "model/vnd.collada+xml"
+        case "scn": return "model/vnd.scenekit.scene"
+        case "ply": return "model/ply"
+        case "abc": return "model/vnd.alembic"
+        default: return nil
         }
     }
 }

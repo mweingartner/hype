@@ -46,7 +46,7 @@ private actor LocalStubMeshyClient: MeshyClient {
 /// The SwiftUI `Generate3DSheet` view itself is not rendered in unit tests.
 /// These tests cover:
 /// - `Meshy3DGate.status` as applied from the sheet's host contexts
-///   (SpriteRepositoryView and PropertyInspector).
+///   (AssetRepositoryView and PropertyInspector).
 /// - The document model writes that `onAssetImported` callbacks perform.
 ///
 /// `MeshyTaskMonitor` behaviour is covered in `MeshyTaskMonitorTests`.
@@ -62,8 +62,8 @@ struct Generate3DSheetTests {
         return HypeDocument(stack: stack)
     }
 
-    private func makeModel3DAsset(name: String = "robot") -> SpriteAsset {
-        SpriteAsset(
+    private func makeModel3DAsset(name: String = "robot") -> Asset {
+        Asset(
             name: name,
             kind: .model3D,
             mimeType: "model/gltf-binary",
@@ -73,7 +73,7 @@ struct Generate3DSheetTests {
         )
     }
 
-    // MARK: - Gate: SpriteRepositoryView context
+    // MARK: - Gate: AssetRepositoryView context
 
     @Test("gate returns .stackDisabled when meshyEnabled is false")
     func gateStackDisabledWhenNotEnabled() {
@@ -111,9 +111,9 @@ struct Generate3DSheetTests {
     func model3DAssetCanBeFoundById() {
         var doc = makeDocument()
         let asset = makeModel3DAsset(name: "spaceship")
-        doc.spriteRepository.addAsset(asset)
+        doc.assetRepository.addAsset(asset)
 
-        let found = doc.spriteRepository.asset(byId: asset.id)
+        let found = doc.assetRepository.asset(byId: asset.id)
         #expect(found != nil)
         #expect(found?.kind == .model3D)
         #expect(found?.name == "spaceship")
@@ -124,8 +124,8 @@ struct Generate3DSheetTests {
         var doc = makeDocument()
         // Add a model3D asset.
         let asset = makeModel3DAsset(name: "castle")
-        doc.spriteRepository.addAsset(asset)
-        let ref = doc.spriteRepository.assetRef(for: asset)
+        doc.assetRepository.addAsset(asset)
+        let ref = doc.assetRepository.assetRef(for: asset)
 
         // Add a scene3D part and write the ref.
         var part = Part(partType: .scene3D, name: "3D Scene")
@@ -141,8 +141,8 @@ struct Generate3DSheetTests {
     func clearingScene3DAssetRefResultsInNil() {
         var doc = makeDocument()
         let asset = makeModel3DAsset()
-        doc.spriteRepository.addAsset(asset)
-        let ref = doc.spriteRepository.assetRef(for: asset)
+        doc.assetRepository.addAsset(asset)
+        let ref = doc.assetRepository.assetRef(for: asset)
 
         var part = Part(partType: .scene3D, name: "3D Scene")
         part.scene3DAssetRef = ref
@@ -170,21 +170,21 @@ struct Generate3DSheetTests {
     @Test("model3DAssets computed property returns only model3D kind assets")
     func model3DAssetsFilteredCorrectly() {
         var doc = makeDocument()
-        let imageAsset = SpriteAsset(name: "sprite", kind: .imageTexture,
+        let imageAsset = Asset(name: "sprite", kind: .imageTexture,
                                      mimeType: "image/png", data: Data([0xFF]),
                                      width: 64, height: 64)
-        let audioAsset = SpriteAsset(name: "sound", kind: .audioClip,
+        let audioAsset = Asset(name: "sound", kind: .audioClip,
                                      mimeType: "audio/mpeg", data: Data([0xFF]),
                                      width: 0, height: 0)
         let modelAsset = makeModel3DAsset(name: "robot")
         let modelAsset2 = makeModel3DAsset(name: "alien")
 
-        doc.spriteRepository.addAsset(imageAsset)
-        doc.spriteRepository.addAsset(audioAsset)
-        doc.spriteRepository.addAsset(modelAsset)
-        doc.spriteRepository.addAsset(modelAsset2)
+        doc.assetRepository.addAsset(imageAsset)
+        doc.assetRepository.addAsset(audioAsset)
+        doc.assetRepository.addAsset(modelAsset)
+        doc.assetRepository.addAsset(modelAsset2)
 
-        let model3DAssets = doc.spriteRepository.assets.filter { $0.kind == .model3D }
+        let model3DAssets = doc.assetRepository.assets.filter { $0.kind == .model3D }
         #expect(model3DAssets.count == 2)
         #expect(model3DAssets.allSatisfy { $0.kind == .model3D })
     }
@@ -200,7 +200,7 @@ struct Generate3DSheetTests {
     ///
     /// This test simulates the full pipeline at the model layer (without
     /// rendering the SwiftUI view):
-    ///   1. `Meshy3DAssetImporter.importTask` returns a `[SpriteAsset]`.
+    ///   1. `Meshy3DAssetImporter.importTask` returns a `[Asset]`.
     ///   2. Each asset is written into the repository (as `handleSuccess` does).
     ///   3. A counting closure (simulating PropertyInspector's `onAssetImported`)
     ///      is called exactly once with the primary ref.
@@ -234,7 +234,7 @@ struct Generate3DSheetTests {
         // Step 1: Write assets into repository (as handleSuccess does).
         // This does NOT touch scene3DAssetRef.
         for asset in assets {
-            doc.spriteRepository.addAsset(asset)
+            doc.assetRepository.addAsset(asset)
         }
 
         // Step 2: Get the primary ref.
@@ -242,7 +242,7 @@ struct Generate3DSheetTests {
             Issue.record("importTask returned no assets")
             return
         }
-        let ref = doc.spriteRepository.assetRef(for: primary)
+        let ref = doc.assetRepository.assetRef(for: primary)
 
         // Step 3: Track how many times the closure is called (the
         // PropertyInspector equivalent). Use a simple counter since
@@ -284,8 +284,8 @@ struct Generate3DSheetTests {
         let targetPartId = targetPart.id
 
         let asset = makeModel3DAsset(name: "barrel")
-        doc.spriteRepository.addAsset(asset)
-        let ref = doc.spriteRepository.assetRef(for: asset)
+        doc.assetRepository.addAsset(asset)
+        let ref = doc.assetRepository.assetRef(for: asset)
 
         // Simulate the pre-fix bug: write once via updatePart directly,
         // then again via the onAssetImported closure.

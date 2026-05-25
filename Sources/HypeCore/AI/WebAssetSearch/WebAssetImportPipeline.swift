@@ -6,7 +6,7 @@ import AppKit
 // MARK: - WebAssetImportPipeline
 
 /// Downloads, validates, sanitizes (for SVG), and packages a web-asset search
-/// result into a `WebAssetDownloadResult` ready to be wrapped in a `SpriteAsset`.
+/// result into a `WebAssetDownloadResult` ready to be wrapped in a `Asset`.
 ///
 /// All nine pipeline steps are enforced in order. See Section 7.1 of the spec
 /// for the authoritative step list.
@@ -115,19 +115,19 @@ public actor WebAssetImportPipeline {
         )
     }
 
-    // MARK: - SpriteAsset factory
+    // MARK: - Asset factory
 
-    /// Create a `SpriteAsset` from a completed download.
+    /// Create a `Asset` from a completed download.
     ///
     /// Callers MUST pass the sanitized form of `name` (via
     /// `HypeToolExecutor.sanitizeAssetName`). This method does NOT re-sanitize —
     /// the contract is that callers already sanitized, and passing raw AI-supplied
     /// names here is explicitly forbidden (Section 20, non-goal 16).
-    public static func makeSpriteAsset(
+    public static func makeAsset(
         name: String,
         searchQuery: String,
         download: WebAssetDownloadResult
-    ) -> SpriteAsset {
+    ) -> Asset {
         let provenance = AssetProvenance(
             origin: .webSearch,
             searchQuery: searchQuery,
@@ -135,7 +135,7 @@ public actor WebAssetImportPipeline {
             attribution: download.result.attribution,
             importedAt: Date()
         )
-        return SpriteAsset(
+        return Asset(
             id: UUID(),
             name: name,
             kind: .imageTexture,

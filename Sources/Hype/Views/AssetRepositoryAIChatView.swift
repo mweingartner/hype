@@ -1,7 +1,7 @@
 import SwiftUI
 import HypeCore
 
-struct SpriteRepositoryAIChatView: View {
+struct AssetRepositoryAIChatView: View {
     @Binding var document: HypeDocumentWrapper
     @Binding var selectedAssetIds: Set<UUID>
     @Environment(\.hypeTheme) private var hypeTheme
@@ -206,7 +206,7 @@ struct SpriteRepositoryAIChatView: View {
         let aiContextToolsEnabled = !document.document.aiContextLibrary.items.isEmpty
             && (selectedAIProvider != .openAI || document.document.stack.aiContextCloudSharingAllowed)
         let baseTools = HypeToolDefinitions.withWebAssetTools(
-            HypeToolDefinitions.spriteRepositoryAuthoringTools,
+            HypeToolDefinitions.assetRepositoryAuthoringTools,
             enabled: document.document.stack.webAssetsAllowed
         )
         let tools = HypeToolDefinitions.withAIContextTools(
@@ -242,7 +242,7 @@ struct SpriteRepositoryAIChatView: View {
                             .joined(separator: ", ")
                         appendMessage(role: "tool", content: "Tool: \(call.function.name)(\(argsDesc))")
 
-                        let beforeIds = Set(document.document.spriteRepository.assets.map(\.id))
+                        let beforeIds = Set(document.document.assetRepository.assets.map(\.id))
                         let isImageTool = call.function.name == "generate_sprite_asset"
                         if isImageTool { isGeneratingImage = true }
 
@@ -257,12 +257,12 @@ struct SpriteRepositoryAIChatView: View {
 
                         if isImageTool { isGeneratingImage = false }
 
-                        let afterIds = Set(document.document.spriteRepository.assets.map(\.id))
+                        let afterIds = Set(document.document.assetRepository.assets.map(\.id))
                         if let newId = afterIds.subtracting(beforeIds).first {
                             selectedAssetIds = [newId]
                         }
 
-                        HypeLogger.shared.aiDialog(role: "tool_result", content: result, source: "Sprite Repository AI")
+                        HypeLogger.shared.aiDialog(role: "tool_result", content: result, source: "Asset Repository AI")
                         appendMessage(role: "tool", content: result)
                         conversationMessages.append(OllamaMessage(role: "tool", content: result))
                     }
@@ -286,11 +286,11 @@ struct SpriteRepositoryAIChatView: View {
 
     private func appendMessage(role: String, content: String) {
         messages.append(RepositoryChatMessage(role: role, content: content))
-        HypeLogger.shared.aiDialog(role: role, content: content, source: "Sprite Repository AI")
+        HypeLogger.shared.aiDialog(role: role, content: content, source: "Asset Repository AI")
     }
 
     private func makeSystemPrompt(modelName: String) -> String {
-        let assets = document.document.spriteRepository.assets
+        let assets = document.document.assetRepository.assets
             .map { "\($0.kind.rawValue) \"\($0.name)\" \($0.width)x\($0.height)" }
             .joined(separator: ", ")
         let hasAIContext = !document.document.aiContextLibrary.items.isEmpty
@@ -322,13 +322,13 @@ struct SpriteRepositoryAIChatView: View {
             return "- If the user asks to use local files, folders, or images, ask them to attach those materials to the AI Context Library first. Use write_ai_context_note for durable project-memory notes about sprite naming, asset decisions, TODOs, and known issues."
         }()
         return """
-        You are the Sprite Repository assistant for Hype.
+        You are the Asset Repository assistant for Hype.
 
         RULES:
-        - Only work on Sprite Repository assets. Do not create card parts, backgrounds, cards, scripts, or SpriteKit scene nodes from this panel.
+        - Only work on Asset Repository assets. Do not create card parts, backgrounds, cards, scripts, or SpriteKit scene nodes from this panel.
         - If the user asks to generate/create/add/draw a sprite, library asset, repository asset, icon, texture, sprite sheet, or tileset, use generate_sprite_asset.
         - If the user asks for a simple maze/wall/floor tileset for SpriteKit games, use create_basic_tileset_asset instead of asking them to attach or stitch a sheet.
-        - If the user asks to generate/create/add a 3D model, mesh, object, character, prop, vehicle, or any three-dimensional asset, use generate_3d_model_from_text. The result is stored in the Sprite Repository with kind=model3D alongside 2D assets. Pass a short, descriptive asset_name (e.g. "wooden-barrel", "space-fighter") and keep with_usdz true so Scene3D can render it.
+        - If the user asks to generate/create/add a 3D model, mesh, object, character, prop, vehicle, or any three-dimensional asset, use generate_3d_model_from_text. The result is stored in the Asset Repository with kind=model3D alongside 2D assets. Pass a short, descriptive asset_name (e.g. "wooden-barrel", "space-fighter") and keep with_usdz true so Scene3D can render it.
         - If the user provides one image as reference for a 3D model, use generate_3d_model_from_image. For multiple images, use generate_3d_model_from_images.
         - If the user asks to lower the polygon count, simplify, or remesh an existing 3D model, use remesh_3d_model with the asset name and a target polycount (e.g. 5000).
         - If the user asks to restyle, retexture, change the surface, or apply a new material to an existing 3D model, use retexture_3d_model with a style_prompt describing the new surface.

@@ -21,7 +21,7 @@ struct RuntimeDocumentMergeTests {
         var area = Part(partType: .spriteArea, cardId: cardId, name: "missileCommandArea", left: 20, top: 40, width: 760, height: 520)
         area.setSpriteAreaSpec(SpriteAreaSpec(defaultSceneNamed: "main", fallbackSize: SizeSpec(width: 760, height: 520)))
         current.addPart(area)
-        current.spriteRepository.addAsset(SpriteAsset(name: "mc_turret", data: Data([1, 2, 3]), width: 64, height: 64))
+        current.assetRepository.addAsset(Asset(name: "mc_turret", data: Data([1, 2, 3]), width: 64, height: 64))
 
         let result = RuntimeDocumentMerge.preservingCurrentOnlyEntities(
             runtimeDocument: runtime,
@@ -31,7 +31,7 @@ struct RuntimeDocumentMergeTests {
         #expect(result.preservedCurrentOnlyEntities)
         #expect(result.document.parts.first(where: { $0.id == score.id })?.textContent == "Score: 10")
         #expect(result.document.parts.contains(where: { $0.id == area.id && $0.name == "missileCommandArea" }))
-        #expect(result.document.spriteRepository.asset(byName: "mc_turret") != nil)
+        #expect(result.document.assetRepository.asset(byName: "mc_turret") != nil)
     }
 
     @Test("runtime-only entities are kept while current-only entities are preserved")

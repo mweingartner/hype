@@ -21,8 +21,8 @@ private func makeDocument() -> HypeDocument {
     HypeDocument(stack: Stack())
 }
 
-private func addAsset(kind: AssetKind, name: String, to document: inout HypeDocument) -> SpriteAsset {
-    let asset = SpriteAsset(
+private func addAsset(kind: AssetKind, name: String, to document: inout HypeDocument) -> Asset {
+    let asset = Asset(
         name: name,
         kind: kind,
         mimeType: mimeType(for: kind),
@@ -30,7 +30,7 @@ private func addAsset(kind: AssetKind, name: String, to document: inout HypeDocu
         width: 64,
         height: 64
     )
-    document.spriteRepository.addAsset(asset)
+    document.assetRepository.addAsset(asset)
     return asset
 }
 
@@ -60,8 +60,8 @@ private func makePNGResolved(
 }
 
 /// Mirrors the `imageRepositoryAssets` filter from `Generate3DSheet`.
-private func imageRepositoryAssets(in document: HypeDocument) -> [SpriteAsset] {
-    document.spriteRepository.assets
+private func imageRepositoryAssets(in document: HypeDocument) -> [Asset] {
+    document.assetRepository.assets
         .filter { [AssetKind.imageTexture, .spriteSheet, .tileSet].contains($0.kind) }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 }
@@ -139,21 +139,21 @@ struct Generate3DSheetImageTabTests {
 
     // MARK: (f) MeshyImageInput.assetName resolves to image data from repository
 
-    @Test("MeshyImageInput.assetName resolves data from sprite repository")
+    @Test("MeshyImageInput.assetName resolves data from asset repository")
     func assetNameResolvesFromRepository() throws {
         var doc = makeDocument()
         // Use a PNG magic header so MIME sniffing accepts it.
         let pngHeader: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
-        let asset = SpriteAsset(
+        let asset = Asset(
             name: "hero.png",
             kind: .imageTexture,
             mimeType: "image/png",
             data: Data(pngHeader + Array(repeating: 0x42, count: 56)),
             width: 64, height: 64
         )
-        doc.spriteRepository.addAsset(asset)
+        doc.assetRepository.addAsset(asset)
 
-        let resolved = try MeshyImageInput.assetName("hero.png").resolve(in: doc.spriteRepository)
+        let resolved = try MeshyImageInput.assetName("hero.png").resolve(in: doc.assetRepository)
         #expect(resolved.mimeType == "image/png")
         #expect(resolved.sourceDescriptor == "asset:hero.png")
         // Data URI must be a well-formed data URI.
@@ -166,7 +166,7 @@ struct Generate3DSheetImageTabTests {
     func assetNameThrowsWhenAbsent() {
         let doc = makeDocument()
         do {
-            _ = try MeshyImageInput.assetName("nonexistent.png").resolve(in: doc.spriteRepository)
+            _ = try MeshyImageInput.assetName("nonexistent.png").resolve(in: doc.assetRepository)
             Issue.record("Expected validationFailed")
         } catch MeshyError.validationFailed(let field, _) {
             // Field is "image_asset_name" (implementation constant).
@@ -185,7 +185,7 @@ struct Generate3DSheetImageTabTests {
         let b64 = pngData.base64EncodedString()
 
         let doc = makeDocument()
-        let resolved = try MeshyImageInput.base64(b64).resolve(in: doc.spriteRepository)
+        let resolved = try MeshyImageInput.base64(b64).resolve(in: doc.assetRepository)
         #expect(resolved.mimeType == "image/png")
         // sourceDescriptor for base64 inputs is "base64:<sizeKB>KB" (e.g. "base64:0KB").
         #expect(resolved.sourceDescriptor.hasPrefix("base64:"))
@@ -205,7 +205,7 @@ struct Generate3DSheetImageTabTests {
         defer { try? FileManager.default.removeItem(at: tmpURL) }
 
         let doc = makeDocument()
-        let resolved = try MeshyImageInput.filePath(tmpURL.path).resolve(in: doc.spriteRepository)
+        let resolved = try MeshyImageInput.filePath(tmpURL.path).resolve(in: doc.assetRepository)
 
         // H1 invariant: sourceDescriptor must be "file", not the actual path.
         #expect(resolved.sourceDescriptor == "file")
@@ -219,7 +219,7 @@ struct Generate3DSheetImageTabTests {
     func filePathRejectsTraversal() {
         let doc = makeDocument()
         do {
-            _ = try MeshyImageInput.filePath("../etc/passwd").resolve(in: doc.spriteRepository)
+            _ = try MeshyImageInput.filePath("../etc/passwd").resolve(in: doc.assetRepository)
             Issue.record("Expected validationFailed for path traversal")
         } catch MeshyError.validationFailed(let field, _) {
             #expect(field == "image_path")

@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Asset Provenance Types
 
-/// The origin of a sprite asset — how it arrived in the repository.
+/// The origin of an asset — how it arrived in the repository.
 public enum AssetOrigin: String, Codable, Sendable {
     case userImport      // From local disk, drag-drop, Finder.
     case webSearch       // Downloaded via the AI web-asset pipeline.
@@ -93,7 +93,7 @@ public struct AssetAttribution: Codable, Sendable, Equatable {
     }
 }
 
-/// Full provenance record for a web-search asset, stored inside `SpriteAsset`.
+/// Full provenance record for a web-search asset, stored inside `Asset`.
 public struct AssetProvenance: Codable, Sendable, Equatable {
     public var origin: AssetOrigin
     /// The user's or AI's original search query. Preserved for internal
@@ -120,13 +120,13 @@ public struct AssetProvenance: Codable, Sendable, Equatable {
 
 // MARK: - Asset Kind
 
-/// The kind of asset stored in the sprite repository.
+/// The kind of asset stored in the stack asset repository.
 ///
 /// `tileSet` was added 2026-04-09 for first-class SpriteKit tile map
 /// support. A tileSet asset is a sprite sheet that has been
 /// classified for tile map use — it carries additional metadata
 /// (`tileWidth`, `tileHeight`, `tileColumns`, `tileRows` on
-/// `SpriteAsset`) that `Interpreter.createTileMap` and
+/// `Asset`) that `Interpreter.createTileMap` and
 /// `HypeToolExecutor.create_tilemap` read to pre-populate
 /// `TileMapSpec.tileSetColumns`, tile size, and tile grid dimensions
 /// so you don't have to restate them every time you use the asset.
@@ -154,6 +154,48 @@ public enum AssetKind: String, Codable, Sendable {
         } else {
             // Unknown future kind — graceful degradation.
             self = .imageTexture
+        }
+    }
+}
+
+/// High-level asset categories used by repository queries and UX filters.
+public enum AssetCategory: String, CaseIterable, Codable, Sendable {
+    case all
+    case image
+    case audio
+    case video
+    case model3D
+    case effects
+    case other
+
+    public var displayName: String {
+        switch self {
+        case .all: return "All"
+        case .image: return "Images"
+        case .audio: return "Audio"
+        case .video: return "Video"
+        case .model3D: return "3D"
+        case .effects: return "Effects"
+        case .other: return "Other"
+        }
+    }
+}
+
+public extension AssetKind {
+    var category: AssetCategory {
+        switch self {
+        case .imageTexture, .spriteSheet, .tileSet:
+            return .image
+        case .audioClip:
+            return .audio
+        case .videoClip:
+            return .video
+        case .model3D:
+            return .model3D
+        case .particlePreset:
+            return .effects
+        case .placeholderAsset:
+            return .other
         }
     }
 }
@@ -203,7 +245,7 @@ public struct AnimationClip: Identifiable, Codable, Sendable {
     }
 }
 
-/// A single sprite asset with raw image data and optional slicing/animation metadata.
+/// A single stack asset with raw data and optional type-specific metadata.
 ///
 /// Tile set metadata (`tileWidth`, `tileHeight`, `tileColumns`,
 /// `tileRows`) is only meaningful when `kind == .tileSet`. For every
@@ -211,7 +253,7 @@ public struct AnimationClip: Identifiable, Codable, Sendable {
 /// decoder defaults them to zero for backward compatibility with
 /// `.hype` files saved before 2026-04-09, so loading an old document
 /// never fails and older assets behave exactly as they did before.
-public struct SpriteAsset: Identifiable, Codable, Sendable {
+public struct Asset: Identifiable, Codable, Sendable {
     public var id: UUID
     public var name: String
     public var kind: AssetKind
@@ -376,16 +418,16 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
     }
 }
 
-/// A collection of sprite assets for a Hype document.
-public struct SpriteRepository: Codable, Sendable {
-    public var assets: [SpriteAsset]
+/// A collection of stack assets for a Hype document.
+public struct AssetRepository: Codable, Sendable {
+    public var assets: [Asset]
 
-    public init(assets: [SpriteAsset] = []) {
+    public init(assets: [Asset] = []) {
         self.assets = assets
     }
 
     /// Find an asset by its unique identifier.
-    public func asset(byId id: UUID) -> SpriteAsset? {
+    public func asset(byId id: UUID) -> Asset? {
         assets.first { $0.id == id }
     }
 
@@ -395,18 +437,48 @@ public struct SpriteRepository: Codable, Sendable {
     /// asset. AI authoring flows often regenerate an asset with the same name;
     /// resolving to the latest match avoids stale tiles or sprites being used
     /// after a repair pass.
-    public func asset(byName name: String) -> SpriteAsset? {
+    public func asset(byName name: String) -> Asset? {
         let needle = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return assets.reversed().first { $0.name.lowercased() == needle }
     }
 
+    /// Find the newest matching asset by name and kind.
+    public func asset(byName name: String, kind: AssetKind) -> Asset? {
+        let needle = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return assets.reversed().first { $0.name.lowercased() == needle && $0.kind == kind }
+    }
+
+    /// Return all assets of one exact kind in document order.
+    public func assets(ofKind kind: AssetKind) -> [Asset] {
+        assets.filter { $0.kind == kind }
+    }
+
+    /// Return all assets whose kind is in `kinds`, preserving document order.
+    public func assets(ofKinds kinds: Set<AssetKind>) -> [Asset] {
+        assets.filter { kinds.contains($0.kind) }
+    }
+
+    /// Return all assets in a high-level category, preserving document order.
+    public func assets(in category: AssetCategory) -> [Asset] {
+        guard category != .all else { return assets }
+        return assets.filter { $0.kind.category == category }
+    }
+
+    /// Search assets by name, optionally limited to one high-level category.
+    public func searchAssets(named query: String, category: AssetCategory = .all) -> [Asset] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let scoped = assets(in: category)
+        guard !trimmed.isEmpty else { return scoped }
+        return scoped.filter { $0.name.localizedCaseInsensitiveContains(trimmed) }
+    }
+
     /// Create an AssetRef pointing to the given asset.
-    public func assetRef(for asset: SpriteAsset) -> AssetRef {
+    public func assetRef(for asset: Asset) -> AssetRef {
         AssetRef(id: asset.id, name: asset.name, mimeType: asset.mimeType)
     }
 
     /// Add an asset to the repository.
-    public mutating func addAsset(_ asset: SpriteAsset) {
+    public mutating func addAsset(_ asset: Asset) {
         assets.append(asset)
     }
 
@@ -416,7 +488,7 @@ public struct SpriteRepository: Codable, Sendable {
     }
 
     /// Update an asset in place by its unique identifier.
-    public mutating func updateAsset(id: UUID, _ transform: (inout SpriteAsset) -> Void) {
+    public mutating func updateAsset(id: UUID, _ transform: (inout Asset) -> Void) {
         if let index = assets.firstIndex(where: { $0.id == id }) {
             transform(&assets[index])
         }

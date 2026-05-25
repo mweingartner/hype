@@ -7,11 +7,11 @@ import Foundation
 /// The attribution block is delimited by two sentinel strings and is fully
 /// regenerated on every call to `sync(stackScript:webAssets:)`. Any text the
 /// user types inside the sentinel lines is silently overwritten — only
-/// `SpriteAsset.provenance` is the source of truth.
+/// `Asset.provenance` is the source of truth.
 ///
 /// **Callers** invoke `sync` in three places:
 /// 1. After `import_web_asset` or `find_and_import_sprite` succeed (inside `HypeToolExecutor`).
-/// 2. When an asset is removed from the `SpriteRepository` via the UI.
+/// 2. When an asset is removed from the `AssetRepository` via the UI.
 /// 3. NOT from `SceneAuthoringAssistant.resolveMissingAssets` — that path goes through the
 ///    executor branches which already call sync.
 public enum StackScriptAttributionSync {
@@ -28,12 +28,12 @@ public enum StackScriptAttributionSync {
     ///
     /// - Parameters:
     ///   - stackScript: The current value of `Stack.script`.
-    ///   - webAssets: ALL assets in the sprite repository (not pre-filtered). The function
+    ///   - webAssets: ALL assets in the asset repository (not pre-filtered). The function
     ///     filters to `origin == .webSearch` internally.
     /// - Returns: The updated script string.
     public static func sync(
         stackScript: String,
-        webAssets: [SpriteAsset]
+        webAssets: [Asset]
     ) -> String {
         // Step 1: Compute userBody (everything outside the sentinel block).
         let userBody = extractUserBody(from: stackScript)
@@ -188,7 +188,7 @@ public enum StackScriptAttributionSync {
     ///
     /// - Returns: The full block string (including sentinels), or an empty string
     ///   if there are no web-asset entries.
-    private static func buildBlock(from webAssets: [SpriteAsset]) -> String {
+    private static func buildBlock(from webAssets: [Asset]) -> String {
         // Filter to web-search origin only.
         let filtered = webAssets.filter { $0.provenance?.origin == .webSearch }
         guard !filtered.isEmpty else { return "" }
@@ -213,7 +213,7 @@ public enum StackScriptAttributionSync {
     /// ```
     ///
     /// Em-dashes are U+2014. Every field value is run through `sanitizeField(_:)`.
-    private static func attributionLine(for asset: SpriteAsset) -> String {
+    private static func attributionLine(for asset: Asset) -> String {
         guard let prov = asset.provenance else {
             return "-- \"\(sanitizeField(asset.name))\" \u{2014} by Unknown on Unknown Provider \u{2014} Unknown License \u{2014} n/a"
         }

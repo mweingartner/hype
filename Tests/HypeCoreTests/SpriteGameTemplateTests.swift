@@ -39,9 +39,9 @@ struct SpriteGameTemplateTests {
 
     @Test("repository name lookup prefers newest duplicate asset")
     func repositoryLookupUsesNewestDuplicate() throws {
-        let old = SpriteAsset(name: "maze_tile_wall", data: Data([1]), width: 32, height: 32)
-        let newer = SpriteAsset(name: "maze_tile_wall", kind: .tileSet, data: Data([2]), width: 64, height: 32, tileWidth: 32, tileHeight: 32, tileColumns: 2, tileRows: 1)
-        let repository = SpriteRepository(assets: [old, newer])
+        let old = Asset(name: "maze_tile_wall", data: Data([1]), width: 32, height: 32)
+        let newer = Asset(name: "maze_tile_wall", kind: .tileSet, data: Data([2]), width: 64, height: 32, tileWidth: 32, tileHeight: 32, tileColumns: 2, tileRows: 1)
+        let repository = AssetRepository(assets: [old, newer])
 
         let resolved = try #require(repository.asset(byName: "maze_tile_wall"))
         #expect(resolved.id == newer.id)
@@ -77,7 +77,7 @@ struct SpriteGameTemplateTests {
             currentCardId: cardId
         )
 
-        let asset = try #require(document.spriteRepository.asset(byName: "local_maze_tiles"))
+        let asset = try #require(document.assetRepository.asset(byName: "local_maze_tiles"))
         #expect(result.contains("Created deterministic tileset asset 'local_maze_tiles'"))
         #expect(asset.kind == .tileSet)
         #expect(asset.isTileSet)
@@ -108,7 +108,7 @@ struct SpriteGameTemplateTests {
         #expect(scene.gravity.dx == 0)
         #expect(scene.gravity.dy == 0)
 
-        let tileset = try #require(document.spriteRepository.asset(byName: "hype_pacman_maze_tiles"))
+        let tileset = try #require(document.assetRepository.asset(byName: "hype_pacman_maze_tiles"))
         #expect(tileset.kind == .tileSet)
         #expect(tileset.tileColumns == 4)
 
@@ -160,7 +160,7 @@ struct SpriteGameTemplateTests {
         )
         let firstArea = try #require(document.parts.first { $0.name == "pacmanArea" })
         let firstAreaId = firstArea.id
-        let firstAssetIdsByName = Dictionary(uniqueKeysWithValues: document.spriteRepository.assets.map { ($0.name, $0.id) })
+        let firstAssetIdsByName = Dictionary(uniqueKeysWithValues: document.assetRepository.assets.map { ($0.name, $0.id) })
 
         let rebuildResult = await executor.execute(
             toolName: "create_sprite_game_template",
@@ -172,7 +172,7 @@ struct SpriteGameTemplateTests {
         #expect(rebuildResult.contains("Rebuilt Pac-Man-style game"))
         #expect(document.parts.filter { $0.name == "pacmanArea" }.count == 1)
         #expect(document.parts.first { $0.name == "pacmanArea" }?.id == firstAreaId)
-        let templateAssets = document.spriteRepository.assets.filter { $0.tags.contains("hype-template") }
+        let templateAssets = document.assetRepository.assets.filter { $0.tags.contains("hype-template") }
         #expect(templateAssets.count == 8)
         for asset in templateAssets {
             #expect(firstAssetIdsByName[asset.name] == asset.id)
@@ -229,7 +229,7 @@ struct SpriteGameTemplateTests {
         )
         let firstArea = try #require(document.parts.first { $0.name == "towerDefenseArea" })
         let firstAreaId = firstArea.id
-        let firstAssets = Dictionary(uniqueKeysWithValues: document.spriteRepository.assets.map { ($0.name, $0.id) })
+        let firstAssets = Dictionary(uniqueKeysWithValues: document.assetRepository.assets.map { ($0.name, $0.id) })
 
         let result = await executor.execute(
             toolName: "create_sprite_game_template",
@@ -249,7 +249,7 @@ struct SpriteGameTemplateTests {
         #expect(rebuiltArea.id == firstAreaId)
         #expect(rebuiltArea.width == 640)
         #expect(rebuiltArea.height == 480)
-        for asset in document.spriteRepository.assets where asset.tags.contains("tower_defense") {
+        for asset in document.assetRepository.assets where asset.tags.contains("tower_defense") {
             #expect(firstAssets[asset.name] == asset.id)
         }
         let scene = try #require(document.parts.first { $0.name == "towerDefenseArea" }?.activeSceneSpec)
@@ -321,7 +321,7 @@ struct SpriteGameTemplateTests {
             "hype_barrel_ladder",
             "hype_barrel_hammer",
         ] {
-            #expect(document.spriteRepository.asset(byName: assetName) != nil)
+            #expect(document.assetRepository.asset(byName: assetName) != nil)
         }
 
         let newGameButton = try #require(document.parts.first { $0.partType == .button && $0.name == "New Game" })
@@ -640,7 +640,7 @@ struct SpriteGameTemplateTests {
     @Test("SpriteKit and repository AI catalogs include deterministic game tools")
     func toolCatalogsIncludeGameTools() {
         let spriteTools = Set(HypeToolDefinitions.spriteSceneAuthoringTools.map(\.function.name))
-        let repoTools = Set(HypeToolDefinitions.spriteRepositoryAuthoringTools.map(\.function.name))
+        let repoTools = Set(HypeToolDefinitions.assetRepositoryAuthoringTools.map(\.function.name))
 
         #expect(spriteTools.contains("create_sprite_game_template"))
         #expect(spriteTools.contains("list_sprite_game_templates"))
