@@ -572,7 +572,11 @@ public actor StackRuntime: ScriptRuntimeProviding {
         await MainActor.run {
             NotificationCenter.default.post(name: Notification.Name("navigateToCard"), object: cardId)
         }
-        await Task.yield()
+        // Give SwiftUI/AppKit a frame boundary to commit and paint
+        // the card change before a long-running script emits another
+        // navigation. Without this, many `go` commands in one handler
+        // can coalesce into a single visible update.
+        try? await Task.sleep(nanoseconds: 16_666_667)
     }
 
     public func setSpeechListenerActive(_ active: Bool, owner: RuntimeOwnerContext) async throws {
