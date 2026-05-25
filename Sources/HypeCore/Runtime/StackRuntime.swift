@@ -569,7 +569,10 @@ public actor StackRuntime: ScriptRuntimeProviding {
     }
 
     public func navigateToCard(_ cardId: UUID) async {
-        NotificationCenter.default.post(name: Notification.Name("navigateToCard"), object: cardId)
+        await MainActor.run {
+            NotificationCenter.default.post(name: Notification.Name("navigateToCard"), object: cardId)
+        }
+        await Task.yield()
     }
 
     public func setSpeechListenerActive(_ active: Bool, owner: RuntimeOwnerContext) async throws {
@@ -1126,7 +1129,9 @@ public actor StackRuntime: ScriptRuntimeProviding {
             NotificationCenter.default.post(name: Notification.Name("showAllCards"), object: nil)
         }
         if let navTarget = result.navigationTarget {
-            NotificationCenter.default.post(name: Notification.Name("navigateToCard"), object: navTarget)
+            Task { @MainActor in
+                NotificationCenter.default.post(name: Notification.Name("navigateToCard"), object: navTarget)
+            }
         }
         if let err = result.error {
             var userInfo: [AnyHashable: Any] = [
