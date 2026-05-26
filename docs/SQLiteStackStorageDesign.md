@@ -64,6 +64,16 @@ intentional bridge: high-value query fields are relational and indexed now, whil
 sparse type-specific fields remain lossless without prematurely exploding the
 schema for every part subtype.
 
+The `assets` table projects the primary asset payload into `data`, `byte_count`,
+`sha256`, dimensions, tags, and `kind` for quick repository queries. Compound
+asset details live in the `payload_json` value model: `Asset.files` stores
+related embedded media files such as textures, skeletons, animations, palettes,
+previews, and metadata files, while `Asset.metadata` stores JSON/text/scalar
+metadata records. Loading reconstructs assets from `payload_json`, so adding
+these optional fields does not require a schema version bump; normalized
+projections can be added later if compound-file search or validation needs
+first-class SQL tables.
+
 Schema version 2 projects embedded audio recorder content into
 `parts.audio_data` as a SQLite BLOB. The runtime `Part.audioData` field is
 restored from that column on load, and the JSON payload intentionally omits the

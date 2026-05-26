@@ -56,6 +56,9 @@ struct HypeDocumentSelfContainedPersistenceTests {
         #expect(decoded.cards.first?.script == document.cards[0].script)
         #expect(decoded.parts.first { $0.name == "btn_start" }?.script.contains("startGame") == true)
         #expect(decoded.assetRepository.asset(byName: "hero")?.data == Data([0, 1, 2, 3]))
+        #expect(decoded.assetRepository.asset(byName: "hero")?.files.first?.role == .palette)
+        #expect(decoded.assetRepository.asset(byName: "hero")?.files.first?.data == Data([4, 5, 6]))
+        #expect(decoded.assetRepository.asset(byName: "hero")?.metadata.first?.key == "legacy-resource")
         #expect(decoded.aiContextLibrary.itemCount == 1)
         #expect(decoded.aiContextLibrary.items.first?.data?.isEmpty == false)
         #expect(decoded.aiPromptHistory == document.aiPromptHistory)
@@ -250,7 +253,26 @@ struct HypeDocumentSelfContainedPersistenceTests {
             mimeType: "image/png",
             data: Data([0, 1, 2, 3]),
             width: 1,
-            height: 1
+            height: 1,
+            files: [
+                AssetFile(
+                    name: "hero-palette-preview.png",
+                    role: .palette,
+                    mimeType: "image/png",
+                    data: Data([4, 5, 6]),
+                    width: 1,
+                    height: 1,
+                    tags: ["hypercard-import"]
+                )
+            ],
+            metadata: [
+                AssetMetadataEntry(
+                    key: "legacy-resource",
+                    value: #"{"type":"PLTE","id":128}"#,
+                    mimeType: "application/json",
+                    tags: ["hypercard-import"]
+                )
+            ]
         ))
 
         let context = AIContextIngestor.makeTextNote(

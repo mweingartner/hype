@@ -39,6 +39,54 @@ struct MeshyAssetKindCodableTests {
         #expect(decoded.mimeType == "model/gltf-binary")
     }
 
+    @Test("compound asset files and metadata round-trip")
+    func compoundAssetRoundTrips() throws {
+        let original = Asset(
+            name: "rigged-character.glb",
+            kind: .model3D,
+            mimeType: "model/gltf-binary",
+            data: Data([0x67, 0x6C, 0x54, 0x46]),
+            files: [
+                AssetFile(
+                    name: "walk.fbx",
+                    role: .animation,
+                    mimeType: "model/fbx",
+                    data: Data([0x01, 0x02]),
+                    tags: ["walk"]
+                ),
+                AssetFile(
+                    name: "albedo.png",
+                    role: .texture,
+                    mimeType: "image/png",
+                    data: Data([0x89, 0x50]),
+                    width: 16,
+                    height: 16,
+                    tags: ["albedo"]
+                ),
+            ],
+            metadata: [
+                AssetMetadataEntry(
+                    key: "legacy-resource",
+                    value: #"{"type":"ppat","id":128}"#,
+                    mimeType: "application/json",
+                    tags: ["hypercard-import"]
+                )
+            ]
+        )
+
+        let data = try encoder.encode(original)
+        let decoded = try decoder.decode(Asset.self, from: data)
+
+        #expect(decoded.files.count == 2)
+        #expect(decoded.files[0].role == .animation)
+        #expect(decoded.files[1].role == .texture)
+        #expect(decoded.files[1].width == 16)
+        #expect(decoded.metadata.first?.key == "legacy-resource")
+        #expect(decoded.totalEmbeddedByteCount == original.totalEmbeddedByteCount)
+        #expect(decoded.allFiles.count == 3)
+        #expect(decoded.allFiles.first?.role == .primary)
+    }
+
     @Test("pre-Meshy asset without kind key decodes to .imageTexture")
     func missingKindFallsBackToImageTexture() throws {
         let asset = Asset(name: "test.png", kind: .imageTexture, data: Data([1, 2, 3]))
@@ -79,6 +127,36 @@ struct MeshyAssetKindCodableTests {
         // Should not throw at exactly the cap.
         let decoded = try decoder.decode(Asset.self, from: data)
         #expect(decoded.data.count == capBytes)
+    }
+
+    @Test("model3D asset related files count toward 50 MB cap")
+    func model3DRelatedFilesCountTowardCap() throws {
+        let asset = Asset(
+            name: "compound.glb",
+            kind: .model3D,
+            mimeType: "model/gltf-binary",
+            data: Data(count: 49 * 1024 * 1024),
+            files: [
+                AssetFile(
+                    name: "texture.png",
+                    role: .texture,
+                    mimeType: "image/png",
+                    data: Data(count: 2 * 1024 * 1024)
+                )
+            ]
+        )
+
+        let rawData = try encoder.encode(asset)
+        var threw = false
+        do {
+            _ = try decoder.decode(Asset.self, from: rawData)
+        } catch DecodingError.dataCorrupted(let ctx) {
+            threw = true
+            #expect(ctx.debugDescription.contains("50 MB"))
+        } catch {
+            threw = true
+        }
+        #expect(threw, "Expected decode to throw when compound model3D payload exceeds 50 MB")
     }
 
     @Test("model3D Asset with 51 MB of data throws DecodingError on decode")

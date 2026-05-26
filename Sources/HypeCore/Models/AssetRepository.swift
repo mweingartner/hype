@@ -245,6 +245,95 @@ public struct AnimationClip: Identifiable, Codable, Sendable {
     }
 }
 
+/// Role of an embedded file that belongs to a logical repository asset.
+///
+/// The top-level `Asset.data` remains the primary renderable payload for simple
+/// assets and compatibility with existing callers. `Asset.files` holds related
+/// media for compound assets such as model + skeleton + animation + textures, or
+/// legacy palette resources that produce metadata plus several preview images.
+public enum AssetFileRole: String, Codable, Sendable, CaseIterable {
+    case primary
+    case source
+    case metadata
+    case preview
+    case texture
+    case normalMap
+    case roughnessMap
+    case metalnessMap
+    case ambientOcclusionMap
+    case skeleton
+    case animation
+    case material
+    case palette
+    case mask
+    case auxiliary
+
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = AssetFileRole(rawValue: raw) ?? .auxiliary
+    }
+}
+
+/// One embedded file belonging to a logical repository asset.
+public struct AssetFile: Identifiable, Codable, Sendable, Equatable {
+    public var id: UUID
+    public var name: String
+    public var role: AssetFileRole
+    public var mimeType: String
+    public var data: Data
+    public var width: Int
+    public var height: Int
+    public var tags: [String]
+
+    public init(
+        id: UUID = UUID(),
+        name: String = "",
+        role: AssetFileRole = .auxiliary,
+        mimeType: String = "application/octet-stream",
+        data: Data = Data(),
+        width: Int = 0,
+        height: Int = 0,
+        tags: [String] = []
+    ) {
+        self.id = id
+        self.name = name
+        self.role = role
+        self.mimeType = mimeType
+        self.data = data
+        self.width = width
+        self.height = height
+        self.tags = tags
+    }
+}
+
+/// Structured metadata attached to a logical repository asset.
+///
+/// `value` is intentionally stored as a string so callers can preserve JSON,
+/// plist text, source-manifest fragments, or concise scalar values without
+/// forcing every importer to share one schema. `mimeType` identifies how the
+/// value should be interpreted.
+public struct AssetMetadataEntry: Identifiable, Codable, Sendable, Equatable {
+    public var id: UUID
+    public var key: String
+    public var value: String
+    public var mimeType: String
+    public var tags: [String]
+
+    public init(
+        id: UUID = UUID(),
+        key: String = "",
+        value: String = "",
+        mimeType: String = "text/plain",
+        tags: [String] = []
+    ) {
+        self.id = id
+        self.key = key
+        self.value = value
+        self.mimeType = mimeType
+        self.tags = tags
+    }
+}
+
 /// A single stack asset with raw data and optional type-specific metadata.
 ///
 /// Tile set metadata (`tileWidth`, `tileHeight`, `tileColumns`,
@@ -264,6 +353,10 @@ public struct Asset: Identifiable, Codable, Sendable {
     public var tags: [String]
     public var slices: [AssetSlice]
     public var animationClips: [AnimationClip]
+    /// Related embedded media files that belong to this logical asset.
+    public var files: [AssetFile]
+    /// Structured metadata records attached to this logical asset.
+    public var metadata: [AssetMetadataEntry]
 
     // MARK: - Tile set metadata (kind == .tileSet)
 
@@ -325,6 +418,8 @@ public struct Asset: Identifiable, Codable, Sendable {
         tags: [String] = [],
         slices: [AssetSlice] = [],
         animationClips: [AnimationClip] = [],
+        files: [AssetFile] = [],
+        metadata: [AssetMetadataEntry] = [],
         tileWidth: Int = 0,
         tileHeight: Int = 0,
         tileColumns: Int = 0,
@@ -343,6 +438,8 @@ public struct Asset: Identifiable, Codable, Sendable {
         self.tags = tags
         self.slices = slices
         self.animationClips = animationClips
+        self.files = files
+        self.metadata = metadata
         self.tileWidth = tileWidth
         self.tileHeight = tileHeight
         self.tileColumns = tileColumns
@@ -356,6 +453,7 @@ public struct Asset: Identifiable, Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, name, kind, mimeType, data, width, height, tags, slices, animationClips
+        case files, metadata
         case tileWidth, tileHeight, tileColumns, tileRows
         case provenance
         // Phase 3 fields
@@ -374,6 +472,8 @@ public struct Asset: Identifiable, Codable, Sendable {
         tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
         slices = try container.decodeIfPresent([AssetSlice].self, forKey: .slices) ?? []
         animationClips = try container.decodeIfPresent([AnimationClip].self, forKey: .animationClips) ?? []
+        files = try container.decodeIfPresent([AssetFile].self, forKey: .files) ?? []
+        metadata = try container.decodeIfPresent([AssetMetadataEntry].self, forKey: .metadata) ?? []
         // Tile set metadata: decodeIfPresent so old documents load
         // clean. New assets without tile metadata default to zero,
         // which is the "not a tile set" sentinel checked everywhere.
@@ -401,12 +501,39 @@ public struct Asset: Identifiable, Codable, Sendable {
         // Security (M1): enforce a 50 MB cap on model3D assets at decode time.
         // A malicious .hype file could embed a very large model3D asset — this
         // cap prevents it from being fully deserialised into memory.
-        if kind == .model3D && data.count > 50 * 1024 * 1024 {
+        if kind == .model3D && totalEmbeddedByteCount > Self.maxModel3DEmbeddedBytes {
             throw DecodingError.dataCorrupted(.init(
                 codingPath: container.codingPath,
                 debugDescription: "model3D asset exceeds 50 MB cap"
             ))
         }
+    }
+
+    public static let maxModel3DEmbeddedBytes = 50 * 1024 * 1024
+
+    /// Total embedded byte count for the primary payload plus related files.
+    public var totalEmbeddedByteCount: Int {
+        data.count + files.reduce(0) { $0 + $1.data.count }
+    }
+
+    /// The primary payload as a file-like value. Useful for code that wants to
+    /// inspect compound and simple assets through the same shape.
+    public var primaryFile: AssetFile {
+        AssetFile(
+            id: id,
+            name: name,
+            role: .primary,
+            mimeType: mimeType,
+            data: data,
+            width: width,
+            height: height,
+            tags: tags
+        )
+    }
+
+    /// The primary payload followed by related embedded files.
+    public var allFiles: [AssetFile] {
+        [primaryFile] + files
     }
 
     /// True when this asset is a tileset with enough metadata to

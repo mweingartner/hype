@@ -1163,6 +1163,8 @@ public struct Asset: Identifiable, Codable, Sendable {
     public var tags: [String]
     public var slices: [AssetSlice]            // sprite sheet → frame rects
     public var animationClips: [AnimationClip] // frame indices → fps + loops
+    public var files: [AssetFile]              // related embedded media files
+    public var metadata: [AssetMetadataEntry]  // JSON/text/scalar metadata
     // Tile-set classification (kind == .tileSet)
     public var tileWidth, tileHeight, tileColumns, tileRows: Int
     // Origin / license tracking (set when the AI imports from web search)
@@ -1202,6 +1204,17 @@ the limit.
 the slicing tools record per-tile dimensions and grid extents, and
 `createTileMap` reads those directly so authors don't have to repeat the
 tile geometry on every reference.
+
+Compound assets use the same `Asset` value instead of creating an external
+sidecar model. `Asset.data` remains the primary renderable payload for existing
+simple assets, while `Asset.files` stores related embedded media with roles
+such as `texture`, `normalMap`, `skeleton`, `animation`, `palette`, `preview`,
+or `metadata`. `Asset.metadata` stores structured string payloads with MIME
+types, so importers can preserve JSON manifests, legacy resource summaries, or
+palette/style data without inventing a new schema for every source format.
+This lets the Asset Repository represent one logical item such as a model plus
+animations and textures, or a legacy palette plus metadata and multiple preview
+images.
 
 ### 4.2 AI Context Library
 
@@ -1286,9 +1299,11 @@ user re-selected.
 
 ### 4.5 Model3D assets in the repository
 
-`model3D` assets live alongside 2D sprites in the same repository. Their bytes
-(GLB, USDZ, FBX, etc.) are embedded directly in the `.hype` file, so stacks
-remain fully self-contained. There is no separate asset cache or sidecar file.
+`model3D` assets live alongside 2D sprites in the same repository. Their
+primary bytes (GLB, USDZ, FBX, etc.) are embedded directly in the `.hype` file,
+and related skeleton, animation, material, and texture files can be embedded in
+`Asset.files`, so stacks remain fully self-contained. There is no separate
+asset cache or sidecar file.
 
 **Grid rendering.** `AssetRepositoryView` renders `model3D` assets with a
 `cube.transparent` SF Symbol placeholder icon in indigo. A rendered preview

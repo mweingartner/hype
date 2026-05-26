@@ -501,28 +501,30 @@ struct MainContentView: View {
 
     @MainActor
     private func navigateToCardAsync(_ newCardId: UUID) async {
-        // Close old card and potentially old background
-        if let oldCardId = currentCardId {
-            let oldBgId = document.document.cards.first(where: { $0.id == oldCardId })?.backgroundId
-            await dispatchLifecycleAsync("closeCard", targetId: oldCardId, currentCardId: oldCardId)
+        let oldCardId = currentCardId
+        let oldBgId = oldCardId.flatMap { id in
+            document.document.cards.first(where: { $0.id == id })?.backgroundId
+        }
+        let newBgId = document.document.cards.first(where: { $0.id == newCardId })?.backgroundId
 
-            // Background change?
-            let newBgId = document.document.cards.first(where: { $0.id == newCardId })?.backgroundId
+        currentCardId = newCardId
+        selectedPartIds = []
+
+        // Close old card and potentially old background. The visible
+        // card changes before lifecycle dispatch so scripted navigation
+        // from a running handler (for example repeated `nextCard` with
+        // waits) is not blocked behind lifecycle messages queued on the
+        // same StackRuntime.
+        if let oldCardId {
+            await dispatchLifecycleAsync("closeCard", targetId: oldCardId, currentCardId: oldCardId)
             if oldBgId != newBgId, let bid = oldBgId {
                 await dispatchLifecycleAsync("closeBackground", targetId: bid, currentCardId: oldCardId)
             }
         }
 
-        currentCardId = newCardId
-        selectedPartIds = []
-
         // Open new background if changed, then open new card
-        if let oldCardId = document.document.sortedCards.first(where: { $0.id != newCardId })?.id {
-            let oldBgId = document.document.cards.first(where: { $0.id == oldCardId })?.backgroundId
-            let newBgId = document.document.cards.first(where: { $0.id == newCardId })?.backgroundId
-            if oldBgId != newBgId, let bid = newBgId {
-                await dispatchLifecycleAsync("openBackground", targetId: bid, currentCardId: newCardId)
-            }
+        if oldBgId != newBgId, let bid = newBgId {
+            await dispatchLifecycleAsync("openBackground", targetId: bid, currentCardId: newCardId)
         }
         await dispatchLifecycleAsync("openCard", targetId: newCardId, currentCardId: newCardId)
 
@@ -1126,21 +1128,29 @@ private struct NavigationHandlers: ViewModifier {
 
     @MainActor
     private func navigateToCardAsync(_ newCardId: UUID) async {
-        // Close old card and potentially old background
-        if let oldCardId = currentCardId {
-            let oldBgId = document.document.cards.first(where: { $0.id == oldCardId })?.backgroundId
-            await dispatchLifecycleAsync("closeCard", targetId: oldCardId, currentCardId: oldCardId)
+        let oldCardId = currentCardId
+        let oldBgId = oldCardId.flatMap { id in
+            document.document.cards.first(where: { $0.id == id })?.backgroundId
+        }
+        let newBgId = document.document.cards.first(where: { $0.id == newCardId })?.backgroundId
 
-            let newBgId = document.document.cards.first(where: { $0.id == newCardId })?.backgroundId
+        currentCardId = newCardId
+        selectedPartIds = []
+
+        // Close/open lifecycle dispatch can queue behind the script that
+        // requested navigation. Update the visible card first so `go next`
+        // and classic `nextCard` automate card changes while that script
+        // continues running in edit mode with the Browse tool selected.
+        if let oldCardId {
+            await dispatchLifecycleAsync("closeCard", targetId: oldCardId, currentCardId: oldCardId)
             if oldBgId != newBgId, let bid = oldBgId {
                 await dispatchLifecycleAsync("closeBackground", targetId: bid, currentCardId: oldCardId)
             }
         }
 
-        currentCardId = newCardId
-        selectedPartIds = []
-
-        // Open new card (and new background if changed)
+        if oldBgId != newBgId, let bid = newBgId {
+            await dispatchLifecycleAsync("openBackground", targetId: bid, currentCardId: newCardId)
+        }
         await dispatchLifecycleAsync("openCard", targetId: newCardId, currentCardId: newCardId)
 
         // Resolve constraints for the new card
