@@ -323,7 +323,7 @@ carry OpenAI keys, Ollama hosts, or local model endpoints by default.
 ### Tool-calling architecture
 
 The model never types HypeTalk into your document directly. Every
-change goes through a structured tool-call interface with **130+
+change goes through a structured tool-call interface with **135+
 defined tools** (`Sources/HypeCore/AI/HypeTools.swift`,
 `HypeToolExecutor.swift`):
 
@@ -332,6 +332,7 @@ create_card / create_button / create_field / create_image / create_video / creat
 add_sprite_to_scene / add_label_to_scene / add_emitter_to_scene / …
 set_part_property / set_card_property / set_background_script / set_stack_script / set_scene_script
 get_card_parts / get_part_property / list_scene_nodes / …
+get_hig_layout_guide / apply_hig_layout / validate_hig_layout / pin_part_to_safe_area / …
 list_hypetalk_skills / plan_hypetalk_script / review_hypetalk_script / …
 check_script / list_all_properties / capture_card_image / …
 generate_3d_model_from_text / generate_3d_model_from_image / generate_3d_model_from_images
@@ -360,6 +361,13 @@ Every script-storage tool routes the draft through:
 5. **`ScriptAutoFixer`** — surgical pre-flight repairs (bare `end` →
    `end <handlerName>`, `elseif` → `else if`) so trivially mechanical
    mistakes don't burn a retry.
+
+For layout work, the assistant should not freehand dozens of coordinate
+updates. It can call `get_hig_layout_guide` for profile-specific Apple
+HIG-informed metrics, `apply_hig_layout` for deterministic arrangements,
+`pin_part_to_safe_area` / `add_part_layout_constraint` for durable responsive
+relationships, and `validate_hig_layout` to check every selected target
+profile for safe-area, hit-size, text-size, spacing, and availability issues.
 
 ### Recommended models
 

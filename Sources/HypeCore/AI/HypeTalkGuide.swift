@@ -1142,7 +1142,7 @@ public enum HypeTalkGuide {
         - Use `global <name>` before reading or writing a shared variable inside a handler, or use a top-level `global name1, name2` prelude before all handlers. Globals persist across idle ticks and handler calls for the life of the stack session, so `on idle / global counter / add 1 to counter / end idle` actually increments `counter` over time.
         - Be explicit about async intent. Use `await ...` for one-shot async results you need immediately. Use `with message "handlerName"` for long-lived jobs, listeners, and streaming/network callbacks.
         - Treat sprite-area, scene, or sprite-node requests as SpriteKit scene authoring first, not generic part scripting.
-        - Target compatibility: use list_target_profiles/get_part_target_availability/preview_layout_profile/plan_stack_deployment; fix deployable=false; layoutPolicy fixed/scaleToFit/stretchToFill.
+        - Target layouts: use get_hig_layout_guide/apply_hig_layout/validate_hig_layout/pin_part_to_safe_area; fix unsafe hit sizes, spacing, safe areas; layoutPolicy fixed/scaleToFit/stretchToFill.
         - For SpriteKit motion/collisions, prefer native physics bodies, restitution, velocity, and actions. Do not simulate with `idle` / `frameUpdate` unless asked.
         - For SpriteKit input, use `keyDown`, `keyUp`, `beginContact`, or `endContact` instead of manually updating loc every frame.
         - `me` refers to the script-owning part: `the loc of me`, `set the rotation of me to 45`. Shapes support a `rotation` property (degrees clockwise).

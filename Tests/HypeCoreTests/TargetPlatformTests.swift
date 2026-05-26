@@ -220,6 +220,12 @@ struct TargetPlatformTests {
         let toolNames = Set(HypeToolDefinitions.cardControlAuthoringTools.map(\.function.name))
         #expect(toolNames.contains("list_target_profiles"))
         #expect(toolNames.contains("get_part_target_availability"))
+        #expect(toolNames.contains("get_hig_layout_guide"))
+        #expect(toolNames.contains("validate_hig_layout"))
+        #expect(toolNames.contains("apply_hig_layout"))
+        #expect(toolNames.contains("pin_part_to_safe_area"))
+        #expect(toolNames.contains("add_part_layout_constraint"))
+        #expect(toolNames.contains("list_part_layout_constraints"))
 
         var document = HypeDocument.newDocument(name: "AI Targets")
         document.stack.deploymentTargets = StackDeploymentTargets(
@@ -318,5 +324,117 @@ struct TargetPlatformTests {
             currentCardId: cardId
         )
         #expect(runtimePolicy == "appleFoundationModels")
+    }
+
+    @Test("HIG layout metrics encode platform minimums and source attribution")
+    func higLayoutMetricsEncodePlatformRules() {
+        let phone = HIGLayoutCatalog.metrics(for: HypeDeviceProfileCatalog.defaultProfile(for: .iPhone))
+        let tv = HIGLayoutCatalog.metrics(for: HypeDeviceProfileCatalog.defaultProfile(for: .tvOS))
+        let guide = HIGLayoutCatalog.guide(profile: HypeDeviceProfileCatalog.defaultProfile(for: .iPhone))
+
+        #expect(phone.minimumHitWidth == 44)
+        #expect(phone.minimumHitHeight == 44)
+        #expect(tv.minimumHitWidth == 66)
+        #expect(tv.prefersFocusSafeSpacing)
+        #expect(guide.contains("safeArea"))
+        #expect(guide.contains("developer.apple.com/design/human-interface-guidelines/layout"))
+    }
+
+    @Test("HIG layout validation reports unsafe small controls")
+    func higLayoutValidationReportsSmallUnsafeControls() async {
+        var document = HypeDocument.newDocument(name: "Unsafe")
+        document.stack.deploymentTargets = StackDeploymentTargets(
+            selectedPlatforms: [.iPhone],
+            primaryPlatform: .iPhone,
+            selectionPromptAcknowledged: true,
+            layoutPolicy: .fixed
+        )
+        document.addPart(Part(partType: .button, cardId: document.cards[0].id, name: "Tiny", left: -10, top: 4, width: 20, height: 20))
+        let executor = HypeToolExecutor()
+
+        let report = await executor.execute(
+            toolName: "validate_hig_layout",
+            arguments: ["profile_ids": "iphone-portrait"],
+            document: &document,
+            currentCardId: document.cards[0].id
+        )
+
+        #expect(report.hasPrefix("FAIL:"))
+        #expect(report.contains("outside safe content"))
+        #expect(report.contains("interactive hit area"))
+    }
+
+    @Test("AI HIG layout tools arrange, constrain, and validate multi-target controls")
+    func aiHIGLayoutToolsArrangeConstrainAndValidate() async throws {
+        var document = HypeDocument.newDocument(name: "Responsive")
+        document.stack.deploymentTargets = StackDeploymentTargets(
+            selectedPlatforms: [.macOS, .iPhone, .iPad],
+            primaryPlatform: .macOS,
+            selectionPromptAcknowledged: true,
+            layoutPolicy: .fixed
+        )
+        let cardId = document.cards[0].id
+        var name = Part(partType: .field, cardId: cardId, name: "Name", left: 5, top: 5, width: 80, height: 18)
+        name.textSize = 12
+        let submit = Part(partType: .button, cardId: cardId, name: "Submit", left: 100, top: 5, width: 80, height: 20)
+        document.addPart(name)
+        document.addPart(submit)
+        let executor = HypeToolExecutor()
+
+        let guide = await executor.execute(
+            toolName: "get_hig_layout_guide",
+            arguments: ["profile_id": "iphone-portrait"],
+            document: &document,
+            currentCardId: cardId
+        )
+        #expect(guide.contains("Minimum interactive hit target"))
+
+        let applied = await executor.execute(
+            toolName: "apply_hig_layout",
+            arguments: [
+                "layout_type": "vertical_stack",
+                "part_names": "Name, Submit",
+                "profile_id": "iphone-portrait",
+                "fill_width": "true",
+            ],
+            document: &document,
+            currentCardId: cardId
+        )
+
+        #expect(applied.contains("Applied HIG vertical_stack layout"))
+        #expect(document.stack.deploymentTargets.layoutPolicy == .scaleToFit)
+        let namePart = try #require(document.parts.first { $0.name == "Name" })
+        let submitPart = try #require(document.parts.first { $0.name == "Submit" })
+        #expect(namePart.height > 44)
+        #expect(submitPart.height > 44)
+        #expect(namePart.textSize >= 17)
+        #expect(document.constraints.count >= 6)
+
+        let constraints = await executor.execute(
+            toolName: "list_part_layout_constraints",
+            arguments: ["part_names": "Name, Submit"],
+            document: &document,
+            currentCardId: cardId
+        )
+        #expect(constraints.contains("Name.left"))
+        #expect(constraints.contains("Submit.top"))
+
+        let pin = await executor.execute(
+            toolName: "pin_part_to_safe_area",
+            arguments: ["part_name": "Submit", "edges": "bottom", "margin": "20"],
+            document: &document,
+            currentCardId: cardId
+        )
+        #expect(pin.contains("Pinned part \"Submit\""))
+
+        let report = await executor.execute(
+            toolName: "validate_hig_layout",
+            arguments: [:],
+            document: &document,
+            currentCardId: cardId
+        )
+        #expect(report.hasPrefix("OK:") || report.hasPrefix("WARN:"))
+        #expect(!report.contains("interactive hit area"))
+        #expect(!report.contains("outside safe content"))
     }
 }

@@ -2454,6 +2454,66 @@ public struct HypeToolExecutor: Sendable {
             }
             return lines.joined(separator: "\n")
 
+        case "get_hig_layout_guide":
+            let profileId = arguments["profile_id"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let profile = profileId.flatMap { $0.isEmpty ? nil : HypeDeviceProfileCatalog.profile(id: $0) }
+                ?? document.stack.deploymentTargets.primaryProfile
+            return HIGLayoutCatalog.guide(profile: profile)
+
+        case "validate_hig_layout":
+            let profileIds = HIGLayoutCatalog.resolvedPartNames(arguments["profile_ids"] ?? "")
+            return HIGLayoutCatalog.validate(
+                document: document,
+                currentCardId: currentCardId,
+                profileIds: profileIds,
+                includeAllSelected: boolArgument(arguments["include_all_selected"]) ?? true,
+                allowFullBleed: boolArgument(arguments["allow_full_bleed"]) ?? false
+            )
+
+        case "apply_hig_layout":
+            return HIGLayoutCatalog.applyLayout(
+                document: &document,
+                currentCardId: currentCardId,
+                layoutType: arguments["layout_type"] ?? "",
+                partNames: HIGLayoutCatalog.resolvedPartNames(arguments["part_names"] ?? ""),
+                profileId: arguments["profile_id"],
+                columns: arguments["columns"].flatMap { Int(Double($0) ?? -1) }.flatMap { $0 > 0 ? $0 : nil },
+                spacing: arguments["spacing"].flatMap(Double.init),
+                margin: arguments["margin"].flatMap(Double.init),
+                fillWidth: boolArgument(arguments["fill_width"]) ?? true,
+                replaceConstraints: boolArgument(arguments["replace_constraints"]) ?? true,
+                layoutPolicy: arguments["layout_policy"]
+            )
+
+        case "pin_part_to_safe_area":
+            return HIGLayoutCatalog.pinPartToSafeArea(
+                document: &document,
+                currentCardId: currentCardId,
+                partName: arguments["part_name"] ?? "",
+                edges: HIGLayoutCatalog.resolvedPartNames(arguments["edges"] ?? ""),
+                margin: arguments["margin"].flatMap(Double.init),
+                replaceExisting: boolArgument(arguments["replace_existing"]) ?? true
+            )
+
+        case "add_part_layout_constraint":
+            return HIGLayoutCatalog.addConstraint(
+                document: &document,
+                currentCardId: currentCardId,
+                sourcePartName: arguments["source_part_name"] ?? "",
+                sourceEdge: arguments["source_edge"] ?? "",
+                targetPartName: arguments["target_part_name"],
+                targetEdge: arguments["target_edge"] ?? "",
+                distance: arguments["distance"].flatMap(Double.init) ?? 0,
+                replaceExisting: boolArgument(arguments["replace_existing"]) ?? true
+            )
+
+        case "list_part_layout_constraints":
+            return HIGLayoutCatalog.listConstraints(
+                document: document,
+                currentCardId: currentCardId,
+                partNames: HIGLayoutCatalog.resolvedPartNames(arguments["part_names"] ?? "")
+            )
+
         case "plan_stack_deployment":
             let planner = StackDeploymentPlanner()
             let plans = planner.plans(for: document)

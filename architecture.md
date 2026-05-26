@@ -2248,6 +2248,7 @@ schema struct. The categories:
 | Part creation             | `create_button`, `create_field`, `create_label`, `create_shape`, `create_webpage`, `create_video`, `create_chart`, `create_image`, `generate_image`, `create_calendar`, `create_pdf`, `create_map`, `create_color_well`, `create_stepper`, `create_slider`, `create_segmented`, `create_progressview`, `create_gauge`, `create_divider`, `create_audio_recorder`, `create_music_player`, `create_piano_keyboard`, `create_step_sequencer`, `create_music_mixer`, `create_apple_music_browser`, `create_scene3d` |
 | Part modification         | `set_part_property` (canonical write surface, accepts ~250 property names + aliases incl. `helpText`, `fontColor`, `textStyle`, `rotation`, `imageFilter`), `delete_part`, `repair_form_controls` |
 | Part introspection        | `get_part_property`, `list_all_properties` (full property dump w/ defaults), `get_card_parts`, `get_background_parts`, `capture_card_image` |
+| Target-aware layout       | `list_target_profiles`, `get_hig_layout_guide`, `apply_hig_layout`, `validate_hig_layout`, `pin_part_to_safe_area`, `add_part_layout_constraint`, `list_part_layout_constraints`, `preview_layout_profile` |
 | Themes                    | `list_themes`, `get_theme`, `create_or_update_theme`, `delete_theme`, `apply_theme` |
 | Charts                    | `set_chart_data_point_color`, `get_chart_data_points` |
 | Maps                      | `add_map_annotation`, `clear_map_annotations` |
@@ -2385,6 +2386,14 @@ A few cross-cutting helpers harden the loop:
   Jeanne A. E. DeVoto's Jaedworks HyperTalk scripting chapter, but each guide is
   rewritten as Hype-specific compatibility guidance and returned only when the
   model calls the relevant tool.
+- **`HIGLayoutCatalog`** (`Sources/HypeCore/Layout/HIGLayoutCatalog.swift`)
+  keeps target-aware layout guidance deterministic and tool-callable. It stores
+  Hype-native Apple HIG-informed metrics for macOS, iPhone, iPad, and tvOS
+  profiles; returns compact source-attributed guidance; applies vertical,
+  horizontal, grid, form, toolbar, and full-bleed arrangements; writes durable
+  `LayoutConstraint` relationships to safe-area canvas edges; and validates all
+  selected target profiles for safe-area containment, target availability,
+  minimum hit sizes, text size, and interactive-control spacing.
 - **`HypeAIResponseRepair`** (`Sources/HypeCore/AI/HypeAIResponseRepair.swift`)
   cleans up common malformations in the model's tool-call arguments —
   string-vs-number coercions, accidental Markdown fencing, comma-separated

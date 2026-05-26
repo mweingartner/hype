@@ -117,7 +117,7 @@ public struct HypeTalkSkillCatalog: Sendable {
             summary: "Read and set stack/card/background/control properties with Hype tools before writing layout scripts.",
             triggers: ["layout", "position", "property", "resize", "align", "target platform"],
             supportedScopes: ["stack", "card", "background", "part"],
-            relatedTools: ["get_card_parts", "list_all_properties", "preview_layout_profile", "set_part_property"]
+            relatedTools: ["get_card_parts", "get_hig_layout_guide", "apply_hig_layout", "validate_hig_layout", "pin_part_to_safe_area", "list_all_properties"]
         ),
         HypeTalkSkillDescriptor(
             id: .spriteSceneScripting,
@@ -474,8 +474,8 @@ public struct HypeTalkSkillCatalog: Sendable {
             ]
         case .layoutScripting:
             return [
-                "Use tools for geometry/property reads and writes when possible; scripts should handle runtime behavior.",
-                "Call preview_layout_profile before target-sensitive positioning or sizing decisions.",
+                "Use HIG layout tools for geometry, safe-area, target-profile, and constraint work; scripts should handle runtime behavior.",
+                "Call get_hig_layout_guide, apply_hig_layout, preview_layout_profile, and validate_hig_layout before claiming a multi-target layout is complete.",
             ]
         case .spriteSceneScripting:
             return [

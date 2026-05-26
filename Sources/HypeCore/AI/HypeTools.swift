@@ -967,6 +967,63 @@ public struct HypeToolDefinitions {
             """, params: [
             "profile_id": ("string", "Optional profile id such as macos-default, iphone-portrait, ipad-landscape, or tvos-1080p. Defaults to the primary target profile.", false),
         ]),
+        makeTool(name: "get_hig_layout_guide", description: """
+            Return compact Apple HIG-informed layout metrics and rules for a target profile. \
+            Use before creating or rearranging multi-target card/control layouts. Includes safe-area, \
+            minimum hit-size, text-size, spacing, full-bleed game/media, and source-reference guidance.
+            """, params: [
+            "profile_id": ("string", "Optional profile id such as macos-default, iphone-portrait, ipad-landscape, or tvos-1080p. Defaults to the primary target profile.", false),
+        ]),
+        makeTool(name: "validate_hig_layout", description: """
+            Validate the current card/background layout against Apple HIG-informed rules for selected target profiles. \
+            Checks target availability, safe-area containment, minimum interactive hit sizes, text size, and control spacing. \
+            Call this before telling the user a multi-target layout is complete.
+            """, params: [
+            "profile_ids": ("string", "Optional comma-separated profile ids. Omit to validate all selected target profiles.", false),
+            "include_all_selected": ("string", "true to validate every selected target profile when profile_ids is omitted. Defaults to true.", false),
+            "allow_full_bleed": ("string", "true when intentional full-bleed SpriteKit/game/media parts may extend to screen edges. Defaults to false.", false),
+        ]),
+        makeTool(name: "apply_hig_layout", description: """
+            Deterministically arrange current-card/background parts into a HIG-aware layout and add safe-area constraints. \
+            Prefer this over hand-calculating coordinates through many set_part_property calls. For multi-target stacks, \
+            this defaults layoutPolicy to scaleToFit unless layout_policy is supplied. Use validate_hig_layout afterwards.
+            """, params: [
+            "layout_type": ("string", "vertical_stack, horizontal_row, grid, form, toolbar, or full_bleed.", true),
+            "part_names": ("string", "Optional comma-separated part names. Omit to arrange all effective parts on the current card/background.", false),
+            "profile_id": ("string", "Optional profile id used for HIG metrics and safe-area margins. Defaults to primary target profile.", false),
+            "columns": ("string", "Optional integer column count for grid layouts.", false),
+            "spacing": ("string", "Optional spacing in points. Defaults to HIG metric for the profile.", false),
+            "margin": ("string", "Optional edge margin in points. Defaults to HIG metric for the profile.", false),
+            "fill_width": ("string", "true to stretch eligible controls across safe content width. Defaults to true.", false),
+            "replace_constraints": ("string", "true to replace existing constraints for arranged parts. Defaults to true.", false),
+            "layout_policy": ("string", "Optional stack layout policy to set: fixed, scaleToFit, or stretchToFill.", false),
+        ]),
+        makeTool(name: "pin_part_to_safe_area", description: """
+            Add durable layout constraints from a part to the target safe-area canvas edges. \
+            Use for controls that must stay pinned to top/leading/trailing/bottom/center across target profiles.
+            """, params: [
+            "part_name": ("string", "Part name on the current card/background.", true),
+            "edges": ("string", "Comma-separated edges: left, right, top, bottom, centerX, centerY. Defaults to left,top.", false),
+            "margin": ("string", "Optional margin in points. Defaults to the HIG edge margin for the primary target.", false),
+            "replace_existing": ("string", "true to replace existing safe-area constraints for the requested edges. Defaults to true.", false),
+        ]),
+        makeTool(name: "add_part_layout_constraint", description: """
+            Add a durable layout constraint between a part edge and another part edge or the safe-area canvas. \
+            Use for explicit responsive relationships that should survive card resize and target emulation.
+            """, params: [
+            "source_part_name": ("string", "Part to constrain.", true),
+            "source_edge": ("string", "left, right, top, bottom, centerX, or centerY.", true),
+            "target_part_name": ("string", "Optional target part. Omit, blank, canvas, or safe area for safe-area canvas.", false),
+            "target_edge": ("string", "left, right, top, bottom, centerX, or centerY.", true),
+            "distance": ("string", "Distance in points. Use negative values for right/bottom insets.", false),
+            "replace_existing": ("string", "true to replace an equivalent existing constraint. Defaults to true.", false),
+        ]),
+        makeTool(name: "list_part_layout_constraints", description: """
+            List durable layout constraints for current-card/background parts. Use before changing constraints \
+            so AI edits are idempotent and do not duplicate stale layout relationships.
+            """, params: [
+            "part_names": ("string", "Optional comma-separated part names. Omit to list constraints for all effective current-card/background parts.", false),
+        ]),
         makeTool(name: "plan_stack_deployment", description: """
             List the runtime-only deployment plans for the stack's selected target platforms, including runtime AI policy, profile, app intents, and shell kind. \
             This is a planning/read-only tool; it does not write files.
@@ -1855,6 +1912,12 @@ public struct HypeToolDefinitions {
             "list_target_profiles",
             "get_part_target_availability",
             "preview_layout_profile",
+            "get_hig_layout_guide",
+            "validate_hig_layout",
+            "apply_hig_layout",
+            "pin_part_to_safe_area",
+            "add_part_layout_constraint",
+            "list_part_layout_constraints",
             "plan_stack_deployment",
             // Basic part creation and mutation
             "create_button",
@@ -2093,6 +2156,16 @@ public struct HypeToolDefinitions {
             "set_card_property",
             "get_background_property",
             "set_background_property",
+            "list_target_profiles",
+            "get_part_target_availability",
+            "preview_layout_profile",
+            "get_hig_layout_guide",
+            "validate_hig_layout",
+            "apply_hig_layout",
+            "pin_part_to_safe_area",
+            "add_part_layout_constraint",
+            "list_part_layout_constraints",
+            "plan_stack_deployment",
             // Theme catalog
             "list_themes",
             "create_theme",

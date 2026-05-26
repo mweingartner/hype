@@ -359,6 +359,18 @@ guidance for message hierarchy, handler placement, reusable custom handlers,
 `me`/`target`/`it`, layout scripting, SpriteKit scene scripts, debugging, and
 readability without bloating the always-on prompt.
 
+### Target-Aware Layout Tools
+
+For card/background layouts, use tools rather than hand-calculating many
+coordinates. Call `list_target_profiles`, `get_hig_layout_guide`,
+`apply_hig_layout`, `pin_part_to_safe_area`, `add_part_layout_constraint`,
+`list_part_layout_constraints`, `preview_layout_profile`, and
+`validate_hig_layout`. These tools use Hype's selected target platforms,
+safe-area profiles, explicit `LayoutConstraint` model, and Apple HIG-informed
+minimum hit-size/spacing/text-size checks. Validate all selected targets before
+claiming a layout is complete. Use full-bleed only for intentional game/media
+regions such as SpriteKit scenes, video, image, map, webpage, or Scene3D parts.
+
 ### Emitter Properties
 ```
 set the birthRate of emitter "fire" to 200
