@@ -2257,6 +2257,7 @@ schema struct. The categories:
 | Asset repository          | `list_repository_assets`, `import_repository_asset`, `generate_sprite_asset`, `create_basic_tileset_asset`, `web_asset_search`, `web_asset_import` |
 | AI Context Library        | `list_ai_context`, `search_ai_context`, `read_ai_context_item`, `import_context_asset`, `write_ai_context_note` |
 | 3D model generation (Meshy) | `generate_3d_model_from_text`, `generate_3d_model_from_image`, `generate_3d_model_from_images`, `list_3d_models`, `remesh_3d_model`, `retexture_3d_model` |
+| HypeTalk scripting skills | `list_hypetalk_skills`, `get_hypetalk_skill_guide`, `plan_hypetalk_script`, `inspect_message_path`, `suggest_handler_location`, `get_hypetalk_pattern`, `review_hypetalk_script` |
 | Script gating             | `check_script` (REQUIRED before storing any HypeTalk; runs the validator) |
 
 The surface is **dual mode**: it has both read tools (for the model to
@@ -2376,6 +2377,14 @@ A few cross-cutting helpers harden the loop:
   draft, it returns a `__HYPE_INTERNAL_DRAFT_REFUSED_v1:` sentinel and the
   model is asked to fix and retry. This is what closes the loop on
   silently-broken scripts.
+- **`HypeTalkSkillCatalog`** (`Sources/HypeCore/AI/HypeTalkSkillCatalog.swift`)
+  keeps the HyperTalk/HypeTalk scripting craft guidance out of the always-on
+  prompt. It exposes compact discovery, source-attributed focused guides,
+  parser-tested pattern snippets, message-path inspection, handler-location
+  planning, and pre-storage script review. The catalog is partly informed by
+  Jeanne A. E. DeVoto's Jaedworks HyperTalk scripting chapter, but each guide is
+  rewritten as Hype-specific compatibility guidance and returned only when the
+  model calls the relevant tool.
 - **`HypeAIResponseRepair`** (`Sources/HypeCore/AI/HypeAIResponseRepair.swift`)
   cleans up common malformations in the model's tool-call arguments —
   string-vs-number coercions, accidental Markdown fencing, comma-separated

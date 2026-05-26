@@ -348,6 +348,17 @@ Runtime AI settings are stack properties: `runtimeAIProviderPolicy`
 `runtimeAIAllowedTools`, and `runtimeAIPersistTranscript`. Keep deployed-runtime
 AI tools narrow; side-effect tools require explicit allowlisting.
 
+### HypeTalk Skill Tools
+
+Do not carry large HyperTalk references in the prompt. For nontrivial script
+creation or repair, use `list_hypetalk_skills`, `get_hypetalk_skill_guide`,
+`plan_hypetalk_script`, `inspect_message_path`, `suggest_handler_location`,
+`get_hypetalk_pattern`, and `review_hypetalk_script`. Then run `check_script`
+before storing the script. These tools provide source-attributed, Hype-specific
+guidance for message hierarchy, handler placement, reusable custom handlers,
+`me`/`target`/`it`, layout scripting, SpriteKit scene scripts, debugging, and
+readability without bloating the always-on prompt.
+
 ### Emitter Properties
 ```
 set the birthRate of emitter "fire" to 200

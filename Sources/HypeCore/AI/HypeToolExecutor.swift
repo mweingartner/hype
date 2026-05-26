@@ -2268,6 +2268,57 @@ public struct HypeToolExecutor: Sendable {
             let rawScript = arguments["script"] ?? ""
             return checkScriptResponse(rawScript)
 
+        case "list_hypetalk_skills":
+            return HypeTalkSkillCatalog.compactSkillList(query: arguments["query"])
+
+        case "get_hypetalk_skill_guide":
+            return HypeTalkSkillCatalog.guide(
+                for: arguments["skill_id"] ?? "",
+                detailLevel: arguments["detail_level"] ?? "summary",
+                intent: arguments["intent"] ?? ""
+            )
+
+        case "plan_hypetalk_script":
+            return HypeTalkSkillCatalog.planningGuide(
+                intent: arguments["intent"] ?? "",
+                targetScope: arguments["target_scope"] ?? "part",
+                targetName: arguments["target_name"] ?? "",
+                eventName: arguments["event_name"] ?? ""
+            )
+
+        case "inspect_message_path":
+            return messagePathResponse(
+                targetName: arguments["target_name"] ?? "",
+                targetScope: arguments["target_scope"] ?? "",
+                document: document,
+                currentCardId: currentCardId
+            )
+
+        case "suggest_handler_location":
+            return HypeTalkSkillCatalog.handlerLocationGuide(
+                intent: arguments["intent"] ?? "",
+                currentScope: arguments["current_scope"] ?? "",
+                targetName: arguments["target_name"] ?? ""
+            )
+
+        case "get_hypetalk_pattern":
+            return HypeTalkSkillCatalog.patternGuide(
+                patternID: arguments["pattern_id"],
+                skillID: arguments["skill_id"]
+            )
+
+        case "review_hypetalk_script":
+            let script = arguments["script"] ?? ""
+            let check = checkScriptResponse(script)
+            return HypeTalkSkillCatalog.review(
+                script: script,
+                intent: arguments["intent"] ?? "",
+                targetScope: arguments["target_scope"] ?? "",
+                eventName: arguments["event_name"] ?? "",
+                checkScriptResponse: check,
+                passExpected: boolArgument(arguments["pass_expected"]) ?? false
+            )
+
         case "set_chart_data_point_color":
             // Structured setter for per-data-point colors on a chart.
             // Complements the HypeTalk `set the color of data point N of
@@ -5857,6 +5908,58 @@ public struct HypeToolExecutor: Sendable {
     // MARK: - STL Model Path Resolver
 
     /// Resolve a raw 3D model path to a SceneKit-loadable URL string.
+    private func messagePathResponse(
+        targetName: String,
+        targetScope: String,
+        document: HypeDocument,
+        currentCardId: UUID
+    ) -> String {
+        let currentCard = document.cards.first(where: { $0.id == currentCardId })
+        let currentBackground = currentCard.flatMap { card in
+            document.backgrounds.first(where: { $0.id == card.backgroundId })
+        }
+        let trimmedName = targetName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedScope = targetScope.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        if normalizedScope == "stack" {
+            return "Message path for stack \"\(document.stack.name)\": stack -> app. Custom handlers stored on the stack can be reached with send \"handlerName\" to this stack."
+        }
+        if normalizedScope == "background" || normalizedScope == "bg" {
+            let backgroundName = trimmedName.isEmpty ? (currentBackground?.name ?? "current background") : trimmedName
+            return "Message path for background \"\(backgroundName)\": background -> stack -> app. Use pass <message> when stack-level behavior should continue."
+        }
+        if normalizedScope == "card" || trimmedName.isEmpty {
+            let cardName = trimmedName.isEmpty ? (currentCard?.name ?? "current card") : trimmedName
+            let backgroundName = currentBackground?.name ?? "background"
+            return "Message path for card \"\(cardName)\": card -> background \"\(backgroundName)\" -> stack \"\(document.stack.name)\" -> app. Use pass <message> for shared background/stack behavior."
+        }
+        if let partIndex = scopedPartIndex(named: trimmedName, currentCardId: currentCardId, in: document) {
+            let part = document.parts[partIndex]
+            let scopeDescription: String
+            let path: String
+            if part.cardId != nil {
+                let cardName = currentCard?.name ?? "card"
+                let backgroundName = currentBackground?.name ?? "background"
+                scopeDescription = "card part"
+                path = "part \"\(part.name)\" -> card \"\(cardName)\" -> background \"\(backgroundName)\" -> stack \"\(document.stack.name)\" -> app"
+            } else if part.backgroundId != nil {
+                let backgroundName = currentBackground?.name ?? "background"
+                scopeDescription = "background part"
+                path = "part \"\(part.name)\" -> background \"\(backgroundName)\" -> stack \"\(document.stack.name)\" -> app"
+            } else {
+                scopeDescription = "stack part"
+                path = "part \"\(part.name)\" -> stack \"\(document.stack.name)\" -> app"
+            }
+            return [
+                "Message path for \(scopeDescription) \(part.partType.rawValue) \"\(part.name)\":",
+                path,
+                "`me` is this part while its own handler runs. `the target` is the object that first received the event. Include pass <message> if higher-level handlers should also run.",
+            ].joined(separator: "\n")
+        }
+
+        return "Target '\(trimmedName)' not found on the current card/background. Use get_card_parts or get_background_parts before choosing a handler location."
+    }
+
     ///
     /// For non-STL files the `raw` path is returned unchanged.
     /// For `.stl` files `STLConverter.convert` is called, writing (or

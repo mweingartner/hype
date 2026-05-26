@@ -1146,7 +1146,7 @@ public enum HypeTalkGuide {
         - For SpriteKit motion/collisions, prefer native physics bodies, restitution, velocity, and actions. Do not simulate with `idle` / `frameUpdate` unless asked.
         - For SpriteKit input, use `keyDown`, `keyUp`, `beginContact`, or `endContact` instead of manually updating loc every frame.
         - `me` refers to the script-owning part: `the loc of me`, `set the rotation of me to 45`. Shapes support a `rotation` property (degrees clockwise).
-        - Prefer the commands listed above. Do not invent new verbs or SpriteKit method calls — if something is not shown here, it is probably not supported.
+        - For scripts, call list_hypetalk_skills/plan_hypetalk_script, then check_script and review_hypetalk_script. Do not invent verbs.
         - When unsure about layout or rendering, call `capture_card_image`.
 
         ## MANDATORY: validate scripts with `check_script` before storing

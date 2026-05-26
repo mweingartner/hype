@@ -852,6 +852,73 @@ public struct HypeToolDefinitions {
             "script": ("string", "The HypeTalk script source to validate. Include the full handler block(s).", true),
         ]),
 
+        makeTool(name: "list_hypetalk_skills", description: """
+            Discover compact HypeTalk skill guides available through tools. Use this before writing \
+            or fixing nontrivial scripts instead of asking the prompt to carry a large HyperTalk \
+            reference. Returns skill_id values, trigger phrases, and related tools.
+            """, params: [
+            "query": ("string", "Optional words such as message path, shared handler, sprite, debug, layout, target, repeat, or form.", false),
+        ]),
+
+        makeTool(name: "get_hypetalk_skill_guide", description: """
+            Fetch focused HypeTalk scripting guidance for one skill_id. Use after list_hypetalk_skills \
+            and before drafting scripts. Guidance is Hype-specific, source-attributed, and compact; \
+            it does not mutate the stack.
+            """, params: [
+            "skill_id": ("string", "A skill id such as message_hierarchy, handler_placement, custom_handlers, target_me_it_result, loops_and_chunks, layout_scripting, sprite_scene_scripting, debugging_flow, or style_reuse_readability.", true),
+            "detail_level": ("string", "summary, patterns, checklist, or full. Defaults to summary.", false),
+            "intent": ("string", "Optional user intent so the guide can frame the advice.", false),
+        ]),
+
+        makeTool(name: "plan_hypetalk_script", description: """
+            Plan a HypeTalk script before writing it. Returns recommended handler scope/event, \
+            skill guides to consult, introspection tools to call, validation steps, and storage tool. \
+            Use this when a user asks for behavior, not simple property edits.
+            """, params: [
+            "intent": ("string", "The user's requested behavior or script goal.", true),
+            "target_scope": ("string", "part, card, background, stack, scene, or node. Defaults to part when unsure.", false),
+            "target_name": ("string", "Optional object/card/background/scene/node name.", false),
+            "event_name": ("string", "Optional handler/event name such as mouseUp, openCard, keyDown, sceneDidLoad.", false),
+        ]),
+
+        makeTool(name: "inspect_message_path", description: """
+            Show the HypeTalk message pass-up path for a target on the current card. Use before \
+            deciding where to attach a handler or whether to include pass <message>.
+            """, params: [
+            "target_name": ("string", "Optional part/card/background name. Defaults to the current card.", false),
+            "target_scope": ("string", "Optional scope hint: part, card, background, stack, scene, or node.", false),
+        ]),
+
+        makeTool(name: "suggest_handler_location", description: """
+            Decide whether a behavior should live on a part, card, background, stack, scene, or node. \
+            Use this before creating scripts that may be shared, reused, lifecycle-driven, or SpriteKit-specific.
+            """, params: [
+            "intent": ("string", "The behavior requested by the user.", true),
+            "current_scope": ("string", "Optional current target scope, if already known.", false),
+            "target_name": ("string", "Optional target object name.", false),
+        ]),
+
+        makeTool(name: "get_hypetalk_pattern", description: """
+            Return parser-tested HypeTalk pattern snippets or list available snippets for a skill. \
+            Use patterns as a starting point, then adapt them to actual object names and validate \
+            with check_script before storage.
+            """, params: [
+            "pattern_id": ("string", "Optional exact pattern id, e.g. button_delegates_to_stack, shared_stack_handler, pass_mouse_up, card_open_setup, form_validation_button, debug_trace.", false),
+            "skill_id": ("string", "Optional skill id used to list matching patterns when pattern_id is omitted.", false),
+        ]),
+
+        makeTool(name: "review_hypetalk_script", description: """
+            Review a HypeTalk draft after check_script passes and before storing it. Reports scope, \
+            pass-up, duplicate-handler, intent mismatch, and maintainability warnings. This does not \
+            mutate the stack and does not replace check_script.
+            """, params: [
+            "script": ("string", "Full HypeTalk script source to review.", true),
+            "intent": ("string", "Original user intent for the script.", false),
+            "target_scope": ("string", "part, card, background, stack, scene, or node.", false),
+            "event_name": ("string", "Expected primary handler/event name, if known.", false),
+            "pass_expected": ("string", "true if higher-level handlers should still receive the message.", false),
+        ]),
+
         makeTool(name: "set_chart_data_point_color", description: """
             Set the color of a single data point inside a chart's series at \
             runtime. Use this for structured updates to per-point colors \
@@ -1866,6 +1933,13 @@ public struct HypeToolDefinitions {
             "set_chart_data_point_color",
             "write_ai_context_note",
             "check_script",
+            "list_hypetalk_skills",
+            "get_hypetalk_skill_guide",
+            "plan_hypetalk_script",
+            "inspect_message_path",
+            "suggest_handler_location",
+            "get_hypetalk_pattern",
+            "review_hypetalk_script",
             // Narrow current-card remediation for prior bad form output
             "repair_form_controls",
             // Visual capture — available on all authoring surfaces
@@ -2035,6 +2109,13 @@ public struct HypeToolDefinitions {
             "generate_sprite_asset",
             "write_ai_context_note",
             "check_script",
+            "list_hypetalk_skills",
+            "get_hypetalk_skill_guide",
+            "plan_hypetalk_script",
+            "inspect_message_path",
+            "suggest_handler_location",
+            "get_hypetalk_pattern",
+            "review_hypetalk_script",
             // Visual capture — available on all authoring surfaces
             "capture_card_image",
         ])

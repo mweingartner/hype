@@ -323,7 +323,7 @@ carry OpenAI keys, Ollama hosts, or local model endpoints by default.
 ### Tool-calling architecture
 
 The model never types HypeTalk into your document directly. Every
-change goes through a structured tool-call interface with **125+
+change goes through a structured tool-call interface with **130+
 defined tools** (`Sources/HypeCore/AI/HypeTools.swift`,
 `HypeToolExecutor.swift`):
 
@@ -332,6 +332,7 @@ create_card / create_button / create_field / create_image / create_video / creat
 add_sprite_to_scene / add_label_to_scene / add_emitter_to_scene / …
 set_part_property / set_card_property / set_background_script / set_stack_script / set_scene_script
 get_card_parts / get_part_property / list_scene_nodes / …
+list_hypetalk_skills / plan_hypetalk_script / review_hypetalk_script / …
 check_script / list_all_properties / capture_card_image / …
 generate_3d_model_from_text / generate_3d_model_from_image / generate_3d_model_from_images
 list_3d_models / remesh_3d_model / retexture_3d_model
@@ -343,16 +344,20 @@ level regardless of which surface issues the call.
 
 Every script-storage tool routes the draft through:
 
-1. **`check_script`** — parser-level validation. The model is told
+1. **HypeTalk skill tools** — compact, source-attributed guides for message
+   hierarchy, handler placement, reusable custom handlers, layout scripting,
+   SpriteKit scene scripting, debugging, and script review. These are called on
+   demand so large HyperTalk references are not injected into every prompt.
+2. **`check_script`** — parser-level validation. The model is told
    (via `HypeTalkGuide.swift`) to call this first; it returns
    `OK:` / `FAIL: <reason>` with the offending line number.
-2. **`HypeTalkScriptValidator`** — secondary host gate that catches
+3. **`HypeTalkScriptValidator`** — secondary host gate that catches
    forbidden patterns (JS-flavored tokens like `function (`,
    `addEventListener`, `=>`, etc.) and runs reference-resolution.
-3. **`ScriptDraftCoordinator`** — retry loop. On host-side refusal,
+4. **`ScriptDraftCoordinator`** — retry loop. On host-side refusal,
    the storage tool returns a `__HYPE_INTERNAL_DRAFT_REFUSED_v1:`
    sentinel; the chat panel iterates with the model up to 5 times.
-4. **`ScriptAutoFixer`** — surgical pre-flight repairs (bare `end` →
+5. **`ScriptAutoFixer`** — surgical pre-flight repairs (bare `end` →
    `end <handlerName>`, `elseif` → `else if`) so trivially mechanical
    mistakes don't burn a retry.
 

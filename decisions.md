@@ -39,6 +39,7 @@ document semantics.
 - Keep AI authoring deterministic where tools exist. Prefer validated tools and templates over freehand raw script or node edits.
 - Keep model prompts concise and source-grounded. Large catalogs should be discoverable through tools rather than always injected into the system prompt.
 - Expand AI context through explicit, auditable tools rather than by adding large dynamic catalogs, private libraries, or broad project data directly to the prompt window.
+- External scripting references should be curated into source-attributed, Hype-specific tool guides and parser-tested patterns. Do not paste large raw reference material into every model prompt or treat classic HyperTalk behavior as implemented until Hype compatibility is verified.
 - Keep core deterministic creation offline. Optional OpenAI, Ollama, Meshy, web, or image-generation passes must not be required for baseline local template creation.
 - Treat provider integrations as user-controlled side effects. Respect existing preferences, keychain handling, hostname allowlists, and stack-level opt-in gates.
 - Keep deployed-runtime AI tools separate from authoring tools. Runtime AI may read runtime-safe stack/card/object context by default; any side-effect tool must be explicitly allowlisted by stack runtime AI settings.
