@@ -184,6 +184,26 @@ public enum MusicControlsRenderer {
                 .foregroundColor: NSColor.secondaryLabelColor,
             ]
         )
+        if !part.musicSourceID.isEmpty {
+            let title = part.musicSourceTitle.isEmpty ? part.musicSourceID : part.musicSourceTitle
+            let artist = part.musicSourceArtist.isEmpty ? "" : " - \(part.musicSourceArtist)"
+            ("Selected: \(title)\(artist)" as NSString).draw(
+                at: CGPoint(x: search.minX, y: field.maxY + 30),
+                withAttributes: [
+                    .font: NSFont.systemFont(ofSize: 10, weight: .regular),
+                    .foregroundColor: NSColor.labelColor,
+                ]
+            )
+            if part.musicDuration > 0 {
+                let progressWidth = max(24, search.width)
+                let progress = CGFloat(min(1, max(0, part.musicPosition / part.musicDuration)))
+                let bar = CGRect(x: search.minX, y: field.maxY + 48, width: progressWidth, height: 4)
+                ctx.setFillColor(NSColor.separatorColor.cgColor)
+                ctx.fill(bar)
+                ctx.setFillColor(NSColor.controlAccentColor.cgColor)
+                ctx.fill(CGRect(x: bar.minX, y: bar.minY, width: bar.width * progress, height: bar.height))
+            }
+        }
         NSGraphicsContext.restoreGraphicsState()
     }
 

@@ -188,7 +188,7 @@ enum ObjectToolCatalog {
         case .musicPlayer, .pianoKeyboard, .stepSequencer, .musicMixer:
             return "You can choose a stack-contained Hype music pattern, instrument, tempo, looping behavior, volume, attach scripts, and store generated audio inside the stack."
         case .appleMusicBrowser:
-            return "You can choose catalog or library search scope, enter search text, choose the music item type, store selected IDs in the stack, and attach scripts."
+            return "You can search Apple Music, choose songs, albums, singers, or playlists, play or stop playback, seek through a song, store selected IDs in the stack, and attach scripts."
         case .musicQueue:
             return "Legacy queue controls remain readable in older stacks. New stacks should use AudioKit controls for stack-contained music and MusicKit Search for Apple Music lookup."
         case .scene3D:

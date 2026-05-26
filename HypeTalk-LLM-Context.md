@@ -416,17 +416,19 @@ patterns only. Use the single MusicKit Search control for Apple Music catalog
 or library search criteria. Hype stores Apple Music IDs and metadata snapshots,
 not protected audio bytes. Use tools first: `get_apple_music_capabilities`,
 `authorize_apple_music`, `search_apple_music`, `set_apple_music_selection`,
-`play_apple_music`, `create_apple_music_browser`. Do not expand the base prompt
+`play_apple_music`, `seek_apple_music`, `create_apple_music_browser`. Do not expand the base prompt
 with Apple Music catalog/library context; query it through tools.
 
 ```hypertalk
 authorize appleMusic
 search appleMusic for "Miles Davis" type songs limit 10
 play appleMusic song "123456789"
+seek appleMusic to 42
 pause appleMusic
 resume appleMusic
 stop appleMusic
 set the musicSource of musicPlayer "Player" to "appleMusicCatalog:song:123456789"
+set the musicPosition of appleMusicBrowser "Search" to 42
 put the appleMusicAuthorization into field "status"
 ```
 

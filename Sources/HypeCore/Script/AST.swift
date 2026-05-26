@@ -181,6 +181,7 @@ public indirect enum Statement: Sendable {
     case authorizeAppleMusic
     case searchAppleMusic(term: Expression, scope: String, itemType: String?, limit: Expression?)
     case playAppleMusic(source: String, itemType: String, id: Expression)
+    case seekAppleMusic(position: Expression)
     case pauseAppleMusic
     case resumeAppleMusic
     case stopAppleMusic

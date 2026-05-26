@@ -775,11 +775,15 @@ public struct HypeToolExecutor: Sendable {
             if !p.musicPatternName.isEmpty { props.append("musicPattern=\(p.musicPatternName)") }
             if p.musicSourceKind != MusicSourceKind.hypePattern.rawValue {
                 props.append("musicSource=\([p.musicSourceKind, p.musicSourceType, p.musicSourceID].joined(separator: ":"))")
+                props.append("musicPosition=\(p.musicPosition)")
+                props.append("musicDuration=\(p.musicDuration)")
             }
-            props.append("instrument=\(p.musicInstrumentName)")
-            props.append("tempo=\(p.musicTempo)")
-            props.append("loop=\(p.musicLoop)")
-            props.append("volume=\(p.musicVolume)")
+            if p.partType != .appleMusicBrowser {
+                props.append("instrument=\(p.musicInstrumentName)")
+                props.append("tempo=\(p.musicTempo)")
+                props.append("loop=\(p.musicLoop)")
+                props.append("volume=\(p.musicVolume)")
+            }
         case .scene3D:
             if let ref = p.scene3DAssetRef {
                 props.append("model=\(ref.name)")
@@ -1598,7 +1602,8 @@ public struct HypeToolExecutor: Sendable {
                     titleSnapshot: arguments["title"] ?? id,
                     artistSnapshot: arguments["artist"] ?? "",
                     albumSnapshot: arguments["album"] ?? "",
-                    artworkURLSnapshot: arguments["artwork_url"] ?? ""
+                    artworkURLSnapshot: arguments["artwork_url"] ?? "",
+                    durationSnapshot: Double(arguments["duration"] ?? "")
                 )
             document.musicLibrary.upsertAppleMusicItem(ref)
             applyAppleMusicRef(ref, to: &document.parts[idx])
@@ -1652,6 +1657,17 @@ public struct HypeToolExecutor: Sendable {
                 return "Resumed Apple Music"
             } catch {
                 return "Apple Music resume failed: \(error.localizedDescription)"
+            }
+
+        case "seek_apple_music":
+            guard document.stack.appleMusicAllowed else { return "Apple Music is disabled for this stack." }
+            guard let provider = appleMusicProvider else { return "Apple Music provider is not configured." }
+            let position = max(0, Double(arguments["position"] ?? arguments["seconds"] ?? arguments["time"] ?? "") ?? 0)
+            do {
+                try await provider.seek(to: position, engine: .application)
+                return "Set Apple Music playback position to \(Self.formatNumber(position)) seconds"
+            } catch {
+                return "Apple Music seek failed: \(error.localizedDescription)"
             }
 
         case "stop_apple_music":
@@ -1986,6 +2002,10 @@ public struct HypeToolExecutor: Sendable {
                     document.parts[index].musicSourceAlbum = value
                 case "artwork", "artworkurl", "artwork_url", "musicartwork", "music_artwork":
                     document.parts[index].musicArtworkURL = value
+                case "musicposition", "music_position", "positionseconds", "position_seconds":
+                    document.parts[index].musicPosition = max(0, Double(value) ?? 0)
+                case "musicduration", "music_duration", "durationseconds", "duration_seconds":
+                    document.parts[index].musicDuration = max(0, Double(value) ?? 0)
                 case "musicqueue", "music_queue", "queuedata", "queue_data":
                     document.parts[index].musicQueueData = value
                 case "musicsearchterm", "music_search_term", "searchterm", "search_term":
@@ -3439,7 +3459,7 @@ public struct HypeToolExecutor: Sendable {
             // AudioRecorder
             case "recording": return String(part.audioRecording)
             case "playing": return String(part.audioPlaying)
-            case "duration": return String(part.audioDuration)
+            case "duration": return String(part.partType == .appleMusicBrowser ? part.musicDuration : part.audioDuration)
             case "outputpath", "output_path", "filepath", "file_path": return part.audioOutputPath
             case "format": return part.audioFormat
             case "saveinstack", "save_in_stack", "embedinstack", "embed_in_stack", "embedded", "audioembedded": return String(part.audioEmbedInStack)
@@ -3475,6 +3495,10 @@ public struct HypeToolExecutor: Sendable {
                 return part.musicSourceAlbum
             case "artwork", "artworkurl", "artwork_url", "musicartwork", "music_artwork":
                 return part.musicArtworkURL
+            case "musicposition", "music_position", "positionseconds", "position_seconds":
+                return String(part.musicPosition)
+            case "musicduration", "music_duration", "durationseconds", "duration_seconds":
+                return String(part.musicDuration)
             case "musicqueue", "music_queue", "queuedata", "queue_data":
                 return part.musicQueueData
             case "musicsearchterm", "music_search_term", "searchterm", "search_term":
@@ -5364,7 +5388,8 @@ public struct HypeToolExecutor: Sendable {
                 titleSnapshot: arguments["title"] ?? sourceID,
                 artistSnapshot: arguments["artist"] ?? "",
                 albumSnapshot: arguments["album"] ?? "",
-                artworkURLSnapshot: arguments["artwork_url"] ?? ""
+                artworkURLSnapshot: arguments["artwork_url"] ?? "",
+                durationSnapshot: Double(arguments["duration"] ?? "")
             )
             document.musicLibrary.upsertAppleMusicItem(ref)
             applyAppleMusicRef(ref, to: &part)
@@ -5382,6 +5407,7 @@ public struct HypeToolExecutor: Sendable {
         part.musicSourceArtist = ref.artistSnapshot
         part.musicSourceAlbum = ref.albumSnapshot
         part.musicArtworkURL = ref.artworkURLSnapshot
+        part.musicDuration = max(0, ref.durationSnapshot ?? 0)
     }
 
     private func parseAppleMusicKinds(_ raw: String) -> [AppleMusicItemKind] {
@@ -5919,6 +5945,8 @@ public struct HypeToolExecutor: Sendable {
             row("musicSource", "\"\([p.musicSourceKind, p.musicSourceType, p.musicSourceID].joined(separator: ":"))\"", "hypePattern")
             row("appleMusicTitle", "\"\(p.musicSourceTitle)\"", "\"\"")
             row("appleMusicArtist", "\"\(p.musicSourceArtist)\"", "\"\"")
+            row("musicPosition", String(p.musicPosition), "0")
+            row("musicDuration", String(p.musicDuration), "0")
         case .scene3D:
             row("object", "\"\(Scene3DModelBindingResolver.displayModel(for: p))\"", "\"\"")
             row("model", "\"\(Scene3DModelBindingResolver.displayModel(for: p))\"", "\"\"")

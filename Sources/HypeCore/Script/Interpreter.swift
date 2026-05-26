@@ -75,6 +75,8 @@ public protocol SystemProvider: Sendable {
     func resumeAppleMusic(engine: AppleMusicPlaybackEngine) async throws
     func stopAppleMusic(engine: AppleMusicPlaybackEngine) async
     func currentAppleMusicState(engine: AppleMusicPlaybackEngine) async -> String
+    func seekAppleMusic(to position: Double, engine: AppleMusicPlaybackEngine) async throws
+    func currentAppleMusicPosition(engine: AppleMusicPlaybackEngine) async -> Double
 }
 
 public extension SystemProvider {
@@ -97,6 +99,8 @@ public extension SystemProvider {
     func resumeAppleMusic(engine: AppleMusicPlaybackEngine) async throws { throw AppleMusicProviderError.unavailable }
     func stopAppleMusic(engine: AppleMusicPlaybackEngine) async {}
     func currentAppleMusicState(engine: AppleMusicPlaybackEngine) async -> String { "unavailable" }
+    func seekAppleMusic(to position: Double, engine: AppleMusicPlaybackEngine) async throws { throw AppleMusicProviderError.unavailable }
+    func currentAppleMusicPosition(engine: AppleMusicPlaybackEngine) async -> Double { 0 }
 }
 
 /// Default system provider that does nothing (used when no UI is available).
@@ -1607,6 +1611,19 @@ public struct Interpreter: Sendable {
                 throw ScriptError(message: "Apple Music playback failed: \(error.localizedDescription)", line: handler.line, handler: handler.name)
             }
 
+        case .seekAppleMusic(let positionExpr):
+            guard document.stack.appleMusicAllowed else {
+                throw ScriptError(message: "Apple Music is disabled for this stack", line: handler.line, handler: handler.name)
+            }
+            let position = max(0, toNumber(try await evaluate(positionExpr, env: &env, document: document, context: context)))
+            do {
+                try await context.systemProvider.seekAppleMusic(to: position, engine: .application)
+                env.it = formatNumber(position)
+                env.result = formatNumber(position)
+            } catch {
+                throw ScriptError(message: "Apple Music seek failed: \(error.localizedDescription)", line: handler.line, handler: handler.name)
+            }
+
         case .stopAppleMusic:
             await context.systemProvider.stopAppleMusic(engine: .application)
             env.it = "stopped"
@@ -3066,6 +3083,8 @@ public struct Interpreter: Sendable {
             return await context.systemProvider.currentMusicState()
         case "applemusicstate":
             return await context.systemProvider.currentAppleMusicState(engine: .application)
+        case "applemusicposition", "applemusictime":
+            return formatNumber(await context.systemProvider.currentAppleMusicPosition(engine: .application))
         case "applemusicauthorization", "applemusicstatus":
             return await context.systemProvider.appleMusicAuthorizationStatus().rawValue
         case "applemusiccapabilities":
@@ -3201,6 +3220,8 @@ public struct Interpreter: Sendable {
                 return await context.systemProvider.currentMusicState()
             case "applemusicstate":
                 return await context.systemProvider.currentAppleMusicState(engine: .application)
+            case "applemusicposition", "applemusictime":
+                return formatNumber(await context.systemProvider.currentAppleMusicPosition(engine: .application))
             case "applemusicauthorization", "applemusicstatus":
                 return await context.systemProvider.appleMusicAuthorizationStatus().rawValue
             case "applemusiccapabilities":
@@ -3677,7 +3698,8 @@ public struct Interpreter: Sendable {
         // AudioRecorder
         case "recording":           return part.audioRecording ? "true" : "false"
         case "playing":             return part.audioPlaying ? "true" : "false"
-        case "duration":            return formatNumber(part.audioDuration)
+        case "duration":
+            return formatNumber(part.partType == .appleMusicBrowser ? part.musicDuration : part.audioDuration)
         case "outputpath", "output_path", "filepath", "file_path": return part.audioOutputPath
         case "format":              return part.audioFormat
         case "saveinstack", "save_in_stack", "embedinstack", "embed_in_stack", "embedded", "audioembedded":
@@ -3715,6 +3737,13 @@ public struct Interpreter: Sendable {
             return part.musicSourceAlbum
         case "artwork", "artworkurl", "artwork_url", "musicartwork", "music_artwork":
             return part.musicArtworkURL
+        case "musicposition", "music_position", "positionseconds", "position_seconds":
+            return formatNumber(part.musicPosition)
+        case "musicduration", "music_duration", "durationseconds", "duration_seconds":
+            if part.partType == .appleMusicBrowser || !part.musicSourceID.isEmpty {
+                return formatNumber(part.musicDuration)
+            }
+            return formatNumber(part.audioDuration)
         case "musicqueue", "music_queue", "queuedata", "queue_data":
             return part.musicQueueData
         case "musicsearchterm", "music_search_term", "searchterm", "search_term":
@@ -4876,6 +4905,8 @@ public struct Interpreter: Sendable {
                 document.parts[partIndex].musicSourceArtist = ref.artistSnapshot
                 document.parts[partIndex].musicSourceAlbum = ref.albumSnapshot
                 document.parts[partIndex].musicArtworkURL = ref.artworkURLSnapshot
+                document.parts[partIndex].musicDuration = max(0, ref.durationSnapshot ?? 0)
+                document.parts[partIndex].musicPosition = 0
             } else {
                 document.parts[partIndex].musicSourceKind = MusicSourceKind.hypePattern.rawValue
                 document.parts[partIndex].musicPatternName = value
@@ -4894,6 +4925,10 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].musicSourceAlbum = value
         case "artwork", "artworkurl", "artwork_url", "musicartwork", "music_artwork":
             document.parts[partIndex].musicArtworkURL = value
+        case "musicposition", "music_position", "positionseconds", "position_seconds":
+            document.parts[partIndex].musicPosition = max(0, toNumber(value))
+        case "musicduration", "music_duration", "durationseconds", "duration_seconds":
+            document.parts[partIndex].musicDuration = max(0, toNumber(value))
         case "musicqueue", "music_queue", "queuedata", "queue_data":
             document.parts[partIndex].musicQueueData = value
         case "musicsearchterm", "music_search_term", "searchterm", "search_term":
@@ -5799,6 +5834,7 @@ public struct Interpreter: Sendable {
         case .authorizeAppleMusic: return "authorizeAppleMusic"
         case .searchAppleMusic: return "searchAppleMusic"
         case .playAppleMusic: return "playAppleMusic"
+        case .seekAppleMusic: return "seekAppleMusic"
         case .pauseAppleMusic: return "pauseAppleMusic"
         case .resumeAppleMusic: return "resumeAppleMusic"
         case .stopAppleMusic: return "stopAppleMusic"

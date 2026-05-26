@@ -213,7 +213,7 @@ public enum HypeTalkGuide {
           - **button (style=toggle / checkBox):** hilite (true/false — backs the on/off state of toggle / checkbox styles); the `on` of <kind> "X" is also accepted as an alias for hilite on these styles. (`style=switch` is a deprecated alias that resolves to `toggle`.)
           - **segmented:** segments, selectedSegment
           - **recorder:** recording, playing, duration, outputPath, format (m4a | caf), saveInStack (true/false), audioSize
-          - **music controls:** musicPattern, instrument, tempo, loop, volume, musicTracks, musicSource, musicSourceKind, appleMusicID/type/title/artist/album, artworkURL, musicSearchTerm/scope
+          - **music controls:** musicPattern, instrument, tempo, loop, volume, musicTracks, musicSource, musicSourceKind, appleMusicID/type/title/artist/album, artworkURL, musicSearchTerm/scope, musicPosition, musicDuration
           - **scene3d:** object (source path — preferred), modelURL (resolved path, legacy alias), allowsCameraControl, autoLighting, antialiasing, background3d
           - **image:** imageFilter, imageFilterIntensity (along with the standard part properties)
           - **progressView:** value (0..total), progressTotal (default 100), progressIsCircular (true/false), progressIsIndeterminate (true/false), progressLabel, progressTint (hex), progressDecimals (alias `decimals` — 0 default, integral steps; raise for fractional precision; same contract as gauge)
@@ -222,7 +222,7 @@ public enum HypeTalkGuide {
           - **button (style=popup):** popupItems (newline-separated labels), textContent (currently-selected label)
           - **field (style=search):** textContent (current search text — use `the text of field "search"`); fields with this style fire `searchChanged` on debounced keystroke and `searchSubmitted` on Return.
           - **divider:** dividerOrientation (horizontal | vertical), dividerThickness (pixels, default 1), dividerColor (hex)
-        **Global properties:** the date, the time, the ticks, the seconds, the mouseLoc (returns "x,y"), the mouseH, the mouseV, the shiftKey, the optionKey, the commandKey, the version, the musicState, the musicPatterns, the musicInstruments, the appleMusicState, the appleMusicAuthorization, the appleMusicCapabilities.
+        **Global properties:** the date, the time, the ticks, the seconds, the mouseLoc (returns "x,y"), the mouseH, the mouseV, the shiftKey, the optionKey, the commandKey, the version, the musicState, the musicPatterns, the musicInstruments, the appleMusicState, the appleMusicPosition, the appleMusicAuthorization, the appleMusicCapabilities.
 
         ## System & lifecycle messages
 
@@ -488,7 +488,7 @@ public enum HypeTalkGuide {
         Controls: musicPlayer, pianoKeyboard, stepSequencer, musicMixer. Tools: create_music_pattern, export_music_pattern.
 
         ## Apple Music
-        Music controls play Hype patterns. Use MusicKit Search for catalog/library criteria. Tools search/bind/play refs; scripts authorize/search/play/pause/resume/stop appleMusic. No embedded audio.
+        Use MusicKit Search for catalog/library criteria. Tools bind/play/seek refs; scripts authorize/search/play/seek/pause/resume/stop appleMusic. No audio embed.
 
         ## Animation (standard parts)
             animate the loc of button "ball" to "400,300" over 0.5

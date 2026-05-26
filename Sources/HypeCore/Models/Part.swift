@@ -278,6 +278,13 @@ public struct Part: Identifiable, Codable, Sendable {
     public var musicSourceArtist: String
     public var musicSourceAlbum: String
     public var musicArtworkURL: String
+    /// Last requested playback position in seconds for MusicKit-backed
+    /// browser controls. This is declarative state only; live playback is
+    /// owned by the MusicKit provider.
+    public var musicPosition: Double
+    /// Duration snapshot in seconds for the selected MusicKit item when
+    /// MusicKit exposes it. Empty/unknown durations are stored as 0.
+    public var musicDuration: Double
     /// Stored queue/search metadata for Apple Music browser and queue controls.
     public var musicQueueData: String
     public var musicSearchTerm: String
@@ -507,6 +514,8 @@ public struct Part: Identifiable, Codable, Sendable {
         self.musicSourceArtist = ""
         self.musicSourceAlbum = ""
         self.musicArtworkURL = ""
+        self.musicPosition = 0
+        self.musicDuration = 0
         self.musicQueueData = ""
         self.musicSearchTerm = ""
         self.musicSearchScope = AppleMusicSearchScope.catalog.rawValue
@@ -668,6 +677,8 @@ public struct Part: Identifiable, Codable, Sendable {
         musicSourceArtist = try container.decodeIfPresent(String.self, forKey: .musicSourceArtist) ?? ""
         musicSourceAlbum = try container.decodeIfPresent(String.self, forKey: .musicSourceAlbum) ?? ""
         musicArtworkURL = try container.decodeIfPresent(String.self, forKey: .musicArtworkURL) ?? ""
+        musicPosition = try container.decodeIfPresent(Double.self, forKey: .musicPosition) ?? 0
+        musicDuration = try container.decodeIfPresent(Double.self, forKey: .musicDuration) ?? 0
         musicQueueData = try container.decodeIfPresent(String.self, forKey: .musicQueueData) ?? ""
         musicSearchTerm = try container.decodeIfPresent(String.self, forKey: .musicSearchTerm) ?? ""
         musicSearchScope = try container.decodeIfPresent(String.self, forKey: .musicSearchScope) ?? AppleMusicSearchScope.catalog.rawValue

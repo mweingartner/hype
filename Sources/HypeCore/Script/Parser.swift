@@ -313,6 +313,13 @@ public struct Parser: Sendable {
                 let expr = try parseExpression()
                 skipNewlines()
                 return .expressionStatement(expr)
+            case "seek", "position":
+                if isAppleMusicPhrase(startingAt: 1) {
+                    return try parseSeekAppleMusicStatement()
+                }
+                let expr = try parseExpression()
+                skipNewlines()
+                return .expressionStatement(expr)
             case "loop":
                 if peek(1)?.type == .identifier && peek(1)?.value.lowercased() == "pattern" {
                     return try parseLoopMusicPatternStatement()
@@ -2006,6 +2013,23 @@ public struct Parser: Sendable {
         }
         skipNewlines()
         return .searchAppleMusic(term: term, scope: scope, itemType: itemType, limit: limit)
+    }
+
+    private mutating func parseSeekAppleMusicStatement() throws -> Statement {
+        _ = advance() // seek / position
+        _ = consumeAppleMusicPhrase()
+        if current.type == .to || (current.type == .identifier && ["to", "at"].contains(current.value.lowercased())) {
+            _ = advance()
+        }
+        if current.type == .identifier {
+            let label = current.value.lowercased()
+            if label == "position" || label == "time" || label == "seconds" {
+                _ = advance()
+            }
+        }
+        let position = try parseExpression()
+        skipNewlines()
+        return .seekAppleMusic(position: position)
     }
 
     private mutating func parsePauseAppleMusicStatement() throws -> Statement {

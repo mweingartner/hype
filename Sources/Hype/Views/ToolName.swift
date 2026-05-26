@@ -101,7 +101,7 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .musicMixer:
             return "Place a small mixer on the card. Use it to represent track volume and arrangement controls for stack-contained music."
         case .appleMusicBrowser:
-            return "Place a simple MusicKit search control on the card. Users specify catalog or library search criteria and the music item type after Apple Music access is enabled and authorized."
+            return "Place a MusicKit search control on the card. Users can search, select, play, stop, and seek Apple Music song, album, singer, and playlist references after Apple Music access is enabled and authorized."
         case .musicQueue:
             return "Legacy music queue control retained for older stacks. New stacks should use AudioKit music controls for stack-contained music and the MusicKit Search control for Apple Music lookup."
         case .progressView:

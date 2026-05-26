@@ -36,11 +36,12 @@ public enum AppleMusicItemKind: String, Codable, Sendable, Equatable, CaseIterab
 
     public static func parse(_ raw: String) -> AppleMusicItemKind? {
         switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            .replacingOccurrences(of: " ", with: "")
             .replacingOccurrences(of: "_", with: "")
             .replacingOccurrences(of: "-", with: "") {
         case "song", "songs", "track", "tracks": return .song
-        case "album", "albums": return .album
-        case "artist", "artists": return .artist
+        case "album", "albums", "albumn", "albumns": return .album
+        case "artist", "artists", "singer", "singers", "performer", "performers": return .artist
         case "playlist", "playlists": return .playlist
         case "station", "stations", "radio", "radios": return .station
         case "musicvideo", "musicvideos", "video", "videos": return .musicVideo
@@ -234,6 +235,8 @@ public protocol AppleMusicProviding: Sendable {
     func skipToNext(engine: AppleMusicPlaybackEngine) async throws
     func skipToPrevious(engine: AppleMusicPlaybackEngine) async throws
     func currentPlaybackState(engine: AppleMusicPlaybackEngine) async -> String
+    func seek(to position: TimeInterval, engine: AppleMusicPlaybackEngine) async throws
+    func currentPlaybackPosition(engine: AppleMusicPlaybackEngine) async -> TimeInterval
     func rawAPIRequest(path: String, method: String, body: Data?) async throws -> Data
     func createPlaylist(name: String, description: String?, items: [AppleMusicItemRef]) async throws -> AppleMusicItemRef
     func add(_ item: AppleMusicItemRef, toPlaylist playlist: AppleMusicItemRef?) async throws
@@ -254,6 +257,8 @@ public struct StubAppleMusicProvider: AppleMusicProviding {
     public func skipToNext(engine: AppleMusicPlaybackEngine) async throws { throw AppleMusicProviderError.unavailable }
     public func skipToPrevious(engine: AppleMusicPlaybackEngine) async throws { throw AppleMusicProviderError.unavailable }
     public func currentPlaybackState(engine: AppleMusicPlaybackEngine) async -> String { "unavailable" }
+    public func seek(to position: TimeInterval, engine: AppleMusicPlaybackEngine) async throws { throw AppleMusicProviderError.unavailable }
+    public func currentPlaybackPosition(engine: AppleMusicPlaybackEngine) async -> TimeInterval { 0 }
     public func rawAPIRequest(path: String, method: String, body: Data?) async throws -> Data { throw AppleMusicProviderError.unavailable }
     public func createPlaylist(name: String, description: String?, items: [AppleMusicItemRef]) async throws -> AppleMusicItemRef { throw AppleMusicProviderError.unavailable }
     public func add(_ item: AppleMusicItemRef, toPlaylist playlist: AppleMusicItemRef?) async throws { throw AppleMusicProviderError.unavailable }
@@ -373,6 +378,17 @@ public final class MusicKitAppleMusicProvider: AppleMusicProviding, @unchecked S
         }
     }
 
+    public func seek(to position: TimeInterval, engine: AppleMusicPlaybackEngine) async throws {
+        guard await authorizationStatus() == .authorized else {
+            throw AppleMusicProviderError.notAuthorized
+        }
+        player(for: engine).playbackTime = max(0, position)
+    }
+
+    public func currentPlaybackPosition(engine: AppleMusicPlaybackEngine) async -> TimeInterval {
+        player(for: engine).playbackTime
+    }
+
     public func rawAPIRequest(path: String, method: String, body: Data?) async throws -> Data {
         guard await authorizationStatus() == .authorized else {
             throw AppleMusicProviderError.notAuthorized
@@ -426,7 +442,9 @@ public final class MusicKitAppleMusicProvider: AppleMusicProviding, @unchecked S
         var refs: [AppleMusicItemRef] = []
         if request.itemKinds.contains(.song) { refs += response.songs.map { ref($0, source: .appleMusicLibrary) } }
         if request.itemKinds.contains(.album) { refs += response.albums.map { ref($0, source: .appleMusicLibrary) } }
+        if request.itemKinds.contains(.artist) { refs += response.artists.map { ref($0, source: .appleMusicLibrary) } }
         if request.itemKinds.contains(.playlist) { refs += response.playlists.map { ref($0, source: .appleMusicLibrary) } }
+        if request.itemKinds.contains(.musicVideo) { refs += response.musicVideos.map { ref($0, source: .appleMusicLibrary) } }
         return Array(refs.prefix(request.limit))
     }
 
@@ -509,11 +527,13 @@ public final class MusicKitAppleMusicProvider: AppleMusicProviding, @unchecked S
             case .song: types.append(Song.self)
             case .album: types.append(Album.self)
             case .playlist: types.append(Playlist.self)
-            case .artist, .station, .musicVideo:
+            case .artist: types.append(Artist.self)
+            case .musicVideo: types.append(MusicVideo.self)
+            case .station:
                 break
             }
         }
-        return types.isEmpty ? [Song.self, Album.self, Playlist.self] : types
+        return types.isEmpty ? [Song.self, Album.self, Artist.self, Playlist.self, MusicVideo.self] : types
     }
 
     private func catalogSong(_ id: String) async throws -> Song? {

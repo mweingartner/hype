@@ -34,6 +34,28 @@ struct CardCanvasMusicControlTests {
         #expect(source.contains("trigger != lastMusicControlDragTriggerIdentifier"))
     }
 
+    @Test("MusicKit Search has a real browse-mode host")
+    func musicKitSearchBrowseHostIsWired() throws {
+        let canvasSource = try String(
+            contentsOf: packageRoot()
+                .appendingPathComponent("Sources/Hype/Views/CardCanvasView.swift"),
+            encoding: .utf8
+        )
+        let hostSource = try String(
+            contentsOf: packageRoot()
+                .appendingPathComponent("Sources/Hype/Views/AppleMusicBrowserHostView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(canvasSource.contains("private var appleMusicBrowserViews: [UUID: AppleMusicBrowserHostNSView]"))
+        #expect(canvasSource.contains("updateAppleMusicBrowserViews()"))
+        #expect(canvasSource.contains("setPartAppleMusicSelection(id: partId, item: item)"))
+        #expect(hostSource.contains("final class AppleMusicBrowserHostNSView"))
+        #expect(hostSource.contains("provider.search(request)"))
+        #expect(hostSource.contains("provider.play(ref, engine: playbackEngine())"))
+        #expect(hostSource.contains("provider.seek(to: seconds, engine: playbackEngine())"))
+    }
+
     @Test("browse mode plays a background piano keyboard after runtime toggle")
     func browseModePlaysBackgroundPianoKeyboard() throws {
         var document = HypeDocument.newDocument(name: "Background Keyboard")

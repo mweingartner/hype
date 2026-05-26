@@ -527,6 +527,47 @@ struct CardCanvasView: NSViewRepresentable {
             }
         }
 
+        func setPartAppleMusicSearchConfiguration(
+            id: UUID,
+            term: String,
+            scope: AppleMusicSearchScope,
+            itemType: AppleMusicItemKind
+        ) {
+            parent.document.document.updatePart(id: id) { part in
+                part.musicSearchTerm = term
+                part.musicSearchScope = scope.rawValue
+                part.musicSourceType = itemType.rawValue
+                part.musicSourceKind = scope == .library
+                    ? MusicSourceKind.appleMusicLibrary.rawValue
+                    : MusicSourceKind.appleMusicCatalog.rawValue
+            }
+        }
+
+        func setPartAppleMusicSelection(id: UUID, item: AppleMusicItemRef) {
+            parent.document.document.musicLibrary.upsertAppleMusicItem(item)
+            parent.document.document.updatePart(id: id) { part in
+                part.musicSourceKind = item.source.rawValue
+                part.musicSourceType = item.kind.rawValue
+                part.musicSourceID = item.id
+                part.musicSourceTitle = item.titleSnapshot
+                part.musicSourceArtist = item.artistSnapshot
+                part.musicSourceAlbum = item.albumSnapshot
+                part.musicArtworkURL = item.artworkURLSnapshot
+                part.musicDuration = max(0, item.durationSnapshot ?? 0)
+                part.musicPosition = 0
+            }
+        }
+
+        func setPartAppleMusicPosition(id: UUID, position: Double) {
+            parent.document.document.updatePart(id: id) {
+                $0.musicPosition = max(0, position)
+            }
+        }
+
+        func dispatchAppleMusicBrowserEvent(id: UUID, message: String, params: [String] = []) {
+            dispatchMessage(message, to: id, params: params)
+        }
+
         /// Dispatch `modelLoadFailed` to the scene3D part so HypeTalk
         /// handlers can react (e.g. `on modelLoadFailed reason ...`).
         /// Called from `Scene3DHostNSView.onLoadFailed`.
@@ -1112,6 +1153,7 @@ class CardCanvasNSView: NSView {
     private var stepperViews: [UUID: StepperHostNSView] = [:]
     private var sliderViews: [UUID: SliderHostNSView] = [:]
     private var segmentedViews: [UUID: SegmentedHostNSView] = [:]
+    private var appleMusicBrowserViews: [UUID: AppleMusicBrowserHostNSView] = [:]
     private var audioRecorderViews: [UUID: AudioRecorderHostNSView] = [:]
     private var scene3DViews: [UUID: Scene3DHostNSView] = [:]
     // Phase 3 framework controls.
@@ -1600,6 +1642,7 @@ class CardCanvasNSView: NSView {
         updateMapViews()
         updateColorWellViews()
         updateFormControlViews()
+        updateAppleMusicBrowserViews()
         updateAudioRecorderViews()
         updateScene3DViews()
         // Phase 3 controls.
@@ -2337,6 +2380,7 @@ class CardCanvasNSView: NSView {
         for (_, v) in stepperViews { v.isHidden = true }
         for (_, v) in sliderViews { v.isHidden = true }
         for (_, v) in segmentedViews { v.isHidden = true }
+        for (_, v) in appleMusicBrowserViews { v.isHidden = true }
         for (_, v) in audioRecorderViews { v.isHidden = true }
         for (_, v) in scene3DViews { v.isHidden = true }
         // Phase 3 control overlays.
@@ -3890,6 +3934,72 @@ class CardCanvasNSView: NSView {
         for id in segmentedViews.keys where !activeSegmented.contains(id) {
             segmentedViews[id]?.removeFromSuperview()
             segmentedViews.removeValue(forKey: id)
+        }
+    }
+
+    // MARK: - Apple Music Browser Management
+
+    /// Create, update, or remove live MusicKit Search hosts. The CG renderer
+    /// still draws edit-mode placeholders; in browse mode this host supplies
+    /// the actual search/select/play/seek UI and writes stable metadata back
+    /// into the stack document.
+    private func updateAppleMusicBrowserViews() {
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let isBrowseMode = toolState.category == .browse
+
+        let allParts = partsForCurrentCard()
+        let browserParts = allParts.filter { $0.partType == .appleMusicBrowser && $0.visible }
+
+        if !isBrowseMode || browserParts.isEmpty {
+            for (_, view) in appleMusicBrowserViews { view.removeFromSuperview() }
+            appleMusicBrowserViews.removeAll()
+            return
+        }
+
+        let preferencesAllowAppleMusic = UserDefaults.standard.bool(forKey: AppleMusicConfiguration.enabledKey)
+        var activeIds = Set<UUID>()
+        for part in browserParts {
+            activeIds.insert(part.id)
+            let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+            let partId = part.id
+            let host: AppleMusicBrowserHostNSView
+            if let existing = appleMusicBrowserViews[partId] {
+                existing.isHidden = false
+                existing.frame = frame
+                host = existing
+            } else {
+                let created = AppleMusicBrowserHostNSView(frame: frame)
+                created.onSearchConfigurationChange = { [weak self] term, scope, kind in
+                    self?.coordinator?.setPartAppleMusicSearchConfiguration(
+                        id: partId,
+                        term: term,
+                        scope: scope,
+                        itemType: kind
+                    )
+                }
+                created.onSelectionChange = { [weak self] item in
+                    self?.coordinator?.setPartAppleMusicSelection(id: partId, item: item)
+                }
+                created.onPlaybackPositionChange = { [weak self] position in
+                    self?.coordinator?.setPartAppleMusicPosition(id: partId, position: position)
+                }
+                created.onPlaybackEvent = { [weak self] message, params in
+                    self?.coordinator?.dispatchAppleMusicBrowserEvent(id: partId, message: message, params: params)
+                }
+                addSubview(created, positioned: .above, relativeTo: nil)
+                appleMusicBrowserViews[partId] = created
+                host = created
+            }
+            host.apply(
+                part: part,
+                stackAllowsAppleMusic: document.stack.appleMusicAllowed,
+                preferencesAllowAppleMusic: preferencesAllowAppleMusic
+            )
+        }
+
+        for id in appleMusicBrowserViews.keys where !activeIds.contains(id) {
+            appleMusicBrowserViews[id]?.removeFromSuperview()
+            appleMusicBrowserViews.removeValue(forKey: id)
         }
     }
 

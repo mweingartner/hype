@@ -42,6 +42,9 @@ struct PropertyInspector: View {
     @State private var meshyKeyIsSet: Bool = false
     /// When set, `Generate3DSheet` is presented targeting this part.
     @State private var generate3DSheetTargetPartId: UUID? = nil
+    @State private var appleMusicInspectorResults: [AppleMusicItemRef] = []
+    @State private var appleMusicInspectorSelectedSource = ""
+    @State private var appleMusicInspectorStatus = "Apple Music is idle."
 
     var body: some View {
         Group {
@@ -1525,15 +1528,190 @@ struct PropertyInspector: View {
             }
             .pickerStyle(.menu)
             Picker("Music Type", selection: bindPartString(part.id, \.musicSourceType)) {
-                ForEach(AppleMusicItemKind.allCases, id: \.rawValue) { kind in
-                    Text(kind.rawValue).tag(kind.rawValue)
+                ForEach([AppleMusicItemKind.song, .album, .artist, .playlist], id: \.rawValue) { kind in
+                    Text(appleMusicDisplayName(for: kind)).tag(kind.rawValue)
                 }
             }
             .pickerStyle(.menu)
+            HStack {
+                Button("Authorize") { authorizeAppleMusicFromInspector() }
+                Button("Search") { searchAppleMusicFromInspector(part: part) }
+            }
+            if !appleMusicInspectorResults.isEmpty {
+                Picker("Result", selection: $appleMusicInspectorSelectedSource) {
+                    ForEach(appleMusicInspectorResults, id: \.encodedSource) { item in
+                        Text(appleMusicInspectorTitle(for: item)).tag(item.encodedSource)
+                    }
+                }
+                .pickerStyle(.menu)
+                Button("Use Selected Item") {
+                    selectAppleMusicInspectorResult(partId: part.id)
+                }
+            }
+            propertyRow("Selected ID", binding: bindPartString(part.id, \.musicSourceID))
+            propertyRow("Title", binding: bindPartString(part.id, \.musicSourceTitle))
+            propertyRow("Artist / Singer", binding: bindPartString(part.id, \.musicSourceArtist))
+            propertyRow("Album", binding: bindPartString(part.id, \.musicSourceAlbum))
+            propertyRow("Artwork URL", binding: bindPartString(part.id, \.musicArtworkURL))
+            propertyRow("Position Seconds", binding: bindPartDoubleString(part.id, \.musicPosition))
+            propertyRow("Duration Seconds", binding: bindPartDoubleString(part.id, \.musicDuration))
+            HStack {
+                Button("Play") { playAppleMusicFromInspector(part: part) }
+                    .disabled(part.musicSourceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Seek") { seekAppleMusicFromInspector(part: part) }
+                    .disabled(part.musicSourceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Stop") { stopAppleMusicFromInspector() }
+            }
+            Text(appleMusicInspectorStatus)
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
             Text("MusicKit stores Apple Music IDs and metadata snapshots only. It does not embed protected Apple Music audio in the stack.")
                 .font(.system(size: 9))
                 .foregroundColor(.secondary)
         }
+    }
+
+    private func authorizeAppleMusicFromInspector() {
+        guard UserDefaults.standard.bool(forKey: AppleMusicConfiguration.enabledKey) else {
+            appleMusicInspectorStatus = "Enable Apple Music in Preferences first."
+            return
+        }
+        appleMusicInspectorStatus = "Checking Apple Music authorization..."
+        Task { @MainActor in
+            let status = await AppleMusicProviderFactory.makeDefault().requestAuthorization()
+            appleMusicInspectorStatus = "Apple Music authorization: \(status.rawValue)"
+        }
+    }
+
+    private func searchAppleMusicFromInspector(part: Part) {
+        guard UserDefaults.standard.bool(forKey: AppleMusicConfiguration.enabledKey),
+              document.document.stack.appleMusicAllowed else {
+            appleMusicInspectorStatus = "Enable Apple Music in Preferences and for this stack."
+            return
+        }
+        let term = part.musicSearchTerm.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !term.isEmpty else {
+            appleMusicInspectorStatus = "Enter search text first."
+            return
+        }
+        let scope = AppleMusicSearchScope(rawValue: part.musicSearchScope) ?? .catalog
+        let kind = AppleMusicItemKind.parse(part.musicSourceType) ?? .song
+        appleMusicInspectorStatus = "Searching Apple Music..."
+        Task { @MainActor in
+            do {
+                let results = try await AppleMusicProviderFactory.makeDefault().search(
+                    AppleMusicSearchRequest(term: term, scope: scope, itemKinds: [kind], limit: 12)
+                )
+                appleMusicInspectorResults = results
+                appleMusicInspectorSelectedSource = results.first?.encodedSource ?? ""
+                appleMusicInspectorStatus = results.isEmpty ? "No Apple Music results." : "Found \(results.count) result(s)."
+                for item in results {
+                    document.document.musicLibrary.upsertAppleMusicItem(item)
+                }
+            } catch {
+                appleMusicInspectorResults = []
+                appleMusicInspectorSelectedSource = ""
+                appleMusicInspectorStatus = "Search failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func selectAppleMusicInspectorResult(partId: UUID) {
+        guard let item = appleMusicInspectorResults.first(where: { $0.encodedSource == appleMusicInspectorSelectedSource }) else {
+            appleMusicInspectorStatus = "Choose a search result first."
+            return
+        }
+        document.document.musicLibrary.upsertAppleMusicItem(item)
+        document.document.updatePart(id: partId) { part in
+            part.musicSourceKind = item.source.rawValue
+            part.musicSourceType = item.kind.rawValue
+            part.musicSourceID = item.id
+            part.musicSourceTitle = item.titleSnapshot
+            part.musicSourceArtist = item.artistSnapshot
+            part.musicSourceAlbum = item.albumSnapshot
+            part.musicArtworkURL = item.artworkURLSnapshot
+            part.musicDuration = max(0, item.durationSnapshot ?? 0)
+            part.musicPosition = 0
+        }
+        appleMusicInspectorStatus = "Selected \(appleMusicDisplayName(for: item.kind).lowercased()) '\(item.titleSnapshot)'."
+    }
+
+    private func playAppleMusicFromInspector(part: Part) {
+        guard UserDefaults.standard.bool(forKey: AppleMusicConfiguration.enabledKey),
+              document.document.stack.appleMusicAllowed else {
+            appleMusicInspectorStatus = "Enable Apple Music in Preferences and for this stack."
+            return
+        }
+        guard let item = appleMusicRef(from: part) else {
+            appleMusicInspectorStatus = "Select an Apple Music item first."
+            return
+        }
+        Task { @MainActor in
+            do {
+                try await AppleMusicProviderFactory.makeDefault().play(item, engine: appleMusicPlaybackEngine())
+                appleMusicInspectorStatus = "Playing '\(item.titleSnapshot)'."
+            } catch {
+                appleMusicInspectorStatus = "Playback failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func seekAppleMusicFromInspector(part: Part) {
+        Task { @MainActor in
+            do {
+                try await AppleMusicProviderFactory.makeDefault().seek(to: max(0, part.musicPosition), engine: appleMusicPlaybackEngine())
+                appleMusicInspectorStatus = "Position set to \(part.musicPosition) seconds."
+            } catch {
+                appleMusicInspectorStatus = "Seek failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func stopAppleMusicFromInspector() {
+        Task { @MainActor in
+            await AppleMusicProviderFactory.makeDefault().stop(engine: appleMusicPlaybackEngine())
+            appleMusicInspectorStatus = "Stopped Apple Music."
+        }
+    }
+
+    private func appleMusicRef(from part: Part) -> AppleMusicItemRef? {
+        guard !part.musicSourceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let kind = AppleMusicItemKind.parse(part.musicSourceType) else {
+            return nil
+        }
+        return AppleMusicItemRef(
+            id: part.musicSourceID,
+            kind: kind,
+            source: MusicSourceKind.parse(part.musicSourceKind),
+            titleSnapshot: part.musicSourceTitle.isEmpty ? part.musicSourceID : part.musicSourceTitle,
+            artistSnapshot: part.musicSourceArtist,
+            albumSnapshot: part.musicSourceAlbum,
+            artworkURLSnapshot: part.musicArtworkURL,
+            durationSnapshot: part.musicDuration > 0 ? part.musicDuration : nil
+        )
+    }
+
+    private func appleMusicPlaybackEngine() -> AppleMusicPlaybackEngine {
+        let raw = UserDefaults.standard.string(forKey: AppleMusicConfiguration.playbackEngineKey)
+        return raw.flatMap(AppleMusicPlaybackEngine.init(rawValue:)) ?? AppleMusicConfiguration.defaultPlaybackEngine
+    }
+
+    private func appleMusicDisplayName(for kind: AppleMusicItemKind) -> String {
+        switch kind {
+        case .song: return "Song"
+        case .album: return "Album"
+        case .artist: return "Singer"
+        case .playlist: return "Playlist"
+        case .station: return "Station"
+        case .musicVideo: return "Music Video"
+        }
+    }
+
+    private func appleMusicInspectorTitle(for item: AppleMusicItemRef) -> String {
+        let detail = [item.artistSnapshot, item.albumSnapshot]
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .joined(separator: " - ")
+        return detail.isEmpty ? item.titleSnapshot : "\(item.titleSnapshot) - \(detail)"
     }
 
     private func legacyMusicQueueSection(part: Part) -> some View {

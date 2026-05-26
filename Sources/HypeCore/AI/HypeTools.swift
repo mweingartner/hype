@@ -349,6 +349,7 @@ public struct HypeToolDefinitions {
             "artist": ("string", "Optional artist/curator snapshot.", false),
             "album": ("string", "Optional album snapshot.", false),
             "artwork_url": ("string", "Optional artwork URL snapshot.", false),
+            "duration": ("string", "Optional duration snapshot in seconds.", false),
         ]),
 
         makeTool(name: "set_music_player_source", description: """
@@ -363,6 +364,7 @@ public struct HypeToolDefinitions {
             "artist": ("string", "Optional artist/curator snapshot.", false),
             "album": ("string", "Optional album snapshot.", false),
             "artwork_url": ("string", "Optional artwork URL snapshot.", false),
+            "duration": ("string", "Optional duration snapshot in seconds.", false),
         ]),
 
         makeTool(name: "play_music_player", description: "Play an AudioKit music player control bound to a stack-contained Hype music pattern.", params: [
@@ -381,6 +383,9 @@ public struct HypeToolDefinitions {
 
         makeTool(name: "pause_apple_music", description: "Pause Apple Music playback started by Hype.", params: [:]),
         makeTool(name: "resume_apple_music", description: "Resume Apple Music playback started by Hype.", params: [:]),
+        makeTool(name: "seek_apple_music", description: "Move Apple Music playback to a position in seconds within the current song.", params: [
+            "position": ("string", "Playback position in seconds from the start of the current song.", true),
+        ]),
         makeTool(name: "stop_apple_music", description: "Stop Apple Music playback started by Hype.", params: [:]),
 
         makeTool(name: "create_apple_music_browser", description: """
@@ -1957,6 +1962,7 @@ public struct HypeToolDefinitions {
             "play_music_player",
             "pause_apple_music",
             "resume_apple_music",
+            "seek_apple_music",
             "stop_apple_music",
             "create_apple_music_browser",
             "export_music_pattern",

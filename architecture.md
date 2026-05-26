@@ -441,7 +441,7 @@ given `partType`. The fields fall into bands:
 | progressView     | `progressValue`, `progressTotal`, `progressIsCircular`, `progressIsIndeterminate`, `progressLabel`, `progressTint`, `progressDecimals` |
 | gauge            | `gaugeValue`, `gaugeMin`, `gaugeMax`, `gaugeStyle`, `gaugeTint`, `gaugeLabel`, `gaugeMinLabel`, `gaugeMaxLabel`, `gaugeDecimals` |
 | audioRecorder    | `audioRecording`, `audioPlaying`, `audioOutputPath`, `audioFormat`, `audioDuration`, `audioEmbedInStack`, `audioData?` |
-| music controls   | `musicPatternName`, `musicInstrumentName`, `musicTempo`, `musicLoop`, `musicVolume`, `musicTrackData`, `musicSourceKind`, `musicSourceID`, `musicSourceType`, `musicSourceTitle`, `musicSourceArtist`, `musicSourceAlbum`, `musicArtworkURL`, `musicQueueData`, `musicSearchTerm`, `musicSearchScope` |
+| music controls   | `musicPatternName`, `musicInstrumentName`, `musicTempo`, `musicLoop`, `musicVolume`, `musicTrackData`, `musicSourceKind`, `musicSourceID`, `musicSourceType`, `musicSourceTitle`, `musicSourceArtist`, `musicSourceAlbum`, `musicArtworkURL`, `musicPosition`, `musicDuration`, `musicQueueData`, `musicSearchTerm`, `musicSearchScope` |
 | scene3D          | `scene3DSourceURL`, `scene3DURL`, `scene3DAllowsCameraControl`, `scene3DAutoLighting`, `scene3DAntialiasing`, `scene3DBackground` |
 | divider          | `dividerOrientation`, `dividerThickness`, `dividerColor`                 |
 | **sprite area**  | `sceneSpec` *(JSON-encoded `SpriteAreaSpec`, with legacy `SceneSpec` migration)* |
@@ -553,7 +553,11 @@ misrepresenting protected Apple Music audio as stack-contained content.
 
 Music controls convert Browse-mode clicks, piano-key drag crossings, and
 step-sequencer cell drag crossings into temporary `MusicPatternSpec` playback
-requests or Apple Music item references. Step sequencer grid hits audition the
+requests. `appleMusicBrowser` uses a live `AppleMusicBrowserHostNSView` in
+Browse mode so users can authorize, search, choose a song/album/singer/playlist
+reference, play/stop, and seek within the current song while the document stores
+only stable MusicKit IDs, metadata snapshots, `musicPosition`, and
+`musicDuration`. Step sequencer grid hits audition the
 selected row/column step instead of replaying one generic pattern. Piano
 keyboard geometry reserves a title/subtitle band at the top and a small bottom
 inset rather than using symmetric vertical insets, so the default-sized control

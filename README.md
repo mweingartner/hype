@@ -149,8 +149,9 @@ uniformly across them.
 `musicPlayer`, `pianoKeyboard`, `stepSequencer`, `musicMixer`
 (AudioKit-backed music patterns stored inside the stack),
 `appleMusicBrowser`
-(simple MusicKit search criteria for catalog/library references; item IDs and
-metadata store in the stack, licensed audio remains external),
+(MusicKit search/select/play/stop/seek for catalog/library song, album, singer,
+and playlist references; item IDs and metadata store in the stack, licensed
+audio remains external),
 `scene3D` (SceneKit — USDZ/USD/SCN/DAE/OBJ natively; GLB/PLY/ABC via
 MDLAsset on macOS 13+; FBX via MDLAsset on macOS 13+; STL via built-in
 converter; asset binding via `Part.scene3DAssetRef` + Sprite Repository).

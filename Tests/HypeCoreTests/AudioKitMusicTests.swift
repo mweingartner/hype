@@ -23,6 +23,7 @@ struct AudioKitMusicTests {
         case playQueue(String)
         case pause
         case resume
+        case seek(Double)
         case stop
         case state
     }
@@ -126,6 +127,14 @@ struct AudioKitMusicTests {
             return "playing"
         }
 
+        func seek(to position: TimeInterval, engine: AppleMusicPlaybackEngine) async throws {
+            events.append(.seek(position))
+        }
+
+        func currentPlaybackPosition(engine: AppleMusicPlaybackEngine) async -> TimeInterval {
+            42
+        }
+
         func rawAPIRequest(path: String, method: String, body: Data?) async throws -> Data {
             Data("{}".utf8)
         }
@@ -196,6 +205,14 @@ struct AudioKitMusicTests {
             return "playing"
         }
 
+        func seekAppleMusic(to position: Double, engine: AppleMusicPlaybackEngine) async throws {
+            events.append(.seek(position))
+        }
+
+        func currentAppleMusicPosition(engine: AppleMusicPlaybackEngine) async -> Double {
+            42
+        }
+
         func recordedEvents() -> [AppleMusicEvent] {
             events
         }
@@ -216,6 +233,8 @@ struct AudioKitMusicTests {
         #expect(MusicInstrumentCatalog.resolve("piano").name == "Acoustic Grand Piano")
         #expect(MusicInstrumentCatalog.resolve("drums").isPercussion == true)
         #expect(MusicInstrumentCatalog.displayList.contains("Flute"))
+        #expect(AppleMusicItemKind.parse("singer") == .artist)
+        #expect(AppleMusicItemKind.parse("play list") == .playlist)
     }
 
     @Test("Pattern renderer emits a portable WAV asset")
@@ -253,12 +272,14 @@ struct AudioKitMusicTests {
           authorize appleMusic
           search appleMusic for "Miles Davis" type songs limit 10
           play appleMusic song "123456789"
+          seek appleMusic to 30
           pause appleMusic
           resume appleMusic
           stop appleMusic
           authorize apple music
           search apple music library for "Kind of Blue" kind album limit 5
           play apple music album "album123"
+          position apple music at 12
           pause apple music
           resume apple music
           stop apple music
@@ -417,6 +438,8 @@ struct AudioKitMusicTests {
         player.musicSourceArtist = item.artistSnapshot
         player.musicSourceAlbum = item.albumSnapshot
         player.musicArtworkURL = item.artworkURLSnapshot
+        player.musicDuration = item.durationSnapshot ?? 0
+        player.musicPosition = 12
         document.addPart(player)
 
         try store.save(document, toPackageAt: packageURL)
@@ -431,6 +454,8 @@ struct AudioKitMusicTests {
         #expect(loadedPlayer.musicSourceKind == MusicSourceKind.appleMusicCatalog.rawValue)
         #expect(loadedPlayer.musicSourceID == "song123")
         #expect(loadedPlayer.musicSourceTitle == "So What")
+        #expect(loadedPlayer.musicDuration == 545)
+        #expect(loadedPlayer.musicPosition == 12)
     }
 
     @Test("AI tools create patterns, controls, and portable audio assets")
@@ -571,9 +596,17 @@ struct AudioKitMusicTests {
             currentCardId: cardId
         )
         #expect(response.contains("Playing Apple Music song"))
+        response = await executor.execute(
+            toolName: "seek_apple_music",
+            arguments: ["position": "30"],
+            document: &document,
+            currentCardId: cardId
+        )
+        #expect(response.contains("30 seconds"))
         let events = await provider.recordedEvents()
         #expect(events.contains(.search(term: "Miles Davis", scope: "catalog", kinds: ["song"], limit: 1)))
         #expect(events.contains(.play("appleMusicCatalog:song:song123")))
+        #expect(events.contains(.seek(30)))
     }
 
     @Test("Interpreter dispatches Apple Music commands through the system provider")
@@ -594,8 +627,10 @@ struct AudioKitMusicTests {
           authorize apple music
           search apple music for "Miles Davis" type song limit 1
           play apple music song "song123"
+          seek apple music to 30
           pause apple music
           resume apple music
+          put the appleMusicPosition into field "status"
           put the appleMusicState into field "status"
           stop apple music
         end openCard
@@ -622,6 +657,7 @@ struct AudioKitMusicTests {
             .authorize,
             .search(term: "Miles Davis", scope: "catalog", kinds: ["song"], limit: 1),
             .play("appleMusicCatalog:song:song123"),
+            .seek(30),
             .pause,
             .resume,
             .state,
@@ -646,6 +682,7 @@ struct AudioKitMusicTests {
         #expect(names.contains("set_apple_music_selection"))
         #expect(!names.contains("set_music_player_source"))
         #expect(names.contains("play_apple_music"))
+        #expect(names.contains("seek_apple_music"))
         #expect(names.contains("play_music_player"))
         #expect(names.contains("pause_apple_music"))
         #expect(names.contains("resume_apple_music"))

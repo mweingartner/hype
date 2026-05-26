@@ -134,5 +134,13 @@ public struct AppKitSystemProvider: SystemProvider, Sendable {
     public func currentAppleMusicState(engine: AppleMusicPlaybackEngine) async -> String {
         await appleMusicProvider.currentPlaybackState(engine: engine)
     }
+
+    public func seekAppleMusic(to position: Double, engine: AppleMusicPlaybackEngine) async throws {
+        try await appleMusicProvider.seek(to: position, engine: engine)
+    }
+
+    public func currentAppleMusicPosition(engine: AppleMusicPlaybackEngine) async -> Double {
+        await appleMusicProvider.currentPlaybackPosition(engine: engine)
+    }
 }
 #endif
