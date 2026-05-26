@@ -1908,6 +1908,14 @@ session-only script globals without mutating the source stack. Runtime packages
 embed a self-contained SQLite `.hype` package under `Stack/Stack.hype`, write a
 `RuntimeManifest.json`, and generate shell `Info.plist`, entitlements metadata,
 App Intent descriptor JSON, and runtime-only Swift shell source.
+The generated shell uses the manifest profile id and `LayoutResolver` so the
+runtime view applies the same fixed / scale-to-fit / stretch-to-fill projection
+used by AI previews and deployment validation.
+Before export, `StackDeploymentPlanner` validates the actual parts present in
+the stack against each selected target. `TargetRuntimePackageBuilder` refuses to
+produce a runtime package when the document still contains controls unsupported
+by that target, so exported artifacts fail early with actionable part names and
+reasons rather than producing a broken standalone runtime.
 
 Each deployment plan also carries a runtime AI policy. Automatic policy maps
 iPhone and iPad runtime shells to Apple Foundation Models, maps tvOS to disabled

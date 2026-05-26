@@ -524,8 +524,13 @@ factors, safe areas, and input models differ.
 - Deployment planning produces runtime-only macOS, iPhone, iPad, and tvOS plans.
   `TargetRuntimePackageBuilder` can generate self-contained runtime package
   artifacts containing an embedded SQLite `.hype` stack plus runtime shell
-  manifest/source metadata. Deployed apps do not include edit mode, authoring
-  panels, AI/debug panels, or script-editor UI.
+  manifest/source metadata. The generated shell applies target profiles through
+  `LayoutResolver`, so runtime packages use the same fixed, scale-to-fit, or
+  stretch-to-fill projection as AI layout previews. Deployed apps do not include
+  edit mode, authoring panels, AI/debug panels, or script-editor UI. Export
+  validates the actual parts in the stack for each target and fails early with
+  unsupported part names and reasons instead of producing a broken runtime
+  package.
 - Non-macOS runtime AI is target-aware: iPhone and iPad plans default runtime
   script AI to Apple Foundation Models, tvOS marks runtime AI unavailable until
   Apple provides a supported on-device model there, and macOS keeps the

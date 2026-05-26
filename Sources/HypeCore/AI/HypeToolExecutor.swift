@@ -2404,11 +2404,26 @@ public struct HypeToolExecutor: Sendable {
             return lines.joined(separator: "\n")
 
         case "plan_stack_deployment":
-            let plans = StackDeploymentPlanner().plans(for: document)
+            let planner = StackDeploymentPlanner()
+            let plans = planner.plans(for: document)
             guard !plans.isEmpty else { return "No deployment targets are selected." }
+            let reportsByPlatform = Dictionary(
+                uniqueKeysWithValues: planner.validationReports(for: document).map { ($0.platform, $0) }
+            )
             return plans.map { plan in
                 let intentNames = plan.appIntents.map { $0.kind.rawValue }.joined(separator: ", ")
-                return "\(plan.platform.displayName): kind=\(plan.kind.rawValue), profile=\(plan.profile.id) \(plan.profile.width)x\(plan.profile.height), runtimeOnly=\(plan.runtimeOnly), authoringUI=\(plan.includesAuthoringUI), runtimeAI=\(plan.runtimeAIProviderPolicy.rawValue), appIntents=[\(intentNames)]"
+                let report = reportsByPlatform[plan.platform]
+                let validationSummary: String
+                if let report, !report.isDeployable {
+                    let issueSummary = report.issues.prefix(3).map {
+                        "\($0.partType.rawValue) \"\($0.partName)\""
+                    }.joined(separator: ", ")
+                    let more = report.issues.count > 3 ? ", plus \(report.issues.count - 3) more" : ""
+                    validationSummary = "deployable=false, unsupportedParts=[\(issueSummary)\(more)]"
+                } else {
+                    validationSummary = "deployable=true"
+                }
+                return "\(plan.platform.displayName): kind=\(plan.kind.rawValue), profile=\(plan.profile.id) \(plan.profile.width)x\(plan.profile.height), runtimeOnly=\(plan.runtimeOnly), authoringUI=\(plan.includesAuthoringUI), runtimeAI=\(plan.runtimeAIProviderPolicy.rawValue), \(validationSummary), appIntents=[\(intentNames)]"
             }.joined(separator: "\n")
 
         case "get_stack_property":

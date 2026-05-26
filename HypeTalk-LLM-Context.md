@@ -339,7 +339,9 @@ Target layout is controlled by the stack `layoutPolicy` property: `fixed`,
 `scaleToFit`, or `stretchToFill`. Use `list_target_profiles`,
 `get_part_target_availability`, `preview_layout_profile`, and
 `plan_stack_deployment` before making target-sensitive layout or deployment
-changes.
+changes. Treat `plan_stack_deployment` `deployable=false` output as a blocker:
+replace or remove unsupported parts before asking Hype to export a runtime
+package.
 
 Runtime AI settings are stack properties: `runtimeAIProviderPolicy`
 (`automatic`, `appleFoundationModels`, `disabled`), `runtimeAIToolsAllowed`,

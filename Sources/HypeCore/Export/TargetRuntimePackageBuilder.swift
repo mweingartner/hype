@@ -124,6 +124,13 @@ public struct TargetRuntimePackageBuilder {
         plan: HypeDeploymentPlan,
         at outputDirectory: URL
     ) throws -> HypeRuntimePackageResult {
+        let validation = planner.validate(document: document, for: plan)
+        guard validation.isDeployable else {
+            throw TargetRuntimePackageBuilderError.packageValidationFailed(
+                deploymentValidationMessage(validation)
+            )
+        }
+
         let packageName = try runtimePackageName(stackName: document.stack.name, platform: plan.platform)
         let finalURL = outputDirectory.appendingPathComponent(packageName, isDirectory: true)
         let tempURL = outputDirectory.appendingPathComponent(".\(packageName)-\(UUID().uuidString)", isDirectory: true)
@@ -282,6 +289,16 @@ public struct TargetRuntimePackageBuilder {
         return "\(base)-\(platform.rawValue).hyperuntime"
     }
 
+    private func deploymentValidationMessage(_ report: HypeDeploymentValidationReport) -> String {
+        let details = report.issues.prefix(5).map { issue in
+            let name = issue.partName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let label = name.isEmpty ? issue.partType.rawValue : "\(issue.partType.rawValue) \"\(name)\""
+            return "\(label): \(issue.reason)"
+        }.joined(separator: "; ")
+        let suffix = report.issues.count > 5 ? "; plus \(report.issues.count - 5) more" : ""
+        return "\(report.platform.displayName) runtime package cannot be exported because \(report.issues.count) part(s) are unsupported: \(details)\(suffix)"
+    }
+
     private func bundleIdentifier(stackName: String, platform: HypeTargetPlatform) -> String {
         let component = sanitizeIdentifier(stackName, lowercase: true).lowercased()
         let safeComponent = component.isEmpty ? "stack" : component
@@ -358,6 +375,7 @@ public struct TargetRuntimePackageBuilder {
                     HypeRuntimeRootView(
                         stackName: "\(escapedSwiftString(manifest.stackName))",
                         targetPlatform: "\(manifest.platform.rawValue)",
+                        profileId: "\(manifest.profileId)",
                         embeddedStackPath: "\(manifest.embeddedStackPath)"
                     )
                 }
@@ -367,12 +385,14 @@ public struct TargetRuntimePackageBuilder {
         struct HypeRuntimeRootView: View {
             let stackName: String
             let targetPlatform: String
+            let profileId: String
             let embeddedStackPath: String
 
             var body: some View {
                 HypeStackRuntimeShellView(
                     stackName: stackName,
                     targetPlatform: targetPlatform,
+                    profileId: profileId,
                     embeddedStackPath: embeddedStackPath
                 )
             }
@@ -381,13 +401,14 @@ public struct TargetRuntimePackageBuilder {
         struct HypeStackRuntimeShellView: View {
             let stackName: String
             let targetPlatform: String
+            let profileId: String
             let embeddedStackPath: String
             @StateObject private var model = HypeRuntimeDocumentModel()
 
             var body: some View {
                 Group {
                     if let document = model.document {
-                        HypeRuntimeCardView(document: document)
+                        HypeRuntimeCardView(document: document, profileId: profileId)
                     } else if let loadError = model.loadError {
                         Text(loadError)
                             .foregroundStyle(.red)
@@ -427,23 +448,32 @@ public struct TargetRuntimePackageBuilder {
 
         struct HypeRuntimeCardView: View {
             let document: HypeDocument
+            let profileId: String
 
             var body: some View {
                 let card = document.sortedCards.first
+                let profile = HypeDeviceProfileCatalog.profile(id: profileId) ?? document.stack.deploymentTargets.primaryProfile
+                let resolution = card.map { LayoutResolver().resolve(document: document, profile: profile, cardId: $0.id) }
                 ZStack(alignment: .topLeading) {
                     Color.white
                     if let card {
                         ForEach(document.effectivePartsForCard(card.id)) { part in
-                            HypeRuntimePartView(part: part)
+                            HypeRuntimePartView(part: part, geometry: resolution?.geometries[part.id])
                         }
                     }
                 }
-                .frame(width: CGFloat(document.stack.width), height: CGFloat(document.stack.height))
+                .frame(width: CGFloat(profile.width), height: CGFloat(profile.height))
             }
         }
 
         struct HypeRuntimePartView: View {
             let part: Part
+            let geometry: PartResolvedGeometry?
+
+            private var left: Double { geometry?.left ?? part.left }
+            private var top: Double { geometry?.top ?? part.top }
+            private var width: Double { geometry?.width ?? part.width }
+            private var height: Double { geometry?.height ?? part.height }
 
             var body: some View {
                 Group {
@@ -466,8 +496,8 @@ public struct TargetRuntimePackageBuilder {
                         Text(part.name)
                     }
                 }
-                .frame(width: CGFloat(part.width), height: CGFloat(part.height))
-                .position(x: CGFloat(part.left + part.width / 2), y: CGFloat(part.top + part.height / 2))
+                .frame(width: CGFloat(width), height: CGFloat(height))
+                .position(x: CGFloat(left + width / 2), y: CGFloat(top + height / 2))
                 .opacity(part.visible ? 1 : 0)
                 .accessibilityLabel(part.name)
             }

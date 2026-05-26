@@ -122,6 +122,48 @@ struct TargetPlatformTests {
         #expect(runtimeDocument.stack.deploymentTargets.layoutPolicy == .scaleToFit)
     }
 
+    @Test("deployment validation reports unsupported existing parts per target")
+    func deploymentValidationReportsUnsupportedExistingParts() throws {
+        var document = HypeDocument.newDocument(name: "Validation")
+        document.stack.deploymentTargets = StackDeploymentTargets(
+            selectedPlatforms: [.tvOS],
+            primaryPlatform: .tvOS,
+            selectionPromptAcknowledged: true
+        )
+        let field = Part(partType: .field, cardId: document.cards[0].id, name: "Search Term")
+        document.addPart(field)
+
+        let planner = StackDeploymentPlanner()
+        let plan = try #require(planner.plans(for: document).first)
+        let report = planner.validate(document: document, for: plan)
+
+        #expect(!report.isDeployable)
+        #expect(report.issues.count == 1)
+        #expect(report.issues.first?.partId == field.id)
+        #expect(report.issues.first?.partType == .field)
+        #expect(report.issues.first?.platform == .tvOS)
+        #expect(report.issues.first?.reason.contains("tvOS text-entry adapter") == true)
+    }
+
+    @Test("runtime package builder rejects unsupported target parts")
+    func runtimePackageBuilderRejectsUnsupportedTargetParts() throws {
+        var document = HypeDocument.newDocument(name: "Unsupported Export")
+        document.stack.deploymentTargets = StackDeploymentTargets(
+            selectedPlatforms: [.tvOS],
+            primaryPlatform: .tvOS,
+            selectionPromptAcknowledged: true
+        )
+        document.addPart(Part(partType: .field, cardId: document.cards[0].id, name: "Name Field"))
+
+        let output = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HypeUnsupportedRuntimePackageTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: output) }
+
+        #expect(throws: TargetRuntimePackageBuilderError.self) {
+            try TargetRuntimePackageBuilder().buildPackages(for: document, at: output)
+        }
+    }
+
     @Test("runtime package builder embeds self-contained stack and runtime-only shell metadata")
     func runtimePackageBuilderEmbedsSelfContainedStack() throws {
         var document = HypeDocument.newDocument(name: "Runtime Export")
@@ -167,6 +209,8 @@ struct TargetPlatformTests {
         #expect(runtimeDocument.scriptGlobals.isEmpty)
         #expect(shellSource.contains("HypeSQLiteStackStore().load"))
         #expect(shellSource.contains("HypeRuntimeCardView"))
+        #expect(shellSource.contains("LayoutResolver().resolve"))
+        #expect(shellSource.contains("profileId: \"iphone-portrait\""))
         #expect(!shellSource.contains("PropertyInspector"))
         #expect(!shellSource.contains("ScriptEditor"))
     }
@@ -221,6 +265,17 @@ struct TargetPlatformTests {
         )
         #expect(deploymentPlan.contains("macOS: kind=macOSStandalone"))
         #expect(deploymentPlan.contains("tvOS: kind=tvOSRuntimeShell"))
+        #expect(deploymentPlan.contains("deployable=true"))
+
+        document.addPart(Part(partType: .field, cardId: cardId, name: "TV Search"))
+        let blockedDeploymentPlan = await executor.execute(
+            toolName: "plan_stack_deployment",
+            arguments: [:],
+            document: &document,
+            currentCardId: cardId
+        )
+        #expect(blockedDeploymentPlan.contains("deployable=false"))
+        #expect(blockedDeploymentPlan.contains("unsupportedParts=[field \"TV Search\"]"))
 
         _ = await executor.execute(
             toolName: "set_stack_property",
