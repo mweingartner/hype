@@ -335,6 +335,12 @@ deployed apps are runtime-only. When creating content, prefer controls that are
 compatible with the stack's selected targets; do not assume macOS-only controls
 are available for iPhone, iPad, or tvOS stacks.
 
+Target layout is controlled by the stack `layoutPolicy` property: `fixed`,
+`scaleToFit`, or `stretchToFill`. Use `list_target_profiles`,
+`get_part_target_availability`, `preview_layout_profile`, and
+`plan_stack_deployment` before making target-sensitive layout or deployment
+changes.
+
 Runtime AI settings are stack properties: `runtimeAIProviderPolicy`
 (`automatic`, `appleFoundationModels`, `disabled`), `runtimeAIToolsAllowed`,
 `runtimeAIAllowedTools`, and `runtimeAIPersistTranscript`. Keep deployed-runtime

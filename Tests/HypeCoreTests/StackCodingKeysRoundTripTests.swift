@@ -113,6 +113,13 @@ struct StackCodingKeysRoundTripTests {
             webAssetsAllowed: true,
             aiContextCloudSharingAllowed: true,
             runtimeModeEnabled: true,
+            deploymentTargets: StackDeploymentTargets(
+                selectedPlatforms: [.macOS, .iPad],
+                primaryPlatform: .iPad,
+                selectionPromptAcknowledged: true,
+                supportedOrientations: [.resizable, .portrait, .landscape],
+                layoutPolicy: .scaleToFit
+            ),
             runtimeAISettings: RuntimeAISettings(
                 providerPolicy: .appleFoundationModels,
                 allowRuntimeSideEffectTools: true,
@@ -138,6 +145,9 @@ struct StackCodingKeysRoundTripTests {
         #expect(decoded.webAssetsAllowed == true)
         #expect(decoded.aiContextCloudSharingAllowed == true)
         #expect(decoded.runtimeModeEnabled == true)
+        #expect(decoded.deploymentTargets.selectedPlatforms == [.macOS, .iPad])
+        #expect(decoded.deploymentTargets.primaryPlatform == .iPad)
+        #expect(decoded.deploymentTargets.layoutPolicy == .scaleToFit)
         #expect(decoded.runtimeAISettings.providerPolicy == .appleFoundationModels)
         #expect(decoded.runtimeAISettings.allowRuntimeSideEffectTools)
         #expect(decoded.runtimeAISettings.allowedToolNames == ["set_runtime_variable"])

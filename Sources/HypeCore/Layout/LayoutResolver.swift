@@ -18,31 +18,46 @@ public struct PartResolvedGeometry: Sendable, Equatable {
 
 public struct LayoutResolution: Sendable, Equatable {
     public var profile: HypeDeviceProfile
+    public var layoutPolicy: TargetLayoutPolicy
     public var canvasWidth: Double
     public var canvasHeight: Double
     public var safeContentLeft: Double
     public var safeContentTop: Double
     public var safeContentWidth: Double
     public var safeContentHeight: Double
+    public var contentScaleX: Double
+    public var contentScaleY: Double
+    public var contentOffsetX: Double
+    public var contentOffsetY: Double
     public var geometries: [UUID: PartResolvedGeometry]
 
     public init(
         profile: HypeDeviceProfile,
+        layoutPolicy: TargetLayoutPolicy = .fixed,
         canvasWidth: Double,
         canvasHeight: Double,
         safeContentLeft: Double,
         safeContentTop: Double,
         safeContentWidth: Double,
         safeContentHeight: Double,
+        contentScaleX: Double = 1,
+        contentScaleY: Double = 1,
+        contentOffsetX: Double = 0,
+        contentOffsetY: Double = 0,
         geometries: [UUID: PartResolvedGeometry]
     ) {
         self.profile = profile
+        self.layoutPolicy = layoutPolicy
         self.canvasWidth = canvasWidth
         self.canvasHeight = canvasHeight
         self.safeContentLeft = safeContentLeft
         self.safeContentTop = safeContentTop
         self.safeContentWidth = safeContentWidth
         self.safeContentHeight = safeContentHeight
+        self.contentScaleX = contentScaleX
+        self.contentScaleY = contentScaleY
+        self.contentOffsetX = contentOffsetX
+        self.contentOffsetY = contentOffsetY
         self.geometries = geometries
     }
 }
@@ -60,23 +75,38 @@ public struct LayoutResolver: Sendable {
     public func resolve(
         parts: [Part],
         constraints: [LayoutConstraint],
-        profile: HypeDeviceProfile
+        profile: HypeDeviceProfile,
+        sourceCanvasWidth: Double? = nil,
+        sourceCanvasHeight: Double? = nil,
+        policy: TargetLayoutPolicy = .fixed
     ) -> LayoutResolution {
         let safeLeft = profile.safeArea.left
         let safeTop = profile.safeArea.top
         let safeWidth = max(1, Double(profile.width) - profile.safeArea.left - profile.safeArea.right)
         let safeHeight = max(1, Double(profile.height) - profile.safeArea.top - profile.safeArea.bottom)
+        let sourceWidth = max(1, sourceCanvasWidth ?? Double(profile.width))
+        let sourceHeight = max(1, sourceCanvasHeight ?? Double(profile.height))
+        let projection = projectionMetrics(
+            policy: policy,
+            sourceWidth: sourceWidth,
+            sourceHeight: sourceHeight,
+            safeWidth: safeWidth,
+            safeHeight: safeHeight
+        )
+        let projectedParts = parts.map { part in
+            projectedPart(part, metrics: projection)
+        }
 
         let solver = ConstraintSolver()
         let updates = solver.solve(
             constraints: constraints,
-            parts: parts,
+            parts: projectedParts,
             canvasWidth: safeWidth,
             canvasHeight: safeHeight
         )
 
         var geometries: [UUID: PartResolvedGeometry] = [:]
-        for part in parts {
+        for part in projectedParts {
             let updated = updates[part.id]
             let left = (updated?.left ?? part.left) + safeLeft
             let top = (updated?.top ?? part.top) + safeTop
@@ -91,13 +121,62 @@ public struct LayoutResolver: Sendable {
 
         return LayoutResolution(
             profile: profile,
+            layoutPolicy: policy,
             canvasWidth: Double(profile.width),
             canvasHeight: Double(profile.height),
             safeContentLeft: safeLeft,
             safeContentTop: safeTop,
             safeContentWidth: safeWidth,
             safeContentHeight: safeHeight,
+            contentScaleX: projection.scaleX,
+            contentScaleY: projection.scaleY,
+            contentOffsetX: projection.offsetX,
+            contentOffsetY: projection.offsetY,
             geometries: geometries
         )
+    }
+
+    public func resolve(document: HypeDocument, profile: HypeDeviceProfile, cardId: UUID) -> LayoutResolution {
+        let parts = document.effectivePartsForCard(cardId)
+        return resolve(
+            parts: parts,
+            constraints: document.constraints,
+            profile: profile,
+            sourceCanvasWidth: Double(document.stack.width),
+            sourceCanvasHeight: Double(document.stack.height),
+            policy: document.stack.deploymentTargets.layoutPolicy
+        )
+    }
+
+    private func projectionMetrics(
+        policy: TargetLayoutPolicy,
+        sourceWidth: Double,
+        sourceHeight: Double,
+        safeWidth: Double,
+        safeHeight: Double
+    ) -> (scaleX: Double, scaleY: Double, offsetX: Double, offsetY: Double) {
+        switch policy {
+        case .fixed:
+            return (1, 1, 0, 0)
+        case .scaleToFit:
+            let scale = min(safeWidth / sourceWidth, safeHeight / sourceHeight)
+            let renderedWidth = sourceWidth * scale
+            let renderedHeight = sourceHeight * scale
+            return (scale, scale, (safeWidth - renderedWidth) / 2, (safeHeight - renderedHeight) / 2)
+        case .stretchToFill:
+            return (safeWidth / sourceWidth, safeHeight / sourceHeight, 0, 0)
+        }
+    }
+
+    private func projectedPart(
+        _ part: Part,
+        metrics: (scaleX: Double, scaleY: Double, offsetX: Double, offsetY: Double)
+    ) -> Part {
+        var projected = part
+        projected.left = metrics.offsetX + part.left * metrics.scaleX
+        projected.top = metrics.offsetY + part.top * metrics.scaleY
+        projected.width = part.width * metrics.scaleX
+        projected.height = part.height * metrics.scaleY
+        return projected
     }
 }

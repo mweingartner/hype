@@ -45,6 +45,34 @@ public enum HypeInputModel: String, Codable, CaseIterable, Sendable, Hashable {
     case focusRemote
 }
 
+public enum TargetLayoutPolicy: String, Codable, CaseIterable, Sendable, Hashable {
+    /// Preserve persisted absolute coordinates, only offsetting into target safe areas.
+    case fixed
+    /// Uniformly scale the authored card into the target safe area and center it.
+    case scaleToFit
+    /// Scale X and Y independently so the authored card fills the target safe area.
+    case stretchToFill
+
+    public static func parse(_ raw: String) -> TargetLayoutPolicy? {
+        let normalized = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: " ", with: "")
+        switch normalized {
+        case "fixed", "absolute":
+            return .fixed
+        case "scaletofit", "fit", "uniform":
+            return .scaleToFit
+        case "stretchtofill", "stretch", "fill":
+            return .stretchToFill
+        default:
+            return nil
+        }
+    }
+}
+
 public struct HypeSafeAreaInsets: Codable, Sendable, Equatable {
     public var top: Double
     public var left: Double
@@ -179,17 +207,38 @@ public struct StackDeploymentTargets: Codable, Sendable, Equatable {
     public var primaryPlatform: HypeTargetPlatform
     public var selectionPromptAcknowledged: Bool
     public var supportedOrientations: [HypeTargetOrientation]
+    public var layoutPolicy: TargetLayoutPolicy
 
     public init(
         selectedPlatforms: [HypeTargetPlatform] = [.macOS],
         primaryPlatform: HypeTargetPlatform = .macOS,
         selectionPromptAcknowledged: Bool = false,
-        supportedOrientations: [HypeTargetOrientation] = [.resizable]
+        supportedOrientations: [HypeTargetOrientation] = [.resizable],
+        layoutPolicy: TargetLayoutPolicy = .fixed
     ) {
         self.selectedPlatforms = Self.normalized(selectedPlatforms)
         self.primaryPlatform = self.selectedPlatforms.contains(primaryPlatform) ? primaryPlatform : self.selectedPlatforms[0]
         self.selectionPromptAcknowledged = selectionPromptAcknowledged
         self.supportedOrientations = supportedOrientations.isEmpty ? [.resizable] : supportedOrientations
+        self.layoutPolicy = layoutPolicy
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case selectedPlatforms
+        case primaryPlatform
+        case selectionPromptAcknowledged
+        case supportedOrientations
+        case layoutPolicy
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        selectedPlatforms = try c.decodeIfPresent([HypeTargetPlatform].self, forKey: .selectedPlatforms) ?? [.macOS]
+        primaryPlatform = try c.decodeIfPresent(HypeTargetPlatform.self, forKey: .primaryPlatform) ?? .macOS
+        selectionPromptAcknowledged = try c.decodeIfPresent(Bool.self, forKey: .selectionPromptAcknowledged) ?? false
+        supportedOrientations = try c.decodeIfPresent([HypeTargetOrientation].self, forKey: .supportedOrientations) ?? [.resizable]
+        layoutPolicy = try c.decodeIfPresent(TargetLayoutPolicy.self, forKey: .layoutPolicy) ?? .fixed
+        normalize()
     }
 
     public static func macOSDefault(selectionPromptAcknowledged: Bool) -> StackDeploymentTargets {

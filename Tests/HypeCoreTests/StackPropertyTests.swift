@@ -117,6 +117,26 @@ struct StackPropertyTests {
         #expect(result.modifiedDocument?.stack.runtimeAISettings.persistTranscript == true)
     }
 
+    @Test func stackTargetLayoutPropertiesAreScriptable() async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        doc.cards[0].script = """
+        on openCard
+          set the targetPlatforms of stack to "macOS,iPhone,iPad"
+          set the primaryTargetPlatform of stack to "iPad"
+          set the layoutPolicy of stack to "scaleToFit"
+        end openCard
+        """
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
+            message: "openCard", params: [], targetId: cardId,
+            document: doc, currentCardId: cardId
+        ) }
+        #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
+        #expect(result.modifiedDocument?.stack.deploymentTargets.selectedPlatforms == [.macOS, .iPhone, .iPad])
+        #expect(result.modifiedDocument?.stack.deploymentTargets.primaryPlatform == .iPad)
+        #expect(result.modifiedDocument?.stack.deploymentTargets.layoutPolicy == .scaleToFit)
+    }
+
     @Test func runtimeAIStatusPropertiesAndResetSessionParse() async {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id

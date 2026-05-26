@@ -893,6 +893,17 @@ public struct HypeToolDefinitions {
             """, params: [
             "part_type": ("string", "Part type such as button, field, spriteArea, scene3D, audioRecorder, pianoKeyboard, or appleMusicBrowser.", true),
         ]),
+        makeTool(name: "preview_layout_profile", description: """
+            Preview how the current card's persisted parts resolve for a target device profile. \
+            Returns safe-area dimensions, scale/offset, and resolved part rectangles without mutating the stack. \
+            Use this before making target-specific layout changes.
+            """, params: [
+            "profile_id": ("string", "Optional profile id such as macos-default, iphone-portrait, ipad-landscape, or tvos-1080p. Defaults to the primary target profile.", false),
+        ]),
+        makeTool(name: "plan_stack_deployment", description: """
+            List the runtime-only deployment plans for the stack's selected target platforms, including runtime AI policy, profile, app intents, and shell kind. \
+            This is a planning/read-only tool; it does not write files.
+            """, params: [:]),
         makeTool(name: "get_card_parts", description: "List all parts on the current card with their properties.", params: [:]),
 
         // ------------------------------------------------------------------
@@ -1447,12 +1458,13 @@ public struct HypeToolDefinitions {
             `webAssetsAllowed` toggles the stack's AI web-asset search permission. \
             `runtimeMode` controls whether the stack opens in end-user runtime mode. \
             `runtimeAIProviderPolicy` is automatic, appleFoundationModels, or disabled for deployed runtimes. \
+            `layoutPolicy` is fixed, scaleToFit, or stretchToFill for target-profile layout previews and runtime export. \
             `aiContextCloudSharingAllowed` controls whether attached AI Context Library snippets \
             may be sent to cloud model providers for this stack. \
             `theme` accepts any theme name from `list_themes`; empty value resets to the fallback theme. \
             Use this instead of set_part_property — the stack is not a part.
             """, params: [
-            "property": ("string", "Property name: width, height, name, defaultFont, webAssetsAllowed, runtimeMode, runtimeAIProviderPolicy, runtimeAIToolsAllowed, runtimeAIAllowedTools, runtimeAIPersistTranscript, aiContextCloudSharingAllowed, theme", true),
+            "property": ("string", "Property name: width, height, name, defaultFont, webAssetsAllowed, runtimeMode, runtimeAIProviderPolicy, runtimeAIToolsAllowed, runtimeAIAllowedTools, runtimeAIPersistTranscript, targetPlatforms, primaryTargetPlatform, layoutPolicy, aiContextCloudSharingAllowed, theme", true),
             "value": ("string", "New value (numeric for width/height, string for name/defaultFont)", true),
         ]),
 
@@ -1559,6 +1571,7 @@ public struct HypeToolDefinitions {
         makeTool(name: "get_stack_property", description: """
             Read a stack-level property: name, width, height, defaultFont, script, theme, \
             webAssetsAllowed, runtimeMode, targetPlatforms, primaryTargetPlatform, \
+            layoutPolicy, \
             runtimeAIProviderPolicy, runtimeAIToolsAllowed, runtimeAIAllowedTools, runtimeAIPersistTranscript, \
             aiContextCount, aiContextSummary, aiContextCloudSharingAllowed. \
             Use this instead of get_stack_info when you only need one field.
@@ -1774,6 +1787,8 @@ public struct HypeToolDefinitions {
             "get_stack_info",
             "list_target_profiles",
             "get_part_target_availability",
+            "preview_layout_profile",
+            "plan_stack_deployment",
             // Basic part creation and mutation
             "create_button",
             "create_field",

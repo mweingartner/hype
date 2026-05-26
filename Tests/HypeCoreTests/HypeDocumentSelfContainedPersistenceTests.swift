@@ -42,6 +42,7 @@ struct HypeDocumentSelfContainedPersistenceTests {
         #expect(decoded.stack.runtimeModeEnabled)
         #expect(decoded.stack.deploymentTargets.selectedPlatforms == [.macOS, .iPad])
         #expect(decoded.stack.deploymentTargets.selectionPromptAcknowledged)
+        #expect(decoded.stack.deploymentTargets.layoutPolicy == .scaleToFit)
         #expect(decoded.stack.runtimeAISettings.providerPolicy == .appleFoundationModels)
         #expect(decoded.stack.runtimeAISettings.allowedToolNames == ["set_runtime_variable"])
         #expect(decoded.backgrounds.first?.script == document.backgrounds[0].script)
@@ -135,7 +136,8 @@ struct HypeDocumentSelfContainedPersistenceTests {
         document.stack.deploymentTargets = StackDeploymentTargets(
             selectedPlatforms: [.macOS, .iPad],
             primaryPlatform: .macOS,
-            selectionPromptAcknowledged: true
+            selectionPromptAcknowledged: true,
+            layoutPolicy: .scaleToFit
         )
         document.stack.runtimeAISettings = RuntimeAISettings(
             providerPolicy: .appleFoundationModels,

@@ -16,6 +16,8 @@ struct MenuCommandSourceTests {
         #expect(!source.contains("CommandMenu(\"View\")"))
         #expect(source.contains("CommandGroup(after: .toolbar)"))
         #expect(source.contains("Switch to Runtime Mode"))
+        #expect(source.contains("Target Platforms…"))
+        #expect(source.contains("Export Runtime Packages…"))
         #expect(source.contains("Show Console"))
     }
 

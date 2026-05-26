@@ -95,7 +95,7 @@ public enum HypeSQLiteStackStoreError: Error, LocalizedError, Equatable {
 }
 
 public final class HypeSQLiteStackStore {
-    public static let schemaVersion = 6
+    public static let schemaVersion = 7
     public static let manifestFileName = "manifest.json"
     public static let sqliteFileName = "stack.sqlite"
 
@@ -377,6 +377,7 @@ public final class HypeSQLiteStackStore {
                 width INTEGER NOT NULL,
                 height INTEGER NOT NULL,
                 input_model TEXT NOT NULL,
+                layout_policy TEXT NOT NULL,
                 document_order INTEGER NOT NULL,
                 payload_json TEXT NOT NULL,
                 PRIMARY KEY (stack_id, platform)
@@ -680,7 +681,7 @@ public final class HypeSQLiteStackStore {
         try db.execute("CREATE VIEW v_missing_asset_refs AS SELECT scene_nodes.id AS node_id, scene_nodes.name, scene_nodes.asset_id FROM scene_nodes LEFT JOIN assets ON assets.id = scene_nodes.asset_id WHERE scene_nodes.asset_id IS NOT NULL AND assets.id IS NULL")
         try db.execute("CREATE VIEW v_music_patterns AS SELECT music_patterns.name AS pattern, music_patterns.tempo, music_tracks.name AS track, music_tracks.instrument, music_tracks.document_order FROM music_patterns LEFT JOIN music_tracks ON music_tracks.pattern_id = music_patterns.id")
         try db.execute("CREATE VIEW v_apple_music_items AS SELECT title, artist, album, source_kind, item_kind, id FROM apple_music_items")
-        try db.execute("CREATE VIEW v_deployment_targets AS SELECT stacks.name AS stack, deployment_targets.platform, deployment_targets.display_name, deployment_targets.width, deployment_targets.height, deployment_targets.primary_target FROM deployment_targets JOIN stacks ON stacks.id = deployment_targets.stack_id")
+        try db.execute("CREATE VIEW v_deployment_targets AS SELECT stacks.name AS stack, deployment_targets.platform, deployment_targets.display_name, deployment_targets.width, deployment_targets.height, deployment_targets.primary_target, deployment_targets.layout_policy FROM deployment_targets JOIN stacks ON stacks.id = deployment_targets.stack_id")
         try db.execute("CREATE VIEW v_runtime_ai_settings AS SELECT stacks.name AS stack, runtime_ai_settings.provider_policy, runtime_ai_settings.allow_side_effect_tools, runtime_ai_settings.allowed_tools_text, runtime_ai_settings.persist_transcript FROM runtime_ai_settings JOIN stacks ON stacks.id = runtime_ai_settings.stack_id")
     }
 
@@ -1104,8 +1105,8 @@ public final class HypeSQLiteStackStore {
                 INSERT INTO deployment_targets (
                     stack_id, platform, primary_target, prompt_acknowledged,
                     profile_id, display_name, width, height, input_model,
-                    document_order, payload_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    layout_policy, document_order, payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     .text(stackId.uuidString),
@@ -1117,6 +1118,7 @@ public final class HypeSQLiteStackStore {
                     .int(Int64(profile.width)),
                     .int(Int64(profile.height)),
                     .text(profile.inputModel.rawValue),
+                    .text(normalized.layoutPolicy.rawValue),
                     .int(Int64(index)),
                     .text(try encode(profile)),
                 ]

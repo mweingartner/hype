@@ -875,6 +875,28 @@ public struct Interpreter: Sendable {
                         document.stack.runtimeAISettings.normalize()
                     case "runtimeaipersisttranscript", "runtime_ai_persist_transcript":
                         document.stack.runtimeAISettings.persistTranscript = isTruthy(value)
+                    case "targetplatforms", "target_platforms":
+                        let platforms = value
+                            .split(separator: ",")
+                            .compactMap { HypeTargetPlatform(rawValue: $0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                        if !platforms.isEmpty {
+                            document.stack.deploymentTargets = StackDeploymentTargets(
+                                selectedPlatforms: platforms,
+                                primaryPlatform: document.stack.deploymentTargets.primaryPlatform,
+                                selectionPromptAcknowledged: true,
+                                supportedOrientations: document.stack.deploymentTargets.supportedOrientations,
+                                layoutPolicy: document.stack.deploymentTargets.layoutPolicy
+                            )
+                        }
+                    case "primarytargetplatform", "primary_target_platform":
+                        if let platform = HypeTargetPlatform(rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines)),
+                           document.stack.deploymentTargets.selectedPlatforms.contains(platform) {
+                            document.stack.deploymentTargets.primaryPlatform = platform
+                        }
+                    case "layoutpolicy", "targetlayoutpolicy", "target_layout_policy":
+                        if let policy = TargetLayoutPolicy.parse(value) {
+                            document.stack.deploymentTargets.layoutPolicy = policy
+                        }
                     case "theme", "themename", "theme_name":
                         // Empty / `the empty` resets to the built-in
                         // fallback so the cascade always terminates.
@@ -3347,6 +3369,12 @@ public struct Interpreter: Sendable {
                 return document.stack.runtimeAISettings.allowedToolNames.joined(separator: ",")
             case "runtimeaipersisttranscript", "runtime_ai_persist_transcript":
                 return String(document.stack.runtimeAISettings.persistTranscript)
+            case "targetplatforms", "target_platforms":
+                return document.stack.deploymentTargets.selectedPlatforms.map(\.rawValue).joined(separator: ",")
+            case "primarytargetplatform", "primary_target_platform":
+                return document.stack.deploymentTargets.primaryPlatform.rawValue
+            case "layoutpolicy", "targetlayoutpolicy", "target_layout_policy":
+                return document.stack.deploymentTargets.layoutPolicy.rawValue
             // Theme is non-optional on the stack — always returns a name.
             case "theme", "themename", "theme_name":
                 return document.stack.themeName

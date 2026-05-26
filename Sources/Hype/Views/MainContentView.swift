@@ -283,6 +283,12 @@ struct MainContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .toggleObjectsPanel)) { _ in
             objectsPanelVisible.toggle()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .showTargetPlatforms)) { _ in
+            showTargetSelectionSheet = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .exportRuntimePackages)) { _ in
+            exportRuntimePackages()
+        }
         .onChange(of: document.document.stack.deploymentTargets.selectedPlatforms) { _, platforms in
             if let partType = ObjectToolCatalog.createdPartType(for: currentTool),
                !PartAvailabilityCatalog.supports(partType, across: platforms) {
@@ -510,6 +516,35 @@ struct MainContentView: View {
                     $0.width = geom.width
                     $0.height = geom.height
                 }
+            }
+        }
+    }
+
+    private func exportRuntimePackages() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Runtime Package Export Folder"
+        panel.prompt = "Export"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.begin { response in
+            guard response == .OK, let directory = panel.url else { return }
+            do {
+                let results = try TargetRuntimePackageBuilder().buildPackages(
+                    for: document.document,
+                    at: directory
+                )
+                let packageNames = results.map { $0.packageURL.lastPathComponent }.joined(separator: ", ")
+                HypeLogger.shared.info(
+                    "Exported runtime package artifacts: \(packageNames)",
+                    source: "TargetRuntimePackageBuilder"
+                )
+            } catch {
+                HypeLogger.shared.error(
+                    "Runtime package export failed: \(error.localizedDescription)",
+                    source: "TargetRuntimePackageBuilder"
+                )
             }
         }
     }

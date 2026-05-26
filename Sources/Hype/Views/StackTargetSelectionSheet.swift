@@ -7,6 +7,7 @@ struct StackTargetSelectionSheet: View {
 
     @State private var selectedPlatforms: Set<HypeTargetPlatform>
     @State private var primaryPlatform: HypeTargetPlatform
+    @State private var layoutPolicy: TargetLayoutPolicy
 
     init(document: Binding<HypeDocumentWrapper>) {
         self._document = document
@@ -14,6 +15,7 @@ struct StackTargetSelectionSheet: View {
         let selected = Set(targets.selectedPlatforms.isEmpty ? [.macOS] : targets.selectedPlatforms)
         self._selectedPlatforms = State(initialValue: selected)
         self._primaryPlatform = State(initialValue: selected.contains(targets.primaryPlatform) ? targets.primaryPlatform : .macOS)
+        self._layoutPolicy = State(initialValue: targets.layoutPolicy)
     }
 
     var body: some View {
@@ -43,6 +45,13 @@ struct StackTargetSelectionSheet: View {
                 ForEach(HypeTargetPlatform.allCases.filter { selectedPlatforms.contains($0) }) { platform in
                     Text(platform.displayName).tag(platform)
                 }
+            }
+            .pickerStyle(.menu)
+
+            Picker("Layout behavior", selection: $layoutPolicy) {
+                Text("Fixed positions").tag(TargetLayoutPolicy.fixed)
+                Text("Scale to fit").tag(TargetLayoutPolicy.scaleToFit)
+                Text("Stretch to fill").tag(TargetLayoutPolicy.stretchToFill)
             }
             .pickerStyle(.menu)
 
@@ -105,7 +114,8 @@ struct StackTargetSelectionSheet: View {
             selectedPlatforms: ordered,
             primaryPlatform: primary,
             selectionPromptAcknowledged: true,
-            supportedOrientations: orientations(for: ordered)
+            supportedOrientations: orientations(for: ordered),
+            layoutPolicy: normalizedLayoutPolicy(for: ordered)
         )
         targets.normalize()
 
@@ -128,6 +138,13 @@ struct StackTargetSelectionSheet: View {
         return Array(Set(result)).sorted { lhs, rhs in
             HypeTargetOrientation.allCases.firstIndex(of: lhs)! < HypeTargetOrientation.allCases.firstIndex(of: rhs)!
         }
+    }
+
+    private func normalizedLayoutPolicy(for platforms: [HypeTargetPlatform]) -> TargetLayoutPolicy {
+        if platforms == [.macOS], layoutPolicy == .scaleToFit {
+            return .fixed
+        }
+        return layoutPolicy
     }
 }
 

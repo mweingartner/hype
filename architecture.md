@@ -228,7 +228,8 @@ hype-v2/
 │       └── Export/
 │           ├── DocumentExporter.swift     # JSON / single-file HTML export
 │           ├── DeploymentAppIntentDescriptor.swift # Runtime App Intent descriptors
-│           └── StackDeploymentPlanner.swift # Runtime-only platform deployment plans
+│           ├── StackDeploymentPlanner.swift # Runtime-only platform deployment plans
+│           └── TargetRuntimePackageBuilder.swift # Self-contained runtime package artifacts
 ├── TestStacks/
 │   └── PacmanAccessibilityTestbed.hype # Generated SpriteKit-heavy UI automation stack
 ├── Tests/HypeCoreTests/            # Model, script, async runtime, AI, export
@@ -1876,12 +1877,16 @@ Target-aware layout begins with `HypeDeviceProfileCatalog`,
 `PartAvailabilityCatalog`, and `LayoutResolver`. A device profile supplies the
 logical target size, safe areas, and input model. The object panel filters
 creation controls using strict selected-target intersection: a control appears
-only when it is usable on every platform selected for the stack. `LayoutResolver`
-projects persisted part geometry and explicit constraints into a target profile
-without storing live platform views. The View menu's **Emulate Target Device**
-command constrains the canvas to a standard target profile; edits made while
-emulating are ordinary document edits and are saved immediately through the
-same mutation path as non-emulated edits.
+only when it is usable on every platform selected for the stack.
+`StackDeploymentTargets.layoutPolicy` controls target projection: `fixed`
+preserves absolute coordinates, `scaleToFit` uniformly scales and centers the
+authored card inside the target safe area, and `stretchToFill` scales each axis
+independently. `LayoutResolver` projects persisted part geometry and explicit
+constraints into a target profile without storing live platform views. The View
+menu's **Target Platforms…** command edits target/platform policy; **Emulate
+Target Device** constrains the canvas to a standard target profile. Edits made
+while emulating are ordinary document edits and are saved immediately through
+the same mutation path as non-emulated edits.
 
 `AlignmentEngine` computes higher-affinity targets for edges, centers, canvas
 center, 20-point canvas margins, and typographic baselines for text-bearing
@@ -1892,14 +1897,17 @@ axis.
 
 ### 6.5.1 Deployment runtime
 
-Deployment planning is modeled by `StackDeploymentPlanner`. The current
-implemented shell is macOS-first, but the plan object already distinguishes
-macOS standalone, iPhone runtime shell, iPad runtime shell, and tvOS runtime
-shell outputs. Deployed stacks are runtime-only: no object palette, property
-inspector, script editor, AI/debug panels, or edit-mode toggle are included in
-the deployed runtime shell. The planner prepares a runtime document by enabling
-`stack.runtimeModeEnabled` and clearing session-only script globals without
-mutating the source stack.
+Deployment planning is modeled by `StackDeploymentPlanner`, and deterministic
+runtime-package artifacts are produced by `TargetRuntimePackageBuilder`. The
+plan object distinguishes macOS standalone, iPhone runtime shell, iPad runtime
+shell, and tvOS runtime shell outputs. Deployed stacks are runtime-only: no
+object palette, property inspector, script editor, AI/debug panels, or edit-mode
+toggle are included in the deployed runtime shell. The planner prepares a
+runtime document by enabling `stack.runtimeModeEnabled` and clearing
+session-only script globals without mutating the source stack. Runtime packages
+embed a self-contained SQLite `.hype` package under `Stack/Stack.hype`, write a
+`RuntimeManifest.json`, and generate shell `Info.plist`, entitlements metadata,
+App Intent descriptor JSON, and runtime-only Swift shell source.
 
 Each deployment plan also carries a runtime AI policy. Automatic policy maps
 iPhone and iPad runtime shells to Apple Foundation Models, maps tvOS to disabled

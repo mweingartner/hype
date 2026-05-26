@@ -177,6 +177,16 @@ struct ViewMenuCommands: Commands {
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
 
+            Button("Target Platforms…") {
+                NotificationCenter.default.post(name: .showTargetPlatforms, object: nil)
+            }
+            .help("Choose the stack's deployment targets and primary design target")
+
+            Button("Export Runtime Packages…") {
+                NotificationCenter.default.post(name: .exportRuntimePackages, object: nil)
+            }
+            .help("Generate runtime-only package artifacts for the selected target platforms")
+
             Menu("Emulate Target Device") {
                 Button("Off") {
                     NotificationCenter.default.post(name: .setTargetEmulation, object: nil, userInfo: ["profileId": ""])
@@ -262,6 +272,8 @@ extension Notification.Name {
     static let openAIContextLibrary = Notification.Name("openAIContextLibrary")
     static let toggleRuntimeMode = Notification.Name("toggleRuntimeMode")
     static let toggleObjectsPanel = Notification.Name("toggleObjectsPanel")
+    static let showTargetPlatforms = Notification.Name("showTargetPlatforms")
+    static let exportRuntimePackages = Notification.Name("exportRuntimePackages")
     static let setTargetEmulation = Notification.Name("setTargetEmulation")
     static let haltAIChat = Notification.Name("haltAIChat")
     /// Posted by `CardCanvasView.Coordinator` when a HypeTalk runtime

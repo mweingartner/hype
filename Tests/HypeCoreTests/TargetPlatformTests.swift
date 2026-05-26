@@ -54,13 +54,54 @@ struct TargetPlatformTests {
         #expect(geometry.left == 90.0 + 1740.0 - 20.0 - 88.0)
     }
 
+    @Test("layout resolver scales authored card into target safe area")
+    func layoutResolverScalesAuthoredCardIntoTargetSafeArea() throws {
+        let cardId = UUID()
+        let part = Part(partType: .button, cardId: cardId, left: 400, top: 300, width: 100, height: 50)
+        let profile = HypeDeviceProfileCatalog.defaultProfile(for: .iPhone)
+
+        let resolution = LayoutResolver().resolve(
+            parts: [part],
+            constraints: [],
+            profile: profile,
+            sourceCanvasWidth: 800,
+            sourceCanvasHeight: 600,
+            policy: .scaleToFit
+        )
+        let geometry = try #require(resolution.geometries[part.id])
+
+        #expect(resolution.layoutPolicy == .scaleToFit)
+        #expect(abs(resolution.contentScaleX - 0.49125) < 0.001)
+        #expect(abs(geometry.left - 196.5) < 0.1)
+        #expect(abs(geometry.top - 438.5) < 0.1)
+        #expect(abs(geometry.width - 49.125) < 0.1)
+    }
+
+    @Test("deployment targets decode missing layoutPolicy as fixed")
+    func deploymentTargetsDecodeMissingLayoutPolicy() throws {
+        let json = """
+        {
+          "selectedPlatforms": ["macOS", "iPhone"],
+          "primaryPlatform": "macOS",
+          "selectionPromptAcknowledged": true,
+          "supportedOrientations": ["resizable", "portrait"]
+        }
+        """.data(using: .utf8)!
+
+        let targets = try JSONDecoder().decode(StackDeploymentTargets.self, from: json)
+
+        #expect(targets.layoutPolicy == .fixed)
+        #expect(targets.selectedPlatforms == [.macOS, .iPhone])
+    }
+
     @Test("deployment planner creates runtime-only platform plans")
     func deploymentPlannerCreatesRuntimeOnlyPlans() {
         var document = HypeDocument.newDocument(name: "Deployable")
         document.stack.deploymentTargets = StackDeploymentTargets(
             selectedPlatforms: [.macOS, .iPhone, .iPad, .tvOS],
             primaryPlatform: .macOS,
-            selectionPromptAcknowledged: true
+            selectionPromptAcknowledged: true,
+            layoutPolicy: .scaleToFit
         )
         document.stack.runtimeModeEnabled = false
         document.scriptGlobals["session"] = "temporary"
@@ -78,6 +119,56 @@ struct TargetPlatformTests {
         let runtimeDocument = planner.runtimeDocument(forDeployment: document)
         #expect(runtimeDocument.stack.runtimeModeEnabled)
         #expect(runtimeDocument.scriptGlobals.isEmpty)
+        #expect(runtimeDocument.stack.deploymentTargets.layoutPolicy == .scaleToFit)
+    }
+
+    @Test("runtime package builder embeds self-contained stack and runtime-only shell metadata")
+    func runtimePackageBuilderEmbedsSelfContainedStack() throws {
+        var document = HypeDocument.newDocument(name: "Runtime Export")
+        document.stack.deploymentTargets = StackDeploymentTargets(
+            selectedPlatforms: [.iPhone],
+            primaryPlatform: .iPhone,
+            selectionPromptAcknowledged: true,
+            supportedOrientations: [.portrait, .landscape],
+            layoutPolicy: .scaleToFit
+        )
+        document.stack.runtimeModeEnabled = false
+        document.scriptGlobals["draft"] = "not persisted"
+        let button = Part(partType: .button, cardId: document.cards[0].id, name: "Start")
+        document.addPart(button)
+
+        let output = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HypeRuntimePackageTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: output) }
+
+        let result = try TargetRuntimePackageBuilder().buildPackages(for: document, at: output).first
+        let package = try #require(result)
+        let manifest = try TargetRuntimePackageBuilder().validatePackage(at: package.packageURL)
+        let embeddedStackURL = package.packageURL
+            .appendingPathComponent(TargetRuntimePackageBuilder.stackDirectoryName, isDirectory: true)
+            .appendingPathComponent(TargetRuntimePackageBuilder.embeddedStackName, isDirectory: true)
+        let runtimeDocument = try HypeSQLiteStackStore().load(fromPackageAt: embeddedStackURL)
+        let shellSource = try String(
+            contentsOf: package.packageURL
+                .appendingPathComponent(TargetRuntimePackageBuilder.shellDirectoryName, isDirectory: true)
+                .appendingPathComponent("Sources", isDirectory: true)
+                .appendingPathComponent("HypeRuntimeApp.swift"),
+            encoding: .utf8
+        )
+
+        #expect(manifest.platform == .iPhone)
+        #expect(manifest.runtimeOnly)
+        #expect(!manifest.includesAuthoringUI)
+        #expect(manifest.layoutPolicy == .scaleToFit)
+        #expect(manifest.runtimeAIProviderPolicy == .appleFoundationModels)
+        #expect(manifest.appIntentKinds.contains(.askStackAI))
+        #expect(manifest.embeddedStackPath == "Stack/Stack.hype")
+        #expect(runtimeDocument.stack.runtimeModeEnabled)
+        #expect(runtimeDocument.scriptGlobals.isEmpty)
+        #expect(shellSource.contains("HypeSQLiteStackStore().load"))
+        #expect(shellSource.contains("HypeRuntimeCardView"))
+        #expect(!shellSource.contains("PropertyInspector"))
+        #expect(!shellSource.contains("ScriptEditor"))
     }
 
     @Test("AI tools expose target profile and availability queries")
@@ -113,6 +204,24 @@ struct TargetPlatformTests {
         #expect(availability.contains("field: not available"))
         #expect(availability.contains("tvOS: unsupported"))
 
+        let layoutPreview = await executor.execute(
+            toolName: "preview_layout_profile",
+            arguments: ["profile_id": "tvos-1080p"],
+            document: &document,
+            currentCardId: cardId
+        )
+        #expect(layoutPreview.contains("Layout preview for tvOS 1080p"))
+        #expect(layoutPreview.contains("policy=fixed"))
+
+        let deploymentPlan = await executor.execute(
+            toolName: "plan_stack_deployment",
+            arguments: [:],
+            document: &document,
+            currentCardId: cardId
+        )
+        #expect(deploymentPlan.contains("macOS: kind=macOSStandalone"))
+        #expect(deploymentPlan.contains("tvOS: kind=tvOSRuntimeShell"))
+
         _ = await executor.execute(
             toolName: "set_stack_property",
             arguments: ["property": "targetPlatforms", "value": "macOS,iPhone,iPad"],
@@ -126,6 +235,20 @@ struct TargetPlatformTests {
             currentCardId: cardId
         )
         #expect(targetPlatforms == "macOS,iPhone,iPad")
+
+        _ = await executor.execute(
+            toolName: "set_stack_property",
+            arguments: ["property": "layoutPolicy", "value": "scaleToFit"],
+            document: &document,
+            currentCardId: cardId
+        )
+        let layoutPolicy = await executor.execute(
+            toolName: "get_stack_property",
+            arguments: ["property": "layoutPolicy"],
+            document: &document,
+            currentCardId: cardId
+        )
+        #expect(layoutPolicy == "scaleToFit")
 
         _ = await executor.execute(
             toolName: "set_stack_property",

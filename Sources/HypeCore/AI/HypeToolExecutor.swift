@@ -2382,6 +2382,35 @@ public struct HypeToolExecutor: Sendable {
             }
             return lines.joined(separator: "\n")
 
+        case "preview_layout_profile":
+            let profileId = arguments["profile_id"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let profile = profileId.flatMap { $0.isEmpty ? nil : HypeDeviceProfileCatalog.profile(id: $0) }
+                ?? document.stack.deploymentTargets.primaryProfile
+            let resolution = LayoutResolver().resolve(document: document, profile: profile, cardId: currentCardId)
+            let parts = document.effectivePartsForCard(currentCardId).sorted { $0.sortKey < $1.sortKey }
+            var lines: [String] = [
+                "Layout preview for \(profile.displayName) (\(profile.id)):",
+                "policy=\(resolution.layoutPolicy.rawValue), canvas=\(Int(resolution.canvasWidth))x\(Int(resolution.canvasHeight)), safe=\(Int(resolution.safeContentWidth))x\(Int(resolution.safeContentHeight)) at \(Int(resolution.safeContentLeft)),\(Int(resolution.safeContentTop))",
+                "scale=\(Self.formatNumber(resolution.contentScaleX))x\(Self.formatNumber(resolution.contentScaleY)), offset=\(Self.formatNumber(resolution.contentOffsetX)),\(Self.formatNumber(resolution.contentOffsetY))",
+            ]
+            if parts.isEmpty {
+                lines.append("No parts on the current card/background.")
+            } else {
+                for part in parts {
+                    guard let geometry = resolution.geometries[part.id] else { continue }
+                    lines.append("- \(part.partType.rawValue) \"\(part.name)\": left=\(Self.formatNumber(geometry.left)), top=\(Self.formatNumber(geometry.top)), width=\(Self.formatNumber(geometry.width)), height=\(Self.formatNumber(geometry.height))")
+                }
+            }
+            return lines.joined(separator: "\n")
+
+        case "plan_stack_deployment":
+            let plans = StackDeploymentPlanner().plans(for: document)
+            guard !plans.isEmpty else { return "No deployment targets are selected." }
+            return plans.map { plan in
+                let intentNames = plan.appIntents.map { $0.kind.rawValue }.joined(separator: ", ")
+                return "\(plan.platform.displayName): kind=\(plan.kind.rawValue), profile=\(plan.profile.id) \(plan.profile.width)x\(plan.profile.height), runtimeOnly=\(plan.runtimeOnly), authoringUI=\(plan.includesAuthoringUI), runtimeAI=\(plan.runtimeAIProviderPolicy.rawValue), appIntents=[\(intentNames)]"
+            }.joined(separator: "\n")
+
         case "get_stack_property":
             let property = arguments["property"] ?? ""
             switch property.lowercased() {
@@ -2411,6 +2440,8 @@ public struct HypeToolExecutor: Sendable {
                 return document.stack.deploymentTargets.selectedPlatforms.map(\.rawValue).joined(separator: ",")
             case "primarytargetplatform", "primary_target_platform":
                 return document.stack.deploymentTargets.primaryPlatform.rawValue
+            case "layoutpolicy", "targetlayoutpolicy", "target_layout_policy":
+                return document.stack.deploymentTargets.layoutPolicy.rawValue
             case "aicontextcount", "ai_context_count", "contextcount", "context_count":
                 return String(document.aiContextLibrary.itemCount)
             case "aicontextsummary", "ai_context_summary", "contextsummary", "context_summary":
@@ -2426,7 +2457,7 @@ public struct HypeToolExecutor: Sendable {
             case "theme":
                 return document.stack.themeName
             default:
-                return "Unknown stack property '\(property)'. Valid: id, name, width, height, defaultFont, webAssetsAllowed, runtimeMode, runtimeAIProviderPolicy, runtimeAIToolsAllowed, runtimeAIAllowedTools, runtimeAIPersistTranscript, targetPlatforms, primaryTargetPlatform, aiContextCount, aiContextSummary, aiContextCloudSharingAllowed, cardCount, backgroundCount, script, theme"
+                return "Unknown stack property '\(property)'. Valid: id, name, width, height, defaultFont, webAssetsAllowed, runtimeMode, runtimeAIProviderPolicy, runtimeAIToolsAllowed, runtimeAIAllowedTools, runtimeAIPersistTranscript, targetPlatforms, primaryTargetPlatform, layoutPolicy, aiContextCount, aiContextSummary, aiContextCloudSharingAllowed, cardCount, backgroundCount, script, theme"
             }
 
         case "get_card_property":
@@ -4249,7 +4280,8 @@ public struct HypeToolExecutor: Sendable {
                     selectedPlatforms: platforms,
                     primaryPlatform: document.stack.deploymentTargets.primaryPlatform,
                     selectionPromptAcknowledged: true,
-                    supportedOrientations: document.stack.deploymentTargets.supportedOrientations
+                    supportedOrientations: document.stack.deploymentTargets.supportedOrientations,
+                    layoutPolicy: document.stack.deploymentTargets.layoutPolicy
                 )
             case "primarytargetplatform", "primary_target_platform":
                 guard let platform = HypeTargetPlatform(rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines)) else {
@@ -4259,11 +4291,16 @@ public struct HypeToolExecutor: Sendable {
                     return "Primary target \(platform.rawValue) is not in targetPlatforms"
                 }
                 document.stack.deploymentTargets.primaryPlatform = platform
+            case "layoutpolicy", "targetlayoutpolicy", "target_layout_policy":
+                guard let policy = TargetLayoutPolicy.parse(value) else {
+                    return "Invalid value for layoutPolicy: '\(value)' (expected fixed, scaleToFit, or stretchToFill)"
+                }
+                document.stack.deploymentTargets.layoutPolicy = policy
             case "theme", "themename", "theme_name":
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 document.stack.themeName = trimmed.isEmpty ? BuiltInThemes.fallbackName : trimmed
             default:
-                return "Unknown stack property '\(property)'. Valid: width, height, name, defaultFont, webAssetsAllowed, runtimeMode, runtimeAIProviderPolicy, runtimeAIToolsAllowed, runtimeAIAllowedTools, runtimeAIPersistTranscript, targetPlatforms, primaryTargetPlatform, aiContextCloudSharingAllowed, theme"
+                return "Unknown stack property '\(property)'. Valid: width, height, name, defaultFont, webAssetsAllowed, runtimeMode, runtimeAIProviderPolicy, runtimeAIToolsAllowed, runtimeAIAllowedTools, runtimeAIPersistTranscript, targetPlatforms, primaryTargetPlatform, layoutPolicy, aiContextCloudSharingAllowed, theme"
             }
             return "Set \(property) of stack to \(value)"
 
@@ -5827,5 +5864,12 @@ public struct HypeToolExecutor: Sendable {
             HypeLogger.shared.error("STL conversion failed: unknown error", source: "HypeToolExecutor")
             return ""
         }
+    }
+
+    private static func formatNumber(_ value: Double) -> String {
+        if value.rounded() == value {
+            return String(Int(value))
+        }
+        return String(format: "%.2f", value)
     }
 }
