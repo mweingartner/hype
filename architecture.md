@@ -1165,6 +1165,7 @@ public struct Asset: Identifiable, Codable, Sendable {
     public var animationClips: [AnimationClip] // frame indices → fps + loops
     public var files: [AssetFile]              // related embedded media files
     public var metadata: [AssetMetadataEntry]  // JSON/text/scalar metadata
+    public var compilation: AssetCompilation?  // source/runtime compile links
     // Tile-set classification (kind == .tileSet)
     public var tileWidth, tileHeight, tileColumns, tileRows: Int
     // Origin / license tracking (set when the AI imports from web search)
@@ -1215,6 +1216,16 @@ palette/style data without inventing a new schema for every source format.
 This lets the Asset Repository represent one logical item such as a model plus
 animations and textures, or a legacy palette plus metadata and multiple preview
 images.
+
+Asset compilation is modeled as repository metadata, not hard-coded conversion
+state. `AssetCompilation` records whether an asset is a source, runtime output,
+or intermediate, the source/runtime `AssetRef` links, compiler identifier and
+version, operation name, source/options fingerprints, timestamp, and diagnostics.
+This gives importers and runtime compilers one hook for extensible conversions
+such as GLB -> USDZ, layered texture -> flattened runtime image, palette ->
+preview textures, or sprite sheet -> packed atlas. The source asset remains the
+authoring record; compiled runtime assets can be regenerated or invalidated
+from the stored link and fingerprints.
 
 ### 4.2 AI Context Library
 

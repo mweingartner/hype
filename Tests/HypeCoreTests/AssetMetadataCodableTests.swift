@@ -128,4 +128,82 @@ struct AssetMetadataCodableTests {
         #expect(asset.isRigged == true,
                 "Decoder invariant: animationActionId != nil forces isRigged = true")
     }
+
+    @Test("asset compilation metadata round-trips through Codable")
+    func assetCompilationRoundTrips() throws {
+        let sourceId = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let runtimeId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        let runtimeRef = AssetRef(id: runtimeId, name: "hero-runtime.usdz", mimeType: "model/vnd.usdz+zip")
+        let compiledAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let original = Asset(
+            id: sourceId,
+            name: "hero-source.glb",
+            kind: .model3D,
+            mimeType: "model/gltf-binary",
+            data: Data([0x67, 0x6C, 0x54, 0x46]),
+            compilation: AssetCompilation(
+                role: .source,
+                runtimeAssetRefs: [runtimeRef],
+                operation: "model3d.usdz",
+                compilerIdentifier: "hype.scene3d",
+                compilerVersion: "1",
+                sourceFingerprint: "sha256:source",
+                optionsFingerprint: "sha256:options",
+                compiledAt: compiledAt,
+                diagnostics: ["used fallback material"]
+            )
+        )
+
+        let encoded = try encoder.encode(original)
+        let decoded = try decoder.decode(Asset.self, from: encoded)
+
+        #expect(decoded.compilation?.role == .source)
+        #expect(decoded.compilation?.runtimeAssetRefs.first?.id == runtimeId)
+        #expect(decoded.compilation?.operation == "model3d.usdz")
+        #expect(decoded.compilation?.compilerIdentifier == "hype.scene3d")
+        #expect(decoded.compilation?.sourceFingerprint == "sha256:source")
+        #expect(decoded.compilation?.optionsFingerprint == "sha256:options")
+        #expect(decoded.compilation?.compiledAt == compiledAt)
+        #expect(decoded.compilation?.diagnostics == ["used fallback material"])
+    }
+
+    @Test("repository links compiled runtime asset to source asset")
+    func repositoryLinksCompiledRuntimeAssetToSourceAsset() throws {
+        let source = Asset(
+            id: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!,
+            name: "ship-source.glb",
+            kind: .model3D,
+            mimeType: "model/gltf-binary",
+            data: Data([0x67, 0x6C, 0x54, 0x46])
+        )
+        let runtime = Asset(
+            id: UUID(uuidString: "44444444-4444-4444-4444-444444444444")!,
+            name: "ship-runtime.usdz",
+            kind: .model3D,
+            mimeType: "model/vnd.usdz+zip",
+            data: Data([0x55, 0x53, 0x44, 0x5A])
+        )
+        let compiledAt = Date(timeIntervalSince1970: 1_700_000_100)
+        var repository = AssetRepository(assets: [source, runtime])
+
+        repository.linkCompiledAsset(
+            sourceAssetId: source.id,
+            runtimeAssetId: runtime.id,
+            operation: "model3d.usdz",
+            compilerIdentifier: "hype.scene3d",
+            compilerVersion: "1",
+            sourceFingerprint: "sha256:source",
+            optionsFingerprint: "sha256:options",
+            compiledAt: compiledAt
+        )
+
+        let updatedSource = try #require(repository.asset(byId: source.id))
+        let updatedRuntime = try #require(repository.asset(byId: runtime.id))
+        #expect(updatedSource.compilation?.role == .source)
+        #expect(updatedSource.compilation?.runtimeAssetRefs.first?.id == runtime.id)
+        #expect(updatedRuntime.compilation?.role == .runtime)
+        #expect(updatedRuntime.compilation?.sourceAssetRef?.id == source.id)
+        #expect(repository.runtimeAssets(compiledFrom: source.id).map(\.id) == [runtime.id])
+        #expect(repository.sourceAsset(forRuntimeAssetId: runtime.id)?.id == source.id)
+    }
 }

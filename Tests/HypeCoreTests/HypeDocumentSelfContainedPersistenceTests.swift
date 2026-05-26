@@ -59,6 +59,10 @@ struct HypeDocumentSelfContainedPersistenceTests {
         #expect(decoded.assetRepository.asset(byName: "hero")?.files.first?.role == .palette)
         #expect(decoded.assetRepository.asset(byName: "hero")?.files.first?.data == Data([4, 5, 6]))
         #expect(decoded.assetRepository.asset(byName: "hero")?.metadata.first?.key == "legacy-resource")
+        let sourceModel = try #require(decoded.assetRepository.asset(byName: "source-model.glb"))
+        let runtimeModel = try #require(decoded.assetRepository.asset(byName: "runtime-model.usdz"))
+        #expect(decoded.assetRepository.runtimeAssets(compiledFrom: sourceModel.id).map(\.id) == [runtimeModel.id])
+        #expect(decoded.assetRepository.sourceAsset(forRuntimeAssetId: runtimeModel.id)?.id == sourceModel.id)
         #expect(decoded.aiContextLibrary.itemCount == 1)
         #expect(decoded.aiContextLibrary.items.first?.data?.isEmpty == false)
         #expect(decoded.aiPromptHistory == document.aiPromptHistory)
@@ -274,6 +278,30 @@ struct HypeDocumentSelfContainedPersistenceTests {
                 )
             ]
         ))
+        let sourceModel = Asset(
+            name: "source-model.glb",
+            kind: .model3D,
+            mimeType: "model/gltf-binary",
+            data: Data([0x67, 0x6C, 0x54, 0x46])
+        )
+        let runtimeModel = Asset(
+            name: "runtime-model.usdz",
+            kind: .model3D,
+            mimeType: "model/vnd.usdz+zip",
+            data: Data([0x55, 0x53, 0x44, 0x5A])
+        )
+        document.assetRepository.addAsset(sourceModel)
+        document.assetRepository.addAsset(runtimeModel)
+        document.assetRepository.linkCompiledAsset(
+            sourceAssetId: sourceModel.id,
+            runtimeAssetId: runtimeModel.id,
+            operation: "model3d.usdz",
+            compilerIdentifier: "hype.scene3d",
+            compilerVersion: "1",
+            sourceFingerprint: "sha256:source-model",
+            optionsFingerprint: "sha256:default",
+            compiledAt: Date(timeIntervalSince1970: 1_700_000_200)
+        )
 
         let context = AIContextIngestor.makeTextNote(
             title: "Design Notes",

@@ -28,6 +28,10 @@ is implemented.
   `Asset.files` for related media such as textures, masks, animations, skeletons,
   previews, and metadata files, and `Asset.metadata` for typed JSON/text/scalar
   records.
+- When conversion produces a distinct runtime asset from an author/source asset,
+  record the relationship in `Asset.compilation`: the source asset lists runtime
+  outputs, and the runtime asset points back to the source with converter
+  identity, operation, fingerprints, timestamp, and diagnostics.
 - Do not automatically place a resource on a card unless the stack structure,
   AddColor data, PICT placement evidence, or a future explicit importer rule
   identifies where it belongs.
@@ -82,10 +86,12 @@ active Hype content.
    diagnostics in provenance.
 3. Preserve metadata JSON or typed values in legacy import metadata, linked to
    any derived media asset through a stable artifact id.
-4. Instantiate Hype parts only when a deterministic placement rule exists.
-5. Add focused tests for safe decoding, duplicate names, malformed resources,
+4. If the converted media is a runtime derivative of another asset, call the
+   repository compilation-link hook so source and runtime assets stay connected.
+5. Instantiate Hype parts only when a deterministic placement rule exists.
+6. Add focused tests for safe decoding, duplicate names, malformed resources,
    oversized payload rejection, asset provenance, and storage round trip.
-6. Update
+7. Update
    [`HyperCardImportAndXCMDCompatibility.md`](HyperCardImportAndXCMDCompatibility.md)
    when the family becomes user-visible import behavior.
 

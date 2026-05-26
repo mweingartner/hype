@@ -74,6 +74,14 @@ these optional fields does not require a schema version bump; normalized
 projections can be added later if compound-file search or validation needs
 first-class SQL tables.
 
+Asset compilation links also live in `assets.payload_json`. `Asset.compilation`
+connects author/source assets to compiler-generated runtime assets through
+stable `AssetRef` values plus compiler identity, operation, fingerprints,
+timestamp, and diagnostics. The current normalized `assets` columns still index
+the primary payload only; future schema versions can project compilation links
+into SQL when validation needs to detect stale runtime outputs or missing source
+assets without decoding payload JSON.
+
 Schema version 2 projects embedded audio recorder content into
 `parts.audio_data` as a SQLite BLOB. The runtime `Part.audioData` field is
 restored from that column on load, and the JSON payload intentionally omits the
