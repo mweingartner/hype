@@ -16,10 +16,36 @@ struct AssetRepositoryAuthoringToolsTests {
     @Test("existing asset repository tools are present")
     func existingToolsPresent() {
         #expect(toolNames.contains("list_repository_assets"))
+        #expect(toolNames.contains("get_repository_asset"))
         #expect(toolNames.contains("import_repository_asset"))
         #expect(toolNames.contains("generate_sprite_asset"))
         #expect(toolNames.contains("classify_asset_as_tileset"))
         #expect(toolNames.contains("write_ai_context_note"))
+    }
+
+    @Test("get_repository_asset reports audio asset metadata")
+    func getRepositoryAssetReportsAudioMetadata() async throws {
+        var document = HypeDocument.newDocument(name: "Asset Metadata")
+        let cardId = try #require(document.cards.first?.id)
+        document.assetRepository.addAsset(Asset(
+            name: "Sound 128",
+            kind: .audioClip,
+            mimeType: "audio/wav",
+            data: Data([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x41, 0x56, 0x45]),
+            tags: ["hypercard-import", "sound-resource"]
+        ))
+
+        let result = await HypeToolExecutor().execute(
+            toolName: "get_repository_asset",
+            arguments: ["name": "Sound 128"],
+            document: &document,
+            currentCardId: cardId
+        )
+
+        #expect(result.contains("kind=audioClip"))
+        #expect(result.contains("mimeType=audio/wav"))
+        #expect(result.contains("byteCount=12"))
+        #expect(result.contains("tags=hypercard-import,sound-resource"))
     }
 
     // MARK: New Meshy 3D tools are in the allowlist

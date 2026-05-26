@@ -3208,6 +3208,30 @@ public struct HypeToolExecutor: Sendable {
             }
             return "Repository assets:\n\(descriptions.joined(separator: "\n"))"
 
+        case "get_repository_asset":
+            let name = arguments["name"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !name.isEmpty else {
+                return "get_repository_asset requires 'name'."
+            }
+            guard let asset = document.assetRepository.asset(byName: name) else {
+                return "Asset '\(name)' not found in repository"
+            }
+            var lines = [
+                "Asset Repository asset '\(asset.name)'",
+                "id=\(asset.id.uuidString)",
+                "kind=\(asset.kind.rawValue)",
+                "mimeType=\(asset.mimeType)",
+                "byteCount=\(asset.data.count)",
+                "sha256=\(asset.data.hypeSHA256Hex)",
+                "dimensions=\(asset.width)x\(asset.height)",
+                "tags=\(asset.tags.isEmpty ? "(none)" : asset.tags.joined(separator: ","))",
+                "slices=\(asset.slices.count)",
+            ]
+            if asset.isTileSet {
+                lines.append("tileSet=\(asset.tileColumns)x\(asset.tileRows) tiles of \(asset.tileWidth)x\(asset.tileHeight)px")
+            }
+            return lines.joined(separator: "\n")
+
         case "import_repository_asset":
             // H2: sanitize AI-controlled asset name.
             let importRawName = arguments["name"] ?? "asset"

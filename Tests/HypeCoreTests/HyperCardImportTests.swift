@@ -49,6 +49,46 @@ struct HyperCardImportTests {
         #expect(xcmd.data == Data([1, 2, 3]))
     }
 
+    @Test("converter imports snd resources as playable audio assets in asset repository")
+    func converterImportsSoundResourcesAsAudioAssets() throws {
+        let data = makeSyntheticHyperCardStack()
+        let fork = makeResourceForkWithSound()
+        let result = try HyperCardToHypeConverter().convert(
+            data: data,
+            resourceFork: fork
+        )
+
+        let audioAssets = result.document.assetRepository.assets.filter { $0.kind == .audioClip }
+        #expect(audioAssets.count == 1)
+        #expect(audioAssets[0].name == "Sound 128")
+        #expect(audioAssets[0].mimeType == "audio/wav")
+        #expect(audioAssets[0].data.count >= 44)
+        #expect(audioAssets[0].data.prefix(4) == Data([0x52, 0x49, 0x46, 0x46]))
+    }
+
+    @Test("C importer converts snd resources through resource payload streaming")
+    func cImporterConvertsSoundResourcesThroughStreaming() throws {
+        let fixture = URL(fileURLWithPath: "../stackimport/Resources.stak").standardizedFileURL
+        guard FileManager.default.fileExists(atPath: fixture.path) else {
+            return
+        }
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hype-c-import-sound-\(UUID().uuidString).stak")
+        try FileManager.default.copyItem(at: fixture, to: tempURL)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        try makeResourceForkWithSound().write(to: URL(fileURLWithPath: tempURL.path + "/..namedfork/rsrc"))
+
+        let result = try StackImportCImporter().importStack(at: tempURL)
+        let audioAssets = result.document.assetRepository.assets.filter { $0.kind == .audioClip }
+
+        #expect(audioAssets.count == 1)
+        for asset in audioAssets {
+            #expect(asset.mimeType == "audio/wav")
+            #expect(asset.data.count >= 44)
+            #expect(asset.data.prefix(4) == Data([0x52, 0x49, 0x46, 0x46]))
+        }
+    }
+
     @Test("converter records XCMD resources as non-native emulation targets")
     func converterRecordsExternalResources() throws {
         let result = try HyperCardToHypeConverter().convert(
@@ -310,6 +350,66 @@ private func hcBlock(type: String, id: Int32, payload: Data) -> Data {
     return data
 }
 
+private func makeResourceForkWithSound() -> Data {
+    // Build a minimal valid snd resource (format 1, 8-bit mono PCM, 1 sample)
+    var snd = Data()
+    snd.appendUInt16BE(1) // version
+    snd.appendUInt16BE(1) // number of data types
+    snd.appendUInt16BE(5) // type: sampled sound
+    snd.appendUInt32BE(0) // options
+    snd.appendUInt16BE(1) // number of commands
+    // Null command; the converter defaults the sample buffer to the bytes after the command list.
+    snd.appendUInt16BE(0)
+    snd.appendUInt16BE(1)
+    snd.appendUInt32BE(0)
+    // Sample data follows: data pointer (0 = at end of commands)
+    snd.appendUInt32BE(0) // data pointer
+    snd.appendUInt32BE(1) // sample byte count
+    let sampleRate: UInt32 = 22050
+    snd.appendUInt32BE(sampleRate << 16) // sample rate (16.16 fixed point)
+    snd.appendUInt32BE(0) // reserved
+    snd.appendUInt32BE(0) // reserved
+    snd.appendUInt8(0) // encoding: 0 = uncompressed signed 8-bit
+    snd.appendUInt8(60) // base frequency
+    // Raw sample: one byte of PCM data
+    snd.appendUInt8(128)
+
+    // Build resource fork containing the snd resource.
+    let dataOffset = 0x100
+    let mapOffset = 0x200
+    let typeListOffset = 28
+    let refListOffset = 10
+    let nameListOffset = typeListOffset + refListOffset + 12
+    let dataLength = 4 + snd.count
+    let mapLength = nameListOffset
+    var fork = Data(repeating: 0, count: mapOffset + mapLength)
+
+    fork.setUInt32BE(UInt32(dataOffset), at: 0)
+    fork.setUInt32BE(UInt32(mapOffset), at: 4)
+    fork.setUInt32BE(UInt32(dataLength), at: 8)
+    fork.setUInt32BE(UInt32(mapLength), at: 12)
+    fork.setUInt32BE(UInt32(snd.count), at: dataOffset)
+    fork.replaceSubrange((dataOffset + 4)..<(dataOffset + 4 + snd.count), with: snd)
+
+    fork.setUInt16BE(UInt16(typeListOffset), at: mapOffset + 24)
+    fork.setUInt16BE(UInt16(nameListOffset), at: mapOffset + 26)
+    let typeListStart = mapOffset + typeListOffset
+    fork.setInt16BE(0, at: typeListStart)
+    fork.replaceSubrange((typeListStart + 2)..<(typeListStart + 6), with: "snd ".data(using: .ascii)!)
+    fork.setInt16BE(0, at: typeListStart + 6)
+    fork.setUInt16BE(UInt16(refListOffset), at: typeListStart + 8)
+
+    let refStart = typeListStart + refListOffset
+    fork.setInt16BE(128, at: refStart)
+    fork.setInt16BE(-1, at: refStart + 2)
+    fork[refStart + 4] = 0
+    fork[refStart + 5] = 0
+    fork[refStart + 6] = 0
+    fork[refStart + 7] = 0
+
+    return fork
+}
+
 private func makeSyntheticResourceFork() -> Data {
     let resourcePayload = Data([1, 2, 3])
     let dataOffset = 0x100
@@ -349,6 +449,10 @@ private func makeSyntheticResourceFork() -> Data {
 }
 
 private extension Data {
+    mutating func appendUInt8(_ value: UInt8) {
+        append(value)
+    }
+
     mutating func appendUInt16BE(_ value: UInt16) {
         append(UInt8((value >> 8) & 0xFF))
         append(UInt8(value & 0xFF))

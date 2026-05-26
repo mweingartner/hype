@@ -780,7 +780,10 @@ public struct HypeToolDefinitions {
         makeTool(name: "get_scene_diagnostics", description: "Get diagnostic information about a sprite scene including errors and warnings.", params: [
             "sprite_area_name": ("string", "Name of the sprite area", true),
         ]),
-        makeTool(name: "list_repository_assets", description: "List all sprite assets in the stack's Asset Repository.", params: [:]),
+        makeTool(name: "list_repository_assets", description: "List all assets in the stack's Asset Repository, including image, audio, video, and 3D model assets.", params: [:]),
+        makeTool(name: "get_repository_asset", description: "Get metadata for one Asset Repository asset without returning the binary payload. Use this to verify imported assets by name, kind, MIME type, byte count, hash, dimensions, and tags.", params: [
+            "name": ("string", "Exact Asset Repository asset name", true),
+        ]),
         makeTool(name: "import_repository_asset", description: "Import an image file into the Asset Repository as a named asset.", params: [
             "name": ("string", "Asset name", true),
             "file_path": ("string", "Absolute path to PNG/JPG image file", true),
@@ -2184,6 +2187,7 @@ public struct HypeToolDefinitions {
             "set_chart_data_point_color",
             // Repository + validation (already in the prior allowlist)
             "list_repository_assets",
+            "get_repository_asset",
             "import_repository_asset",
             "create_basic_tileset_asset",
             "generate_sprite_asset",
@@ -2209,6 +2213,7 @@ public struct HypeToolDefinitions {
     public static let assetRepositoryAuthoringTools: [OllamaTool] = allTools.filter {
         let allowed = Set([
             "list_repository_assets",
+            "get_repository_asset",
             "import_repository_asset",
             "create_basic_tileset_asset",
             "generate_sprite_asset",

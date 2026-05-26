@@ -1,3 +1,4 @@
+import CStackImport
 import Foundation
 
 public struct HyperCardImportResult: Sendable {
@@ -127,7 +128,10 @@ public struct HyperCardToHypeConverter: Sendable {
             unsupported.append("PICT resources are preserved but not converted to Hype image parts yet.")
         }
         if resources.contains(where: { $0.type == "snd " }) {
-            unsupported.append("Classic snd resources are preserved but not converted to Hype audio repository assets yet.")
+            let converted = convertSoundResources(resources, to: &document, warnings: &warnings)
+            if converted == 0 {
+                unsupported.append("Classic snd resources are preserved but could not be converted to Hype audio repository assets.")
+            }
         }
         let externalResources = externalResources(from: resources)
         if !externalResources.isEmpty {
@@ -511,6 +515,85 @@ public struct HyperCardToHypeConverter: Sendable {
             result.append(value)
         }
         return result
+    }
+
+    private func convertSoundResources(
+        _ resources: [MacResource],
+        to document: inout HypeDocument,
+        warnings: inout [String]
+    ) -> Int {
+        let soundResources = resources.filter { $0.type == "snd " }
+        var importedNames = Set(
+            document.assetRepository.assets
+                .filter { $0.kind == .audioClip }
+                .map { $0.name.lowercased() }
+        )
+        var converted = 0
+        for sound in soundResources {
+            let assetName = soundResourceName(sound)
+            guard !importedNames.contains(assetName.lowercased()) else { continue }
+            guard sound.data.count > 0 else { continue }
+
+            guard let wavBuffer = convertSoundResource(sound, warnings: &warnings) else { continue }
+            importedNames.insert(assetName.lowercased())
+            document.assetRepository.addAsset(Asset(
+                name: assetName,
+                kind: .audioClip,
+                mimeType: "audio/wav",
+                data: wavBuffer,
+                tags: ["hypercard-import", "sound-resource"]
+            ))
+            converted += 1
+        }
+        return converted
+    }
+
+    private func convertSoundResource(_ sound: MacResource, warnings: inout [String]) -> Data? {
+        var errorPtr: UnsafePointer<CChar>? = nil
+        let required = sound.data.withUnsafeBytes { sndPtr in
+            stackimport_snd_to_wav(
+                sndPtr.baseAddress,
+                sound.data.count,
+                nil,
+                0,
+                &errorPtr
+            )
+        }
+        guard required > 0 else {
+            let detail = errorPtr.map { String(cString: $0) } ?? "conversion failed"
+            warnings.append("Failed to convert snd resource #\(sound.id): \(detail)")
+            return nil
+        }
+        guard required <= options.maxBlockBytes else {
+            warnings.append("Failed to convert snd resource #\(sound.id): converted WAV is too large (\(required) bytes).")
+            return nil
+        }
+
+        var wavBuffer = Data(count: required)
+        let written = wavBuffer.withUnsafeMutableBytes { wavPtr in
+            sound.data.withUnsafeBytes { sndPtr in
+                stackimport_snd_to_wav(
+                    sndPtr.baseAddress,
+                    sound.data.count,
+                    wavPtr.baseAddress,
+                    required,
+                    &errorPtr
+                )
+            }
+        }
+        guard written == required else {
+            let detail = errorPtr.map { String(cString: $0) } ?? "conversion failed"
+            warnings.append("Failed to convert snd resource #\(sound.id): \(detail)")
+            return nil
+        }
+        return wavBuffer
+    }
+
+    private func soundResourceName(_ res: MacResource) -> String {
+        if let name = res.name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return name.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return "Sound \(res.id)"
     }
 }
 
