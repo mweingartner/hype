@@ -391,21 +391,28 @@ private enum HyperCardImportPanel {
         panel.allowedContentTypes = [.hyperCardStack, .data]
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        guard let window = NSApp.keyWindow else { return }
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
 
         let progressState = HyperCardImportProgressState()
         let progressView = HyperCardImportProgressView(state: progressState)
-        let hostingController = NSHostingController(rootView: progressView)
+        let progressWindow = sheetWindow(
+            title: "Importing HyperCard Stack",
+            rootView: progressView,
+            size: NSSize(width: 360, height: 200)
+        )
 
-        window.beginSheet(hostingController.view.window!) { _ in }
-        hostingController.view.window?.title = "Importing HyperCard Stack"
-
+        window.beginSheet(progressWindow)
         Task {
-            await performImport(url: url, state: progressState)
+            await performImport(url: url, parentWindow: window, progressWindow: progressWindow, state: progressState)
         }
     }
 
-    private static func performImport(url: URL, state: HyperCardImportProgressState) async {
+    private static func performImport(
+        url: URL,
+        parentWindow: NSWindow,
+        progressWindow: NSWindow,
+        state: HyperCardImportProgressState
+    ) async {
         do {
             var importer = StackImportCImporter()
             importer.progressHandler = { message, percent in
@@ -424,15 +431,19 @@ private enum HyperCardImportPanel {
             try HypeSQLiteStackStore().save(result.document, toPackageAt: outputURL)
 
             await MainActor.run {
+                state.message = "Import complete."
+                state.percent = 100
                 state.result = result
                 state.outputURL = outputURL
-                NSApp.keyWindow?.endSheet(NSApp.keyWindow?.attachedSheet ?? NSApp.keyWindow!)
+                parentWindow.endSheet(progressWindow)
 
                 let celebrationView = HyperCardImportCelebrationView(
                     result: result,
                     outputURL: outputURL,
                     onOpen: {
-                        NSApp.keyWindow?.endSheet(NSApp.keyWindow?.attachedSheet ?? NSApp.keyWindow!)
+                        if let sheet = parentWindow.attachedSheet {
+                            parentWindow.endSheet(sheet)
+                        }
                         NSDocumentController.shared.openDocument(withContentsOf: outputURL, display: true) { _, _, error in
                             if let error {
                                 HypeLogger.shared.error("Failed to open converted HyperCard import: \(error.localizedDescription)", source: "HyperCardImport")
@@ -441,19 +452,38 @@ private enum HyperCardImportPanel {
                         }
                     },
                     onDone: {
-                        NSApp.keyWindow?.endSheet(NSApp.keyWindow?.attachedSheet ?? NSApp.keyWindow!)
+                        if let sheet = parentWindow.attachedSheet {
+                            parentWindow.endSheet(sheet)
+                        }
                     }
                 )
-                let hostingController = NSHostingController(rootView: celebrationView)
-                NSApp.keyWindow?.beginSheet(hostingController.view.window!) { _ in }
+                let celebrationWindow = sheetWindow(
+                    title: "HyperCard Import Complete",
+                    rootView: celebrationView,
+                    size: NSSize(width: 480, height: 440)
+                )
+                parentWindow.beginSheet(celebrationWindow)
             }
         } catch {
             await MainActor.run {
-                NSApp.keyWindow?.endSheet(NSApp.keyWindow?.attachedSheet ?? NSApp.keyWindow!)
+                parentWindow.endSheet(progressWindow)
                 HypeLogger.shared.error("HyperCard import failed: \(error.localizedDescription)", source: "HyperCardImport")
                 showImportError(error)
             }
         }
+    }
+
+    private static func sheetWindow<Content: View>(title: String, rootView: Content, size: NSSize) -> NSWindow {
+        let hostingController = NSHostingController(rootView: rootView)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = title
+        window.contentViewController = hostingController
+        return window
     }
 
     private static func showImportError(_ error: Error) {

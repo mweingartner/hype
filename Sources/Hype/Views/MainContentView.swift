@@ -81,8 +81,185 @@ private struct ScriptActivityStatusControl: View {
             .accessibilityLabel("Stop running scripts")
         }
         .foregroundColor(.secondary)
+        .padding(.horizontal, 8)
+        .frame(height: 22)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.orange.opacity(0.11))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(Color.orange.opacity(0.2), lineWidth: 0.5)
+        )
         .accessibilityElement(children: .combine)
         .accessibilityLabel(label)
+    }
+}
+
+private struct CardStatusSummary: Equatable {
+    var title: String
+    var index: Int
+    var count: Int
+    var isEditingBackground: Bool
+    var canGoFirst: Bool
+    var canGoPrevious: Bool
+    var canGoNext: Bool
+    var canGoLast: Bool
+}
+
+private struct StatusIconButtonStyle: SwiftUI.ButtonStyle {
+    func makeBody(configuration: Self.Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: 22, height: 22)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(configuration.isPressed ? Color.primary.opacity(0.12) : Color.primary.opacity(0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+            )
+    }
+}
+
+private struct StatusChip<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        HStack(spacing: 5) {
+            content
+        }
+        .font(.system(size: 10, weight: .medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 8)
+        .frame(height: 22)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.primary.opacity(0.055))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+        )
+    }
+}
+
+private struct CardNavigationStatusControl: View {
+    var summary: CardStatusSummary
+    var navigate: (NavigationDirection) -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button {
+                navigate(.first)
+            } label: {
+                Image(systemName: "backward.end.fill")
+            }
+            .buttonStyle(StatusIconButtonStyle())
+            .disabled(!summary.canGoFirst)
+            .help("First card")
+            .accessibilityLabel("First card")
+
+            Button {
+                navigate(.previous)
+            } label: {
+                Image(systemName: "chevron.left")
+            }
+            .buttonStyle(StatusIconButtonStyle())
+            .disabled(!summary.canGoPrevious)
+            .help("Previous card")
+            .accessibilityLabel("Previous card")
+
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(summary.title)
+                        .font(.system(size: 11, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if summary.isEditingBackground {
+                        Text("Background edit")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Text("\(summary.index + 1) / \(summary.count)")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(width: cardCountBadgeWidth, height: 18)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(Color.primary.opacity(0.06))
+                    )
+            }
+            .frame(width: cardReadoutWidth, alignment: .leading)
+            .padding(.horizontal, 8)
+            .frame(height: 26)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(0.045))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+            )
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(summary.title), card \(summary.index + 1) of \(summary.count)")
+
+            Button {
+                navigate(.next)
+            } label: {
+                Image(systemName: "chevron.right")
+            }
+            .buttonStyle(StatusIconButtonStyle())
+            .disabled(!summary.canGoNext)
+            .help("Next card")
+            .accessibilityLabel("Next card")
+
+            Button {
+                navigate(.last)
+            } label: {
+                Image(systemName: "forward.end.fill")
+            }
+            .buttonStyle(StatusIconButtonStyle())
+            .disabled(!summary.canGoLast)
+            .help("Last card")
+            .accessibilityLabel("Last card")
+        }
+    }
+
+    private var cardReadoutWidth: CGFloat {
+        switch cardCountDigitBreak {
+        case 0...3:
+            return 140
+        case 4...5:
+            return 160
+        case 6:
+            return 178
+        default:
+            return 196
+        }
+    }
+
+    private var cardCountBadgeWidth: CGFloat {
+        switch cardCountDigitBreak {
+        case 0...3:
+            return 48
+        case 4...5:
+            return 66
+        case 6:
+            return 82
+        default:
+            return 98
+        }
+    }
+
+    private var cardCountDigitBreak: Int {
+        let largestVisibleNumber = max(summary.index + 1, summary.count)
+        return String(largestVisibleNumber).count
     }
 }
 
@@ -417,29 +594,33 @@ struct MainContentView: View {
             // black, matching the card surface.
             .background(resolvedTheme.canvasMargin.swiftUIColor)
 
-            // Status bar
-            HStack {
-                Text(cardInfoText)
-                    .font(.system(size: 11))
+            HStack(spacing: 10) {
+                if let summary = cardStatusSummary {
+                    CardNavigationStatusControl(summary: summary) { direction in
+                        navigate(direction)
+                    }
+                } else {
+                    Text("No stack open")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
                 Spacer()
                 // Paint color picker (shown for spray, bucket, pencil, eraser tools)
                 if currentTool == .spray || currentTool == .bucket || currentTool == .pencil || currentTool == .eraser {
-                    ColorPicker("", selection: $paintColor, supportsOpacity: false)
-                        .labelsHidden()
-                        .frame(width: 24, height: 18)
-                    Text("Color")
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
+                    StatusChip {
+                        ColorPicker("", selection: $paintColor, supportsOpacity: false)
+                            .labelsHidden()
+                            .frame(width: 18, height: 16)
+                        Text("Color")
+                    }
                 }
                 if debuggerConnectionCount > 0 {
-                    HStack(spacing: 4) {
+                    StatusChip {
                         Circle()
                             .fill(Color.green)
                             .frame(width: 6, height: 6)
                         Text("Debugger")
-                            .font(.system(size: 10, weight: .medium))
                     }
-                    .foregroundColor(.secondary)
                     .help(debuggerConnectionCount == 1 ? "Debugger connected" : "\(debuggerConnectionCount) debugger connections")
                     .accessibilityLabel("Debugger connected")
                 }
@@ -450,16 +631,25 @@ struct MainContentView: View {
                     )
                     .help(runningScriptHelpText)
                 }
-                Text(toolModeText)
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                StatusChip {
+                    Image(systemName: toolModeIconName)
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(toolModeText)
+                }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 2)
-            // Status strip below the canvas — tinted with the
-            // active theme's toolbar background so it matches the
-            // top toolbar visually.
-            .background(resolvedTheme.toolbarBackground.swiftUIColor)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .frame(minHeight: 36)
+            .background(
+                ZStack(alignment: .top) {
+                    resolvedTheme.toolbarBackground.swiftUIColor
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.08))
+                        .frame(height: 0.5)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                }
+                .shadow(color: .black.opacity(0.12), radius: 6, x: 0, y: -1)
+            )
             // Same colorScheme override as the inspector — keep
             // the labels readable on the themed background.
             .environment(\.colorScheme, resolvedTheme.toolbarColorScheme)
@@ -493,6 +683,26 @@ struct MainContentView: View {
 
     // MARK: - Navigation
 
+    private var cardStatusSummary: CardStatusSummary? {
+        guard let cardId = currentCardId else { return nil }
+        let (index, count) = CardNavigator.cardPosition(currentCardId: cardId, document: document.document)
+        let card = document.document.cards.first { $0.id == cardId }
+        let fallback = "Card \(index + 1)"
+        let title = card?.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? card?.name ?? fallback
+            : fallback
+        return CardStatusSummary(
+            title: title,
+            index: index,
+            count: count,
+            isEditingBackground: editingBackground,
+            canGoFirst: index > 0,
+            canGoPrevious: canNavigatePrevious,
+            canGoNext: canNavigateNext,
+            canGoLast: index + 1 < count
+        )
+    }
+
     private var canNavigatePrevious: Bool {
         guard let cardId = currentCardId else { return false }
         return CardNavigator.navigate(direction: .previous, currentCardId: cardId, document: document.document) != nil
@@ -501,6 +711,12 @@ struct MainContentView: View {
     private var canNavigateNext: Bool {
         guard let cardId = currentCardId else { return false }
         return CardNavigator.navigate(direction: .next, currentCardId: cardId, document: document.document) != nil
+    }
+
+    private func navigate(_ direction: NavigationDirection) {
+        guard let cardId = currentCardId,
+              let newId = CardNavigator.navigate(direction: direction, currentCardId: cardId, document: document.document) else { return }
+        navigateToCard(newId)
     }
 
     private func navigatePrevious() {
@@ -690,6 +906,14 @@ struct MainContentView: View {
         case .paint: mode = "Paint"
         }
         return "\(currentTool.rawValue.capitalized) (\(mode))"
+    }
+
+    private var toolModeIconName: String {
+        switch toolState.category {
+        case .browse: return "hand.point.up.left"
+        case .edit: return "cursorarrow"
+        case .paint: return "paintbrush"
+        }
     }
 
     // MARK: - Tool palette
