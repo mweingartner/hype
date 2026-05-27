@@ -28,3 +28,6 @@ dist/
 # Local scratch stack used during manual app debugging. Test fixtures that
 # belong in source should live under TestStacks/ and be explicitly tracked.
 /teststack.hype
+
+# JavaScript dependencies.
+node_modules/
