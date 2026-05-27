@@ -30,6 +30,7 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
         )
         installWindowObservers()
         HypeMCPAppServer.shared.startIfNeeded()
+        HypeDebugServer.shared.start()
 
         if let lastURL = launchState.lastOpenedFileURL {
             openDocument(at: lastURL)
@@ -87,6 +88,7 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
         // Dispatch "quit" message to the current card of each open document.
         // This gives scripts a chance to run cleanup handlers before the app exits.
         NotificationCenter.default.post(name: .hypeQuit, object: nil)
+        HypeDebugServer.shared.stop()
         HypeDocumentMutationCoordinator.shared.flushAllAutosaves()
 
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
