@@ -24,13 +24,16 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
         // `.help(...)` modifier and every per-part NSToolTip we
         // register on `CardCanvasNSView`.
         UserDefaults.standard.set(0.35, forKey: "NSInitialToolTipDelay")
+        UserDefaults.standard.register(defaults: ["hype.debug.enabled": true])
 
         pendingWindowFrame = launchState.visibleWindowFrame(
             using: NSScreen.screens.map(\.visibleFrame)
         )
         installWindowObservers()
         HypeMCPAppServer.shared.startIfNeeded()
-        HypeDebugServer.shared.start()
+        if UserDefaults.standard.bool(forKey: "hype.debug.enabled") {
+            HypeDebugServer.shared.start()
+        }
 
         if let lastURL = launchState.lastOpenedFileURL {
             openDocument(at: lastURL)
@@ -406,16 +409,375 @@ private enum HyperCardImportPanel {
 @MainActor
 private enum HypeAboutPanel {
     static func show() {
-        let status = StackImportRuntime.status
-        let credits = NSAttributedString(
-            string: status.aboutLine,
-            attributes: [
-                .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
-                .foregroundColor: NSColor.secondaryLabelColor,
-            ]
+        if let window = hypeAboutWindow {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 620),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
         )
-        NSApp.orderFrontStandardAboutPanel(options: [
-            .credits: credits,
-        ])
+        window.title = "About Hype"
+        window.isReleasedWhenClosed = false
+        window.center()
+        window.contentView = NSHostingView(rootView: HypeAboutView(
+            optionalFrameworks: [
+                OptionalFrameworkAboutItem.stackImport(status: StackImportRuntime.status)
+            ],
+            openSourceManifest: OpenSourceManifest.load()
+        ))
+        hypeAboutWindow = window
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                hypeAboutWindow = nil
+            }
+        }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
+}
+
+@MainActor
+private var hypeAboutWindow: NSWindow?
+
+private struct OptionalFrameworkAboutItem: Identifiable {
+    enum State {
+        case available
+        case unavailable
+    }
+
+    let id: String
+    let name: String
+    let purpose: String
+    let state: State
+    let version: String?
+    let frameworkPath: String
+    let installCommand: String
+    let detail: String?
+
+    static func stackImport(status: StackImportLibraryStatus) -> OptionalFrameworkAboutItem {
+        OptionalFrameworkAboutItem(
+            id: "stackimport",
+            name: "StackImport.framework",
+            purpose: "HyperCard stack import",
+            state: status.isAvailable ? .available : .unavailable,
+            version: status.version,
+            frameworkPath: status.frameworkPath,
+            installCommand: status.installCommand,
+            detail: status.detail
+        )
+    }
+}
+
+private struct HypeAboutView: View {
+    let optionalFrameworks: [OptionalFrameworkAboutItem]
+    let openSourceManifest: OpenSourceManifest
+
+    private var appName: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Hype"
+    }
+
+    private var appVersion: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        switch (version?.isEmpty == false ? version : nil, build?.isEmpty == false ? build : nil) {
+        case let (version?, build?):
+            return "Version \(version) (\(build))"
+        case let (version?, nil):
+            return "Version \(version)"
+        case let (nil, build?):
+            return "Build \(build)"
+        default:
+            return "Development Build"
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(spacing: 14) {
+                    appIcon
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(appName)
+                            .font(.system(size: 28, weight: .semibold))
+                        Text(appVersion)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Optional Frameworks")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+
+                    VStack(spacing: 8) {
+                        ForEach(optionalFrameworks) { item in
+                            OptionalFrameworkRow(item: item)
+                        }
+                    }
+                }
+
+                OpenSourceManifestSection(manifest: openSourceManifest)
+            }
+            .padding(24)
+        }
+        .frame(width: 640, height: 620)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var appIcon: some View {
+        Image(nsImage: NSApp.applicationIconImage)
+            .resizable()
+            .frame(width: 64, height: 64)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+    }
+}
+
+private struct OpenSourceManifestSection: View {
+    let manifest: OpenSourceManifest
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Open Source")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text("\(manifest.components.count) components")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(manifest.reportText, forType: .string)
+                } label: {
+                    Label("Copy Report", systemImage: "doc.on.doc")
+                }
+                .font(.system(size: 11))
+                .help("Copy open source report")
+            }
+
+            VStack(spacing: 8) {
+                ForEach(manifest.components) { component in
+                    OpenSourceComponentRow(component: component)
+                }
+            }
+        }
+    }
+}
+
+private struct OpenSourceComponentRow: View {
+    let component: OpenSourceComponent
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: iconName)
+                    .foregroundStyle(.blue)
+                    .font(.system(size: 14, weight: .semibold))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(component.name)
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(component.usage)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Text(component.license)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.blue)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.blue.opacity(0.10))
+                    .clipShape(Capsule())
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                metadata(label: "Kind", value: component.kind)
+                metadata(label: "Version", value: component.version)
+            }
+
+            Text(component.sourceURL)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+        }
+        .padding(13)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
+        )
+    }
+
+    private var iconName: String {
+        component.kind.lowercased().contains("framework") ? "shippingbox" : "curlybraces"
+    }
+
+    private func metadata(label: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(size: 11))
+        }
+    }
+}
+
+private struct OptionalFrameworkRow: View {
+    let item: OptionalFrameworkAboutItem
+
+    private var isAvailable: Bool { item.state == .available }
+    private var statusColor: Color { isAvailable ? .green : .orange }
+    private var statusTitle: String { isAvailable ? "Available" : "Unavailable" }
+    private var statusIcon: String { isAvailable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill" }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: statusIcon)
+                    .foregroundStyle(statusColor)
+                    .font(.system(size: 15, weight: .semibold))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.name)
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(item.purpose)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Text(statusTitle)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(statusColor)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(statusColor.opacity(0.12))
+                    .clipShape(Capsule())
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                metadataLine(label: "Version", value: item.version ?? "Not installed")
+                metadataLine(label: "Path", value: item.frameworkPath)
+            }
+
+            if !isAvailable {
+                VStack(alignment: .leading, spacing: 7) {
+                    if let detail = item.detail, !detail.isEmpty {
+                        Text(detail)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    HStack(spacing: 8) {
+                        Text(item.installCommand)
+                            .font(.system(size: 11, design: .monospaced))
+                            .textSelection(.enabled)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(Color(nsColor: .textBackgroundColor))
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(item.installCommand, forType: .string)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Copy install command")
+                    }
+                }
+            }
+        }
+        .padding(13)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
+        )
+    }
+
+    private func metadataLine(label: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 48, alignment: .leading)
+            Text(value)
+                .font(.system(size: 11, design: label == "Path" ? .monospaced : .default))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+}
+
+private struct OpenSourceManifest: Decodable {
+    var schemaVersion: Int
+    var components: [OpenSourceComponent]
+
+    static func load() -> OpenSourceManifest {
+        guard let url = Bundle.main.url(forResource: "OpenSourceManifest", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let manifest = try? JSONDecoder().decode(OpenSourceManifest.self, from: data) else {
+            return OpenSourceManifest(schemaVersion: 1, components: [])
+        }
+        return manifest
+    }
+
+    var reportText: String {
+        var lines: [String] = [
+            "Hype Open Source Manifest",
+            "Schema Version: \(schemaVersion)",
+            "",
+        ]
+        for component in components {
+            lines.append("\(component.name)")
+            lines.append("  Kind: \(component.kind)")
+            lines.append("  Version: \(component.version)")
+            lines.append("  License: \(component.license)")
+            lines.append("  Source: \(component.sourceURL)")
+            lines.append("  Usage: \(component.usage)")
+            lines.append("")
+        }
+        return lines.joined(separator: "\n")
+    }
+}
+
+private struct OpenSourceComponent: Decodable, Identifiable {
+    var id: String { "\(name)-\(version)" }
+    var name: String
+    var kind: String
+    var version: String
+    var license: String
+    var sourceURL: String
+    var usage: String
 }
