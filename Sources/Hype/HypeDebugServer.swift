@@ -75,7 +75,9 @@ final class HypeDebugServer {
             HypeLogger.shared.info("Debug bridge wrote descriptor: \(descriptorPath)", source: "DebugBridge")
             let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
             source.setEventHandler { [weak self, fd] in
-                self?.acceptPendingConnections(on: fd)
+                Task { @MainActor in
+                    self?.acceptPendingConnections(on: fd)
+                }
             }
             source.setCancelHandler {
                 Darwin.close(fd)
@@ -89,6 +91,7 @@ final class HypeDebugServer {
         }
     }
 
+    @MainActor
     func stop() {
         acceptSource?.cancel()
         acceptSource = nil
@@ -97,10 +100,8 @@ final class HypeDebugServer {
         }
         if !socketPath.isEmpty {
             try? FileManager.default.removeItem(atPath: socketPath)
-            socketPath = ""
-        }
-        if !descriptorPath.isEmpty {
             try? FileManager.default.removeItem(atPath: descriptorPath)
+            socketPath = ""
             descriptorPath = ""
         }
     }
@@ -133,8 +134,8 @@ final class HypeDebugServer {
             "activeDocumentName": document?.stack.name ?? NSNull(),
             "activeDocumentId": document?.stack.id.uuidString ?? NSNull(),
             "activeDocumentPath": {
-                guard let doc = document, let stackName = doc.stack.name else { return NSNull() }
-                return URL(fileURLWithPath: stackName).absoluteString as NSString
+                guard let doc = document else { return NSNull() }
+                return URL(fileURLWithPath: doc.stack.name).absoluteString as NSString
             }(),
         ]
     }
