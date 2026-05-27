@@ -69,12 +69,12 @@ function discoveryDirectory(): string {
     return configured.replace(/^~/, os.homedir())
   }
 
-  const repoLocal = path.join(process.cwd(), ".hype", "debug", "sockets")
+  const repoLocal = path.join(process.cwd(), ".hype", "debug")
   try {
     fsSync.mkdirSync(repoLocal, { recursive: true, mode: 0o700 })
     return repoLocal
   } catch {
-    return path.join(os.homedir(), "Library", "Application Support", "Hype", "debug", "sockets")
+    return path.join(os.homedir(), "Library", "Application Support", "Hype", "debug")
   }
 }
 

@@ -17,7 +17,6 @@ public enum HypeDebugDirectory {
         let repoLocal = repoRoot
             .appendingPathComponent(".hype", isDirectory: true)
             .appendingPathComponent("debug", isDirectory: true)
-            .appendingPathComponent("sockets", isDirectory: true)
         do {
             try fm.createDirectory(at: repoLocal, withIntermediateDirectories: true)
             try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: repoLocal.path)
@@ -26,7 +25,7 @@ public enum HypeDebugDirectory {
 
         let home = NSHomeDirectory()
         let appSupport = URL(fileURLWithPath: home)
-            .appendingPathComponent("Library/Application Support/Hype/debug/sockets", isDirectory: true)
+            .appendingPathComponent("Library/Application Support/Hype/debug", isDirectory: true)
         try fm.createDirectory(at: appSupport, withIntermediateDirectories: true)
         try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: appSupport.path)
         return appSupport

@@ -46,13 +46,13 @@ function discoveryDirectory() {
     if (configured && configured.length > 0) {
         return configured.replace(/^~/, os.homedir());
     }
-    const repoLocal = path.join(process.cwd(), ".hype", "debug", "sockets");
+    const repoLocal = path.join(process.cwd(), ".hype", "debug");
     try {
         fsSync.mkdirSync(repoLocal, { recursive: true, mode: 0o700 });
         return repoLocal;
     }
     catch {
-        return path.join(os.homedir(), "Library", "Application Support", "com.hype.app", "debug", "sockets");
+        return path.join(os.homedir(), "Library", "Application Support", "Hype", "debug");
     }
 }
 async function discoverSessions() {

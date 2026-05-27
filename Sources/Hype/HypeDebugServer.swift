@@ -23,8 +23,8 @@ final class HypeDebugServer {
         guard listenSocket == -1 else { return }
         do {
             let directory = try HypeDebugDirectory.socketDirectory()
-            socketPath = directory.appendingPathComponent("\(instanceId).sock").path
-            descriptorPath = directory.appendingPathComponent("\(instanceId).json").path
+            socketPath = directory.appendingPathComponent("\(getpid()).sock").path
+            descriptorPath = directory.appendingPathComponent("\(getpid()).json").path
             HypeLogger.shared.info("Debug bridge using socket directory: \(directory.path)", source: "DebugBridge")
             try? FileManager.default.removeItem(atPath: socketPath)
 
