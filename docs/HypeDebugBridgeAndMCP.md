@@ -41,6 +41,9 @@ written with `0600` permissions. Descriptors include:
 The TypeScript MCP server prunes stale descriptors when the process no longer
 exists, auto-attaches when exactly one live Hype session exists, and otherwise
 requires an explicit `hype_attach_session` call.
+It also starts successfully when no Hype process is running; after startup it
+continues polling the discovery directory and attaches when a single live debug
+socket appears.
 
 ## Debug Protocol
 
@@ -78,6 +81,8 @@ When attached to a Hype process, the MCP server keeps one Unix-socket debug
 connection open, sends periodic `debug/keepalive` requests, and reuses that
 connection for proxied calls. `tools/list` also includes the active Hype tool
 surface, and `tools/call` proxies those tool calls over the debug bridge.
+When detached, startup and `tools/list` still complete with only the
+connection-management tools while background discovery continues.
 
 ## Local Client Config
 
