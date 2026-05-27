@@ -609,6 +609,57 @@ public struct Asset: Identifiable, Codable, Sendable {
     public var isTileSet: Bool {
         kind == .tileSet && tileWidth > 0 && tileHeight > 0 && tileColumns > 0 && tileRows > 0
     }
+
+    fileprivate var searchableText: String {
+        var fields: [String] = [
+            id.uuidString,
+            name,
+            kind.rawValue,
+            kind.category.displayName,
+            mimeType,
+            "\(width)x\(height)",
+            "\(data.count)"
+        ]
+
+        fields.append(contentsOf: tags)
+        fields.append(contentsOf: slices.map(\.name))
+        fields.append(contentsOf: animationClips.map(\.name))
+        fields.append(contentsOf: files.flatMap { file in
+            [file.name, file.role.rawValue, file.mimeType] + file.tags
+        })
+        fields.append(contentsOf: metadata.flatMap { entry in
+            [entry.key, entry.value, entry.mimeType] + entry.tags
+        })
+
+        if isTileSet {
+            fields.append("tileset")
+            fields.append("\(tileColumns)x\(tileRows)")
+            fields.append("\(tileWidth)x\(tileHeight)")
+        }
+
+        if let provenance {
+            fields.append(provenance.origin.rawValue)
+            fields.append(provenance.searchQuery)
+            fields.append(provenance.license.name)
+            fields.append(provenance.license.identifier)
+            fields.append(provenance.attribution.creator)
+            fields.append(provenance.attribution.title)
+            fields.append(provenance.attribution.providerName)
+            fields.append(provenance.attribution.providerIdentifier)
+            fields.append(provenance.attribution.sourceURL)
+            fields.append(provenance.attribution.taskId)
+            fields.append(provenance.attribution.parentTaskId)
+        }
+
+        if isRigged {
+            fields.append("rigged")
+        }
+        if let animationActionId {
+            fields.append("animation \(animationActionId)")
+        }
+
+        return fields.filter { !$0.isEmpty }.joined(separator: " ")
+    }
 }
 
 /// A collection of stack assets for a Hype document.
@@ -657,12 +708,21 @@ public struct AssetRepository: Codable, Sendable {
         return assets.filter { $0.kind.category == category }
     }
 
-    /// Search assets by name, optionally limited to one high-level category.
+    /// Search assets by user-visible repository text, optionally limited to one
+    /// high-level category. This intentionally searches descriptive metadata as
+    /// well as names so the Asset Repository browser can find imported/web/AI
+    /// assets by tags, kind, MIME type, source, attribution, or provenance.
     public func searchAssets(named query: String, category: AssetCategory = .all) -> [Asset] {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let terms = query
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: \.isWhitespace)
+            .map { String($0).lowercased() }
         let scoped = assets(in: category)
-        guard !trimmed.isEmpty else { return scoped }
-        return scoped.filter { $0.name.localizedCaseInsensitiveContains(trimmed) }
+        guard !terms.isEmpty else { return scoped }
+        return scoped.filter { asset in
+            let haystack = asset.searchableText.lowercased()
+            return terms.allSatisfy { haystack.contains($0) }
+        }
     }
 
     /// Create an AssetRef pointing to the given asset.

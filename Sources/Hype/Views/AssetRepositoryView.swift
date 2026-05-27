@@ -22,6 +22,9 @@ struct AssetRepositoryView: View {
     @State private var selectedAssetIds: Set<UUID> = []
     @State private var searchText: String = ""
     @State private var selectedCategory: AssetCategory = .all
+    @State private var selectedSource: AssetSourceFilter = .all
+    @State private var selectedStatus: AssetStatusFilter = .all
+    @State private var selectedSort: AssetSort = .nameAscending
     @State private var editingNameId: UUID? = nil
     @State private var editingName: String = ""
     /// Local copy of the selected asset's name for the TextField.
@@ -74,8 +77,74 @@ struct AssetRepositoryView: View {
         let mode: RemeshAndRetextureCoordinator.Mode
     }
 
+    private enum AssetSourceFilter: String, CaseIterable, Identifiable {
+        case all
+        case imported
+        case web
+        case ai
+        case meshy
+
+        var id: Self { self }
+
+        var label: String {
+            switch self {
+            case .all: return "Any Source"
+            case .imported: return "Imported"
+            case .web: return "Web"
+            case .ai: return "AI"
+            case .meshy: return "Meshy"
+            }
+        }
+    }
+
+    private enum AssetStatusFilter: String, CaseIterable, Identifiable {
+        case all
+        case used
+        case unused
+        case tilesets
+        case needsTilesetSetup
+        case rigged
+        case unriggedModels
+
+        var id: Self { self }
+
+        var label: String {
+            switch self {
+            case .all: return "Any Status"
+            case .used: return "Used"
+            case .unused: return "Unused"
+            case .tilesets: return "Tilesets"
+            case .needsTilesetSetup: return "Needs Tileset Setup"
+            case .rigged: return "Rigged"
+            case .unriggedModels: return "Unrigged Models"
+            }
+        }
+    }
+
+    private enum AssetSort: String, CaseIterable, Identifiable {
+        case nameAscending
+        case kind
+        case newest
+        case largest
+
+        var id: Self { self }
+
+        var label: String {
+            switch self {
+            case .nameAscending: return "Name"
+            case .kind: return "Type"
+            case .newest: return "Newest"
+            case .largest: return "Largest"
+            }
+        }
+    }
+
     private var filteredAssets: [Asset] {
-        document.document.assetRepository.searchAssets(named: searchText, category: selectedCategory)
+        document.document.assetRepository
+            .searchAssets(named: searchText, category: selectedCategory)
+            .filter(matchesSource)
+            .filter(matchesStatus)
+            .sorted(by: sortAssets)
     }
 
     private var assetCountsByCategory: [AssetCategory: Int] {
@@ -102,90 +171,81 @@ struct AssetRepositoryView: View {
         return "\(category.displayName) \(assetCountsByCategory[category, default: 0])"
     }
 
+    private var filtersAreActive: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        selectedCategory != .all ||
+        selectedSource != .all ||
+        selectedStatus != .all ||
+        selectedSort != .nameAscending
+    }
+
+    private func clearAssetFilters() {
+        searchText = ""
+        selectedCategory = .all
+        selectedSource = .all
+        selectedStatus = .all
+        selectedSort = .nameAscending
+    }
+
+    private func pruneSelectionToVisibleAssets() {
+        let visibleIds = Set(filteredAssets.map(\.id))
+        selectedAssetIds = selectedAssetIds.intersection(visibleIds)
+    }
+
     var body: some View {
         HSplitView {
             // Left: asset grid
             VStack(spacing: 0) {
-                // Toolbar
-                HStack {
-                    Text("Asset Repository").font(.headline)
-                    Spacer()
-                    Button(action: importAsset) {
-                        Image(systemName: "plus")
-                    }
-                    .help("Import Assets")
-
-                    Button(action: importTilesetAsset) {
-                        Image(systemName: "square.grid.3x3")
-                    }
-                    .help("Import Tileset Image")
-
-                    Button(action: openGenerate3DSheet) {
-                        Image(systemName: "cube.transparent")
-                    }
-                    .help("Generate 3D…")
-
-                    if !selectedAssetIds.isEmpty {
-                        Button(action: duplicateSelected) {
-                            Image(systemName: "plus.square.on.square")
-                        }
-                        .help("Duplicate Selected")
-
-                        Button(action: deleteSelected) {
-                            Image(systemName: "trash")
-                        }
-                        .help("Delete Selected (\(selectedAssetIds.count))")
-                    }
-
-                    Button(action: { dismissAction() }) {
-                        Text("Done")
-                    }
-                    .keyboardShortcut(.return)
-                }
-                .padding(8)
-
-                // Search and type filter
-                TextField("Search assets...", text: $searchText)
-                    .textFieldStyle(.roundedBorder)
-                    .padding(.horizontal, 8)
-
-                Picker("Asset Type", selection: $selectedCategory) {
-                    ForEach(AssetCategory.allCases, id: \.self) { category in
-                        Text(categoryLabel(category)).tag(category)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(.horizontal, 8)
-                .padding(.top, 6)
+                assetHeader
 
                 // Grid with multi-select
                 ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 8) {
-                        ForEach(filteredAssets) { asset in
-                            assetThumbnail(asset)
-                                .onTapGesture {
-                                    if NSEvent.modifierFlags.contains(.command) {
-                                        // Cmd+click: toggle in multi-selection
-                                        if selectedAssetIds.contains(asset.id) {
-                                            selectedAssetIds.remove(asset.id)
-                                        } else {
-                                            selectedAssetIds.insert(asset.id)
-                                        }
-                                    } else {
-                                        // Plain click: single select
-                                        selectedAssetIds = [asset.id]
-                                    }
+                    if filteredAssets.isEmpty {
+                        VStack(spacing: 8) {
+                            Spacer(minLength: 48)
+                            Image(systemName: filtersAreActive ? "line.3.horizontal.decrease.circle" : "photo.on.rectangle.angled")
+                                .font(.system(size: 28))
+                                .foregroundColor(.secondary)
+                            Text(filtersAreActive ? "No assets match the current filters" : "No assets imported")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                            if filtersAreActive {
+                                Button("Clear Filters") {
+                                    clearAssetFilters()
                                 }
+                                .font(.system(size: 11))
+                            }
+                            Spacer(minLength: 48)
                         }
+                        .frame(maxWidth: .infinity)
+                        .padding(8)
+                    } else {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 8) {
+                            ForEach(filteredAssets) { asset in
+                                assetThumbnail(asset)
+                                    .onTapGesture {
+                                        if NSEvent.modifierFlags.contains(.command) {
+                                            // Cmd+click: toggle in multi-selection
+                                            if selectedAssetIds.contains(asset.id) {
+                                                selectedAssetIds.remove(asset.id)
+                                            } else {
+                                                selectedAssetIds.insert(asset.id)
+                                            }
+                                        } else {
+                                            // Plain click: single select
+                                            selectedAssetIds = [asset.id]
+                                        }
+                                    }
+                            }
+                        }
+                        .padding(8)
                     }
-                    .padding(8)
                 }
                 .onKeyPress(.delete) { deleteSelected(); return .handled }
 
                 // Status bar
                 HStack {
-                    Text("\(document.document.assetRepository.assets.count) assets")
+                    Text(assetStatusText)
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
                     if selectedAssetIds.count > 1 {
@@ -251,6 +311,10 @@ struct AssetRepositoryView: View {
                 seedTilesetState(from: asset)
             }
         }
+        .onChange(of: searchText) { _, _ in pruneSelectionToVisibleAssets() }
+        .onChange(of: selectedCategory) { _, _ in pruneSelectionToVisibleAssets() }
+        .onChange(of: selectedSource) { _, _ in pruneSelectionToVisibleAssets() }
+        .onChange(of: selectedStatus) { _, _ in pruneSelectionToVisibleAssets() }
         .onReceive(NotificationCenter.default.publisher(for: .selectAssetRepositoryAsset)) { notification in
             guard let assetId = notification.userInfo?["assetId"] as? UUID else { return }
             selectedAssetIds = [assetId]
@@ -309,6 +373,188 @@ struct AssetRepositoryView: View {
         } message: {
             Text("Add your Meshy.ai API key in Preferences \u{2192} Meshy.ai before generating 3D models.")
         }
+    }
+
+    // MARK: - Header and Filtering
+
+    @ViewBuilder
+    private var assetHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Asset Repository")
+                        .font(.headline)
+                    Text(assetStatusText)
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer(minLength: 8)
+
+                Button(action: importAsset) {
+                    Image(systemName: "plus")
+                }
+                .help("Import Assets")
+
+                Button(action: importTilesetAsset) {
+                    Image(systemName: "square.grid.3x3")
+                }
+                .help("Import Tileset Image")
+
+                Button(action: openGenerate3DSheet) {
+                    Image(systemName: "cube.transparent")
+                }
+                .help("Generate 3D\u{2026}")
+
+                if !selectedAssetIds.isEmpty {
+                    Button(action: duplicateSelected) {
+                        Image(systemName: "plus.square.on.square")
+                    }
+                    .help("Duplicate Selected")
+
+                    Button(action: deleteSelected) {
+                        Image(systemName: "trash")
+                    }
+                    .help("Delete Selected (\(selectedAssetIds.count))")
+                }
+
+                Button(action: { dismissAction() }) {
+                    Text("Done")
+                }
+                .keyboardShortcut(.return)
+            }
+
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                TextField("Search names, tags, kind, source, provider, MIME\u{2026}", text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+                if !searchText.isEmpty {
+                    Button(action: { searchText = "" }) {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.secondary)
+                    .help("Clear Search")
+                }
+            }
+
+            Picker("Asset Type", selection: $selectedCategory) {
+                ForEach(AssetCategory.allCases, id: \.self) { category in
+                    Text(categoryLabel(category)).tag(category)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            HStack(spacing: 8) {
+                Picker("Source", selection: $selectedSource) {
+                    ForEach(AssetSourceFilter.allCases) { filter in
+                        Text(filter.label).tag(filter)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: 140)
+                .help("Filter by where assets came from")
+
+                Picker("Status", selection: $selectedStatus) {
+                    ForEach(AssetStatusFilter.allCases) { filter in
+                        Text(filter.label).tag(filter)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: 170)
+                .help("Filter by usage or setup state")
+
+                Picker("Sort", selection: $selectedSort) {
+                    ForEach(AssetSort.allCases) { sort in
+                        Text(sort.label).tag(sort)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: 115)
+                .help("Sort assets")
+
+                Spacer(minLength: 4)
+
+                if filtersAreActive {
+                    Button("Clear") {
+                        clearAssetFilters()
+                    }
+                    .font(.system(size: 11))
+                    .help("Clear Search and Filters")
+                }
+            }
+        }
+        .padding(8)
+        .background(hypeTheme.inspectorBackground.swiftUIColor)
+    }
+
+    private var assetStatusText: String {
+        let total = document.document.assetRepository.assets.count
+        let shown = filteredAssets.count
+        if shown == total {
+            return "\(total) assets"
+        }
+        return "\(shown) of \(total) assets"
+    }
+
+    private func matchesSource(_ asset: Asset) -> Bool {
+        switch selectedSource {
+        case .all:
+            return true
+        case .imported:
+            return asset.provenance == nil || asset.provenance?.origin == .userImport
+        case .web:
+            return asset.provenance?.origin == .webSearch
+        case .ai:
+            return asset.provenance?.origin == .aiGenerated || asset.provenance?.origin == .aiContext
+        case .meshy:
+            return asset.provenance?.attribution.providerIdentifier == "meshy"
+        }
+    }
+
+    private func matchesStatus(_ asset: Asset) -> Bool {
+        switch selectedStatus {
+        case .all:
+            return true
+        case .used:
+            return !document.document.assetUsages(for: asset.id).isEmpty
+        case .unused:
+            return document.document.assetUsages(for: asset.id).isEmpty
+        case .tilesets:
+            return asset.kind == .tileSet
+        case .needsTilesetSetup:
+            return asset.kind == .tileSet && !asset.isTileSet
+        case .rigged:
+            return asset.kind == .model3D && asset.isRigged
+        case .unriggedModels:
+            return asset.kind == .model3D && !asset.isRigged
+        }
+    }
+
+    private func sortAssets(_ lhs: Asset, _ rhs: Asset) -> Bool {
+        switch selectedSort {
+        case .nameAscending:
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        case .kind:
+            if lhs.kind.rawValue == rhs.kind.rawValue {
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+            return lhs.kind.rawValue < rhs.kind.rawValue
+        case .newest:
+            return repositoryIndex(of: lhs.id) > repositoryIndex(of: rhs.id)
+        case .largest:
+            if lhs.totalEmbeddedByteCount == rhs.totalEmbeddedByteCount {
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+            return lhs.totalEmbeddedByteCount > rhs.totalEmbeddedByteCount
+        }
+    }
+
+    private func repositoryIndex(of id: UUID) -> Int {
+        document.document.assetRepository.assets.firstIndex { $0.id == id } ?? 0
     }
 
     // MARK: - Thumbnail
