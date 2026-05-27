@@ -219,6 +219,9 @@ struct HypeCLI: AsyncParsableCommand {
             }
         case .passed:
             print("OK")
+        case .cancelled:
+            fputs("cancelled\n", stderr)
+            throw HypeCLIError.executionFailed
         case .error:
             if let err = result.error {
                 fputs("error: \(err.message) (line \(err.line))\n", stderr)

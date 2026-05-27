@@ -133,6 +133,23 @@ private actor RuntimeSpeechListenerProbe: SpeechListenerProvider {
     }
 }
 
+private actor SlowStopSystemProvider: SystemProvider {
+    private(set) var stopSoundStarted = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func stopSound() async {
+        stopSoundStarted = true
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func releaseStopSound() {
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
 #if canImport(Network)
 private final class LoopbackHTTPServer: @unchecked Sendable {
     private let listener: NWListener
@@ -256,11 +273,13 @@ private func makeRuntimeDocument(
 
 private func runtimeConfiguration(
     aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
+    systemProvider: SystemProvider = StubSystemProvider(),
     speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
     speechListenerProvider: SpeechListenerProvider = StubSpeechListenerProvider(),
     clock: RuntimeClock = SystemRuntimeClock()
 ) -> StackRuntimeConfiguration {
     StackRuntimeConfiguration(
+        systemProvider: systemProvider,
         aiProvider: aiProvider,
         speechOutputProvider: speechOutputProvider,
         speechListenerProvider: speechListenerProvider,
@@ -432,10 +451,50 @@ struct StackRuntimeAsyncTests {
         await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
 
         #expect(reportedRunning)
-        #expect(result.status == .error)
-        #expect(result.error?.message == "Script cancelled")
+        #expect(result.status == .cancelled)
+        #expect(result.error == nil)
         #expect(finalStatus.runningScripts.isEmpty)
         #expect(outputText(from: result.modifiedDocument ?? doc, fieldID: fieldID) != "finished")
+    }
+
+    @Test("cancel clears running script status before stop providers finish")
+    func cancelClearsRunningScriptStatusBeforeStopProvidersFinish() async {
+        let (doc, cardId, buttonId, _) = makeRuntimeDocument(buttonScript: """
+        on mouseUp
+          wait 10 seconds
+        end mouseUp
+        """)
+
+        let systemProvider = SlowStopSystemProvider()
+        let runtime = await StackRuntimeRegistry.shared.runtime(
+            for: doc,
+            configuration: runtimeConfiguration(systemProvider: systemProvider)
+        )
+        let scriptTask = Task {
+            await runtime.dispatchAndWait("mouseUp", params: [], targetId: buttonId, currentCardId: cardId)
+        }
+
+        let reportedRunning = await waitUntil {
+            await !runtime.statusSnapshot().runningScripts.isEmpty
+        }
+        let cancelTask = Task {
+            await runtime.cancelRunningScripts()
+        }
+        let stopProviderStarted = await waitUntil {
+            await systemProvider.stopSoundStarted
+        }
+        let statusWhileStopProviderIsBlocked = await runtime.statusSnapshot()
+
+        await systemProvider.releaseStopSound()
+        await cancelTask.value
+        let result = await scriptTask.value
+        await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
+
+        #expect(reportedRunning)
+        #expect(stopProviderStarted)
+        #expect(statusWhileStopProviderIsBlocked.runningScripts.isEmpty)
+        #expect(result.status == .cancelled)
+        #expect(result.error == nil)
     }
 
     @Test("classic nextCard aliases navigate to the next card")
