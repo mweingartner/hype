@@ -74,7 +74,7 @@ async function discoverSessions() {
             if (!descriptor.instanceId || !descriptor.socketPath || !descriptor.pid)
                 continue;
             if (!isPidLive(descriptor.pid)) {
-                await pruneDescriptor(descriptorPath, descriptor.socketPath);
+                await pruneOrphanedSocket(descriptor);
                 continue;
             }
             sessions.push(descriptor);
@@ -94,8 +94,11 @@ function isPidLive(pid) {
         return false;
     }
 }
-async function pruneDescriptor(descriptorPath, socketPath) {
-    await Promise.allSettled([fs.rm(descriptorPath, { force: true }), fs.rm(socketPath, { force: true })]);
+async function pruneOrphanedSocket(session) {
+    try {
+        await fs.rm(session.socketPath, { force: true });
+    }
+    catch { }
 }
 async function enrichSession(session) {
     try {

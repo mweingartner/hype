@@ -95,7 +95,7 @@ async function discoverSessions(): Promise<HypeSessionDescriptor[]> {
       const descriptor = JSON.parse(await fs.readFile(descriptorPath, "utf8")) as HypeSessionDescriptor
       if (!descriptor.instanceId || !descriptor.socketPath || !descriptor.pid) continue
       if (!isPidLive(descriptor.pid)) {
-        await pruneDescriptor(descriptorPath, descriptor.socketPath)
+        await pruneOrphanedSocket(descriptor)
         continue
       }
       sessions.push(descriptor)
@@ -116,8 +116,8 @@ function isPidLive(pid: number): boolean {
   }
 }
 
-async function pruneDescriptor(descriptorPath: string, socketPath: string): Promise<void> {
-  await Promise.allSettled([fs.rm(descriptorPath, { force: true }), fs.rm(socketPath, { force: true })])
+async function pruneOrphanedSocket(session: HypeSessionDescriptor): Promise<void> {
+  try { await fs.rm(session.socketPath, { force: true }) } catch {}
 }
 
 async function enrichSession(session: HypeSessionDescriptor): Promise<HypeSessionDescriptor> {

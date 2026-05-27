@@ -24,7 +24,7 @@ final class HypeDebugServer {
         do {
             let directory = try HypeDebugDirectory.socketDirectory()
             socketPath = directory.appendingPathComponent("\(getpid()).sock").path
-            descriptorPath = directory.appendingPathComponent("\(getpid()).json").path
+            descriptorPath = directory.appendingPathComponent("\(instanceId).json").path
             HypeLogger.shared.info("Debug bridge using socket directory: \(directory.path)", source: "DebugBridge")
             try? FileManager.default.removeItem(atPath: socketPath)
 
@@ -117,15 +117,25 @@ final class HypeDebugServer {
 
     private func descriptor() -> [String: Any] {
         let document = HypeDocumentMutationCoordinator.shared.activeDocumentBinding?.wrappedValue.document
+        let bundle = Bundle.main
         return [
             "protocolVersion": 1,
             "instanceId": instanceId,
             "pid": Int(getpid()),
             "socketPath": socketPath,
+            "descriptorPath": descriptorPath,
+            "discoveryDirectory": (descriptorPath as NSString).deletingLastPathComponent,
             "startedAt": ISO8601DateFormatter().string(from: startedAt),
-            "bundlePath": Bundle.main.bundlePath,
+            "bundlePath": bundle.bundlePath,
+            "bundleIdentifier": bundle.bundleIdentifier ?? NSNull(),
+            "appVersion": bundle.infoDictionary?["CFBundleShortVersionString"] as? String ?? NSNull(),
+            "appBuild": bundle.infoDictionary?["CFBundleVersion"] as? String ?? NSNull(),
             "activeDocumentName": document?.stack.name ?? NSNull(),
             "activeDocumentId": document?.stack.id.uuidString ?? NSNull(),
+            "activeDocumentPath": {
+                guard let doc = document, let stackName = doc.stack.name else { return NSNull() }
+                return URL(fileURLWithPath: stackName).absoluteString as NSString
+            }(),
         ]
     }
 

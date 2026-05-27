@@ -25,7 +25,7 @@ Discovery path (in order of preference):
 3. `~/Library/Application Support/Hype/debug/`
 
 Each Hype process writes a socket `<discovery>/<pid>.sock` and a descriptor
-`<discovery>/<pid>.json` where `<pid>` is the process ID of the Hype instance.
+`<discovery>/<instanceId>.json` where `<pid>` is the process ID of the Hype instance.
 
 The discovery directory is created with `0700` permissions and descriptors are
 written with `0600` permissions. Descriptors include:
