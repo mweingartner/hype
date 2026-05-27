@@ -24,6 +24,7 @@ let package = Package(
             resources: [
                 .process("Resources/HypeDocIcon.icns"),
                 .process("Resources/AppIcon.icns"),
+                .process("Resources/OpenSourceManifest.json"),
             ]
         ),
         .executableTarget(

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "components": [
+    {
+      "name": "AudioKit",
+      "kind": "Swift package",
+      "version": "5.2.3",
+      "license": "MIT",
+      "sourceURL": "https://github.com/AudioKit/AudioKit",
+      "usage": "Audio engine support for stack-contained music playback."
+    },
+    {
+      "name": "Swift Argument Parser",
+      "kind": "Swift package",
+      "version": "1.5.0",
+      "license": "Apache-2.0",
+      "sourceURL": "https://github.com/apple/swift-argument-parser",
+      "usage": "Command-line parsing for Hype developer tools."
+    },
+    {
+      "name": "StackImport",
+      "kind": "Optional framework",
+      "version": "0.3.0",
+      "license": "MIT",
+      "sourceURL": "https://github.com/jrepp/stackimport",
+      "usage": "Optional HyperCard stack import conversion."
+    }
+  ]
+}
