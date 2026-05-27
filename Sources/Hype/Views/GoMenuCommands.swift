@@ -331,6 +331,7 @@ extension Notification.Name {
     /// `MainContentView` listens and opens (or focuses) the detached
     /// Theme Designer window via `openThemeDesignerWindow`.
     static let openThemeDesigner = Notification.Name("hype.openThemeDesigner")
+    static let cancelRunningScripts = Notification.Name("hype.cancelRunningScripts")
 }
 
 // MARK: - AI menu (chat panel + AI-specific actions)
@@ -345,6 +346,7 @@ struct AIMenuCommands: Commands {
         CommandMenu("AI") {
             Button("Halt Current Run") {
                 NotificationCenter.default.post(name: .haltAIChat, object: nil)
+                NotificationCenter.default.post(name: .cancelRunningScripts, object: nil)
             }
             .keyboardShortcut(".", modifiers: .command)
         }

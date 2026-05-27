@@ -516,6 +516,7 @@ public struct Interpreter: Sendable {
         }
 
         do {
+            try Task.checkCancellation()
             for stmt in handler.body {
                 try await executeStatementAndPublish(
                     stmt,
@@ -554,6 +555,11 @@ public struct Interpreter: Sendable {
             return ExecutionResult(status: .completed, modifiedDocument: document, showAllCards: true)
         } catch let error as ScriptError {
             return ExecutionResult(status: .error, error: error)
+        } catch is CancellationError {
+            return ExecutionResult(
+                status: .error,
+                error: ScriptError(message: "Script cancelled", line: handler.line, handler: handler.name)
+            )
         } catch {
             let scriptError = ScriptError(message: error.localizedDescription, line: handler.line, handler: handler.name)
             return ExecutionResult(status: .error, error: scriptError)
@@ -699,6 +705,7 @@ public struct Interpreter: Sendable {
         navigationTarget: inout UUID?,
         handler: Handler
     ) async throws {
+        try Task.checkCancellation()
         instructionCount += 1
         context.profiler?.recordStatement(statementKind(stmt))
         if instructionCount > context.instructionLimit {

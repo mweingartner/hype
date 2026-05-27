@@ -405,6 +405,39 @@ struct StackRuntimeAsyncTests {
         #expect(probe.texts().contains("after wait"))
     }
 
+    @Test("runtime exposes and cancels running scripts")
+    func runtimeExposesAndCancelsRunningScripts() async {
+        let (doc, cardId, buttonId, fieldID) = makeRuntimeDocument(buttonScript: """
+        on mouseUp
+          put "started" into field "output"
+          wait 10 seconds
+          put "finished" into field "output"
+        end mouseUp
+        """)
+
+        let runtime = await StackRuntimeRegistry.shared.runtime(
+            for: doc,
+            configuration: runtimeConfiguration()
+        )
+        let task = Task {
+            await runtime.dispatchAndWait("mouseUp", params: [], targetId: buttonId, currentCardId: cardId)
+        }
+
+        let reportedRunning = await waitUntil {
+            await !runtime.statusSnapshot().runningScripts.isEmpty
+        }
+        await runtime.cancelRunningScripts()
+        let result = await task.value
+        let finalStatus = await runtime.statusSnapshot()
+        await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
+
+        #expect(reportedRunning)
+        #expect(result.status == .error)
+        #expect(result.error?.message == "Script cancelled")
+        #expect(finalStatus.runningScripts.isEmpty)
+        #expect(outputText(from: result.modifiedDocument ?? doc, fieldID: fieldID) != "finished")
+    }
+
     @Test("classic nextCard aliases navigate to the next card")
     func classicNextCardAliasesNavigate() async {
         var doc = HypeDocument.newDocument(name: "Classic Nav Test")

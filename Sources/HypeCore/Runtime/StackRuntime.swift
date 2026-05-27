@@ -65,6 +65,22 @@ public final class UserDefaultsNetworkPermissionStore: @unchecked Sendable {
 }
 
 public struct RuntimeStatusSnapshot: Sendable, Equatable {
+    public struct RunningScriptSummary: Identifiable, Sendable, Equatable {
+        public var id: UUID
+        public var message: String
+        public var targetId: UUID
+        public var currentCardId: UUID
+        public var startedAt: Date
+
+        public init(id: UUID, message: String, targetId: UUID, currentCardId: UUID, startedAt: Date) {
+            self.id = id
+            self.message = message
+            self.targetId = targetId
+            self.currentCardId = currentCardId
+            self.startedAt = startedAt
+        }
+    }
+
     public struct RequestSummary: Identifiable, Sendable, Equatable {
         public var id: UUID
         public var state: String
@@ -92,15 +108,18 @@ public struct RuntimeStatusSnapshot: Sendable, Equatable {
         public var error: String?
     }
 
+    public var runningScripts: [RunningScriptSummary]
     public var requests: [RequestSummary]
     public var listeners: [ListenerSummary]
     public var connections: [ConnectionSummary]
 
     public init(
+        runningScripts: [RunningScriptSummary] = [],
         requests: [RequestSummary],
         listeners: [ListenerSummary],
         connections: [ConnectionSummary]
     ) {
+        self.runningScripts = runningScripts
         self.requests = requests
         self.listeners = listeners
         self.connections = connections
@@ -323,6 +342,7 @@ public actor StackRuntimeRegistry {
 
 public actor StackRuntime: ScriptRuntimeProviding {
     private struct QueuedDispatch {
+        var id: UUID = UUID()
         var message: String
         var params: [Value]
         var targetId: UUID
@@ -331,6 +351,14 @@ public actor StackRuntime: ScriptRuntimeProviding {
         var mouseY: Double
         var scriptContext: ScriptDispatchContext?
         var completion: CheckedContinuation<ExecutionResult, Never>?
+    }
+
+    private struct RunningDispatch {
+        var id: UUID
+        var message: String
+        var targetId: UUID
+        var currentCardId: UUID
+        var startedAt: Date
     }
 
     private enum RequestKind: String {
@@ -392,6 +420,8 @@ public actor StackRuntime: ScriptRuntimeProviding {
     private var document: HypeDocument
     private var queue: [QueuedDispatch] = []
     private var isProcessing = false
+    private var currentScriptTask: Task<ExecutionResult, Never>?
+    private var currentRunningDispatch: RunningDispatch?
     private var requests: [UUID: RequestState] = [:]
     private var listeners: [UUID: ListenerState] = [:]
     private var connections: [UUID: ConnectionState] = [:]
@@ -498,6 +528,22 @@ public actor StackRuntime: ScriptRuntimeProviding {
         }
     }
 
+    public func cancelRunningScripts() async {
+        currentScriptTask?.cancel()
+        await configuration.systemProvider.stopSound()
+        await configuration.systemProvider.stopMusic()
+        let cancelled = ExecutionResult(
+            status: .error,
+            error: ScriptError(message: "Script cancelled", line: 0, handler: currentRunningDispatch?.message ?? "")
+        )
+        let queued = queue
+        queue.removeAll(keepingCapacity: true)
+        for item in queued {
+            item.completion?.resume(returning: cancelled)
+        }
+        postStatusChange()
+    }
+
     public func dispatchIdleBurst(
         cardTargetID: UUID,
         partTargetIDs: [UUID],
@@ -538,6 +584,15 @@ public actor StackRuntime: ScriptRuntimeProviding {
 
     public func statusSnapshot() -> RuntimeStatusSnapshot {
         RuntimeStatusSnapshot(
+            runningScripts: currentRunningDispatch.map {
+                [.init(
+                    id: $0.id,
+                    message: $0.message,
+                    targetId: $0.targetId,
+                    currentCardId: $0.currentCardId,
+                    startedAt: $0.startedAt
+                )]
+            } ?? [],
             requests: requests.values.sorted { $0.id.uuidString < $1.id.uuidString }.map {
                 .init(id: $0.id, state: $0.state, method: $0.method, url: $0.url, statusCode: $0.statusCode, error: $0.error)
             },
@@ -1106,24 +1161,39 @@ public actor StackRuntime: ScriptRuntimeProviding {
             queue.removeAll(keepingCapacity: true)
             var batchDocumentChanged = false
             for item in batch {
-                let result = await dispatcher.dispatchAsync(
+                currentRunningDispatch = RunningDispatch(
+                    id: item.id,
                     message: item.message,
-                    params: item.params,
                     targetId: item.targetId,
-                    document: document,
                     currentCardId: item.currentCardId,
-                    dialogProvider: configuration.dialogProvider,
-                    drawingProvider: configuration.drawingProvider,
-                    systemProvider: configuration.systemProvider,
-                    aiProvider: configuration.aiProvider,
-                    meshyProvider: configuration.meshyProvider,
-                    speechOutputProvider: configuration.speechOutputProvider,
-                    appScript: configuration.appScript,
-                    mouseX: item.mouseX,
-                    mouseY: item.mouseY,
-                    scriptContext: item.scriptContext,
-                    runtimeProvider: self
+                    startedAt: Date()
                 )
+                postStatusChange()
+                let task = Task {
+                    await dispatcher.dispatchAsync(
+                        message: item.message,
+                        params: item.params,
+                        targetId: item.targetId,
+                        document: document,
+                        currentCardId: item.currentCardId,
+                        dialogProvider: configuration.dialogProvider,
+                        drawingProvider: configuration.drawingProvider,
+                        systemProvider: configuration.systemProvider,
+                        aiProvider: configuration.aiProvider,
+                        meshyProvider: configuration.meshyProvider,
+                        speechOutputProvider: configuration.speechOutputProvider,
+                        appScript: configuration.appScript,
+                        mouseX: item.mouseX,
+                        mouseY: item.mouseY,
+                        scriptContext: item.scriptContext,
+                        runtimeProvider: self
+                    )
+                }
+                currentScriptTask = task
+                let result = await task.value
+                currentScriptTask = nil
+                currentRunningDispatch = nil
+                postStatusChange()
                 batchDocumentChanged = apply(
                     result: result,
                     postsDocumentChange: batch.count == 1

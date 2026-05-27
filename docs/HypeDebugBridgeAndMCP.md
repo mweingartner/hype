@@ -13,8 +13,8 @@ MCP client
   -> active Hype.app process
 ```
 
-The debug bridge starts when Hype launches and stops when Hype terminates. It is
-not configurable through the old MCP preferences UI, and it does not bind a TCP
+The debug bridge starts when the "Enable debug socket" preference is on and
+stops when that preference is off or Hype terminates. It does not bind a TCP
 port.
 
 ## Discovery
@@ -45,15 +45,20 @@ requires an explicit `hype_attach_session` call.
 ## Debug Protocol
 
 The app debug bridge speaks newline-delimited JSON-RPC over the Unix socket. This
-is intentionally not MCP.
+is intentionally not MCP. Connections may stay open for multiple JSON-RPC
+messages; the server keeps accepting and reading on a dedicated dispatch queue
+so lightweight liveness checks still work even if the main UI actor is slow.
 
 Methods:
 
+- `debug/keepalive`
 - `debug/hello`
 - `debug/getState`
 - `debug/listTools`
 - `debug/callTool`
 
+`debug/keepalive` is answered by the socket server without touching document UI
+state. The MCP server uses it as the persistent-connection heartbeat.
 `debug/listTools` returns the same tool schemas Hype's AI surfaces use.
 `debug/callTool` applies mutations to the active focused document through
 `HypeToolExecutor` and `HypeDocumentMutationCoordinator`.
@@ -69,7 +74,9 @@ It implements stdio MCP framing and always exposes connection-management tools:
 - `hype_active_session`
 - `hype_ping`
 
-When attached to a Hype process, `tools/list` also includes the active Hype tool
+When attached to a Hype process, the MCP server keeps one Unix-socket debug
+connection open, sends periodic `debug/keepalive` requests, and reuses that
+connection for proxied calls. `tools/list` also includes the active Hype tool
 surface, and `tools/call` proxies those tool calls over the debug bridge.
 
 ## Local Client Config

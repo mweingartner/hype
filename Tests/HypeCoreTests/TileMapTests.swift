@@ -124,6 +124,51 @@ struct TileMapTests {
         #expect(HypeToolExecutor.filenameLooksLikeTileset("tile") == false)
     }
 
+    @Test("filenameLooksLikeSpriteSheet matches common conventions")
+    func spriteSheetFilenameHeuristic() {
+        #expect(HypeToolExecutor.filenameLooksLikeSpriteSheet("player_walk_spritesheet") == true)
+        #expect(HypeToolExecutor.filenameLooksLikeSpriteSheet("enemy_spritesheet") == true)
+        #expect(HypeToolExecutor.filenameLooksLikeSpriteSheet("character_sprites") == true)
+        #expect(HypeToolExecutor.filenameLooksLikeSpriteSheet("animationsheet") == true)
+        #expect(HypeToolExecutor.filenameLooksLikeSpriteSheet("sprite_atlas") == true)
+        #expect(HypeToolExecutor.filenameLooksLikeSpriteSheet("hero_sheet") == true)
+        #expect(HypeToolExecutor.filenameLooksLikeSpriteSheet("tileset_grass") == false)
+        #expect(HypeToolExecutor.filenameLooksLikeSpriteSheet("background") == false)
+        #expect(HypeToolExecutor.filenameLooksLikeSpriteSheet("icon") == false)
+    }
+
+    @Test("suggestTagsFromFilename extracts contextual tags")
+    func suggestTagsFromFilename() {
+        #expect(HypeToolExecutor.suggestTagsFromFilename("forest_background").contains("background"))
+        #expect(HypeToolExecutor.suggestTagsFromFilename("menu_card").contains("card"))
+        #expect(HypeToolExecutor.suggestTagsFromFilename("ui_icon_heart").contains("ui"))
+        #expect(HypeToolExecutor.suggestTagsFromFilename("player_character").contains("character"))
+        #expect(HypeToolExecutor.suggestTagsFromFilename("grass_tileset").contains("tilemap"))
+        #expect(HypeToolExecutor.suggestTagsFromFilename("coin_sprite").contains("sprite"))
+        #expect(HypeToolExecutor.suggestTagsFromFilename("brick_texture").contains("texture"))
+        #expect(HypeToolExecutor.suggestTagsFromFilename("explosion_fx").contains("effects"))
+        #expect(HypeToolExecutor.suggestTagsFromFilename("jump_sound").contains("audio"))
+        #expect(HypeToolExecutor.suggestTagsFromFilename("generic_image").isEmpty)
+    }
+
+    @Test("suggestTagsFromResource derives format and dimension tags")
+    func suggestTagsFromResource() {
+        #expect(HypeToolExecutor.suggestTagsFromResource(ext: "jpg", width: 100, height: 100).contains("jpeg"))
+        #expect(HypeToolExecutor.suggestTagsFromResource(ext: "png", width: 100, height: 100).contains("png"))
+        #expect(HypeToolExecutor.suggestTagsFromResource(ext: "gif", width: 100, height: 100).contains("gif"))
+        #expect(HypeToolExecutor.suggestTagsFromResource(ext: "webp", width: 100, height: 100).contains("webp"))
+        #expect(HypeToolExecutor.suggestTagsFromResource(ext: "svg", width: 100, height: 100).contains("svg"))
+        let unknownTags = HypeToolExecutor.suggestTagsFromResource(ext: "unknown", width: 100, height: 100)
+        #expect(!unknownTags.contains("jpeg") && !unknownTags.contains("png"), "unknown format should not add format tags, got \(unknownTags)")
+        let wideTags = HypeToolExecutor.suggestTagsFromResource(ext: "png", width: 1920, height: 1080)
+        let tallTags = HypeToolExecutor.suggestTagsFromResource(ext: "png", width: 1080, height: 1920)
+        #expect(wideTags.contains("wide"), "1920x1080 should be wide but got \(wideTags)")
+        #expect(tallTags.contains("tall"), "1080x1920 should be tall but got \(tallTags)")
+        #expect(HypeToolExecutor.suggestTagsFromResource(ext: "png", width: 512, height: 512).contains("square"))
+        #expect(HypeToolExecutor.suggestTagsFromResource(ext: "png", width: 4096, height: 4096).contains("highres"))
+        #expect(HypeToolExecutor.suggestTagsFromResource(ext: "png", width: 64, height: 64).contains("lowres"))
+    }
+
     // MARK: - classify_asset_as_tileset AI tool
 
     @Test("classify_asset_as_tileset sets kind and tile metadata")

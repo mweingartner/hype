@@ -31,11 +31,10 @@ struct HyperCardImportTests {
         #expect(document.cards[0].script.contains("on openCard"))
         #expect(document.parts.contains { $0.name == "Card Field" && $0.textContent == "hello from card" })
         #expect(document.parts.contains { $0.name == "BG Button" && $0.script.contains("on mouseUp") })
-        #expect(try parsedHandlerCount(document.stack.script) == 0)
-        #expect(try parsedHandlerCount(document.cards[0].script) == 0)
+        #expect(try parsedHandlerCount(document.stack.script) == 1)
+        #expect(try parsedHandlerCount(document.cards[0].script) == 1)
         #expect(document.legacyImport?.embeddedDataFork == data)
         #expect(result.report.importedScripts >= 3)
-        #expect(result.report.warnings.contains { $0.contains("disabled until translated") })
     }
 
     @Test("resource fork parser discovers XCMD resources")
@@ -140,7 +139,11 @@ struct HyperCardImportTests {
         #expect(document.parts.contains { $0.partType == .button && $0.script.contains("goTopic") })
         let importedScripts = [document.stack.script] + document.backgrounds.map(\.script) + document.cards.map(\.script) + document.parts.map(\.script)
         for script in importedScripts where !script.isEmpty {
-            #expect(try parsedHandlerCount(script) == 0)
+            if scriptIsDisabledLegacyReference(script) {
+                #expect(try parsedHandlerCount(script) == 0)
+            } else {
+                #expect(try parsedHandlerCount(script) > 0)
+            }
         }
         #expect(document.legacyImport?.embeddedDataFork?.isEmpty == false)
     }
@@ -165,8 +168,32 @@ struct HyperCardImportTests {
         #expect(button.name == "Button 1")
         #expect(button.showName == false)
         #expect(button.buttonStyle == .transparent)
-        #expect(button.script.contains("-- go next"))
-        #expect(try parsedHandlerCount(button.script) == 0)
+        #expect(button.script.contains("go next"))
+        #expect(!scriptIsDisabledLegacyReference(button.script))
+        #expect(try parsedHandlerCount(button.script) == 1)
+    }
+
+    @Test("stackimport package normalizes legacy gonext shorthand before enabling runnable scripts")
+    func stackimportPackageNormalizesGoNextShorthand() throws {
+        let packageFiles: [String: Data] = [
+            "project.json": Data("""
+            {"sourceFileName":"Squirt Sample","stackFile":"stack_-1.json","blocks":[],"fonts":[]}
+            """.utf8),
+            "stack_-1.json": Data("""
+            {"name":"Squirt Sample","cardWidth":512,"cardHeight":342,"script":"","pages":[{"cardIds":[100]}],"layers":[{"kind":"card","id":100,"file":"card_100.json"}]}
+            """.utf8),
+            "card_100.json": Data("""
+            {"id":100,"bitmap":null,"name":"Frame","script":"","parts":[{"id":1,"type":"button","style":"transparent","showName":true,"autoHighlight":false,"rect":{"left":0,"top":0,"right":512,"bottom":342},"name":"","script":"on mouseUp\\r  gonext\\rend mouseUp"}],"contents":[]}
+            """.utf8),
+        ]
+
+        let result = try StackImportPackageConverter().convert(packageFiles: packageFiles)
+        let button = try #require(result.document.parts.first { $0.partType == .button })
+
+        #expect(button.script.contains("  go next"))
+        #expect(!button.script.contains("gonext"))
+        #expect(!scriptIsDisabledLegacyReference(button.script))
+        #expect(try parsedHandlerCount(button.script) == 1)
     }
 
     @Test("stackimport package imports converted sounds as playable audio assets")
@@ -357,6 +384,10 @@ struct HyperCardImportTests {
 
     private func parsedHandlerCount(_ source: String) throws -> Int {
         try parse(source).handlers.count
+    }
+
+    private func scriptIsDisabledLegacyReference(_ source: String) -> Bool {
+        source.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("-- Imported HyperCard script preserved for reference.")
     }
 }
 

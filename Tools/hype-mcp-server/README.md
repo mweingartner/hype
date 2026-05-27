@@ -2,9 +2,9 @@
 
 This stdio MCP server is the only MCP-facing process for Hype. Hype.app no
 longer exposes MCP directly. Instead, the app publishes a local debug bridge as
-a per-instance Unix domain socket under `/tmp/hype-debug-$UID/`; this server
-discovers live Hype instances, attaches to one, and proxies MCP tool calls to
-the app's debug protocol.
+a per-instance Unix domain socket; this server discovers live Hype instances,
+attaches to one, keeps a persistent debug connection alive with
+`debug/keepalive`, and proxies MCP tool calls to the app's debug protocol.
 
 Run from the repository root:
 

@@ -10,6 +10,7 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
     private let launchState = AppLaunchState()
     private var pendingWindowFrame: NSRect?
     private var hasAppliedPendingFrame = false
+    private var debugDefaultsObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Halve the system tooltip delay. AppKit reads the
@@ -31,8 +32,15 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
         )
         installWindowObservers()
         HypeMCPAppServer.shared.startIfNeeded()
-        if UserDefaults.standard.bool(forKey: "hype.debug.enabled") {
-            HypeDebugServer.shared.start()
+        updateDebugServerState()
+        debugDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.updateDebugServerState()
+            }
         }
 
         if let lastURL = launchState.lastOpenedFileURL {
@@ -91,6 +99,10 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
         // Dispatch "quit" message to the current card of each open document.
         // This gives scripts a chance to run cleanup handlers before the app exits.
         NotificationCenter.default.post(name: .hypeQuit, object: nil)
+        if let debugDefaultsObserver {
+            NotificationCenter.default.removeObserver(debugDefaultsObserver)
+            self.debugDefaultsObserver = nil
+        }
         HypeDebugServer.shared.stop()
         HypeDocumentMutationCoordinator.shared.flushAllAutosaves()
 
@@ -118,6 +130,14 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
         center.addObserver(self, selector: #selector(windowDidMoveOrResize(_:)), name: NSWindow.didMoveNotification, object: nil)
         center.addObserver(self, selector: #selector(windowDidMoveOrResize(_:)), name: NSWindow.didResizeNotification, object: nil)
         center.addObserver(self, selector: #selector(windowWillClose(_:)), name: NSWindow.willCloseNotification, object: nil)
+    }
+
+    private func updateDebugServerState() {
+        if UserDefaults.standard.bool(forKey: "hype.debug.enabled") {
+            HypeDebugServer.shared.start()
+        } else {
+            HypeDebugServer.shared.stop()
+        }
     }
 
     private func openDocument(at url: URL) {
@@ -371,20 +391,68 @@ private enum HyperCardImportPanel {
         panel.allowedContentTypes = [.hyperCardStack, .data]
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
+        guard let window = NSApp.keyWindow else { return }
+
+        let progressState = HyperCardImportProgressState()
+        let progressView = HyperCardImportProgressView(state: progressState)
+        let hostingController = NSHostingController(rootView: progressView)
+
+        window.beginSheet(hostingController.view.window!) { _ in }
+        hostingController.view.window?.title = "Importing HyperCard Stack"
+
+        Task {
+            await performImport(url: url, state: progressState)
+        }
+    }
+
+    private static func performImport(url: URL, state: HyperCardImportProgressState) async {
         do {
-            let result = try StackImportCImporter().importStack(at: url)
+            var importer = StackImportCImporter()
+            importer.progressHandler = { message, percent in
+                Task { @MainActor in
+                    state.message = message
+                    state.percent = percent
+                }
+            }
+
+            let result = try await Task.detached(priority: .userInitiated) {
+                try importer.importStack(at: url)
+            }.value
+
             let outputURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent(url.deletingPathExtension().lastPathComponent + "-imported.hype")
             try HypeSQLiteStackStore().save(result.document, toPackageAt: outputURL)
-            NSDocumentController.shared.openDocument(withContentsOf: outputURL, display: true) { _, _, error in
-                if let error {
-                    HypeLogger.shared.error("Failed to open converted HyperCard import: \(error.localizedDescription)", source: "HyperCardImport")
-                    showImportError(error)
-                }
+
+            await MainActor.run {
+                state.result = result
+                state.outputURL = outputURL
+                NSApp.keyWindow?.endSheet(NSApp.keyWindow?.attachedSheet ?? NSApp.keyWindow!)
+
+                let celebrationView = HyperCardImportCelebrationView(
+                    result: result,
+                    outputURL: outputURL,
+                    onOpen: {
+                        NSApp.keyWindow?.endSheet(NSApp.keyWindow?.attachedSheet ?? NSApp.keyWindow!)
+                        NSDocumentController.shared.openDocument(withContentsOf: outputURL, display: true) { _, _, error in
+                            if let error {
+                                HypeLogger.shared.error("Failed to open converted HyperCard import: \(error.localizedDescription)", source: "HyperCardImport")
+                                showImportError(error)
+                            }
+                        }
+                    },
+                    onDone: {
+                        NSApp.keyWindow?.endSheet(NSApp.keyWindow?.attachedSheet ?? NSApp.keyWindow!)
+                    }
+                )
+                let hostingController = NSHostingController(rootView: celebrationView)
+                NSApp.keyWindow?.beginSheet(hostingController.view.window!) { _ in }
             }
         } catch {
-            HypeLogger.shared.error("HyperCard import failed: \(error.localizedDescription)", source: "HyperCardImport")
-            showImportError(error)
+            await MainActor.run {
+                NSApp.keyWindow?.endSheet(NSApp.keyWindow?.attachedSheet ?? NSApp.keyWindow!)
+                HypeLogger.shared.error("HyperCard import failed: \(error.localizedDescription)", source: "HyperCardImport")
+                showImportError(error)
+            }
         }
     }
 
@@ -403,6 +471,246 @@ private enum HyperCardImportPanel {
         alert.informativeText = status.detail ?? status.aboutLine
         alert.alertStyle = .informational
         alert.runModal()
+    }
+}
+
+@MainActor
+private final class HyperCardImportProgressState: ObservableObject {
+    @Published var message: String = "Preparing..."
+    @Published var percent: Int = 0
+    @Published var result: HyperCardImportResult?
+    @Published var outputURL: URL?
+}
+
+import SwiftUI
+
+private struct HyperCardImportProgressView: View {
+    @ObservedObject var state: HyperCardImportProgressState
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Spacer()
+            Image(systemName: "square.stack.3d.down.right.fill")
+                .font(.system(size: 36))
+                .foregroundColor(.accentColor)
+            Text("Importing HyperCard Stack")
+                .font(.system(size: 14, weight: .medium))
+            Text(state.message)
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+            ProgressView(value: Double(state.percent), total: 100)
+                .progressViewStyle(.linear)
+                .frame(width: 280)
+            Text("\(state.percent)%")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 40)
+        .padding(.vertical, 30)
+        .frame(width: 360, height: 200)
+    }
+}
+
+private struct HyperCardImportCelebrationView: View {
+    let result: HyperCardImportResult
+    let outputURL: URL
+    var onOpen: () -> Void
+    var onDone: () -> Void
+
+    private var report: HyperCardImportReport { result.report }
+
+    private var totalAssets: Int {
+        result.document.assetRepository.assets.count
+    }
+
+    private var totalAssetBytes: Int {
+        result.document.assetRepository.assets.reduce(0) { $0 + $1.data.count }
+    }
+
+    private var formattedBytes: String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: Int64(totalAssetBytes))
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    statsSection
+                    if !report.resourceSummary.isEmpty {
+                        resourcesSection
+                    }
+                    if !report.warnings.isEmpty {
+                        warningsSection
+                    }
+                    if !report.unsupportedFeatures.isEmpty {
+                        unsupportedSection
+                    }
+                }
+                .padding()
+            }
+            .frame(maxHeight: 300)
+            Divider()
+            footer
+        }
+        .frame(width: 480, height: 440)
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 28))
+                .foregroundColor(.green)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Import Complete")
+                    .font(.system(size: 14, weight: .semibold))
+                Text(report.stackName)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+        }
+        .padding()
+    }
+
+    private var statsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Stack Contents")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.secondary)
+            HStack(spacing: 24) {
+                statItem(value: "\(report.importedBackgrounds)", label: "Backgrounds")
+                statItem(value: "\(report.importedCards)", label: "Cards")
+                statItem(value: "\(report.importedParts)", label: "Parts")
+                statItem(value: "\(report.importedScripts)", label: "Scripts")
+            }
+            if totalAssets > 0 {
+                HStack(spacing: 24) {
+                    statItem(value: "\(totalAssets)", label: "Assets")
+                    statItem(value: formattedBytes, label: "Asset Size")
+                    if let cardSize = Optional(report.cardSize) {
+                        statItem(value: "\(cardSize.width)×\(cardSize.height)", label: "Card Size")
+                    }
+                }
+            }
+        }
+    }
+
+    private func statItem(value: String, label: String) -> some View {
+        VStack(spacing: 2) {
+            Text(value)
+                .font(.system(size: 18, weight: .medium, design: .rounded))
+            Text(label)
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private var resourcesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Converted Resources")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.secondary)
+            ForEach(report.resourceSummary.prefix(6), id: \.type) { summary in
+                HStack {
+                    Text(resourceTypeLabel(summary.type))
+                        .font(.system(size: 11))
+                    Spacer()
+                    Text("\(summary.count)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+            }
+            if report.resourceSummary.count > 6 {
+                Text("+ \(report.resourceSummary.count - 6) more resource types")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(10)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(6)
+    }
+
+    private var warningsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.orange)
+                    .font(.system(size: 11))
+                Text("Warnings (\(report.warnings.count))")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+            }
+            ForEach(report.warnings.prefix(3), id: \.self) { warning in
+                Text("• \(warning)")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+            if report.warnings.count > 3 {
+                Text("+ \(report.warnings.count - 3) more warnings")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private var unsupportedSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Image(systemName: "questionmark.circle.fill")
+                    .foregroundColor(.blue)
+                    .font(.system(size: 11))
+                Text("Unknown (\(report.unsupportedFeatures.count))")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+            }
+            Text("Some stack features were not fully understood during import.")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 12) {
+            Button("Open Stack") {
+                onOpen()
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("Done") {
+                onDone()
+            }
+        }
+        .padding()
+    }
+
+    private func resourceTypeLabel(_ type: String) -> String {
+        let labels: [String: String] = [
+            "snd": "Sounds",
+            "PICT": "Pictures",
+            "ICN#": "Icons",
+            "IC07": "Icons (large)",
+            "IC18": "Icons (8-bit)",
+            "IC19": "Icons (16-color)",
+            "CRSR": "Cursors",
+            "PAT ": "Patterns",
+            "DLOG": "Dialogs",
+            "DITL": "Dialog Items",
+            "TMPL": "Templates",
+            "STR ": "Strings",
+            "TEXT": "Text",
+            "MCod": "XCMDs",
+            "FKEY": "Function Keys",
+            "code": "Code",
+            "vers": "Version"
+        ]
+        return labels[type] ?? type
     }
 }
 

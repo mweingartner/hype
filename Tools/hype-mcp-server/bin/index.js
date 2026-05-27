@@ -7,6 +7,7 @@ import process from "node:process";
 let nextDebugId = 1;
 let attached = null;
 let stdinBuffer = Buffer.alloc(0);
+const debugConnections = new Map();
 const connectionTools = [
     {
         name: "hype_list_sessions",
@@ -39,6 +40,41 @@ const connectionTools = [
         name: "hype_ping",
         description: "Ping the attached Hype.app debug session.",
         inputSchema: { type: "object", properties: {}, required: [] },
+    },
+    {
+        name: "hype_import_hypercard_stack",
+        description: "Debugger-only import of a HyperCard stack file. Creates and opens a new temporary .hype document in Hype.app.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                path: { type: "string", description: "Absolute path to the HyperCard stack data fork." },
+            },
+            required: ["path"],
+        },
+    },
+    {
+        name: "hype_debug_click_button",
+        description: "Debugger-only click simulation for a named button on a card.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                button: { type: "string", description: "Button name, e.g. Button 1." },
+                card: { type: "string", description: "Optional card name, number, or id. Uses the active card when omitted." },
+            },
+            required: ["button"],
+        },
+    },
+    {
+        name: "hype_debug_script_state",
+        description: "Debugger-only snapshot of card/background/stack and optional button script state.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                card: { type: "string", description: "Optional card name, number, or id. Uses the active card when omitted." },
+                button: { type: "string", description: "Optional button name to include its script." },
+            },
+            required: [],
+        },
     },
 ];
 function discoveryDirectory() {
@@ -112,10 +148,11 @@ async function enrichSession(session) {
 async function ensureAttached() {
     if (attached) {
         try {
-            await debugRPC(attached.socketPath, "debug/hello", {});
+            await debugRPC(attached.socketPath, "debug/keepalive", {});
             return attached;
         }
         catch {
+            closeDebugConnection(attached.socketPath);
             attached = null;
         }
     }
@@ -150,56 +187,159 @@ async function attachSession(args) {
             : `No matching Hype session. Found ${sessions.length}; call hype_list_sessions and pass instance_id.`;
     }
     attached = await enrichSession(session);
-    await debugRPC(attached.socketPath, "debug/hello", {});
+    await debugRPC(attached.socketPath, "debug/keepalive", {});
     return `Attached to Hype session ${attached.instanceId}${attached.activeDocumentName ? ` (${attached.activeDocumentName})` : ""}`;
 }
 function stringArg(args, key) {
     const value = args[key];
     return typeof value === "string" ? value.trim() : "";
 }
-async function debugRPC(socketPath, method, params) {
-    const id = nextDebugId++;
-    const request = JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n";
-    return await new Promise((resolve, reject) => {
-        const socket = net.createConnection(socketPath);
-        let settled = false;
-        let data = "";
-        const timer = setTimeout(() => {
-            if (!settled) {
+class DebugConnection {
+    socketPath;
+    socket = null;
+    buffer = "";
+    connectPromise = null;
+    pending = new Map();
+    keepalive;
+    constructor(socketPath) {
+        this.socketPath = socketPath;
+        this.keepalive = setInterval(() => {
+            void this.request("debug/keepalive", {}).catch(() => this.close());
+        }, 10_000);
+        this.keepalive.unref();
+    }
+    async request(method, params) {
+        await this.connect();
+        const socket = this.socket;
+        if (!socket || socket.destroyed)
+            throw new Error("Hype debug socket is not connected");
+        const id = nextDebugId++;
+        const request = JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n";
+        return await new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                this.pending.delete(id);
+                reject(new Error("Hype debug request timed out"));
+            }, 5_000);
+            this.pending.set(id, { resolve, reject, timer });
+            socket.write(request, (error) => {
+                if (error) {
+                    this.rejectPending(id, error);
+                    this.close();
+                }
+            });
+        });
+    }
+    close() {
+        clearInterval(this.keepalive);
+        if (this.socket && !this.socket.destroyed)
+            this.socket.destroy();
+        this.socket = null;
+        this.connectPromise = null;
+        for (const [id, pending] of this.pending) {
+            clearTimeout(pending.timer);
+            pending.reject(new Error("Hype debug connection closed"));
+            this.pending.delete(id);
+        }
+    }
+    async connect() {
+        if (this.socket && !this.socket.destroyed)
+            return;
+        if (this.connectPromise)
+            return await this.connectPromise;
+        this.connectPromise = new Promise((resolve, reject) => {
+            const socket = net.createConnection(this.socketPath);
+            let settled = false;
+            const timer = setTimeout(() => {
+                if (settled)
+                    return;
                 settled = true;
                 socket.destroy();
-                reject(new Error("Hype debug request timed out"));
-            }
-        }, 5000);
-        socket.on("connect", () => socket.write(request));
-        socket.on("data", (chunk) => {
-            data += chunk.toString("utf8");
-            if (!data.includes("\n"))
-                return;
-            if (settled)
-                return;
-            settled = true;
-            clearTimeout(timer);
-            socket.end();
-            try {
-                const response = JSON.parse(data.slice(0, data.indexOf("\n")));
-                if (response.error)
-                    reject(new Error(response.error.message ?? "Hype debug error"));
-                else
-                    resolve(response.result);
-            }
-            catch (error) {
-                reject(error);
-            }
-        });
-        socket.on("error", (error) => {
-            if (!settled) {
+                reject(new Error("Hype debug connection timed out"));
+            }, 5_000);
+            socket.on("connect", () => {
+                if (settled)
+                    return;
                 settled = true;
                 clearTimeout(timer);
-                reject(error);
-            }
+                this.socket = socket;
+                resolve();
+            });
+            socket.on("data", (chunk) => this.handleData(chunk));
+            socket.on("error", (error) => {
+                if (!settled) {
+                    settled = true;
+                    clearTimeout(timer);
+                    reject(error);
+                }
+                this.close();
+            });
+            socket.on("close", () => this.close());
+        }).finally(() => {
+            this.connectPromise = null;
         });
-    });
+        await this.connectPromise;
+    }
+    handleData(chunk) {
+        this.buffer += chunk.toString("utf8");
+        while (this.buffer.includes("\n")) {
+            const newline = this.buffer.indexOf("\n");
+            const line = this.buffer.slice(0, newline);
+            this.buffer = this.buffer.slice(newline + 1);
+            if (!line.trim())
+                continue;
+            let response;
+            try {
+                response = JSON.parse(line);
+            }
+            catch {
+                continue;
+            }
+            const id = typeof response.id === "number" ? response.id : undefined;
+            if (id === undefined)
+                continue;
+            const pending = this.pending.get(id);
+            if (!pending)
+                continue;
+            this.pending.delete(id);
+            clearTimeout(pending.timer);
+            if (response.error) {
+                const error = response.error;
+                pending.reject(new Error(error.message ?? "Hype debug error"));
+            }
+            else {
+                pending.resolve(response.result);
+            }
+        }
+    }
+    rejectPending(id, error) {
+        const pending = this.pending.get(id);
+        if (!pending)
+            return;
+        this.pending.delete(id);
+        clearTimeout(pending.timer);
+        pending.reject(error);
+    }
+}
+async function debugRPC(socketPath, method, params) {
+    let connection = debugConnections.get(socketPath);
+    if (!connection) {
+        connection = new DebugConnection(socketPath);
+        debugConnections.set(socketPath, connection);
+    }
+    try {
+        return await connection.request(method, params);
+    }
+    catch (error) {
+        closeDebugConnection(socketPath);
+        throw error;
+    }
+}
+function closeDebugConnection(socketPath) {
+    const connection = debugConnections.get(socketPath);
+    if (!connection)
+        return;
+    debugConnections.delete(socketPath);
+    connection.close();
 }
 process.stdin.on("data", (chunk) => {
     stdinBuffer = Buffer.concat([stdinBuffer, chunk]);
@@ -288,6 +428,8 @@ async function callMCPTool(params) {
         case "hype_attach_session":
             return textContent(await attachSession(args), false);
         case "hype_detach_session":
+            if (attached)
+                closeDebugConnection(attached.socketPath);
             attached = null;
             return textContent("Detached from Hype session.", false);
         case "hype_active_session":
@@ -296,8 +438,39 @@ async function callMCPTool(params) {
             const session = await ensureAttached();
             if (!session)
                 return textContent("No Hype session attached.", true);
-            const state = await debugRPC(session.socketPath, "debug/hello", {});
+            const state = await debugRPC(session.socketPath, "debug/getState", {});
             return textContent(JSON.stringify(state, null, 2), false);
+        }
+        case "hype_import_hypercard_stack": {
+            const session = await ensureAttached();
+            if (!session)
+                return textContent("No Hype session attached.", true);
+            const path = stringArg(args, "path");
+            if (!path)
+                return textContent("hype_import_hypercard_stack requires path.", true);
+            const result = await debugRPC(session.socketPath, "debug/importHyperCardStack", { path });
+            return textContent(JSON.stringify(result, null, 2), false);
+        }
+        case "hype_debug_click_button": {
+            const session = await ensureAttached();
+            if (!session)
+                return textContent("No Hype session attached.", true);
+            const button = stringArg(args, "button");
+            if (!button)
+                return textContent("hype_debug_click_button requires button.", true);
+            const card = stringArg(args, "card");
+            const result = await debugRPC(session.socketPath, "debug/clickButton", { button, card });
+            return textContent(JSON.stringify(result, null, 2), false);
+        }
+        case "hype_debug_script_state": {
+            const session = await ensureAttached();
+            if (!session)
+                return textContent("No Hype session attached.", true);
+            const result = await debugRPC(session.socketPath, "debug/getScriptState", {
+                card: stringArg(args, "card"),
+                button: stringArg(args, "button"),
+            });
+            return textContent(JSON.stringify(result, null, 2), false);
         }
         default: {
             const session = await ensureAttached();
