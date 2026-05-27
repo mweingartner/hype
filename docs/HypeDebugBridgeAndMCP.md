@@ -9,7 +9,7 @@ calls.
 ```text
 MCP client
   -> stdio MCP server: Tools/hype-mcp-server/bin/hype-mcp.js
-  -> Unix socket debug bridge: /tmp/hype-debug-$UID/<instance>.sock
+  -> Unix socket debug bridge: <discovery>/<instance>.sock
   -> active Hype.app process
 ```
 
@@ -19,14 +19,15 @@ port.
 
 ## Discovery
 
-Each Hype process writes a descriptor to:
+Discovery path (in order of preference):
+1. `HYPE_DEBUG_SOCKET_DIR` env var (if set and non-empty)
+2. `.hype/debug/sockets/` relative to the repo root (cwd)
+3. `~/Library/Application Support/com.hype.app/debug/sockets/`
 
-```text
-/tmp/hype-debug-$UID/<instance>.json
-```
+Each Hype process writes a descriptor to `<discovery>/<instance>.json`.
 
-The directory is created with `0700` permissions and descriptors are written with
-`0600` permissions. Descriptors include:
+The discovery directory is created with `0700` permissions and descriptors are
+written with `0600` permissions. Descriptors include:
 
 - `protocolVersion`
 - `instanceId`
