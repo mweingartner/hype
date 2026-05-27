@@ -384,11 +384,25 @@ for trusted local clients and automation harnesses:
 - Health check: `GET http://127.0.0.1:47891/health`
 - Auth: `Authorization: Bearer <token>` or `X-Hype-MCP-Token: <token>`
 - Bridge executable: `swift run hype-mcp`
+- Codex bridge wrapper: `scripts/hype-mcp-stdio.sh`
 
 The token is generated once in the Hype app preference domain as
 `hype.mcp.token`; it is treated as a local automation secret and never returned
 by any MCP resource. Use `hype://app/preferences` or
 `hype_get_preferences` to see redacted `isSet` status for provider secrets.
+
+For Codex, configure the wrapper as a stdio MCP server:
+
+```toml
+[mcp_servers.hype]
+command = "/Users/mweingar/dev/hype-v2/scripts/hype-mcp-stdio.sh"
+args = []
+startup_timeout_sec = 120
+```
+
+The wrapper builds the bridge if needed, launches `/Applications/Hype.app` when
+the loopback MCP endpoint is not already healthy, waits for `/health`, and then
+execs the stdio bridge without writing non-JSON output to stdout.
 
 The MCP tool catalog contains every in-app authoring tool plus control tools:
 `hype_get_app_state`, `hype_get_preferences`, `hype_set_preference`,
