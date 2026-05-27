@@ -25,6 +25,7 @@ final class HypeDebugServer {
             let directory = try HypeDebugDirectory.socketDirectory()
             socketPath = directory.appendingPathComponent("\(instanceId).sock").path
             descriptorPath = directory.appendingPathComponent("\(instanceId).json").path
+            HypeLogger.shared.info("Debug bridge using socket directory: \(directory.path)", source: "DebugBridge")
             try? FileManager.default.removeItem(atPath: socketPath)
 
             let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
@@ -43,6 +44,7 @@ final class HypeDebugServer {
             address.sun_family = sa_family_t(AF_UNIX)
             let pathBytes = socketPath.utf8CString
             guard pathBytes.count <= MemoryLayout.size(ofValue: address.sun_path) else {
+                HypeLogger.shared.error("Debug socket path too long (\(pathBytes.count) bytes): \(socketPath)", source: "DebugBridge")
                 Darwin.close(fd)
                 throw DebugServerError.message("debug socket path is too long")
             }
@@ -57,17 +59,20 @@ final class HypeDebugServer {
             }
             guard bindStatus == 0 else {
                 let error = errno
+                HypeLogger.shared.error("Debug bridge bind failed (\(bindStatus)) for path \(socketPath): \(String(cString: strerror(error)))", source: "DebugBridge")
                 Darwin.close(fd)
                 throw DebugServerError.posix("bind", error)
             }
             guard Darwin.listen(fd, 16) == 0 else {
                 let error = errno
+                HypeLogger.shared.error("Debug bridge listen failed for \(socketPath): \(String(cString: strerror(error)))", source: "DebugBridge")
                 Darwin.close(fd)
                 throw DebugServerError.posix("listen", error)
             }
 
             listenSocket = fd
             try writeDescriptor()
+            HypeLogger.shared.info("Debug bridge wrote descriptor: \(descriptorPath)", source: "DebugBridge")
             let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
             source.setEventHandler { [weak self, fd] in
                 self?.acceptPendingConnections(on: fd)
