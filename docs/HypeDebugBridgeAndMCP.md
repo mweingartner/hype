@@ -22,7 +22,7 @@ port.
 Discovery path (in order of preference):
 1. `HYPE_DEBUG_SOCKET_DIR` env var (if set and non-empty)
 2. `.hype/debug/sockets/` relative to the repo root (cwd)
-3. `~/Library/Application Support/com.hype.app/debug/sockets/`
+3. `~/Library/Application Support/Hype/debug/sockets/`
 
 Each Hype process writes a descriptor to `<discovery>/<instance>.json`.
 

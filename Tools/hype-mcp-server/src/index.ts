@@ -74,7 +74,7 @@ function discoveryDirectory(): string {
     fsSync.mkdirSync(repoLocal, { recursive: true, mode: 0o700 })
     return repoLocal
   } catch {
-    return path.join(os.homedir(), "Library", "Application Support", "com.hype.app", "debug", "sockets")
+    return path.join(os.homedir(), "Library", "Application Support", "Hype", "debug", "sockets")
   }
 }
 

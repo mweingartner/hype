@@ -53,7 +53,7 @@ function discoveryDirectory() {
         return repoLocal;
     }
     catch {
-        return path.join(os.homedir(), "Library", "Application Support", "com.hype.app", "debug", "sockets");
+        return path.join(os.homedir(), "Library", "Application Support", "Hype", "debug", "sockets");
     }
 }
 async function discoverSessions() {
