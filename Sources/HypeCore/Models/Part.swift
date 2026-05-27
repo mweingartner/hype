@@ -256,8 +256,20 @@ public struct Part: Identifiable, Codable, Sendable {
     public var musicPatternName: String
     /// Default instrument name for keyboard / pattern creation controls.
     public var musicInstrumentName: String
-    /// Tempo in beats per minute for controls that create or play patterns.
+    /// Integer tempo in beats per minute for controls that create or play patterns.
+    /// Stored as Double for document-schema compatibility; all writes clamp to 1...320.
     public var musicTempo: Double
+    /// Rendered piano keyboard size. Supported values are 49, 61, 76, and 88.
+    /// Invalid persisted/scripted values normalize to the closest supported size.
+    public var musicKeyCount: Int
+    /// Whether a piano keyboard visibly labels itself as a piano keyboard.
+    public var musicShowControlType: Bool
+    /// Whether a piano keyboard visibly shows its bound pattern name.
+    public var musicShowPattern: Bool
+    /// Whether a piano keyboard visibly shows a runtime instrument picker.
+    public var musicShowInstrument: Bool
+    /// Whether a piano keyboard visibly shows its tempo.
+    public var musicShowTempo: Bool
     /// Whether playback should loop when started from this control.
     public var musicLoop: Bool
     /// Normalized playback volume, 0...1.
@@ -503,7 +515,12 @@ public struct Part: Identifiable, Codable, Sendable {
         self.audioData = nil
         self.musicPatternName = ""
         self.musicInstrumentName = "Acoustic Grand Piano"
-        self.musicTempo = 120
+        self.musicTempo = Double(MusicTempo.defaultBPM)
+        self.musicKeyCount = MusicKeyboardKeyCount.defaultValue
+        self.musicShowControlType = false
+        self.musicShowPattern = false
+        self.musicShowInstrument = false
+        self.musicShowTempo = false
         self.musicLoop = false
         self.musicVolume = 1
         self.musicTrackData = ""
@@ -666,7 +683,12 @@ public struct Part: Identifiable, Codable, Sendable {
         // Music-control fields — backward-compat optional.
         musicPatternName = try container.decodeIfPresent(String.self, forKey: .musicPatternName) ?? ""
         musicInstrumentName = try container.decodeIfPresent(String.self, forKey: .musicInstrumentName) ?? "Acoustic Grand Piano"
-        musicTempo = try container.decodeIfPresent(Double.self, forKey: .musicTempo) ?? 120
+        musicTempo = Double(MusicTempo.clamp(try container.decodeIfPresent(Double.self, forKey: .musicTempo) ?? Double(MusicTempo.defaultBPM)))
+        musicKeyCount = MusicKeyboardKeyCount.normalize(try container.decodeIfPresent(Int.self, forKey: .musicKeyCount) ?? MusicKeyboardKeyCount.defaultValue)
+        musicShowControlType = try container.decodeIfPresent(Bool.self, forKey: .musicShowControlType) ?? false
+        musicShowPattern = try container.decodeIfPresent(Bool.self, forKey: .musicShowPattern) ?? false
+        musicShowInstrument = try container.decodeIfPresent(Bool.self, forKey: .musicShowInstrument) ?? false
+        musicShowTempo = try container.decodeIfPresent(Bool.self, forKey: .musicShowTempo) ?? false
         musicLoop = try container.decodeIfPresent(Bool.self, forKey: .musicLoop) ?? false
         musicVolume = try container.decodeIfPresent(Double.self, forKey: .musicVolume) ?? 1
         musicTrackData = try container.decodeIfPresent(String.self, forKey: .musicTrackData) ?? ""

@@ -1,4 +1,5 @@
 import Testing
+import AppKit
 import Foundation
 @testable import HypeCore
 
@@ -28,6 +29,46 @@ struct FormControlsTests {
         #expect(part.controlValue == 0)
         #expect(part.controlMin == 0)
         #expect(part.controlMax == 100)
+    }
+
+    @Test("Slider orientation follows longest dimension")
+    func sliderOrientationFollowsLongestDimension() {
+        var part = Part(partType: .slider, name: "volume")
+        part.width = 160
+        part.height = 24
+        #expect(part.sliderControlOrientation == .horizontal)
+
+        part.width = 24
+        part.height = 160
+        #expect(part.sliderControlOrientation == .vertical)
+
+        part.width = 48
+        part.height = 48
+        #expect(part.sliderControlOrientation == .horizontal)
+    }
+
+    @MainActor
+    @Test("Slider preview renderer follows longest dimension")
+    func sliderPreviewRendererFollowsLongestDimension() throws {
+        var horizontal = Part(partType: .slider, name: "horizontal")
+        horizontal.width = 160
+        horizontal.height = 24
+        horizontal.controlValue = 50
+        horizontal.controlMin = 0
+        horizontal.controlMax = 100
+
+        var vertical = Part(partType: .slider, name: "vertical")
+        vertical.width = 24
+        vertical.height = 160
+        vertical.controlValue = 50
+        vertical.controlMin = 0
+        vertical.controlMax = 100
+
+        let horizontalBounds = try #require(renderedSliderInkBounds(part: horizontal, width: 160, height: 24))
+        let verticalBounds = try #require(renderedSliderInkBounds(part: vertical, width: 24, height: 160))
+
+        #expect(horizontalBounds.width > horizontalBounds.height)
+        #expect(verticalBounds.height > verticalBounds.width)
     }
 
     @Test("Toggle defaults: off (controlValue 0)")
@@ -240,4 +281,52 @@ struct FormControlsTests {
             Issue.record("expected propertyAccess(on, ...), got \(expr)")
         }
     }
+}
+
+@MainActor
+private func renderedSliderInkBounds(part: Part, width: Int, height: Int) -> CGRect? {
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    let bytesPerPixel = 4
+    let bytesPerRow = width * bytesPerPixel
+    var pixels = [UInt8](repeating: 0, count: bytesPerRow * height)
+
+    pixels.withUnsafeMutableBytes { rawBuffer in
+        guard let context = CGContext(
+            data: rawBuffer.baseAddress,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return }
+
+        let rect = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
+        context.clear(rect)
+        if let aqua = NSAppearance(named: .aqua) {
+            aqua.performAsCurrentDrawingAppearance {
+                FormControlsRenderer.draw(.slider, ctx: context, part: part, rect: rect)
+            }
+        } else {
+            FormControlsRenderer.draw(.slider, ctx: context, part: part, rect: rect)
+        }
+    }
+
+    var minX = width
+    var minY = height
+    var maxX = -1
+    var maxY = -1
+    for y in 0..<height {
+        for x in 0..<width {
+            let alpha = pixels[y * bytesPerRow + x * bytesPerPixel + 3]
+            guard alpha > 0 else { continue }
+            minX = min(minX, x)
+            minY = min(minY, y)
+            maxX = max(maxX, x)
+            maxY = max(maxY, y)
+        }
+    }
+
+    guard maxX >= minX, maxY >= minY else { return nil }
+    return CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
 }

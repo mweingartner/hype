@@ -213,7 +213,7 @@ public enum HypeTalkGuide {
           - **button (style=toggle / checkBox):** hilite (true/false — backs the on/off state of toggle / checkbox styles); the `on` of <kind> "X" is also accepted as an alias for hilite on these styles. (`style=switch` is a deprecated alias that resolves to `toggle`.)
           - **segmented:** segments, selectedSegment
           - **recorder:** recording, playing, duration, outputPath, format (m4a | caf), saveInStack (true/false), audioSize
-          - **music controls:** musicPattern, instrument, tempo, loop, volume, musicTracks, musicSource, musicSourceKind, appleMusicID/type/title/artist/album, artworkURL, musicSearchTerm/scope, musicPosition, musicDuration
+          - **music controls:** musicPattern, instrument, tempo, keyCount 49/61/76/88, optional chrome flags, loop, volume, tracks, source/kind, appleMusic fields
           - **scene3d:** object (source path — preferred), modelURL (resolved path, legacy alias), allowsCameraControl, autoLighting, antialiasing, background3d
           - **image:** imageFilter, imageFilterIntensity (along with the standard part properties)
           - **progressView:** value (0..total), progressTotal (default 100), progressIsCircular (true/false), progressIsIndeterminate (true/false), progressLabel, progressTint (hex), progressDecimals (alias `decimals` — 0 default, integral steps; raise for fractional precision; same contract as gauge)
@@ -467,7 +467,7 @@ public enum HypeTalkGuide {
             play "boing"                             -- play built-in HyperCard sound
             play "mySound"                           -- play audio clip from sprite repository
             play "harpsichord" "c d e f g a b c5"    -- play notes with instrument
-            play "flute" tempo 160 "c4q e4q g4q c5h" -- notes with custom tempo
+            play "flute" tempo 160 "c4q e4q g4q c5h" -- notes custom tempo
             play stop                                -- stop current sound
             beep                                     -- system alert sound (once)
             beep 3                                   -- system alert sound (3 times)

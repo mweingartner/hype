@@ -51,6 +51,37 @@ public struct AppKitSystemProvider: SystemProvider, Sendable {
         }
     }
 
+    public func playSustainedMusicNote(_ note: MusicSustainedNoteSpec, document: HypeDocument) async {
+        await MainActor.run {
+            #if canImport(AudioKit)
+            AudioKitMusicProvider.shared.playSustainedNote(note)
+            #else
+            SoundPlayer.shared.playNotes(
+                instrument: note.instrument,
+                noteString: "\(note.note)e",
+                tempo: MusicTempo.defaultBPM,
+                document: document
+            )
+            #endif
+        }
+    }
+
+    public func stopSustainedMusicNote(id: UUID) async {
+        await MainActor.run {
+            #if canImport(AudioKit)
+            AudioKitMusicProvider.shared.stopSustainedNote(id: id)
+            #endif
+        }
+    }
+
+    public func stopSustainedMusicNotes(forPart partId: UUID?) async {
+        await MainActor.run {
+            #if canImport(AudioKit)
+            AudioKitMusicProvider.shared.stopSustainedNotes(forPart: partId)
+            #endif
+        }
+    }
+
     public func stopSound() async {
         await MainActor.run {
             SoundPlayer.shared.stop()

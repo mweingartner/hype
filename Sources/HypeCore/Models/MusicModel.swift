@@ -74,6 +74,26 @@ public struct MusicLibrary: Codable, Sendable, Equatable {
     }
 }
 
+public enum MusicTempo: Sendable {
+    public static let minimum = 1
+    public static let maximum = 320
+    public static let defaultBPM = 120
+
+    public static func clamp(_ value: Int) -> Int {
+        min(maximum, max(minimum, value))
+    }
+
+    public static func clamp(_ value: Double) -> Int {
+        guard value.isFinite else { return defaultBPM }
+        return clamp(Int(value.rounded()))
+    }
+
+    public static func clamp(_ value: String?, default defaultValue: Int = defaultBPM) -> Int {
+        guard let value, let parsed = Double(value) else { return clamp(defaultValue) }
+        return clamp(parsed)
+    }
+}
+
 public struct MusicPatternSpec: Identifiable, Codable, Sendable, Equatable {
     public var id: UUID
     public var name: String
@@ -82,6 +102,10 @@ public struct MusicPatternSpec: Identifiable, Codable, Sendable, Equatable {
     public var loop: Bool
     public var tracks: [MusicTrackSpec]
     public var notes: String
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, tempo, timeSignature, loop, tracks, notes
+    }
 
     public init(
         id: UUID = UUID(),
@@ -94,11 +118,22 @@ public struct MusicPatternSpec: Identifiable, Codable, Sendable, Equatable {
     ) {
         self.id = id
         self.name = name
-        self.tempo = max(1, tempo)
+        self.tempo = MusicTempo.clamp(tempo)
         self.timeSignature = timeSignature
         self.loop = loop
         self.tracks = tracks
         self.notes = notes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try container.decode(String.self, forKey: .name)
+        tempo = MusicTempo.clamp(try container.decodeIfPresent(Int.self, forKey: .tempo) ?? MusicTempo.defaultBPM)
+        timeSignature = try container.decodeIfPresent(String.self, forKey: .timeSignature) ?? "4/4"
+        loop = try container.decodeIfPresent(Bool.self, forKey: .loop) ?? false
+        tracks = try container.decodeIfPresent([MusicTrackSpec].self, forKey: .tracks) ?? []
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
     }
 
     public static func singleTrack(
@@ -374,23 +409,102 @@ public enum MusicInstrumentCatalog {
     ]
 }
 
+public struct MusicSustainedNoteSpec: Sendable, Equatable {
+    public var id: UUID
+    public var partId: UUID
+    public var note: String
+    public var midiNote: Int
+    public var instrument: String
+    public var volume: Double
+
+    public init(
+        id: UUID = UUID(),
+        partId: UUID,
+        note: String,
+        midiNote: Int,
+        instrument: String,
+        volume: Double
+    ) {
+        self.id = id
+        self.partId = partId
+        self.note = note
+        self.midiNote = midiNote
+        self.instrument = instrument
+        self.volume = volume
+    }
+}
+
 #if canImport(CoreGraphics)
 public struct MusicControlPlaybackRequest: Sendable, Equatable {
     public var pattern: MusicPatternSpec
     public var appleMusicItem: AppleMusicItemRef?
     public var loop: Bool
     public var triggerIdentifier: String?
+    public var sustainedNote: MusicSustainedNoteSpec?
 
     public init(
         pattern: MusicPatternSpec,
         appleMusicItem: AppleMusicItemRef? = nil,
         loop: Bool = false,
-        triggerIdentifier: String? = nil
+        triggerIdentifier: String? = nil,
+        sustainedNote: MusicSustainedNoteSpec? = nil
     ) {
         self.pattern = pattern
         self.appleMusicItem = appleMusicItem
         self.loop = loop
         self.triggerIdentifier = triggerIdentifier
+        self.sustainedNote = sustainedNote
+    }
+}
+
+public enum MusicKeyboardKeyCount {
+    public static let supportedValues = [49, 61, 76, 88]
+    public static let defaultValue = 49
+
+    public static func normalize(_ value: Int) -> Int {
+        if supportedValues.contains(value) {
+            return value
+        }
+        return supportedValues.min { lhs, rhs in
+            abs(lhs - value) < abs(rhs - value)
+        } ?? defaultValue
+    }
+
+    public static func midiRange(for value: Int) -> ClosedRange<Int> {
+        switch normalize(value) {
+        case 88:
+            return 21...108   // A0...C8
+        case 76:
+            return 28...103   // E1...G7
+        case 61:
+            return 36...96    // C2...C7
+        default:
+            return 36...84    // C2...C6
+        }
+    }
+}
+
+public struct MusicKeyboardKeyLayout: Equatable {
+    public var note: String
+    public var midiNote: Int
+    public var isBlack: Bool
+    public var frame: CGRect
+
+    public init(note: String, midiNote: Int, isBlack: Bool, frame: CGRect) {
+        self.note = note
+        self.midiNote = midiNote
+        self.isBlack = isBlack
+        self.frame = frame
+    }
+}
+
+public struct MusicKeyboardLayout: Equatable {
+    public var whiteKeys: [MusicKeyboardKeyLayout]
+    public var blackKeys: [MusicKeyboardKeyLayout]
+
+    public init(whiteKeys: [MusicKeyboardKeyLayout], blackKeys: [MusicKeyboardKeyLayout]) {
+        self.whiteKeys = whiteKeys
+        self.blackKeys = blackKeys
     }
 }
 
@@ -398,15 +512,10 @@ public enum MusicControlInteraction {
     public static let stepSequencerColumnCount = 16
     public static let stepSequencerRowCount = 4
 
-    private static let whiteNotes = [
-        "c4", "d4", "e4", "f4", "g4", "a4", "b4",
-        "c5", "d5", "e5", "f5", "g5", "a5", "b5",
+    private static let noteNamesByPitchClass = [
+        "c", "c#", "d", "d#", "e", "f", "f#", "g", "g#", "a", "a#", "b",
     ]
-
-    private static let blackNotes: [(whiteIndex: Int, note: String)] = [
-        (0, "c#4"), (1, "d#4"), (3, "f#4"), (4, "g#4"), (5, "a#4"),
-        (7, "c#5"), (8, "d#5"), (10, "f#5"), (11, "g#5"), (12, "a#5"),
-    ]
+    private static let blackPitchClasses: Set<Int> = [1, 3, 6, 8, 10]
 
     private static let defaultStepNotesByRow = [
         ["c5", "d5", "e5", "g5", "a5", "g5", "e5", "d5", "c5", "e5", "g5", "a5", "g5", "e5", "d5", "c5"],
@@ -422,15 +531,16 @@ public enum MusicControlInteraction {
     ) -> MusicControlPlaybackRequest? {
         switch part.partType {
         case .pianoKeyboard:
-            if let note = keyboardNote(at: clickPoint, in: rect(for: part)) {
+            if let note = keyboardKey(at: clickPoint, for: part) {
                 return MusicControlPlaybackRequest(
-                    pattern: singleNotePattern(for: part, note: note),
-                    triggerIdentifier: "keyboard:\(part.id.uuidString):\(note)"
+                    pattern: singleNotePattern(for: part, note: note.note),
+                    triggerIdentifier: "keyboard:\(part.id.uuidString):\(note.note)",
+                    sustainedNote: sustainedNote(for: part, key: note)
                 )
             }
             return boundPatternRequest(for: part, document: document)
         case .stepSequencer:
-            if let cell = stepSequencerCell(at: clickPoint, in: rect(for: part)) {
+            if let cell = stepSequencerCell(at: clickPoint, for: part) {
                 return stepSequencerRequest(for: part, document: document, cell: cell)
             }
             return boundPatternRequest(for: part, document: document) ?? demoPatternRequest(for: part)
@@ -444,8 +554,39 @@ public enum MusicControlInteraction {
     }
 
     public static func keyboardRect(in partRect: CGRect) -> CGRect {
+        keyboardRect(in: partRect, showsMetadata: true)
+    }
+
+    public static func keyboardRect(for part: Part) -> CGRect {
+        keyboardRect(in: rect(for: part), showsMetadata: musicControlShowsMetadata(part))
+    }
+
+    public static func pianoKeyboardShowsMetadata(_ part: Part) -> Bool {
+        musicControlShowsMetadata(part)
+    }
+
+    public static func musicControlShowsMetadata(_ part: Part) -> Bool {
+        part.musicShowControlType || part.musicShowPattern || part.musicShowInstrument || part.musicShowTempo
+    }
+
+    public static func pianoKeyboardInstrumentPopupRect(for part: Part) -> CGRect {
+        musicInstrumentPopupRect(for: part)
+    }
+
+    public static func musicInstrumentPopupRect(for part: Part) -> CGRect {
+        let partRect = rect(for: part)
+        let inset: CGFloat = 12
+        let available = max(0, partRect.width - inset * 2)
+        guard available > 20 else { return .zero }
+        let width = min(220, available)
+        let alignRight = part.musicShowControlType || part.musicShowPattern || part.musicShowTempo
+        let x = alignRight ? partRect.maxX - inset - width : partRect.minX + inset
+        return CGRect(x: x, y: partRect.minY + 8, width: width, height: 24)
+    }
+
+    private static func keyboardRect(in partRect: CGRect, showsMetadata: Bool) -> CGRect {
         let horizontalInset: CGFloat = 12
-        let titleHeight: CGFloat = 44
+        let titleHeight: CGFloat = showsMetadata ? 44 : 12
         let bottomInset: CGFloat = 12
         return CGRect(
             x: partRect.minX + horizontalInset,
@@ -455,36 +596,152 @@ public enum MusicControlInteraction {
         )
     }
 
-    public static func stepSequencerGridRect(in partRect: CGRect) -> CGRect {
-        partRect.insetBy(dx: 12, dy: 44)
+    public static func keyboardNote(at point: CGPoint, for part: Part) -> String? {
+        keyboardNote(at: point, inKeyboardRect: keyboardRect(for: part), keyCount: part.musicKeyCount)
     }
 
-    public static func keyboardNote(at point: CGPoint, in partRect: CGRect) -> String? {
-        let keyboard = keyboardRect(in: partRect)
+    private static func keyboardKey(at point: CGPoint, for part: Part) -> MusicKeyboardKeyLayout? {
+        let keyboard = keyboardRect(for: part)
         guard keyboard.width > 20, keyboard.height > 18, keyboard.contains(point) else {
             return nil
         }
 
-        let keyWidth = keyboard.width / CGFloat(whiteNotes.count)
-        for item in blackNotes {
-            let key = CGRect(
-                x: keyboard.minX + CGFloat(item.whiteIndex + 1) * keyWidth - keyWidth * 0.28,
-                y: keyboard.minY,
-                width: keyWidth * 0.56,
-                height: keyboard.height * 0.62
-            )
-            if key.contains(point) {
-                return item.note
-            }
+        let layout = keyboardLayout(in: keyboard, keyCount: part.musicKeyCount)
+        for key in layout.blackKeys where key.frame.contains(point) {
+            return key
+        }
+        for key in layout.whiteKeys where key.frame.contains(point) {
+            return key
+        }
+        return nil
+    }
+
+    public static func stepSequencerGridRect(in partRect: CGRect) -> CGRect {
+        partRect.insetBy(dx: 12, dy: 44)
+    }
+
+    public static func stepSequencerGridRect(for part: Part) -> CGRect {
+        let partRect = rect(for: part)
+        let horizontalInset: CGFloat = 12
+        let topInset: CGFloat = musicControlShowsMetadata(part) ? 44 : 12
+        let bottomInset: CGFloat = 12
+        return CGRect(
+            x: partRect.minX + horizontalInset,
+            y: partRect.minY + topInset,
+            width: max(0, partRect.width - horizontalInset * 2),
+            height: max(0, partRect.height - topInset - bottomInset)
+        )
+    }
+
+    public static func keyboardNote(at point: CGPoint, in partRect: CGRect) -> String? {
+        keyboardNote(
+            at: point,
+            inKeyboardRect: keyboardRect(in: partRect),
+            keyCount: MusicKeyboardKeyCount.defaultValue
+        )
+    }
+
+    public static func keyboardLayout(for part: Part) -> MusicKeyboardLayout {
+        keyboardLayout(in: keyboardRect(for: part), keyCount: part.musicKeyCount)
+    }
+
+    public static func keyboardLayout(in keyboard: CGRect, keyCount: Int) -> MusicKeyboardLayout {
+        guard keyboard.width > 20, keyboard.height > 18 else {
+            return MusicKeyboardLayout(whiteKeys: [], blackKeys: [])
         }
 
-        let rawIndex = Int((point.x - keyboard.minX) / keyWidth)
-        let index = min(whiteNotes.count - 1, max(0, rawIndex))
-        return whiteNotes[index]
+        let keys = keyboardNotes(keyCount: keyCount)
+        let whiteNotes = keys.filter { !$0.isBlack }
+        guard !whiteNotes.isEmpty else {
+            return MusicKeyboardLayout(whiteKeys: [], blackKeys: [])
+        }
+
+        let keyWidth = keyboard.width / CGFloat(whiteNotes.count)
+        var whiteKeys: [MusicKeyboardKeyLayout] = []
+        var blackKeys: [MusicKeyboardKeyLayout] = []
+        var whiteIndexByMidi: [Int: Int] = [:]
+        var whiteIndex = 0
+
+        for key in keys where !key.isBlack {
+            whiteIndexByMidi[key.midi] = whiteIndex
+            whiteKeys.append(MusicKeyboardKeyLayout(
+                note: key.note,
+                midiNote: key.midi,
+                isBlack: false,
+                frame: CGRect(
+                    x: keyboard.minX + CGFloat(whiteIndex) * keyWidth,
+                    y: keyboard.minY,
+                    width: keyWidth,
+                    height: keyboard.height
+                )
+            ))
+            whiteIndex += 1
+        }
+
+        for key in keys where key.isBlack {
+            let rightWhiteIndex = whiteIndexByMidi[key.midi + 1] ?? whiteIndexByMidi[key.midi - 1].map { $0 + 1 }
+            guard let rightWhiteIndex else { continue }
+            let width = keyWidth * 0.58
+            blackKeys.append(MusicKeyboardKeyLayout(
+                note: key.note,
+                midiNote: key.midi,
+                isBlack: true,
+                frame: CGRect(
+                    x: keyboard.minX + CGFloat(rightWhiteIndex) * keyWidth - width / 2,
+                    y: keyboard.minY,
+                    width: width,
+                    height: keyboard.height * 0.64
+                )
+            ))
+        }
+
+        return MusicKeyboardLayout(whiteKeys: whiteKeys, blackKeys: blackKeys)
+    }
+
+    private static func keyboardNote(at point: CGPoint, inKeyboardRect keyboard: CGRect, keyCount: Int) -> String? {
+        guard keyboard.width > 20, keyboard.height > 18, keyboard.contains(point) else {
+            return nil
+        }
+
+        let layout = keyboardLayout(in: keyboard, keyCount: keyCount)
+        for key in layout.blackKeys where key.frame.contains(point) {
+            return key.note
+        }
+        for key in layout.whiteKeys where key.frame.contains(point) {
+            return key.note
+        }
+        return nil
+    }
+
+    private struct KeyboardNote {
+        var midi: Int
+        var note: String
+        var isBlack: Bool
+    }
+
+    private static func keyboardNotes(keyCount: Int) -> [KeyboardNote] {
+        MusicKeyboardKeyCount.midiRange(for: keyCount).map { midi in
+            let pitchClass = midi % 12
+            let octave = (midi / 12) - 1
+            return KeyboardNote(
+                midi: midi,
+                note: "\(noteNamesByPitchClass[pitchClass])\(octave)",
+                isBlack: blackPitchClasses.contains(pitchClass)
+            )
+        }
     }
 
     public static func stepSequencerCell(at point: CGPoint, in partRect: CGRect) -> (row: Int, column: Int)? {
         let grid = stepSequencerGridRect(in: partRect)
+        return stepSequencerCell(at: point, inGridRect: grid)
+    }
+
+    public static func stepSequencerCell(at point: CGPoint, for part: Part) -> (row: Int, column: Int)? {
+        let grid = stepSequencerGridRect(for: part)
+        return stepSequencerCell(at: point, inGridRect: grid)
+    }
+
+    private static func stepSequencerCell(at point: CGPoint, inGridRect grid: CGRect) -> (row: Int, column: Int)? {
         guard grid.width > 20, grid.height > 18, grid.contains(point) else {
             return nil
         }
@@ -520,7 +777,7 @@ public enum MusicControlInteraction {
         let instrument = MusicInstrumentCatalog.resolve(part.musicInstrumentName).name
         return MusicPatternSpec(
             name: "\(part.name) \(note.uppercased())",
-            tempo: max(1, Int(part.musicTempo.rounded())),
+            tempo: MusicTempo.clamp(part.musicTempo),
             tracks: [
                 MusicTrackSpec(
                     name: "keyboard",
@@ -530,6 +787,16 @@ public enum MusicControlInteraction {
                 ),
             ],
             notes: noteString
+        )
+    }
+
+    private static func sustainedNote(for part: Part, key: MusicKeyboardKeyLayout) -> MusicSustainedNoteSpec {
+        MusicSustainedNoteSpec(
+            partId: part.id,
+            note: key.note,
+            midiNote: key.midiNote,
+            instrument: MusicInstrumentCatalog.resolve(part.musicInstrumentName).name,
+            volume: part.musicVolume
         )
     }
 
@@ -574,7 +841,7 @@ public enum MusicControlInteraction {
         return StepNoteSelection(
             token: "\(note)s",
             instrument: defaultInstrument,
-            tempo: max(1, Int(part.musicTempo.rounded())),
+            tempo: MusicTempo.clamp(part.musicTempo),
             volume: part.musicVolume
         )
     }
@@ -592,7 +859,7 @@ public enum MusicControlInteraction {
                 return StepNoteSelection(
                     token: token,
                     instrument: MusicInstrumentCatalog.resolve(track.instrument).name,
-                    tempo: max(1, Int(part.musicTempo.rounded())),
+                    tempo: MusicTempo.clamp(part.musicTempo),
                     volume: track.volume
                 )
             }
@@ -612,7 +879,7 @@ public enum MusicControlInteraction {
         return StepNoteSelection(
             token: token,
             instrument: MusicInstrumentCatalog.resolve(track.instrument).name,
-            tempo: max(1, pattern.tempo),
+            tempo: MusicTempo.clamp(pattern.tempo),
             volume: track.volume
         )
     }
@@ -659,7 +926,7 @@ public enum MusicControlInteraction {
         return MusicControlPlaybackRequest(
             pattern: MusicPatternSpec(
                 name: "\(part.name) Demo",
-                tempo: max(1, Int(part.musicTempo.rounded())),
+                tempo: MusicTempo.clamp(part.musicTempo),
                 tracks: [
                     MusicTrackSpec(
                         name: "demo",
@@ -681,7 +948,7 @@ public enum MusicPatternRenderer {
         let notesByTrack = pattern.tracks.filter { !$0.muted }.map { track in
             (track, NoteParser.parse(track.noteString.isEmpty ? pattern.notes : track.noteString))
         }
-        let bpm = Double(max(1, pattern.tempo))
+        let bpm = Double(MusicTempo.clamp(pattern.tempo))
         let secondsPerBeat = 60.0 / bpm
         var totalSeconds = 0.25
         for (_, notes) in notesByTrack {

@@ -2,8 +2,30 @@ import Foundation
 #if canImport(AppKit)
 import AppKit
 
+public struct MusicControlRenderOptions: Sendable {
+    public static let `default` = MusicControlRenderOptions()
+
+    public var liveInstrumentPopupPartIds: Set<UUID>
+    public var activeKeyboardNotesByPartId: [UUID: String]
+
+    public init(
+        liveInstrumentPopupPartIds: Set<UUID> = [],
+        activeKeyboardNotesByPartId: [UUID: String] = [:]
+    ) {
+        self.liveInstrumentPopupPartIds = liveInstrumentPopupPartIds
+        self.activeKeyboardNotesByPartId = activeKeyboardNotesByPartId
+    }
+}
+
 public enum MusicControlsRenderer {
-    public static func draw(_ kind: PartType, ctx: CGContext, part: Part, rect: CGRect, theme: HypeTheme? = nil) {
+    public static func draw(
+        _ kind: PartType,
+        ctx: CGContext,
+        part: Part,
+        rect: CGRect,
+        theme: HypeTheme? = nil,
+        options: MusicControlRenderOptions = .default
+    ) {
         ctx.saveGState()
 
         let radius: CGFloat = 10
@@ -19,9 +41,9 @@ public enum MusicControlsRenderer {
 
         switch kind {
         case .pianoKeyboard:
-            drawKeyboard(ctx: ctx, rect: rect)
+            drawKeyboard(ctx: ctx, part: part, activeNote: options.activeKeyboardNotesByPartId[part.id])
         case .stepSequencer:
-            drawStepGrid(ctx: ctx, rect: rect)
+            drawStepGrid(ctx: ctx, part: part, rect: rect)
         case .musicMixer:
             drawMixer(ctx: ctx, rect: rect)
         case .appleMusicBrowser:
@@ -32,14 +54,24 @@ public enum MusicControlsRenderer {
             drawPlayer(ctx: ctx, part: part, rect: rect)
         }
 
-        drawTitle(kind, ctx: ctx, part: part, rect: rect)
+        drawTitle(kind, ctx: ctx, part: part, rect: rect, options: options)
         ctx.restoreGState()
     }
 
-    private static func drawTitle(_ kind: PartType, ctx: CGContext, part: Part, rect: CGRect) {
+    private static func drawTitle(
+        _ kind: PartType,
+        ctx: CGContext,
+        part: Part,
+        rect: CGRect,
+        options: MusicControlRenderOptions
+    ) {
+        if kind == .pianoKeyboard || kind == .stepSequencer {
+            drawOptionalMusicControlChrome(kind, ctx: ctx, part: part, rect: rect, options: options)
+            return
+        }
+
         let title: String
         switch kind {
-        case .pianoKeyboard: title = "Piano Keyboard"
         case .stepSequencer: title = "Step Sequencer"
         case .musicMixer: title = "Music Mixer"
         case .appleMusicBrowser: title = "MusicKit Search"
@@ -57,7 +89,7 @@ public enum MusicControlsRenderer {
             subtitle = part.musicQueueData.isEmpty ? "Legacy queue" : part.musicQueueData
         } else {
             let pattern = part.musicPatternName.isEmpty ? "No pattern" : part.musicPatternName
-            subtitle = "\(pattern)  \(part.musicInstrumentName)  \(Int(part.musicTempo.rounded())) BPM"
+            subtitle = "\(pattern)  \(part.musicInstrumentName)  \(MusicTempo.clamp(part.musicTempo)) BPM"
         }
         let titleAttrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
@@ -72,6 +104,86 @@ public enum MusicControlsRenderer {
         (title as NSString).draw(at: CGPoint(x: rect.minX + 12, y: rect.minY + 8), withAttributes: titleAttrs)
         (subtitle as NSString).draw(at: CGPoint(x: rect.minX + 12, y: rect.minY + 25), withAttributes: subAttrs)
         NSGraphicsContext.restoreGraphicsState()
+    }
+
+    private static func drawOptionalMusicControlChrome(
+        _ kind: PartType,
+        ctx: CGContext,
+        part: Part,
+        rect: CGRect,
+        options: MusicControlRenderOptions
+    ) {
+        guard MusicControlInteraction.musicControlShowsMetadata(part) else { return }
+
+        let titleAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+            .foregroundColor: NSColor.labelColor,
+        ]
+        let subAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 10, weight: .regular),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
+        if part.musicShowControlType {
+            (optionalChromeTitle(for: kind) as NSString).draw(
+                at: CGPoint(x: rect.minX + 12, y: rect.minY + 8),
+                withAttributes: titleAttrs
+            )
+        }
+
+        let details = optionalChromeDetailStrings(for: part)
+        if !details.isEmpty {
+            let y = part.musicShowControlType ? rect.minY + 25 : rect.minY + 8
+            (details.joined(separator: "  ") as NSString).draw(
+                at: CGPoint(x: rect.minX + 12, y: y),
+                withAttributes: subAttrs
+            )
+        }
+
+        if part.musicShowInstrument && !options.liveInstrumentPopupPartIds.contains(part.id) {
+            drawInstrumentPopupPlaceholder(part: part, attrs: subAttrs)
+        }
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    private static func optionalChromeTitle(for kind: PartType) -> String {
+        switch kind {
+        case .stepSequencer: "Step Sequencer"
+        default: "Piano Keyboard"
+        }
+    }
+
+    private static func optionalChromeDetailStrings(for part: Part) -> [String] {
+        var strings: [String] = []
+        if part.musicShowPattern {
+            strings.append(part.musicPatternName.isEmpty ? "No pattern" : part.musicPatternName)
+        }
+        if part.musicShowTempo {
+            strings.append("\(MusicTempo.clamp(part.musicTempo)) BPM")
+        }
+        return strings
+    }
+
+    private static func drawInstrumentPopupPlaceholder(part: Part, attrs: [NSAttributedString.Key: Any]) {
+        let popup = MusicControlInteraction.musicInstrumentPopupRect(for: part)
+        guard !popup.isEmpty else { return }
+        let path = NSBezierPath(roundedRect: popup, xRadius: 5, yRadius: 5)
+        NSColor.textBackgroundColor.setFill()
+        path.fill()
+        NSColor.separatorColor.setStroke()
+        path.lineWidth = 1
+        path.stroke()
+
+        let instrument = MusicInstrumentCatalog.resolve(part.musicInstrumentName).name
+        let textRect = popup.insetBy(dx: 8, dy: 5)
+        (instrument as NSString).draw(in: textRect, withAttributes: attrs)
+        let chevron = "v" as NSString
+        chevron.draw(
+            at: CGPoint(x: popup.maxX - 16, y: popup.minY + 5),
+            withAttributes: attrs
+        )
     }
 
     private static func drawPlayer(ctx: CGContext, part: Part, rect: CGRect) {
@@ -93,33 +205,70 @@ public enum MusicControlsRenderer {
         ctx.fill(CGRect(x: barRect.minX, y: barRect.minY, width: barRect.width * CGFloat(part.musicVolume), height: barRect.height))
     }
 
-    private static func drawKeyboard(ctx: CGContext, rect: CGRect) {
-        let keyboardRect = MusicControlInteraction.keyboardRect(in: rect)
+    private static func drawKeyboard(ctx: CGContext, part: Part, activeNote: String?) {
+        let keyboardRect = MusicControlInteraction.keyboardRect(for: part)
         guard keyboardRect.width > 20, keyboardRect.height > 18 else { return }
-        let whiteKeys = 14
-        let keyWidth = keyboardRect.width / CGFloat(whiteKeys)
-        for index in 0..<whiteKeys {
-            let key = CGRect(x: keyboardRect.minX + CGFloat(index) * keyWidth, y: keyboardRect.minY, width: keyWidth, height: keyboardRect.height)
-            ctx.setFillColor(NSColor.white.cgColor)
-            ctx.fill(key)
-            ctx.setStrokeColor(NSColor.separatorColor.cgColor)
-            ctx.stroke(key)
+
+        let layout = MusicControlInteraction.keyboardLayout(for: part)
+        let whiteStroke = NSColor(calibratedWhite: 0.62, alpha: 1)
+        let whiteFill = NSColor(calibratedWhite: 0.985, alpha: 1)
+        let whitePressed = NSColor.controlAccentColor.withAlphaComponent(0.22)
+        let blackFill = NSColor(calibratedWhite: 0.055, alpha: 1)
+        let blackTop = NSColor(calibratedWhite: 0.24, alpha: 1)
+        let active = activeNote?.lowercased()
+
+        for key in layout.whiteKeys {
+            let isActive = key.note.lowercased() == active
+            let rect = key.frame.insetBy(dx: 0.35, dy: 0.35)
+            if isActive {
+                drawKeyGlow(ctx: ctx, rect: rect, color: NSColor.controlAccentColor.withAlphaComponent(0.36))
+            }
+            let path = CGPath(roundedRect: rect, cornerWidth: 2.5, cornerHeight: 2.5, transform: nil)
+            ctx.addPath(path)
+            ctx.setFillColor((isActive ? whitePressed.blended(withFraction: 0.72, of: whiteFill) ?? whitePressed : whiteFill).cgColor)
+            ctx.fillPath()
+            ctx.addPath(path)
+            ctx.setStrokeColor((isActive ? NSColor.controlAccentColor : whiteStroke).cgColor)
+            ctx.setLineWidth(isActive ? 1.25 : 0.8)
+            ctx.strokePath()
+
+            let shine = CGRect(x: rect.minX + 1, y: rect.minY + 2, width: max(1, rect.width - 2), height: max(1, rect.height * 0.18))
+            ctx.setFillColor(NSColor.white.withAlphaComponent(isActive ? 0.46 : 0.34).cgColor)
+            ctx.fill(shine)
         }
-        let blackOffsets: Set<Int> = [0, 1, 3, 4, 5, 7, 8, 10, 11, 12]
-        for index in blackOffsets {
-            let key = CGRect(
-                x: keyboardRect.minX + CGFloat(index + 1) * keyWidth - keyWidth * 0.28,
-                y: keyboardRect.minY,
-                width: keyWidth * 0.56,
-                height: keyboardRect.height * 0.62
-            )
-            ctx.setFillColor(NSColor.black.cgColor)
-            ctx.fill(key)
+
+        for key in layout.blackKeys {
+            let isActive = key.note.lowercased() == active
+            let rect = key.frame.insetBy(dx: 0.3, dy: 0.2)
+            if isActive {
+                drawKeyGlow(ctx: ctx, rect: rect, color: NSColor.controlAccentColor.withAlphaComponent(0.48))
+            }
+            let path = CGPath(roundedRect: rect, cornerWidth: 2.5, cornerHeight: 2.5, transform: nil)
+            ctx.addPath(path)
+            ctx.setFillColor((isActive ? NSColor.controlAccentColor.blended(withFraction: 0.56, of: blackFill) ?? NSColor.controlAccentColor : blackFill).cgColor)
+            ctx.fillPath()
+            ctx.addPath(path)
+            ctx.setStrokeColor((isActive ? NSColor.controlAccentColor : NSColor.black).cgColor)
+            ctx.setLineWidth(isActive ? 1.15 : 0.8)
+            ctx.strokePath()
+
+            let top = CGRect(x: rect.minX + 1, y: rect.minY + 1, width: max(1, rect.width - 2), height: max(1, rect.height * 0.16))
+            ctx.setFillColor((isActive ? NSColor.white.withAlphaComponent(0.28) : blackTop).cgColor)
+            ctx.fill(top)
         }
     }
 
-    private static func drawStepGrid(ctx: CGContext, rect: CGRect) {
-        let grid = MusicControlInteraction.stepSequencerGridRect(in: rect)
+    private static func drawKeyGlow(ctx: CGContext, rect: CGRect, color: NSColor) {
+        ctx.saveGState()
+        ctx.setShadow(offset: .zero, blur: 7, color: color.cgColor)
+        ctx.setFillColor(color.cgColor)
+        ctx.addPath(CGPath(roundedRect: rect.insetBy(dx: 1, dy: 1), cornerWidth: 3, cornerHeight: 3, transform: nil))
+        ctx.fillPath()
+        ctx.restoreGState()
+    }
+
+    private static func drawStepGrid(ctx: CGContext, part: Part, rect: CGRect) {
+        let grid = MusicControlInteraction.stepSequencerGridRect(for: part)
         guard grid.width > 20, grid.height > 18 else { return }
         let columns = MusicControlInteraction.stepSequencerColumnCount
         let rows = MusicControlInteraction.stepSequencerRowCount

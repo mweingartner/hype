@@ -32,6 +32,10 @@ struct CardCanvasMusicControlTests {
         #expect(source.contains("part.partType == .pianoKeyboard || part.partType == .stepSequencer"))
         #expect(source.contains("dragTriggerPrefix(for: part)"))
         #expect(source.contains("trigger != lastMusicControlDragTriggerIdentifier"))
+        #expect(source.contains("activeKeyboardNotesByPartId"))
+        #expect(source.contains("activeKeyboardSustainedNotesByPartId"))
+        #expect(source.contains("applyActiveKeyboardNote(from: request)"))
+        #expect(source.contains("stopActiveKeyboardSustainedNote(forPartId:"))
     }
 
     @Test("MusicKit Search has a real browse-mode host")
@@ -104,8 +108,12 @@ struct CardCanvasMusicControlTests {
         window.contentView = nsView
 
         var capturedRequests: [MusicControlPlaybackRequest] = []
+        var stoppedNotes: [MusicSustainedNoteSpec] = []
         nsView.musicControlPlaybackHandler = { request, _ in
             capturedRequests.append(request)
+        }
+        nsView.musicControlSustainStopHandler = { note, _ in
+            stoppedNotes.append(note)
         }
 
         let keyRect = MusicControlInteraction.keyboardRect(
@@ -128,7 +136,28 @@ struct CardCanvasMusicControlTests {
         }
 
         #expect(capturedRequests.count == 1)
-        #expect(capturedRequests.first?.pattern.tracks.first?.noteString == "c4e")
+        #expect(capturedRequests.first?.pattern.tracks.first?.noteString == "c2e")
+        #expect(capturedRequests.first?.sustainedNote?.note == "c2")
+        #expect(stoppedNotes.isEmpty)
+
+        let mouseUp = try #require(NSEvent.mouseEvent(
+            with: .leftMouseUp,
+            location: nsView.convert(NSPoint(x: keyRect.minX + 4, y: keyRect.midY), to: nil),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 2,
+            clickCount: 1,
+            pressure: 0
+        ))
+
+        withExtendedLifetime((coordinator, window)) {
+            nsView.mouseUp(with: mouseUp)
+        }
+
+        #expect(stoppedNotes.count == 1)
+        #expect(stoppedNotes.first?.note == "c2")
     }
 
     private func packageRoot() throws -> URL {

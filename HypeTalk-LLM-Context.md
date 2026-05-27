@@ -390,7 +390,10 @@ set the autoplay of video "intro" to true
 
 ### Music (AudioKit-backed)
 Music patterns are stored in the stack and projected to AudioKit at runtime.
-Piano Keyboard parts play clicked or dragged-over keys in Browse mode. Step
+Tempo is an integer BPM clamped to 1...320, default 120.
+Piano Keyboard parts play clicked or dragged-over keys in Browse mode. Set or
+read `the keys` / `the keyCount` of a pianoKeyboard to choose 49, 61, 76, or
+88 rendered keys; invalid values normalize to the closest supported size. Step
 Sequencer parts audition clicked or dragged-over grid steps. Music Player and
 Music Mixer parts play their assigned pattern when clicked.
 Use tools first for authoring: `create_music_pattern`, `create_music_player`,

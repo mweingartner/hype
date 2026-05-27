@@ -450,7 +450,7 @@ extension CardCanvasNSView {
         if [.musicPlayer, .pianoKeyboard, .stepSequencer, .musicMixer].contains(part.partType) {
             components.append("musicPattern=\(part.musicPatternName)")
             components.append("musicInstrument=\(part.musicInstrumentName)")
-            components.append("musicTempo=\(part.musicTempo)")
+            components.append("musicTempo=\(MusicTempo.clamp(part.musicTempo))")
             components.append("musicLoop=\(part.musicLoop)")
         } else if part.partType == .appleMusicBrowser {
             components.append("musicKitSearch=\(part.musicSearchTerm)")

@@ -63,6 +63,7 @@ public final class CardRenderer: Sendable {
         size: NSSize,
         skipPartId: UUID? = nil,
         nativePartIds: Set<UUID> = [],
+        musicControlRenderOptions: MusicControlRenderOptions = .default,
         theme: HypeTheme? = nil
     ) {
         // Layer 1: Card surface — theme.cardBackground when a
@@ -82,7 +83,13 @@ public final class CardRenderer: Sendable {
         // Layer 2: Background parts
         let bgParts = document.partsForBackground(bg.id)
         for part in bgParts where part.visible && part.id != skipPartId && !nativePartIds.contains(part.id) {
-            drawPart(ctx: ctx, part: part, canvasHeight: Double(size.height), theme: resolved)
+            drawPart(
+                ctx: ctx,
+                part: part,
+                canvasHeight: Double(size.height),
+                theme: resolved,
+                musicControlRenderOptions: musicControlRenderOptions
+            )
         }
 
         // Layer 3: Card paint layer (future — bitmap overlay)
@@ -90,7 +97,13 @@ public final class CardRenderer: Sendable {
         // Layer 4: Card parts
         let cardParts = document.partsForCard(cardId)
         for part in cardParts where part.visible && part.id != skipPartId && !nativePartIds.contains(part.id) {
-            drawPart(ctx: ctx, part: part, canvasHeight: Double(size.height), theme: resolved)
+            drawPart(
+                ctx: ctx,
+                part: part,
+                canvasHeight: Double(size.height),
+                theme: resolved,
+                musicControlRenderOptions: musicControlRenderOptions
+            )
         }
     }
 
@@ -120,7 +133,13 @@ public final class CardRenderer: Sendable {
     /// `nil` and fall back to their pre-theme rendering, so adding
     /// new renderers to the dispatch is safe without per-renderer
     /// theme work.
-    public func drawPart(ctx: CGContext, part: Part, canvasHeight: Double, theme: HypeTheme? = nil) {
+    public func drawPart(
+        ctx: CGContext,
+        part: Part,
+        canvasHeight: Double,
+        theme: HypeTheme? = nil,
+        musicControlRenderOptions: MusicControlRenderOptions = .default
+    ) {
         // View is flipped (top-left origin), use part coordinates directly
         let rect = CGRect(
             x: part.left,
@@ -159,7 +178,14 @@ public final class CardRenderer: Sendable {
         case .audioRecorder:
             AudioRecorderRenderer.draw(ctx: ctx, part: part, rect: rect)
         case .musicPlayer, .pianoKeyboard, .stepSequencer, .musicMixer, .appleMusicBrowser, .musicQueue:
-            MusicControlsRenderer.draw(part.partType, ctx: ctx, part: part, rect: rect, theme: theme)
+            MusicControlsRenderer.draw(
+                part.partType,
+                ctx: ctx,
+                part: part,
+                rect: rect,
+                theme: theme,
+                options: musicControlRenderOptions
+            )
         case .scene3D:
             Scene3DRenderer.draw(ctx: ctx, part: part, rect: rect)
         case .progressView:

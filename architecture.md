@@ -1,6 +1,6 @@
 # Hype Architecture
 
-> A snapshot of the current implementation as of 2026-05-25.
+> A snapshot of the current implementation as of 2026-05-27.
 
 Hype is a modern, macOS-native re-imagining of HyperCard. It preserves the
 HyperCard mental model — **stacks** of **cards** built on shared **backgrounds**,
@@ -52,6 +52,7 @@ hype-v2/
 │   ├── Hype/                       # Executable target — UI / AppKit / SpriteKit host
 │   │   ├── HypeApp.swift           # @main, DocumentGroup, menu commands
 │   │   ├── OpenAISpeechOutputProvider.swift # App-side speech playback adapter
+│   │   ├── MCP/                    # Loopback MCP automation server + live-stack registry
 │   │   ├── Accessibility/          # Stable AX IDs + virtual canvas hierarchy
 │   │   │   ├── HypeAccessibilityID.swift
 │   │   │   └── CardCanvasAccessibility.swift
@@ -103,6 +104,7 @@ hype-v2/
 │   │       │   └── ThemePicker.swift                    # Picker bound to BuiltInThemes + stack themes
 │   │       ├── ToolName.swift             # Tool palette catalog
 │   │       └── GoMenuCommands.swift       # Menu items (Go, Objects, Arrange, Tools, AI + View/Window additions)
+│   ├── HypeMCPBridge/              # stdio-to-loopback MCP bridge executable
 │   ├── HypePacmanTestbedBuilder/   # CLI that emits a Pac-Man .hype regression stack
 │   └── HypeCore/                   # Library target — model, scripting, AI, rendering
 │       ├── Models/                 # Document model (all value types)
@@ -167,6 +169,7 @@ hype-v2/
 │       │   ├── Meshy3DGate.swift          # Pre-flight guard (meshyEnabled + API key present)
 │       │   ├── Generate3DJob.swift        # Single-shot orchestrator used by sheet UI and AI tools
 │       │   └── Meshy3DToolProgressReporter.swift # Throttled aiOutput progress reporter (10s / 25% jump)
+│       ├── MCP/                    # Model Context Protocol types, tool/resource bridge, prefs
 │       ├── Rendering/              # Core Graphics part renderers
 │       │   ├── CardRenderer.swift         # Pipeline + dispatcher (theme-aware)
 │       │   ├── ButtonRenderer.swift       # All button styles (opaque/round/shadow/popup/check/toggle/link)
@@ -236,16 +239,19 @@ hype-v2/
 └── Tests/HypeTests/                # App/SpriteKit/AppKit/accessibility smoke coverage
 ```
 
-The package defines three production targets: **HypeCore** (model, scripting,
-AI, and Core Graphics/AppKit rendering helpers — fully testable without
-launching the app), **Hype** (the macOS executable — SwiftUI, NSView, AppKit,
-SpriteKit, AVKit, WKWebView), and **HypePacmanTestbedBuilder** (a small CLI
-that emits a deterministic Pac-Man-style `.hype` stack for accessibility and
-SpriteKit regression work). The hard split keeps the document model and script
-runtime as value-oriented Swift while the executable owns windows, menus, live
-AppKit hosts, and SpriteKit scenes. HypeCore conditionally imports AppKit for
-macOS rendering/audio/image utilities, but it does not own SwiftUI windows or
-live SpriteKit nodes.
+The package defines four production surfaces: **HypeCore** (model, scripting,
+AI, MCP types, and Core Graphics/AppKit rendering helpers — fully testable
+without launching the app), **Hype** (the macOS executable — SwiftUI, NSView,
+AppKit, SpriteKit, AVKit, WKWebView, and the loopback MCP server),
+**HypeMCPBridge** (a stdio client bridge for external MCP hosts that forwards
+JSON-RPC lines into the running app), and **HypePacmanTestbedBuilder** (a small
+CLI that emits a deterministic Pac-Man-style `.hype` stack for accessibility
+and SpriteKit regression work). The hard split keeps the document model and
+script runtime as value-oriented Swift while the executable owns windows,
+menus, live AppKit hosts, SpriteKit scenes, and live-stack automation
+registration. HypeCore conditionally imports AppKit for macOS
+rendering/audio/image utilities, but it does not own SwiftUI windows or live
+SpriteKit nodes.
 
 ### 1.2 The big picture in one diagram
 
@@ -436,16 +442,30 @@ given `partType`. The fields fall into bands:
 | pdf              | `pdfURL`, `pdfCurrentPage`, `pdfDisplayMode`, `pdfAutoScales`            |
 | map              | `mapCenterLat`, `mapCenterLon`, `mapSpan`, `mapType`, `mapAnnotationsJSON`, `mapLocation` *(geocoded)* |
 | colorWell        | `colorWellHex`, `colorWellInteractive`                                   |
-| stepper / slider | `controlValue`, `controlMin`, `controlMax`, `controlStep`                |
+| stepper / slider | `controlValue`, `controlMin`, `controlMax`, `controlStep`; sliders derive horizontal/vertical rendering from their bounds, using the longest dimension as the interactive axis |
 | segmented        | `segmentItems` *(pipe-separated)*, `controlValue` *(selected index)*     |
 | progressView     | `progressValue`, `progressTotal`, `progressIsCircular`, `progressIsIndeterminate`, `progressLabel`, `progressTint`, `progressDecimals` |
 | gauge            | `gaugeValue`, `gaugeMin`, `gaugeMax`, `gaugeStyle`, `gaugeTint`, `gaugeLabel`, `gaugeMinLabel`, `gaugeMaxLabel`, `gaugeDecimals` |
 | audioRecorder    | `audioRecording`, `audioPlaying`, `audioOutputPath`, `audioFormat`, `audioDuration`, `audioEmbedInStack`, `audioData?` |
-| music controls   | `musicPatternName`, `musicInstrumentName`, `musicTempo`, `musicLoop`, `musicVolume`, `musicTrackData`, `musicSourceKind`, `musicSourceID`, `musicSourceType`, `musicSourceTitle`, `musicSourceArtist`, `musicSourceAlbum`, `musicArtworkURL`, `musicPosition`, `musicDuration`, `musicQueueData`, `musicSearchTerm`, `musicSearchScope` |
+| music controls   | `musicPatternName`, `musicInstrumentName`, `musicTempo`, `musicKeyCount`, `musicShowControlType`, `musicShowPattern`, `musicShowInstrument`, `musicShowTempo`, `musicLoop`, `musicVolume`, `musicTrackData`, `musicSourceKind`, `musicSourceID`, `musicSourceType`, `musicSourceTitle`, `musicSourceArtist`, `musicSourceAlbum`, `musicArtworkURL`, `musicPosition`, `musicDuration`, `musicQueueData`, `musicSearchTerm`, `musicSearchScope` |
 | scene3D          | `scene3DSourceURL`, `scene3DURL`, `scene3DAllowsCameraControl`, `scene3DAutoLighting`, `scene3DAntialiasing`, `scene3DBackground` |
 | divider          | `dividerOrientation`, `dividerThickness`, `dividerColor`                 |
 | **sprite area**  | `sceneSpec` *(JSON-encoded `SpriteAreaSpec`, with legacy `SceneSpec` migration)* |
 | script           | `script` *(HypeTalk source)*                                             |
+
+For AudioKit-backed controls, `musicTempo` is an integer BPM value clamped to
+`1...320` everywhere it enters the model; the default is 120.
+`pianoKeyboard` controls also persist `musicKeyCount`, normalized to one of
+49, 61, 76, or 88 keys. Rendering and Browse-mode hit testing both derive
+from the same deterministic keyboard geometry: 49 keys C2...C6, 61 keys
+C2...C7, 76 keys E1...G7, and 88 keys A0...C8. The
+`musicShowControlType`, `musicShowPattern`, `musicShowInstrument`, and
+`musicShowTempo` flags control optional runtime chrome on piano-keyboard and
+step-sequencer parts. When `musicShowInstrument` is enabled, browse mode hosts
+a live instrument popup backed by the same General MIDI instrument catalog used
+by HypeTalk and AI tools; the Core Graphics pass suppresses only the popup
+placeholder for those live-hosted controls so run mode does not double-draw the
+instrument name.
 
 That a sprite area is **just a Part** is the key trick. It participates in
 selection, draw order, the property inspector, layout constraints, scripts,
@@ -552,8 +572,11 @@ authorization, and a runtime provider. This preserves stack portability without
 misrepresenting protected Apple Music audio as stack-contained content.
 
 Music controls convert Browse-mode clicks, piano-key drag crossings, and
-step-sequencer cell drag crossings into temporary `MusicPatternSpec` playback
-requests. `appleMusicBrowser` uses a live `AppleMusicBrowserHostNSView` in
+step-sequencer cell drag crossings into provider-backed runtime playback
+requests. Piano-keyboard hits carry a runtime-only `MusicSustainedNoteSpec`
+that starts an AudioKit sampler note on mouse-down/drag-enter and stops that
+same note on mouse-up, drag-off, key change, or `stop music`; the document still
+persists only declarative keyboard settings and pattern specs. `appleMusicBrowser` uses a live `AppleMusicBrowserHostNSView` in
 Browse mode so users can authorize, search, choose a song/album/singer/playlist
 reference, play/stop, and seek within the current song while the document stores
 only stable MusicKit IDs, metadata snapshots, `musicPosition`, and
@@ -2456,7 +2479,72 @@ This keeps the scripting surface simple and predictable:
 That split is deliberate: authoring AI is schema/tool oriented, while scripting
 AI is text-generation oriented.
 
-### 7.6 Lightweight Q&A and bulk generator
+### 7.6 MCP automation and introspection
+
+Hype exposes the same document-aware authoring surface through a local Model
+Context Protocol (MCP) interface so external agents, in-app AI panels, and
+automation harnesses can inspect and mutate the running app through one
+contract instead of inventing separate accessibility-only or prompt-only
+paths.
+
+The implementation is split by runtime boundary:
+
+- `Sources/HypeCore/MCP/HypeMCPTypes.swift` owns the JSON-RPC request/response
+  types, MCP tool/resource/prompt shapes, batch handling, and the
+  `HypeMCPProcessor` dispatcher.
+- `Sources/HypeCore/MCP/HypeMCPToolBridge.swift` maps every
+  `HypeToolDefinitions` tool into an MCP tool and adds Hype-specific control
+  tools such as `hype_get_app_state`, `hype_get_preferences`,
+  `hype_run_existing_tool`, `hype_preview_transaction`,
+  `hype_apply_transaction`, `hype_rollback_transaction`, and
+  `hype_create_test_stack`.
+- `Sources/HypeCore/MCP/HypeMCPPreferenceStore.swift` exposes preferences as
+  scalar descriptors and exposes secrets only as redacted `isSet` status.
+  Provider API keys remain in Keychain; the MCP bearer token is a local
+  automation token in the Hype app preference domain so app launch never blocks
+  on Keychain decryption.
+- `Sources/HypeCore/MCP/HypeMCPDocumentBackend.swift` is the testable in-memory
+  backend used by unit tests and non-UI harnesses.
+- `Sources/Hype/MCP/HypeAutomationRegistry.swift` tracks live
+  `MainContentView` document bindings, current card, selection, active tool,
+  and background-editing state.
+- `Sources/Hype/MCP/HypeLiveMCPBackend.swift` runs MCP calls against the active
+  registered stack and applies changed documents through
+  `HypeDocumentMutationCoordinator`, preserving autosave and undo behavior.
+- `Sources/Hype/MCP/HypeMCPAppServer.swift` starts a loopback HTTP endpoint
+  (`POST /mcp`, `GET /health`) when Hype launches.
+- `Sources/HypeMCPBridge/main.swift` is a stdio bridge executable for MCP
+  hosts that expect line-delimited JSON-RPC over stdin/stdout; it reads or
+  creates the redacted Hype MCP token from the Hype app preference domain and
+  forwards each request to the running app.
+
+Security policy is local-first and explicit. The HTTP endpoint accepts only
+loopback client endpoints, every `/mcp` request requires either
+`Authorization: Bearer <token>` or `X-Hype-MCP-Token`, and the token lives in
+the Hype app preference domain under `hype.mcp.token`.
+`hype://app/preferences` and `hype_get_preferences` never return secret
+values. Mutating calls are gated by `hype.mcp.allowMutations`;
+when disabled, read-only tools still work but stack mutations and transaction
+previews are refused. Multi-tool edits should use `hype_preview_transaction`
+followed by `hype_apply_transaction` rather than a sequence of immediate
+single-tool writes.
+
+The initial resource catalog is intentionally diagnosable:
+
+- `hype://app/state` — active stack ID, open stacks, selection, tool, and MCP
+  policy
+- `hype://app/preferences` — MCP-exposed preference descriptors plus redacted
+  secret status
+- `hype://stacks` — summaries of registered open stacks
+- `hype://stack/{id}/summary`, `/cards`, `/backgrounds`, `/parts` — active
+  document structure and scripts at each scope
+
+Tests in `HypeMCPTests` cover JSON-RPC initialization, tool/resource catalog
+exposure, preference redaction, document mutation, mutation-policy refusal, and
+preview/apply transaction semantics. Live app validation uses
+`hype-mcp` against `/Applications/Hype.app` after deployment.
+
+### 7.7 Lightweight Q&A and bulk generator
 
 `AIPanel` is the lightweight Q&A surface and now uses the same selected
 `HypeAIClient` provider as the main authoring chat. `AIService`
@@ -2467,7 +2555,7 @@ prompts a model for a complete stack as a single JSON payload (no tool
 calls, no loop) and reconstructs a `HypeDocument` from the parsed
 response — used for "bootstrap a new stack from a paragraph" scenarios.
 
-### 7.7 Meshy.ai 3D model generation
+### 7.8 Meshy.ai 3D model generation
 
 Hype integrates with Meshy.ai's hosted 3D generation API across five delivery
 phases:
@@ -2593,6 +2681,10 @@ surface.
 Browse-mode hit testing uses the raw topmost visible card or background part.
 The card/background layer filter applies only to edit-mode selection so
 background controls remain playable after switching a stack into runtime mode.
+Authoring-only Browse shortcuts are gated off when
+`Stack.runtimeModeEnabled == true`: double-clicking a part in authoring Browse
+mode may open the property inspector, but runtime mode keeps double-clicks
+available to the stack/control instead of switching Hype into edit mode.
 
 ### 8.4 Testing
 

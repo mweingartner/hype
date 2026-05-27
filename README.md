@@ -101,6 +101,11 @@ emitters in the same document, with one unified scripting model.
   benchmark suite is included; `granite4.1:30b` currently leads the
   local-models leaderboard at 98.4% raw / 99.999% effective accuracy
   after the retry gate.
+- **Local MCP automation.** A running Hype app exposes a loopback Model
+  Context Protocol endpoint plus a stdio bridge executable so external
+  agents and harnesses can inspect open stacks, preferences, selected
+  objects, scripts, and resources, then preview/apply tool transactions
+  through the same validated authoring surface used by the in-app AI panel.
 - **A real theme system.** Stacks, backgrounds, and cards each carry
   an optional theme name; the cascade resolver picks the effective
   theme per card. Seven built-in themes ship — System (follows
@@ -369,6 +374,29 @@ HIG-informed metrics, `apply_hig_layout` for deterministic arrangements,
 `pin_part_to_safe_area` / `add_part_layout_constraint` for durable responsive
 relationships, and `validate_hig_layout` to check every selected target
 profile for safe-area, hit-size, text-size, spacing, and availability issues.
+
+### MCP automation
+
+Hype starts a local MCP endpoint when the macOS app launches. It is intended
+for trusted local clients and automation harnesses:
+
+- HTTP transport: `POST http://127.0.0.1:47891/mcp`
+- Health check: `GET http://127.0.0.1:47891/health`
+- Auth: `Authorization: Bearer <token>` or `X-Hype-MCP-Token: <token>`
+- Bridge executable: `swift run hype-mcp`
+
+The token is generated once in the Hype app preference domain as
+`hype.mcp.token`; it is treated as a local automation secret and never returned
+by any MCP resource. Use `hype://app/preferences` or
+`hype_get_preferences` to see redacted `isSet` status for provider secrets.
+
+The MCP tool catalog contains every in-app authoring tool plus control tools:
+`hype_get_app_state`, `hype_get_preferences`, `hype_set_preference`,
+`hype_set_secret`, `hype_delete_secret`, `hype_run_existing_tool`,
+`hype_preview_transaction`, `hype_apply_transaction`,
+`hype_rollback_transaction`, and `hype_create_test_stack`. Multi-step edits
+should use preview/apply so an external agent sees the delta before the live
+stack mutates.
 
 ### Recommended models
 

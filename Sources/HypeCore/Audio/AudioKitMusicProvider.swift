@@ -12,6 +12,7 @@ public final class AudioKitMusicProvider {
     private let engine = AudioEngine()
     private let mixer = Mixer(name: "HypeMusicMixer")
     private var activeSamplersByToken: [UUID: [AppleSampler]] = [:]
+    private var sustainedSamplersByID: [UUID: SustainedSampler] = [:]
     private var tasks: [Task<Void, Never>] = []
     private var playbackToken = UUID()
     private var currentName: String?
@@ -19,13 +20,19 @@ public final class AudioKitMusicProvider {
 
     private let dlsURL = URL(fileURLWithPath: "/System/Library/Components/CoreAudio.component/Contents/Resources/gs_instruments.dls")
 
+    private struct SustainedSampler {
+        var partId: UUID
+        var sampler: AppleSampler
+        var midiNote: Int
+    }
+
     public init() {
         engine.output = mixer
     }
 
     public var musicState: String {
         if paused { return "paused" }
-        return currentName == nil ? "stopped" : "playing"
+        return currentName == nil && sustainedSamplersByID.isEmpty ? "stopped" : "playing"
     }
 
     public func playNotes(instrument: String, noteString: String, tempo: Int) {
@@ -39,6 +46,7 @@ public final class AudioKitMusicProvider {
     }
 
     public func playPattern(_ pattern: MusicPatternSpec, loop: Bool? = nil) {
+        stopSustainedNotes(forPart: nil)
         stopActivePlayback(stopEngine: false)
         currentName = pattern.name
         paused = false
@@ -48,6 +56,7 @@ public final class AudioKitMusicProvider {
     }
 
     public func stop() {
+        stopSustainedNotes(forPart: nil)
         stopActivePlayback(stopEngine: true)
     }
 
@@ -75,6 +84,45 @@ public final class AudioKitMusicProvider {
         guard currentName != nil else { return }
         ensureEngineStarted()
         paused = false
+    }
+
+    public func playSustainedNote(_ note: MusicSustainedNoteSpec) {
+        stopActivePlayback(stopEngine: false)
+        stopSustainedNote(id: note.id)
+
+        let descriptor = MusicInstrumentCatalog.resolve(note.instrument)
+        let sampler = sampler(for: descriptor)
+        sampler.volume = AUValue(note.volume)
+        ensureEngineStarted()
+        sampler.play(
+            noteNumber: MIDINoteNumber(max(0, min(127, note.midiNote))),
+            velocity: MIDIVelocity(100),
+            channel: 0
+        )
+        sustainedSamplersByID[note.id] = SustainedSampler(
+            partId: note.partId,
+            sampler: sampler,
+            midiNote: note.midiNote
+        )
+        currentName = "\(descriptor.name) \(note.note.uppercased())"
+        paused = false
+    }
+
+    public func stopSustainedNote(id: UUID) {
+        guard let state = sustainedSamplersByID.removeValue(forKey: id) else { return }
+        stopSustainedSampler(state)
+        if currentName != nil && activeSamplersByToken.isEmpty && sustainedSamplersByID.isEmpty {
+            currentName = nil
+        }
+    }
+
+    public func stopSustainedNotes(forPart partId: UUID?) {
+        let matchingIDs = sustainedSamplersByID.compactMap { id, state in
+            partId == nil || state.partId == partId ? id : nil
+        }
+        for id in matchingIDs {
+            stopSustainedNote(id: id)
+        }
     }
 
     private func schedule(_ pattern: MusicPatternSpec, token: UUID, loop: Bool) {
@@ -115,7 +163,7 @@ public final class AudioKitMusicProvider {
         tempo: Int,
         token: UUID
     ) async {
-        let bpm = Double(max(1, tempo))
+        let bpm = Double(MusicTempo.clamp(tempo))
         for note in notes {
             guard playbackToken == token, !Task.isCancelled else { return }
             let duration = (NoteParser.durationInBeats(for: note) / bpm) * 60.0
@@ -177,6 +225,15 @@ public final class AudioKitMusicProvider {
         }
     }
 
+    private func stopSustainedSampler(_ state: SustainedSampler) {
+        state.sampler.stop(
+            noteNumber: MIDINoteNumber(max(0, min(127, state.midiNote))),
+            channel: 0
+        )
+        stopAllNotes(on: state.sampler)
+        mixer.removeInput(state.sampler)
+    }
+
     private func loadProgram(for descriptor: MusicInstrumentDescriptor, into sampler: AppleSampler) {
         let bank = descriptor.isPercussion
             ? kAUSampler_DefaultPercussionBankMSB
@@ -199,7 +256,7 @@ public final class AudioKitMusicProvider {
     }
 
     private func patternDuration(_ pattern: MusicPatternSpec) -> Double {
-        let bpm = Double(max(1, pattern.tempo))
+        let bpm = Double(MusicTempo.clamp(pattern.tempo))
         let tracks = pattern.tracks.isEmpty
             ? [MusicTrackSpec(name: "melody", instrument: "Acoustic Grand Piano", noteString: pattern.notes)]
             : pattern.tracks

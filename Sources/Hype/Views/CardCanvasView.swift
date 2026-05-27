@@ -564,6 +564,13 @@ struct CardCanvasView: NSViewRepresentable {
             }
         }
 
+        func setPartMusicInstrumentName(id: UUID, instrument: String) {
+            parent.document.document.updatePart(id: id) {
+                $0.musicInstrumentName = MusicInstrumentCatalog.resolve(instrument).name
+            }
+            dispatchMessage("instrumentChanged", to: id, params: [instrument])
+        }
+
         func dispatchAppleMusicBrowserEvent(id: UUID, message: String, params: [String] = []) {
             dispatchMessage(message, to: id, params: params)
         }
@@ -1051,6 +1058,7 @@ class CardCanvasNSView: NSView {
     var editingBackground: Bool = false
     weak var coordinator: CardCanvasView.Coordinator?
     var musicControlPlaybackHandler: ((MusicControlPlaybackRequest, HypeDocument) -> Void)?
+    var musicControlSustainStopHandler: ((MusicSustainedNoteSpec, HypeDocument) -> Void)?
 
     /// Configure the layer-backing and redraw policy required for the
     /// card canvas to behave correctly. Both `wantsLayer = true` (so
@@ -1154,6 +1162,7 @@ class CardCanvasNSView: NSView {
     private var sliderViews: [UUID: SliderHostNSView] = [:]
     private var segmentedViews: [UUID: SegmentedHostNSView] = [:]
     private var appleMusicBrowserViews: [UUID: AppleMusicBrowserHostNSView] = [:]
+    private var musicInstrumentPopupViews: [UUID: MusicInstrumentPopupHostNSView] = [:]
     private var audioRecorderViews: [UUID: AudioRecorderHostNSView] = [:]
     private var scene3DViews: [UUID: Scene3DHostNSView] = [:]
     // Phase 3 framework controls.
@@ -1284,6 +1293,8 @@ class CardCanvasNSView: NSView {
     private var activeMusicControlDragPartId: UUID?
     private var lastMusicControlDragTriggerIdentifier: String?
     private var lastMusicControlDragPoint: CGPoint?
+    private var activeKeyboardNotesByPartId: [UUID: String] = [:]
+    private var activeKeyboardSustainedNotesByPartId: [UUID: MusicSustainedNoteSpec] = [:]
 
     /// The part ID currently auto-hilited by a held mouseDown.
     /// Cleared on mouseUp (or if the mouse drags off the part).
@@ -1545,6 +1556,7 @@ class CardCanvasNSView: NSView {
         let toolState = ToolState(currentTool: currentTool.rawValue)
         let isBrowseModeForRender = toolState.category == .browse
         let nativePartIds: Set<UUID>
+        let musicControlRenderOptions: MusicControlRenderOptions
         if isBrowseModeForRender {
             let renderCardParts = document.partsForCard(currentCardId)
             let renderBgParts: [Part]
@@ -1567,8 +1579,22 @@ class CardCanvasNSView: NSView {
                     .filter { $0.visible && nativeKinds.contains($0.partType) }
                     .map(\.id)
             )
+            let liveInstrumentPopupPartIds = Set(
+                (renderCardParts + renderBgParts)
+                    .filter {
+                        $0.visible
+                            && ($0.partType == .pianoKeyboard || $0.partType == .stepSequencer)
+                            && $0.musicShowInstrument
+                    }
+                    .map(\.id)
+            )
+            musicControlRenderOptions = MusicControlRenderOptions(
+                liveInstrumentPopupPartIds: liveInstrumentPopupPartIds,
+                activeKeyboardNotesByPartId: activeKeyboardNotesByPartId
+            )
         } else {
             nativePartIds = []
+            musicControlRenderOptions = .default
         }
         renderer.render(
             ctx: ctx,
@@ -1576,7 +1602,8 @@ class CardCanvasNSView: NSView {
             cardId: currentCardId,
             size: bounds.size,
             skipPartId: activeFieldPartId,
-            nativePartIds: nativePartIds
+            nativePartIds: nativePartIds,
+            musicControlRenderOptions: musicControlRenderOptions
         )
 
         // Render the paint layer on top of card content
@@ -1643,6 +1670,7 @@ class CardCanvasNSView: NSView {
         updateColorWellViews()
         updateFormControlViews()
         updateAppleMusicBrowserViews()
+        updateMusicInstrumentPopupViews()
         updateAudioRecorderViews()
         updateScene3DViews()
         // Phase 3 controls.
@@ -1816,8 +1844,19 @@ class CardCanvasNSView: NSView {
             return nil
         }
 
-        playMusicControlRequest(request)
+        startMusicControlRequest(request)
+        applyActiveKeyboardNote(from: request)
         return request
+    }
+
+    private func startMusicControlRequest(_ request: MusicControlPlaybackRequest) {
+        if let sustainedNote = request.sustainedNote {
+            stopActiveKeyboardSustainedNote(forPartId: sustainedNote.partId)
+        }
+        playMusicControlRequest(request)
+        if let sustainedNote = request.sustainedNote {
+            activeKeyboardSustainedNotesByPartId[sustainedNote.partId] = sustainedNote
+        }
     }
 
     private func playMusicControlRequest(_ request: MusicControlPlaybackRequest) {
@@ -1831,6 +1870,8 @@ class CardCanvasNSView: NSView {
         Task {
             if let appleMusicItem = request.appleMusicItem, snapshot.stack.appleMusicAllowed {
                 try? await provider.playAppleMusic(appleMusicItem, engine: .application)
+            } else if let sustainedNote = request.sustainedNote {
+                await provider.playSustainedMusicNote(sustainedNote, document: snapshot)
             } else {
                 await provider.playMusicPattern(request.pattern, loop: request.loop, document: snapshot)
             }
@@ -1873,12 +1914,17 @@ class CardCanvasNSView: NSView {
                   let trigger = request.triggerIdentifier,
                   trigger.hasPrefix(dragTriggerPrefix(for: part)) else {
                 // Let re-entering the same key/cell after leaving it retrigger sound.
+                if part.partType == .pianoKeyboard {
+                    stopActiveKeyboardSustainedNote(forPartId: part.id)
+                    clearActiveKeyboardNote(forPartId: part.id)
+                }
                 lastMusicControlDragTriggerIdentifier = nil
                 continue
             }
 
             if trigger != lastMusicControlDragTriggerIdentifier {
-                playMusicControlRequest(request)
+                startMusicControlRequest(request)
+                applyActiveKeyboardNote(from: request)
                 lastMusicControlDragTriggerIdentifier = trigger
             }
         }
@@ -1900,13 +1946,12 @@ class CardCanvasNSView: NSView {
     }
 
     private func dragPlaybackSamplingDistance(for part: Part) -> CGFloat {
-        let rect = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
         switch part.partType {
         case .pianoKeyboard:
-            let keyboard = MusicControlInteraction.keyboardRect(in: rect)
+            let keyboard = MusicControlInteraction.keyboardRect(for: part)
             return max(1, keyboard.width / 28)
         case .stepSequencer:
-            let grid = MusicControlInteraction.stepSequencerGridRect(in: rect)
+            let grid = MusicControlInteraction.stepSequencerGridRect(for: part)
             let cellWidth = grid.width / CGFloat(MusicControlInteraction.stepSequencerColumnCount)
             let cellHeight = grid.height / CGFloat(MusicControlInteraction.stepSequencerRowCount)
             return max(1, min(cellWidth, cellHeight) / 2)
@@ -1927,9 +1972,66 @@ class CardCanvasNSView: NSView {
     }
 
     private func endMusicControlDrag() {
+        stopActiveKeyboardSustainedNote(forPartId: activeMusicControlDragPartId)
         activeMusicControlDragPartId = nil
         lastMusicControlDragTriggerIdentifier = nil
         lastMusicControlDragPoint = nil
+        if !activeKeyboardNotesByPartId.isEmpty {
+            activeKeyboardNotesByPartId = [:]
+            needsDisplay = true
+        }
+    }
+
+    private func stopActiveKeyboardSustainedNote(forPartId partId: UUID?) {
+        let notes: [MusicSustainedNoteSpec]
+        if let partId {
+            notes = activeKeyboardSustainedNotesByPartId[partId].map { [$0] } ?? []
+            activeKeyboardSustainedNotesByPartId.removeValue(forKey: partId)
+        } else {
+            notes = Array(activeKeyboardSustainedNotesByPartId.values)
+            activeKeyboardSustainedNotesByPartId.removeAll()
+        }
+        guard !notes.isEmpty else { return }
+
+        if let musicControlSustainStopHandler {
+            for note in notes {
+                musicControlSustainStopHandler(note, document)
+            }
+            return
+        }
+        if musicControlPlaybackHandler != nil {
+            return
+        }
+
+        let provider = AppKitSystemProvider()
+        Task {
+            for note in notes {
+                await provider.stopSustainedMusicNote(id: note.id)
+            }
+        }
+    }
+
+    private func applyActiveKeyboardNote(from request: MusicControlPlaybackRequest) {
+        guard let trigger = request.triggerIdentifier,
+              let (partId, note) = keyboardTriggerParts(from: trigger) else {
+            return
+        }
+        activeKeyboardNotesByPartId[partId] = note
+        needsDisplay = true
+    }
+
+    private func clearActiveKeyboardNote(forPartId partId: UUID) {
+        guard activeKeyboardNotesByPartId.removeValue(forKey: partId) != nil else { return }
+        needsDisplay = true
+    }
+
+    private func keyboardTriggerParts(from trigger: String) -> (UUID, String)? {
+        let prefix = "keyboard:"
+        guard trigger.hasPrefix(prefix) else { return nil }
+        let remainder = trigger.dropFirst(prefix.count)
+        let pieces = remainder.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        guard pieces.count == 2, let partId = UUID(uuidString: String(pieces[0])) else { return nil }
+        return (partId, String(pieces[1]))
     }
 
     @objc private func popupMenuItemSelected(_ sender: NSMenuItem) {
@@ -2381,6 +2483,7 @@ class CardCanvasNSView: NSView {
         for (_, v) in sliderViews { v.isHidden = true }
         for (_, v) in segmentedViews { v.isHidden = true }
         for (_, v) in appleMusicBrowserViews { v.isHidden = true }
+        for (_, v) in musicInstrumentPopupViews { v.isHidden = true }
         for (_, v) in audioRecorderViews { v.isHidden = true }
         for (_, v) in scene3DViews { v.isHidden = true }
         // Phase 3 control overlays.
@@ -2802,14 +2905,19 @@ class CardCanvasNSView: NSView {
             return
         }
 
-        // Double-click on a part in browse mode → dispatch message and open properties
-        // Cmd+click in browse mode: open script editor for the
+        // Authoring-only Browse shortcuts are disabled when the stack is in
+        // runtime mode. Runtime mode still uses the Browse tool for interaction,
+        // but double-clicks and Cmd-clicks must stay available to the stack.
+        let authoringBrowseMode = toolCheck.category == .browse && !document.stack.runtimeModeEnabled
+
+        // Double-click on a part in authoring Browse mode → dispatch message and open properties
+        // Cmd+click in authoring Browse mode: open script editor for the
         // topmost part under the cursor, regardless of editing
         // mode. Uses rawHitPart (not the editing-mode-filtered
         // hitPart) so background parts are reachable even when
         // not in background-edit mode. If no part is hit, opens
         // the card's script editor.
-        if toolCheck.category == .browse && event.modifierFlags.contains(.command) {
+        if authoringBrowseMode && event.modifierFlags.contains(.command) {
             if let part = rawHitPart {
                 NotificationCenter.default.post(
                     name: .openPartScriptEditor,
@@ -2826,7 +2934,7 @@ class CardCanvasNSView: NSView {
             return
         }
 
-        if event.clickCount == 2 && toolCheck.category == .browse, let part = hitPart {
+        if event.clickCount == 2 && authoringBrowseMode, let part = hitPart {
             coordinator?.dispatchMessage("mouseDoubleClick", to: part.id)
             NotificationCenter.default.post(name: .editPartProperties, object: part.id)
             return
@@ -4000,6 +4108,56 @@ class CardCanvasNSView: NSView {
         for id in appleMusicBrowserViews.keys where !activeIds.contains(id) {
             appleMusicBrowserViews[id]?.removeFromSuperview()
             appleMusicBrowserViews.removeValue(forKey: id)
+        }
+    }
+
+    // MARK: - Music Instrument Popup Management
+
+    /// Creates live instrument popups only when piano-keyboard or step-sequencer
+    /// parts opt into showing them. The playable surfaces remain
+    /// CGContext-rendered and route note playback through the existing
+    /// browse-mode music-control path.
+    private func updateMusicInstrumentPopupViews() {
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let isBrowseMode = toolState.category == .browse
+
+        let allParts = partsForCurrentCard()
+        let popupParts = allParts.filter {
+            ($0.partType == .pianoKeyboard || $0.partType == .stepSequencer) && $0.visible && $0.musicShowInstrument
+        }
+
+        if !isBrowseMode || popupParts.isEmpty {
+            for (_, view) in musicInstrumentPopupViews { view.removeFromSuperview() }
+            musicInstrumentPopupViews.removeAll()
+            return
+        }
+
+        var activeIds = Set<UUID>()
+        for part in popupParts {
+            activeIds.insert(part.id)
+            let frame = MusicControlInteraction.musicInstrumentPopupRect(for: part)
+            guard !frame.isEmpty else { continue }
+            let partId = part.id
+            let host: MusicInstrumentPopupHostNSView
+            if let existing = musicInstrumentPopupViews[partId] {
+                existing.isHidden = false
+                existing.frame = frame
+                host = existing
+            } else {
+                let created = MusicInstrumentPopupHostNSView(frame: frame)
+                created.onInstrumentChange = { [weak self] instrument in
+                    self?.coordinator?.setPartMusicInstrumentName(id: partId, instrument: instrument)
+                }
+                addSubview(created, positioned: .above, relativeTo: nil)
+                musicInstrumentPopupViews[partId] = created
+                host = created
+            }
+            host.apply(part: part)
+        }
+
+        for id in musicInstrumentPopupViews.keys where !activeIds.contains(id) {
+            musicInstrumentPopupViews[id]?.removeFromSuperview()
+            musicInstrumentPopupViews.removeValue(forKey: id)
         }
     }
 

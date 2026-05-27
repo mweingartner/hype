@@ -16,6 +16,10 @@ struct CardCanvasGroupingInteractionTests {
         }
     }
 
+    private final class NotificationCounter: @unchecked Sendable {
+        var count = 0
+    }
+
     private func groupedFixture() throws -> (CanvasState, UUID, UUID, CardCanvasView.Coordinator, CardCanvasNSView) {
         var document = HypeDocument.newDocument(name: "Grouped Canvas")
         let cardId = document.sortedCards[0].id
@@ -230,5 +234,95 @@ struct CardCanvasGroupingInteractionTests {
         let second = try #require(state.wrapper.document.part(byId: secondId))
         #expect(first.left == 10)
         #expect(second.left == 80)
+    }
+
+    @Test("authoring browse double-click opens properties")
+    func authoringBrowseDoubleClickOpensProperties() throws {
+        let (_, firstId, _, coordinator, nsView) = try groupedFixture()
+        nsView.currentTool = .browse
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = nsView
+
+        let counter = NotificationCounter()
+        let token = NotificationCenter.default.addObserver(
+            forName: .editPartProperties,
+            object: nil,
+            queue: nil
+        ) { notification in
+            if notification.object as? UUID == firstId {
+                counter.count += 1
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: nsView.convert(NSPoint(x: 12, y: 22), to: nil),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 2,
+            pressure: 1
+        ))
+
+        withExtendedLifetime((coordinator, window)) {
+            nsView.mouseDown(with: event)
+        }
+
+        #expect(counter.count == 1)
+    }
+
+    @Test("runtime mode double-click does not enter edit mode")
+    func runtimeModeDoubleClickDoesNotOpenProperties() throws {
+        let (state, firstId, _, coordinator, nsView) = try groupedFixture()
+        state.wrapper.document.stack.runtimeModeEnabled = true
+        nsView.document.stack.runtimeModeEnabled = true
+        nsView.currentTool = .browse
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = nsView
+
+        let counter = NotificationCounter()
+        let token = NotificationCenter.default.addObserver(
+            forName: .editPartProperties,
+            object: nil,
+            queue: nil
+        ) { notification in
+            if notification.object as? UUID == firstId {
+                counter.count += 1
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: nsView.convert(NSPoint(x: 12, y: 22), to: nil),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 2,
+            pressure: 1
+        ))
+
+        withExtendedLifetime((coordinator, window)) {
+            nsView.mouseDown(with: event)
+        }
+
+        #expect(counter.count == 0)
+        #expect(nsView.currentTool == .browse)
+        #expect(state.selectedPartIds.isEmpty)
     }
 }

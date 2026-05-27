@@ -96,7 +96,7 @@ struct HypeTalkGuideTests {
             #expect(text.contains(kind), "guide is missing music control/tool kind '\(kind)'")
         }
         // Audio + map property names that postdate the original guide
-        for prop in ["recording", "playing", "outputPath", "musicState", "musicPatterns", "musicInstruments", "selectedDate", "currentPage", "centerLat", "centerLon", "maplocation", "color", "value", "on", "selectedSegment"] {
+        for prop in ["recording", "playing", "outputPath", "musicState", "musicPatterns", "musicInstruments", "keyCount", "selectedDate", "currentPage", "centerLat", "centerLon", "maplocation", "color", "value", "on", "selectedSegment"] {
             #expect(text.contains(prop), "guide is missing framework property '\(prop)'")
         }
     }

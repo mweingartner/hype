@@ -78,22 +78,38 @@ public enum FormControlsRenderer {
 
     private static func drawSlider(ctx: CGContext, part: Part, rect: CGRect) {
         ctx.saveGState()
-        // Track centerline.
-        let trackHeight: CGFloat = 4
-        let trackRect = CGRect(
-            x: rect.minX + 6,
-            y: rect.midY - trackHeight / 2,
-            width: rect.width - 12,
-            height: trackHeight
-        )
+        let isVertical = part.sliderControlOrientation == .vertical
+        let trackThickness: CGFloat = 4
+        let trackRect: CGRect
+        if isVertical {
+            trackRect = CGRect(
+                x: rect.midX - trackThickness / 2,
+                y: rect.minY + 6,
+                width: trackThickness,
+                height: max(0, rect.height - 12)
+            )
+        } else {
+            trackRect = CGRect(
+                x: rect.minX + 6,
+                y: rect.midY - trackThickness / 2,
+                width: max(0, rect.width - 12),
+                height: trackThickness
+            )
+        }
         ctx.setFillColor(NSColor.tertiaryLabelColor.cgColor)
         ctx.fill(trackRect)
 
         // Knob position interpolated from controlValue.
         let range = max(0.0001, part.controlMax - part.controlMin)
         let pct = max(0, min(1, (part.controlValue - part.controlMin) / range))
-        let knobX = trackRect.minX + trackRect.width * CGFloat(pct)
-        let knobRect = CGRect(x: knobX - 8, y: rect.midY - 8, width: 16, height: 16)
+        let knobRect: CGRect
+        if isVertical {
+            let knobY = trackRect.maxY - trackRect.height * CGFloat(pct)
+            knobRect = CGRect(x: rect.midX - 8, y: knobY - 8, width: 16, height: 16)
+        } else {
+            let knobX = trackRect.minX + trackRect.width * CGFloat(pct)
+            knobRect = CGRect(x: knobX - 8, y: rect.midY - 8, width: 16, height: 16)
+        }
         ctx.setFillColor(NSColor.controlAccentColor.cgColor)
         ctx.fillEllipse(in: knobRect)
         ctx.setStrokeColor(NSColor.separatorColor.cgColor)

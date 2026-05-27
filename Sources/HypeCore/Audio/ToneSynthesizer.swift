@@ -36,7 +36,7 @@ public final class ToneSynthesizer: @unchecked Sendable {
         guard !notes.isEmpty else { completion(); return }
 
         let sampleRate = 44100.0
-        let bpm = Double(max(1, tempo))
+        let bpm = Double(MusicTempo.clamp(tempo))
         stopRequested = false
         isPlayingFlag = true
 

@@ -2,6 +2,9 @@ import Foundation
 #if canImport(CoreGraphics)
 import CoreGraphics
 #endif
+#if canImport(AppKit)
+import AppKit
+#endif
 import Testing
 @testable import HypeCore
 
@@ -265,6 +268,9 @@ struct AudioKitMusicTests {
           set the instrument of pianoKeyboard "Keys" to "Electric Guitar Clean"
           set the musicPattern of keyboard "Keys" to "Theme"
           set the tempo of musicPlayer "Theme Player" to 120
+          set the showInstrument of pianoKeyboard "Keys" to true
+          set the showPattern of pianoKeyboard "Keys" to true
+          set the showTempo of pianoKeyboard "Keys" to true
           set the volume of musicMixer "Mix" to 0.75
           answer the musicState
           answer the musicPatterns
@@ -315,6 +321,9 @@ struct AudioKitMusicTests {
           set the instrument of pianoKeyboard "Keys" to "Electric Guitar Clean"
           set the musicPattern of keyboard "Keys" to "Sweet Child Guitar"
           set the tempo of keyboard "Keys" to 120
+          set the showControlType of keyboard "Keys" to true
+          set the showInstrument of keyboard "Keys" to true
+          set the showTempo of keyboard "Keys" to true
           set the volume of keyboard "Keys" to 0.8
         end openCard
         """
@@ -336,6 +345,9 @@ struct AudioKitMusicTests {
         #expect(keyboard?.musicInstrumentName == "Electric Guitar Clean")
         #expect(keyboard?.musicPatternName == "Sweet Child Guitar")
         #expect(keyboard?.musicTempo == 120)
+        #expect(keyboard?.musicShowControlType == true)
+        #expect(keyboard?.musicShowInstrument == true)
+        #expect(keyboard?.musicShowTempo == true)
         #expect(keyboard?.musicVolume == 0.8)
     }
 
@@ -707,25 +719,75 @@ struct AudioKitMusicTests {
         keyboard.musicInstrumentName = "Harpsichord"
         keyboard.musicTempo = 160
         keyboard.musicVolume = 0.4
+        let layout = MusicControlInteraction.keyboardLayout(for: keyboard)
+        let firstWhite = try #require(layout.whiteKeys.first)
+        let firstBlack = try #require(layout.blackKeys.first)
 
         let whiteRequest = try #require(MusicControlInteraction.playbackRequest(
             for: keyboard,
             document: document,
-            clickPoint: CGPoint(x: 25, y: 70)
+            clickPoint: CGPoint(x: firstWhite.frame.midX, y: firstWhite.frame.midY)
         ))
-        #expect(whiteRequest.pattern.tracks.first?.noteString == "c4e")
+        #expect(whiteRequest.pattern.tracks.first?.noteString == "c2e")
         #expect(whiteRequest.pattern.tracks.first?.instrument == "Harpsichord")
         #expect(whiteRequest.pattern.tracks.first?.volume == 0.4)
         #expect(whiteRequest.pattern.tempo == 160)
+        #expect(whiteRequest.sustainedNote?.note == "c2")
+        #expect(whiteRequest.sustainedNote?.midiNote == 36)
+        #expect(whiteRequest.sustainedNote?.instrument == "Harpsichord")
+        #expect(whiteRequest.sustainedNote?.volume == 0.4)
 
         let blackRequest = try #require(MusicControlInteraction.playbackRequest(
             for: keyboard,
             document: document,
-            clickPoint: CGPoint(x: 37, y: 70)
+            clickPoint: CGPoint(x: firstBlack.frame.midX, y: firstBlack.frame.midY)
         ))
-        #expect(blackRequest.pattern.tracks.first?.noteString == "c#4e")
+        #expect(blackRequest.pattern.tracks.first?.noteString == "c#2e")
+        #expect(blackRequest.sustainedNote?.midiNote == 37)
         #expect(whiteRequest.triggerIdentifier != blackRequest.triggerIdentifier)
         #expect(whiteRequest.triggerIdentifier?.contains("keyboard:") == true)
+    }
+
+    @Test("Piano Keyboard key-count options use standard playable ranges")
+    func pianoKeyboardKeyCountOptionsUseStandardRanges() throws {
+        let document = HypeDocument.newDocument(name: "Keyboard Ranges")
+        let expected: [(Int, String, String, Int)] = [
+            (49, "c2", "c6", 29),
+            (61, "c2", "c7", 36),
+            (76, "e1", "g7", 45),
+            (88, "a0", "c8", 52),
+        ]
+
+        for (keyCount, firstNote, lastNote, whiteCount) in expected {
+            var keyboard = Part(
+                partType: .pianoKeyboard,
+                cardId: document.cards[0].id,
+                name: "Keys",
+                left: 10,
+                top: 20,
+                width: 520,
+                height: 160
+            )
+            keyboard.musicKeyCount = keyCount
+
+            let layout = MusicControlInteraction.keyboardLayout(for: keyboard)
+            #expect(layout.whiteKeys.first?.note == firstNote)
+            #expect(layout.whiteKeys.last?.note == lastNote)
+            #expect(layout.whiteKeys.count == whiteCount)
+
+            let firstKey = try #require(layout.whiteKeys.first)
+            let request = try #require(MusicControlInteraction.playbackRequest(
+                for: keyboard,
+                document: document,
+                clickPoint: CGPoint(x: firstKey.frame.midX, y: firstKey.frame.midY)
+            ))
+            #expect(request.pattern.tracks.first?.noteString == "\(firstNote)e")
+            #expect(request.sustainedNote?.note == firstNote)
+            #expect(request.sustainedNote?.midiNote == MusicKeyboardKeyCount.midiRange(for: keyCount).lowerBound)
+        }
+
+        #expect(MusicKeyboardKeyCount.normalize(44) == 49)
+        #expect(MusicKeyboardKeyCount.normalize(90) == 88)
     }
 
     @Test("default piano keyboard size has a visible playable key area")
@@ -741,9 +803,7 @@ struct AudioKitMusicTests {
             width: size.width,
             height: size.height
         )
-        let keyRect = MusicControlInteraction.keyboardRect(
-            in: CGRect(x: keyboard.left, y: keyboard.top, width: keyboard.width, height: keyboard.height)
-        )
+        let keyRect = MusicControlInteraction.keyboardRect(for: keyboard)
 
         #expect(keyRect.width > 20)
         #expect(keyRect.height > 18)
@@ -753,9 +813,228 @@ struct AudioKitMusicTests {
             document: document,
             clickPoint: CGPoint(x: keyRect.minX + 4, y: keyRect.midY)
         ))
-        #expect(request.pattern.tracks.first?.noteString == "c4e")
+        #expect(request.pattern.tracks.first?.noteString == "c2e")
         #expect(request.triggerIdentifier?.contains("keyboard:") == true)
     }
+
+    @Test("Piano Keyboard display metadata is hidden by default and expands only when requested")
+    func pianoKeyboardDisplayMetadataDefaultsHidden() throws {
+        let document = HypeDocument.newDocument(name: "Keyboard Metadata")
+        var keyboard = Part(
+            partType: .pianoKeyboard,
+            cardId: document.cards[0].id,
+            name: "Keys",
+            left: 10,
+            top: 20,
+            width: 280,
+            height: 140
+        )
+
+        #expect(keyboard.musicShowControlType == false)
+        #expect(keyboard.musicShowPattern == false)
+        #expect(keyboard.musicShowInstrument == false)
+        #expect(keyboard.musicShowTempo == false)
+        let hiddenMetadataKeyRect = MusicControlInteraction.keyboardRect(for: keyboard)
+
+        keyboard.musicShowInstrument = true
+        keyboard.musicShowPattern = true
+        let visibleMetadataKeyRect = MusicControlInteraction.keyboardRect(for: keyboard)
+        let popupRect = MusicControlInteraction.pianoKeyboardInstrumentPopupRect(for: keyboard)
+
+        #expect(visibleMetadataKeyRect.minY > hiddenMetadataKeyRect.minY)
+        #expect(visibleMetadataKeyRect.height < hiddenMetadataKeyRect.height)
+        #expect(popupRect.width > 20)
+        #expect(popupRect.height == 24)
+    }
+
+    @Test("Step Sequencer display metadata is hidden by default and expands only when requested")
+    func stepSequencerDisplayMetadataDefaultsHidden() throws {
+        let document = HypeDocument.newDocument(name: "Sequencer Metadata")
+        var sequencer = Part(
+            partType: .stepSequencer,
+            cardId: document.cards[0].id,
+            name: "Steps",
+            left: 10,
+            top: 20,
+            width: 320,
+            height: 180
+        )
+
+        #expect(sequencer.musicShowControlType == false)
+        #expect(sequencer.musicShowPattern == false)
+        #expect(sequencer.musicShowInstrument == false)
+        #expect(sequencer.musicShowTempo == false)
+        let hiddenMetadataGrid = MusicControlInteraction.stepSequencerGridRect(for: sequencer)
+
+        sequencer.musicShowInstrument = true
+        sequencer.musicShowTempo = true
+        let visibleMetadataGrid = MusicControlInteraction.stepSequencerGridRect(for: sequencer)
+        let popupRect = MusicControlInteraction.musicInstrumentPopupRect(for: sequencer)
+
+        #expect(visibleMetadataGrid.minY > hiddenMetadataGrid.minY)
+        #expect(visibleMetadataGrid.height < hiddenMetadataGrid.height)
+        #expect(popupRect.width > 20)
+        #expect(popupRect.height == 24)
+    }
+
+    @Test("Music tempos clamp to integer BPM range")
+    func musicTemposClampToIntegerRange() async throws {
+        #expect(MusicTempo.minimum == 1)
+        #expect(MusicTempo.maximum == 320)
+        #expect(MusicTempo.defaultBPM == 120)
+        #expect(MusicTempo.clamp(0) == 1)
+        #expect(MusicTempo.clamp(999) == 320)
+        #expect(MusicTempo.clamp(120.6) == 121)
+        #expect(MusicPatternSpec.singleTrack(name: "Too Fast", instrument: "Flute", tempo: 999, notes: "c4q").tempo == 320)
+
+        var document = HypeDocument.newDocument(name: "Tempo Clamp")
+        let cardId = document.cards[0].id
+        document.addPart(Part(
+            partType: .pianoKeyboard,
+            cardId: cardId,
+            name: "Keys",
+            left: 10,
+            top: 20,
+            width: 280,
+            height: 140
+        ))
+        document.cards[0].script = """
+        on openCard
+          create music pattern "Too Slow" with instrument "Flute" tempo 0 notes "c4q"
+          set the tempo of pianoKeyboard "Keys" to 999
+        end openCard
+        """
+
+        let runtime = StackRuntime(document: document, configuration: StackRuntimeConfiguration())
+        let result = await runtime.dispatchAndWait("openCard", params: [], targetId: cardId, currentCardId: cardId)
+
+        #expect(result.status == .completed)
+        let modified = try #require(result.modifiedDocument)
+        #expect(modified.musicLibrary.pattern(named: "Too Slow")?.tempo == 1)
+        #expect(modified.parts.first(where: { $0.name == "Keys" })?.musicTempo == 320)
+
+        var toolDocument = HypeDocument.newDocument(name: "Tempo Tool Clamp")
+        let toolCardId = toolDocument.cards[0].id
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_step_sequencer",
+            arguments: [
+                "name": "Steps",
+                "left": "10", "top": "20", "width": "320", "height": "180",
+                "tempo": "999.7",
+            ],
+            document: &toolDocument,
+            currentCardId: toolCardId
+        )
+        let sequencer = try #require(toolDocument.parts.first { $0.partType == .stepSequencer })
+        #expect(sequencer.musicTempo == 320)
+    }
+
+    @Test("Piano Keyboard key count is gettable and settable through HypeTalk and tools")
+    func pianoKeyboardKeyCountIsScriptableAndToolSettable() async throws {
+        var document = HypeDocument.newDocument(name: "Keyboard Keys")
+        let cardId = document.cards[0].id
+        document.addPart(Part(
+            partType: .pianoKeyboard,
+            cardId: cardId,
+            name: "Keys",
+            left: 10,
+            top: 20,
+            width: 420,
+            height: 150
+        ))
+        document.cards[0].script = """
+        on openCard
+          set the keyCount of pianoKeyboard "Keys" to 88
+          put the keys of pianoKeyboard "Keys" into field "status"
+        end openCard
+        """
+        document.addPart(Part(
+            partType: .field,
+            cardId: cardId,
+            name: "status",
+            left: 10,
+            top: 180,
+            width: 120,
+            height: 24
+        ))
+
+        let runtime = StackRuntime(document: document, configuration: StackRuntimeConfiguration())
+        let result = await runtime.dispatchAndWait("openCard", params: [], targetId: cardId, currentCardId: cardId)
+
+        #expect(result.status == .completed)
+        let modified = try #require(result.modifiedDocument)
+        #expect(modified.parts.first(where: { $0.name == "Keys" })?.musicKeyCount == 88)
+        #expect(modified.parts.first(where: { $0.name == "status" })?.textContent == "88")
+
+        var toolDocument = HypeDocument.newDocument(name: "Keyboard Tool Keys")
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_piano_keyboard",
+            arguments: [
+                "name": "Tool Keys",
+                "left": "10", "top": "20", "width": "420", "height": "150",
+                "keys": "76",
+            ],
+            document: &toolDocument,
+            currentCardId: toolDocument.cards[0].id
+        )
+        #expect(toolDocument.parts.first(where: { $0.name == "Tool Keys" })?.musicKeyCount == 76)
+    }
+
+    #if canImport(AppKit)
+    @MainActor
+    @Test("Live instrument popup overlay suppresses duplicate CG popup chrome")
+    func liveInstrumentPopupOverlaySuppressesDuplicateCGPopupChrome() throws {
+        var popupPart = Part(
+            partType: .pianoKeyboard,
+            cardId: UUID(),
+            name: "Keys",
+            left: 0,
+            top: 0,
+            width: 300,
+            height: 140
+        )
+        popupPart.musicShowInstrument = true
+        popupPart.musicShowTempo = true
+        popupPart.musicInstrumentName = "Electric Guitar Clean"
+
+        var noInstrumentPart = popupPart
+        noInstrumentPart.musicShowInstrument = false
+
+        let defaultRender = renderMusicControlBytes(part: popupPart)
+        let livePopupRender = renderMusicControlBytes(
+            part: popupPart,
+            options: MusicControlRenderOptions(liveInstrumentPopupPartIds: [popupPart.id])
+        )
+        let noInstrumentRender = renderMusicControlBytes(part: noInstrumentPart)
+
+        #expect(defaultRender != livePopupRender)
+        #expect(livePopupRender == noInstrumentRender)
+    }
+
+    @MainActor
+    @Test("Piano Keyboard rendering changes when a key is pressed")
+    func pianoKeyboardRenderingHighlightsPressedKey() throws {
+        let part = Part(
+            partType: .pianoKeyboard,
+            cardId: UUID(),
+            name: "Keys",
+            left: 0,
+            top: 0,
+            width: 420,
+            height: 150
+        )
+
+        let normalRender = renderMusicControlBytes(part: part)
+        let pressedRender = renderMusicControlBytes(
+            part: part,
+            options: MusicControlRenderOptions(activeKeyboardNotesByPartId: [part.id: "c2"])
+        )
+
+        #expect(normalRender != pressedRender)
+    }
+    #endif
 
     @Test("Piano Keyboard drag targets identify key changes")
     func pianoKeyboardDragTargetsIdentifyKeyChanges() throws {
@@ -770,26 +1049,31 @@ struct AudioKitMusicTests {
             height: 140
         )
         keyboard.musicInstrumentName = "Electric Guitar Clean"
+        let layout = MusicControlInteraction.keyboardLayout(for: keyboard)
+        let firstKey = try #require(layout.whiteKeys.first)
+        let secondKey = try #require(layout.whiteKeys.dropFirst().first)
 
         let first = try #require(MusicControlInteraction.playbackRequest(
             for: keyboard,
             document: document,
-            clickPoint: CGPoint(x: 25, y: 70)
+            clickPoint: CGPoint(x: firstKey.frame.midX, y: firstKey.frame.midY)
         ))
         let repeated = try #require(MusicControlInteraction.playbackRequest(
             for: keyboard,
             document: document,
-            clickPoint: CGPoint(x: 28, y: 70)
+            clickPoint: CGPoint(x: firstKey.frame.midX + 1, y: firstKey.frame.midY)
         ))
         let next = try #require(MusicControlInteraction.playbackRequest(
             for: keyboard,
             document: document,
-            clickPoint: CGPoint(x: 48, y: 70)
+            clickPoint: CGPoint(x: secondKey.frame.midX, y: secondKey.frame.midY)
         ))
 
-        #expect(first.pattern.tracks.first?.noteString == "c4e")
+        #expect(first.pattern.tracks.first?.noteString == "c2e")
+        #expect(first.sustainedNote?.midiNote == 36)
         #expect(repeated.triggerIdentifier == first.triggerIdentifier)
-        #expect(next.pattern.tracks.first?.noteString == "d4e")
+        #expect(next.pattern.tracks.first?.noteString == "d2e")
+        #expect(next.sustainedNote?.midiNote == 38)
         #expect(next.triggerIdentifier != first.triggerIdentifier)
     }
 
@@ -809,8 +1093,7 @@ struct AudioKitMusicTests {
         sequencer.musicTempo = 96
         sequencer.musicVolume = 0.5
 
-        let rect = CGRect(x: sequencer.left, y: sequencer.top, width: sequencer.width, height: sequencer.height)
-        let grid = MusicControlInteraction.stepSequencerGridRect(in: rect)
+        let grid = MusicControlInteraction.stepSequencerGridRect(for: sequencer)
         let cellWidth = grid.width / CGFloat(MusicControlInteraction.stepSequencerColumnCount)
         let cellHeight = grid.height / CGFloat(MusicControlInteraction.stepSequencerRowCount)
         func point(row: Int, column: Int) -> CGPoint {
@@ -874,8 +1157,7 @@ struct AudioKitMusicTests {
         ]
         """
 
-        let rect = CGRect(x: sequencer.left, y: sequencer.top, width: sequencer.width, height: sequencer.height)
-        let grid = MusicControlInteraction.stepSequencerGridRect(in: rect)
+        let grid = MusicControlInteraction.stepSequencerGridRect(for: sequencer)
         let cellWidth = grid.width / CGFloat(MusicControlInteraction.stepSequencerColumnCount)
         let cellHeight = grid.height / CGFloat(MusicControlInteraction.stepSequencerRowCount)
         let request = try #require(MusicControlInteraction.playbackRequest(
@@ -1002,6 +1284,11 @@ struct AudioKitMusicTests {
         #expect(source.contains("mixer.removeInput(sampler)"))
         #expect(source.contains("stopAllNotes(on: sampler)"))
         #expect(source.contains("sampler.stop(noteNumber: MIDINoteNumber(note), channel: 0)"))
+        #expect(source.contains("private var sustainedSamplersByID: [UUID: SustainedSampler]"))
+        #expect(source.contains("public func playSustainedNote(_ note: MusicSustainedNoteSpec)"))
+        #expect(source.contains("sampler.play("))
+        #expect(source.contains("public func stopSustainedNote(id: UUID)"))
+        #expect(source.contains("public func stopSustainedNotes(forPart partId: UUID?)"))
         #expect(source.contains("stopActivePlayback(stopEngine: false)"))
         #expect(source.contains("stopActivePlayback(stopEngine: true)"))
         #expect(!source.contains("self.engine.stop()"))
@@ -1021,3 +1308,54 @@ struct AudioKitMusicTests {
         throw CocoaError(.fileNoSuchFile)
     }
 }
+
+#if canImport(AppKit)
+@MainActor
+private func renderMusicControlBytes(
+    part: Part,
+    options: MusicControlRenderOptions = .default
+) -> [UInt8] {
+    let size = NSSize(width: part.width, height: part.height)
+    guard let rep = NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: Int(size.width),
+        pixelsHigh: Int(size.height),
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .deviceRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0
+    ), let gfx = NSGraphicsContext(bitmapImageRep: rep) else {
+        return []
+    }
+
+    NSGraphicsContext.saveGraphicsState()
+    defer { NSGraphicsContext.restoreGraphicsState() }
+    NSGraphicsContext.current = gfx
+    let ctx = gfx.cgContext
+    ctx.translateBy(x: 0, y: size.height)
+    ctx.scaleBy(x: 1, y: -1)
+
+    let draw = {
+        ctx.setFillColor(NSColor.white.cgColor)
+        ctx.fill(CGRect(origin: .zero, size: size))
+        MusicControlsRenderer.draw(
+            part.partType,
+            ctx: ctx,
+            part: part,
+            rect: CGRect(origin: .zero, size: size),
+            options: options
+        )
+    }
+    if let aqua = NSAppearance(named: .aqua) {
+        aqua.performAsCurrentDrawingAppearance(draw)
+    } else {
+        draw()
+    }
+
+    guard let data = rep.bitmapData else { return [] }
+    return Array(UnsafeBufferPointer(start: data, count: rep.bytesPerRow * rep.pixelsHigh))
+}
+#endif

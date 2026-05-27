@@ -114,6 +114,7 @@ struct MainContentView: View {
             .onAppear {
                 HypeDocumentMutationCoordinator.shared.noteDocumentOpened(document.document)
                 currentCardId = document.document.sortedCards.first?.id
+                updateAutomationRegistry()
                 if !document.document.stack.deploymentTargets.selectionPromptAcknowledged && !isRuntimeMode {
                     showTargetSelectionSheet = true
                 }
@@ -177,10 +178,26 @@ struct MainContentView: View {
             // per-stack toggles live.
             .onAppear {
                 HypeDocumentMutationCoordinator.shared.activeDocumentBinding = trackedDocumentBinding
+                updateAutomationRegistry()
             }
             .onDisappear {
+                HypeAutomationRegistry.shared.remove(stackId: document.document.stack.id)
                 HypeDocumentMutationCoordinator.shared.activeDocumentBinding = nil
             }
+            .onChange(of: currentCardId) { _, _ in updateAutomationRegistry() }
+            .onChange(of: selectedPartIds) { _, _ in updateAutomationRegistry() }
+            .onChange(of: currentTool) { _, _ in updateAutomationRegistry() }
+            .onChange(of: editingBackground) { _, _ in updateAutomationRegistry() }
+    }
+
+    private func updateAutomationRegistry() {
+        HypeAutomationRegistry.shared.upsert(
+            binding: trackedDocumentBinding,
+            currentCardId: currentCardId,
+            selectedPartIds: selectedPartIds,
+            currentTool: currentTool,
+            editingBackground: editingBackground
+        )
     }
 
     private var mainContent: some View {

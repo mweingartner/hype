@@ -62,6 +62,9 @@ public protocol SystemProvider: Sendable {
     func stopSound() async
     func currentSoundName() async -> String
     func playMusicPattern(_ pattern: MusicPatternSpec, loop: Bool, document: HypeDocument) async
+    func playSustainedMusicNote(_ note: MusicSustainedNoteSpec, document: HypeDocument) async
+    func stopSustainedMusicNote(id: UUID) async
+    func stopSustainedMusicNotes(forPart partId: UUID?) async
     func stopMusic() async
     func pauseMusic() async
     func resumeMusic() async
@@ -86,6 +89,9 @@ public extension SystemProvider {
     func stopSound() async {}
     func currentSoundName() async -> String { "done" }
     func playMusicPattern(_ pattern: MusicPatternSpec, loop: Bool, document: HypeDocument) async {}
+    func playSustainedMusicNote(_ note: MusicSustainedNoteSpec, document: HypeDocument) async {}
+    func stopSustainedMusicNote(id: UUID) async {}
+    func stopSustainedMusicNotes(forPart partId: UUID?) async {}
     func stopMusic() async {}
     func pauseMusic() async {}
     func resumeMusic() async {}
@@ -1487,9 +1493,9 @@ public struct Interpreter: Sendable {
                 let noteString = try await evaluate(notesExprVal, env: &env, document: document, context: context)
                 let tempo: Int
                 if let tExpr = tempoExpr {
-                    tempo = Int(toNumber(try await evaluate(tExpr, env: &env, document: document, context: context)))
+                    tempo = MusicTempo.clamp(toNumber(try await evaluate(tExpr, env: &env, document: document, context: context)))
                 } else {
-                    tempo = 120
+                    tempo = MusicTempo.defaultBPM
                 }
                 await context.systemProvider.playNotes(instrument: soundName, noteString: noteString, tempo: tempo, document: document)
             } else {
@@ -1516,9 +1522,9 @@ public struct Interpreter: Sendable {
             }
             let tempo: Int
             if let tempoExpr {
-                tempo = max(1, Int(toNumber(try await evaluate(tempoExpr, env: &env, document: document, context: context))))
+                tempo = MusicTempo.clamp(toNumber(try await evaluate(tempoExpr, env: &env, document: document, context: context)))
             } else {
-                tempo = 120
+                tempo = MusicTempo.defaultBPM
             }
             let shouldLoop: Bool
             if let loopExpr {
@@ -3713,6 +3719,16 @@ public struct Interpreter: Sendable {
             return part.musicInstrumentName
         case "musictempo", "music_tempo", "tempo", "bpm":
             return formatNumber(Double(part.musicTempo))
+        case "musickeycount", "music_key_count", "keycount", "key_count", "keys", "keyboardkeys", "keyboard_keys":
+            return String(MusicKeyboardKeyCount.normalize(part.musicKeyCount))
+        case "showcontroltype", "show_control_type", "showtype", "show_type":
+            return part.musicShowControlType ? "true" : "false"
+        case "showmusicpattern", "show_music_pattern", "showpattern", "show_pattern":
+            return part.musicShowPattern ? "true" : "false"
+        case "showmusicinstrument", "show_music_instrument", "showinstrument", "show_instrument", "showinstrumentpopup", "show_instrument_popup":
+            return part.musicShowInstrument ? "true" : "false"
+        case "showmusictempo", "show_music_tempo", "showtempo", "show_tempo":
+            return part.musicShowTempo ? "true" : "false"
         case "musicloop", "music_loop", "loop", "looping":
             return part.musicLoop ? "true" : "false"
         case "musicvolume", "music_volume", "volume":
@@ -4889,7 +4905,17 @@ public struct Interpreter: Sendable {
         case "musicinstrument", "music_instrument", "instrument":
             document.parts[partIndex].musicInstrumentName = MusicInstrumentCatalog.resolve(value).name
         case "musictempo", "music_tempo", "tempo", "bpm":
-            document.parts[partIndex].musicTempo = max(1, toNumber(value))
+            document.parts[partIndex].musicTempo = Double(MusicTempo.clamp(toNumber(value)))
+        case "musickeycount", "music_key_count", "keycount", "key_count", "keys", "keyboardkeys", "keyboard_keys":
+            document.parts[partIndex].musicKeyCount = MusicKeyboardKeyCount.normalize(Int(toNumber(value).rounded()))
+        case "showcontroltype", "show_control_type", "showtype", "show_type":
+            document.parts[partIndex].musicShowControlType = isTruthy(value)
+        case "showmusicpattern", "show_music_pattern", "showpattern", "show_pattern":
+            document.parts[partIndex].musicShowPattern = isTruthy(value)
+        case "showmusicinstrument", "show_music_instrument", "showinstrument", "show_instrument", "showinstrumentpopup", "show_instrument_popup":
+            document.parts[partIndex].musicShowInstrument = isTruthy(value)
+        case "showmusictempo", "show_music_tempo", "showtempo", "show_tempo":
+            document.parts[partIndex].musicShowTempo = isTruthy(value)
         case "musicloop", "music_loop", "loop", "looping":
             document.parts[partIndex].musicLoop = isTruthy(value)
         case "musicvolume", "music_volume", "volume":

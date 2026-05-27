@@ -1505,16 +1505,56 @@ struct PropertyInspector: View {
                 }
             }
             .pickerStyle(.menu)
-            HStack {
-                Text("Tempo").font(.system(size: 10))
-                Stepper("\(Int(part.musicTempo.rounded())) BPM", value: bindPartDouble(part.id, \.musicTempo), in: 1...320, step: 1)
-                    .font(.system(size: 11))
+            if part.partType == .pianoKeyboard {
+                Picker("Keys", selection: bindMusicKeyCount(part.id)) {
+                    ForEach(MusicKeyboardKeyCount.supportedValues, id: \.self) { keyCount in
+                        Text("\(keyCount) keys").tag(keyCount)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+            tempoEditor(part: part)
+            if part.partType == .pianoKeyboard || part.partType == .stepSequencer {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(part.partType == .pianoKeyboard ? "Show on Keyboard" : "Show on Sequencer")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.secondary)
+                    Toggle("Control Type", isOn: bindPartBool(part.id, \.musicShowControlType))
+                    Toggle("Pattern", isOn: bindPartBool(part.id, \.musicShowPattern))
+                    Toggle("Instrument Popup", isOn: bindPartBool(part.id, \.musicShowInstrument))
+                    Toggle("Tempo", isOn: bindPartBool(part.id, \.musicShowTempo))
+                    Text("When Instrument Popup is shown, Browse mode lets the user choose from Hype's available instruments.")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                }
             }
             Toggle("Loop", isOn: bindPartBool(part.id, \.musicLoop))
             propertyRow("Volume", binding: bindPartDoubleString(part.id, \.musicVolume))
             Text("Synth controls play stack-contained Hype music patterns. Use MusicKit Search for Apple Music catalog or library lookup.")
                 .font(.system(size: 9))
                 .foregroundColor(.secondary)
+        }
+    }
+
+    private func tempoEditor(part: Part) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Tempo")
+                    .font(.system(size: 10))
+                Spacer()
+                TextField("BPM", value: bindMusicTempoInt(part.id), format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 58)
+                    .font(.system(size: 11, design: .monospaced))
+                Text("BPM")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+            Slider(
+                value: bindMusicTempoDouble(part.id),
+                in: Double(MusicTempo.minimum)...Double(MusicTempo.maximum),
+                step: 1
+            )
         }
     }
 
@@ -3936,6 +3976,48 @@ struct PropertyInspector: View {
             set: { newValue in
                 document.document.updatePart(id: id) {
                     $0.musicInstrumentName = MusicInstrumentCatalog.resolve(newValue).name
+                }
+            }
+        )
+    }
+
+    private func bindMusicTempoInt(_ id: UUID) -> Binding<Int> {
+        Binding(
+            get: {
+                let value = document.document.parts.first(where: { $0.id == id })?.musicTempo ?? Double(MusicTempo.defaultBPM)
+                return MusicTempo.clamp(value)
+            },
+            set: { newValue in
+                document.document.updatePart(id: id) {
+                    $0.musicTempo = Double(MusicTempo.clamp(newValue))
+                }
+            }
+        )
+    }
+
+    private func bindMusicTempoDouble(_ id: UUID) -> Binding<Double> {
+        Binding(
+            get: {
+                let value = document.document.parts.first(where: { $0.id == id })?.musicTempo ?? Double(MusicTempo.defaultBPM)
+                return Double(MusicTempo.clamp(value))
+            },
+            set: { newValue in
+                document.document.updatePart(id: id) {
+                    $0.musicTempo = Double(MusicTempo.clamp(newValue))
+                }
+            }
+        )
+    }
+
+    private func bindMusicKeyCount(_ id: UUID) -> Binding<Int> {
+        Binding(
+            get: {
+                let value = document.document.parts.first(where: { $0.id == id })?.musicKeyCount ?? MusicKeyboardKeyCount.defaultValue
+                return MusicKeyboardKeyCount.normalize(value)
+            },
+            set: { newValue in
+                document.document.updatePart(id: id) {
+                    $0.musicKeyCount = MusicKeyboardKeyCount.normalize(newValue)
                 }
             }
         )

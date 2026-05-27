@@ -781,6 +781,9 @@ public struct HypeToolExecutor: Sendable {
             if p.partType != .appleMusicBrowser {
                 props.append("instrument=\(p.musicInstrumentName)")
                 props.append("tempo=\(p.musicTempo)")
+                if p.partType == .pianoKeyboard {
+                    props.append("keys=\(MusicKeyboardKeyCount.normalize(p.musicKeyCount))")
+                }
                 props.append("loop=\(p.musicLoop)")
                 props.append("volume=\(p.musicVolume)")
             }
@@ -1507,7 +1510,7 @@ public struct HypeToolExecutor: Sendable {
         case "create_music_pattern":
             let rawName = arguments["name"] ?? "Music Pattern"
             let patternName = rawName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Music Pattern" : rawName
-            let tempo = max(1, Int(arguments["tempo"] ?? "") ?? 120)
+            let tempo = MusicTempo.clamp(arguments["tempo"])
             let shouldLoop = boolArgument(arguments["loop"]) ?? false
             let tracks = musicTracks(from: arguments)
             let notes = arguments["notes"] ?? tracks.first?.noteString ?? ""
@@ -1973,7 +1976,17 @@ public struct HypeToolExecutor: Sendable {
                 case "musicinstrument", "music_instrument", "instrument":
                     document.parts[index].musicInstrumentName = MusicInstrumentCatalog.resolve(value).name
                 case "musictempo", "music_tempo", "tempo", "bpm":
-                    document.parts[index].musicTempo = max(1, Double(value) ?? 120)
+                    document.parts[index].musicTempo = Double(MusicTempo.clamp(value))
+                case "musickeycount", "music_key_count", "keycount", "key_count", "keys", "keyboardkeys", "keyboard_keys":
+                    document.parts[index].musicKeyCount = MusicKeyboardKeyCount.normalize(Int((Double(value) ?? Double(MusicKeyboardKeyCount.defaultValue)).rounded()))
+                case "showcontroltype", "show_control_type", "showtype", "show_type":
+                    document.parts[index].musicShowControlType = boolArgument(value) ?? (value.lowercased() == "true")
+                case "showmusicpattern", "show_music_pattern", "showpattern", "show_pattern":
+                    document.parts[index].musicShowPattern = boolArgument(value) ?? (value.lowercased() == "true")
+                case "showmusicinstrument", "show_music_instrument", "showinstrument", "show_instrument", "showinstrumentpopup", "show_instrument_popup":
+                    document.parts[index].musicShowInstrument = boolArgument(value) ?? (value.lowercased() == "true")
+                case "showmusictempo", "show_music_tempo", "showtempo", "show_tempo":
+                    document.parts[index].musicShowTempo = boolArgument(value) ?? (value.lowercased() == "true")
                 case "musicloop", "music_loop", "loop", "looping":
                     document.parts[index].musicLoop = boolArgument(value) ?? (value.lowercased() == "true")
                 case "musicvolume", "music_volume", "volume":
@@ -3471,6 +3484,16 @@ public struct HypeToolExecutor: Sendable {
                 return part.musicInstrumentName
             case "musictempo", "music_tempo", "tempo", "bpm":
                 return String(part.musicTempo)
+            case "musickeycount", "music_key_count", "keycount", "key_count", "keys", "keyboardkeys", "keyboard_keys":
+                return String(MusicKeyboardKeyCount.normalize(part.musicKeyCount))
+            case "showcontroltype", "show_control_type", "showtype", "show_type":
+                return String(part.musicShowControlType)
+            case "showmusicpattern", "show_music_pattern", "showpattern", "show_pattern":
+                return String(part.musicShowPattern)
+            case "showmusicinstrument", "show_music_instrument", "showinstrument", "show_instrument", "showinstrumentpopup", "show_instrument_popup":
+                return String(part.musicShowInstrument)
+            case "showmusictempo", "show_music_tempo", "showtempo", "show_tempo":
+                return String(part.musicShowTempo)
             case "musicloop", "music_loop", "loop", "looping":
                 return String(part.musicLoop)
             case "musicvolume", "music_volume", "volume":
@@ -5344,7 +5367,11 @@ public struct HypeToolExecutor: Sendable {
         )
         part.musicPatternName = arguments["pattern"] ?? arguments["music_pattern"] ?? ""
         part.musicInstrumentName = MusicInstrumentCatalog.resolve(arguments["instrument"] ?? "Acoustic Grand Piano").name
-        part.musicTempo = max(1, Double(arguments["tempo"] ?? "120") ?? 120)
+        part.musicTempo = Double(MusicTempo.clamp(arguments["tempo"]))
+        if partType == .pianoKeyboard {
+            let rawKeys = arguments["keys"] ?? arguments["key_count"] ?? arguments["music_key_count"] ?? ""
+            part.musicKeyCount = MusicKeyboardKeyCount.normalize(Int((Double(rawKeys) ?? Double(MusicKeyboardKeyCount.defaultValue)).rounded()))
+        }
         part.musicLoop = boolArgument(arguments["loop"]) ?? false
         part.musicVolume = min(1, max(0, Double(arguments["volume"] ?? "1") ?? 1))
         part.musicTrackData = arguments["tracks_json"] ?? ""
@@ -5358,7 +5385,7 @@ public struct HypeToolExecutor: Sendable {
             part.musicSourceType = parseAppleMusicKinds(arguments["types"] ?? arguments["type"] ?? arguments["item_type"] ?? "").first?.rawValue
                 ?? AppleMusicItemKind.song.rawValue
             part.musicInstrumentName = ""
-            part.musicTempo = 120
+            part.musicTempo = Double(MusicTempo.defaultBPM)
             part.musicLoop = false
             part.musicVolume = 1
             part.musicTrackData = ""
@@ -5939,6 +5966,13 @@ public struct HypeToolExecutor: Sendable {
             row("musicPattern", "\"\(p.musicPatternName)\"", "\"\"")
             row("instrument", "\"\(p.musicInstrumentName)\"", "\"Acoustic Grand Piano\"")
             row("tempo", String(p.musicTempo), "120")
+            if p.partType == .pianoKeyboard {
+                row("keys", String(MusicKeyboardKeyCount.normalize(p.musicKeyCount)), String(MusicKeyboardKeyCount.defaultValue))
+            }
+            row("showControlType", String(p.musicShowControlType), "false")
+            row("showPattern", String(p.musicShowPattern), "false")
+            row("showInstrument", String(p.musicShowInstrument), "false")
+            row("showTempo", String(p.musicShowTempo), "false")
             row("loop", String(p.musicLoop), "false")
             row("volume", String(p.musicVolume), "1.0")
             row("musicTracks", "\"\(p.musicTrackData.prefix(80))\(p.musicTrackData.count > 80 ? "..." : "")\"", "\"\" (JSON)")

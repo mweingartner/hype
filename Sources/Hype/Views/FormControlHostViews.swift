@@ -102,6 +102,10 @@ final class SliderHostNSView: NSView {
     private var appliedMax: Double?
 
     func apply(_ part: Part) {
+        let shouldBeVertical = part.sliderControlOrientation == .vertical
+        if slider.isVertical != shouldBeVertical {
+            slider.isVertical = shouldBeVertical
+        }
         if part.controlMin != appliedMin {
             slider.minValue = part.controlMin
             appliedMin = part.controlMin
