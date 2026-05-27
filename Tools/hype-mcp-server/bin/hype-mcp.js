@@ -8,6 +8,8 @@ let nextDebugId = 1;
 let attached = null;
 let stdinBuffer = Buffer.alloc(0);
 const debugConnections = new Map();
+let discoveryPollInFlight = false;
+const discoveryPollIntervalMs = 2_000;
 const connectionTools = [
     {
         name: "hype_list_sessions",
@@ -162,6 +164,28 @@ async function ensureAttached() {
         return attached;
     }
     return null;
+}
+function startBackgroundDiscovery() {
+    void pollForAttach();
+    const timer = setInterval(() => {
+        void pollForAttach();
+    }, discoveryPollIntervalMs);
+    timer.unref();
+}
+async function pollForAttach() {
+    if (discoveryPollInFlight)
+        return;
+    discoveryPollInFlight = true;
+    try {
+        await ensureAttached();
+    }
+    catch {
+        // Discovery is opportunistic; MCP startup and detached connection tools must
+        // keep working while Hype.app is not running or is between debug sockets.
+    }
+    finally {
+        discoveryPollInFlight = false;
+    }
 }
 async function attachSession(args) {
     const sessions = await discoverSessions();
@@ -500,3 +524,4 @@ function send(message) {
     const json = JSON.stringify(message);
     process.stdout.write(`Content-Length: ${Buffer.byteLength(json, "utf8")}\r\n\r\n${json}`);
 }
+startBackgroundDiscovery();
