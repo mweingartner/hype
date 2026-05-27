@@ -57,7 +57,6 @@ let package = Package(
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
                 .linkedLibrary("c++"),
-                .unsafeFlags(["-L../stackimport/build-capi"]),
             ]
         ),
         .systemLibrary(

@@ -46,6 +46,7 @@ public struct StackImportCImporter: Sendable {
     }
 
     private func runStackImport(inputPath: String, outputPath: String) throws -> [String: Data] {
+        let stackImport = try StackImportRuntime.requireAvailable()
         let output = StackImportInMemoryOutput(rootPath: outputPath)
         let outputPointer = Unmanaged.passRetained(output).toOpaque()
         defer { Unmanaged<StackImportInMemoryOutput>.fromOpaque(outputPointer).release() }
@@ -55,7 +56,8 @@ public struct StackImportCImporter: Sendable {
         defer { Unmanaged<StackImportResourceCollector>.fromOpaque(collectorPointer).release() }
 
         var platform = stackimport_platform()
-        stackimport_platform_init(&platform)
+        stackImport.platformInit(&platform)
+        platform.message = stackImportMessage
         platform.open_file = stackImportOpenFile
         platform.read_file = stackImportReadFile
         platform.write_file = stackImportWriteFile
@@ -63,14 +65,14 @@ public struct StackImportCImporter: Sendable {
         platform.make_directory = stackImportMakeDirectory
         platform.user_data = outputPointer
         var context: OpaquePointer?
-        var status = stackimport_context_create_with_platform(&platform, &context)
+        var status = stackImport.contextCreateWithPlatform(&platform, &context)
         guard status == STACKIMPORT_STATUS_OK, let context else {
-            throw HyperCardImportError.stackimportFailed(statusMessage(status))
+            throw HyperCardImportError.stackimportFailed(statusMessage(status, stackImport: stackImport))
         }
-        defer { stackimport_context_destroy(context) }
+        defer { stackImport.contextDestroy(context) }
 
         var importOptions = stackimport_import_options()
-        stackimport_import_options_init(&importOptions)
+        stackImport.importOptionsInit(&importOptions)
         importOptions.flags = UInt32(STACKIMPORT_IMPORT_NO_STATUS.rawValue | STACKIMPORT_IMPORT_NO_PROGRESS.rawValue)
         importOptions.resource_payload_flags = UInt32(STACKIMPORT_RESOURCE_PAYLOADS_CONVERTED.rawValue)
         importOptions.resource_wants = stackImportResourceWants
@@ -81,11 +83,11 @@ public struct StackImportCImporter: Sendable {
             outputPath.withCString { outputCString in
                 importOptions.input_path = inputCString
                 importOptions.output_package_path = outputCString
-                return stackimport_import(context, &importOptions)
+                return stackImport.importStack(context, &importOptions)
             }
         }
         guard status == STACKIMPORT_STATUS_OK else {
-            throw HyperCardImportError.stackimportFailed(statusMessage(status))
+            throw HyperCardImportError.stackimportFailed(statusMessage(status, stackImport: stackImport))
         }
         var files = output.files
         for (path, data) in generatedFiles(at: URL(fileURLWithPath: outputPath)) where files[path] == nil {
@@ -97,8 +99,8 @@ public struct StackImportCImporter: Sendable {
         return files
     }
 
-    private func statusMessage(_ status: stackimport_status) -> String {
-        guard let message = stackimport_status_string(status) else {
+    private func statusMessage(_ status: stackimport_status, stackImport: StackImportLibrary) -> String {
+        guard let message = stackImport.statusString(status) else {
             return "unknown status \(status.rawValue)"
         }
         return String(cString: message)

@@ -1,4 +1,3 @@
-import CStackImport
 import Foundation
 
 public struct HyperCardImportResult: Sendable {
@@ -549,9 +548,14 @@ public struct HyperCardToHypeConverter: Sendable {
     }
 
     private func convertSoundResource(_ sound: MacResource, warnings: inout [String]) -> Data? {
+        guard let stackImport = try? StackImportRuntime.requireAvailable() else {
+            let status = StackImportRuntime.status
+            warnings.append("Failed to convert snd resource #\(sound.id): \(status.detail ?? status.aboutLine)")
+            return nil
+        }
         var errorPtr: UnsafePointer<CChar>? = nil
         let required = sound.data.withUnsafeBytes { sndPtr in
-            stackimport_snd_to_wav(
+            stackImport.sndToWav(
                 sndPtr.baseAddress,
                 sound.data.count,
                 nil,
@@ -572,7 +576,7 @@ public struct HyperCardToHypeConverter: Sendable {
         var wavBuffer = Data(count: required)
         let written = wavBuffer.withUnsafeMutableBytes { wavPtr in
             sound.data.withUnsafeBytes { sndPtr in
-                stackimport_snd_to_wav(
+                stackImport.sndToWav(
                     sndPtr.baseAddress,
                     sound.data.count,
                     wavPtr.baseAddress,

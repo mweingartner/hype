@@ -194,6 +194,7 @@ public enum HyperCardImportError: Error, LocalizedError, Sendable, Equatable {
     case notHyperCardStack
     case malformedResourceFork(String)
     case unsupportedArchive(String)
+    case stackimportUnavailable(String)
     case stackimportFailed(String)
     case generatedPackageInvalid(String)
 
@@ -219,6 +220,8 @@ public enum HyperCardImportError: Error, LocalizedError, Sendable, Equatable {
             return "The resource fork is malformed: \(detail)"
         case .unsupportedArchive(let detail):
             return "Archive import is not implemented for this file: \(detail)"
+        case .stackimportUnavailable(let detail):
+            return "HyperCard stack import is unavailable. \(detail)"
         case .stackimportFailed(let detail):
             return "The stackimport C importer failed: \(detail)"
         case .generatedPackageInvalid(let detail):

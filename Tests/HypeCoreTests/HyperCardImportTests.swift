@@ -59,11 +59,17 @@ struct HyperCardImportTests {
         )
 
         let audioAssets = result.document.assetRepository.assets.filter { $0.kind == .audioClip }
-        #expect(audioAssets.count == 1)
-        #expect(audioAssets[0].name == "Sound 128")
-        #expect(audioAssets[0].mimeType == "audio/wav")
-        #expect(audioAssets[0].data.count >= 44)
-        #expect(audioAssets[0].data.prefix(4) == Data([0x52, 0x49, 0x46, 0x46]))
+        if StackImportRuntime.isAvailable {
+            let asset = try #require(audioAssets.first)
+            #expect(audioAssets.count == 1)
+            #expect(asset.name == "Sound 128")
+            #expect(asset.mimeType == "audio/wav")
+            #expect(asset.data.count >= 44)
+            #expect(asset.data.prefix(4) == Data([0x52, 0x49, 0x46, 0x46]))
+        } else {
+            #expect(audioAssets.isEmpty)
+            #expect(result.report.warnings.contains { $0.contains("StackImport.framework") })
+        }
     }
 
     @Test("C importer converts snd resources through resource payload streaming")
@@ -72,6 +78,10 @@ struct HyperCardImportTests {
         guard FileManager.default.fileExists(atPath: fixture.path) else {
             return
         }
+        guard StackImportRuntime.isAvailable else {
+            return
+        }
+        HypeLogger.shared.clear()
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("hype-c-import-sound-\(UUID().uuidString).stak")
         try FileManager.default.copyItem(at: fixture, to: tempURL)
@@ -107,6 +117,9 @@ struct HyperCardImportTests {
     func stackimportCImporterConvertsFixture() throws {
         let fixture = URL(fileURLWithPath: "../stackimport/Resources.stak").standardizedFileURL
         guard FileManager.default.fileExists(atPath: fixture.path) else {
+            return
+        }
+        guard StackImportRuntime.isAvailable else {
             return
         }
 

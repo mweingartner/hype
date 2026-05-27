@@ -14,15 +14,15 @@ public struct StackImportLibraryStatus: Sendable, Equatable {
             return "StackImport library: \(version) (\(frameworkPath))"
         }
         if let version {
-            return "StackImport library: unavailable (found \(version)). Install or update with `brew install jrepp/stackimport/stackimport`."
+            return "StackImport library: unavailable (found \(version)). Install or update with `brew install stackimport`."
         }
-        return "StackImport library: not found. Install with `brew install jrepp/stackimport/stackimport`."
+        return "StackImport library: not found. Install with `brew install stackimport`."
     }
 }
 
 public enum StackImportRuntime {
     public static let frameworkPath = "/opt/homebrew/opt/stackimport/Frameworks/StackImport.framework"
-    public static let installCommand = "brew install jrepp/stackimport/stackimport"
+    public static let installCommand = "brew install stackimport"
 
     public static var status: StackImportLibraryStatus {
         libraryStatus()
