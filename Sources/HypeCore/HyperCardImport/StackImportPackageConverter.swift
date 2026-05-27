@@ -251,16 +251,33 @@ public struct StackImportPackageConverter: Sendable {
         }
         var importedPaths: Set<String> = []
         for resource in manifest.resourceFork.resources {
-            let artifacts = resource.outputArtifacts
-                .filter { isSafePackagePath($0.path) }
+            let safeArtifacts = resource.outputArtifacts.filter { artifact in
+                let safe = isSafePackagePath(artifact.path)
+                if !safe {
+                    logImportWarning("Skipping unsafe stackimport artifact path '\(artifact.path)' for resource \(resource.type) \(resource.id)")
+                }
+                return safe
+            }
+            let artifacts = safeArtifacts
                 .sorted { lhs, rhs in
                     if assetPriority(for: lhs) != assetPriority(for: rhs) {
                         return assetPriority(for: lhs) < assetPriority(for: rhs)
                     }
                     return lhs.path < rhs.path
                 }
-            guard let primary = artifacts.first(where: isImportableAssetArtifact) else { continue }
-            guard let primaryData = try? reader.data(for: primary.path), !primaryData.isEmpty else { continue }
+            guard let primary = artifacts.first(where: isImportableAssetArtifact) else {
+                if !resource.outputArtifacts.isEmpty {
+                    logImportWarning("No supported asset artifact for resource \(resource.type) \(resource.id); preserved only as legacy import evidence")
+                }
+                continue
+            }
+            if assetKind(for: primary.mediaType, path: primary.path) == .placeholderAsset {
+                logImportWarning("Importing unhandled resource artifact as metadata placeholder: resource \(resource.type) \(resource.id), mediaType='\(primary.mediaType)', path='\(primary.path)'")
+            }
+            guard let primaryData = try? reader.data(for: primary.path), !primaryData.isEmpty else {
+                logImportWarning("Could not read stackimport artifact '\(primary.path)' for resource \(resource.type) \(resource.id)")
+                continue
+            }
             importedPaths.insert(primary.path)
 
             var asset = makeResourceAsset(
@@ -273,7 +290,10 @@ public struct StackImportPackageConverter: Sendable {
             )
 
             for artifact in artifacts where artifact.path != primary.path {
-                guard let data = try? reader.data(for: artifact.path), !data.isEmpty else { continue }
+                guard let data = try? reader.data(for: artifact.path), !data.isEmpty else {
+                    logImportWarning("Could not read related stackimport artifact '\(artifact.path)' for resource \(resource.type) \(resource.id)")
+                    continue
+                }
                 importedPaths.insert(artifact.path)
                 appendArtifact(artifact, data: data, to: &asset)
             }
@@ -290,7 +310,10 @@ public struct StackImportPackageConverter: Sendable {
 
     private func appendLooseResourceAssets(from reader: XSTKPackageReader, excluding importedPaths: Set<String>, to document: inout HypeDocument) {
         for path in reader.allPaths.sorted() where !importedPaths.contains(path) && isLooseResourceAssetPath(path) {
-            guard let data = try? reader.data(for: path), !data.isEmpty else { continue }
+            guard let data = try? reader.data(for: path), !data.isEmpty else {
+                logImportWarning("Could not read loose stackimport resource artifact '\(path)'")
+                continue
+            }
             let mediaType = mediaTypeForPath(path)
             let resource = resourceIdentity(from: path)
             let artifact = XSTKResourceArtifact(
@@ -308,6 +331,9 @@ public struct StackImportPackageConverter: Sendable {
                 artifact: artifact,
                 existingNames: Set(document.assetRepository.assets.map(\.name))
             )
+            if asset.kind == .placeholderAsset {
+                logImportWarning("Importing loose unhandled resource artifact as metadata placeholder: mediaType='\(mediaType)', path='\(path)'")
+            }
             document.assetRepository.addAsset(asset)
         }
     }
@@ -498,6 +524,10 @@ public struct StackImportPackageConverter: Sendable {
         case "mp4": return "video/mp4"
         default: return "application/octet-stream"
         }
+    }
+
+    private func logImportWarning(_ message: String) {
+        HypeLogger.shared.warn(message, source: "HyperCardImport")
     }
 
     private func applyCardFieldContents(

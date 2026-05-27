@@ -187,9 +187,23 @@ private final class StackImportResourceCollector {
     }
 
     func data(for payload: stackimport_resource_payload, bytes: UnsafeRawPointer, size: Int) -> Data? {
-        guard size > 0, size <= Self.maxPayloadBytes else { return nil }
+        guard size > 0 else {
+            logWarning("Skipping empty stackimport resource payload for \(payloadDescription(payload))")
+            return nil
+        }
+        guard size <= Self.maxPayloadBytes else {
+            logWarning("Skipping oversized stackimport resource payload for \(payloadDescription(payload)): \(size) bytes")
+            return nil
+        }
         if payload.format == UInt32(STACKIMPORT_RESOURCE_PAYLOAD_RGBA32.rawValue) {
-            return pngData(forRGBA32Payload: payload, bytes: bytes, size: size)
+            guard let png = pngData(forRGBA32Payload: payload, bytes: bytes, size: size) else {
+                logWarning("Could not encode RGBA stackimport resource payload for \(payloadDescription(payload))")
+                return nil
+            }
+            return png
+        }
+        if fileExtension(for: payload) == "bin" {
+            logWarning("Received unhandled converted stackimport resource payload for \(payloadDescription(payload)); preserving as binary package artifact")
         }
         return Data(bytes: bytes, count: size)
     }
@@ -249,6 +263,15 @@ private final class StackImportResourceCollector {
         return String(bytes: scalars, encoding: .ascii) ?? "RSRC"
     }
 
+    private func payloadDescription(_ payload: stackimport_resource_payload) -> String {
+        let mediaType = payload.media_type.flatMap { String(cString: $0, encoding: .utf8) } ?? "unknown"
+        return "\(resourceTypeString(payload.type)) \(payload.id), mediaType='\(mediaType)', format=\(payload.format)"
+    }
+
+    private func logWarning(_ message: String) {
+        HypeLogger.shared.warn(message, source: "HyperCardImport")
+    }
+
     private func sanitizedResourceName(_ name: String) -> String {
         let valid = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !valid.isEmpty else { return "resource" }
@@ -272,6 +295,22 @@ private let stackImportResourcePayload: stackimport_resource_payload_fn = { payl
     let path = collector.resourcePath(for: p)
     collector.files[path] = payloadData
     return 1
+}
+
+private let stackImportMessage: stackimport_message_fn = { severity, message, _ in
+    guard let message else { return }
+    let text = String(cString: message)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !text.isEmpty else { return }
+
+    switch severity {
+    case UInt32(STACKIMPORT_MESSAGE_FATAL.rawValue), UInt32(STACKIMPORT_MESSAGE_ERROR.rawValue):
+        HypeLogger.shared.error(text, source: "StackImport")
+    case UInt32(STACKIMPORT_MESSAGE_WARNING.rawValue):
+        HypeLogger.shared.warn(text, source: "StackImport")
+    default:
+        HypeLogger.shared.info(text, source: "StackImport")
+    }
 }
 
 private final class StackImportInMemoryOutput {

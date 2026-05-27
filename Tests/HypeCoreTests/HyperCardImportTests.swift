@@ -97,6 +97,11 @@ struct HyperCardImportTests {
             #expect(asset.data.count >= 44)
             #expect(asset.data.prefix(4) == Data([0x52, 0x49, 0x46, 0x46]))
         }
+        #expect(HypeLogger.shared.entries.contains {
+            $0.source == "StackImport" &&
+            $0.level == .info &&
+            $0.message.contains("Status: Wrote snd #128 as WAV.")
+        })
     }
 
     @Test("converter records XCMD resources as non-native emulation targets")
@@ -191,6 +196,7 @@ struct HyperCardImportTests {
 
     @Test("stackimport package imports converted resource images and metadata")
     func stackimportPackageImportsConvertedResourceImagesAndMetadata() throws {
+        HypeLogger.shared.clear()
         let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/luz9XwAAAABJRU5ErkJggg==")!
         let metadata = Data(#"{"hotspotX":4,"hotspotY":8}"#.utf8)
         let text = Data("Héllo".utf8)
@@ -266,6 +272,14 @@ struct HyperCardImportTests {
         #expect(textAsset.metadata.contains { $0.value == "Héllo" })
         #expect(result.report.resourceSummary.contains { $0.type == "CURS" && $0.count == 1 && $0.totalBytes == 68 })
         #expect(!assets.contains { $0.name == "escape" || $0.name == "Unsafe" })
+        #expect(HypeLogger.shared.entries.contains {
+            $0.source == "HyperCardImport" &&
+            $0.message.contains("Skipping unsafe stackimport artifact path '../escape.png'")
+        })
+        #expect(HypeLogger.shared.entries.contains {
+            $0.source == "HyperCardImport" &&
+            $0.message.contains("Importing unhandled resource artifact as metadata placeholder: resource STR  12")
+        })
     }
 
     @Test("parser accepts classic XCMD command syntax")
