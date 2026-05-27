@@ -189,6 +189,85 @@ struct HyperCardImportTests {
         #expect(result.document.assetRepository.asset(byName: "Red Alert")?.data == wav)
     }
 
+    @Test("stackimport package imports converted resource images and metadata")
+    func stackimportPackageImportsConvertedResourceImagesAndMetadata() throws {
+        let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/luz9XwAAAABJRU5ErkJggg==")!
+        let metadata = Data(#"{"hotspotX":4,"hotspotY":8}"#.utf8)
+        let text = Data("Héllo".utf8)
+        let packageFiles: [String: Data] = [
+            "project.json": Data("""
+            {"sourceFileName":"Resource Sample","stackFile":"stack_-1.json","blocks":[],"fonts":[]}
+            """.utf8),
+            "stack_-1.json": Data("""
+            {"name":"Resource Sample","cardWidth":512,"cardHeight":342,"script":"","pages":[{"cardIds":[100]}],"layers":[{"kind":"card","id":100,"file":"card_100.json"}]}
+            """.utf8),
+            "card_100.json": Data("""
+            {"id":100,"bitmap":null,"name":"Frame","script":"","parts":[],"contents":[]}
+            """.utf8),
+            "source-manifest.json": Data("""
+            {
+              "resourceFork": {
+                "resources": [
+                  {
+                    "type": "CURS",
+                    "id": 24,
+                    "flags": 0,
+                    "name": "Pointer",
+                    "bytes": 68,
+                    "status": "exported",
+                    "outputArtifacts": [
+                      {"path": "CURS_24.png", "format": "png", "mediaType": "image/png", "description": "decoded cursor image", "variantIndex": 0},
+                      {"path": "CURS_24.json", "format": "json", "mediaType": "application/json", "description": "cursor metadata", "variantIndex": 0}
+                    ]
+                  },
+                  {
+                    "type": "STR ",
+                    "id": 12,
+                    "flags": 0,
+                    "name": "Greeting",
+                    "bytes": 6,
+                    "status": "exported",
+                    "outputArtifacts": [
+                      {"path": "resource-text/Stack_STR%20_12.txt", "format": "text", "mediaType": "text/plain", "description": "decoded text", "variantIndex": 0}
+                    ]
+                  },
+                  {
+                    "type": "ICON",
+                    "id": 99,
+                    "flags": 0,
+                    "name": "Unsafe",
+                    "bytes": 128,
+                    "status": "exported",
+                    "outputArtifacts": [
+                      {"path": "../escape.png", "format": "png", "mediaType": "image/png", "description": "bad path", "variantIndex": 0}
+                    ]
+                  }
+                ]
+              }
+            }
+            """.utf8),
+            "CURS_24.png": png,
+            "CURS_24.json": metadata,
+            "resource-text/Stack_STR%20_12.txt": text,
+            "../escape.png": png,
+        ]
+
+        let result = try StackImportPackageConverter().convert(packageFiles: packageFiles)
+        let assets = result.document.assetRepository.assets
+
+        let cursor = try #require(assets.first { $0.name == "CURS_24" })
+        #expect(cursor.kind == .imageTexture)
+        #expect(cursor.mimeType == "image/png")
+        #expect(cursor.tags.contains("resource-curs"))
+        #expect(cursor.metadata.contains { $0.key == "CURS_24.json" && $0.value.contains("hotspotX") })
+
+        let textAsset = try #require(assets.first { $0.name == "Stack_STR _12" })
+        #expect(textAsset.kind == .placeholderAsset)
+        #expect(textAsset.metadata.contains { $0.value == "Héllo" })
+        #expect(result.report.resourceSummary.contains { $0.type == "CURS" && $0.count == 1 && $0.totalBytes == 68 })
+        #expect(!assets.contains { $0.name == "escape" || $0.name == "Unsafe" })
+    }
+
     @Test("parser accepts classic XCMD command syntax")
     func parserAcceptsExternalCommandSyntax() throws {
         let script = try parse("""

@@ -4,13 +4,11 @@ This document tracks how Hype should consume resource events and converted
 artifacts from `stackimport`, how those artifacts enter the `AssetRepository`,
 and which Hype object they can instantiate.
 
-It is a target mapping. Current Hype support is narrower: the Swift importer
-and C importer already convert classic `snd ` resources into
-`AssetKind.audioClip` assets, while most other converted resource families are
-still preserved as report metadata or original fork evidence until the
-`LegacyImportBundle`/asset-import path in
-[`HyperCardImportPathImplementationPlan.md`](HyperCardImportPathImplementationPlan.md)
-is implemented.
+The C importer now consumes stackimport's generated `source-manifest.json` and
+converted resource artifacts directly. Converted PNG/audio/video payloads become
+stack-embedded `AssetRepository` assets; JSON/text artifacts are attached as
+asset metadata or preserved as inert `placeholderAsset` entries so they remain
+searchable and auditable without becoming executable behavior.
 
 ## Import Rules
 

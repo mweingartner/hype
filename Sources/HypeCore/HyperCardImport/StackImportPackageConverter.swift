@@ -115,11 +115,18 @@ public struct StackImportPackageConverter: Sendable {
         }
 
         applyCardFieldContents(from: cardFiles, reader: reader, decoder: decoder, cardIdMap: cardIdMap, to: &document)
-        appendAudioAssets(from: reader, to: &document)
+        let sourceManifest = try? decode(XSTKSourceManifest.self, from: "source-manifest.json", reader: reader, decoder: decoder)
+        appendResourceAssets(from: sourceManifest, reader: reader, to: &document)
 
         let blockSummary = project.blocks.map {
             HyperCardBlockSummary(type: $0.type, count: 1, totalBytes: $0.size ?? 0)
         }
+        let resourceSummary = sourceManifest?.resourceFork.resources.reduce(into: [String: (count: Int, bytes: Int)]()) { partial, resource in
+            let current = partial[resource.type, default: (0, 0)]
+            partial[resource.type] = (current.count + 1, current.bytes + resource.bytes)
+        }
+        .map { MacResourceSummary(type: $0.key, count: $0.value.count, totalBytes: $0.value.bytes) }
+        .sorted { $0.type < $1.type } ?? []
         let warnings = project.warnings ?? []
         let unsupported = project.blocks
             .filter { $0.understood == false }
@@ -130,6 +137,7 @@ public struct StackImportPackageConverter: Sendable {
             stackName: document.stack.name,
             cardSize: HyperCardSize(width: document.stack.width, height: document.stack.height),
             blockSummary: blockSummary,
+            resourceSummary: resourceSummary,
             importedBackgrounds: document.backgrounds.count,
             importedCards: document.cards.count,
             importedParts: importedPartCount,
@@ -236,40 +244,260 @@ public struct StackImportPackageConverter: Sendable {
         document.parts.append(part)
     }
 
-    private func appendAudioAssets(from reader: XSTKPackageReader, to document: inout HypeDocument) {
-        var importedNames = Set(document.assetRepository.assets
-            .filter { $0.kind == .audioClip }
-            .map { $0.name.lowercased() })
-        for path in reader.allPaths.sorted() where path.lowercased().hasSuffix(".wav") {
+    private func appendResourceAssets(from manifest: XSTKSourceManifest?, reader: XSTKPackageReader, to document: inout HypeDocument) {
+        guard let manifest else {
+            appendLooseResourceAssets(from: reader, to: &document)
+            return
+        }
+        var importedPaths: Set<String> = []
+        for resource in manifest.resourceFork.resources {
+            let artifacts = resource.outputArtifacts
+                .filter { isSafePackagePath($0.path) }
+                .sorted { lhs, rhs in
+                    if assetPriority(for: lhs) != assetPriority(for: rhs) {
+                        return assetPriority(for: lhs) < assetPriority(for: rhs)
+                    }
+                    return lhs.path < rhs.path
+                }
+            guard let primary = artifacts.first(where: isImportableAssetArtifact) else { continue }
+            guard let primaryData = try? reader.data(for: primary.path), !primaryData.isEmpty else { continue }
+            importedPaths.insert(primary.path)
+
+            var asset = makeResourceAsset(
+                data: primaryData,
+                path: primary.path,
+                mediaType: primary.mediaType,
+                resource: resource,
+                artifact: primary,
+                existingNames: Set(document.assetRepository.assets.map(\.name))
+            )
+
+            for artifact in artifacts where artifact.path != primary.path {
+                guard let data = try? reader.data(for: artifact.path), !data.isEmpty else { continue }
+                importedPaths.insert(artifact.path)
+                appendArtifact(artifact, data: data, to: &asset)
+            }
+
+            document.assetRepository.addAsset(asset)
+        }
+
+        appendLooseResourceAssets(from: reader, excluding: importedPaths, to: &document)
+    }
+
+    private func appendLooseResourceAssets(from reader: XSTKPackageReader, to document: inout HypeDocument) {
+        appendLooseResourceAssets(from: reader, excluding: [], to: &document)
+    }
+
+    private func appendLooseResourceAssets(from reader: XSTKPackageReader, excluding importedPaths: Set<String>, to document: inout HypeDocument) {
+        for path in reader.allPaths.sorted() where !importedPaths.contains(path) && isLooseResourceAssetPath(path) {
             guard let data = try? reader.data(for: path), !data.isEmpty else { continue }
-            let name = audioAssetName(from: path)
-            guard !name.isEmpty, importedNames.insert(name.lowercased()).inserted else { continue }
-            document.assetRepository.addAsset(Asset(
-                name: name,
-                kind: .audioClip,
-                mimeType: "audio/wav",
+            let mediaType = mediaTypeForPath(path)
+            let resource = resourceIdentity(from: path)
+            let artifact = XSTKResourceArtifact(
+                path: path,
+                format: artifactFormatForPath(path),
+                mediaType: mediaType,
+                description: "converted HyperCard resource artifact",
+                variantIndex: nil
+            )
+            let asset = makeResourceAsset(
                 data: data,
-                tags: ["hypercard-import", "sound-resource"]
+                path: path,
+                mediaType: mediaType,
+                resource: resource,
+                artifact: artifact,
+                existingNames: Set(document.assetRepository.assets.map(\.name))
+            )
+            document.assetRepository.addAsset(asset)
+        }
+    }
+
+    private func makeResourceAsset(
+        data: Data,
+        path: String,
+        mediaType: String,
+        resource: XSTKResourceSummary,
+        artifact: XSTKResourceArtifact,
+        existingNames: Set<String>
+    ) -> Asset {
+        let kind = assetKind(for: mediaType, path: path)
+        let image = kind == .imageTexture ? NSImage(data: data) : nil
+        let baseName = resourceAssetName(resource: resource, artifact: artifact, path: path)
+        let name = uniqueName(baseName, existingNames: existingNames)
+        var asset = Asset(
+            name: name,
+            kind: kind,
+            mimeType: mediaType.isEmpty ? mediaTypeForPath(path) : mediaType,
+            data: data,
+            width: Int(image?.size.width ?? 0),
+            height: Int(image?.size.height ?? 0),
+            tags: resourceTags(resource: resource, artifact: artifact),
+            provenance: AssetProvenance(
+                origin: .userImport,
+                searchQuery: "HyperCard resource \(resource.type) \(resource.id)",
+                attribution: AssetAttribution(
+                    title: resource.name,
+                    providerName: "stackimport",
+                    providerIdentifier: "stackimport"
+                )
+            )
+        )
+        if kind == .placeholderAsset {
+            appendArtifact(artifact, data: data, to: &asset)
+        }
+        return asset
+    }
+
+    private func appendArtifact(_ artifact: XSTKResourceArtifact, data: Data, to asset: inout Asset) {
+        if artifact.mediaType == "application/json" || artifact.format == "json" || artifact.format == "text" || artifact.mediaType.hasPrefix("text/") {
+            asset.metadata.append(AssetMetadataEntry(
+                key: URL(fileURLWithPath: artifact.path).lastPathComponent,
+                value: String(data: data, encoding: .utf8) ?? "",
+                mimeType: artifact.mediaType.isEmpty ? mediaTypeForPath(artifact.path) : artifact.mediaType,
+                tags: ["hypercard-import", "stackimport-artifact", "format-\(artifact.format)"]
+            ))
+        } else {
+            asset.files.append(AssetFile(
+                name: URL(fileURLWithPath: artifact.path).lastPathComponent,
+                role: .metadata,
+                mimeType: artifact.mediaType.isEmpty ? mediaTypeForPath(artifact.path) : artifact.mediaType,
+                data: data,
+                tags: ["hypercard-import", "stackimport-artifact", "format-\(artifact.format)"]
             ))
         }
     }
 
-    private func audioAssetName(from path: String) -> String {
-        let stem = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
-        let components = stem.split(separator: "_", omittingEmptySubsequences: false)
-        if components.count >= 3, components[0].lowercased() == "snd", Int(components[1]) != nil {
-            return decodedAudioAssetName(components.dropFirst(2).joined(separator: "_"))
-        }
-        if let sndIndex = components.firstIndex(where: { $0.lowercased() == "snd" }),
-           components.count > components.index(sndIndex, offsetBy: 2),
-           Int(components[components.index(after: sndIndex)]) != nil {
-            return decodedAudioAssetName(components.suffix(from: components.index(sndIndex, offsetBy: 2)).joined(separator: "_"))
-        }
-        return decodedAudioAssetName(stem)
+    private func isImportableAssetArtifact(_ artifact: XSTKResourceArtifact) -> Bool {
+        let kind = assetKind(for: artifact.mediaType, path: artifact.path)
+        return kind == .imageTexture || kind == .audioClip || kind == .videoClip || kind == .placeholderAsset
     }
 
-    private func decodedAudioAssetName(_ name: String) -> String {
+    private func isLooseResourceAssetPath(_ path: String) -> Bool {
+        guard isSafePackagePath(path) else { return false }
+        let lower = path.lowercased()
+        guard lower.hasPrefix("sounds/") ||
+              lower.hasPrefix("resource-") ||
+              lower.hasPrefix("resource/") ||
+              lower.hasPrefix("resources/") ||
+              resourceIdentity(from: path).type != "RSRC" else {
+            return false
+        }
+        return ["png", "wav", "aiff", "aif", "mp3", "m4a", "mov", "mp4", "json", "txt"].contains(pathExtension(path))
+    }
+
+    private func isSafePackagePath(_ path: String) -> Bool {
+        guard !path.isEmpty, !path.hasPrefix("/") else { return false }
+        return !path.split(separator: "/").contains("..")
+    }
+
+    private func assetKind(for mediaType: String, path: String) -> AssetKind {
+        let lowerMedia = mediaType.lowercased()
+        if lowerMedia.hasPrefix("image/") || pathExtension(path) == "png" {
+            return .imageTexture
+        }
+        if lowerMedia.hasPrefix("audio/") || ["wav", "aiff", "aif", "mp3", "m4a"].contains(pathExtension(path)) {
+            return .audioClip
+        }
+        if lowerMedia.hasPrefix("video/") || ["mov", "mp4"].contains(pathExtension(path)) {
+            return .videoClip
+        }
+        return .placeholderAsset
+    }
+
+    private func assetPriority(for artifact: XSTKResourceArtifact) -> Int {
+        switch assetKind(for: artifact.mediaType, path: artifact.path) {
+        case .imageTexture, .audioClip, .videoClip: return 0
+        case .placeholderAsset: return 1
+        default: return 2
+        }
+    }
+
+    private func resourceAssetName(resource: XSTKResourceSummary, artifact: XSTKResourceArtifact, path: String) -> String {
+        if resource.type == "snd " {
+            let decoded = decodedResourceName(resource.name)
+            if !decoded.isEmpty { return decoded }
+        }
+        let stem = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        return decodedResourceName(stem).isEmpty ? "\(resource.type.trimmingCharacters(in: .whitespaces)) \(resource.id)" : decodedResourceName(stem)
+    }
+
+    private func resourceIdentity(from path: String) -> XSTKResourceSummary {
+        let stem = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        let parts = stem.split(separator: "_", omittingEmptySubsequences: false)
+        if parts.count >= 2, let id = Int(parts[1]) {
+            return XSTKResourceSummary(type: decodedResourceName(String(parts[0])), id: id, name: "", bytes: 0, outputArtifacts: [])
+        }
+        if let sndIndex = parts.firstIndex(where: { $0.lowercased() == "snd" }),
+           parts.count > parts.index(after: sndIndex),
+           let id = Int(parts[parts.index(after: sndIndex)]) {
+            let nameStart = parts.index(sndIndex, offsetBy: 2)
+            let name = parts.count > nameStart ? parts.suffix(from: nameStart).joined(separator: "_") : ""
+            return XSTKResourceSummary(type: "snd ", id: id, name: decodedResourceName(name), bytes: 0, outputArtifacts: [])
+        }
+        return XSTKResourceSummary(type: "RSRC", id: 0, name: decodedResourceName(stem), bytes: 0, outputArtifacts: [])
+    }
+
+    private func resourceTags(resource: XSTKResourceSummary, artifact: XSTKResourceArtifact) -> [String] {
+        var tags = [
+            "hypercard-import",
+            "stackimport-artifact",
+            "resource-\(resource.type.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())",
+            "format-\(artifact.format)"
+        ]
+        if resource.type == "snd " {
+            tags.append("sound-resource")
+            tags.append("resource-snd")
+        }
+        if !artifact.description.isEmpty {
+            tags.append("converted-resource")
+        }
+        return stableUnique(tags)
+    }
+
+    private func uniqueName(_ base: String, existingNames: Set<String>) -> String {
+        let fallback = base.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Imported Resource" : base
+        var name = fallback
+        var counter = 2
+        let lowerExisting = Set(existingNames.map { $0.lowercased() })
+        while lowerExisting.contains(name.lowercased()) {
+            name = "\(fallback) \(counter)"
+            counter += 1
+        }
+        return name
+    }
+
+    private func decodedResourceName(_ name: String) -> String {
         (name.removingPercentEncoding ?? name).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func pathExtension(_ path: String) -> String {
+        URL(fileURLWithPath: path).pathExtension.lowercased()
+    }
+
+    private func artifactFormatForPath(_ path: String) -> String {
+        switch pathExtension(path) {
+        case "png": return "png"
+        case "json": return "json"
+        case "txt": return "text"
+        case "wav", "aiff", "aif", "mp3", "m4a": return "audio"
+        case "mov", "mp4": return "video"
+        default: return "binary"
+        }
+    }
+
+    private func mediaTypeForPath(_ path: String) -> String {
+        switch pathExtension(path) {
+        case "png": return "image/png"
+        case "json": return "application/json"
+        case "txt": return "text/plain"
+        case "wav": return "audio/wav"
+        case "aiff", "aif": return "audio/aiff"
+        case "mp3": return "audio/mpeg"
+        case "m4a": return "audio/mp4"
+        case "mov": return "video/quicktime"
+        case "mp4": return "video/mp4"
+        default: return "application/octet-stream"
+        }
     }
 
     private func applyCardFieldContents(
@@ -423,6 +651,85 @@ private struct XSTKProject: Decodable {
     var blocks: [XSTKBlock]
     var fonts: [XSTKFont]?
     var warnings: [String]?
+}
+
+private struct XSTKSourceManifest: Decodable {
+    var resourceFork: XSTKResourceForkManifest
+}
+
+private struct XSTKResourceForkManifest: Decodable {
+    var resources: [XSTKResourceSummary]
+
+    init(resources: [XSTKResourceSummary] = []) {
+        self.resources = resources
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case resources
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        resources = try container.decodeIfPresent([XSTKResourceSummary].self, forKey: .resources) ?? []
+    }
+}
+
+private struct XSTKResourceSummary: Decodable {
+    var type: String
+    var id: Int
+    var name: String
+    var bytes: Int
+    var outputArtifacts: [XSTKResourceArtifact]
+
+    init(type: String, id: Int, name: String, bytes: Int, outputArtifacts: [XSTKResourceArtifact]) {
+        self.type = type
+        self.id = id
+        self.name = name
+        self.bytes = bytes
+        self.outputArtifacts = outputArtifacts
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case type, id, name, bytes, outputArtifacts
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decodeIfPresent(String.self, forKey: .type) ?? "RSRC"
+        id = try container.decodeIfPresent(Int.self, forKey: .id) ?? 0
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        bytes = try container.decodeIfPresent(Int.self, forKey: .bytes) ?? 0
+        outputArtifacts = try container.decodeIfPresent([XSTKResourceArtifact].self, forKey: .outputArtifacts) ?? []
+    }
+}
+
+private struct XSTKResourceArtifact: Decodable {
+    var path: String
+    var format: String
+    var mediaType: String
+    var description: String
+    var variantIndex: Int?
+
+    init(path: String, format: String, mediaType: String, description: String, variantIndex: Int?) {
+        self.path = path
+        self.format = format
+        self.mediaType = mediaType
+        self.description = description
+        self.variantIndex = variantIndex
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case path, format, mediaType, description, variantIndex
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        path = try container.decodeIfPresent(String.self, forKey: .path) ?? ""
+        format = try container.decodeIfPresent(String.self, forKey: .format) ?? ""
+        mediaType = try container.decodeIfPresent(String.self, forKey: .mediaType) ?? ""
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        variantIndex = try container.decodeIfPresent(Int.self, forKey: .variantIndex)
+    }
 }
 
 private struct XSTKBlock: Decodable {

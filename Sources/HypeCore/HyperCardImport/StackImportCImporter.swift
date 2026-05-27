@@ -1,4 +1,5 @@
 import CStackImport
+import AppKit
 import Foundation
 
 /// Adapter for the stackimport C ABI.
@@ -93,7 +94,7 @@ public struct StackImportCImporter: Sendable {
         for (path, data) in generatedFiles(at: URL(fileURLWithPath: outputPath)) where files[path] == nil {
             files[path] = data
         }
-        for (path, data) in resourceCollector.files where files[path] == nil && !hasWAVPayload(data, in: files) {
+        for (path, data) in resourceCollector.files where files[path] == nil && !hasExistingPayload(data, in: files) {
             files[path] = data
         }
         return files
@@ -147,20 +148,19 @@ public struct StackImportCImporter: Sendable {
         return files
     }
 
-    private func hasWAVPayload(_ data: Data, in files: [String: Data]) -> Bool {
-        files.contains { path, existingData in
-            path.lowercased().hasSuffix(".wav") && existingData == data
-        }
+    private func hasExistingPayload(_ data: Data, in files: [String: Data]) -> Bool {
+        files.contains { _, existingData in existingData == data }
     }
 }
 
 /// Collects converted resource payloads delivered through the C API's streaming callbacks.
 private final class StackImportResourceCollector {
+    private static let maxPayloadBytes = 64 * 1024 * 1024
     var files: [String: Data] = [:]
 
     func resourcePath(for payload: stackimport_resource_payload) -> String {
-        let mediaType = String(cString: payload.media_type, encoding: .utf8) ?? "unknown"
-        let ext = mediaType.components(separatedBy: "/").last?.split(separator: "+").first ?? ""
+        let type = sanitizedResourceName(resourceTypeString(payload.type))
+        let ext = fileExtension(for: payload)
         let namePart: String
         if let namePtr = payload.name, payload.name_size > 0 {
             namePart = String(
@@ -170,23 +170,97 @@ private final class StackImportResourceCollector {
         } else {
             namePart = ""
         }
-        let base = namePart.isEmpty ? "Sound \(payload.id)" : sanitizedResourceName(namePart)
-        return "sounds/snd_\(payload.id)_\(base)\(ext.isEmpty ? "" : ".\(ext)")"
+        let base = namePart.isEmpty ? "\(type)_\(payload.id)" : "\(type)_\(payload.id)_\(sanitizedResourceName(namePart))"
+        let variant = payload.variant_index > 0 ? "_\(String(format: "%02d", payload.variant_index))" : ""
+        let folder: String
+        switch ext {
+        case "wav", "aiff", "mp3", "m4a":
+            folder = "sounds"
+        case "json":
+            folder = "resource-metadata"
+        case "txt":
+            folder = "resource-text"
+        default:
+            folder = "resources"
+        }
+        return "\(folder)/\(base)\(variant).\(ext)"
+    }
+
+    func data(for payload: stackimport_resource_payload, bytes: UnsafeRawPointer, size: Int) -> Data? {
+        guard size > 0, size <= Self.maxPayloadBytes else { return nil }
+        if payload.format == UInt32(STACKIMPORT_RESOURCE_PAYLOAD_RGBA32.rawValue) {
+            return pngData(forRGBA32Payload: payload, bytes: bytes, size: size)
+        }
+        return Data(bytes: bytes, count: size)
+    }
+
+    private func pngData(forRGBA32Payload payload: stackimport_resource_payload, bytes: UnsafeRawPointer, size: Int) -> Data? {
+        let width = Int(payload.width)
+        let height = Int(payload.height)
+        guard width > 0, height > 0 else { return nil }
+        let rowBytes = Int(payload.row_bytes == 0 ? UInt32(width * 4) : payload.row_bytes)
+        guard rowBytes >= width * 4, size >= rowBytes * height else { return nil }
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width,
+            pixelsHigh: height,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: width * 4,
+            bitsPerPixel: 32
+        ), let bitmapData = rep.bitmapData else { return nil }
+
+        let source = bytes.assumingMemoryBound(to: UInt8.self)
+        for y in 0..<height {
+            bitmapData.advanced(by: y * width * 4).update(from: source.advanced(by: y * rowBytes), count: width * 4)
+        }
+        return rep.representation(using: .png, properties: [:])
+    }
+
+    private func fileExtension(for payload: stackimport_resource_payload) -> String {
+        if payload.format == UInt32(STACKIMPORT_RESOURCE_PAYLOAD_RGBA32.rawValue) {
+            return "png"
+        }
+        guard let mediaTypeC = payload.media_type,
+              let mediaTypeString = String(cString: mediaTypeC, encoding: .utf8) else {
+            return "bin"
+        }
+        let mediaType = mediaTypeString.lowercased()
+        switch mediaType {
+        case "application/json": return "json"
+        case "text/plain": return "txt"
+        case "audio/wav", "audio/wave", "audio/x-wav": return "wav"
+        case "image/png": return "png"
+        case "video/mp4": return "mp4"
+        case "video/quicktime": return "mov"
+        default:
+            return mediaType.components(separatedBy: "/").last?.split(separator: "+").first.map(String.init) ?? "bin"
+        }
+    }
+
+    private func resourceTypeString(_ tuple: (Int8, Int8, Int8, Int8)) -> String {
+        let scalars = [tuple.0, tuple.1, tuple.2, tuple.3].map { value -> UInt8 in
+            let byte = UInt8(bitPattern: value)
+            return (byte >= 0x20 && byte <= 0x7e) ? byte : UInt8(ascii: "_")
+        }
+        return String(bytes: scalars, encoding: .ascii) ?? "RSRC"
     }
 
     private func sanitizedResourceName(_ name: String) -> String {
         let valid = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !valid.isEmpty else { return "resource" }
-        return valid.replacingOccurrences(of: "/", with: "_")
+        let invalid = CharacterSet(charactersIn: "/:\\?%*|\"<>")
+        return valid.components(separatedBy: invalid).joined(separator: "_")
     }
 }
 
 private let stackImportResourceWants: stackimport_resource_wants_fn = { payload, userData in
     guard let payload, let userData else { return 0 }
     _ = Unmanaged<StackImportResourceCollector>.fromOpaque(userData).takeUnretainedValue()
-    guard let mediaTypeC = payload.pointee.media_type,
-          let mediaType = String(cString: mediaTypeC, encoding: .utf8) else { return 0 }
-    return mediaType == "audio/wav" ? 1 : 0
+    return payload.pointee.format == UInt32(STACKIMPORT_RESOURCE_PAYLOAD_NATIVE.rawValue) ? 0 : 1
 }
 
 private let stackImportResourcePayload: stackimport_resource_payload_fn = { payload, data, size, userData in
@@ -194,12 +268,7 @@ private let stackImportResourcePayload: stackimport_resource_payload_fn = { payl
     let p = payload.pointee
     let collector = Unmanaged<StackImportResourceCollector>.fromOpaque(userData).takeUnretainedValue()
 
-    guard let mediaTypeC = p.media_type, let mediaType = String(cString: mediaTypeC, encoding: .utf8) else {
-        return 1
-    }
-    guard mediaType.hasPrefix("audio/") else { return 1 }
-
-    let payloadData = Data(bytes: data, count: size)
+    guard let payloadData = collector.data(for: p, bytes: data, size: size) else { return 1 }
     let path = collector.resourcePath(for: p)
     collector.files[path] = payloadData
     return 1
