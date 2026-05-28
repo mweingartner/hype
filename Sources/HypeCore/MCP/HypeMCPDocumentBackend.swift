@@ -307,7 +307,7 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
             "allowMutations": .bool(allowMutations),
             "mcp": .object([
                 "protocolVersion": .string("2025-06-18"),
-                "transport": .string("stdio-or-loopback-http")
+                "transport": .string("stdio-debug-socket")
             ])
         ])
     }

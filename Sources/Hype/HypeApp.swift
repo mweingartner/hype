@@ -31,7 +31,6 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
             using: NSScreen.screens.map(\.visibleFrame)
         )
         installWindowObservers()
-        HypeMCPAppServer.shared.startIfNeeded()
         updateDebugServerState()
         debugDefaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -214,12 +213,6 @@ extension Notification.Name {
 @main
 struct HypeApp: App {
     @NSApplicationDelegateAdaptor(HypeAppDelegate.self) var appDelegate
-
-    init() {
-        Task { @MainActor in
-            HypeMCPAppServer.shared.startIfNeeded()
-        }
-    }
 
     var body: some Scene {
         DocumentGroup(newDocument: HypeDocumentWrapper()) { file in

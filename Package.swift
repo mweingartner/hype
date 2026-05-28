@@ -8,7 +8,6 @@ let package = Package(
         .executable(name: "Hype", targets: ["Hype"]),
         .executable(name: "HypePacmanTestbedBuilder", targets: ["HypePacmanTestbedBuilder"]),
         .executable(name: "hypetalk", targets: ["HypeCLI"]),
-        .executable(name: "hype-mcp", targets: ["HypeMCPBridge"]),
         .library(name: "HypeCore", targets: ["HypeCore"]),
     ],
     dependencies: [
@@ -39,11 +38,6 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/HypeCLI"
-        ),
-        .executableTarget(
-            name: "HypeMCPBridge",
-            dependencies: ["HypeCore"],
-            path: "Sources/HypeMCPBridge"
         ),
         .target(
             name: "HypeCore",

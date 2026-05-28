@@ -420,6 +420,7 @@ public actor StackRuntime: ScriptRuntimeProviding {
     private var document: HypeDocument
     private var queue: [QueuedDispatch] = []
     private var isProcessing = false
+    private var cancellationRequested = false
     private var currentScriptTask: Task<ExecutionResult, Never>?
     private var currentRunningDispatch: RunningDispatch?
     private var requests: [UUID: RequestState] = [:]
@@ -529,17 +530,24 @@ public actor StackRuntime: ScriptRuntimeProviding {
     }
 
     public func cancelRunningScripts() async {
+        let hadWork = isProcessing || currentScriptTask != nil || currentRunningDispatch != nil || !queue.isEmpty
+        cancellationRequested = hadWork
         currentScriptTask?.cancel()
+        currentScriptTask = nil
+        currentRunningDispatch = nil
+        postStatusChange()
         await configuration.systemProvider.stopSound()
         await configuration.systemProvider.stopMusic()
         let cancelled = ExecutionResult(
-            status: .error,
-            error: ScriptError(message: "Script cancelled", line: 0, handler: currentRunningDispatch?.message ?? "")
+            status: .cancelled
         )
         let queued = queue
         queue.removeAll(keepingCapacity: true)
         for item in queued {
             item.completion?.resume(returning: cancelled)
+        }
+        if !isProcessing {
+            cancellationRequested = false
         }
         postStatusChange()
     }
@@ -1160,7 +1168,14 @@ public actor StackRuntime: ScriptRuntimeProviding {
             let batch = queue
             queue.removeAll(keepingCapacity: true)
             var batchDocumentChanged = false
-            for item in batch {
+            for (index, item) in batch.enumerated() {
+                if cancellationRequested {
+                    let cancelled = ExecutionResult(status: .cancelled)
+                    for queuedItem in batch[index...] {
+                        queuedItem.completion?.resume(returning: cancelled)
+                    }
+                    break
+                }
                 currentRunningDispatch = RunningDispatch(
                     id: item.id,
                     message: item.message,
@@ -1200,6 +1215,7 @@ public actor StackRuntime: ScriptRuntimeProviding {
                 ) || batchDocumentChanged
                 item.completion?.resume(returning: result)
             }
+            cancellationRequested = false
             if batch.count > 1, batchDocumentChanged {
                 postDocumentChange()
             }

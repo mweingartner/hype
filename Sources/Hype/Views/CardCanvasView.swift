@@ -962,6 +962,12 @@ struct CardCanvasView: NSViewRepresentable {
                     nsView?.blockSpriteDispatch(after: err)
                     postScriptErrorNotification(err)
                 }
+            case .cancelled:
+                if let modified = result.modifiedDocument {
+                    parent.document.document = modified
+                    nsView?.document = modified
+                    nsView?.needsDisplay = true
+                }
             }
         }
 

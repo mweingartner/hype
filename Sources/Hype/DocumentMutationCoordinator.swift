@@ -99,6 +99,11 @@ final class HypeDocumentMutationCoordinator {
     /// can resolve the active document even when its own scene is in front.
     var activeDocumentBinding: Binding<HypeDocumentWrapper>?
 
+    /// The currently-visible card in the active document scene. Debug and MCP
+    /// automation paths use this as their card context when a request does not
+    /// explicitly name a card.
+    var activeCardId: UUID?
+
     init(
         recoveryStore: HypeRecoveryStore = HypeRecoveryStore(),
         autosaveDelayNanoseconds: UInt64 = 700_000_000,

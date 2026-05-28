@@ -217,7 +217,7 @@ public struct ExecutionResult: Sendable {
 
 /// Execution outcome.
 public enum ExecutionStatus: Sendable {
-    case completed, passed, error
+    case completed, passed, error, cancelled
 }
 
 /// A runtime script error.
@@ -557,8 +557,8 @@ public struct Interpreter: Sendable {
             return ExecutionResult(status: .error, error: error)
         } catch is CancellationError {
             return ExecutionResult(
-                status: .error,
-                error: ScriptError(message: "Script cancelled", line: handler.line, handler: handler.name)
+                status: .cancelled,
+                modifiedDocument: document
             )
         } catch {
             let scriptError = ScriptError(message: error.localizedDescription, line: handler.line, handler: handler.name)
@@ -1569,6 +1569,9 @@ public struct Interpreter: Sendable {
                     line: handler.line,
                     handler: handler.name
                 )
+            }
+            if result.status == .cancelled {
+                throw CancellationError()
             }
 
         case .playSound(let soundExpr, let notesExpr, let tempoExpr):

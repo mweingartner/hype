@@ -1,15 +1,7 @@
 import Foundation
 
 public enum HypeMCPConfiguration {
-    public static let enabledKey = "hype.mcp.enabled"
     public static let allowMutationsKey = "hype.mcp.allowMutations"
-    public static let portKey = "hype.mcp.port"
-    public static let tokenKey = "hype.mcp.token"
-    public static let defaultPort = "47891"
-}
-
-public extension KeychainStore {
-    static let hypeMCPTokenAccount = "hype.mcp.token"
 }
 
 public struct HypeMCPPreferenceDescriptor: Sendable, Equatable {
@@ -36,9 +28,7 @@ public struct HypeMCPPreferenceDescriptor: Sendable, Equatable {
 
 public enum HypeMCPPreferenceStore {
     public static let descriptors: [HypeMCPPreferenceDescriptor] = [
-        .init(name: "mcp.enabled", key: HypeMCPConfiguration.enabledKey, defaultValue: "true", allowedValues: ["true", "false"], description: "Enable the local Hype MCP server."),
-        .init(name: "mcp.allowMutations", key: HypeMCPConfiguration.allowMutationsKey, defaultValue: "true", allowedValues: ["true", "false"], description: "Allow MCP tools to mutate the active stack."),
-        .init(name: "mcp.port", key: HypeMCPConfiguration.portKey, defaultValue: HypeMCPConfiguration.defaultPort, description: "Loopback port for the Hype MCP Streamable HTTP endpoint."),
+        .init(name: "mcp.allowMutations", key: HypeMCPConfiguration.allowMutationsKey, defaultValue: "true", allowedValues: ["true", "false"], description: "Allow MCP stdio tools to mutate the active stack through the debug server."),
         .init(name: "ai.provider", key: HypeAIConfiguration.providerKey, defaultValue: HypeAIProvider.ollama.rawValue, allowedValues: HypeAIProvider.allCases.map(\.rawValue), description: "Selected Hype AI provider."),
         .init(name: "ollama.host", key: "ollamaHost", defaultValue: "localhost", description: "Ollama host."),
         .init(name: "ollama.port", key: "ollamaPort", defaultValue: "11434", description: "Ollama port."),
@@ -100,12 +90,6 @@ public enum HypeMCPPreferenceStore {
                 "isSet": .bool(KeychainStore.hasSecret(account: account))
             ]))
         }
-        secrets.append(.object([
-            "name": .string("mcp-token"),
-            "account": .string(HypeMCPConfiguration.tokenKey),
-            "isSet": .bool(!(defaults.string(forKey: HypeMCPConfiguration.tokenKey) ?? "").isEmpty)
-        ]))
-
         return .object([
             "preferences": .array(preferences),
             "secrets": .array(secrets)
@@ -130,14 +114,6 @@ public enum HypeMCPPreferenceStore {
     }
 
     public static func setSecret(name: String, value: String, defaults: UserDefaults = .standard) -> String {
-        if name == "mcp-token" {
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else {
-                return "Refused to store an empty secret for \(name)"
-            }
-            defaults.set(trimmed, forKey: HypeMCPConfiguration.tokenKey)
-            return "Stored secret \(name)"
-        }
         guard let account = secretAccounts[name] else {
             return "Unknown secret '\(name)'"
         }
@@ -154,10 +130,6 @@ public enum HypeMCPPreferenceStore {
     }
 
     public static func deleteSecret(name: String, defaults: UserDefaults = .standard) -> String {
-        if name == "mcp-token" {
-            defaults.removeObject(forKey: HypeMCPConfiguration.tokenKey)
-            return "Deleted secret \(name)"
-        }
         guard let account = secretAccounts[name] else {
             return "Unknown secret '\(name)'"
         }
@@ -171,13 +143,4 @@ public enum HypeMCPPreferenceStore {
         }
     }
 
-    public static func ensureMCPToken(defaults: UserDefaults = .standard) -> String {
-        if let existing = defaults.string(forKey: HypeMCPConfiguration.tokenKey),
-           !existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return existing
-        }
-        let token = UUID().uuidString + "-" + UUID().uuidString
-        defaults.set(token, forKey: HypeMCPConfiguration.tokenKey)
-        return token
-    }
 }
