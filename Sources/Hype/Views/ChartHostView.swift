@@ -22,6 +22,11 @@ import HypeCore
 /// - Axis titles use `chartXAxisLabel(_:)` / `chartYAxisLabel(_:)` with
 ///   fallbacks to "Category" / "Value" so an unconfigured chart still has
 ///   readable axis labels instead of blank space.
+///
+/// - Marks draw compact labels from `ChartConfig.dataPointLabel(for:in:)`.
+///   Single-series labels show point name + value; multi-series labels include
+///   the series name so the chart remains understandable without relying on
+///   color alone.
 struct ChartHostView: View {
     let config: ChartConfig
 
@@ -88,6 +93,10 @@ struct ChartHostView: View {
                         y: .value(yLabel, point.value)
                     )
                     .foregroundStyle(resolveColor(point, series))
+                    .position(by: .value("Series", series.name), axis: .horizontal)
+                    .annotation(position: .top, alignment: .center, spacing: 2) {
+                        dataLabel(for: point, in: series)
+                    }
                 }
             }
         }
@@ -108,9 +117,18 @@ struct ChartHostView: View {
                 ForEach(series.data) { point in
                     LineMark(
                         x: .value(xLabel, point.name),
+                        y: .value(yLabel, point.value),
+                        series: .value("Series", series.name)
+                    )
+                    .foregroundStyle(resolveColor(point, series))
+                    PointMark(
+                        x: .value(xLabel, point.name),
                         y: .value(yLabel, point.value)
                     )
                     .foregroundStyle(resolveColor(point, series))
+                    .annotation(position: .top, alignment: .center, spacing: 2) {
+                        dataLabel(for: point, in: series)
+                    }
                 }
             }
         }
@@ -128,6 +146,14 @@ struct ChartHostView: View {
                         y: .value(yLabel, point.value)
                     )
                     .foregroundStyle(resolveColor(point, series).opacity(0.35))
+                    PointMark(
+                        x: .value(xLabel, point.name),
+                        y: .value(yLabel, point.value)
+                    )
+                    .foregroundStyle(resolveColor(point, series))
+                    .annotation(position: .top, alignment: .center, spacing: 2) {
+                        dataLabel(for: point, in: series)
+                    }
                 }
             }
         }
@@ -145,6 +171,9 @@ struct ChartHostView: View {
                         y: .value(yLabel, point.value)
                     )
                     .foregroundStyle(resolveColor(point, series))
+                    .annotation(position: .top, alignment: .center, spacing: 2) {
+                        dataLabel(for: point, in: series)
+                    }
                 }
             }
         }
@@ -160,6 +189,9 @@ struct ChartHostView: View {
                     RuleMark(y: .value(yLabel, point.value))
                         .foregroundStyle(resolveColor(point, series))
                         .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 5]))
+                        .annotation(position: .top, alignment: .trailing, spacing: 2) {
+                            dataLabel(for: point, in: series)
+                        }
                 }
             }
         }
@@ -179,10 +211,45 @@ struct ChartHostView: View {
                     )
                     .foregroundStyle(resolveColor(point, series))
                     .cornerRadius(4)
+                    .annotation(position: .overlay, alignment: .center, spacing: 0) {
+                        pieLabel(for: point, in: series)
+                    }
                 }
                 .chartLegend(.hidden)
             }
         }
+    }
+
+    // MARK: - Mark labels
+
+    private func dataLabel(for point: ChartDataPoint, in series: ChartSeries) -> some View {
+        Text(config.dataPointLabel(for: point, in: series))
+            .font(.system(size: 10, weight: .medium))
+            .foregroundColor(.primary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.65)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.white.opacity(0.86))
+                    .shadow(color: Color.black.opacity(0.08), radius: 1, x: 0, y: 1)
+            )
+    }
+
+    private func pieLabel(for point: ChartDataPoint, in series: ChartSeries) -> some View {
+        Text(config.dataPointLabel(for: point, in: series))
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundColor(.white)
+            .lineLimit(2)
+            .multilineTextAlignment(.center)
+            .minimumScaleFactor(0.65)
+            .padding(.horizontal, 3)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.black.opacity(0.35))
+            )
     }
 
     // MARK: - Custom legend

@@ -129,16 +129,12 @@ extension ChartConfig {
     /// Policy:
     ///
     /// - **Empty chart** (no series): returns `[]`.
-    /// - **Single series with per-point colors** (at least one
-    ///   `ChartDataPoint.color` is non-empty): returns one entry per
-    ///   data point, using the point's effective color (per-point color
-    ///   overrides the series color; empty falls back to the series
-    ///   color). This is what the user sees when they — or the AI —
-    ///   explicitly colored individual points.
-    /// - **Single series without per-point colors**: returns a single
-    ///   entry for the series (name + series color). Without this guard
-    ///   the legend would be N identical swatches for a chart whose
-    ///   points all share the series default color.
+    /// - **Single series**: returns one entry per data point, using the
+    ///   point's effective color (per-point color overrides the series
+    ///   color; empty falls back to the series color). Hype charts are
+    ///   authored visually, so even inherited-color points should be
+    ///   named in the legend instead of collapsing to a single generic
+    ///   series row.
     /// - **Multiple series**: returns one entry per series using the
     ///   series color. In a multi-series chart the primary
     ///   disambiguation is "which series?", and building a cross-series
@@ -155,16 +151,48 @@ extension ChartConfig {
         if series.isEmpty { return [] }
 
         if series.count == 1, let only = series.first {
-            let hasAnyPerPointColor = only.data.contains { !$0.color.isEmpty }
-            if hasAnyPerPointColor {
-                return only.data.map { point in
-                    let effective = point.color.isEmpty ? only.color : point.color
-                    return ChartLegendEntry(name: point.name, colorHex: effective)
-                }
+            if only.data.isEmpty {
+                return [ChartLegendEntry(name: only.name, colorHex: only.color)]
             }
-            return [ChartLegendEntry(name: only.name, colorHex: only.color)]
+            return only.data.map { point in
+                let effective = point.color.isEmpty ? only.color : point.color
+                return ChartLegendEntry(name: point.name.isEmpty ? only.name : point.name, colorHex: effective)
+            }
         }
 
         return series.map { ChartLegendEntry(name: $0.name, colorHex: $0.color) }
+    }
+
+    /// User-facing mark label for one point. Includes the series name
+    /// when more than one series is present so labels remain meaningful
+    /// without relying on color alone.
+    public func dataPointLabel(for point: ChartDataPoint, in series: ChartSeries) -> String {
+        let pointName = point.name.isEmpty ? "Point" : point.name
+        let value = Self.formattedValue(point.value)
+        if self.series.count > 1 {
+            let seriesName = series.name.isEmpty ? "Series" : series.name
+            return "\(seriesName): \(pointName) \(value)"
+        }
+        return "\(pointName) \(value)"
+    }
+
+    /// Compact numeric formatting for visible chart labels.
+    public static func formattedValue(_ value: Double) -> String {
+        guard value.isFinite else { return "\(value)" }
+        let rounded = value.rounded()
+        if abs(value - rounded) < 0.000_001,
+           rounded >= Double(Int64.min),
+           rounded <= Double(Int64.max) {
+            return "\(Int64(rounded))"
+        }
+
+        var text = String(format: "%.2f", value)
+        while text.contains(".") && text.last == "0" {
+            text.removeLast()
+        }
+        if text.last == "." {
+            text.removeLast()
+        }
+        return text
     }
 }

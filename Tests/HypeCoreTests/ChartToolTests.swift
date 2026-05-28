@@ -370,7 +370,7 @@ struct ChartLegendTests {
         #expect(config.legendEntries().isEmpty)
     }
 
-    @Test("single series with no per-point colors → one entry for the series")
+    @Test("single series with no per-point colors → one legend entry per data point")
     func singleSeriesWithoutPerPointColors() {
         let config = ChartConfig(
             chartType: .bar,
@@ -383,10 +383,10 @@ struct ChartLegendTests {
             ]
         )
         let entries = config.legendEntries()
-        #expect(entries.count == 1)
-        // Would be three identical blue swatches if we returned per-point entries,
-        // which is noise. A single series entry is the informative choice.
-        #expect(entries[0] == ChartLegendEntry(name: "Sales", colorHex: "#4A90D9"))
+        #expect(entries.count == 3)
+        #expect(entries[0] == ChartLegendEntry(name: "Jan", colorHex: "#4A90D9"))
+        #expect(entries[1] == ChartLegendEntry(name: "Feb", colorHex: "#4A90D9"))
+        #expect(entries[2] == ChartLegendEntry(name: "Mar", colorHex: "#4A90D9"))
     }
 
     @Test("single series with per-point colors → one entry per data point")
@@ -568,8 +568,8 @@ struct ChartLegendTests {
         #expect(entries[2] == ChartLegendEntry(name: "Mar", colorHex: "#0000FF"))
     }
 
-    @Test("create_chart simple data format falls back to single series legend entry")
-    func createChartSimpleDataHasSingleLegendEntry() async {
+    @Test("create_chart simple data format produces one legend entry per point")
+    func createChartSimpleDataHasPerPointLegendEntries() async {
         var (doc, cardId) = makeDoc()
         let executor = HypeToolExecutor()
         _ = await executor.execute(
@@ -594,11 +594,29 @@ struct ChartLegendTests {
             Issue.record("Chart 'Simple' not created")
             return
         }
-        // None of the points have their own color — the legend should
-        // collapse to one entry showing the series.
         let entries = config.legendEntries()
-        #expect(entries.count == 1)
-        #expect(entries[0] == ChartLegendEntry(name: "Sales", colorHex: "#4A90D9"))
+        #expect(entries.count == 3)
+        #expect(entries[0] == ChartLegendEntry(name: "Jan", colorHex: "#4A90D9"))
+        #expect(entries[1] == ChartLegendEntry(name: "Feb", colorHex: "#4A90D9"))
+        #expect(entries[2] == ChartLegendEntry(name: "Mar", colorHex: "#4A90D9"))
+    }
+
+    @Test("data point labels include point name, value, and series name when needed")
+    func dataPointLabelContent() {
+        let singleSeries = ChartSeries(name: "Sales", color: "#4A90D9", data: [
+            ChartDataPoint(name: "Jan", value: 120),
+        ])
+        let config = ChartConfig(series: [singleSeries])
+        #expect(config.dataPointLabel(for: singleSeries.data[0], in: singleSeries) == "Jan 120")
+
+        let revenue = ChartSeries(name: "Revenue", data: [
+            ChartDataPoint(name: "Q1", value: 123.456),
+        ])
+        let cost = ChartSeries(name: "Cost", data: [
+            ChartDataPoint(name: "Q1", value: 78),
+        ])
+        let multi = ChartConfig(series: [revenue, cost])
+        #expect(multi.dataPointLabel(for: revenue.data[0], in: revenue) == "Revenue: Q1 123.46")
     }
 
     @Test("create_chart data_json with integer values decodes correctly")

@@ -1810,7 +1810,13 @@ knows to skip those parts during the Core Graphics pass.
 
 Charts are notable: `ChartHostView.swift` is a SwiftUI view built on
 Apple's Charts framework, hosted inside an `NSHostingView` so it can live
-inside an AppKit subview hierarchy.
+inside an AppKit subview hierarchy. It intentionally uses direct per-mark
+colors from `ChartDataPoint.color` / `ChartSeries.color`, draws its own
+legend from `ChartConfig.legendEntries()`, and annotates bar, line, area,
+point, pie, and rule marks with compact point labels. Single-series legends
+list each data point by name even when all points inherit the series color;
+multi-series legends group by series while mark labels include the series
+name for disambiguation.
 
 Sprite areas now host the active scene from `SpriteAreaSpec` rather than a
 single anonymous `SceneSpec`. `SceneBridge` diffing and cache invalidation are
