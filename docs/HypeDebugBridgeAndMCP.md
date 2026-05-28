@@ -116,3 +116,11 @@ command = "node"
 args = ["Tools/hype-mcp-server/bin/hype-mcp.js"]
 enabled = true
 ```
+
+The Node server is the only stdio entrypoint. By default it scans the
+app-support debug directory used by launched Hype.app instances and any
+repo-local `.hype/debug` directory left by development runs.
+
+The repo `.envrc` sets `HYPE_DEBUG_SOCKET_DIR` to the app-support debug
+directory so direnv-aware shells and MCP clients use the same default as
+`/Applications/Hype.app`.
