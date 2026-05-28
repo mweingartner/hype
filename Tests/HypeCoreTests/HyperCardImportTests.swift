@@ -221,6 +221,43 @@ struct HyperCardImportTests {
         #expect(result.document.assetRepository.asset(byName: "Red Alert")?.data == wav)
     }
 
+    @Test("stackimport package registers card and background bitmaps as image assets")
+    func stackimportPackageRegistersLayerBitmapsAsImageAssets() throws {
+        let pbm = Data([UInt8]("P4\n2 1\n".utf8) + [0b1000_0000])
+        let packageFiles: [String: Data] = [
+            "project.json": Data("""
+            {"sourceFileName":"Bitmap Sample","stackFile":"stack_-1.json","blocks":[],"fonts":[]}
+            """.utf8),
+            "stack_-1.json": Data("""
+            {"name":"Bitmap Sample","cardWidth":2,"cardHeight":1,"script":"","pages":[{"cardIds":[100]}],"layers":[{"kind":"background","id":10,"file":"background_10.json","name":"Shared Art"},{"kind":"card","id":100,"owner":10,"file":"card_100.json","name":"Card Art"}]}
+            """.utf8),
+            "background_10.json": Data("""
+            {"id":10,"bitmap":"background_10.pbm","name":"Shared Art","script":"","parts":[],"contents":[]}
+            """.utf8),
+            "card_100.json": Data("""
+            {"id":100,"bitmap":"card_100.pbm","name":"Card Art","script":"","parts":[],"contents":[]}
+            """.utf8),
+            "background_10.pbm": pbm,
+            "card_100.pbm": pbm,
+        ]
+
+        let result = try StackImportPackageConverter().convert(packageFiles: packageFiles)
+        let assets = result.document.assetRepository.assets
+
+        let backgroundAsset = try #require(assets.first { $0.name == "Shared Art Paint Layer" })
+        #expect(backgroundAsset.kind == .imageTexture)
+        #expect(backgroundAsset.mimeType == "image/png")
+        #expect(backgroundAsset.width == 2)
+        #expect(backgroundAsset.height == 1)
+        #expect(backgroundAsset.tags.contains("background-paint-layer"))
+
+        let cardAsset = try #require(assets.first { $0.name == "Card Art Paint Layer" })
+        #expect(cardAsset.kind == .imageTexture)
+        #expect(cardAsset.mimeType == "image/png")
+        #expect(cardAsset.tags.contains("card-paint-layer"))
+        #expect(result.document.parts.filter { $0.partType == .image && $0.imageData != nil }.count == 2)
+    }
+
     @Test("stackimport package imports converted resource images and metadata")
     func stackimportPackageImportsConvertedResourceImagesAndMetadata() throws {
         HypeLogger.shared.clear()

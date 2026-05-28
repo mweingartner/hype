@@ -223,6 +223,38 @@ public struct StackImportPackageConverter: Sendable {
         guard let bitmapData = try? reader.data(for: bitmap),
               let pngData = try? PBMImageConverter.pngData(from: bitmap, data: bitmapData) else { return }
 
+        let ownerName: String
+        let ownerTags: [String]
+        switch owner {
+        case .background(let id):
+            ownerName = document.backgrounds.first(where: { $0.id == id })?.name ?? "Background"
+            ownerTags = ["background-paint-layer"]
+        case .card(let id):
+            ownerName = document.cards.first(where: { $0.id == id })?.name ?? "Card"
+            ownerTags = ["card-paint-layer"]
+        }
+        let baseAssetName = "\(ownerName) Paint Layer"
+        let assetName = uniqueName(baseAssetName, existingNames: Set(document.assetRepository.assets.map(\.name)))
+        let asset = Asset(
+            name: assetName,
+            kind: .imageTexture,
+            mimeType: "image/png",
+            data: pngData,
+            width: document.stack.width,
+            height: document.stack.height,
+            tags: stableUnique(["hypercard-import", "stackimport-layer-bitmap", "paint-layer"] + ownerTags),
+            provenance: AssetProvenance(
+                origin: .userImport,
+                searchQuery: "HyperCard layer bitmap \(layer.id)",
+                attribution: AssetAttribution(
+                    title: ownerName,
+                    providerName: "stackimport",
+                    providerIdentifier: "stackimport"
+                )
+            )
+        )
+        document.assetRepository.addAsset(asset)
+
         var part = Part(
             partType: .image,
             cardId: {
@@ -233,7 +265,7 @@ public struct StackImportPackageConverter: Sendable {
                 if case .background(let id) = owner { return id }
                 return nil
             }(),
-            name: "Paint Layer",
+            name: assetName,
             sortKey: "a000000",
             left: 0,
             top: 0,
