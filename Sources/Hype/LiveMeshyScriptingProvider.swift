@@ -79,7 +79,7 @@ public struct LiveMeshyScriptingProvider: MeshyScriptingProvider {
             alsoFBX: false,
             hardTimeout: 1800
         )
-        let existingNames = Set(document.spriteRepository.assets.map(\.name))
+        let existingNames = Set(document.assetRepository.assets.map(\.name))
         let assets = try await job.run(
             kind: .text(prompt: prompt, artStyle: artStyle),
             options: options,
@@ -95,7 +95,7 @@ public struct LiveMeshyScriptingProvider: MeshyScriptingProvider {
         // generation — this IS the one mutation; StackRuntime must NOT mutate again).
         var modifiedDocument = document
         for asset in assets {
-            modifiedDocument.spriteRepository.addAsset(asset)
+            modifiedDocument.assetRepository.addAsset(asset)
         }
         let stackId = document.stack.id
         await MainActor.run {
@@ -144,7 +144,7 @@ public struct LiveMeshyScriptingProvider: MeshyScriptingProvider {
         }
 
         // Step 2: Find source asset and validate it has a Meshy task id.
-        guard let sourceAsset = document.spriteRepository.assets.first(where: { $0.name == sourceAssetName }) else {
+        guard let sourceAsset = document.assetRepository.assets.first(where: { $0.name == sourceAssetName }) else {
             throw MeshyError.unsupportedSource(operation: "remesh", assetName: sourceAssetName)
         }
         let sourceTaskId = sourceAsset.provenance?.attribution.taskId ?? ""
@@ -166,7 +166,7 @@ public struct LiveMeshyScriptingProvider: MeshyScriptingProvider {
             targetPolycount: targetPolycount,
             hardTimeout: 1800
         )
-        let existingNames = Set(document.spriteRepository.assets.map(\.name))
+        let existingNames = Set(document.assetRepository.assets.map(\.name))
         let asset = try await flow.runRemesh(
             sourceTaskId: sourceTaskId,
             sourceAssetName: sourceAssetName,
@@ -178,7 +178,7 @@ public struct LiveMeshyScriptingProvider: MeshyScriptingProvider {
         // Step 5: Install asset into the live document via the runtime's notification channel.
         // Security (C8): exactly one mutation — this IS the mutation; StackRuntime must not re-mutate.
         var modifiedDocument = document
-        modifiedDocument.spriteRepository.addAsset(asset)
+        modifiedDocument.assetRepository.addAsset(asset)
         let stackId = document.stack.id
         await MainActor.run {
             NotificationCenter.default.post(
@@ -239,7 +239,7 @@ public struct LiveMeshyScriptingProvider: MeshyScriptingProvider {
         }
 
         // Step 2: Find source asset and validate it has a Meshy task id.
-        guard let sourceAsset = document.spriteRepository.assets.first(where: { $0.name == sourceAssetName }) else {
+        guard let sourceAsset = document.assetRepository.assets.first(where: { $0.name == sourceAssetName }) else {
             throw MeshyError.unsupportedSource(operation: "retexture", assetName: sourceAssetName)
         }
         let sourceTaskId = sourceAsset.provenance?.attribution.taskId ?? ""
@@ -258,7 +258,7 @@ public struct LiveMeshyScriptingProvider: MeshyScriptingProvider {
         let client = MeshyAIClient(apiKey: apiKey)
         let flow = RemeshAndRetextureFlow(client: client)
         let options = RemeshAndRetextureFlow.RetextureOptions(hardTimeout: 1800)
-        let existingNames = Set(document.spriteRepository.assets.map(\.name))
+        let existingNames = Set(document.assetRepository.assets.map(\.name))
         let asset = try await flow.runRetexture(
             sourceTaskId: sourceTaskId,
             sourceAssetName: sourceAssetName,
@@ -271,7 +271,7 @@ public struct LiveMeshyScriptingProvider: MeshyScriptingProvider {
         // Step 5: Install asset into the live document via the runtime's notification channel.
         // Security (C8): exactly one mutation — this IS the mutation; StackRuntime must not re-mutate.
         var modifiedDocument = document
-        modifiedDocument.spriteRepository.addAsset(asset)
+        modifiedDocument.assetRepository.addAsset(asset)
         let stackId = document.stack.id
         await MainActor.run {
             NotificationCenter.default.post(

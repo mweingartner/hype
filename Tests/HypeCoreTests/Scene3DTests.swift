@@ -96,8 +96,8 @@ struct Scene3DTests {
     func aiSetModelAssetBindsRepositoryStem() async throws {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id
-        let model = SpriteAsset(name: "creature.glb", kind: .model3D, mimeType: "model/gltf-binary")
-        doc.spriteRepository.addAsset(model)
+        let model = Asset(name: "creature.glb", kind: .model3D, mimeType: "model/gltf-binary")
+        doc.assetRepository.addAsset(model)
         let executor = HypeToolExecutor()
         _ = await executor.execute(
             toolName: "create_scene3d",
@@ -267,17 +267,17 @@ struct Scene3DTests {
     @Test("repository GLB resolves to same-task USDZ companion for rendering")
     func glbResolvesToTaskCompanionUSDZ() throws {
         let taskId = "task_123"
-        var glb = SpriteAsset(name: "wooden-barrel.glb", kind: .model3D, mimeType: "model/gltf-binary")
+        var glb = Asset(name: "wooden-barrel.glb", kind: .model3D, mimeType: "model/gltf-binary")
         glb.provenance = AssetProvenance(
             origin: .aiGenerated,
             attribution: AssetAttribution(providerIdentifier: "meshy", taskId: taskId)
         )
-        var usdz = SpriteAsset(name: "other-name.usdz", kind: .model3D, mimeType: "model/vnd.usdz+zip")
+        var usdz = Asset(name: "other-name.usdz", kind: .model3D, mimeType: "model/vnd.usdz+zip")
         usdz.provenance = AssetProvenance(
             origin: .aiGenerated,
             attribution: AssetAttribution(providerIdentifier: "meshy", taskId: taskId)
         )
-        let repo = SpriteRepository(assets: [glb, usdz])
+        let repo = AssetRepository(assets: [glb, usdz])
         let ref = repo.assetRef(for: glb)
 
         let resolved = try #require(Scene3DRepositoryAssetResolver.resolvedAsset(for: ref, in: repo))
@@ -288,9 +288,9 @@ struct Scene3DTests {
 
     @Test("repository GLB resolves to same-base USDZ companion for rendering")
     func glbResolvesToSameBaseUSDZ() throws {
-        let glb = SpriteAsset(name: "space-fighter.glb", kind: .model3D, mimeType: "model/gltf-binary")
-        let usdz = SpriteAsset(name: "space-fighter.usdz", kind: .model3D, mimeType: "model/vnd.usdz+zip")
-        let repo = SpriteRepository(assets: [glb, usdz])
+        let glb = Asset(name: "space-fighter.glb", kind: .model3D, mimeType: "model/gltf-binary")
+        let usdz = Asset(name: "space-fighter.usdz", kind: .model3D, mimeType: "model/vnd.usdz+zip")
+        let repo = AssetRepository(assets: [glb, usdz])
         let resolved = try #require(Scene3DRepositoryAssetResolver.resolvedAsset(for: repo.assetRef(for: glb), in: repo))
 
         #expect(resolved.renderAsset.id == usdz.id)
@@ -299,10 +299,10 @@ struct Scene3DTests {
 
     @Test("repository GLB resolves to newest same-base USDZ companion")
     func glbResolvesToNewestSameBaseUSDZ() throws {
-        let glb = SpriteAsset(name: "space-fighter.glb", kind: .model3D, mimeType: "model/gltf-binary")
-        let staleUSDZ = SpriteAsset(name: "space-fighter.usdz", kind: .model3D, mimeType: "model/vnd.usdz+zip", data: Data([1]))
-        let newestUSDZ = SpriteAsset(name: "space-fighter.usdz", kind: .model3D, mimeType: "model/vnd.usdz+zip", data: Data([2]))
-        let repo = SpriteRepository(assets: [glb, staleUSDZ, newestUSDZ])
+        let glb = Asset(name: "space-fighter.glb", kind: .model3D, mimeType: "model/gltf-binary")
+        let staleUSDZ = Asset(name: "space-fighter.usdz", kind: .model3D, mimeType: "model/vnd.usdz+zip", data: Data([1]))
+        let newestUSDZ = Asset(name: "space-fighter.usdz", kind: .model3D, mimeType: "model/vnd.usdz+zip", data: Data([2]))
+        let repo = AssetRepository(assets: [glb, staleUSDZ, newestUSDZ])
         let resolved = try #require(Scene3DRepositoryAssetResolver.resolvedAsset(for: repo.assetRef(for: glb), in: repo))
 
         #expect(resolved.renderAsset.id == newestUSDZ.id)
@@ -311,8 +311,8 @@ struct Scene3DTests {
 
     @Test("repository GLB without USDZ companion is marked as companion-required")
     func glbWithoutCompanionRequiresUSDZ() throws {
-        let glb = SpriteAsset(name: "solo.glb", kind: .model3D, mimeType: "model/gltf-binary")
-        let repo = SpriteRepository(assets: [glb])
+        let glb = Asset(name: "solo.glb", kind: .model3D, mimeType: "model/gltf-binary")
+        let repo = AssetRepository(assets: [glb])
         let resolved = try #require(Scene3DRepositoryAssetResolver.resolvedAsset(for: repo.assetRef(for: glb), in: repo))
 
         #expect(resolved.renderAsset.id == glb.id)
@@ -322,8 +322,8 @@ struct Scene3DTests {
 
     @Test("scene3D repository resolver ignores non-model assets")
     func scene3DResolverIgnoresNonModelAssets() throws {
-        let image = SpriteAsset(name: "robot.glb", kind: .imageTexture, mimeType: "model/gltf-binary", data: Data([1]))
-        let repo = SpriteRepository(assets: [image])
+        let image = Asset(name: "robot.glb", kind: .imageTexture, mimeType: "model/gltf-binary", data: Data([1]))
+        let repo = AssetRepository(assets: [image])
 
         #expect(Scene3DRepositoryAssetResolver.selectedAsset(for: repo.assetRef(for: image), in: repo) == nil)
         #expect(Scene3DRepositoryAssetResolver.resolvedAsset(for: repo.assetRef(for: image), in: repo) == nil)
@@ -331,19 +331,19 @@ struct Scene3DTests {
 
     @Test("scene3D load identity changes when embedded asset bytes change without size change")
     func scene3DLoadIdentityFingerprintsBytes() throws {
-        let first = SpriteAsset(name: "robot.usdz", kind: .model3D, mimeType: "model/vnd.usdz+zip", data: Data([1, 2, 3]))
-        var second = SpriteAsset(name: "robot.usdz", kind: .model3D, mimeType: "model/vnd.usdz+zip", data: Data([1, 2, 4]))
+        let first = Asset(name: "robot.usdz", kind: .model3D, mimeType: "model/vnd.usdz+zip", data: Data([1, 2, 3]))
+        var second = Asset(name: "robot.usdz", kind: .model3D, mimeType: "model/vnd.usdz+zip", data: Data([1, 2, 4]))
         second.id = first.id
-        let ref = SpriteRepository(assets: [first]).assetRef(for: first)
+        let ref = AssetRepository(assets: [first]).assetRef(for: first)
 
         let firstKey = Scene3DRepositoryAssetResolver.loadIdentity(
             for: ref,
-            in: SpriteRepository(assets: [first]),
+            in: AssetRepository(assets: [first]),
             fallbackURL: ""
         )
         let secondKey = Scene3DRepositoryAssetResolver.loadIdentity(
             for: ref,
-            in: SpriteRepository(assets: [second]),
+            in: AssetRepository(assets: [second]),
             fallbackURL: ""
         )
 

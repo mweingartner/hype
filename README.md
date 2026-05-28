@@ -64,7 +64,7 @@ emitters in the same document, with one unified scripting model.
   a separate Control+Option authoring gesture.
 - **Meshy.ai 3D model generation.** Generate 3D models from text
   prompts, reference images, or multi-image captures directly inside
-  Hype. Models land in the Sprite Repository as self-contained `model3D`
+  Hype. Models land in the Asset Repository as self-contained `model3D`
   assets (GLB bytes embedded in the `.hype` file). From there: auto-rig
   with a Mixamo-compatible skeleton, pick an animation from a bundled
   ~3,000-entry catalog, remesh to a target polygon count, retexture with
@@ -159,7 +159,7 @@ and playlist references; item IDs and metadata store in the stack, licensed
 audio remains external),
 `scene3D` (SceneKit — USDZ/USD/SCN/DAE/OBJ natively; GLB/PLY/ABC via
 MDLAsset on macOS 13+; FBX via MDLAsset on macOS 13+; STL via built-in
-converter; asset binding via `Part.scene3DAssetRef` + Sprite Repository).
+converter; asset binding via `Part.scene3DAssetRef` + Asset Repository).
 
 **SpriteKit:**
 `spriteArea` — a live `SKScene` host. Inside it: sprite, label,
@@ -279,7 +279,7 @@ SpriteKit as a peer to the classic flat-card model.
 A practical hands-on tour is in
 [`SpriteKit-Tutorial.md`](SpriteKit-Tutorial.md).
 
-**Sprite Repository and 3D assets.** The `SpriteRepository` is not limited to
+**Asset Repository and 3D assets.** The `AssetRepository` is not limited to
 2D assets. `model3D` assets (GLB, USDZ, FBX byte blobs) are first-class
 repository residents — indigo cube icon in the grid, embedded in the `.hype`
 file alongside sprites. Inspector actions for model3D assets: Generate 3D,
@@ -433,7 +433,7 @@ Set the active model in Hype's preferences panel (or via
 ### Transactional AI edits (preview / apply / rollback)
 
 Every AI tool turn — across the main AI Chat panel, the Script
-Editor AI assistant, and the Sprite Repository AI assistant —
+Editor AI assistant, and the Asset Repository AI assistant —
 runs through
 [`AIEditTransaction` / `AIEditTransactionRunner`](Sources/HypeCore/AI/AIEditTransaction.swift):
 
@@ -441,7 +441,7 @@ runs through
 2. The runner executes them against a **draft copy** of the
    document, not the live one.
 3. The resulting deltas (changed parts, cards, backgrounds,
-   sprite repository entries, paint layers, scripts) are captured
+   asset repository entries, paint layers, scripts) are captured
    as an `AIEditDocumentDelta` plus a rollback snapshot of every
    touched object's prior state.
 4. The user gets a preview summary and chooses **Apply** or
@@ -475,7 +475,7 @@ artifacts never reach OpenAI by accident.
 
 [`OpenAIImageGenerationClient`](Sources/HypeCore/AI/OpenAIImageGenerationClient.swift)
 adds a `generate_image` tool whose result lands directly in a
-new image part or `SpriteRepository` asset (via the standard
+new image part or `AssetRepository` asset (via the standard
 transaction path, so it's previewable and rollback-able). The
 returned bytes are PNG; provenance is recorded on the asset so
 the inspector shows which model + prompt produced it.
@@ -672,7 +672,7 @@ Hype/
 │   │       ├── PropertyInspector.swift
 │   │       ├── ScriptEditor.swift
 │   │       ├── AIChatPanel.swift
-│   │       ├── SpriteRepositoryView.swift
+│   │       ├── AssetRepositoryView.swift
 │   │       ├── Themes/                  # Theme designer
 │   │       └── …
 │   └── HypeCore/                 # Library target — model, scripting, AI, rendering

@@ -131,7 +131,7 @@ struct ArrangeMenuCommands: Commands {
 /// Tools menu now contains only the "what does a click DO" tools —
 /// browse, select, and the raster paint tools. Object-creation tools
 /// moved to the dedicated Objects menu; mode/panel toggles moved to
-/// the new View menu; the dead Sprite Repository entry moved to
+/// the new View menu; the dead Asset Repository entry moved to
 /// Window where it belongs.
 struct ToolsMenuCommands: Commands {
     var body: some Commands {
@@ -268,7 +268,7 @@ extension Notification.Name {
     static let distributeH = Notification.Name("distributeH")
     static let distributeV = Notification.Name("distributeV")
     static let showAllCards = Notification.Name("showAllCards")
-    static let openSpriteRepository = Notification.Name("openSpriteRepository")
+    static let openAssetRepository = Notification.Name("openAssetRepository")
     static let openAIContextLibrary = Notification.Name("openAIContextLibrary")
     static let toggleRuntimeMode = Notification.Name("toggleRuntimeMode")
     static let toggleObjectsPanel = Notification.Name("toggleObjectsPanel")
@@ -323,9 +323,9 @@ extension Notification.Name {
     /// Internal follow-up posted by `MainContentView` after it has
     /// selected the owning part and navigated to the right card.
     static let focusSpriteNodeInInspector = Notification.Name("focusSpriteNodeInInspector")
-    /// Select an asset inside the detached Sprite Repository window.
+    /// Select an asset inside the detached Asset Repository window.
     /// `userInfo["assetId"]` contains the repository asset UUID.
-    static let selectSpriteRepositoryAsset = Notification.Name("selectSpriteRepositoryAsset")
+    static let selectAssetRepositoryAsset = Notification.Name("selectAssetRepositoryAsset")
     /// Posted by the Edit > Themes... menu item AND by the Theme
     /// section's "Edit Themes..." button in the Property Inspector.
     /// `MainContentView` listens and opens (or focuses) the detached
@@ -355,15 +355,15 @@ struct AIMenuCommands: Commands {
 
 /// Adds items to the existing Window menu (created by DocumentGroup)
 /// rather than creating a duplicate "Window" menu. This is where
-/// auxiliary windows live — sprite repository, theme designer, etc.
+/// auxiliary windows live — asset repository, theme designer, etc.
 /// Console moved to View since it's a transient toggleable panel,
 /// not a true window.
 struct WindowMenuCommands: Commands {
     var body: some Commands {
         CommandGroup(after: .windowList) {
             Divider()
-            Button("Sprite Repository") {
-                NotificationCenter.default.post(name: .openSpriteRepository, object: nil)
+            Button("Asset Repository") {
+                NotificationCenter.default.post(name: .openAssetRepository, object: nil)
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
             Button("AI Context Library") {

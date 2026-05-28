@@ -13,7 +13,7 @@ struct OpenInARButton: View {
 
     // MARK: - Inputs
 
-    let asset: SpriteAsset
+    let asset: Asset
 
     // MARK: - State
 

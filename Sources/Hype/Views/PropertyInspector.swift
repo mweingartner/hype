@@ -1271,7 +1271,7 @@ struct PropertyInspector: View {
             sectionHeading("3D Scene")
 
             // From Repository — preferred path. Picks a model3D asset
-            // embedded in the Sprite Repository. When set, this takes
+            // embedded in the Asset Repository. When set, this takes
             // priority over the Object Path URL below.
             HStack {
                 Text("From Repository").font(.system(size: 10))
@@ -1291,7 +1291,7 @@ struct PropertyInspector: View {
             Button("Generate from prompt\u{2026}") { openGenerate3DSheetForPart(partId: part.id) }
                 .controlSize(.small)
 
-            Text("Pick a 3D model from the Sprite Repository, or generate one from a prompt. GLB assets render through their USDZ companion, so keep USDZ enabled for Meshy-generated models.")
+            Text("Pick a 3D model from the Asset Repository, or generate one from a prompt. GLB assets render through their USDZ companion, so keep USDZ enabled for Meshy-generated models.")
                 .font(.system(size: 9))
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1306,7 +1306,7 @@ struct PropertyInspector: View {
                 Button("Choose 3D Model...") { chooseModelForPart(partId: part.id) }
                     .controlSize(.small)
             }
-            Text("Accepts .usdz, .usd, .scn, .dae, .obj, .stl, .ply, .abc, .fbx. STL is converted to a cached .obj automatically. GLB files require a USDZ companion in the Sprite Repository.")
+            Text("Accepts .usdz, .usd, .scn, .dae, .obj, .stl, .ply, .abc, .fbx. STL is converted to a cached .obj automatically. GLB files require a USDZ companion in the Asset Repository.")
                 .font(.system(size: 9))
                 .foregroundColor(.secondary)
             // Resolved path is read-only — it shows what SceneKit
@@ -1335,9 +1335,9 @@ struct PropertyInspector: View {
 
     // MARK: - Scene3D Meshy helpers
 
-    /// All `.model3D` assets in the Sprite Repository, sorted by name.
-    private var model3DAssets: [SpriteAsset] {
-        document.document.spriteRepository.assets
+    /// All `.model3D` assets in the Asset Repository, sorted by name.
+    private var model3DAssets: [Asset] {
+        document.document.assetRepository.assets
             .filter { $0.kind == .model3D }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
@@ -1353,8 +1353,8 @@ struct PropertyInspector: View {
             set: { newId in
                 self.document.document.updatePart(id: partId) { part in
                     if let id = newId,
-                       let asset = self.document.document.spriteRepository.asset(byId: id) {
-                        part.scene3DAssetRef = self.document.document.spriteRepository.assetRef(for: asset)
+                       let asset = self.document.document.assetRepository.asset(byId: id) {
+                        part.scene3DAssetRef = self.document.document.assetRepository.assetRef(for: asset)
                         part.scene3DSourceURL = ""
                         part.scene3DURL = ""
                     } else {
@@ -1981,7 +1981,7 @@ struct PropertyInspector: View {
                     .buttonStyle(.borderless)
 
                     Button("Repository") {
-                        openSpriteRepositoryWindow(document: $document)
+                        openAssetRepositoryWindow(document: $document)
                     }
                     .font(.system(size: 10))
                     .buttonStyle(.borderless)
@@ -1991,7 +1991,7 @@ struct PropertyInspector: View {
                 propertyRow("Nodes", value: "\(spec.nodes.count)")
                 propertyRow("Size", value: "\(Int(spec.size.width)) \u{00d7} \(Int(spec.size.height))")
 
-                let checklist = spec.authoringChecklist(using: document.document.spriteRepository)
+                let checklist = spec.authoringChecklist(using: document.document.assetRepository)
                 Divider()
                 Text("Setup Checklist").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
                 ForEach(checklist) { item in
@@ -2901,7 +2901,7 @@ struct PropertyInspector: View {
 
                 if let assetId = node.assetRef?.id {
                     Button("Reveal Asset") {
-                        openSpriteRepositoryWindow(document: $document, initialAssetId: assetId)
+                        openAssetRepositoryWindow(document: $document, initialAssetId: assetId)
                     }
                     .font(.system(size: 10))
                     .buttonStyle(.borderless)
@@ -2986,12 +2986,12 @@ struct PropertyInspector: View {
     private func spriteNodeProperties(partId: UUID, node: HypeNodeSpec) -> some View {
         Text("SPRITE").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
 
-        let imageAssets = document.document.spriteRepository.assets.filter {
+        let imageAssets = document.document.assetRepository.assets.filter {
             $0.kind == .imageTexture || $0.kind == .spriteSheet
         }
 
         if imageAssets.isEmpty {
-            Text("No assets -- open Sprite Repository to import")
+            Text("No assets -- open Asset Repository to import")
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
         } else {
@@ -3004,7 +3004,7 @@ struct PropertyInspector: View {
             .font(.system(size: 11))
 
             // Show thumbnail preview of selected asset
-            if let ref = node.assetRef, let asset = document.document.spriteRepository.asset(byId: ref.id) {
+            if let ref = node.assetRef, let asset = document.document.assetRepository.asset(byId: ref.id) {
                 if let img = NSImage(data: asset.data) {
                     Image(nsImage: img)
                         .resizable()
@@ -3055,10 +3055,10 @@ struct PropertyInspector: View {
     private func audioNodeProperties(partId: UUID, node: HypeNodeSpec) -> some View {
         Text("AUDIO").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
 
-        let audioAssets = document.document.spriteRepository.assets.filter { $0.kind == .audioClip }
+        let audioAssets = document.document.assetRepository.assets.filter { $0.kind == .audioClip }
 
         if audioAssets.isEmpty {
-            Text("No audio assets -- open Sprite Repository to import")
+            Text("No audio assets -- open Asset Repository to import")
                 .font(.system(size: 10)).foregroundColor(.secondary)
         } else {
             Picker("Asset", selection: bindNodeAsset(partId: partId, nodeId: node.id)) {
@@ -3084,10 +3084,10 @@ struct PropertyInspector: View {
     private func videoNodeProperties(partId: UUID, node: HypeNodeSpec) -> some View {
         Text("VIDEO").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
 
-        let videoAssets = document.document.spriteRepository.assets.filter { $0.kind == .videoClip }
+        let videoAssets = document.document.assetRepository.assets.filter { $0.kind == .videoClip }
 
         if videoAssets.isEmpty {
-            Text("No video assets -- open Sprite Repository to import")
+            Text("No video assets -- open Asset Repository to import")
                 .font(.system(size: 10)).foregroundColor(.secondary)
         } else {
             Picker("Asset", selection: bindNodeAsset(partId: partId, nodeId: node.id)) {
@@ -3477,7 +3477,7 @@ struct PropertyInspector: View {
                 modifySceneSpec(partId: partId) { spec in
                     Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) {
                         if let assetId = newVal,
-                           let asset = document.document.spriteRepository.asset(byId: assetId) {
+                           let asset = document.document.assetRepository.asset(byId: assetId) {
                             $0.assetRef = AssetRef(id: asset.id, name: asset.name, mimeType: asset.mimeType)
                         } else {
                             $0.assetRef = nil
@@ -4626,17 +4626,17 @@ func openScriptEditorWindow(
     }
 }
 
-// MARK: - Resizable Sprite Repository Window
+// MARK: - Resizable Asset Repository Window
 
-/// Keeps a strong reference to open sprite repository windows. As
+/// Keeps a strong reference to open asset repository windows. As
 /// with `activeScriptWindows` above, the window is detached from
 /// SwiftUI's view graph so it needs its own retain cycle manager
 /// or macOS will deallocate it the moment the opener's stack frame
 /// returns.
 @MainActor
-private var activeSpriteRepositoryWindows: [NSWindow] = []
+private var activeAssetRepositoryWindows: [NSWindow] = []
 
-/// Opens the SpriteRepositoryView in a movable, resizable NSWindow
+/// Opens the asset repository browser in a movable, resizable NSWindow
 /// with light appearance. Replaces the previous `.sheet`-based
 /// presentation, which used a fixed 600×400 frame and couldn't be
 /// resized — users asked to see more thumbnails at once and to
@@ -4644,22 +4644,22 @@ private var activeSpriteRepositoryWindows: [NSWindow] = []
 /// window supports both.
 ///
 /// The window remembers its size across sessions via UserDefaults
-/// under the `spriteRepositoryWidth` / `spriteRepositoryHeight`
+/// under the `assetRepositoryWidth` / `assetRepositoryHeight`
 /// keys, mirroring how `openScriptEditorWindow` persists its own
 /// frame.
 @MainActor
-func openSpriteRepositoryWindow(
+func openAssetRepositoryWindow(
     document: Binding<HypeDocumentWrapper>,
     initialAssetId: UUID? = nil
 ) {
     // Reuse an existing window instead of stacking duplicates if
     // the user clicks the toolbar button twice. The browser is
     // effectively a singleton from the user's perspective.
-    if let existing = activeSpriteRepositoryWindows.first {
+    if let existing = activeAssetRepositoryWindows.first {
         existing.makeKeyAndOrderFront(nil)
         if let initialAssetId {
             NotificationCenter.default.post(
-                name: .selectSpriteRepositoryAsset,
+                name: .selectAssetRepositoryAsset,
                 object: nil,
                 userInfo: ["assetId": initialAssetId]
             )
@@ -4667,8 +4667,8 @@ func openSpriteRepositoryWindow(
         return
     }
 
-    let savedWidth = UserDefaults.standard.double(forKey: "spriteRepositoryWidth")
-    let savedHeight = UserDefaults.standard.double(forKey: "spriteRepositoryHeight")
+    let savedWidth = UserDefaults.standard.double(forKey: "assetRepositoryWidth")
+    let savedHeight = UserDefaults.standard.double(forKey: "assetRepositoryHeight")
     let width = savedWidth > 0 ? savedWidth : 780
     let height = savedHeight > 0 ? savedHeight : 520
 
@@ -4678,13 +4678,13 @@ func openSpriteRepositoryWindow(
         backing: .buffered,
         defer: false
     )
-    window.title = "Sprite Repository"
+    window.title = "Asset Repository"
     window.minSize = NSSize(width: 560, height: 360)
     window.isReleasedWhenClosed = false
     window.appearance = NSAppearance(named: .aqua)
 
     let closeAction: () -> Void = { [weak window] in window?.close() }
-    let browserView = SpriteRepositoryView(document: document, onDone: closeAction)
+    let browserView = AssetRepositoryView(document: document, onDone: closeAction)
         .environment(\.colorScheme, .light)
         .colorScheme(.light)
         .preferredColorScheme(.light)
@@ -4698,24 +4698,24 @@ func openSpriteRepositoryWindow(
     if let initialAssetId {
         DispatchQueue.main.async {
             NotificationCenter.default.post(
-                name: .selectSpriteRepositoryAsset,
+                name: .selectAssetRepositoryAsset,
                 object: nil,
                 userInfo: ["assetId": initialAssetId]
             )
         }
     }
 
-    activeSpriteRepositoryWindows.append(window)
+    activeAssetRepositoryWindows.append(window)
 
     NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: .main) { _ in
         MainActor.assumeIsolated {
-            UserDefaults.standard.set(window.frame.width, forKey: "spriteRepositoryWidth")
-            UserDefaults.standard.set(window.frame.height, forKey: "spriteRepositoryHeight")
+            UserDefaults.standard.set(window.frame.width, forKey: "assetRepositoryWidth")
+            UserDefaults.standard.set(window.frame.height, forKey: "assetRepositoryHeight")
         }
     }
     NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak window] _ in
         MainActor.assumeIsolated {
-            if let w = window { activeSpriteRepositoryWindows.removeAll { $0 === w } }
+            if let w = window { activeAssetRepositoryWindows.removeAll { $0 === w } }
         }
     }
 }

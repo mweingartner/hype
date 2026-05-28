@@ -93,7 +93,7 @@ struct SpriteSceneSetupGuide: View {
             let entry = areaSpec.scenes.first(where: { $0.id == sceneId }) ?? areaSpec.activeSceneEntry
             let scene = entry?.scene ?? SceneSpec(size: areaSpec.designSize, scaleMode: areaSpec.scaleMode)
             let nodes = scene.allNodes
-            let firstSpriteAsset = nodes.first(where: { $0.nodeType == .sprite })?.assetRef?.id
+            let firstAsset = nodes.first(where: { $0.nodeType == .sprite })?.assetRef?.id
             let firstTileSetAsset = nodes.first(where: { $0.nodeType == .tileMap })?.tileMapSpec?.tileSetAssetRef?.id
             let hasHUD = nodes.contains { $0.nodeType == .label }
             let hasPlayer = nodes.contains { ["player", "hero", "avatar"].contains($0.name.lowercased()) }
@@ -117,7 +117,7 @@ struct SpriteSceneSetupGuide: View {
                 wantsHUD: hasHUD || template != .blank,
                 wantsWorldBounds: hasBounds || template == .platformer,
                 wantsTileMap: hasTileMap,
-                playerAssetId: firstSpriteAsset,
+                playerAssetId: firstAsset,
                 tilesetAssetId: firstTileSetAsset,
                 showPhysicsDebug: scene.showsPhysics,
                 showFPSDebug: scene.showsFPS,
@@ -160,14 +160,14 @@ struct SpriteSceneSetupGuide: View {
 
     private let stepTitles = ["Basics", "World", "Logic"]
 
-    private var imageAssets: [SpriteAsset] {
-        document.document.spriteRepository.assets.filter {
+    private var imageAssets: [Asset] {
+        document.document.assetRepository.assets.filter {
             $0.kind == .imageTexture || $0.kind == .spriteSheet
         }
     }
 
-    private var tileSetAssets: [SpriteAsset] {
-        document.document.spriteRepository.assets.filter { $0.kind == .tileSet }
+    private var tileSetAssets: [Asset] {
+        document.document.assetRepository.assets.filter { $0.kind == .tileSet }
     }
 
     private var completionItems: [SceneChecklistItem] {
@@ -274,7 +274,7 @@ struct SpriteSceneSetupGuide: View {
                     }
                     Spacer()
                     Button("Open Repository") {
-                        openSpriteRepositoryWindow(document: $document)
+                        openAssetRepositoryWindow(document: $document)
                     }
                     .buttonStyle(.borderless)
                     .font(.system(size: 11))
@@ -637,8 +637,8 @@ struct SpriteSceneSetupGuide: View {
                     node.position = playerPosition
                     node.script = mergeStarterNodeScript(existing: node.script)
                     if let assetId = draft.playerAssetId,
-                       let asset = document.document.spriteRepository.asset(byId: assetId) {
-                        node.assetRef = document.document.spriteRepository.assetRef(for: asset)
+                       let asset = document.document.assetRepository.asset(byId: assetId) {
+                        node.assetRef = document.document.assetRepository.assetRef(for: asset)
                         if node.size == nil {
                             node.size = SizeSpec(width: 64, height: 64)
                         }
@@ -688,7 +688,7 @@ struct SpriteSceneSetupGuide: View {
 
         if draft.wantsTileMap,
            let tilesetId = draft.tilesetAssetId,
-           let tileset = document.document.spriteRepository.asset(byId: tilesetId),
+           let tileset = document.document.assetRepository.asset(byId: tilesetId),
            scene.node(named: "worldTiles") == nil {
             var tileMap = HypeNodeSpec(
                 name: "worldTiles",
@@ -700,7 +700,7 @@ struct SpriteSceneSetupGuide: View {
                 rows: max(6, Int(scene.size.height / Double(max(tileset.tileHeight, 32)))),
                 tileWidth: Double(max(tileset.tileWidth, 32)),
                 tileHeight: Double(max(tileset.tileHeight, 32)),
-                tileSetAssetRef: document.document.spriteRepository.assetRef(for: tileset),
+                tileSetAssetRef: document.document.assetRepository.assetRef(for: tileset),
                 tileSetColumns: max(tileset.tileColumns, 1),
                 tileData: []
             )
@@ -719,7 +719,7 @@ struct SpriteSceneSetupGuide: View {
 
     private func makePlayerNode(position: PointSpec) -> HypeNodeSpec {
         if let assetId = draft.playerAssetId,
-           let asset = document.document.spriteRepository.asset(byId: assetId) {
+           let asset = document.document.assetRepository.asset(byId: assetId) {
             var node = HypeNodeSpec(
                 name: "player",
                 nodeType: .sprite,
@@ -727,7 +727,7 @@ struct SpriteSceneSetupGuide: View {
                 size: SizeSpec(width: 64, height: 64),
                 script: mergeStarterNodeScript(existing: "")
             )
-            node.assetRef = document.document.spriteRepository.assetRef(for: asset)
+            node.assetRef = document.document.assetRepository.assetRef(for: asset)
             if draft.template == .platformer || draft.template == .topDown {
                 node.physicsBody = PhysicsBodySpec(
                     bodyType: .rect,

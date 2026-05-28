@@ -38,8 +38,8 @@ public enum RuntimeDocumentMerge {
         preserved = appendMissing(&merged.themes, from: currentDocument.themes) || preserved
         preserved = appendMissingPaintLayers(&merged.paintLayers, from: currentDocument.paintLayers) || preserved
 
-        let repositoryMerge = mergeRepository(runtimeDocument.spriteRepository, currentRepository: currentDocument.spriteRepository)
-        merged.spriteRepository = repositoryMerge.repository
+        let repositoryMerge = mergeRepository(runtimeDocument.assetRepository, currentRepository: currentDocument.assetRepository)
+        merged.assetRepository = repositoryMerge.repository
         preserved = repositoryMerge.preserved || preserved
 
         let contextMerge = mergeAIContextLibrary(runtimeDocument.aiContextLibrary, currentLibrary: currentDocument.aiContextLibrary)
@@ -82,9 +82,9 @@ public enum RuntimeDocumentMerge {
     }
 
     private static func mergeRepository(
-        _ runtimeRepository: SpriteRepository,
-        currentRepository: SpriteRepository
-    ) -> (repository: SpriteRepository, preserved: Bool) {
+        _ runtimeRepository: AssetRepository,
+        currentRepository: AssetRepository
+    ) -> (repository: AssetRepository, preserved: Bool) {
         var merged = runtimeRepository
         let existingAssetIds = Set(merged.assets.map(\.id))
         let missingAssets = currentRepository.assets.filter { !existingAssetIds.contains($0.id) }

@@ -77,12 +77,18 @@ Implemented:
 - XCMD command parser path.
 - XFCN fallback through the built-in function dispatcher.
 - Runtime degradation for unknown externals.
+- `snd ` resource conversion to `audioClip` assets in `AssetRepository` via
+  `stackimport_snd_to_wav()` (pure Swift path) and streaming resource
+  payload callbacks (C importer path).
+- StackImport package resource consumption for converted PNG/image, audio,
+  video, JSON, and text artifacts. Multi-artifact resources keep related
+  metadata with the primary asset; standalone JSON/text resources are inert
+  `placeholderAsset` entries.
 
 Not yet implemented:
 
 - WOBA bitmap decompression and paint-layer reconstruction.
-- PICT conversion to image parts.
-- `snd ` conversion to Hype audio assets.
+- Automatic placement of PICT or other resource-derived images as card parts.
 - AddColor rendering.
 - Native replacements for most third-party XCMDs.
 - Disk-image, StuffIt, and archive extraction.

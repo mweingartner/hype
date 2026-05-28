@@ -24,6 +24,7 @@ let package = Package(
             resources: [
                 .process("Resources/HypeDocIcon.icns"),
                 .process("Resources/AppIcon.icns"),
+                .process("Resources/OpenSourceManifest.json"),
             ]
         ),
         .executableTarget(
@@ -57,7 +58,6 @@ let package = Package(
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
                 .linkedLibrary("c++"),
-                .unsafeFlags(["-L../stackimport/build-capi"]),
             ]
         ),
         .systemLibrary(

@@ -405,9 +405,9 @@ public struct Part: Identifiable, Codable, Sendable {
     /// `the object of scene3d "X"` return the author-visible path, not the
     /// internal cache path.
     public var scene3DSourceURL: String
-    /// Optional reference to a `SpriteRepository` asset of kind
+    /// Optional reference to a `AssetRepository` asset of kind
     /// `.model3D`. When non-nil, `Scene3DHostNSView` resolves the
-    /// asset's bytes through `SpriteRepository.asset(byId:)`, writes
+    /// asset's bytes through `AssetRepository.asset(byId:)`, writes
     /// them to a short-lived temp file under
     /// `URL.temporaryDirectory/hype-scene3d/<id>.<ext>`,
     /// and hands the URL to `Scene3DAssetLoader`. This is the

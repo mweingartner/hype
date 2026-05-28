@@ -116,7 +116,7 @@ final class CardSKScene: SKScene {
                     spriteLayer.addChild(areaNode)
                     spriteAreaNodes[part.id] = areaNode
                 }
-                areaNode.updateFromPart(part, repository: document.spriteRepository)
+                areaNode.updateFromPart(part, repository: document.assetRepository)
                 areaNode.zPosition = CGFloat(order)
             default:
                 break

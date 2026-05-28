@@ -24,7 +24,7 @@ public struct AIEditDocumentDelta: Codable, Sendable, Equatable {
     public var deletedBackgroundIds: [UUID]
     public var changedBackgroundIds: [UUID]
     public var stackChanged: Bool
-    public var spriteRepositoryChanged: Bool
+    public var assetRepositoryChanged: Bool
     public var paintLayersChanged: Bool
 
     public static let empty = AIEditDocumentDelta(
@@ -38,7 +38,7 @@ public struct AIEditDocumentDelta: Codable, Sendable, Equatable {
         deletedBackgroundIds: [],
         changedBackgroundIds: [],
         stackChanged: false,
-        spriteRepositoryChanged: false,
+        assetRepositoryChanged: false,
         paintLayersChanged: false
     )
 
@@ -53,7 +53,7 @@ public struct AIEditDocumentDelta: Codable, Sendable, Equatable {
             || !deletedBackgroundIds.isEmpty
             || !changedBackgroundIds.isEmpty
             || stackChanged
-            || spriteRepositoryChanged
+            || assetRepositoryChanged
             || paintLayersChanged
     }
 
@@ -69,7 +69,7 @@ public struct AIEditDocumentDelta: Codable, Sendable, Equatable {
             deletedBackgroundIds: merge(deletedBackgroundIds, other.deletedBackgroundIds),
             changedBackgroundIds: merge(changedBackgroundIds, other.changedBackgroundIds),
             stackChanged: stackChanged || other.stackChanged,
-            spriteRepositoryChanged: spriteRepositoryChanged || other.spriteRepositoryChanged,
+            assetRepositoryChanged: assetRepositoryChanged || other.assetRepositoryChanged,
             paintLayersChanged: paintLayersChanged || other.paintLayersChanged
         )
     }
@@ -277,7 +277,7 @@ public struct AIEditTransactionRunner: Sendable {
             deletedBackgroundIds: deletedIds(before.backgrounds.map(\.id), after.backgrounds.map(\.id)),
             changedBackgroundIds: changedIds(before.backgrounds, after.backgrounds),
             stackChanged: encoded(before.stack) != encoded(after.stack),
-            spriteRepositoryChanged: encoded(before.spriteRepository) != encoded(after.spriteRepository),
+            assetRepositoryChanged: encoded(before.assetRepository) != encoded(after.assetRepository),
             paintLayersChanged: encoded(before.paintLayers) != encoded(after.paintLayers)
         )
     }

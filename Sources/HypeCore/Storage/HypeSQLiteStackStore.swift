@@ -6,6 +6,7 @@ public struct HypeSQLiteManifest: Codable, Sendable, Equatable {
     public var format: String
     public var formatVersion: Int
     public var schemaVersion: Int
+    public var documentVersion: Int
     public var stackId: UUID
     public var stackName: String
     public var sqliteFile: String
@@ -16,6 +17,7 @@ public struct HypeSQLiteManifest: Codable, Sendable, Equatable {
         format: String = "hype-sqlite-package",
         formatVersion: Int = 1,
         schemaVersion: Int = HypeSQLiteStackStore.schemaVersion,
+        documentVersion: Int = HypeDocument.currentDocumentVersion,
         stackId: UUID,
         stackName: String,
         sqliteFile: String = HypeSQLiteStackStore.sqliteFileName,
@@ -25,11 +27,30 @@ public struct HypeSQLiteManifest: Codable, Sendable, Equatable {
         self.format = format
         self.formatVersion = formatVersion
         self.schemaVersion = schemaVersion
+        self.documentVersion = documentVersion
         self.stackId = stackId
         self.stackName = stackName
         self.sqliteFile = sqliteFile
         self.savedAt = savedAt
         self.databaseSHA256 = databaseSHA256
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case format, formatVersion, schemaVersion, documentVersion
+        case stackId, stackName, sqliteFile, savedAt, databaseSHA256
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        format = try container.decode(String.self, forKey: .format)
+        formatVersion = try container.decode(Int.self, forKey: .formatVersion)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        documentVersion = try container.decodeIfPresent(Int.self, forKey: .documentVersion) ?? 1
+        stackId = try container.decode(UUID.self, forKey: .stackId)
+        stackName = try container.decode(String.self, forKey: .stackName)
+        sqliteFile = try container.decode(String.self, forKey: .sqliteFile)
+        savedAt = try container.decode(Date.self, forKey: .savedAt)
+        databaseSHA256 = try container.decode(String.self, forKey: .databaseSHA256)
     }
 }
 
@@ -70,6 +91,7 @@ public enum HypeSQLiteStackStoreError: Error, LocalizedError, Equatable {
     case databaseHashMismatch(expected: String, actual: String)
     case missingStack
     case unsupportedSchema(Int)
+    case unsupportedDocumentVersion(Int)
     case sqlite(String)
 
     public var errorDescription: String? {
@@ -88,6 +110,8 @@ public enum HypeSQLiteStackStoreError: Error, LocalizedError, Equatable {
             return "The SQLite stack database does not contain a stack row."
         case .unsupportedSchema(let version):
             return "Unsupported Hype SQLite schema version \(version)."
+        case .unsupportedDocumentVersion(let version):
+            return "Unsupported Hype document version \(version)."
         case .sqlite(let message):
             return message
         }
@@ -134,12 +158,13 @@ public final class HypeSQLiteStackStore {
         guard let sqliteData = wrappers[Self.sqliteFileName]?.regularFileContents else {
             throw HypeSQLiteStackStoreError.missingSQLiteFile
         }
-        try validateManifestData(manifestData, sqliteData: sqliteData)
+        let manifest = try validateManifestData(manifestData, sqliteData: sqliteData)
 
         let temporaryDirectory = try makeTemporaryDirectory(prefix: "HypeSQLiteRead")
         defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
         let sqliteURL = temporaryDirectory.appendingPathComponent(Self.sqliteFileName)
         try sqliteData.write(to: sqliteURL, options: [.atomic])
+        try migrateDatabaseIfNeeded(at: sqliteURL, manifest: manifest)
         return try load(fromDatabaseAt: sqliteURL)
     }
 
@@ -152,8 +177,15 @@ public final class HypeSQLiteStackStore {
         guard FileManager.default.fileExists(atPath: sqliteURL.path) else {
             throw HypeSQLiteStackStoreError.missingSQLiteFile
         }
-        try validateManifestData(Data(contentsOf: manifestURL), sqliteData: Data(contentsOf: sqliteURL))
-        return try load(fromDatabaseAt: sqliteURL)
+        let manifestData = try Data(contentsOf: manifestURL)
+        let sqliteData = try Data(contentsOf: sqliteURL)
+        let manifest = try validateManifestData(manifestData, sqliteData: sqliteData)
+        let temporaryDirectory = try makeTemporaryDirectory(prefix: "HypeSQLiteRead")
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let migratedSQLiteURL = temporaryDirectory.appendingPathComponent(Self.sqliteFileName)
+        try sqliteData.write(to: migratedSQLiteURL, options: [.atomic])
+        try migrateDatabaseIfNeeded(at: migratedSQLiteURL, manifest: manifest)
+        return try load(fromDatabaseAt: migratedSQLiteURL)
     }
 
     public func save(_ document: HypeDocument, toPackageAt packageURL: URL) throws {
@@ -167,6 +199,7 @@ public final class HypeSQLiteStackStore {
             try writeDatabase(for: document, at: sqliteURL)
             let sqliteData = try Data(contentsOf: sqliteURL)
             let manifest = HypeSQLiteManifest(
+                documentVersion: HypeDocument.currentDocumentVersion,
                 stackId: document.stack.id,
                 stackName: document.stack.name,
                 databaseSHA256: sqliteData.hypeSQLiteSHA256Hex
@@ -190,8 +223,15 @@ public final class HypeSQLiteStackStore {
         guard FileManager.default.fileExists(atPath: sqliteURL.path) else {
             throw HypeSQLiteStackStoreError.missingSQLiteFile
         }
-        try validateManifestData(Data(contentsOf: manifestURL), sqliteData: Data(contentsOf: sqliteURL))
-        return try validate(databaseURL: sqliteURL)
+        let manifestData = try Data(contentsOf: manifestURL)
+        let sqliteData = try Data(contentsOf: sqliteURL)
+        let manifest = try validateManifestData(manifestData, sqliteData: sqliteData)
+        let temporaryDirectory = try makeTemporaryDirectory(prefix: "HypeSQLiteValidate")
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let migratedSQLiteURL = temporaryDirectory.appendingPathComponent(Self.sqliteFileName)
+        try sqliteData.write(to: migratedSQLiteURL, options: [.atomic])
+        try migrateDatabaseIfNeeded(at: migratedSQLiteURL, manifest: manifest)
+        return try validate(databaseURL: migratedSQLiteURL)
     }
 
     public func validate(databaseURL: URL) throws -> HypeSQLiteDiagnostics {
@@ -239,7 +279,19 @@ public final class HypeSQLiteStackStore {
         guard FileManager.default.fileExists(atPath: sqliteURL.path) else {
             throw HypeSQLiteStackStoreError.missingSQLiteFile
         }
-        return try search(databaseURL: sqliteURL, query: query, limit: limit)
+        let manifestURL = packageURL.appendingPathComponent(Self.manifestFileName)
+        guard FileManager.default.fileExists(atPath: manifestURL.path) else {
+            throw HypeSQLiteStackStoreError.missingManifest
+        }
+        let manifestData = try Data(contentsOf: manifestURL)
+        let sqliteData = try Data(contentsOf: sqliteURL)
+        let manifest = try validateManifestData(manifestData, sqliteData: sqliteData)
+        let temporaryDirectory = try makeTemporaryDirectory(prefix: "HypeSQLiteSearch")
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let migratedSQLiteURL = temporaryDirectory.appendingPathComponent(Self.sqliteFileName)
+        try sqliteData.write(to: migratedSQLiteURL, options: [.atomic])
+        try migrateDatabaseIfNeeded(at: migratedSQLiteURL, manifest: manifest)
+        return try search(databaseURL: migratedSQLiteURL, query: query, limit: limit)
     }
 
     public func search(databaseURL: URL, query: String, limit: Int = 20) throws -> [HypeSQLiteSearchResult] {
@@ -275,6 +327,10 @@ public final class HypeSQLiteStackStore {
         guard schemaVersion <= Self.schemaVersion else {
             throw HypeSQLiteStackStoreError.unsupportedSchema(schemaVersion)
         }
+        let documentVersion: Int = try loadDocumentValue(Int.self, key: "documentVersion", db: db) ?? 1
+        guard documentVersion <= HypeDocument.currentDocumentVersion else {
+            throw HypeSQLiteStackStoreError.unsupportedDocumentVersion(documentVersion)
+        }
 
         guard let stackPayload = try db.scalarString("SELECT payload_json FROM stacks LIMIT 1") else {
             throw HypeSQLiteStackStoreError.missingStack
@@ -285,7 +341,7 @@ public final class HypeSQLiteStackStore {
         let parts: [Part] = try loadParts(db: db)
         let paintLayers: [CardPaintLayer] = try loadPayloadRows(CardPaintLayer.self, db: db, table: "paint_layers")
         let constraints: [LayoutConstraint] = try loadPayloadRows(LayoutConstraint.self, db: db, table: "constraints")
-        let assets: [SpriteAsset] = try loadPayloadRows(SpriteAsset.self, db: db, table: "assets")
+        let assets: [Asset] = try loadPayloadRows(Asset.self, db: db, table: "assets")
         let musicLibrary = try loadMusicLibrary(db: db)
         let contextSources: [AIContextSource] = try loadPayloadRows(AIContextSource.self, db: db, table: "ai_context_sources")
         let contextItems: [AIContextItem] = try loadPayloadRows(AIContextItem.self, db: db, table: "ai_context_items")
@@ -295,13 +351,14 @@ public final class HypeSQLiteStackStore {
         let legacyImport: LegacyStackImportMetadata? = try loadDocumentValue(LegacyStackImportMetadata.self, key: "legacyImport", db: db)
 
         var document = HypeDocument(
+            documentVersion: documentVersion,
             stack: stack,
             backgrounds: backgrounds,
             cards: cards,
             parts: parts,
             paintLayers: paintLayers,
             constraints: constraints,
-            spriteRepository: SpriteRepository(assets: assets),
+            assetRepository: AssetRepository(assets: assets),
             musicLibrary: musicLibrary,
             aiContextLibrary: AIContextLibrary(sources: contextSources, items: contextItems),
             aiPromptHistory: aiPromptHistory,
@@ -750,6 +807,7 @@ public final class HypeSQLiteStackStore {
         try insertDeploymentTargets(document.stack.deploymentTargets, stackId: document.stack.id, db: db)
         try insertRuntimeAISettings(document.stack.runtimeAISettings, stackId: document.stack.id, db: db)
 
+        try storeDocumentValue(HypeDocument.currentDocumentVersion, key: "documentVersion", db: db)
         try storeDocumentValue(document.aiPromptHistory, key: "aiPromptHistory", db: db)
         if let defaultBackgroundId = document.defaultBackgroundId {
             try storeDocumentValue(defaultBackgroundId, key: "defaultBackgroundId", db: db)
@@ -843,7 +901,7 @@ public final class HypeSQLiteStackStore {
             }
         }
 
-        for (index, asset) in document.spriteRepository.assets.enumerated() {
+        for (index, asset) in document.assetRepository.assets.enumerated() {
             try db.execute(
                 """
                 INSERT INTO assets (
@@ -1341,7 +1399,7 @@ public final class HypeSQLiteStackStore {
         return url
     }
 
-    private func validateManifestData(_ manifestData: Data, sqliteData: Data) throws {
+    private func validateManifestData(_ manifestData: Data, sqliteData: Data) throws -> HypeSQLiteManifest {
         let manifest: HypeSQLiteManifest
         do {
             manifest = try decoder.decode(HypeSQLiteManifest.self, from: manifestData)
@@ -1356,6 +1414,9 @@ public final class HypeSQLiteStackStore {
         guard manifest.schemaVersion <= Self.schemaVersion else {
             throw HypeSQLiteStackStoreError.unsupportedSchema(manifest.schemaVersion)
         }
+        guard manifest.documentVersion <= HypeDocument.currentDocumentVersion else {
+            throw HypeSQLiteStackStoreError.unsupportedDocumentVersion(manifest.documentVersion)
+        }
         let actualHash = sqliteData.hypeSQLiteSHA256Hex
         guard manifest.databaseSHA256 == actualHash else {
             throw HypeSQLiteStackStoreError.databaseHashMismatch(
@@ -1363,6 +1424,53 @@ public final class HypeSQLiteStackStore {
                 actual: actualHash
             )
         }
+        return manifest
+    }
+
+    private func migrateDatabaseIfNeeded(at sqliteURL: URL, manifest: HypeSQLiteManifest) throws {
+        do {
+            let db = try SQLiteDatabase(path: sqliteURL.path, mode: .readWriteCreate)
+            try configureWrite(db)
+            let storedDocumentVersion = try loadStoredDocumentVersion(db: db)
+            var documentVersion = storedDocumentVersion ?? manifest.documentVersion
+            guard documentVersion <= HypeDocument.currentDocumentVersion else {
+                throw HypeSQLiteStackStoreError.unsupportedDocumentVersion(documentVersion)
+            }
+
+            if documentVersion < HypeDocument.currentDocumentVersion {
+                try db.transaction {
+                    while documentVersion < HypeDocument.currentDocumentVersion {
+                        switch documentVersion {
+                        case 1:
+                            try HypeDocumentMigrationV1ToV2().migrate(db: db)
+                            documentVersion = 2
+                        default:
+                            throw HypeSQLiteStackStoreError.unsupportedDocumentVersion(documentVersion)
+                        }
+                        try storeDocumentVersion(documentVersion, db: db)
+                    }
+                }
+            }
+            try db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            try db.execute("PRAGMA journal_mode = DELETE")
+        }
+        try removeSQLiteSidecars(for: sqliteURL)
+    }
+
+    private func loadStoredDocumentVersion(db: SQLiteDatabase) throws -> Int? {
+        guard try db.tableExists("document_values"),
+              let payload = try db.scalarString("SELECT value_json FROM document_values WHERE key = 'documentVersion'") else {
+            return nil
+        }
+        return try decode(Int.self, from: payload)
+    }
+
+    private func storeDocumentVersion(_ version: Int, db: SQLiteDatabase) throws {
+        guard try db.tableExists("document_values") else { return }
+        try db.execute(
+            "INSERT OR REPLACE INTO document_values (key, value_json) VALUES ('documentVersion', ?)",
+            [.text(String(version))]
+        )
     }
 
     private func replacePackage(at packageURL: URL, with temporaryDirectory: URL) throws {
@@ -1389,6 +1497,55 @@ public final class HypeSQLiteStackStore {
             if FileManager.default.fileExists(atPath: sidecar.path) {
                 try FileManager.default.removeItem(at: sidecar)
             }
+        }
+    }
+}
+
+private protocol HypeDocumentSQLiteMigration {
+    var fromVersion: Int { get }
+    var toVersion: Int { get }
+    func migrate(db: SQLiteDatabase) throws
+}
+
+/// Document v2 renamed the stack-scoped repository model from
+/// `spriteRepository` to `assetRepository`. SQLite packages store assets in a
+/// first-class `assets` table, but several JSON payload surfaces can still
+/// contain document-shaped or tool-generated JSON. This migration rewrites the
+/// persisted key before any model decoding happens, then the loader records
+/// documentVersion=2 in `document_values`.
+private struct HypeDocumentMigrationV1ToV2: HypeDocumentSQLiteMigration {
+    let fromVersion = 1
+    let toVersion = 2
+
+    func migrate(db: SQLiteDatabase) throws {
+        let payloadTables = [
+            "stacks", "backgrounds", "cards", "parts", "assets",
+            "music_patterns", "music_tracks", "music_notes",
+            "ai_context_sources", "ai_context_items", "themes",
+            "paint_layers", "constraints", "sprite_areas", "scenes",
+            "scene_nodes",
+        ]
+        for table in payloadTables {
+            guard try db.tableExists(table),
+                  try db.columnExists(table: table, column: "payload_json") else {
+                continue
+            }
+            try db.execute(
+                """
+                UPDATE \(table)
+                SET payload_json = replace(payload_json, '"spriteRepository"', '"assetRepository"')
+                WHERE instr(payload_json, '"spriteRepository"') > 0
+                """
+            )
+        }
+        if try db.tableExists("document_values") {
+            try db.execute(
+                """
+                UPDATE document_values
+                SET value_json = replace(value_json, '"spriteRepository"', '"assetRepository"')
+                WHERE instr(value_json, '"spriteRepository"') > 0
+                """
+            )
         }
     }
 }

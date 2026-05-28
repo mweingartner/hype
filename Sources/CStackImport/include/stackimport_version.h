@@ -1,0 +1,16 @@
+#ifndef STACKIMPORT_VERSION_H
+#define STACKIMPORT_VERSION_H
+
+#define STACKIMPORT_VERSION_STRING "0.3.0"
+#define STACKIMPORT_VERSION_CORE_STRING "0.3.0"
+#define STACKIMPORT_VERSION_MAJOR 0
+#define STACKIMPORT_VERSION_MINOR 3
+#define STACKIMPORT_VERSION_PATCH 0
+/*
+ * Packed SemVer core: 0x00MMmmpp = major/minor/patch.
+ * StackImport is pre-1.0; public API or ABI breaking changes must bump minor.
+ */
+#define STACKIMPORT_VERSION_PACKED \
+	((STACKIMPORT_VERSION_MAJOR << 16) | (STACKIMPORT_VERSION_MINOR << 8) | STACKIMPORT_VERSION_PATCH)
+
+#endif

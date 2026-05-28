@@ -119,13 +119,13 @@ package enum WebAssetExecutorBranches {
 
         do {
             let download = try await pipeline.fetch(candidate)
-            let asset = WebAssetImportPipeline.makeSpriteAsset(
+            let asset = WebAssetImportPipeline.makeAsset(
                 name: cleanedName,
                 searchQuery: searchQuery,
                 download: download
             )
-            document.spriteRepository.addAsset(asset)
-            let webAssets = document.spriteRepository.assets.filter { $0.provenance?.origin == .webSearch }
+            document.assetRepository.addAsset(asset)
+            let webAssets = document.assetRepository.assets.filter { $0.provenance?.origin == .webSearch }
             document.stack.script = StackScriptAttributionSync.sync(
                 stackScript: document.stack.script,
                 webAssets: webAssets
@@ -185,13 +185,13 @@ package enum WebAssetExecutorBranches {
                 return "No \(client.provider.displayName) results for \"\(fQuery)\". find_and_import_sprite did not install anything."
             }
             let download = try await pipeline.fetch(first)
-            let asset = WebAssetImportPipeline.makeSpriteAsset(
+            let asset = WebAssetImportPipeline.makeAsset(
                 name: cleanedName3,
                 searchQuery: fQuery,
                 download: download
             )
-            document.spriteRepository.addAsset(asset)
-            let webAssets3 = document.spriteRepository.assets.filter { $0.provenance?.origin == .webSearch }
+            document.assetRepository.addAsset(asset)
+            let webAssets3 = document.assetRepository.assets.filter { $0.provenance?.origin == .webSearch }
             document.stack.script = StackScriptAttributionSync.sync(
                 stackScript: document.stack.script,
                 webAssets: webAssets3

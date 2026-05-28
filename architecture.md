@@ -10,7 +10,7 @@ called **HypeTalk** — and re-grounds it on a contemporary Apple-platforms
 stack: Swift 6, SwiftUI, SpriteKit, Core Graphics, AppKit, WKWebView,
 AVKit, Apple Charts, and a provider-selectable AI authoring loop that can use
 local Ollama models, local llama-swap proxies, or OpenAI-hosted models, plus
-OpenAI image generation for card/background artwork and Sprite Repository
+OpenAI image generation for card/background artwork and Asset Repository
 assets. Deployed non-macOS runtimes use a separate runtime AI policy that
 prefers Apple's built-in on-device Foundation Models where the target platform
 supports them.
@@ -81,8 +81,8 @@ hype-v2/
 │   │       ├── AIContextLibraryView.swift # Stack-scoped files/images/notes/folders for AI context
 │   │       ├── AIPanel.swift              # Simple Q&A side panel
 │   │       ├── NetworkPanelView.swift     # Stack network policy + live runtime monitor
-│   │       ├── SpriteRepositoryView.swift # Sprite asset browser window (multi-select, Transparent Background)
-│   │       ├── SpriteRepositoryAIChatView.swift # Repository-scoped AI chat for generated sprite assets
+│   │       ├── AssetRepositoryView.swift # Sprite asset browser window (multi-select, Transparent Background)
+│   │       ├── AssetRepositoryAIChatView.swift # Repository-scoped AI chat for generated sprite assets
 │   │       ├── ChartHostView.swift        # Apple Charts host
 │   │       ├── ProgressViewHostView.swift # SwiftUI hosts for the framework progress / gauge controls
 │   │       ├── GaugeHostView.swift
@@ -120,8 +120,8 @@ hype-v2/
 │       │   ├── TextStyleFlags.swift       # Bold/italic/underline/strikethrough parser/emitter
 │       │   ├── JSONCodec.swift            # Shared JSONEncoder/Decoder for stored-as-string fields
 │       │   ├── ChartModel.swift           # Chart config / series / data points
-│       │   ├── AssetRef.swift             # Stable reference into the Sprite Repository
-│       │   ├── SpriteRepository.swift     # Stack-scoped asset store (provenance, slicing, clips)
+│       │   ├── AssetRef.swift             # Stable reference into the Asset Repository
+│       │   ├── AssetRepository.swift     # Stack-scoped asset store (provenance, slicing, clips)
 │       │   ├── SpriteAreaSpec.swift       # Named-scene registry for sprite areas
 │       │   ├── SceneSpec.swift            # Persistent SpriteKit scene description
 │       │   ├── NetworkManifest.swift      # Persisted outbound rules + saved listeners
@@ -165,7 +165,7 @@ hype-v2/
 │       │   ├── MeshyImageRequests.swift   # MeshyImageTo3DRequest / MeshyMultiImageTo3DRequest codables
 │       │   ├── MeshyImageInput.swift      # Image input resolver (filePath/assetName/base64) with strict validation
 │       │   ├── MeshyTaskMonitor.swift     # AsyncStream poller for Meshy task state (pending→succeeded/failed)
-│       │   ├── Meshy3DAssetImporter.swift # Downloads GLB/USDZ/FBX and builds SpriteAsset array
+│       │   ├── Meshy3DAssetImporter.swift # Downloads GLB/USDZ/FBX and builds Asset array
 │       │   ├── Meshy3DGate.swift          # Pre-flight guard (meshyEnabled + API key present)
 │       │   ├── Generate3DJob.swift        # Single-shot orchestrator used by sheet UI and AI tools
 │       │   └── Meshy3DToolProgressReporter.swift # Throttled aiOutput progress reporter (10s / 25% jump)
@@ -335,7 +335,7 @@ public struct HypeDocument: Codable, Sendable {
     public var parts: [Part]
     public var paintLayers: [CardPaintLayer]      // per-card paint snapshots
     public var constraints: [LayoutConstraint]
-    public var spriteRepository: SpriteRepository
+    public var assetRepository: AssetRepository
     public var themes: [HypeTheme]                // user-edited theme registry
     public var aiContextLibrary: AIContextLibrary // rules / assets / examples sent to AI
     public var aiPromptHistory: [String]
@@ -351,7 +351,7 @@ A few choices are deliberate:
   copy-of-copy issues, makes draw-order trivial (the array index is the
   z-order), and keeps undo, AI tool edits, and SQLite reconstruction simple.
 - **All value types.** Every model — `Stack`, `Background`, `Card`, `Part`,
-  `SpriteRepository`, `SceneSpec`, `LayoutConstraint`, `SpriteAsset` — is a
+  `AssetRepository`, `SceneSpec`, `LayoutConstraint`, `Asset` — is a
   `struct` conforming to `Sendable`. There is no shared mutable state in
   the model layer; updates flow through `mutating` document methods
   (`addPart`, `updatePart`, `bringForward`, `sendToBack`, `addConstraint`).
@@ -369,7 +369,7 @@ HypeDocument
   ├── Parts[]          (cardId? or backgroundId?, see §2.3)
   ├── Constraints[]    (LayoutConstraint, see §6.5)
   ├── AIContextLibrary (stack-scoped AI files/images/notes/folders)
-  └── SpriteRepository (see §4)
+  └── AssetRepository (see §4)
 ```
 
 Stacks default to 800 × 600. A `Background` is a template; many cards may
@@ -514,6 +514,17 @@ stack's deployed-runtime AI provider policy, runtime-safe side-effect tool
 gate, allowlisted tool names, fallback text, and transcript persistence flag.
 `Stack.runtimeAISettings` remains the reconstruction source of truth; the table
 is for diagnostics and target-runtime export validation.
+
+Document model compatibility is tracked separately from SQLite schema shape.
+`HypeDocument.currentDocumentVersion` is the current value-model version;
+`manifest.json` stores it as `documentVersion`, and `stack.sqlite` mirrors it
+in `document_values.documentVersion`. When a breaking value-model change lands,
+`HypeSQLiteStackStore` loads the package into a temporary database, runs
+incremental migration hooks before decoding payload JSON, and returns a
+current-version `HypeDocument`. The source `.hype` package is not rewritten
+until the user saves it. Document version 2 is the big-bang Asset Repository
+rename: migration v1->v2 rewrites persisted `"spriteRepository"` JSON keys to
+`"assetRepository"` before model decoding.
 
 Interactive saves and undo now flow through
 `HypeDocumentMutationCoordinator` (`Sources/Hype/DocumentMutationCoordinator.swift`).
@@ -899,7 +910,7 @@ node tree exists, because they reference nodes by UUID and require the
 registry to be fully populated.
 
 Texture caching (`textureCache: [UUID: SKTexture]`) keys by asset ID and is
-populated on demand from the `SpriteRepository`. This prevents repeated
+populated on demand from the `AssetRepository`. This prevents repeated
 NSImage→SKTexture decodes when a script makes many small property
 changes.
 
@@ -1064,13 +1075,13 @@ infrastructure for the alternative single-`SKView` consolidation.
 `scene3D` is a first-class `PartType` peer of `spriteArea`. Where `spriteArea`
 hosts a live `SKScene`, `scene3D` hosts an `SCNView` that loads and renders
 a 3D model asset. The two part types share the same property-inspector,
-scripting, asset-ref, and Sprite Repository discipline.
+scripting, asset-ref, and Asset Repository discipline.
 
 **`Scene3DHostNSView`** (`Sources/Hype/Views/Scene3DHostView.swift`) is the
 AppKit-hosted `SCNView` overlay. One instance is created per visible `scene3D`
 part and tracked in `CardCanvasNSView.scene3DViews: [UUID: Scene3DHostNSView]`.
 On part update, the host checks whether `scene3DAssetRef` has changed: if so,
-it resolves the asset bytes from `SpriteRepository` through
+it resolves the asset bytes from `AssetRepository` through
 `Scene3DRepositoryAssetResolver`, writes the render asset to a UUID-named temp
 file under `URL.temporaryDirectory/hype-scene3d/` (directory created with
 `0o700` permissions), and calls `Scene3DAssetLoader.load(from:)` on a
@@ -1094,7 +1105,7 @@ All methods are synchronous and throw structured `LoadError` on failure; they
 never call `fatalError`. Callers are responsible for invoking off main thread.
 
 **`Part.scene3DAssetRef: AssetRef?`** (Phase 1) is the preferred binding path.
-When non-nil, the host materialises bytes from `SpriteRepository` into a temp
+When non-nil, the host materialises bytes from `AssetRepository` into a temp
 file and feeds the file URL to the loader. `scene3DURL` remains as the legacy
 file-path path; when both are present, `scene3DAssetRef` takes precedence.
 
@@ -1107,12 +1118,12 @@ stages a USDZ in `~/Library/Caches/com.hype.app/ar-quicklook/` (created with
 `0o700` permissions) and presents it via `QLPreviewPanel.shared()`. GLB assets
 are first converted by `Scene3DAssetConverter`; non-USDZ assets that cannot
 be converted surface `ARQuickLookError.unsupportedAssetKind`. The "Open in AR"
-button in `SpriteRepositoryView` is hidden on macOS < 13.
+button in `AssetRepositoryView` is hidden on macOS < 13.
 
 **Architectural symmetry with SpriteKit.** `scene3D` parts are model-driven:
 `Part.scene3DAssetRef` is the asset-ref discipline (UUID, not raw path), and
 mutations flow through the same `@Binding`-based document model as every other
-part type. The Sprite Repository and Property Inspector ("From Repository…"
+part type. The Asset Repository and Property Inspector ("From Repository…"
 dropdown) are the authoring surfaces — no separate 3D asset management UI.
 HypeTalk addresses `scene3D` parts by name and can set `the model` of any part
 through the smart resolver (see §5.7), keeping the scripting surface consistent
@@ -1120,7 +1131,7 @@ with 2D image binding.
 
 ---
 
-## 4. The Sprite Repository
+## 4. The Asset Repository
 
 Asset management is intentionally separated from raw filesystem paths. The
 PRD's strongest claim about asset handling — *"no scene spec should depend
@@ -1129,8 +1140,8 @@ data model.
 
 ### 4.1 Data model
 
-`SpriteRepository` (Sources/HypeCore/Models/SpriteRepository.swift:92) is a
-stack-scoped collection of `SpriteAsset` values, embedded directly inside
+`AssetRepository` (Sources/HypeCore/Models/AssetRepository.swift:92) is a
+stack-scoped collection of `Asset` values, embedded directly inside
 `HypeDocument` and serialized along with the rest of the stack. Stacks
 remain self-contained: opening a `.hype` file on another machine restores
 all referenced art with zero external dependencies.
@@ -1147,7 +1158,7 @@ the format) map to `.imageTexture` for forward-compat — the same strategy as
 `PartType.init(from:)` (Phase 1 design decision).
 
 ```swift
-public struct SpriteAsset: Identifiable, Codable, Sendable {
+public struct Asset: Identifiable, Codable, Sendable {
     public var id: UUID
     public var name: String
     public var kind: AssetKind
@@ -1158,6 +1169,9 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
     public var tags: [String]
     public var slices: [AssetSlice]            // sprite sheet → frame rects
     public var animationClips: [AnimationClip] // frame indices → fps + loops
+    public var files: [AssetFile]              // related embedded media files
+    public var metadata: [AssetMetadataEntry]  // JSON/text/scalar metadata
+    public var compilation: AssetCompilation?  // source/runtime compile links
     // Tile-set classification (kind == .tileSet)
     public var tileWidth, tileHeight, tileColumns, tileRows: Int
     // Origin / license tracking (set when the AI imports from web search)
@@ -1167,11 +1181,11 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
     public var animationActionId: Int?  // Meshy animation catalog entry
 }
 
-public struct SpriteRepository: Codable, Sendable {
-    public var assets: [SpriteAsset]
-    public func asset(byId: UUID)   -> SpriteAsset?
-    public func asset(byName: String) -> SpriteAsset?
-    public func assetRef(for: SpriteAsset) -> AssetRef
+public struct AssetRepository: Codable, Sendable {
+    public var assets: [Asset]
+    public func asset(byId: UUID)   -> Asset?
+    public func asset(byName: String) -> Asset?
+    public func assetRef(for: Asset) -> AssetRef
     public mutating func addAsset/_/removeAsset/_/updateAsset(_:)
 }
 ```
@@ -1186,7 +1200,7 @@ models, `AssetProvenance.attribution` additionally carries `taskId: String`
 source task when this asset was derived via remesh, retexture, or rigging),
 enabling chain-of-derivation tracking (Phase 3 / Phase 4).
 
-**50 MB decode cap on `model3D` assets.** `SpriteAsset.init(from:)` enforces a
+**50 MB decode cap on `model3D` assets.** `Asset.init(from:)` enforces a
 50 MB cap on `kind == .model3D` data at decode time (Phase 1 Security M1). A
 malicious `.hype` document embedding a gigantic GLB/USDZ blob would otherwise
 exhaust memory silently during `JSONDecoder` inflate; the cap surfaces an
@@ -1197,6 +1211,27 @@ the limit.
 the slicing tools record per-tile dimensions and grid extents, and
 `createTileMap` reads those directly so authors don't have to repeat the
 tile geometry on every reference.
+
+Compound assets use the same `Asset` value instead of creating an external
+sidecar model. `Asset.data` remains the primary renderable payload for existing
+simple assets, while `Asset.files` stores related embedded media with roles
+such as `texture`, `normalMap`, `skeleton`, `animation`, `palette`, `preview`,
+or `metadata`. `Asset.metadata` stores structured string payloads with MIME
+types, so importers can preserve JSON manifests, legacy resource summaries, or
+palette/style data without inventing a new schema for every source format.
+This lets the Asset Repository represent one logical item such as a model plus
+animations and textures, or a legacy palette plus metadata and multiple preview
+images.
+
+Asset compilation is modeled as repository metadata, not hard-coded conversion
+state. `AssetCompilation` records whether an asset is a source, runtime output,
+or intermediate, the source/runtime `AssetRef` links, compiler identifier and
+version, operation name, source/options fingerprints, timestamp, and diagnostics.
+This gives importers and runtime compilers one hook for extensible conversions
+such as GLB -> USDZ, layered texture -> flattened runtime image, palette ->
+preview textures, or sprite sheet -> packed atlas. The source asset remains the
+authoring record; compiled runtime assets can be regenerated or invalidated
+from the stored link and fingerprints.
 
 ### 4.2 AI Context Library
 
@@ -1239,7 +1274,7 @@ public struct AssetRef: Codable, Sendable, Identifiable, Hashable {
 
 A node spec stores an `AssetRef`, not a path or filename. At
 texture-load time, `SceneBridge.loadTexture` (SceneBridge.swift around line
-617) looks up the `SpriteAsset` by ID via the document's repository,
+617) looks up the `Asset` by ID via the document's repository,
 decodes its `data` to an `NSImage`, and caches the resulting `SKTexture`
 under the asset ID. This means:
 
@@ -1252,7 +1287,7 @@ under the asset ID. This means:
 
 ### 4.4 The repository UI
 
-`SpriteRepositoryView` (Sources/Hype/Views/SpriteRepositoryView.swift) is
+`AssetRepositoryView` (Sources/Hype/Views/AssetRepositoryView.swift) is
 the SwiftUI window that browses, imports, slices, and tags the repository.
 It supports drag-and-drop import (PNG / JPEG / audio formats), Cmd+click
 multi-select, slicing into frame rects, tile-set classification (auto-detect
@@ -1261,14 +1296,14 @@ duplicate, delete, and attribution view (for web-search imports). It is the
 surface that the AI's `list_repository_assets`, `import_repository_asset`,
 `generate_sprite_asset`, and `web_asset_search` tools mirror — keeping human
 and AI workflows on the same data. The right side of the repository window also
-hosts `SpriteRepositoryAIChatView`, a repository-scoped chat surface that can
+hosts `AssetRepositoryAIChatView`, a repository-scoped chat surface that can
 ask for the required sprite asset name and then call `generate_sprite_asset`
 without exposing card, background, or script mutation tools.
 
 A **Transparent Background** action — available in both the single-asset
 detail panel and the multi-selection panel — runs the same dominant-corner
 chroma-key the renderer uses for `Part.transparentBackground`, but writes the
-result back to `SpriteAsset.data` as PNG bytes (always PNG, since JPEG can't
+result back to `Asset.data` as PNG bytes (always PNG, since JPEG can't
 carry per-pixel alpha). The shared `ImageChromaKey.makeTransparentPNG(...)`
 helper in `Sources/HypeCore/Rendering/ImageChromaKey.swift` is what both the
 view-time render path and this asset-modification path call.
@@ -1281,11 +1316,13 @@ user re-selected.
 
 ### 4.5 Model3D assets in the repository
 
-`model3D` assets live alongside 2D sprites in the same repository. Their bytes
-(GLB, USDZ, FBX, etc.) are embedded directly in the `.hype` file, so stacks
-remain fully self-contained. There is no separate asset cache or sidecar file.
+`model3D` assets live alongside 2D sprites in the same repository. Their
+primary bytes (GLB, USDZ, FBX, etc.) are embedded directly in the `.hype` file,
+and related skeleton, animation, material, and texture files can be embedded in
+`Asset.files`, so stacks remain fully self-contained. There is no separate
+asset cache or sidecar file.
 
-**Grid rendering.** `SpriteRepositoryView` renders `model3D` assets with a
+**Grid rendering.** `AssetRepositoryView` renders `model3D` assets with a
 `cube.transparent` SF Symbol placeholder icon in indigo. A rendered preview
 thumbnail is not feasible without loading SceneKit; the icon is the intentional
 fallback.
@@ -1308,7 +1345,7 @@ where applicable, a non-empty `taskId`. The full button surface is:
 Property Inspector "From Repository…" dropdown and the HypeTalk command
 `set the model of scene3d "X" to "<asset-name>"` (see §5.7). When
 `scene3DAssetRef` is set, `Scene3DHostNSView` materialises asset bytes from
-`SpriteRepository` into a UUID-named temp file under
+`AssetRepository` into a UUID-named temp file under
 `URL.temporaryDirectory/hype-scene3d/` (directory created with `0o700`
 permissions if absent) and feeds the resulting file URL to `Scene3DAssetLoader`.
 The legacy `scene3DURL` string remains as a fallback for file-path bindings.
@@ -1686,7 +1723,7 @@ Both statement and expression forms accept optional order-independent modifiers:
   model.
 
 The expression evaluates to the new asset's name as a `String` (the
-`SpriteAsset.name` assigned by `Meshy3DAssetImporter`). The synchronous
+`Asset.name` assigned by `Meshy3DAssetImporter`). The synchronous
 statement form blocks via `await` internally; it is equivalent to
 `put await (ask meshy …) into it`.
 
@@ -1696,7 +1733,7 @@ fires a billable Meshy generation call. The expression is not memoized.
 **`set the model of scene3d "X" to "<value>"`** — smart resolver.
 
 - If `<value>` matches a `model3D` asset name or extensionless asset stem in
-  the Sprite Repository, binds via `Part.scene3DAssetRef` (asset-ref discipline).
+  the Asset Repository, binds via `Part.scene3DAssetRef` (asset-ref discipline).
 - Otherwise, falls back to the file-path resolver (sets `scene3DURL` directly).
   On the file-path branch, `scene3DAssetRef` is explicitly cleared.
 - The `put <expr> into the model of scene3d "X"` form applies the same
@@ -1721,7 +1758,7 @@ operation on the named model3D asset. Optional `with message "handlerName"`.
 The whole macOS app is a SwiftUI `App` that uses a SwiftUI `DocumentGroup`
 to manage `.hype` files. SwiftUI handles **everything around the canvas**:
 menus, palettes, the property inspector, the AI chat panel, the
-preferences pane, the sprite repository window, the stack network panel, and
+preferences pane, the asset repository window, the stack network panel, and
 the script editor.
 
 The canvas itself is **not** SwiftUI. `CardCanvasView` is an
@@ -2244,7 +2281,7 @@ llama-swap process as an OpenAI-compatible provider:
 OpenAI client:
 
 - `/v1/images/generations` creates base64 image bytes from text prompts
-- generated bytes are stored only as `Part.imageData` or `SpriteAsset.data`
+- generated bytes are stored only as `Part.imageData` or `Asset.data`
 - request/response console logs include prompts, model, size, MIME type, and
   byte counts, but never log API keys or generated base64 image payloads
 
@@ -2305,7 +2342,7 @@ schema struct. The categories:
 The surface is **dual mode**: it has both read tools (for the model to
 inspect current state) and write tools (for it to mutate). It is also
 **asset-aware** — `add_sprite_to_scene` looks up assets by name in the
-`SpriteRepository` (so the model can reference an imported sprite by
+`AssetRepository` (so the model can reference an imported sprite by
 name and the executor will resolve it to the stable ID), and
 `apply_scene_diff` accepts `SceneDiff` JSON for incremental scene
 updates. The important policy change is that the filesystem/web tools are no
@@ -2578,7 +2615,7 @@ phases:
 |-------|-------------|
 | **1** | Text-to-3D (Generate3DSheet, text tab), Preferences API-key entry, per-stack `Stack.meshyEnabled` flag, `AssetKind.model3D`, `Part.scene3DAssetRef`, `Scene3DAssetLoader` |
 | **2** | Image-to-3D + multi-image-to-3D tabs in `Generate3DSheet`; 4 new AI tools (`generate_3d_model_from_text`, `generate_3d_model_from_image`, `generate_3d_model_from_images`, `list_3d_models`); `AIEditTransaction` integration for AI-triggered generation |
-| **3** | Rigging via Meshy `/openapi/v1/rigging`; animation picker with a bundled ~3,000-entry catalog (no bulk fetch); `isRigged` + `animationActionId` on `SpriteAsset`; HypeTalk `ask meshy` statement grammar |
+| **3** | Rigging via Meshy `/openapi/v1/rigging`; animation picker with a bundled ~3,000-entry catalog (no bulk fetch); `isRigged` + `animationActionId` on `Asset`; HypeTalk `ask meshy` statement grammar |
 | **4** | Remesh, retexture (Meshy API); `Scene3DAssetConverter` (GLB→USDZ); `ARQuickLookPresenter`; webhook payload decoder (documented, no auto-listener — see §9); `remesh_3d_model` + `retexture_3d_model` AI tools |
 | **5** | HypeTalk `ask meshy` expression form; `set the model of scene3d "X" to <asset>` smart resolver; `put <expr> into the model of scene3d "X"` |
 
@@ -2595,8 +2632,8 @@ phases:
   Calls `MeshyAIClient`, feeds the task to `MeshyTaskMonitor`, and on
   success calls `Meshy3DAssetImporter`.
 - `Meshy3DAssetImporter` (Sources/HypeCore/AI/Meshy3DAssetImporter.swift) —
-  downloads model bytes, builds a `SpriteAsset` with `kind == .model3D` and
-  `provenance.type == .aiGenerated`, and adds it to `SpriteRepository`.
+  downloads model bytes, builds a `Asset` with `kind == .model3D` and
+  `provenance.type == .aiGenerated`, and adds it to `AssetRepository`.
 - `Meshy3DGate` (Sources/HypeCore/AI/Meshy3DGate.swift) — pre-flight guard
   that checks `Stack.meshyEnabled` and that a Meshy API key is present in
   Keychain before allowing any generation call.
@@ -2610,13 +2647,13 @@ phases:
 - `sanitizedMeshyURL` — filters all wire URLs returned by the Meshy API
   through a hostname check before any fetch.
 - 50 MB download cap on model bytes; 50 MB decode cap enforced by
-  `SpriteAsset.init(from:)` at document-load time.
+  `Asset.init(from:)` at document-load time.
 - MIME type check is authoritative over the caller-supplied claim.
 - `MeshyImageInput` strict validation: `resolvingSymlinksInPath` +
   blocked-prefix allowlist + containment check before reading any local image.
 - Meshy API key is read from Keychain off main thread.
 
-**AI tool surface.** The Sprite Repository AI chat (`SpriteRepositoryAIChatView`)
+**AI tool surface.** The Asset Repository AI chat (`AssetRepositoryAIChatView`)
 includes all six Meshy tools in its allowlist. Gate enforcement still happens at
 executor level (`Meshy3DGate`), so the chat surface cannot bypass the opt-in
 check even if the tool schema is visible.
@@ -2628,7 +2665,7 @@ check even if the tool schema is visible.
 ### 8.1 Concurrency
 
 - The model layer (`HypeDocument`, all its components, `SceneSpec`,
-  `SpriteAreaSpec`, `SpriteRepository`, `StackNetworkManifest`, etc.) is
+  `SpriteAreaSpec`, `AssetRepository`, `StackNetworkManifest`, etc.) is
   composed entirely of `Sendable` value types.
 - Browse mode is coordinated by the `StackRuntime` actor, which owns the live
   session document, the FIFO event queue, async jobs, listeners, connections,
@@ -2838,7 +2875,7 @@ unknowns:
    the common case without requiring network configuration.
 8. **AR Quick Look is macOS 13+ gated.** `ARQuickLookPresenter` and
    `Scene3DAssetConverter` both gate on `#available(macOS 13, *)`. The "Open in
-   AR" button in `SpriteRepositoryView` is hidden on older OS versions. The app
+   AR" button in `AssetRepositoryView` is hidden on older OS versions. The app
    minimum deployment target is macOS 15, so this gap only matters for anyone
    back-porting the code.
 9. **Animation catalog is bundled JSON; no live refresh.** The ~3,000-entry
@@ -2902,8 +2939,8 @@ across a stack"* — maps onto the implementation as follows:
    scene tree, and a UUID-keyed `[UUID: SKTexture]` cache prevents repeated
    decoding when the AI or scripts make rapid property edits.
 
-7. **The Sprite Repository keeps assets stable across the bridge.**
-   `AssetRef` carries an opaque UUID; `SpriteRepository` resolves it to
+7. **The Asset Repository keeps assets stable across the bridge.**
+   `AssetRef` carries an opaque UUID; `AssetRepository` resolves it to
    bytes; the texture cache memoizes the decode. Renames, replacements,
    and AI-generated edits never traffic in raw paths.
 
@@ -2919,7 +2956,7 @@ across a stack"* — maps onto the implementation as follows:
    first-class peers of `spriteArea`: both are `PartType` cases, both are
    tracked in `CardCanvasNSView` as native overlays, and both participate in
    the same property inspector, asset-ref discipline, and scripting model.
-   `model3D` assets sit alongside 2D sprites in the same `SpriteRepository`,
+   `model3D` assets sit alongside 2D sprites in the same `AssetRepository`,
    embedded as bytes in the `.hype` file. The authoring and binding patterns
    (`AssetRef`, "From Repository…" dropdown, HypeTalk `set the model`) mirror
    the 2D sprite workflow exactly.

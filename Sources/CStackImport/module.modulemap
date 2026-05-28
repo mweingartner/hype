@@ -1,5 +1,4 @@
 module CStackImport [system] {
-    header "../../../stackimport/stackimport_c.h"
-    link "stackimport"
+    header "include/stackimport_c.h"
     export *
 }

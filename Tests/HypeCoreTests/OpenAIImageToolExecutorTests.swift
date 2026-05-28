@@ -7,7 +7,7 @@ struct OpenAIImageToolExecutorTests {
     private let onePixelPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")!
 
     @Test("generate_sprite_asset refuses missing asset name")
-    func generateSpriteAssetRequiresName() async {
+    func generateAssetRequiresName() async {
         var document = HypeDocument.newDocument()
         let cardId = document.sortedCards[0].id
         let executor = HypeToolExecutor(
@@ -25,11 +25,11 @@ struct OpenAIImageToolExecutorTests {
         )
 
         #expect(result.contains("requires 'asset_name'"))
-        #expect(document.spriteRepository.assets.isEmpty)
+        #expect(document.assetRepository.assets.isEmpty)
     }
 
     @Test("generate_sprite_asset adds AI-generated repository asset")
-    func generateSpriteAssetAddsRepositoryAsset() async throws {
+    func generateAssetAddsRepositoryAsset() async throws {
         var document = HypeDocument.newDocument()
         let cardId = document.sortedCards[0].id
         let executor = HypeToolExecutor(
@@ -50,7 +50,7 @@ struct OpenAIImageToolExecutorTests {
             currentCardId: cardId
         )
 
-        let asset = try #require(document.spriteRepository.asset(byName: "blue_ball"))
+        let asset = try #require(document.assetRepository.asset(byName: "blue_ball"))
         #expect(result.contains("Generated sprite asset 'blue_ball'"))
         #expect(asset.data == onePixelPNG)
         #expect(asset.kind == .imageTexture)
@@ -129,7 +129,7 @@ struct OpenAIImageToolExecutorTests {
     func toolCatalogIncludesImageGenerationTools() {
         let cardTools = Set(HypeToolDefinitions.cardControlAuthoringTools.map(\.function.name))
         let spriteTools = Set(HypeToolDefinitions.spriteSceneAuthoringTools.map(\.function.name))
-        let repositoryTools = Set(HypeToolDefinitions.spriteRepositoryAuthoringTools.map(\.function.name))
+        let repositoryTools = Set(HypeToolDefinitions.assetRepositoryAuthoringTools.map(\.function.name))
 
         #expect(cardTools.contains("generate_image"))
         #expect(cardTools.contains("generate_sprite_asset"))

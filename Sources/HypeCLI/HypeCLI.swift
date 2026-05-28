@@ -1154,7 +1154,7 @@ private struct ScriptSemanticValidator {
     private func soundIsResolvable(_ name: String) -> Bool {
         let lower = name.lowercased()
         if Self.knownSystemOrHyperCardSounds.contains(lower) { return true }
-        return document.spriteRepository.assets.contains { asset in
+        return document.assetRepository.assets.contains { asset in
             asset.kind == .audioClip && asset.name.lowercased() == lower
         }
     }

@@ -62,7 +62,7 @@ public extension View {
 /// theme is NOT in glass mode.
 public enum HypeThemeSurface: Sendable {
     case canvas        // card background
-    case panel         // inspector, AI chat, sprite repository
+    case panel         // inspector, AI chat, asset repository
     case toolbar       // title bar / toolbar chrome
     case popover       // floating menus, completion popups
 }

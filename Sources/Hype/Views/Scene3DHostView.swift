@@ -11,7 +11,7 @@ import HypeCore
 ///
 /// Two load paths:
 /// 1. **Asset-ref path** (preferred): `part.scene3DAssetRef` points to a
-///    `SpriteAsset(kind: .model3D)` in the repository. If that selected asset
+///    `Asset(kind: .model3D)` in the repository. If that selected asset
 ///    is a GLB, Hype renders its USDZ companion because SceneKit does not load
 ///    GLB reliably. Bytes are written to a temp file under
 ///    `URL.temporaryDirectory/hype-scene3d/<uuid>.<ext>`.
@@ -31,7 +31,7 @@ final class Scene3DHostNSView: NSView {
     /// Current temp file for the asset-ref path — deleted before next swap.
     private var tempScenePath: String?
     /// Repository reference, refreshed on each `apply(_:)` call.
-    private var repository: SpriteRepository?
+    private var repository: AssetRepository?
 
     private let loader = Scene3DAssetLoader()
 
@@ -65,7 +65,7 @@ final class Scene3DHostNSView: NSView {
 
     /// Apply a part's 3D-scene settings. Repository must be provided
     /// so the asset-ref path can look up bytes.
-    func apply(_ part: Part, repository: SpriteRepository?) {
+    func apply(_ part: Part, repository: AssetRepository?) {
         self.repository = repository
 
         scnView.allowsCameraControl = part.scene3DAllowsCameraControl
@@ -133,7 +133,7 @@ final class Scene3DHostNSView: NSView {
 
     // MARK: - Asset-ref load
 
-    /// Load a scene from a `SpriteAsset` by writing its bytes to a temp file.
+    /// Load a scene from a `Asset` by writing its bytes to a temp file.
     ///
     /// Security (M2): the `onLoadFailed` reason string uses `asset.name`
     /// NOT the raw temp file path (which contains the asset UUID).
@@ -220,7 +220,7 @@ final class Scene3DHostNSView: NSView {
     }
 
     /// MIME type → file extension for temp-file naming.
-    private static func ext(for asset: SpriteAsset) -> String {
+    private static func ext(for asset: Asset) -> String {
         let nameExt = (asset.name as NSString).pathExtension.lowercased()
         if Scene3DAssetLoader.supportedExtensions.contains(nameExt) {
             return nameExt

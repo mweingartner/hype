@@ -225,7 +225,7 @@ struct RemeshAndRetextureCoordinatorLifecycleTests {
 
     // MARK: (c) Phase transitions: remesh configuring → running → done
 
-    /// `runRemesh` reports progress states and returns a `SpriteAsset` on
+    /// `runRemesh` reports progress states and returns a `Asset` on
     /// success. The coordinator uses these to drive `.running(percent:)` then `.done`.
     @Test("RemeshAndRetextureFlow.runRemesh fires progress callbacks and returns asset")
     func remeshPhaseTransitionsToDone() async throws {

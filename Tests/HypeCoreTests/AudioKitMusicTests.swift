@@ -384,7 +384,7 @@ struct AudioKitMusicTests {
         #expect(result.status == .completed)
         let modified = try? #require(result.modifiedDocument)
         #expect(modified?.musicLibrary.pattern(named: "Theme") != nil)
-        #expect(modified?.spriteRepository.asset(byName: "Theme WAV")?.kind == .audioClip)
+        #expect(modified?.assetRepository.asset(byName: "Theme WAV")?.kind == .audioClip)
         #expect(modified?.parts.first(where: { $0.name == "status" })?.textContent == "playing")
         let events = await provider.recordedEvents()
         #expect(events == [
@@ -512,7 +512,7 @@ struct AudioKitMusicTests {
         let player = try #require(document.parts.first { $0.partType == .musicPlayer })
         #expect(player.musicPatternName == "Theme")
         #expect(player.musicLoop == true)
-        #expect(document.spriteRepository.asset(byName: "Theme WAV")?.mimeType == "audio/wav")
+        #expect(document.assetRepository.asset(byName: "Theme WAV")?.mimeType == "audio/wav")
     }
 
     @Test("AI Apple Music tools require opt-in, preserve privacy, and bind playback references")

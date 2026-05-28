@@ -367,7 +367,7 @@ struct ObjectsToolPanel: View {
                     isActive: isRuntimeMode,
                     help: ObjectToolHoverHelp(
                         title: "Runtime Mode",
-                        body: "Hides editing chrome (property inspector, sprite repository, AI panel) and runs the stack as the end user experiences it. Toggle with ⇧⌘E."
+                        body: "Hides editing chrome (property inspector, asset repository, AI panel) and runs the stack as the end user experiences it. Toggle with ⇧⌘E."
                     ),
                     action: {
                         if !isRuntimeMode {

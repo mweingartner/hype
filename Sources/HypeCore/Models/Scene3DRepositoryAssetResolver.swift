@@ -1,13 +1,13 @@
 import Foundation
 
 public struct Scene3DResolvedRepositoryAsset: Sendable {
-    public let selectedAsset: SpriteAsset
-    public let renderAsset: SpriteAsset
+    public let selectedAsset: Asset
+    public let renderAsset: Asset
     public let usesCompanionAsset: Bool
 }
 
 public enum Scene3DRepositoryAssetResolver {
-    public static func selectedAsset(for ref: AssetRef, in repository: SpriteRepository) -> SpriteAsset? {
+    public static func selectedAsset(for ref: AssetRef, in repository: AssetRepository) -> Asset? {
         if let asset = repository.asset(byId: ref.id), asset.kind == .model3D {
             return asset
         }
@@ -19,7 +19,7 @@ public enum Scene3DRepositoryAssetResolver {
 
     public static func resolvedAsset(
         for ref: AssetRef,
-        in repository: SpriteRepository
+        in repository: AssetRepository
     ) -> Scene3DResolvedRepositoryAsset? {
         guard let selected = selectedAsset(for: ref, in: repository) else {
             return nil
@@ -41,7 +41,7 @@ public enum Scene3DRepositoryAssetResolver {
 
     public static func loadIdentity(
         for ref: AssetRef,
-        in repository: SpriteRepository?,
+        in repository: AssetRepository?,
         fallbackURL: String
     ) -> String {
         guard let repository,
@@ -63,25 +63,25 @@ public enum Scene3DRepositoryAssetResolver {
         ].joined(separator: ":")
     }
 
-    public static func isGLB(_ asset: SpriteAsset) -> Bool {
+    public static func isGLB(_ asset: Asset) -> Bool {
         let ext = asset.name.lowercasedPathExtension
         let mime = asset.mimeType.lowercased()
         return ext == "glb" || mime == "model/gltf-binary" || mime == "model/gltf+json"
     }
 
-    public static func isUSDZ(_ asset: SpriteAsset) -> Bool {
+    public static func isUSDZ(_ asset: Asset) -> Bool {
         let ext = asset.name.lowercasedPathExtension
         let mime = asset.mimeType.lowercased()
         return ext == "usdz" || mime == "model/vnd.usdz+zip" || mime.contains("usdz")
     }
 
-    public static func requiresCompanionForSceneKit(_ asset: SpriteAsset) -> Bool {
+    public static func requiresCompanionForSceneKit(_ asset: Asset) -> Bool {
         // SceneKit/ModelIO on current macOS does not load GLB reliably. Keep
         // GLB as the portable Meshy/archive asset, but render the USDZ sibling.
         isGLB(asset)
     }
 
-    private static func usdzCompanion(for selected: SpriteAsset, in repository: SpriteRepository) -> SpriteAsset? {
+    private static func usdzCompanion(for selected: Asset, in repository: AssetRepository) -> Asset? {
         let candidates = repository.assets.reversed().filter { $0.kind == .model3D && isUSDZ($0) }
 
         if let taskId = selected.provenance?.attribution.taskId, !taskId.isEmpty,

@@ -10,7 +10,7 @@ struct SceneBridgeSmokeTests {
 
     @Test("assetless sprite nodes render with fallback size and color")
     func assetlessSpritesRenderWithFallbackAppearance() {
-        let repository = SpriteRepository()
+        let repository = AssetRepository()
         let sprite = HypeNodeSpec(
             name: "sprite_1",
             nodeType: .sprite,
@@ -26,7 +26,7 @@ struct SceneBridgeSmokeTests {
 
     @Test("preloadTextures warms the cache for referenced scene assets")
     func preloadTexturesWarmsCache() {
-        let textureAsset = SpriteAsset(
+        let textureAsset = Asset(
             name: "hero",
             kind: .imageTexture,
             mimeType: "image/png",
@@ -34,7 +34,7 @@ struct SceneBridgeSmokeTests {
             width: 16,
             height: 16
         )
-        let tilesetAsset = SpriteAsset(
+        let tilesetAsset = Asset(
             name: "terrain",
             kind: .tileSet,
             mimeType: "image/png",
@@ -46,7 +46,7 @@ struct SceneBridgeSmokeTests {
             tileColumns: 2,
             tileRows: 2
         )
-        let repository = SpriteRepository(assets: [textureAsset, tilesetAsset])
+        let repository = AssetRepository(assets: [textureAsset, tilesetAsset])
 
         var sprite = HypeNodeSpec(
             name: "player",
@@ -97,7 +97,7 @@ struct SceneBridgeSmokeTests {
 
     @Test("tile maps anchor at top-left Hype coordinates")
     func tileMapsAnchorAtTopLeftCoordinates() {
-        let tilesetAsset = SpriteAsset(
+        let tilesetAsset = Asset(
             name: "maze_tiles",
             kind: .tileSet,
             mimeType: "image/png",
@@ -109,7 +109,7 @@ struct SceneBridgeSmokeTests {
             tileColumns: 2,
             tileRows: 2
         )
-        let repository = SpriteRepository(assets: [tilesetAsset])
+        let repository = AssetRepository(assets: [tilesetAsset])
         var tileMap = HypeNodeSpec(
             name: "maze",
             nodeType: .tileMap,
@@ -141,7 +141,7 @@ struct SceneBridgeSmokeTests {
 
     @Test("single-tile generated tilesets render as one full-image tile")
     func singleTileGeneratedTilesetsRenderAsOneFullImageTile() {
-        let tilesetAsset = SpriteAsset(
+        let tilesetAsset = Asset(
             name: "maze_wall",
             kind: .tileSet,
             mimeType: "image/png",
@@ -154,7 +154,7 @@ struct SceneBridgeSmokeTests {
             tileColumns: 1,
             tileRows: 1
         )
-        let repository = SpriteRepository(assets: [tilesetAsset])
+        let repository = AssetRepository(assets: [tilesetAsset])
         var tileMap = HypeNodeSpec(
             name: "maze",
             nodeType: .tileMap,
@@ -210,7 +210,7 @@ struct SceneBridgeSmokeTests {
         )
         let bridge = SceneBridge(sceneHeight: previous.size.height)
         let skScene = SKScene(size: CGSize(width: previous.size.width, height: previous.size.height))
-        bridge.apply(spec: previous, to: skScene, repository: SpriteRepository())
+        bridge.apply(spec: previous, to: skScene, repository: AssetRepository())
 
         let livePlayer = bridge.registry.node(for: player.id)
         livePlayer?.position = CGPoint(x: 160, y: 120)
@@ -225,7 +225,7 @@ struct SceneBridgeSmokeTests {
             spec: updated,
             previousSpec: previous,
             to: skScene,
-            repository: SpriteRepository()
+            repository: AssetRepository()
         )
 
         #expect(needsRebuild == false)
@@ -286,7 +286,7 @@ struct SceneBridgeSmokeTests {
         )
         let bridge = SceneBridge(sceneHeight: previous.size.height)
         let skScene = SKScene(size: CGSize(width: previous.size.width, height: previous.size.height))
-        bridge.apply(spec: previous, to: skScene, repository: SpriteRepository())
+        bridge.apply(spec: previous, to: skScene, repository: AssetRepository())
 
         let livePlayer = bridge.registry.node(for: player.id)
         let liveGhost = bridge.registry.node(for: ghost.id)
@@ -300,7 +300,7 @@ struct SceneBridgeSmokeTests {
             spec: updated,
             previousSpec: previous,
             to: skScene,
-            repository: SpriteRepository()
+            repository: AssetRepository()
         )
 
         #expect(needsRebuild == false)

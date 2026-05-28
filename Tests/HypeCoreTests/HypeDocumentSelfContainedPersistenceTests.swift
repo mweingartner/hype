@@ -1,4 +1,6 @@
 import Foundation
+import CryptoKit
+import SQLite3
 import Testing
 @testable import HypeCore
 
@@ -15,6 +17,10 @@ struct HypeDocumentSelfContainedPersistenceTests {
         document.scriptGlobals["sessionOnly"] = "do not persist"
 
         try store.save(document, toPackageAt: packageURL)
+
+        let manifest = try readManifest(at: packageURL)
+        #expect(manifest.documentVersion == HypeDocument.currentDocumentVersion)
+        #expect(try documentValue("documentVersion", in: packageURL) == "\(HypeDocument.currentDocumentVersion)")
 
         #expect(FileManager.default.fileExists(atPath: packageURL.appendingPathComponent(HypeSQLiteStackStore.manifestFileName).path))
         #expect(FileManager.default.fileExists(atPath: packageURL.appendingPathComponent(HypeSQLiteStackStore.sqliteFileName).path))
@@ -36,6 +42,7 @@ struct HypeDocumentSelfContainedPersistenceTests {
         let decoded = try store.load(fromPackageAt: packageURL)
 
         #expect(decoded.stack.script == document.stack.script)
+        #expect(decoded.documentVersion == HypeDocument.currentDocumentVersion)
         #expect(decoded.stack.webAssetsAllowed)
         #expect(decoded.stack.aiContextCloudSharingAllowed)
         #expect(decoded.stack.meshyEnabled)
@@ -48,7 +55,14 @@ struct HypeDocumentSelfContainedPersistenceTests {
         #expect(decoded.backgrounds.first?.script == document.backgrounds[0].script)
         #expect(decoded.cards.first?.script == document.cards[0].script)
         #expect(decoded.parts.first { $0.name == "btn_start" }?.script.contains("startGame") == true)
-        #expect(decoded.spriteRepository.asset(byName: "hero")?.data == Data([0, 1, 2, 3]))
+        #expect(decoded.assetRepository.asset(byName: "hero")?.data == Data([0, 1, 2, 3]))
+        #expect(decoded.assetRepository.asset(byName: "hero")?.files.first?.role == .palette)
+        #expect(decoded.assetRepository.asset(byName: "hero")?.files.first?.data == Data([4, 5, 6]))
+        #expect(decoded.assetRepository.asset(byName: "hero")?.metadata.first?.key == "legacy-resource")
+        let sourceModel = try #require(decoded.assetRepository.asset(byName: "source-model.glb"))
+        let runtimeModel = try #require(decoded.assetRepository.asset(byName: "runtime-model.usdz"))
+        #expect(decoded.assetRepository.runtimeAssets(compiledFrom: sourceModel.id).map(\.id) == [runtimeModel.id])
+        #expect(decoded.assetRepository.sourceAsset(forRuntimeAssetId: runtimeModel.id)?.id == sourceModel.id)
         #expect(decoded.aiContextLibrary.itemCount == 1)
         #expect(decoded.aiContextLibrary.items.first?.data?.isEmpty == false)
         #expect(decoded.aiPromptHistory == document.aiPromptHistory)
@@ -123,8 +137,35 @@ struct HypeDocumentSelfContainedPersistenceTests {
 
         let decoded = try store.load(from: wrapper)
         #expect(decoded.stack.name == "Portable Stack")
-        #expect(decoded.spriteRepository.asset(byName: "hero")?.data == Data([0, 1, 2, 3]))
+        #expect(decoded.assetRepository.asset(byName: "hero")?.data == Data([0, 1, 2, 3]))
         #expect(decoded.aiContextLibrary.itemCount == 1)
+    }
+
+    @Test("older SQLite packages run document migrations before decoding")
+    func olderSQLitePackagesRunDocumentMigrationsBeforeDecoding() throws {
+        let store = HypeSQLiteStackStore()
+        let packageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MigratedSQLite-\(UUID().uuidString).hype", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: packageURL) }
+
+        try store.save(try makePortableDocument(), toPackageAt: packageURL)
+        try executeSQLite(
+            """
+            UPDATE document_values SET value_json = '1' WHERE key = 'documentVersion';
+            INSERT OR REPLACE INTO document_values (key, value_json)
+            VALUES ('migrationProbe', '{"spriteRepository":{"marker":true}}');
+            """,
+            in: packageURL
+        )
+        var manifest = try readManifest(at: packageURL)
+        manifest.documentVersion = 1
+        try writeManifest(manifest, at: packageURL)
+
+        let loaded = try store.load(fromPackageAt: packageURL)
+
+        #expect(loaded.documentVersion == HypeDocument.currentDocumentVersion)
+        #expect(loaded.assetRepository.asset(byName: "hero")?.data == Data([0, 1, 2, 3]))
+        #expect(try documentValue("documentVersion", in: packageURL) == "1", "Migration runs on a temporary copy; the source package changes only when saved again.")
     }
 
     @Test("manifest checksum protects package integrity")
@@ -210,14 +251,57 @@ struct HypeDocumentSelfContainedPersistenceTests {
         spriteArea.setSpriteAreaSpec(SpriteAreaSpec(scene: scene, fallbackSize: SizeSpec(width: 300, height: 220)))
         document.parts.append(spriteArea)
 
-        document.spriteRepository.addAsset(SpriteAsset(
+        document.assetRepository.addAsset(Asset(
             name: "hero",
             kind: .imageTexture,
             mimeType: "image/png",
             data: Data([0, 1, 2, 3]),
             width: 1,
-            height: 1
+            height: 1,
+            files: [
+                AssetFile(
+                    name: "hero-palette-preview.png",
+                    role: .palette,
+                    mimeType: "image/png",
+                    data: Data([4, 5, 6]),
+                    width: 1,
+                    height: 1,
+                    tags: ["hypercard-import"]
+                )
+            ],
+            metadata: [
+                AssetMetadataEntry(
+                    key: "legacy-resource",
+                    value: #"{"type":"PLTE","id":128}"#,
+                    mimeType: "application/json",
+                    tags: ["hypercard-import"]
+                )
+            ]
         ))
+        let sourceModel = Asset(
+            name: "source-model.glb",
+            kind: .model3D,
+            mimeType: "model/gltf-binary",
+            data: Data([0x67, 0x6C, 0x54, 0x46])
+        )
+        let runtimeModel = Asset(
+            name: "runtime-model.usdz",
+            kind: .model3D,
+            mimeType: "model/vnd.usdz+zip",
+            data: Data([0x55, 0x53, 0x44, 0x5A])
+        )
+        document.assetRepository.addAsset(sourceModel)
+        document.assetRepository.addAsset(runtimeModel)
+        document.assetRepository.linkCompiledAsset(
+            sourceAssetId: sourceModel.id,
+            runtimeAssetId: runtimeModel.id,
+            operation: "model3d.usdz",
+            compilerIdentifier: "hype.scene3d",
+            compilerVersion: "1",
+            sourceFingerprint: "sha256:source-model",
+            optionsFingerprint: "sha256:default",
+            compiledAt: Date(timeIntervalSince1970: 1_700_000_200)
+        )
 
         let context = AIContextIngestor.makeTextNote(
             title: "Design Notes",
@@ -237,6 +321,57 @@ struct HypeDocumentSelfContainedPersistenceTests {
         document.cards[0].themeName = "Portable Theme"
 
         return document
+    }
+
+    private func readManifest(at packageURL: URL) throws -> HypeSQLiteManifest {
+        let data = try Data(contentsOf: packageURL.appendingPathComponent(HypeSQLiteStackStore.manifestFileName))
+        return try JSONDecoder().decode(HypeSQLiteManifest.self, from: data)
+    }
+
+    private func writeManifest(_ manifest: HypeSQLiteManifest, at packageURL: URL) throws {
+        var updated = manifest
+        let sqliteData = try Data(contentsOf: packageURL.appendingPathComponent(HypeSQLiteStackStore.sqliteFileName))
+        updated.databaseSHA256 = SHA256.hash(data: sqliteData).map { String(format: "%02x", $0) }.joined()
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(updated)
+        try data.write(to: packageURL.appendingPathComponent(HypeSQLiteStackStore.manifestFileName), options: [.atomic])
+    }
+
+    private func documentValue(_ key: String, in packageURL: URL) throws -> String? {
+        var result: String?
+        try withSQLite(packageURL: packageURL, flags: SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX) { db in
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, "SELECT value_json FROM document_values WHERE key = ?", -1, &statement, nil) == SQLITE_OK, let statement else {
+                throw HypeSQLiteStackStoreError.sqlite("Could not prepare document value query.")
+            }
+            defer { sqlite3_finalize(statement) }
+            let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+            sqlite3_bind_text(statement, 1, key, -1, transient)
+            if sqlite3_step(statement) == SQLITE_ROW {
+                result = sqlite3_column_text(statement, 0).map { String(cString: $0) }
+            }
+        }
+        return result
+    }
+
+    private func executeSQLite(_ sql: String, in packageURL: URL) throws {
+        try withSQLite(packageURL: packageURL, flags: SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX) { db in
+            guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
+                let message = sqlite3_errmsg(db).map { String(cString: $0) } ?? "SQLite exec failed."
+                throw HypeSQLiteStackStoreError.sqlite(message)
+            }
+        }
+    }
+
+    private func withSQLite(packageURL: URL, flags: Int32, _ work: (OpaquePointer) throws -> Void) throws {
+        let sqliteURL = packageURL.appendingPathComponent(HypeSQLiteStackStore.sqliteFileName)
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(sqliteURL.path, &db, flags, nil) == SQLITE_OK, let db else {
+            throw HypeSQLiteStackStoreError.sqlite("Could not open SQLite test database.")
+        }
+        defer { sqlite3_close(db) }
+        try work(db)
     }
 
     private func normalizedJSON(_ document: HypeDocument) throws -> Data {

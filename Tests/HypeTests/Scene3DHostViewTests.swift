@@ -10,7 +10,7 @@ struct Scene3DHostViewTests {
     @Test("host loads repository GLB through its USDZ companion")
     func hostLoadsRepositoryGLBThroughUSDZCompanion() async throws {
         let usdzData = try Self.makeMinimalUSDZData()
-        let glb = SpriteAsset(
+        let glb = Asset(
             name: "robot.glb",
             kind: .model3D,
             mimeType: "model/gltf-binary",
@@ -18,7 +18,7 @@ struct Scene3DHostViewTests {
             width: 0,
             height: 0
         )
-        let usdz = SpriteAsset(
+        let usdz = Asset(
             name: "robot.usdz",
             kind: .model3D,
             mimeType: "model/vnd.usdz+zip",
@@ -26,7 +26,7 @@ struct Scene3DHostViewTests {
             width: 0,
             height: 0
         )
-        let repository = SpriteRepository(assets: [glb, usdz])
+        let repository = AssetRepository(assets: [glb, usdz])
         var part = Part(partType: .scene3D, name: "Viewer")
         part.scene3DAssetRef = repository.assetRef(for: glb)
 

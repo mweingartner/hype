@@ -5,7 +5,7 @@ import HypeCore
 
 /// Coordinator view for the full Rig + (optional) Animate flow.
 ///
-/// Presented as a sheet from `SpriteRepositoryView` when the user taps
+/// Presented as a sheet from `AssetRepositoryView` when the user taps
 /// "Rig & Animate…" on a `.model3D` asset. Owns the progress / picker /
 /// progress / done state machine and the background `Task` that drives
 /// `RigAndAnimateFlow`.
@@ -35,7 +35,7 @@ struct RigAndAnimateCoordinator: View {
     /// The source `.model3D` asset to rig. Must have a Meshy task id in
     /// its `provenance.attribution.taskId`. The coordinator validates this
     /// in `.preflight` before kicking off the network flow.
-    let sourceAsset: SpriteAsset
+    let sourceAsset: Asset
     /// Called when the sheet should be dismissed. The caller is responsible
     /// for clearing the sheet binding.
     var onDismiss: () -> Void
@@ -52,7 +52,7 @@ struct RigAndAnimateCoordinator: View {
     /// into `runAnimation` if the user picks an animation.
     @State private var pendingRigTaskId: String?
     /// Rigged assets (base rig + optional basic walk/run clips).
-    @State private var riggedAssets: [SpriteAsset] = []
+    @State private var riggedAssets: [Asset] = []
     /// Whether the Meshy API key is present in the Keychain.
     @State private var meshyKeyIsSet: Bool = false
     /// Optional credit balance fetched at startup (cosmetic only).
@@ -209,7 +209,7 @@ struct RigAndAnimateCoordinator: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 36))
                 .foregroundColor(.green)
-            Text("Assets added to the Sprite Repository.")
+            Text("Assets added to the Asset Repository.")
                 .font(.system(size: 13))
                 .multilineTextAlignment(.center)
             Text("The imported models are embedded in this stack and autosaved.")
@@ -332,9 +332,9 @@ struct RigAndAnimateCoordinator: View {
 
         // Step 5: Rigging stage.
         phase = .rigging(percent: 0)
-        let existingNames = Set(document.document.spriteRepository.assets.map(\.name))
+        let existingNames = Set(document.document.assetRepository.assets.map(\.name))
         let flow = RigAndAnimateFlow(client: client)
-        let riggingResult: (assets: [SpriteAsset], rigTaskId: String)
+        let riggingResult: (assets: [Asset], rigTaskId: String)
         do {
             riggingResult = try await flow.runRigging(
                 sourceTaskId: sourceTaskId,
@@ -368,7 +368,7 @@ struct RigAndAnimateCoordinator: View {
 
         // Step 6: Install rigged assets into the document and surface for selection.
         for asset in riggingResult.assets {
-            document.document.spriteRepository.addAsset(asset)
+            document.document.assetRepository.addAsset(asset)
         }
         HypeDocumentMutationCoordinator.shared.flushAllAutosaves()
         onAssetsImported?(riggingResult.assets.map(\.id))
@@ -435,7 +435,7 @@ struct RigAndAnimateCoordinator: View {
 
         let client = MeshyAIClient(apiKey: apiKey)
         let flow = RigAndAnimateFlow(client: client)
-        let existingNames = Set(document.document.spriteRepository.assets.map(\.name))
+        let existingNames = Set(document.document.assetRepository.assets.map(\.name))
 
         do {
             let animatedAsset = try await flow.runAnimation(
@@ -458,7 +458,7 @@ struct RigAndAnimateCoordinator: View {
                     }
                 }
             )
-            document.document.spriteRepository.addAsset(animatedAsset)
+            document.document.assetRepository.addAsset(animatedAsset)
             HypeDocumentMutationCoordinator.shared.flushAllAutosaves()
             onAssetsImported?([animatedAsset.id])
             phase = .done

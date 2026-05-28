@@ -491,7 +491,7 @@ public actor SceneAuthoringAssistant {
       • import_web_asset(candidate_id, asset_name) — download and install a result.
       • find_and_import_sprite(query, asset_name) — one-step search + import.
     Use these tools when a scene plan references an asset name that is not in \
-    the Sprite Repository. Prefer short, descriptive asset_name values like \
+    the Asset Repository. Prefer short, descriptive asset_name values like \
     "dragon" or "background_sky". Attribution is added automatically.
     """
 
@@ -542,7 +542,7 @@ public actor SceneAuthoringAssistant {
         userRequest: String,
         spriteAreaName: String,
         scene: SceneSpec,
-        repository: SpriteRepository
+        repository: AssetRepository
     ) async throws -> SceneRepairProposal {
         let diagnostics = scene.diagnostics(using: repository)
         let prompt = """
@@ -604,7 +604,7 @@ public actor SceneAuthoringAssistant {
             }
             return "Sprite area '\(part.name)' active scene '\(scene.name)' size \(Int(scene.size.width))x\(Int(scene.size.height)) with \(scene.allNodes.count) nodes."
         }
-        let assetLines = document.spriteRepository.assets.map { asset in
+        let assetLines = document.assetRepository.assets.map { asset in
             var line = "\(asset.kind.rawValue) '\(asset.name)'"
             if asset.isTileSet {
                 line += " tileset \(asset.tileColumns)x\(asset.tileRows) of \(asset.tileWidth)x\(asset.tileHeight)"
@@ -1582,7 +1582,7 @@ public actor SceneAuthoringAssistant {
         for node in proposal.scene.nodes {
             if let assetName = node.assetName,
                !assetName.isEmpty,
-               document.spriteRepository.asset(byName: assetName) == nil,
+               document.assetRepository.asset(byName: assetName) == nil,
                !neededNames.contains(assetName) {
                 neededNames.append(assetName)
             }
@@ -1613,13 +1613,13 @@ public actor SceneAuthoringAssistant {
                     continue
                 }
                 let download = try await pipeline.fetch(first)
-                let asset = WebAssetImportPipeline.makeSpriteAsset(
+                let asset = WebAssetImportPipeline.makeAsset(
                     name: cleanedName,
                     searchQuery: cleanedName,
                     download: download
                 )
-                document.spriteRepository.addAsset(asset)
-                let webAssets = document.spriteRepository.assets.filter {
+                document.assetRepository.addAsset(asset)
+                let webAssets = document.assetRepository.assets.filter {
                     $0.provenance?.origin == .webSearch
                 }
                 document.stack.script = StackScriptAttributionSync.sync(

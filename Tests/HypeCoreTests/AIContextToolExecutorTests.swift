@@ -45,7 +45,7 @@ struct AIContextToolExecutorTests {
         #expect(read.contains("Every card should use a forest theme"))
     }
 
-    @Test("import_context_asset copies attached image into sprite repository")
+    @Test("import_context_asset copies attached image into asset repository")
     func importContextAssetCopiesImage() async throws {
         var document = HypeDocument.newDocument(name: "Asset Stack")
         let sourceId = UUID()
@@ -76,7 +76,7 @@ struct AIContextToolExecutorTests {
             currentCardId: document.sortedCards[0].id
         )
 
-        let asset = try #require(document.spriteRepository.asset(byName: "blue_ball"))
+        let asset = try #require(document.assetRepository.asset(byName: "blue_ball"))
         #expect(output.contains("Imported AI context asset"))
         #expect(asset.data == onePixelPNG)
         #expect(asset.tags.contains("ai-context"))
@@ -142,11 +142,11 @@ struct AIContextToolExecutorTests {
 
     @Test("AI context tool schemas are opt-in appended to existing surfaces")
     func toolSchemaGateAppendsContextTools() {
-        let disabled = HypeToolDefinitions.withAIContextTools(HypeToolDefinitions.spriteRepositoryAuthoringTools, enabled: false)
+        let disabled = HypeToolDefinitions.withAIContextTools(HypeToolDefinitions.assetRepositoryAuthoringTools, enabled: false)
         #expect(!disabled.contains { $0.function.name == "import_context_asset" })
         #expect(disabled.contains { $0.function.name == "write_ai_context_note" })
 
-        let enabled = HypeToolDefinitions.withAIContextTools(HypeToolDefinitions.spriteRepositoryAuthoringTools, enabled: true)
+        let enabled = HypeToolDefinitions.withAIContextTools(HypeToolDefinitions.assetRepositoryAuthoringTools, enabled: true)
         #expect(enabled.contains { $0.function.name == "list_ai_context" })
         #expect(enabled.contains { $0.function.name == "import_context_asset" })
         #expect(enabled.contains { $0.function.name == "write_ai_context_note" })

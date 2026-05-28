@@ -49,6 +49,61 @@ struct HyperCardImportTests {
         #expect(xcmd.data == Data([1, 2, 3]))
     }
 
+    @Test("converter imports snd resources as playable audio assets in asset repository")
+    func converterImportsSoundResourcesAsAudioAssets() throws {
+        let data = makeSyntheticHyperCardStack()
+        let fork = makeResourceForkWithSound()
+        let result = try HyperCardToHypeConverter().convert(
+            data: data,
+            resourceFork: fork
+        )
+
+        let audioAssets = result.document.assetRepository.assets.filter { $0.kind == .audioClip }
+        if StackImportRuntime.isAvailable {
+            let asset = try #require(audioAssets.first)
+            #expect(audioAssets.count == 1)
+            #expect(asset.name == "Sound 128")
+            #expect(asset.mimeType == "audio/wav")
+            #expect(asset.data.count >= 44)
+            #expect(asset.data.prefix(4) == Data([0x52, 0x49, 0x46, 0x46]))
+        } else {
+            #expect(audioAssets.isEmpty)
+            #expect(result.report.warnings.contains { $0.contains("StackImport.framework") })
+        }
+    }
+
+    @Test("C importer converts snd resources through resource payload streaming")
+    func cImporterConvertsSoundResourcesThroughStreaming() throws {
+        let fixture = URL(fileURLWithPath: "../stackimport/Resources.stak").standardizedFileURL
+        guard FileManager.default.fileExists(atPath: fixture.path) else {
+            return
+        }
+        guard StackImportRuntime.isAvailable else {
+            return
+        }
+        HypeLogger.shared.clear()
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hype-c-import-sound-\(UUID().uuidString).stak")
+        try FileManager.default.copyItem(at: fixture, to: tempURL)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        try makeResourceForkWithSound().write(to: URL(fileURLWithPath: tempURL.path + "/..namedfork/rsrc"))
+
+        let result = try StackImportCImporter().importStack(at: tempURL)
+        let audioAssets = result.document.assetRepository.assets.filter { $0.kind == .audioClip }
+
+        #expect(audioAssets.count == 1)
+        for asset in audioAssets {
+            #expect(asset.mimeType == "audio/wav")
+            #expect(asset.data.count >= 44)
+            #expect(asset.data.prefix(4) == Data([0x52, 0x49, 0x46, 0x46]))
+        }
+        #expect(HypeLogger.shared.entries.contains {
+            $0.source == "StackImport" &&
+            $0.level == .info &&
+            $0.message.contains("Status: Wrote snd #128 as WAV.")
+        })
+    }
+
     @Test("converter records XCMD resources as non-native emulation targets")
     func converterRecordsExternalResources() throws {
         let result = try HyperCardToHypeConverter().convert(
@@ -67,6 +122,9 @@ struct HyperCardImportTests {
     func stackimportCImporterConvertsFixture() throws {
         let fixture = URL(fileURLWithPath: "../stackimport/Resources.stak").standardizedFileURL
         guard FileManager.default.fileExists(atPath: fixture.path) else {
+            return
+        }
+        guard StackImportRuntime.isAvailable else {
             return
         }
 
@@ -109,6 +167,119 @@ struct HyperCardImportTests {
         #expect(button.buttonStyle == .transparent)
         #expect(button.script.contains("-- go next"))
         #expect(try parsedHandlerCount(button.script) == 0)
+    }
+
+    @Test("stackimport package imports converted sounds as playable audio assets")
+    func stackimportPackageImportsConvertedSoundsAsAudioAssets() throws {
+        let wav = Data("RIFF----WAVEfmt ".utf8)
+        let packageFiles: [String: Data] = [
+            "project.json": Data("""
+            {"sourceFileName":"Squirt Sample","stackFile":"stack_-1.json","blocks":[],"fonts":[]}
+            """.utf8),
+            "stack_-1.json": Data("""
+            {"name":"Squirt Sample","cardWidth":512,"cardHeight":342,"script":"","pages":[{"cardIds":[100]}],"layers":[{"kind":"card","id":100,"file":"card_100.json"}]}
+            """.utf8),
+            "card_100.json": Data("""
+            {"id":100,"bitmap":null,"name":"Frame","script":"","parts":[],"contents":[]}
+            """.utf8),
+            "sounds/Squirt%203.1_snd_128_MachineHum.wav": wav,
+            "sounds/Squirt%203.1_snd_129_Red%20Alert.wav": wav,
+        ]
+
+        let result = try StackImportPackageConverter().convert(packageFiles: packageFiles)
+        let assets = result.document.assetRepository.assets.filter { $0.kind == .audioClip }
+
+        #expect(assets.count == 2)
+        #expect(result.document.assetRepository.asset(byName: "MachineHum")?.mimeType == "audio/wav")
+        #expect(result.document.assetRepository.asset(byName: "Red Alert")?.data == wav)
+    }
+
+    @Test("stackimport package imports converted resource images and metadata")
+    func stackimportPackageImportsConvertedResourceImagesAndMetadata() throws {
+        HypeLogger.shared.clear()
+        let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/luz9XwAAAABJRU5ErkJggg==")!
+        let metadata = Data(#"{"hotspotX":4,"hotspotY":8}"#.utf8)
+        let text = Data("Héllo".utf8)
+        let packageFiles: [String: Data] = [
+            "project.json": Data("""
+            {"sourceFileName":"Resource Sample","stackFile":"stack_-1.json","blocks":[],"fonts":[]}
+            """.utf8),
+            "stack_-1.json": Data("""
+            {"name":"Resource Sample","cardWidth":512,"cardHeight":342,"script":"","pages":[{"cardIds":[100]}],"layers":[{"kind":"card","id":100,"file":"card_100.json"}]}
+            """.utf8),
+            "card_100.json": Data("""
+            {"id":100,"bitmap":null,"name":"Frame","script":"","parts":[],"contents":[]}
+            """.utf8),
+            "source-manifest.json": Data("""
+            {
+              "resourceFork": {
+                "resources": [
+                  {
+                    "type": "CURS",
+                    "id": 24,
+                    "flags": 0,
+                    "name": "Pointer",
+                    "bytes": 68,
+                    "status": "exported",
+                    "outputArtifacts": [
+                      {"path": "CURS_24.png", "format": "png", "mediaType": "image/png", "description": "decoded cursor image", "variantIndex": 0},
+                      {"path": "CURS_24.json", "format": "json", "mediaType": "application/json", "description": "cursor metadata", "variantIndex": 0}
+                    ]
+                  },
+                  {
+                    "type": "STR ",
+                    "id": 12,
+                    "flags": 0,
+                    "name": "Greeting",
+                    "bytes": 6,
+                    "status": "exported",
+                    "outputArtifacts": [
+                      {"path": "resource-text/Stack_STR%20_12.txt", "format": "text", "mediaType": "text/plain", "description": "decoded text", "variantIndex": 0}
+                    ]
+                  },
+                  {
+                    "type": "ICON",
+                    "id": 99,
+                    "flags": 0,
+                    "name": "Unsafe",
+                    "bytes": 128,
+                    "status": "exported",
+                    "outputArtifacts": [
+                      {"path": "../escape.png", "format": "png", "mediaType": "image/png", "description": "bad path", "variantIndex": 0}
+                    ]
+                  }
+                ]
+              }
+            }
+            """.utf8),
+            "CURS_24.png": png,
+            "CURS_24.json": metadata,
+            "resource-text/Stack_STR%20_12.txt": text,
+            "../escape.png": png,
+        ]
+
+        let result = try StackImportPackageConverter().convert(packageFiles: packageFiles)
+        let assets = result.document.assetRepository.assets
+
+        let cursor = try #require(assets.first { $0.name == "CURS_24" })
+        #expect(cursor.kind == .imageTexture)
+        #expect(cursor.mimeType == "image/png")
+        #expect(cursor.tags.contains("resource-curs"))
+        #expect(cursor.metadata.contains { $0.key == "CURS_24.json" && $0.value.contains("hotspotX") })
+
+        let textAsset = try #require(assets.first { $0.name == "Stack_STR _12" })
+        #expect(textAsset.kind == .placeholderAsset)
+        #expect(textAsset.metadata.contains { $0.value == "Héllo" })
+        #expect(result.report.resourceSummary.contains { $0.type == "CURS" && $0.count == 1 && $0.totalBytes == 68 })
+        #expect(!assets.contains { $0.name == "escape" || $0.name == "Unsafe" })
+        #expect(HypeLogger.shared.entries.contains {
+            $0.source == "HyperCardImport" &&
+            $0.message.contains("Skipping unsafe stackimport artifact path '../escape.png'")
+        })
+        #expect(HypeLogger.shared.entries.contains {
+            $0.source == "HyperCardImport" &&
+            $0.message.contains("Importing unhandled resource artifact as metadata placeholder: resource STR  12")
+        })
     }
 
     @Test("parser accepts classic XCMD command syntax")
@@ -285,6 +456,66 @@ private func hcBlock(type: String, id: Int32, payload: Data) -> Data {
     return data
 }
 
+private func makeResourceForkWithSound() -> Data {
+    // Build a minimal valid snd resource (format 1, 8-bit mono PCM, 1 sample)
+    var snd = Data()
+    snd.appendUInt16BE(1) // version
+    snd.appendUInt16BE(1) // number of data types
+    snd.appendUInt16BE(5) // type: sampled sound
+    snd.appendUInt32BE(0) // options
+    snd.appendUInt16BE(1) // number of commands
+    // Null command; the converter defaults the sample buffer to the bytes after the command list.
+    snd.appendUInt16BE(0)
+    snd.appendUInt16BE(1)
+    snd.appendUInt32BE(0)
+    // Sample data follows: data pointer (0 = at end of commands)
+    snd.appendUInt32BE(0) // data pointer
+    snd.appendUInt32BE(1) // sample byte count
+    let sampleRate: UInt32 = 22050
+    snd.appendUInt32BE(sampleRate << 16) // sample rate (16.16 fixed point)
+    snd.appendUInt32BE(0) // reserved
+    snd.appendUInt32BE(0) // reserved
+    snd.appendUInt8(0) // encoding: 0 = uncompressed signed 8-bit
+    snd.appendUInt8(60) // base frequency
+    // Raw sample: one byte of PCM data
+    snd.appendUInt8(128)
+
+    // Build resource fork containing the snd resource.
+    let dataOffset = 0x100
+    let mapOffset = 0x200
+    let typeListOffset = 28
+    let refListOffset = 10
+    let nameListOffset = typeListOffset + refListOffset + 12
+    let dataLength = 4 + snd.count
+    let mapLength = nameListOffset
+    var fork = Data(repeating: 0, count: mapOffset + mapLength)
+
+    fork.setUInt32BE(UInt32(dataOffset), at: 0)
+    fork.setUInt32BE(UInt32(mapOffset), at: 4)
+    fork.setUInt32BE(UInt32(dataLength), at: 8)
+    fork.setUInt32BE(UInt32(mapLength), at: 12)
+    fork.setUInt32BE(UInt32(snd.count), at: dataOffset)
+    fork.replaceSubrange((dataOffset + 4)..<(dataOffset + 4 + snd.count), with: snd)
+
+    fork.setUInt16BE(UInt16(typeListOffset), at: mapOffset + 24)
+    fork.setUInt16BE(UInt16(nameListOffset), at: mapOffset + 26)
+    let typeListStart = mapOffset + typeListOffset
+    fork.setInt16BE(0, at: typeListStart)
+    fork.replaceSubrange((typeListStart + 2)..<(typeListStart + 6), with: "snd ".data(using: .ascii)!)
+    fork.setInt16BE(0, at: typeListStart + 6)
+    fork.setUInt16BE(UInt16(refListOffset), at: typeListStart + 8)
+
+    let refStart = typeListStart + refListOffset
+    fork.setInt16BE(128, at: refStart)
+    fork.setInt16BE(-1, at: refStart + 2)
+    fork[refStart + 4] = 0
+    fork[refStart + 5] = 0
+    fork[refStart + 6] = 0
+    fork[refStart + 7] = 0
+
+    return fork
+}
+
 private func makeSyntheticResourceFork() -> Data {
     let resourcePayload = Data([1, 2, 3])
     let dataOffset = 0x100
@@ -324,6 +555,10 @@ private func makeSyntheticResourceFork() -> Data {
 }
 
 private extension Data {
+    mutating func appendUInt8(_ value: UInt8) {
+        append(value)
+    }
+
     mutating func appendUInt16BE(_ value: UInt16) {
         append(UInt8((value >> 8) & 0xFF))
         append(UInt8(value & 0xFF))

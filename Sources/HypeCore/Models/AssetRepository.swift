@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Asset Provenance Types
 
-/// The origin of a sprite asset — how it arrived in the repository.
+/// The origin of an asset — how it arrived in the repository.
 public enum AssetOrigin: String, Codable, Sendable {
     case userImport      // From local disk, drag-drop, Finder.
     case webSearch       // Downloaded via the AI web-asset pipeline.
@@ -93,7 +93,7 @@ public struct AssetAttribution: Codable, Sendable, Equatable {
     }
 }
 
-/// Full provenance record for a web-search asset, stored inside `SpriteAsset`.
+/// Full provenance record for a web-search asset, stored inside `Asset`.
 public struct AssetProvenance: Codable, Sendable, Equatable {
     public var origin: AssetOrigin
     /// The user's or AI's original search query. Preserved for internal
@@ -120,13 +120,13 @@ public struct AssetProvenance: Codable, Sendable, Equatable {
 
 // MARK: - Asset Kind
 
-/// The kind of asset stored in the sprite repository.
+/// The kind of asset stored in the stack asset repository.
 ///
 /// `tileSet` was added 2026-04-09 for first-class SpriteKit tile map
 /// support. A tileSet asset is a sprite sheet that has been
 /// classified for tile map use — it carries additional metadata
 /// (`tileWidth`, `tileHeight`, `tileColumns`, `tileRows` on
-/// `SpriteAsset`) that `Interpreter.createTileMap` and
+/// `Asset`) that `Interpreter.createTileMap` and
 /// `HypeToolExecutor.create_tilemap` read to pre-populate
 /// `TileMapSpec.tileSetColumns`, tile size, and tile grid dimensions
 /// so you don't have to restate them every time you use the asset.
@@ -154,6 +154,48 @@ public enum AssetKind: String, Codable, Sendable {
         } else {
             // Unknown future kind — graceful degradation.
             self = .imageTexture
+        }
+    }
+}
+
+/// High-level asset categories used by repository queries and UX filters.
+public enum AssetCategory: String, CaseIterable, Codable, Sendable {
+    case all
+    case image
+    case audio
+    case video
+    case model3D
+    case effects
+    case other
+
+    public var displayName: String {
+        switch self {
+        case .all: return "All"
+        case .image: return "Images"
+        case .audio: return "Audio"
+        case .video: return "Video"
+        case .model3D: return "3D"
+        case .effects: return "Effects"
+        case .other: return "Other"
+        }
+    }
+}
+
+public extension AssetKind {
+    var category: AssetCategory {
+        switch self {
+        case .imageTexture, .spriteSheet, .tileSet:
+            return .image
+        case .audioClip:
+            return .audio
+        case .videoClip:
+            return .video
+        case .model3D:
+            return .model3D
+        case .particlePreset:
+            return .effects
+        case .placeholderAsset:
+            return .other
         }
     }
 }
@@ -203,7 +245,157 @@ public struct AnimationClip: Identifiable, Codable, Sendable {
     }
 }
 
-/// A single sprite asset with raw image data and optional slicing/animation metadata.
+/// Role of an embedded file that belongs to a logical repository asset.
+///
+/// The top-level `Asset.data` remains the primary renderable payload for simple
+/// assets and compatibility with existing callers. `Asset.files` holds related
+/// media for compound assets such as model + skeleton + animation + textures, or
+/// legacy palette resources that produce metadata plus several preview images.
+public enum AssetFileRole: String, Codable, Sendable, CaseIterable {
+    case primary
+    case source
+    case metadata
+    case preview
+    case texture
+    case normalMap
+    case roughnessMap
+    case metalnessMap
+    case ambientOcclusionMap
+    case skeleton
+    case animation
+    case material
+    case palette
+    case mask
+    case auxiliary
+
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = AssetFileRole(rawValue: raw) ?? .auxiliary
+    }
+}
+
+/// One embedded file belonging to a logical repository asset.
+public struct AssetFile: Identifiable, Codable, Sendable, Equatable {
+    public var id: UUID
+    public var name: String
+    public var role: AssetFileRole
+    public var mimeType: String
+    public var data: Data
+    public var width: Int
+    public var height: Int
+    public var tags: [String]
+
+    public init(
+        id: UUID = UUID(),
+        name: String = "",
+        role: AssetFileRole = .auxiliary,
+        mimeType: String = "application/octet-stream",
+        data: Data = Data(),
+        width: Int = 0,
+        height: Int = 0,
+        tags: [String] = []
+    ) {
+        self.id = id
+        self.name = name
+        self.role = role
+        self.mimeType = mimeType
+        self.data = data
+        self.width = width
+        self.height = height
+        self.tags = tags
+    }
+}
+
+/// Structured metadata attached to a logical repository asset.
+///
+/// `value` is intentionally stored as a string so callers can preserve JSON,
+/// plist text, source-manifest fragments, or concise scalar values without
+/// forcing every importer to share one schema. `mimeType` identifies how the
+/// value should be interpreted.
+public struct AssetMetadataEntry: Identifiable, Codable, Sendable, Equatable {
+    public var id: UUID
+    public var key: String
+    public var value: String
+    public var mimeType: String
+    public var tags: [String]
+
+    public init(
+        id: UUID = UUID(),
+        key: String = "",
+        value: String = "",
+        mimeType: String = "text/plain",
+        tags: [String] = []
+    ) {
+        self.id = id
+        self.key = key
+        self.value = value
+        self.mimeType = mimeType
+        self.tags = tags
+    }
+}
+
+/// Role of an asset in an asset-compilation relationship.
+public enum AssetCompilationRole: String, Codable, Sendable {
+    /// Author/source asset. It may have compiled runtime outputs.
+    case source
+    /// Runtime asset generated by a compiler/converter from a source asset.
+    case runtime
+    /// Intermediate product that can itself feed another compiler.
+    case intermediate
+
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = AssetCompilationRole(rawValue: raw) ?? .runtime
+    }
+}
+
+/// Stable link between authoring assets and compiler-generated runtime assets.
+///
+/// This is intentionally converter-neutral. A future compiler can use it for
+/// GLB -> USDZ, layered texture -> flattened runtime texture, palette ->
+/// generated previews, sprite sheet -> packed atlas, or any other asset
+/// conversion without adding one-off fields to `Asset`.
+public struct AssetCompilation: Identifiable, Codable, Sendable, Equatable {
+    public var id: UUID
+    public var role: AssetCompilationRole
+    public var sourceAssetRef: AssetRef?
+    public var runtimeAssetRefs: [AssetRef]
+    public var operation: String
+    public var compilerIdentifier: String
+    public var compilerVersion: String
+    public var sourceFingerprint: String
+    public var optionsFingerprint: String
+    public var compiledAt: Date?
+    public var diagnostics: [String]
+
+    public init(
+        id: UUID = UUID(),
+        role: AssetCompilationRole = .runtime,
+        sourceAssetRef: AssetRef? = nil,
+        runtimeAssetRefs: [AssetRef] = [],
+        operation: String = "",
+        compilerIdentifier: String = "",
+        compilerVersion: String = "",
+        sourceFingerprint: String = "",
+        optionsFingerprint: String = "",
+        compiledAt: Date? = nil,
+        diagnostics: [String] = []
+    ) {
+        self.id = id
+        self.role = role
+        self.sourceAssetRef = sourceAssetRef
+        self.runtimeAssetRefs = runtimeAssetRefs
+        self.operation = operation
+        self.compilerIdentifier = compilerIdentifier
+        self.compilerVersion = compilerVersion
+        self.sourceFingerprint = sourceFingerprint
+        self.optionsFingerprint = optionsFingerprint
+        self.compiledAt = compiledAt
+        self.diagnostics = diagnostics
+    }
+}
+
+/// A single stack asset with raw data and optional type-specific metadata.
 ///
 /// Tile set metadata (`tileWidth`, `tileHeight`, `tileColumns`,
 /// `tileRows`) is only meaningful when `kind == .tileSet`. For every
@@ -211,7 +403,7 @@ public struct AnimationClip: Identifiable, Codable, Sendable {
 /// decoder defaults them to zero for backward compatibility with
 /// `.hype` files saved before 2026-04-09, so loading an old document
 /// never fails and older assets behave exactly as they did before.
-public struct SpriteAsset: Identifiable, Codable, Sendable {
+public struct Asset: Identifiable, Codable, Sendable {
     public var id: UUID
     public var name: String
     public var kind: AssetKind
@@ -222,6 +414,12 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
     public var tags: [String]
     public var slices: [AssetSlice]
     public var animationClips: [AnimationClip]
+    /// Related embedded media files that belong to this logical asset.
+    public var files: [AssetFile]
+    /// Structured metadata records attached to this logical asset.
+    public var metadata: [AssetMetadataEntry]
+    /// Optional compile/link metadata for source/runtime asset conversion.
+    public var compilation: AssetCompilation?
 
     // MARK: - Tile set metadata (kind == .tileSet)
 
@@ -283,6 +481,9 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
         tags: [String] = [],
         slices: [AssetSlice] = [],
         animationClips: [AnimationClip] = [],
+        files: [AssetFile] = [],
+        metadata: [AssetMetadataEntry] = [],
+        compilation: AssetCompilation? = nil,
         tileWidth: Int = 0,
         tileHeight: Int = 0,
         tileColumns: Int = 0,
@@ -301,6 +502,9 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
         self.tags = tags
         self.slices = slices
         self.animationClips = animationClips
+        self.files = files
+        self.metadata = metadata
+        self.compilation = compilation
         self.tileWidth = tileWidth
         self.tileHeight = tileHeight
         self.tileColumns = tileColumns
@@ -314,6 +518,7 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, name, kind, mimeType, data, width, height, tags, slices, animationClips
+        case files, metadata, compilation
         case tileWidth, tileHeight, tileColumns, tileRows
         case provenance
         // Phase 3 fields
@@ -332,6 +537,9 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
         tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
         slices = try container.decodeIfPresent([AssetSlice].self, forKey: .slices) ?? []
         animationClips = try container.decodeIfPresent([AnimationClip].self, forKey: .animationClips) ?? []
+        files = try container.decodeIfPresent([AssetFile].self, forKey: .files) ?? []
+        metadata = try container.decodeIfPresent([AssetMetadataEntry].self, forKey: .metadata) ?? []
+        compilation = try container.decodeIfPresent(AssetCompilation.self, forKey: .compilation)
         // Tile set metadata: decodeIfPresent so old documents load
         // clean. New assets without tile metadata default to zero,
         // which is the "not a tile set" sentinel checked everywhere.
@@ -359,12 +567,39 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
         // Security (M1): enforce a 50 MB cap on model3D assets at decode time.
         // A malicious .hype file could embed a very large model3D asset — this
         // cap prevents it from being fully deserialised into memory.
-        if kind == .model3D && data.count > 50 * 1024 * 1024 {
+        if kind == .model3D && totalEmbeddedByteCount > Self.maxModel3DEmbeddedBytes {
             throw DecodingError.dataCorrupted(.init(
                 codingPath: container.codingPath,
                 debugDescription: "model3D asset exceeds 50 MB cap"
             ))
         }
+    }
+
+    public static let maxModel3DEmbeddedBytes = 50 * 1024 * 1024
+
+    /// Total embedded byte count for the primary payload plus related files.
+    public var totalEmbeddedByteCount: Int {
+        data.count + files.reduce(0) { $0 + $1.data.count }
+    }
+
+    /// The primary payload as a file-like value. Useful for code that wants to
+    /// inspect compound and simple assets through the same shape.
+    public var primaryFile: AssetFile {
+        AssetFile(
+            id: id,
+            name: name,
+            role: .primary,
+            mimeType: mimeType,
+            data: data,
+            width: width,
+            height: height,
+            tags: tags
+        )
+    }
+
+    /// The primary payload followed by related embedded files.
+    public var allFiles: [AssetFile] {
+        [primaryFile] + files
     }
 
     /// True when this asset is a tileset with enough metadata to
@@ -374,18 +609,69 @@ public struct SpriteAsset: Identifiable, Codable, Sendable {
     public var isTileSet: Bool {
         kind == .tileSet && tileWidth > 0 && tileHeight > 0 && tileColumns > 0 && tileRows > 0
     }
+
+    fileprivate var searchableText: String {
+        var fields: [String] = [
+            id.uuidString,
+            name,
+            kind.rawValue,
+            kind.category.displayName,
+            mimeType,
+            "\(width)x\(height)",
+            "\(data.count)"
+        ]
+
+        fields.append(contentsOf: tags)
+        fields.append(contentsOf: slices.map(\.name))
+        fields.append(contentsOf: animationClips.map(\.name))
+        fields.append(contentsOf: files.flatMap { file in
+            [file.name, file.role.rawValue, file.mimeType] + file.tags
+        })
+        fields.append(contentsOf: metadata.flatMap { entry in
+            [entry.key, entry.value, entry.mimeType] + entry.tags
+        })
+
+        if isTileSet {
+            fields.append("tileset")
+            fields.append("\(tileColumns)x\(tileRows)")
+            fields.append("\(tileWidth)x\(tileHeight)")
+        }
+
+        if let provenance {
+            fields.append(provenance.origin.rawValue)
+            fields.append(provenance.searchQuery)
+            fields.append(provenance.license.name)
+            fields.append(provenance.license.identifier)
+            fields.append(provenance.attribution.creator)
+            fields.append(provenance.attribution.title)
+            fields.append(provenance.attribution.providerName)
+            fields.append(provenance.attribution.providerIdentifier)
+            fields.append(provenance.attribution.sourceURL)
+            fields.append(provenance.attribution.taskId)
+            fields.append(provenance.attribution.parentTaskId)
+        }
+
+        if isRigged {
+            fields.append("rigged")
+        }
+        if let animationActionId {
+            fields.append("animation \(animationActionId)")
+        }
+
+        return fields.filter { !$0.isEmpty }.joined(separator: " ")
+    }
 }
 
-/// A collection of sprite assets for a Hype document.
-public struct SpriteRepository: Codable, Sendable {
-    public var assets: [SpriteAsset]
+/// A collection of stack assets for a Hype document.
+public struct AssetRepository: Codable, Sendable {
+    public var assets: [Asset]
 
-    public init(assets: [SpriteAsset] = []) {
+    public init(assets: [Asset] = []) {
         self.assets = assets
     }
 
     /// Find an asset by its unique identifier.
-    public func asset(byId id: UUID) -> SpriteAsset? {
+    public func asset(byId id: UUID) -> Asset? {
         assets.first { $0.id == id }
     }
 
@@ -395,18 +681,134 @@ public struct SpriteRepository: Codable, Sendable {
     /// asset. AI authoring flows often regenerate an asset with the same name;
     /// resolving to the latest match avoids stale tiles or sprites being used
     /// after a repair pass.
-    public func asset(byName name: String) -> SpriteAsset? {
+    public func asset(byName name: String) -> Asset? {
         let needle = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return assets.reversed().first { $0.name.lowercased() == needle }
     }
 
+    /// Find the newest matching asset by name and kind.
+    public func asset(byName name: String, kind: AssetKind) -> Asset? {
+        let needle = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return assets.reversed().first { $0.name.lowercased() == needle && $0.kind == kind }
+    }
+
+    /// Return all assets of one exact kind in document order.
+    public func assets(ofKind kind: AssetKind) -> [Asset] {
+        assets.filter { $0.kind == kind }
+    }
+
+    /// Return all assets whose kind is in `kinds`, preserving document order.
+    public func assets(ofKinds kinds: Set<AssetKind>) -> [Asset] {
+        assets.filter { kinds.contains($0.kind) }
+    }
+
+    /// Return all assets in a high-level category, preserving document order.
+    public func assets(in category: AssetCategory) -> [Asset] {
+        guard category != .all else { return assets }
+        return assets.filter { $0.kind.category == category }
+    }
+
+    /// Search assets by user-visible repository text, optionally limited to one
+    /// high-level category. This intentionally searches descriptive metadata as
+    /// well as names so the Asset Repository browser can find imported/web/AI
+    /// assets by tags, kind, MIME type, source, attribution, or provenance.
+    public func searchAssets(named query: String, category: AssetCategory = .all) -> [Asset] {
+        let terms = query
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: \.isWhitespace)
+            .map { String($0).lowercased() }
+        let scoped = assets(in: category)
+        guard !terms.isEmpty else { return scoped }
+        return scoped.filter { asset in
+            let haystack = asset.searchableText.lowercased()
+            return terms.allSatisfy { haystack.contains($0) }
+        }
+    }
+
     /// Create an AssetRef pointing to the given asset.
-    public func assetRef(for asset: SpriteAsset) -> AssetRef {
+    public func assetRef(for asset: Asset) -> AssetRef {
         AssetRef(id: asset.id, name: asset.name, mimeType: asset.mimeType)
     }
 
+    /// Runtime assets compiled from the given source asset.
+    public func runtimeAssets(compiledFrom sourceAssetId: UUID) -> [Asset] {
+        assets.filter { asset in
+            asset.compilation?.sourceAssetRef?.id == sourceAssetId
+        }
+    }
+
+    /// Source asset for the given compiled runtime asset, if both link and
+    /// source are present in the repository.
+    public func sourceAsset(forRuntimeAssetId runtimeAssetId: UUID) -> Asset? {
+        guard let runtime = asset(byId: runtimeAssetId),
+              let sourceId = runtime.compilation?.sourceAssetRef?.id else {
+            return nil
+        }
+        return asset(byId: sourceId)
+    }
+
+    /// Attach a bidirectional source/runtime compilation link.
+    ///
+    /// The runtime asset receives `sourceAssetRef`. The source asset records the
+    /// runtime output in `runtimeAssetRefs`, preserving any existing outputs for
+    /// other compiler options or target formats.
+    public mutating func linkCompiledAsset(
+        sourceAssetId: UUID,
+        runtimeAssetId: UUID,
+        operation: String,
+        compilerIdentifier: String,
+        compilerVersion: String = "",
+        sourceFingerprint: String = "",
+        optionsFingerprint: String = "",
+        compiledAt: Date = Date(),
+        diagnostics: [String] = []
+    ) {
+        guard let sourceIndex = assets.firstIndex(where: { $0.id == sourceAssetId }),
+              let runtimeIndex = assets.firstIndex(where: { $0.id == runtimeAssetId }) else {
+            return
+        }
+
+        let sourceRef = assetRef(for: assets[sourceIndex])
+        let runtimeRef = assetRef(for: assets[runtimeIndex])
+        let compileId = assets[runtimeIndex].compilation?.id ??
+            assets[sourceIndex].compilation?.id ??
+            UUID()
+
+        assets[runtimeIndex].compilation = AssetCompilation(
+            id: compileId,
+            role: .runtime,
+            sourceAssetRef: sourceRef,
+            runtimeAssetRefs: [],
+            operation: operation,
+            compilerIdentifier: compilerIdentifier,
+            compilerVersion: compilerVersion,
+            sourceFingerprint: sourceFingerprint,
+            optionsFingerprint: optionsFingerprint,
+            compiledAt: compiledAt,
+            diagnostics: diagnostics
+        )
+
+        var runtimeRefs = assets[sourceIndex].compilation?.runtimeAssetRefs ?? []
+        if !runtimeRefs.contains(where: { $0.id == runtimeRef.id }) {
+            runtimeRefs.append(runtimeRef)
+        }
+        assets[sourceIndex].compilation = AssetCompilation(
+            id: compileId,
+            role: .source,
+            sourceAssetRef: nil,
+            runtimeAssetRefs: runtimeRefs,
+            operation: operation,
+            compilerIdentifier: compilerIdentifier,
+            compilerVersion: compilerVersion,
+            sourceFingerprint: sourceFingerprint,
+            optionsFingerprint: optionsFingerprint,
+            compiledAt: compiledAt,
+            diagnostics: diagnostics
+        )
+    }
+
     /// Add an asset to the repository.
-    public mutating func addAsset(_ asset: SpriteAsset) {
+    public mutating func addAsset(_ asset: Asset) {
         assets.append(asset)
     }
 
@@ -416,7 +818,7 @@ public struct SpriteRepository: Codable, Sendable {
     }
 
     /// Update an asset in place by its unique identifier.
-    public mutating func updateAsset(id: UUID, _ transform: (inout SpriteAsset) -> Void) {
+    public mutating func updateAsset(id: UUID, _ transform: (inout Asset) -> Void) {
         if let index = assets.firstIndex(where: { $0.id == id }) {
             transform(&assets[index])
         }

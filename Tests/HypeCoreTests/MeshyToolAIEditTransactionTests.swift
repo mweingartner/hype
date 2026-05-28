@@ -65,7 +65,7 @@ private func makeRunner(meshyEnabled: Bool = false) -> AIEditTransactionRunner {
 /// 3-D model generation tools are involved.
 ///
 /// Specifically:
-/// - `delta.spriteRepositoryChanged` is `true` when a 3-D asset is added.
+/// - `delta.assetRepositoryChanged` is `true` when a 3-D asset is added.
 /// - `rollback` restores the repository to its pre-preview count.
 /// - `apply` preserves all assets added during preview.
 ///
@@ -76,7 +76,7 @@ struct MeshyToolAIEditTransactionTests {
 
     // MARK: (a) Meshy generation is deferred until apply
 
-    /// Preview must not call Meshy or mutate the Sprite Repository. Meshy
+    /// Preview must not call Meshy or mutate the Asset Repository. Meshy
     /// generation is an external, billable side effect, so it is represented as
     /// a deferred operation until apply.
     @Test("preview: Meshy generation is deferred and does not change repository")
@@ -98,9 +98,9 @@ struct MeshyToolAIEditTransactionTests {
             providerName: "Test"
         )
 
-        #expect(transaction.delta.spriteRepositoryChanged == false)
-        #expect(document.spriteRepository.assets.isEmpty)
-        let previewModels = transaction.previewDocument.spriteRepository.assets.filter { $0.kind == .model3D }
+        #expect(transaction.delta.assetRepositoryChanged == false)
+        #expect(document.assetRepository.assets.isEmpty)
+        let previewModels = transaction.previewDocument.assetRepository.assets.filter { $0.kind == .model3D }
         #expect(previewModels.isEmpty)
         #expect(transaction.operations.first?.phase == .deferredExternalApply)
         #expect(transaction.operations.first?.result.contains("Deferred external operation") == true)
@@ -126,7 +126,7 @@ struct MeshyToolAIEditTransactionTests {
         runner.apply(&transaction, to: &document)
 
         #expect(transaction.state == .failed)
-        #expect(document.spriteRepository.assets.isEmpty)
+        #expect(document.assetRepository.assets.isEmpty)
         #expect(transaction.diagnostics.contains { $0.contains("async apply") })
     }
 
@@ -140,23 +140,23 @@ struct MeshyToolAIEditTransactionTests {
         let runner = AIEditTransactionRunner()
 
         // Pre-populate the repository to create a non-empty baseline.
-        let existing = SpriteAsset(name: "existing.glb", kind: .model3D,
+        let existing = Asset(name: "existing.glb", kind: .model3D,
                                    mimeType: "model/gltf-binary",
                                    data: Data(repeating: 0x47, count: 64),
                                    width: 0, height: 0)
-        document.spriteRepository.addAsset(existing)
-        let baselineCount = document.spriteRepository.assets.count
+        document.assetRepository.addAsset(existing)
+        let baselineCount = document.assetRepository.assets.count
 
         // Simulate a preview that adds an asset to the repository
         // (as Generate3DJob does when it fires).  We do this by constructing
         // a transaction directly rather than calling preview with a real tool,
         // since the test environment has no Meshy key.
         var previewDoc = document
-        let newAsset = SpriteAsset(name: "new-model.glb", kind: .model3D,
+        let newAsset = Asset(name: "new-model.glb", kind: .model3D,
                                    mimeType: "model/gltf-binary",
                                    data: Data(repeating: 0x42, count: 64),
                                    width: 0, height: 0)
-        previewDoc.spriteRepository.addAsset(newAsset)
+        previewDoc.assetRepository.addAsset(newAsset)
 
         let delta = AIEditTransactionRunner.delta(from: document, to: previewDoc)
         var transaction = AIEditTransaction(
@@ -170,14 +170,14 @@ struct MeshyToolAIEditTransactionTests {
         )
 
         // Confirm delta reports the repository changed.
-        #expect(transaction.delta.spriteRepositoryChanged == true)
+        #expect(transaction.delta.assetRepositoryChanged == true)
 
         // Apply then rollback.
         runner.apply(&transaction, to: &document)
-        #expect(document.spriteRepository.assets.count == baselineCount + 1)
+        #expect(document.assetRepository.assets.count == baselineCount + 1)
 
         runner.rollback(&transaction, to: &document)
-        #expect(document.spriteRepository.assets.count == baselineCount)
+        #expect(document.assetRepository.assets.count == baselineCount)
         #expect(transaction.state == .rolledBack)
     }
 
@@ -191,16 +191,16 @@ struct MeshyToolAIEditTransactionTests {
 
         // Build a preview document with two model3D assets.
         var previewDoc = document
-        let assetA = SpriteAsset(name: "modelA.glb", kind: .model3D,
+        let assetA = Asset(name: "modelA.glb", kind: .model3D,
                                  mimeType: "model/gltf-binary",
                                  data: Data(repeating: 0x41, count: 64),
                                  width: 0, height: 0)
-        let assetB = SpriteAsset(name: "modelB.glb", kind: .model3D,
+        let assetB = Asset(name: "modelB.glb", kind: .model3D,
                                  mimeType: "model/gltf-binary",
                                  data: Data(repeating: 0x42, count: 64),
                                  width: 0, height: 0)
-        previewDoc.spriteRepository.addAsset(assetA)
-        previewDoc.spriteRepository.addAsset(assetB)
+        previewDoc.assetRepository.addAsset(assetA)
+        previewDoc.assetRepository.addAsset(assetB)
 
         let delta = AIEditTransactionRunner.delta(from: document, to: previewDoc)
         var transaction = AIEditTransaction(
@@ -213,41 +213,41 @@ struct MeshyToolAIEditTransactionTests {
             delta: delta
         )
 
-        #expect(transaction.delta.spriteRepositoryChanged == true)
+        #expect(transaction.delta.assetRepositoryChanged == true)
 
         runner.apply(&transaction, to: &document)
         #expect(transaction.state == .applied)
-        let models = document.spriteRepository.assets.filter { $0.kind == .model3D }
+        let models = document.assetRepository.assets.filter { $0.kind == .model3D }
         #expect(models.count == 2)
         #expect(models.contains(where: { $0.name == "modelA.glb" }))
         #expect(models.contains(where: { $0.name == "modelB.glb" }))
     }
 
-    // MARK: (d) delta computed from before/after correctly identifies spriteRepositoryChanged
+    // MARK: (d) delta computed from before/after correctly identifies assetRepositoryChanged
 
-    @Test("AIEditTransactionRunner.delta flags spriteRepositoryChanged correctly")
-    func deltaFlagsSpriteRepositoryChanged() {
+    @Test("AIEditTransactionRunner.delta flags assetRepositoryChanged correctly")
+    func deltaFlagsAssetRepositoryChanged() {
         let before = makeDocument()
         var after = before
 
         // Before: no change flag.
         let noDeltaChange = AIEditTransactionRunner.delta(from: before, to: after)
-        #expect(noDeltaChange.spriteRepositoryChanged == false)
+        #expect(noDeltaChange.assetRepositoryChanged == false)
 
         // After adding an asset: changed flag.
-        let newAsset = SpriteAsset(name: "barrel.glb", kind: .model3D,
+        let newAsset = Asset(name: "barrel.glb", kind: .model3D,
                                    mimeType: "model/gltf-binary",
                                    data: Data(repeating: 0x47, count: 64),
                                    width: 0, height: 0)
-        after.spriteRepository.addAsset(newAsset)
+        after.assetRepository.addAsset(newAsset)
 
         let withDelta = AIEditTransactionRunner.delta(from: before, to: after)
-        #expect(withDelta.spriteRepositoryChanged == true)
+        #expect(withDelta.assetRepositoryChanged == true)
     }
 
     // MARK: (e) list_3d_models tool yields no repository change
 
-    @Test("list_3d_models preview does not change spriteRepositoryChanged delta")
+    @Test("list_3d_models preview does not change assetRepositoryChanged delta")
     func listModelsNoDelta() async {
         let document = makeDocument()
         let cardId = document.sortedCards.first?.id ?? UUID()
@@ -267,8 +267,8 @@ struct MeshyToolAIEditTransactionTests {
         )
 
         // list_3d_models is read-only — repository must not change.
-        #expect(transaction.delta.spriteRepositoryChanged == false)
-        #expect(transaction.previewDocument.spriteRepository.assets.count
-                == document.spriteRepository.assets.count)
+        #expect(transaction.delta.assetRepositoryChanged == false)
+        #expect(transaction.previewDocument.assetRepository.assets.count
+                == document.assetRepository.assets.count)
     }
 }

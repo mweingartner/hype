@@ -3,7 +3,7 @@ import Foundation
 /// Shared resolver for the author-facing `object` / `model` properties on
 /// `scene3D` parts.
 ///
-/// The preferred path is a document-embedded Sprite Repository asset of
+/// The preferred path is a document-embedded Asset Repository asset of
 /// `kind == .model3D`. If no asset with the supplied name exists, callers may
 /// fall back to their legacy file-path resolver.
 public enum Scene3DModelBindingResolver {
@@ -26,7 +26,7 @@ public enum Scene3DModelBindingResolver {
     public static func bindModelOrObject(
         value: String,
         to part: inout Part,
-        repository: SpriteRepository,
+        repository: AssetRepository,
         resolvePath: (String) -> String
     ) -> BindingResult {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -58,7 +58,7 @@ public enum Scene3DModelBindingResolver {
         return .path(source: trimmed, resolved: part.scene3DURL)
     }
 
-    public static func modelAsset(named rawName: String, in repository: SpriteRepository) -> SpriteAsset? {
+    public static func modelAsset(named rawName: String, in repository: AssetRepository) -> Asset? {
         let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 

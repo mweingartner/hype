@@ -2,13 +2,16 @@ import Foundation
 
 /// A complete Hype document — contains all data for a .hype stack.
 public struct HypeDocument: Codable, Sendable {
+    public static let currentDocumentVersion = 2
+
+    public var documentVersion: Int
     public var stack: Stack
     public var backgrounds: [Background]
     public var cards: [Card]
     public var parts: [Part]
     public var paintLayers: [CardPaintLayer]
     public var constraints: [LayoutConstraint]
-    public var spriteRepository: SpriteRepository
+    public var assetRepository: AssetRepository
     /// Stack-contained music patterns and track definitions. Runtime audio
     /// engines project these specs into live AudioKit/AVFoundation objects.
     public var musicLibrary: MusicLibrary
@@ -55,13 +58,14 @@ public struct HypeDocument: Codable, Sendable {
     public var scriptGlobals: [String: String]
 
     public init(
+        documentVersion: Int = HypeDocument.currentDocumentVersion,
         stack: Stack = Stack(),
         backgrounds: [Background] = [],
         cards: [Card] = [],
         parts: [Part] = [],
         paintLayers: [CardPaintLayer] = [],
         constraints: [LayoutConstraint] = [],
-        spriteRepository: SpriteRepository = SpriteRepository(),
+        assetRepository: AssetRepository = AssetRepository(),
         musicLibrary: MusicLibrary = MusicLibrary(),
         aiContextLibrary: AIContextLibrary = AIContextLibrary(),
         aiPromptHistory: [String] = [],
@@ -70,13 +74,14 @@ public struct HypeDocument: Codable, Sendable {
         legacyImport: LegacyStackImportMetadata? = nil,
         themes: [HypeTheme] = []
     ) {
+        self.documentVersion = documentVersion
         self.stack = stack
         self.backgrounds = backgrounds
         self.cards = cards
         self.parts = parts
         self.paintLayers = paintLayers
         self.constraints = constraints
-        self.spriteRepository = spriteRepository
+        self.assetRepository = assetRepository
         self.musicLibrary = musicLibrary
         self.aiContextLibrary = aiContextLibrary
         self.aiPromptHistory = aiPromptHistory
@@ -86,9 +91,10 @@ public struct HypeDocument: Codable, Sendable {
         self.themes = themes
     }
 
-    // Custom decoder for backward compatibility.
+    // Custom decoder for non-persisted runtime state.
     enum CodingKeys: String, CodingKey {
-        case stack, backgrounds, cards, parts, paintLayers, constraints, spriteRepository, musicLibrary, aiContextLibrary, aiPromptHistory, defaultBackgroundId
+        case documentVersion
+        case stack, backgrounds, cards, parts, paintLayers, constraints, assetRepository, musicLibrary, aiContextLibrary, aiPromptHistory, defaultBackgroundId
         case legacyImport
         case themes
         // `scriptGlobals` is NOT in the coding keys — session-only.
@@ -96,6 +102,7 @@ public struct HypeDocument: Codable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        documentVersion = try container.decodeIfPresent(Int.self, forKey: .documentVersion) ?? 1
         stack = try container.decode(Stack.self, forKey: .stack)
         backgrounds = try container.decode([Background].self, forKey: .backgrounds)
         cards = try container.decode([Card].self, forKey: .cards)
@@ -112,13 +119,12 @@ public struct HypeDocument: Codable, Sendable {
         parts = filteredParts
         paintLayers = try container.decodeIfPresent([CardPaintLayer].self, forKey: .paintLayers) ?? []
         constraints = try container.decodeIfPresent([LayoutConstraint].self, forKey: .constraints) ?? []
-        spriteRepository = try container.decodeIfPresent(SpriteRepository.self, forKey: .spriteRepository) ?? SpriteRepository()
+        assetRepository = try container.decodeIfPresent(AssetRepository.self, forKey: .assetRepository) ?? AssetRepository()
         musicLibrary = try container.decodeIfPresent(MusicLibrary.self, forKey: .musicLibrary) ?? MusicLibrary()
         aiContextLibrary = try container.decodeIfPresent(AIContextLibrary.self, forKey: .aiContextLibrary) ?? AIContextLibrary()
         aiPromptHistory = try container.decodeIfPresent([String].self, forKey: .aiPromptHistory) ?? []
         defaultBackgroundId = try container.decodeIfPresent(UUID.self, forKey: .defaultBackgroundId)
         legacyImport = try container.decodeIfPresent(LegacyStackImportMetadata.self, forKey: .legacyImport)
-        // Backward-compatible: pre-theme documents have no themes array.
         themes = try container.decodeIfPresent([HypeTheme].self, forKey: .themes) ?? []
         scriptGlobals = [:]  // session-only, always starts empty on load
     }

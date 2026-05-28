@@ -667,7 +667,7 @@ struct Generate3DSheet: View {
                 assetName: assetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : assetName,
                 hardTimeout: 1800   // 30 min for sheet UI
             )
-            let existing = Set(document.document.spriteRepository.assets.map(\.name))
+            let existing = Set(document.document.assetRepository.assets.map(\.name))
             let assets = try await job.run(
                 kind: kind,
                 options: options,
@@ -691,10 +691,10 @@ struct Generate3DSheet: View {
             )
             await MainActor.run {
                 for asset in assets {
-                    document.document.spriteRepository.addAsset(asset)
+                    document.document.assetRepository.addAsset(asset)
                 }
                 if let primary = assets.first {
-                    let ref = document.document.spriteRepository.assetRef(for: primary)
+                    let ref = document.document.assetRepository.assetRef(for: primary)
                     onAssetImported?(ref)
                 }
                 phase = .done
@@ -727,9 +727,9 @@ struct Generate3DSheet: View {
 
     // MARK: - Image input helpers
 
-    /// Image-kinded assets available in the Sprite Repository for the picker.
-    private var imageRepositoryAssets: [SpriteAsset] {
-        document.document.spriteRepository.assets
+    /// Image-kinded assets available in the Asset Repository for the picker.
+    private var imageRepositoryAssets: [Asset] {
+        document.document.assetRepository.assets
             .filter { [AssetKind.imageTexture, .spriteSheet, .tileSet].contains($0.kind) }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
@@ -747,7 +747,7 @@ struct Generate3DSheet: View {
         error: Binding<String?>
     ) {
         do {
-            let result = try input.resolve(in: document.document.spriteRepository)
+            let result = try input.resolve(in: document.document.assetRepository)
             resolved.wrappedValue = result
             preview.wrappedValue = NSImage(data: result.data)
             error.wrappedValue = nil
@@ -841,7 +841,7 @@ struct Generate3DSheet: View {
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {
             do {
-                let resolved = try MeshyImageInput.filePath(url.path).resolve(in: document.document.spriteRepository)
+                let resolved = try MeshyImageInput.filePath(url.path).resolve(in: document.document.assetRepository)
                 multiImageResolved[index] = resolved
                 multiImagePreviews[index] = NSImage(data: resolved.data)
                 multiImageValidationError = nil

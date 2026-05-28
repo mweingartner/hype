@@ -8,9 +8,9 @@ Example.hype/
   stack.sqlite
 ```
 
-`manifest.json` identifies the package format and schema version and stores the
-SHA-256 checksum of `stack.sqlite`. `stack.sqlite` is the canonical store for
-stack content.
+`manifest.json` identifies the package format, SQLite schema version, document
+model version, and SHA-256 checksum of `stack.sqlite`. `stack.sqlite` is the
+canonical store for stack content.
 
 ## Goals
 
@@ -64,6 +64,24 @@ intentional bridge: high-value query fields are relational and indexed now, whil
 sparse type-specific fields remain lossless without prematurely exploding the
 schema for every part subtype.
 
+The `assets` table projects the primary asset payload into `data`, `byte_count`,
+`sha256`, dimensions, tags, and `kind` for quick repository queries. Compound
+asset details live in the `payload_json` value model: `Asset.files` stores
+related embedded media files such as textures, skeletons, animations, palettes,
+previews, and metadata files, while `Asset.metadata` stores JSON/text/scalar
+metadata records. Loading reconstructs assets from `payload_json`, so adding
+these optional fields does not require a schema version bump; normalized
+projections can be added later if compound-file search or validation needs
+first-class SQL tables.
+
+Asset compilation links also live in `assets.payload_json`. `Asset.compilation`
+connects author/source assets to compiler-generated runtime assets through
+stable `AssetRef` values plus compiler identity, operation, fingerprints,
+timestamp, and diagnostics. The current normalized `assets` columns still index
+the primary payload only; future schema versions can project compilation links
+into SQL when validation needs to detect stale runtime outputs or missing source
+assets without decoding payload JSON.
+
 Schema version 2 projects embedded audio recorder content into
 `parts.audio_data` as a SQLite BLOB. The runtime `Part.audioData` field is
 restored from that column on load, and the JSON payload intentionally omits the
@@ -73,6 +91,37 @@ Schema version 3 projects stack-contained AudioKit music into `music_patterns`,
 `music_tracks`, and `music_notes`. `HypeDocument.musicLibrary` remains the
 source of truth for runtime code; the relational rows make patterns searchable,
 diagnosable, and portable without storing live AudioKit engine state.
+
+## Document Version Migrations
+
+SQLite schema version and document model version are separate:
+
+- `PRAGMA user_version` / `HypeSQLiteStackStore.schemaVersion` tracks table
+  shape.
+- `HypeDocument.currentDocumentVersion` tracks breaking changes to persisted
+  value-model payloads and Codable keys.
+- `manifest.json.documentVersion` and `document_values.documentVersion` record
+  the document model version written by the saving build.
+
+Loads, searches, and validation first verify the manifest checksum against the
+source database, then copy `stack.sqlite` to a temporary location and run
+incremental migration hooks before decoding payload JSON. This keeps older user
+documents openable without mutating the source package; the package is only
+rewritten when the user saves it.
+
+When making a breaking document change:
+
+1. Bump `HypeDocument.currentDocumentVersion`.
+2. Add a migration hook in `HypeSQLiteStackStore` from the previous version to
+   the new version.
+3. Update `HypeSQLiteManifest`/`document_values` tests for the version.
+4. Add a regression fixture or synthetic downgraded package test proving older
+   documents load to the new model.
+5. Document the migration in `architecture.md`, `decisions.md`, and this file.
+
+Document version 2 renamed the stack-local repository model from
+`spriteRepository` to `assetRepository`; the v1->v2 hook rewrites persisted JSON
+keys before any model decoding occurs.
 
 ## Search
 

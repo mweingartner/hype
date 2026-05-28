@@ -8,8 +8,8 @@ struct SceneAuthoringSupportTests {
     @Test("asset usages are reported across named scenes")
     func assetUsagesAcrossNamedScenes() {
         var document = HypeDocument.newDocument(name: "Game")
-        let texture = SpriteAsset(name: "hero")
-        let tiles = SpriteAsset(
+        let texture = Asset(name: "hero")
+        let tiles = Asset(
             name: "terrain",
             kind: .tileSet,
             tileWidth: 32,
@@ -17,7 +17,7 @@ struct SceneAuthoringSupportTests {
             tileColumns: 4,
             tileRows: 4
         )
-        document.spriteRepository.assets = [texture, tiles]
+        document.assetRepository.assets = [texture, tiles]
 
         var part = Part(partType: .spriteArea, cardId: document.cards[0].id, name: "Game Area", left: 20, top: 20, width: 400, height: 300)
         var areaSpec = SpriteAreaSpec(defaultSceneNamed: "main", fallbackSize: SizeSpec(width: 400, height: 300))
@@ -27,7 +27,7 @@ struct SceneAuthoringSupportTests {
                 name: "player",
                 nodeType: .sprite,
                 position: PointSpec(x: 100, y: 100),
-                assetRef: document.spriteRepository.assetRef(for: texture)
+                assetRef: document.assetRepository.assetRef(for: texture)
             )
         ]
         areaSpec.setActiveScene(main)
@@ -38,7 +38,7 @@ struct SceneAuthoringSupportTests {
             rows: 8,
             tileWidth: 32,
             tileHeight: 32,
-            tileSetAssetRef: document.spriteRepository.assetRef(for: tiles),
+            tileSetAssetRef: document.assetRepository.assetRef(for: tiles),
             tileSetColumns: 4
         )
         bonus.nodes = [tileMap]
@@ -47,12 +47,12 @@ struct SceneAuthoringSupportTests {
         part.setSpriteAreaSpec(areaSpec)
         document.parts = [part]
 
-        let textureUsages = document.spriteAssetUsages(for: texture.id)
+        let textureUsages = document.assetUsages(for: texture.id)
         #expect(textureUsages.count == 1)
         #expect(textureUsages[0].sceneName == "main")
         #expect(textureUsages[0].role == .nodeTexture)
 
-        let tileUsages = document.spriteAssetUsages(for: tiles.id)
+        let tileUsages = document.assetUsages(for: tiles.id)
         #expect(tileUsages.count == 1)
         #expect(tileUsages[0].sceneName == "bonus")
         #expect(tileUsages[0].role == .tileSet)
@@ -66,7 +66,7 @@ struct SceneAuthoringSupportTests {
             nodes: []
         )
 
-        let checklist = scene.authoringChecklist(using: SpriteRepository())
+        let checklist = scene.authoringChecklist(using: AssetRepository())
         let basics = checklist.first(where: { $0.key == "basics" })
         let world = checklist.first(where: { $0.key == "world" })
         let scripts = checklist.first(where: { $0.key == "scripts" })
@@ -98,7 +98,7 @@ struct SceneAuthoringSupportTests {
             ]
         )
 
-        let report = scene.diagnostics(using: SpriteRepository())
+        let report = scene.diagnostics(using: AssetRepository())
         #expect(report.nodeCount == 2)
         #expect(report.missingAssetCount == 1)
         #expect(report.missingAssetIDs == [missingID])

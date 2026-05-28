@@ -26,18 +26,18 @@ private func svgBytes() -> Data {
     Data("<svg xmlns=\"http://www.w3.org/2000/svg\"/>".utf8)
 }
 
-private func makeRepository(assets: [SpriteAsset] = []) -> SpriteRepository {
-    var repo = SpriteRepository()
+private func makeRepository(assets: [Asset] = []) -> AssetRepository {
+    var repo = AssetRepository()
     for asset in assets { repo.addAsset(asset) }
     return repo
 }
 
-private func makePNGAsset(name: String, size: Int = 1024, kind: AssetKind = .imageTexture) -> SpriteAsset {
+private func makePNGAsset(name: String, size: Int = 1024, kind: AssetKind = .imageTexture) -> Asset {
     var data = pngMagicBytes()
     if data.count < size {
         data.append(Data(repeating: 0x42, count: size - data.count))
     }
-    var asset = SpriteAsset(name: name, data: data)
+    var asset = Asset(name: name, data: data)
     asset.kind = kind
     return asset
 }
@@ -107,7 +107,7 @@ struct MeshyImageInputTests {
 
     @Test("assetName rejects audioClip kind asset")
     func assetNameRejectsAudioClip() throws {
-        var asset = SpriteAsset(name: "sound.mp3", data: Data(repeating: 0, count: 64))
+        var asset = Asset(name: "sound.mp3", data: Data(repeating: 0, count: 64))
         asset.kind = .audioClip
         let repo = makeRepository(assets: [asset])
         do {
@@ -122,7 +122,7 @@ struct MeshyImageInputTests {
 
     @Test("assetName rejects model3D kind asset")
     func assetNameRejectsModel3D() throws {
-        var asset = SpriteAsset(name: "robot.glb", data: Data(repeating: 0, count: 64))
+        var asset = Asset(name: "robot.glb", data: Data(repeating: 0, count: 64))
         asset.kind = .model3D
         let repo = makeRepository(assets: [asset])
         do {
@@ -140,7 +140,7 @@ struct MeshyImageInputTests {
         let oversize = MeshyImageInput.maxBytesPerImage + 1
         var assetData = pngMagicBytes()
         assetData.append(Data(repeating: 0x42, count: oversize - assetData.count))
-        var asset = SpriteAsset(name: "huge.png", data: assetData)
+        var asset = Asset(name: "huge.png", data: assetData)
         asset.kind = .imageTexture
         let repo = makeRepository(assets: [asset])
         do {
@@ -234,7 +234,7 @@ struct MeshyImageInputTests {
 
     @Test("assetName WebP bytes are sniffed but rejected")
     func assetNameWebPIsRejected() throws {
-        var asset = SpriteAsset(name: "sprite.webp", data: webpMagicBytes())
+        var asset = Asset(name: "sprite.webp", data: webpMagicBytes())
         asset.kind = .imageTexture
         let repo = makeRepository(assets: [asset])
         do {

@@ -257,10 +257,10 @@ struct WebAssetImportPipelineTests {
         #expect(WebAssetImportPipeline.maxPixelsPerAsset == 100_000_000)
     }
 
-    // MARK: - makeSpriteAsset factory
+    // MARK: - makeAsset factory
 
-    @Test("makeSpriteAsset produces SpriteAsset with correct provenance")
-    func makeSpriteAssetCorrectProvenance() throws {
+    @Test("makeAsset produces Asset with correct provenance")
+    func makeAssetCorrectProvenance() throws {
         let license = AssetLicense(name: "CC0", identifier: "cc0", url: "", isShareable: true)
         let attribution = AssetAttribution(
             creator: "Jane Doe",
@@ -290,7 +290,7 @@ struct WebAssetImportPipelineTests {
             height: 150,
             result: searchResult
         )
-        let asset = WebAssetImportPipeline.makeSpriteAsset(
+        let asset = WebAssetImportPipeline.makeAsset(
             name: "test_asset",
             searchQuery: "a test query",
             download: download
@@ -308,8 +308,8 @@ struct WebAssetImportPipelineTests {
         #expect(asset.provenance?.attribution.providerName == "Openverse")
     }
 
-    @Test("makeSpriteAsset: searchQuery in provenance is NOT the asset name")
-    func makeSpriteAssetSearchQueryIsNotName() {
+    @Test("makeAsset: searchQuery in provenance is NOT the asset name")
+    func makeAssetSearchQueryIsNotName() {
         // The searchQuery stored in provenance must be the original query,
         // not the asset name. This ensures Finding 10 (no query: in script) can be enforced.
         let download = WebAssetDownloadResult(
@@ -319,7 +319,7 @@ struct WebAssetImportPipelineTests {
             height: 100,
             result: makeResult()
         )
-        let asset = WebAssetImportPipeline.makeSpriteAsset(
+        let asset = WebAssetImportPipeline.makeAsset(
             name: "my_asset_name",
             searchQuery: "the original search query",
             download: download

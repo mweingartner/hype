@@ -201,11 +201,17 @@ struct HypeApp: App {
             MainContentView(document: file.$document)
         }
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About Hype") {
+                    HypeAboutPanel.show()
+                }
+            }
             CommandGroup(after: .newItem) {
                 Button("Import HyperCard Stack…") {
                     HyperCardImportPanel.open()
                 }
                 .keyboardShortcut("i", modifiers: [.command, .option])
+                .disabled(!StackImportRuntime.isAvailable)
                 Divider()
             }
             // Menu order follows the macOS HIG convention used by
@@ -305,7 +311,9 @@ struct PreferencesSceneWrapper: View {
 struct HypeDocumentWrapper: FileDocument {
     var document: HypeDocument
 
-    static var readableContentTypes: [UTType] { [.hypeStack, .hyperCardStack] }
+    static var readableContentTypes: [UTType] {
+        StackImportRuntime.isAvailable ? [.hypeStack, .hyperCardStack] : [.hypeStack]
+    }
 
     init() {
         self.document = HypeDocument.newDocument()
@@ -319,6 +327,10 @@ struct HypeDocumentWrapper: FileDocument {
 
         guard let data = configuration.file.regularFileContents else {
             throw CocoaError(.fileReadCorruptFile)
+        }
+        guard StackImportRuntime.isAvailable else {
+            let status = StackImportRuntime.status
+            throw HyperCardImportError.stackimportUnavailable(status.detail ?? status.aboutLine)
         }
         self.document = try StackImportCImporter().importStack(
             data: data,
@@ -339,6 +351,11 @@ extension UTType {
 @MainActor
 private enum HyperCardImportPanel {
     static func open() {
+        guard StackImportRuntime.isAvailable else {
+            showImportUnavailable()
+            return
+        }
+
         let panel = NSOpenPanel()
         panel.title = "Import HyperCard Stack"
         panel.message = "Select an original HyperCard stack data fork. Hype will convert it to a temporary .hype document and preserve the original forks when size limits allow."
@@ -372,5 +389,31 @@ private enum HyperCardImportPanel {
         alert.informativeText = error.localizedDescription
         alert.alertStyle = .warning
         alert.runModal()
+    }
+
+    private static func showImportUnavailable() {
+        let status = StackImportRuntime.status
+        let alert = NSAlert()
+        alert.messageText = "HyperCard Import Unavailable"
+        alert.informativeText = status.detail ?? status.aboutLine
+        alert.alertStyle = .informational
+        alert.runModal()
+    }
+}
+
+@MainActor
+private enum HypeAboutPanel {
+    static func show() {
+        let status = StackImportRuntime.status
+        let credits = NSAttributedString(
+            string: status.aboutLine,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]
+        )
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .credits: credits,
+        ])
     }
 }

@@ -15,7 +15,7 @@ struct StackScriptAttributionSyncTests {
         providerName: String = "Test Provider",
         licenseId: String = "cc-by-4.0",
         sourceURL: String = "https://example.com/asset"
-    ) -> SpriteAsset {
+    ) -> Asset {
         let license = AssetLicense(
             name: licenseId.uppercased(),
             identifier: licenseId,
@@ -37,7 +37,7 @@ struct StackScriptAttributionSyncTests {
             attribution: attribution,
             importedAt: Date()
         )
-        return SpriteAsset(
+        return Asset(
             id: UUID(),
             name: name,
             kind: .imageTexture,
@@ -56,8 +56,8 @@ struct StackScriptAttributionSyncTests {
         )
     }
 
-    private func makeNonWebAsset(name: String) -> SpriteAsset {
-        return SpriteAsset(
+    private func makeNonWebAsset(name: String) -> Asset {
+        return Asset(
             id: UUID(),
             name: name,
             kind: .imageTexture,
@@ -409,7 +409,7 @@ struct StackScriptAttributionSyncTests {
         )
         var asset = makeAsset(name: "noLicense")
         // We need to create the asset with empty license directly
-        let assetWithEmptyLicense = SpriteAsset(
+        let assetWithEmptyLicense = Asset(
             id: UUID(),
             name: "noLicense",
             kind: .imageTexture,

@@ -66,13 +66,13 @@ public struct HypeToolExecutor: Sendable {
 
     /// Heuristic: does the given asset name contain a substring
     /// commonly used in tile-set art assets? Used by the import
-    /// paths (AI tool + SpriteRepositoryView) to default newly
+    /// paths (AI tool + AssetRepositoryView) to default newly
     /// imported images to `.tileSet` when the filename strongly
     /// suggests it. Safe to be approximate — the user can always
     /// toggle kind manually in the repository browser's detail
     /// panel.
     ///
-    /// `public` so `SpriteRepositoryView` in the Hype target can
+    /// `public` so `AssetRepositoryView` in the Hype target can
     /// share the same heuristic without reimplementing it.
     public static func filenameLooksLikeTileset(_ name: String) -> Bool {
         let lower = name.lowercased()
@@ -84,7 +84,7 @@ public struct HypeToolExecutor: Sendable {
         return keywords.contains { lower.contains($0) }
     }
 
-    private static func shouldDefaultGeneratedAssetToSingleTile(_ asset: SpriteAsset) -> Bool {
+    private static func shouldDefaultGeneratedAssetToSingleTile(_ asset: Asset) -> Bool {
         let generated = asset.provenance?.origin == .aiGenerated
             || asset.tags.contains { $0.caseInsensitiveCompare("ai-generated") == .orderedSame }
         guard generated else { return false }
@@ -1442,7 +1442,7 @@ public struct HypeToolExecutor: Sendable {
                 _ = Scene3DModelBindingResolver.bindModelOrObject(
                     value: rawModel,
                     to: &part,
-                    repository: document.spriteRepository,
+                    repository: document.assetRepository,
                     resolvePath: Self.resolveModelPath
                 )
             } else if let rawModelPath = arguments["model_url"], !rawModelPath.isEmpty {
@@ -2030,7 +2030,7 @@ public struct HypeToolExecutor: Sendable {
                     _ = Scene3DModelBindingResolver.bindModelOrObject(
                         value: value,
                         to: &document.parts[index],
-                        repository: document.spriteRepository,
+                        repository: document.assetRepository,
                         resolvePath: Self.resolveModelPath
                     )
                 case "modelurl", "model_url", "sceneurl", "scene_url":
@@ -2905,8 +2905,8 @@ public struct HypeToolExecutor: Sendable {
             newNode.position = PointSpec(x: x, y: y)
             if let w = w, let h = h { newNode.size = SizeSpec(width: w, height: h) }
             // Look up asset in repository
-            if let an = assetName, let asset = document.spriteRepository.asset(byName: an) {
-                newNode.assetRef = document.spriteRepository.assetRef(for: asset)
+            if let an = assetName, let asset = document.assetRepository.asset(byName: an) {
+                newNode.assetRef = document.assetRepository.assetRef(for: asset)
                 if newNode.size == nil {
                     newNode.size = defaultSpriteNodeSize(for: asset)
                 }
@@ -2944,8 +2944,8 @@ public struct HypeToolExecutor: Sendable {
             var tmSpec = TileMapSpec(columns: cols, rows: rows, tileWidth: initialTileSize, tileHeight: initialTileSize)
             tmSpec.tileData = Array(repeating: Array(repeating: -1, count: cols), count: rows)
             var tilesetInfo = ""
-            if let tsName = tilesetAsset, let asset = document.spriteRepository.asset(byName: tsName) {
-                tmSpec.tileSetAssetRef = document.spriteRepository.assetRef(for: asset)
+            if let tsName = tilesetAsset, let asset = document.assetRepository.asset(byName: tsName) {
+                tmSpec.tileSetAssetRef = document.assetRepository.assetRef(for: asset)
                 // See Interpreter.createTileMap for the full
                 // rationale. Without this wire-up,
                 // TileMapSpec.tileSetColumns defaulted to 1 and
@@ -2985,8 +2985,8 @@ public struct HypeToolExecutor: Sendable {
                     style: style,
                     tileSize: tileSize
                 )
-                let stored = SpriteGameTemplateBuilder.upsertAsset(asset, in: &document.spriteRepository)
-                return "Created deterministic tileset asset '\(stored.name)' (\(stored.tileColumns)x\(stored.tileRows) tiles, \(stored.tileWidth)x\(stored.tileHeight)px each) in the Sprite Repository."
+                let stored = SpriteGameTemplateBuilder.upsertAsset(asset, in: &document.assetRepository)
+                return "Created deterministic tileset asset '\(stored.name)' (\(stored.tileColumns)x\(stored.tileRows) tiles, \(stored.tileWidth)x\(stored.tileHeight)px each) in the Asset Repository."
             } catch {
                 return "create_basic_tileset_asset failed: \(error.localizedDescription)"
             }
@@ -3004,12 +3004,12 @@ public struct HypeToolExecutor: Sendable {
             guard tileW > 0, tileH > 0 else {
                 return "classify_asset_as_tileset: tile_width and tile_height are required and must be > 0"
             }
-            guard let assetIdx = document.spriteRepository.assets.firstIndex(where: {
+            guard let assetIdx = document.assetRepository.assets.firstIndex(where: {
                 $0.name.lowercased() == assetName.lowercased()
             }) else {
                 return "Asset '\(assetName)' not found in repository"
             }
-            let asset = document.spriteRepository.assets[assetIdx]
+            let asset = document.assetRepository.assets[assetIdx]
             guard asset.width > 0, asset.height > 0 else {
                 return "Asset '\(assetName)' has no image dimensions — can't classify as tileset"
             }
@@ -3035,7 +3035,7 @@ public struct HypeToolExecutor: Sendable {
                 if defaultToSingleTile { return 1 }
                 return max(1, asset.height / tileH)
             }()
-            document.spriteRepository.updateAsset(id: asset.id) { mut in
+            document.assetRepository.updateAsset(id: asset.id) { mut in
                 mut.kind = .tileSet
                 mut.tileWidth = tileW
                 mut.tileHeight = tileH
@@ -3152,7 +3152,7 @@ public struct HypeToolExecutor: Sendable {
                 "  Tileset columns (sprite sheet): \(tmSpec.tileSetColumns)",
             ]
             if let ref = tmSpec.tileSetAssetRef,
-               let asset = document.spriteRepository.asset(byId: ref.id) {
+               let asset = document.assetRepository.asset(byId: ref.id) {
                 let classification = asset.isTileSet
                     ? "tileSet (\(asset.tileColumns)x\(asset.tileRows))"
                     : "\(asset.kind.rawValue) (UNCLASSIFIED)"
@@ -3196,10 +3196,10 @@ public struct HypeToolExecutor: Sendable {
             return "Created camera '\(cameraName)' in '\(areaName)' at center (\(Int(spec.size.width / 2)),\(Int(spec.size.height / 2)))"
 
         case "list_repository_assets":
-            if document.spriteRepository.assets.isEmpty {
-                return "Sprite Repository is empty"
+            if document.assetRepository.assets.isEmpty {
+                return "Asset Repository is empty"
             }
-            let descriptions = document.spriteRepository.assets.map { a -> String in
+            let descriptions = document.assetRepository.assets.map { a -> String in
                 var line = "[\(a.kind.rawValue)] '\(a.name)' \(a.width)x\(a.height) (\(a.data.count) bytes, \(a.slices.count) slices"
                 if a.isTileSet {
                     line += ", tileset \(a.tileColumns)x\(a.tileRows) of \(a.tileWidth)x\(a.tileHeight)px"
@@ -3207,6 +3207,30 @@ public struct HypeToolExecutor: Sendable {
                 return line + ")"
             }
             return "Repository assets:\n\(descriptions.joined(separator: "\n"))"
+
+        case "get_repository_asset":
+            let name = arguments["name"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !name.isEmpty else {
+                return "get_repository_asset requires 'name'."
+            }
+            guard let asset = document.assetRepository.asset(byName: name) else {
+                return "Asset '\(name)' not found in repository"
+            }
+            var lines = [
+                "Asset Repository asset '\(asset.name)'",
+                "id=\(asset.id.uuidString)",
+                "kind=\(asset.kind.rawValue)",
+                "mimeType=\(asset.mimeType)",
+                "byteCount=\(asset.data.count)",
+                "sha256=\(asset.data.hypeSHA256Hex)",
+                "dimensions=\(asset.width)x\(asset.height)",
+                "tags=\(asset.tags.isEmpty ? "(none)" : asset.tags.joined(separator: ","))",
+                "slices=\(asset.slices.count)",
+            ]
+            if asset.isTileSet {
+                lines.append("tileSet=\(asset.tileColumns)x\(asset.tileRows) tiles of \(asset.tileWidth)x\(asset.tileHeight)px")
+            }
+            return lines.joined(separator: "\n")
 
         case "import_repository_asset":
             // H2: sanitize AI-controlled asset name.
@@ -3225,7 +3249,7 @@ public struct HypeToolExecutor: Sendable {
             let resolvedData: Data
             do {
                 let resolved = try MeshyImageInput.filePath(filePath)
-                    .resolve(in: document.spriteRepository)
+                    .resolve(in: document.assetRepository)
                 resolvedData = resolved.data
             } catch let error as MeshyError {
                 return "import_repository_asset: \(error.errorDescription ?? "invalid path")."
@@ -3238,7 +3262,7 @@ public struct HypeToolExecutor: Sendable {
                 return "import_repository_asset: image data could not be decoded."
             }
             let size = image.size
-            var asset = SpriteAsset(name: name, data: data, width: Int(size.width), height: Int(size.height))
+            var asset = Asset(name: name, data: data, width: Int(size.width), height: Int(size.height))
             // Soft classification: if the filename hints at a
             // tileset, flag the asset as `.tileSet`. The AI should
             // still call `classify_asset_as_tileset` to set the
@@ -3248,15 +3272,15 @@ public struct HypeToolExecutor: Sendable {
             if Self.filenameLooksLikeTileset(name) {
                 asset.kind = .tileSet
             }
-            document.spriteRepository.addAsset(asset)
+            document.assetRepository.addAsset(asset)
             let hint = asset.kind == .tileSet
                 ? " (auto-classified as tileSet by filename — call classify_asset_as_tileset to set tile dimensions)"
                 : ""
-            return "Imported '\(name)' (\(Int(size.width))x\(Int(size.height))) into Sprite Repository\(hint)"
+            return "Imported '\(name)' (\(Int(size.width))x\(Int(size.height))) into Asset Repository\(hint)"
             #else
-            let asset = SpriteAsset(name: name, data: data)
-            document.spriteRepository.addAsset(asset)
-            return "Imported '\(name)' into Sprite Repository (dimensions unknown without AppKit)"
+            let asset = Asset(name: name, data: data)
+            document.assetRepository.addAsset(asset)
+            return "Imported '\(name)' into Asset Repository (dimensions unknown without AppKit)"
             #endif
 
         case "generate_sprite_asset":
@@ -3286,7 +3310,7 @@ public struct HypeToolExecutor: Sendable {
                 )
                 let dimensions = generatedImageDimensions(generated.data)
                 let kind = imageAssetKind(from: arguments["kind"], fallbackName: cleanedName)
-                let asset = SpriteAsset(
+                let asset = Asset(
                     name: cleanedName,
                     kind: kind,
                     mimeType: generated.mimeType,
@@ -3310,10 +3334,10 @@ public struct HypeToolExecutor: Sendable {
                         )
                     )
                 )
-                document.spriteRepository.addAsset(asset)
+                document.assetRepository.addAsset(asset)
                 let sizeText = dimensions.width > 0 ? " (\(dimensions.width)x\(dimensions.height) px)" : ""
                 let promptNote = generated.revisedPrompt.map { " Revised prompt: \($0)" } ?? ""
-                return "Generated sprite asset '\(cleanedName)'\(sizeText) in the Sprite Repository.\(promptNote)"
+                return "Generated sprite asset '\(cleanedName)'\(sizeText) in the Asset Repository.\(promptNote)"
             } catch {
                 return "OpenAI image generation failed: \(error.localizedDescription)"
             }
@@ -3358,7 +3382,7 @@ public struct HypeToolExecutor: Sendable {
                 return "Sprite area '\(areaName)' not found"
             }
             guard let spec = part.activeSceneSpec else { return "Error: invalid scene spec JSON" }
-            let report = spec.diagnostics(using: document.spriteRepository)
+            let report = spec.diagnostics(using: document.assetRepository)
             if report.issues.isEmpty {
                 return """
                 No issues found. Scene is healthy.
@@ -4079,8 +4103,8 @@ public struct HypeToolExecutor: Sendable {
             }
             var node = HypeNodeSpec(name: audioName, nodeType: .audio)
             if let assetName = arguments["asset_name"],
-               let asset = document.spriteRepository.asset(byName: assetName) {
-                node.assetRef = document.spriteRepository.assetRef(for: asset)
+               let asset = document.assetRepository.asset(byName: assetName) {
+                node.assetRef = document.assetRepository.assetRef(for: asset)
             }
             if let loop = arguments["loop"] { node.audioLoop = (loop.lowercased() == "true") }
             if let vol = arguments["volume"], let v = Double(vol) { node.audioVolume = v }
@@ -4111,8 +4135,8 @@ public struct HypeToolExecutor: Sendable {
                 return "Sprite area '\(areaName)' not found"
             }
             var node = HypeNodeSpec(name: videoName, nodeType: .video, position: PointSpec(x: x, y: y))
-            if !assetName.isEmpty, let asset = document.spriteRepository.asset(byName: assetName) {
-                node.assetRef = document.spriteRepository.assetRef(for: asset)
+            if !assetName.isEmpty, let asset = document.assetRepository.asset(byName: assetName) {
+                node.assetRef = document.assetRepository.assetRef(for: asset)
             }
             if let w = Double(arguments["width"] ?? ""), let h = Double(arguments["height"] ?? "") {
                 node.size = SizeSpec(width: w, height: h)
@@ -4312,7 +4336,7 @@ public struct HypeToolExecutor: Sendable {
                     return "Could not read image file at '\(path)'"
                 }
             } else if let assetName = arguments["asset_name"], !assetName.isEmpty {
-                guard let asset = document.spriteRepository.asset(byName: assetName) else {
+                guard let asset = document.assetRepository.asset(byName: assetName) else {
                     return "Asset '\(assetName)' not found in repository"
                 }
                 part.imageData = asset.data
@@ -5131,7 +5155,7 @@ public struct HypeToolExecutor: Sendable {
             Dimensions: \(dimensions)
             Bytes: \(item.byteCount)
             Summary: \(item.textSummary)
-            Use import_context_asset to copy this image into the Sprite Repository before placing it on a card or in a SpriteKit scene.
+            Use import_context_asset to copy this image into the Asset Repository before placing it on a card or in a SpriteKit scene.
             """
 
         case "import_context_asset":
@@ -5146,7 +5170,7 @@ public struct HypeToolExecutor: Sendable {
             guard let cleanedName = sanitizeAssetName(rawName) else {
                 return "asset_name '\(rawName)' is invalid — use 1-128 characters, letters / digits / _ / - / . / space only"
             }
-            let asset = SpriteAsset(
+            let asset = Asset(
                 name: cleanedName,
                 kind: imageAssetKind(from: arguments["kind"], fallbackName: cleanedName),
                 mimeType: item.mimeType,
@@ -5167,9 +5191,9 @@ public struct HypeToolExecutor: Sendable {
                     )
                 )
             )
-            document.spriteRepository.addAsset(asset)
+            document.assetRepository.addAsset(asset)
             let dims = asset.width > 0 ? " (\(asset.width)x\(asset.height) px)" : ""
-            return "Imported AI context asset '\(item.relativePath)' as Sprite Repository asset '\(cleanedName)'\(dims)."
+            return "Imported AI context asset '\(item.relativePath)' as Asset Repository asset '\(cleanedName)'\(dims)."
 
         case "write_ai_context_note":
             let rawTitle = arguments["title"] ?? "Project Memory"
@@ -5328,15 +5352,15 @@ public struct HypeToolExecutor: Sendable {
         let assetName = trimmed.isEmpty ? "\(pattern.name).wav" : trimmed
         let data = MusicPatternRenderer.wavData(for: pattern)
         let tags = ["music", "generated", "audiokit"]
-        if let existing = document.spriteRepository.asset(byName: assetName) {
-            document.spriteRepository.updateAsset(id: existing.id) { asset in
+        if let existing = document.assetRepository.asset(byName: assetName) {
+            document.assetRepository.updateAsset(id: existing.id) { asset in
                 asset.kind = .audioClip
                 asset.mimeType = "audio/wav"
                 asset.data = data
                 asset.tags = Array(Set(asset.tags + tags)).sorted()
             }
         } else {
-            document.spriteRepository.addAsset(SpriteAsset(
+            document.assetRepository.addAsset(Asset(
                 name: assetName,
                 kind: .audioClip,
                 mimeType: "audio/wav",
@@ -5587,7 +5611,7 @@ public struct HypeToolExecutor: Sendable {
     /// scene, using that natural texture size makes sprites appear missing
     /// because they cover or extend beyond the viewport. Default to a
     /// manageable game-sprite size when the tool caller omits dimensions.
-    private func defaultSpriteNodeSize(for asset: SpriteAsset) -> SizeSpec? {
+    private func defaultSpriteNodeSize(for asset: Asset) -> SizeSpec? {
         guard asset.width > 0, asset.height > 0 else { return nil }
         let maxDisplaySide = 64.0
         let width = Double(asset.width)

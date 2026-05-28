@@ -30,7 +30,7 @@ final class SceneBridge {
         spec: SceneSpec,
         previousSpec: SceneSpec?,
         to scene: SKScene,
-        repository: SpriteRepository
+        repository: AssetRepository
     ) -> Bool {
         // Update scene-level properties
         scene.backgroundColor = nsColor(from: spec.backgroundColor)
@@ -165,7 +165,7 @@ final class SceneBridge {
     }
 
     /// Full rebuild: remove all children from scene, create nodes from spec.
-    func apply(spec: SceneSpec, to scene: SKScene, repository: SpriteRepository) {
+    func apply(spec: SceneSpec, to scene: SKScene, repository: AssetRepository) {
         registry.clear()
         scene.removeAllChildren()
         scene.removeAllActions()
@@ -214,7 +214,7 @@ final class SceneBridge {
     }
 
     /// Build an SKNode tree from a HypeNodeSpec (recursive for children).
-    func makeNode(from spec: HypeNodeSpec, repository: SpriteRepository) -> SKNode {
+    func makeNode(from spec: HypeNodeSpec, repository: AssetRepository) -> SKNode {
         let node: SKNode
 
         switch spec.nodeType {
@@ -586,7 +586,7 @@ final class SceneBridge {
 
     // MARK: - Actions
 
-    func buildAction(_ spec: ActionSpec, repository: SpriteRepository? = nil) -> SKAction {
+    func buildAction(_ spec: ActionSpec, repository: AssetRepository? = nil) -> SKAction {
         let dur = spec.duration
         switch spec.actionType {
         case .moveTo:
@@ -732,7 +732,7 @@ final class SceneBridge {
 
     // MARK: - Texture Loading
 
-    func loadTexture(for ref: AssetRef, from repository: SpriteRepository) -> SKTexture? {
+    func loadTexture(for ref: AssetRef, from repository: AssetRepository) -> SKTexture? {
         if let cached = textureCache[ref.id] { return cached }
         guard let asset = repository.asset(byId: ref.id) else { return nil }
         guard let image = NSImage(data: asset.data) else { return nil }
@@ -741,7 +741,7 @@ final class SceneBridge {
         return texture
     }
 
-    func preloadTextures(for spec: SceneSpec, repository: SpriteRepository) {
+    func preloadTextures(for spec: SceneSpec, repository: AssetRepository) {
         for assetID in spec.referencedAssetIDs {
             guard let asset = repository.asset(byId: assetID) else { continue }
             let ref = repository.assetRef(for: asset)
@@ -749,7 +749,7 @@ final class SceneBridge {
         }
     }
 
-    func textureCacheStats(for spec: SceneSpec, repository: SpriteRepository) -> SceneTextureCacheStats {
+    func textureCacheStats(for spec: SceneSpec, repository: AssetRepository) -> SceneTextureCacheStats {
         let referencedAssetIDs = spec.referencedAssetIDs.sorted { $0.uuidString < $1.uuidString }
         let cachedAssetIDs = referencedAssetIDs.filter { textureCache[$0] != nil }
         let missingAssetIDs = referencedAssetIDs.filter { repository.asset(byId: $0) == nil }

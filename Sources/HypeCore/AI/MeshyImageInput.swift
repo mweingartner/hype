@@ -8,7 +8,7 @@ import Foundation
 /// via `resolve(in:)`. The validation pipeline is deliberately strict:
 ///   - Path inputs must be ABSOLUTE; relative paths and `..` traversal segments
 ///     are rejected outright (Phase 2 threat surface).
-///   - Asset-name inputs are looked up via `SpriteRepository.asset(byName:)`
+///   - Asset-name inputs are looked up via `AssetRepository.asset(byName:)`
 ///     and must have `kind` in `[.imageTexture, .spriteSheet, .tileSet]` —
 ///     not `.model3D`, not `.audioClip`.
 ///   - Base64 inputs are length-capped at ~14 MB encoded (≈10 MB raw),
@@ -28,8 +28,8 @@ public enum MeshyImageInput: Sendable, Equatable {
     /// directories defined in `blockedPathPrefixes`.
     case filePath(String)
 
-    /// Name of an existing Sprite Repository asset, looked up by
-    /// `SpriteRepository.asset(byName:)`. Must be an image-kinded
+    /// Name of an existing Asset Repository asset, looked up by
+    /// `AssetRepository.asset(byName:)`. Must be an image-kinded
     /// asset (`.imageTexture` | `.spriteSheet` | `.tileSet`).
     case assetName(String)
 
@@ -53,7 +53,7 @@ public enum MeshyImageInput: Sendable, Equatable {
         /// Security H1: for `.filePath` inputs, this is `"file"`
         /// — NEVER the raw file path — to prevent the descriptor from
         /// leaking into tool result strings or log lines. Full path is
-        /// only used for the SpriteAsset provenance internally.
+        /// only used for the Asset provenance internally.
         public let sourceDescriptor: String
 
         /// `"data:<mimeType>;base64,<base64-encoded bytes>"` form for
@@ -91,7 +91,7 @@ public enum MeshyImageInput: Sendable, Equatable {
     /// - Parameter repository: Used only for `.assetName` inputs.
     /// - Throws: `MeshyError.validationFailed` for invalid paths,
     ///   missing assets, oversized inputs, or unsupported MIME types.
-    public func resolve(in repository: SpriteRepository) throws -> Resolved {
+    public func resolve(in repository: AssetRepository) throws -> Resolved {
         switch self {
         case .filePath(let path):
             return try resolveFilePath(path)
@@ -210,7 +210,7 @@ public enum MeshyImageInput: Sendable, Equatable {
         return Resolved(data: data, mimeType: mimeType, sourceDescriptor: "file")
     }
 
-    private func resolveAssetName(_ name: String, in repository: SpriteRepository) throws -> Resolved {
+    private func resolveAssetName(_ name: String, in repository: AssetRepository) throws -> Resolved {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw MeshyError.validationFailed(field: "image_asset_name", reason: "Asset name must not be empty.")
@@ -220,7 +220,7 @@ public enum MeshyImageInput: Sendable, Equatable {
         guard let asset = repository.asset(byName: trimmed) else {
             throw MeshyError.validationFailed(
                 field: "image_asset_name",
-                reason: "Asset '\(trimmed)' not found in the Sprite Repository."
+                reason: "Asset '\(trimmed)' not found in the Asset Repository."
             )
         }
 

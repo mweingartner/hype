@@ -115,7 +115,7 @@ Acceptance:
 
 - Same prompt/tool scenario passes through OpenAI and Ollama adapters.
 - Cancellation stops in-flight model work and leaves UI state recoverable.
-- Image creation can target card/background insertion and sprite repository
+- Image creation can target card/background insertion and asset repository
   insertion with required sprite naming.
 - Speech query auto-submit and spoken AI responses work through the selected
   provider path.
