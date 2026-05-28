@@ -416,6 +416,7 @@ struct MainContentView: View {
                 HypeAutomationRegistry.shared.remove(stackId: document.document.stack.id)
                 scriptActivityTask?.cancel()
                 HypeDocumentMutationCoordinator.shared.activeDocumentBinding = nil
+                HypeDocumentMutationCoordinator.shared.activeCardId = nil
             }
             .onChange(of: currentCardId) { _, _ in updateAutomationRegistry() }
             .onChange(of: selectedPartIds) { _, _ in updateAutomationRegistry() }
@@ -424,6 +425,7 @@ struct MainContentView: View {
     }
 
     private func updateAutomationRegistry() {
+        HypeDocumentMutationCoordinator.shared.activeCardId = currentCardId
         HypeAutomationRegistry.shared.upsert(
             binding: trackedDocumentBinding,
             currentCardId: currentCardId,
