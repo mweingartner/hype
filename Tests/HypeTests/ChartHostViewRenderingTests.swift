@@ -39,6 +39,8 @@ struct ChartHostViewRenderingTests {
         #expect(source.contains(".annotation(position: .overlay"))
         #expect(source.contains("legend(for: entries)"))
         #expect(source.contains("config.legendEntries()"))
+        #expect(source.contains(".environment(\\.colorScheme, .light)"))
+        #expect(source.contains(".foregroundColor(.black)"))
     }
 
     private func packageRoot() throws -> URL {

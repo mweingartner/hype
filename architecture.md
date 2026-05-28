@@ -1816,7 +1816,9 @@ legend from `ChartConfig.legendEntries()`, and annotates bar, line, area,
 point, pie, and rule marks with compact point labels. Single-series legends
 list each data point by name even when all points inherit the series color;
 multi-series legends group by series while mark labels include the series
-name for disambiguation.
+name for disambiguation. Because the chart canvas is rendered white, the host
+forces light chart chrome and black text so axes, axis titles, labels, and
+legends remain visible when macOS is in Dark Mode.
 
 Sprite areas now host the active scene from `SpriteAreaSpec` rather than a
 single anonymous `SceneSpec`. `SceneBridge` diffing and cache invalidation are

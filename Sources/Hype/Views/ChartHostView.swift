@@ -35,7 +35,7 @@ struct ChartHostView: View {
             if !config.title.isEmpty {
                 Text(config.title)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.primary)
+                    .foregroundColor(.black)
             }
 
             chartBody
@@ -49,6 +49,10 @@ struct ChartHostView: View {
         }
         .padding(10)
         .background(Color.white)
+        // The chart canvas is intentionally white. Force light chart chrome so
+        // axes, axis titles, and legend text remain visible when macOS is in
+        // Dark Mode.
+        .environment(\.colorScheme, .light)
     }
 
     @ViewBuilder
@@ -225,7 +229,7 @@ struct ChartHostView: View {
     private func dataLabel(for point: ChartDataPoint, in series: ChartSeries) -> some View {
         Text(config.dataPointLabel(for: point, in: series))
             .font(.system(size: 10, weight: .medium))
-            .foregroundColor(.primary)
+            .foregroundColor(.black)
             .lineLimit(1)
             .minimumScaleFactor(0.65)
             .padding(.horizontal, 4)
@@ -275,7 +279,7 @@ struct ChartHostView: View {
                         )
                     Text(entry.name)
                         .font(.system(size: 11))
-                        .foregroundColor(.primary)
+                        .foregroundColor(.black)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Spacer(minLength: 0)
