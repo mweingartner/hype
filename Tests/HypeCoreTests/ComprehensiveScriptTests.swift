@@ -119,6 +119,7 @@ struct ParserCoverageTests {
     @Test func parseConstrainCommand() { #expect(parse("on t\n  constrain sprite \"e\" distance 50 to 200 from sprite \"p\"\nend t")) }
     @Test func parseItemChunk() { #expect(parse("on t\n  put item 1 of \"a,b,c\" into x\nend t")) }
     @Test func parseWordChunk() { #expect(parse("on t\n  put word 2 of \"hello world\" into x\nend t")) }
+    @Test func parseAdjectiveTimeProperties() { #expect(parse("on t\n  put the English time into field \"output\"\n  put the abbreviated time into field \"output\"\nend t")) }
     @Test func parseAIGeneratedSubtractToCompatibility() { #expect(parse("on idle\n  if moveDir is \"left\" then subtract 3 to px\nend idle")) }
 }
 
@@ -136,6 +137,18 @@ struct CommandExecutionTests {
         """, on: &doc, cardId: cardId, targetId: btnId)
         #expect(result.status == .completed)
         #expect(fieldText(result, name: "output") == "hello")
+    }
+
+    @Test func englishTimeIncludesSecondsAndMeridiem() async {
+        var (doc, cardId, btnId) = makeTestDoc()
+        let result = await runScript("""
+        on mouseUp
+          put the English time into field "output"
+        end mouseUp
+        """, on: &doc, cardId: cardId, targetId: btnId)
+        let value = fieldText(result, name: "output") ?? ""
+        let pattern = #"^\d{1,2}:\d{2}:\d{2} [AP]M$"#
+        #expect(value.range(of: pattern, options: .regularExpression) != nil)
     }
 
     @Test func putIntoVariable() async {

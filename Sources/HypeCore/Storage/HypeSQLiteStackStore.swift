@@ -294,7 +294,7 @@ public final class HypeSQLiteStackStore {
         let defaultBackgroundId: UUID? = try loadDocumentValue(UUID.self, key: "defaultBackgroundId", db: db)
         let legacyImport: LegacyStackImportMetadata? = try loadDocumentValue(LegacyStackImportMetadata.self, key: "legacyImport", db: db)
 
-        return HypeDocument(
+        var document = HypeDocument(
             stack: stack,
             backgrounds: backgrounds,
             cards: cards,
@@ -310,6 +310,40 @@ public final class HypeSQLiteStackStore {
             legacyImport: legacyImport,
             themes: themes
         )
+        disableUntranslatedLegacyScriptsIfNeeded(&document)
+        return document
+    }
+
+    private func disableUntranslatedLegacyScriptsIfNeeded(_ document: inout HypeDocument) {
+        guard document.legacyImport != nil else { return }
+        document.stack.script = disableLegacyScriptIfItCannotParse(document.stack.script)
+        for index in document.backgrounds.indices {
+            document.backgrounds[index].script = disableLegacyScriptIfItCannotParse(document.backgrounds[index].script)
+        }
+        for index in document.cards.indices {
+            document.cards[index].script = disableLegacyScriptIfItCannotParse(document.cards[index].script)
+        }
+        for index in document.parts.indices {
+            document.parts[index].script = disableLegacyScriptIfItCannotParse(document.parts[index].script)
+        }
+    }
+
+    private func disableLegacyScriptIfItCannotParse(_ source: String) -> String {
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !trimmed.hasPrefix("-- Imported HyperCard script preserved for reference.") else {
+            return source
+        }
+
+        do {
+            var lexer = Lexer(source: source)
+            let tokens = lexer.tokenize()
+            var parser = Parser(tokens: tokens)
+            _ = try parser.parse()
+            return source
+        } catch {
+            return LegacyHyperTalkScript.disabledForHypeTalkRuntime(source)
+        }
     }
 
     private func writeDatabase(for document: HypeDocument, at sqliteURL: URL) throws {

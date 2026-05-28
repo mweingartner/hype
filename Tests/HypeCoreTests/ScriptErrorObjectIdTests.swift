@@ -163,7 +163,11 @@ struct ScriptErrorObjectIdTests {
         #expect(HypeLogger.shared.entries.contains {
             $0.source == "Parser" &&
             $0.message.contains("[HypeTalk parse error]") &&
-            $0.message.contains("card")
+            $0.message.contains("card") &&
+            $0.message.contains("hype-ref=hype://script-error") &&
+            $0.actionTitle == "Open script" &&
+            $0.actionURL?.scheme == "hype" &&
+            $0.actionURL?.host == "script-error"
         })
     }
 
@@ -227,7 +231,11 @@ struct ScriptErrorObjectIdTests {
         #expect(HypeLogger.shared.entries.contains {
             $0.source == "Runtime" &&
             $0.message.contains("[HypeTalk runtime error]") &&
-            $0.message.contains("Instruction limit")
+            $0.message.contains("Instruction limit") &&
+            $0.message.contains("hype-ref=hype://script-error") &&
+            $0.actionTitle == "Open script" &&
+            $0.actionURL?.scheme == "hype" &&
+            $0.actionURL?.host == "script-error"
         })
     }
 

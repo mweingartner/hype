@@ -127,10 +127,28 @@ struct PlayCommandTests {
         """))
     }
 
+    @Test func waitDurationWithClassicForms() {
+        #expect(parses("""
+        on test
+          wait for 5
+          wait 5 ticks
+          wait 1 second
+        end test
+        """))
+    }
+
     @Test func waitUntilCondition() {
         #expect(parses("""
         on test
           wait until the sound is "done"
+        end test
+        """))
+    }
+
+    @Test func waitWhileCondition() {
+        #expect(parses("""
+        on test
+          wait while the sound is "busy"
         end test
         """))
     }

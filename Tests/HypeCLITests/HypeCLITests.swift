@@ -257,6 +257,150 @@ struct HypeCLITests {
         #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "1")
     }
 
+    @Test func testHyperCardImportSummaryCommand() {
+        let fixture = projectRoot
+            .deletingLastPathComponent()
+            .appendingPathComponent("stackimport/Resources.stak")
+        guard FileManager.default.fileExists(atPath: fixture.path) else {
+            return
+        }
+
+        let result = runBinary(arguments: ["--import-hypercard", fixture.path])
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("status\tcards\tbackgrounds"))
+        #expect(result.stdout.contains("ok\t10\t1"))
+        #expect(result.stdout.contains("Resources.stak"))
+    }
+
+    @Test func testHyperCardImportOutputPackageCommand() throws {
+        let fixture = projectRoot
+            .deletingLastPathComponent()
+            .appendingPathComponent("stackimport/Resources.stak")
+        guard FileManager.default.fileExists(atPath: fixture.path) else {
+            return
+        }
+
+        let outputURL = scriptDir.appendingPathComponent("Resources-imported.hype", isDirectory: true)
+        let result = runBinary(arguments: ["--import-hypercard", fixture.path, "--output", outputURL.path])
+
+        #expect(result.exitStatus == 0)
+        #expect(FileManager.default.fileExists(atPath: outputURL.path))
+        let imported = try HypeSQLiteStackStore().load(fromPackageAt: outputURL)
+        #expect(imported.cards.count == 10)
+        #expect(imported.backgrounds.count == 1)
+        #expect(imported.stack.name == "Resources.stak")
+    }
+
+    @Test func testHyperCardImportCorpusOutputDirectoryCommand() throws {
+        let fixture = projectRoot
+            .deletingLastPathComponent()
+            .appendingPathComponent("stackimport/Resources.stak")
+        guard FileManager.default.fileExists(atPath: fixture.path) else {
+            return
+        }
+
+        let tempDir = scriptDir
+        let corpusDir = tempDir.appendingPathComponent("corpus", isDirectory: true)
+        let outputDir = tempDir.appendingPathComponent("out", isDirectory: true)
+        try FileManager.default.createDirectory(at: corpusDir, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(
+            at: fixture,
+            to: corpusDir.appendingPathComponent("Resources.stak")
+        )
+
+        let result = runBinary(arguments: [
+            "--import-corpus", corpusDir.path,
+            "--output-dir", outputDir.path
+        ])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stderr.contains("imported=1"))
+        let outputURL = outputDir.appendingPathComponent("Resources.stak.hype", isDirectory: true)
+        #expect(FileManager.default.fileExists(atPath: outputURL.path))
+        let imported = try HypeSQLiteStackStore().load(fromPackageAt: outputURL)
+        #expect(imported.cards.count == 10)
+        #expect(imported.backgrounds.count == 1)
+        #expect(imported.stack.name == "Resources.stak")
+    }
+
+    @Test func testValidateScriptsExportsWithoutExecuting() throws {
+        var document = HypeDocument.newDocument(name: "Validation Fixture")
+        document.stack.script = "on openStack\r  put \"do not print\" into x -- classic comment\rend openStack"
+        let cardId = try #require(document.cards.first?.id)
+        document.cards[0].script = "on openCard\r\n  put 1 into y\r\nend openCard"
+        var button = Part(partType: .button, cardId: cardId, name: "Run")
+        button.script = "on mouseUp\n  return \"should not execute\"\nend mouseUp"
+        document.parts.append(button)
+
+        let packageURL = scriptDir.appendingPathComponent("ValidationFixture.hype", isDirectory: true)
+        let exportURL = scriptDir.appendingPathComponent("scripts", isDirectory: true)
+        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
+
+        let result = runBinary(arguments: [
+            "--validate-scripts", packageURL.path,
+            "--export-scripts", exportURL.path,
+        ])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("status\townerType\townerName"))
+        #expect(result.stdout.contains("ok\tstack\tValidation Fixture"))
+        #expect(result.stdout.contains("ok\tcard\tCard 1"))
+        #expect(result.stdout.contains("ok\tbutton\tRun"))
+        #expect(!result.stdout.contains("should not execute"))
+        #expect(FileManager.default.fileExists(atPath: exportURL.appendingPathComponent("scripts.tsv").path))
+        #expect(FileManager.default.fileExists(atPath: exportURL.appendingPathComponent("scripts.json").path))
+        #expect(FileManager.default.fileExists(atPath: exportURL.appendingPathComponent("summary.txt").path))
+        #expect(result.stdout.contains("sourceBytes\tnormalizedBytes\tsha256\tlineEndings"))
+
+        let exported = try FileManager.default.contentsOfDirectory(atPath: exportURL.path)
+        let scriptFiles = exported.filter { $0.hasSuffix(".hypetalk") }
+        #expect(scriptFiles.count == 3)
+        let stackFile = try #require(scriptFiles.first { $0.contains("-stack-") })
+        let stackSource = try String(contentsOf: exportURL.appendingPathComponent(stackFile), encoding: .utf8)
+        #expect(stackSource.contains("\n  put \"do not print\""))
+        #expect(!stackSource.contains("\r"))
+    }
+
+    @Test func testValidateScriptsReportsSemanticImportIssues() throws {
+        var document = HypeDocument.newDocument(name: "Semantic Validation Fixture")
+        let cardId = try #require(document.cards.first?.id)
+        var button = Part(partType: .button, cardId: cardId, name: "Run")
+        button.script = """
+        on mouseUp
+          visual effect dissolve fast
+          wait 30
+          play "MachineHum"
+          goNext
+        end mouseUp
+
+        on goNext
+          go next
+        end goNext
+        """
+        document.parts.append(button)
+
+        let packageURL = scriptDir.appendingPathComponent("SemanticValidationFixture.hype", isDirectory: true)
+        let exportURL = scriptDir.appendingPathComponent("semantic-scripts", isDirectory: true)
+        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
+
+        let result = runBinary(arguments: [
+            "--validate-scripts", packageURL.path,
+            "--export-scripts", exportURL.path,
+        ])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("warning\tbutton\tRun"))
+        #expect(result.stdout.contains("bare line is evaluated as a variable"))
+        #expect(result.stdout.contains("not translated to Hype transition durations"))
+        #expect(result.stdout.contains("has no embedded audio asset"))
+
+        let summary = try String(contentsOf: exportURL.appendingPathComponent("summary.txt"), encoding: .utf8)
+        #expect(summary.contains("warning\t1"))
+        let scriptsJSON = try String(contentsOf: exportURL.appendingPathComponent("scripts.json"), encoding: .utf8)
+        #expect(scriptsJSON.contains("bare-handler-call"))
+        #expect(scriptsJSON.contains("sound-asset"))
+    }
+
     @Test func testPowerOperator() {
         let result = runHypetalkScript("""
         on main

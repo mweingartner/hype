@@ -517,9 +517,15 @@ public struct Interpreter: Sendable {
 
         do {
             for stmt in handler.body {
-                try await executeStatement(stmt, env: &env, document: &document,
-                                           context: context, instructionCount: &instructionCount,
-                                           navigationTarget: &navigationTarget, handler: handler)
+                try await executeStatementAndPublish(
+                    stmt,
+                    env: &env,
+                    document: &document,
+                    context: context,
+                    instructionCount: &instructionCount,
+                    navigationTarget: &navigationTarget,
+                    handler: handler
+                )
             }
         } catch ControlSignal.passMessage {
             document.scriptGlobals = env.globals
@@ -565,6 +571,28 @@ public struct Interpreter: Sendable {
                                visualEffect: visualEffect, visualEffectDuration: veDuration)
     }
 
+    private func executeStatementAndPublish(
+        _ stmt: Statement,
+        env: inout Environment,
+        document: inout HypeDocument,
+        context: ExecutionContext,
+        instructionCount: inout Int,
+        navigationTarget: inout UUID?,
+        handler: Handler
+    ) async throws {
+        try await executeStatement(
+            stmt,
+            env: &env,
+            document: &document,
+            context: context,
+            instructionCount: &instructionCount,
+            navigationTarget: &navigationTarget,
+            handler: handler
+        )
+        document.scriptGlobals = env.globals
+        await context.runtimeProvider?.publishDocument(document)
+    }
+
     private func blockingWait<T: Sendable>(_ operation: @escaping @Sendable () async -> T) -> T {
         _InterpreterSyncGate.semaphore.wait()
         defer { _InterpreterSyncGate.semaphore.signal() }
@@ -598,6 +626,35 @@ public struct Interpreter: Sendable {
     private func sleepOutsideRuntime(seconds: TimeInterval) async throws {
         guard seconds > 0 else { return }
         try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+    }
+
+    private func waitDurationSeconds(from value: Double, unit: WaitDurationUnit) -> TimeInterval {
+        switch unit {
+        case .ticks:
+            return value / 60.0
+        case .seconds:
+            return value
+        }
+    }
+
+    private enum HyperCardTimeStyle {
+        case short
+        case long
+        case english
+    }
+
+    private func formatHyperCardTime(style: HyperCardTimeStyle) -> String {
+        let formatter = DateFormatter()
+        switch style {
+        case .short:
+            formatter.timeStyle = .short
+        case .long:
+            formatter.timeStyle = .medium
+        case .english:
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "h:mm:ss a"
+        }
+        return formatter.string(from: Date())
     }
 
     private func isActivateListenerProperty(_ property: String) -> Bool {
@@ -980,28 +1037,48 @@ public struct Interpreter: Sendable {
 
         case .go(let dest):
             let destValue = try await evaluate(dest, env: &env, document: document, context: context)
+            let sourceCardId = navigationTarget ?? context.currentCardId
             // Try to resolve destination to a card UUID.
             if let uuid = UUID(uuidString: destValue) {
                 navigationTarget = uuid
+                HypeLogger.shared.log(
+                    .info,
+                    "go direct card id from \(cardLogLabel(sourceCardId, document: document)) resolved \(cardLogLabel(uuid, document: document))",
+                    source: "HypeTalk Runtime",
+                    actionTitle: cardActionTitle(uuid, document: document),
+                    actionURL: cardReferenceURL(stackId: document.stack.id, cardId: uuid)
+                )
+                await context.runtimeProvider?.navigateToCard(uuid)
             } else {
                 // Try to find by name or navigation keyword.
-                let resolved = resolveNavigation(destValue, document: document, currentCardId: context.currentCardId)
+                let resolved = resolveNavigation(destValue, document: document, currentCardId: sourceCardId)
                 navigationTarget = resolved
+                let targetLabel = resolved.map { cardLogLabel($0, document: document) } ?? "no card"
+                HypeLogger.shared.log(
+                    .info,
+                    "go \(destValue) from \(cardLogLabel(sourceCardId, document: document)) resolved \(targetLabel)",
+                    source: "HypeTalk Runtime",
+                    actionTitle: resolved.map { cardActionTitle($0, document: document) },
+                    actionURL: resolved.flatMap { cardReferenceURL(stackId: document.stack.id, cardId: $0) }
+                )
+                if let resolved {
+                    await context.runtimeProvider?.navigateToCard(resolved)
+                }
             }
 
         case .ifThenElse(let cond, let thenBlock, let elseBlock):
             let condValue = try await evaluate(cond, env: &env, document: document, context: context)
             if isTruthy(condValue) {
                 for s in thenBlock {
-                    try await executeStatement(s, env: &env, document: &document, context: context,
-                                         instructionCount: &instructionCount,
-                                         navigationTarget: &navigationTarget, handler: handler)
+                    try await executeStatementAndPublish(s, env: &env, document: &document, context: context,
+                                                         instructionCount: &instructionCount,
+                                                         navigationTarget: &navigationTarget, handler: handler)
                 }
             } else if let elseStmts = elseBlock {
                 for s in elseStmts {
-                    try await executeStatement(s, env: &env, document: &document, context: context,
-                                         instructionCount: &instructionCount,
-                                         navigationTarget: &navigationTarget, handler: handler)
+                    try await executeStatementAndPublish(s, env: &env, document: &document, context: context,
+                                                         instructionCount: &instructionCount,
+                                                         navigationTarget: &navigationTarget, handler: handler)
                 }
             }
 
@@ -1012,9 +1089,9 @@ public struct Interpreter: Sendable {
                 context.profiler?.recordLoopIteration("repeatCount")
                 do {
                     for s in body {
-                        try await executeStatement(s, env: &env, document: &document, context: context,
-                                             instructionCount: &instructionCount,
-                                             navigationTarget: &navigationTarget, handler: handler)
+                        try await executeStatementAndPublish(s, env: &env, document: &document, context: context,
+                                                             instructionCount: &instructionCount,
+                                                             navigationTarget: &navigationTarget, handler: handler)
                     }
                 } catch ControlSignal.exitRepeat {
                     break
@@ -1030,9 +1107,9 @@ public struct Interpreter: Sendable {
                 context.profiler?.recordLoopIteration("repeatWhile")
                 do {
                     for s in body {
-                        try await executeStatement(s, env: &env, document: &document, context: context,
-                                             instructionCount: &instructionCount,
-                                             navigationTarget: &navigationTarget, handler: handler)
+                        try await executeStatementAndPublish(s, env: &env, document: &document, context: context,
+                                                             instructionCount: &instructionCount,
+                                                             navigationTarget: &navigationTarget, handler: handler)
                     }
                 } catch ControlSignal.exitRepeat {
                     break
@@ -1052,9 +1129,9 @@ public struct Interpreter: Sendable {
                 env.setVariableKey(varKey, String(i))
                 do {
                     for s in body {
-                        try await executeStatement(s, env: &env, document: &document, context: context,
-                                             instructionCount: &instructionCount,
-                                             navigationTarget: &navigationTarget, handler: handler)
+                        try await executeStatementAndPublish(s, env: &env, document: &document, context: context,
+                                                             instructionCount: &instructionCount,
+                                                             navigationTarget: &navigationTarget, handler: handler)
                     }
                 } catch ControlSignal.exitRepeat {
                     break
@@ -1672,25 +1749,35 @@ public struct Interpreter: Sendable {
             }
             await context.systemProvider.beep(count: count)
 
-        case .waitDuration(let expr):
+        case .waitDuration(let expr, let unit):
             let val = try await evaluate(expr, env: &env, document: document, context: context)
-            let seconds = toNumber(val)
+            let numericValue = toNumber(val)
+            let seconds = waitDurationSeconds(from: numericValue, unit: unit)
             if seconds > 0 {
+                let cappedSeconds = min(seconds, 300)
+                let unitName = unit == .ticks ? "ticks" : "seconds"
+                HypeLogger.shared.info(
+                    "wait \(formatNumber(numericValue)) \(unitName) -> \(formatNumber(seconds))s (sleep \(formatNumber(cappedSeconds))s)",
+                    source: "HypeTalk Runtime"
+                )
                 if let runtime = context.runtimeProvider {
-                    try await runtime.sleep(seconds: min(seconds, 300))
+                    try await runtime.sleep(seconds: cappedSeconds)
                 } else {
-                    try await sleepOutsideRuntime(seconds: min(seconds, 300))
+                    try await sleepOutsideRuntime(seconds: cappedSeconds)
                 }
                 env.deferNextSelfSend = true
             }
 
-        case .waitUntil(let condition):
+        case .waitCondition(let condition, let mode):
             // Poll the condition every 50ms, cap at 30 seconds.
             let maxWait = 30.0
             let start = Date()
             while Date().timeIntervalSince(start) < maxWait {
                 let condVal = try await evaluate(condition, env: &env, document: document, context: context)
-                if isTruthy(condVal) { break }
+                let truthy = isTruthy(condVal)
+                if (mode == .untilTrue && truthy) || (mode == .whileTrue && !truthy) {
+                    break
+                }
                 if let runtime = context.runtimeProvider {
                     try await runtime.sleep(seconds: 0.05)
                 } else {
@@ -2960,9 +3047,7 @@ public struct Interpreter: Sendable {
             formatter.dateStyle = .medium
             return formatter.string(from: Date())
         case "time":
-            let formatter = DateFormatter()
-            formatter.timeStyle = .medium
-            return formatter.string(from: Date())
+            return formatHyperCardTime(style: .short)
         case "ticks":
             return String(Int(Date().timeIntervalSince1970 * 60))
         case "seconds":
@@ -3180,10 +3265,13 @@ public struct Interpreter: Sendable {
                 let formatter = DateFormatter()
                 formatter.dateStyle = .medium
                 return formatter.string(from: Date())
-            case "time":
-                let formatter = DateFormatter()
-                formatter.timeStyle = .medium
-                return formatter.string(from: Date())
+            case "time", "shorttime", "short time", "abbrevtime", "abbrev time",
+                 "abbreviatedtime", "abbreviated time", "abbrtime", "abbr time":
+                return formatHyperCardTime(style: .short)
+            case "longtime", "long time":
+                return formatHyperCardTime(style: .long)
+            case "englishtime", "english time":
+                return formatHyperCardTime(style: .english)
             case "ticks":
                 return String(Int(Date().timeIntervalSince1970 * 60))
             case "seconds":
@@ -4303,6 +4391,35 @@ public struct Interpreter: Sendable {
             }
             return nil
         }
+    }
+
+    private func cardLogLabel(_ cardId: UUID, document: HypeDocument) -> String {
+        guard let card = document.cards.first(where: { $0.id == cardId }) else {
+            return "unknown card"
+        }
+        let trimmedName = card.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedName.isEmpty {
+            return "card \"\(trimmedName)\""
+        }
+        if let index = document.sortedCards.firstIndex(where: { $0.id == cardId }) {
+            return "card \(index + 1)"
+        }
+        return "card"
+    }
+
+    private func cardActionTitle(_ cardId: UUID, document: HypeDocument) -> String {
+        "Go to \(cardLogLabel(cardId, document: document))"
+    }
+
+    private func cardReferenceURL(stackId: UUID, cardId: UUID) -> URL? {
+        var components = URLComponents()
+        components.scheme = "hype"
+        components.host = "card"
+        components.queryItems = [
+            URLQueryItem(name: "stack", value: stackId.uuidString),
+            URLQueryItem(name: "id", value: cardId.uuidString),
+        ]
+        return components.url
     }
 
     // MARK: - Helpers
@@ -5866,7 +5983,7 @@ public struct Interpreter: Sendable {
         case .stopAppleMusic: return "stopAppleMusic"
         case .beep: return "beep"
         case .waitDuration: return "waitDuration"
-        case .waitUntil: return "waitUntil"
+        case .waitCondition: return "waitCondition"
         case .createCard: return "createCard"
         case .createBackground: return "createBackground"
         case .createButton: return "createButton"

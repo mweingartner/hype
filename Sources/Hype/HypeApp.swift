@@ -320,7 +320,10 @@ struct HypeDocumentWrapper: FileDocument {
         guard let data = configuration.file.regularFileContents else {
             throw CocoaError(.fileReadCorruptFile)
         }
-        self.document = try HyperCardToHypeConverter().convert(data: data).document
+        self.document = try StackImportCImporter().importStack(
+            data: data,
+            sourceFileName: configuration.file.preferredFilename
+        ).document
     }
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
@@ -347,12 +350,10 @@ private enum HyperCardImportPanel {
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         do {
-            let package = try HyperCardInputNormalizer().normalize(url: url)
-            let result = try HyperCardToHypeConverter().convert(package: package)
-            let encoded = try JSONEncoder().encode(result.document)
+            let result = try StackImportCImporter().importStack(at: url)
             let outputURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent(url.deletingPathExtension().lastPathComponent + "-imported.hype")
-            try encoded.write(to: outputURL, options: .atomic)
+            try HypeSQLiteStackStore().save(result.document, toPackageAt: outputURL)
             NSDocumentController.shared.openDocument(withContentsOf: outputURL, display: true) { _, _, error in
                 if let error {
                     HypeLogger.shared.error("Failed to open converted HyperCard import: \(error.localizedDescription)", source: "HyperCardImport")

@@ -191,6 +191,8 @@ public struct TCPConnectionSpec: Sendable {
 
 public protocol ScriptRuntimeProviding: Sendable {
     func sleep(seconds: TimeInterval) async throws
+    func navigateToCard(_ cardId: UUID) async
+    func publishDocument(_ document: HypeDocument) async
     func enqueueMessage(
         _ message: String,
         params: [Value],
@@ -565,6 +567,33 @@ public actor StackRuntime: ScriptRuntimeProviding {
 
     public func sleep(seconds: TimeInterval) async throws {
         try await configuration.clock.sleep(seconds: seconds)
+    }
+
+    public func navigateToCard(_ cardId: UUID) async {
+        await MainActor.run {
+            NotificationCenter.default.post(name: Notification.Name("navigateToCard"), object: cardId)
+        }
+        // Give SwiftUI/AppKit a frame boundary to commit and paint
+        // the card change before a long-running script emits another
+        // navigation. Without this, many `go` commands in one handler
+        // can coalesce into a single visible update.
+        try? await Task.sleep(nanoseconds: 16_666_667)
+    }
+
+    public func publishDocument(_ updatedDocument: HypeDocument) async {
+        document = updatedDocument
+        let stackId = updatedDocument.stack.id
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .stackRuntimeDocumentDidChange,
+                object: nil,
+                userInfo: [
+                    "stackId": stackId,
+                    "document": updatedDocument,
+                ]
+            )
+        }
+        try? await Task.sleep(nanoseconds: 16_666_667)
     }
 
     public func setSpeechListenerActive(_ active: Bool, owner: RuntimeOwnerContext) async throws {
@@ -1121,7 +1150,9 @@ public actor StackRuntime: ScriptRuntimeProviding {
             NotificationCenter.default.post(name: Notification.Name("showAllCards"), object: nil)
         }
         if let navTarget = result.navigationTarget {
-            NotificationCenter.default.post(name: Notification.Name("navigateToCard"), object: navTarget)
+            Task { @MainActor in
+                NotificationCenter.default.post(name: Notification.Name("navigateToCard"), object: navTarget)
+            }
         }
         if let err = result.error {
             var userInfo: [AnyHashable: Any] = [

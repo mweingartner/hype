@@ -59,6 +59,21 @@ struct LexerTests {
         #expect(tokens.contains(where: { $0.type == .identifier && $0.value == "y" }))
     }
 
+    @Test func handlesClassicMacComments() {
+        var lexer = Lexer(source: "put 1 into x -- this is a comment\rput 2 into y")
+        let tokens = lexer.tokenize()
+        #expect(tokens.first(where: { $0.value == "comment" }) == nil)
+        #expect(tokens.contains(where: { $0.type == .identifier && $0.value == "y" }))
+    }
+
+    @Test func handlesClassicMacLineContinuation() {
+        var lexer = Lexer(source: "put \"hello\" & \\\r\" world\" into message")
+        let tokens = lexer.tokenize()
+        let types = tokens.map(\.type)
+        #expect(types.filter { $0 == .newline }.count == 1)
+        #expect(tokens.contains(where: { $0.type == .string && $0.value == " world" }))
+    }
+
     @Test func handlesOperators() {
         var lexer = Lexer(source: "2 + 3 * 4 <= 20 <> 5 && 6")
         let tokens = lexer.tokenize()
@@ -103,6 +118,24 @@ struct ParserTests {
         #expect(script.handlers.count == 1)
         #expect(script.handlers[0].name == "sceneDidLoad")
         #expect(script.handlers[0].handlerType == .message)
+    }
+
+    @Test func parsesClassicMacLineEndings() throws {
+        var lexer = Lexer(source: "on mouseUp\r  put 1 into x -- comment\r  put 2 into y\rend mouseUp")
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        #expect(script.handlers[0].body.count == 2)
+    }
+
+    @Test func parsesWindowsLineEndingsAsSingleNewlines() throws {
+        var lexer = Lexer(source: "on mouseUp\r\n  put 1 into x\r\n  put 2 into y\r\nend mouseUp")
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        #expect(script.handlers[0].body.count == 2)
     }
 
     @Test func topLevelGlobalPreludeAppliesToEveryHandler() throws {

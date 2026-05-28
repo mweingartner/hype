@@ -85,6 +85,18 @@ public enum UnaryOp: String, Sendable {
     case not
 }
 
+/// Units accepted by HyperTalk's `wait` command.
+public enum WaitDurationUnit: Sendable {
+    case ticks
+    case seconds
+}
+
+/// Conditional forms accepted by HyperTalk's `wait` command.
+public enum WaitConditionMode: Sendable {
+    case untilTrue
+    case whileTrue
+}
+
 /// Chunk types for text addressing.
 public enum ChunkType: String, Sendable {
     case word, char, character, item, line
@@ -187,8 +199,8 @@ public indirect enum Statement: Sendable {
     case stopAppleMusic
     case beep(Expression?)
     // Wait commands
-    case waitDuration(Expression)
-    case waitUntil(Expression)
+    case waitDuration(Expression, unit: WaitDurationUnit)
+    case waitCondition(Expression, mode: WaitConditionMode)
     case createCard(backgroundName: Expression?)  // "create a new card [with background "name"]"
     case createBackground(name: Expression)        // "create background "name""
     case createButton(name: Expression, onBackground: Bool)  // "create button "name" [on background]"

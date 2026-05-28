@@ -85,6 +85,33 @@ struct HypeDocumentSelfContainedPersistenceTests {
         #expect(assetResults.contains { $0.objectType == "asset" })
     }
 
+    @Test("legacy imported raw HyperTalk scripts are disabled on load")
+    func legacyImportedRawHyperTalkScriptsAreDisabledOnLoad() throws {
+        let store = HypeSQLiteStackStore()
+        let packageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LegacyRawScriptSQLite-\(UUID().uuidString).hype", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: packageURL) }
+
+        var document = HypeDocument.newDocument(name: "Legacy Raw Script")
+        document.stack.script = "on openstack\rhide titlebar\rhide menubar\rdeskcover on,black\rend openstack"
+        document.cards[0].script = "on openCard\n  put 1 into x\nend openCard"
+        document.legacyImport = LegacyStackImportMetadata(
+            sourceFileName: "Legacy Raw Script",
+            dataForkSHA256: "fixture",
+            report: HyperCardImportReport(
+                stackName: "Legacy Raw Script",
+                cardSize: HyperCardSize(width: document.stack.width, height: document.stack.height)
+            )
+        )
+
+        try store.save(document, toPackageAt: packageURL)
+        let loaded = try store.load(fromPackageAt: packageURL)
+
+        #expect(loaded.stack.script.hasPrefix("-- Imported HyperCard script preserved for reference."))
+        #expect(loaded.stack.script.contains("-- on openstack"))
+        #expect(loaded.cards[0].script == document.cards[0].script)
+    }
+
     @Test("FileWrapper package is self-contained")
     func fileWrapperPackageIsSelfContained() throws {
         let store = HypeSQLiteStackStore()

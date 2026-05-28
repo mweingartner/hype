@@ -15,13 +15,17 @@ public struct LogEntry: Identifiable, Sendable {
     public let level: LogLevel
     public let message: String
     public let source: String  // e.g. "Interpreter", "Dispatcher", "Transition"
+    public let actionTitle: String?
+    public let actionURL: URL?
 
-    public init(level: LogLevel, message: String, source: String = "") {
+    public init(level: LogLevel, message: String, source: String = "", actionTitle: String? = nil, actionURL: URL? = nil) {
         self.id = UUID()
         self.timestamp = Date()
         self.level = level
         self.message = message
         self.source = source
+        self.actionTitle = actionTitle
+        self.actionURL = actionURL
     }
 
     /// Formatted line for display and file output.
@@ -98,11 +102,13 @@ public final class HypeLogger: @unchecked Sendable {
     }
 
     /// Log a message at the given level.
-    public func log(_ level: LogLevel, _ message: String, source: String = "") {
+    public func log(_ level: LogLevel, _ message: String, source: String = "", actionTitle: String? = nil, actionURL: URL? = nil) {
         let entry = LogEntry(
             level: level,
             message: Self.sanitizeForLog(message),
-            source: source
+            source: source,
+            actionTitle: actionTitle,
+            actionURL: actionURL
         )
         lock.lock()
         _entries.append(entry)
@@ -139,7 +145,7 @@ public final class HypeLogger: @unchecked Sendable {
     }
 
     /// Log a ScriptError in a stable console-friendly format.
-    public func scriptError(_ error: ScriptError, source: String = "Script", context: String? = nil) {
+    public func scriptError(_ error: ScriptError, source: String = "Script", context: String? = nil, actionURL: URL? = nil) {
         var parts: [String] = []
         if let context, !context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             parts.append(context)
@@ -148,7 +154,10 @@ public final class HypeLogger: @unchecked Sendable {
         if let objectId = error.objectId {
             parts.append("object=\(objectId.uuidString)")
         }
-        self.error(parts.joined(separator: " | "), source: source)
+        if let actionURL {
+            parts.append("hype-ref=\(actionURL.absoluteString)")
+        }
+        log(.error, parts.joined(separator: " | "), source: source, actionTitle: actionURL == nil ? nil : "Open script", actionURL: actionURL)
     }
 
     /// Clear all in-memory entries (does not delete the log file).

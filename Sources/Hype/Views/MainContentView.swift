@@ -49,6 +49,14 @@ private struct TargetCanvasFrameModifier: ViewModifier {
     }
 }
 
+fileprivate struct ScriptErrorSheetRequest: Identifiable {
+    let id = UUID()
+    var target: ScriptTarget
+    var partId: UUID?
+    var line: Int?
+    var message: String?
+}
+
 struct MainContentView: View {
     @Binding var document: HypeDocumentWrapper
     @Environment(\.undoManager) private var undoManager
@@ -61,6 +69,7 @@ struct MainContentView: View {
     @State private var pencilRadius: Double = 2
     @State private var showRepository: Bool = false
     @State private var showNetworkPanel: Bool = false
+    @State private var scriptErrorSheetRequest: ScriptErrorSheetRequest?
     @State private var runtimeStatus = RuntimeStatusSnapshot(requests: [], listeners: [], connections: [])
     @State private var showTargetSelectionSheet: Bool = false
     @State private var emulatedProfileId: String?
@@ -148,6 +157,13 @@ struct MainContentView: View {
                       stackId == document.document.stack.id else { return }
                 refreshRuntimeStatus()
             }
+            .modifier(ScriptErrorConsoleHandlers(
+                document: trackedDocumentBinding,
+                currentCardId: $currentCardId,
+                currentTool: $currentTool,
+                selectedPartIds: $selectedPartIds,
+                scriptErrorSheetRequest: $scriptErrorSheetRequest
+            ))
             .modifier(NavigationHandlers(
                 document: trackedDocumentBinding,
                 currentCardId: $currentCardId,
@@ -361,6 +377,17 @@ struct MainContentView: View {
         }
         .sheet(isPresented: $showTargetSelectionSheet) {
             StackTargetSelectionSheet(document: trackedDocumentBinding)
+        }
+        .sheet(item: $scriptErrorSheetRequest) { request in
+            ScriptEditor(
+                document: trackedDocumentBinding,
+                partId: request.partId,
+                target: request.target,
+                initialErrorLine: request.line,
+                initialErrorMessage: request.message,
+                identityKey: request.target.identityKey,
+                onDone: { scriptErrorSheetRequest = nil }
+            )
         }
     }
 
@@ -745,6 +772,166 @@ private struct ThemeDesignerHandler: ViewModifier {
     }
 }
 
+private struct ScriptErrorConsoleHandlers: ViewModifier {
+    @Binding var document: HypeDocumentWrapper
+    @Binding var currentCardId: UUID?
+    @Binding var currentTool: ToolName
+    @Binding var selectedPartIds: Set<UUID>
+    @Binding var scriptErrorSheetRequest: ScriptErrorSheetRequest?
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .showScriptError)) { _ in
+                currentTool = .select
+                selectedPartIds = []
+                openConsoleWindow()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openScriptErrorLink)) { notification in
+                openScriptErrorLink(notification: notification)
+            }
+    }
+
+    private func openScriptErrorLink(notification: Notification) {
+        guard let url = notification.userInfo?["url"] as? URL else { return }
+        if let request = makeScriptErrorSheetRequest(from: url) {
+            revealScriptTarget(request.target)
+            scriptErrorSheetRequest = request
+            return
+        }
+        openHypeReference(url)
+    }
+
+    private func makeScriptErrorSheetRequest(from url: URL) -> ScriptErrorSheetRequest? {
+        guard url.scheme == "hype",
+              url.host == "script-error" || url.host == "script",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in
+            item.value.map { (item.name, $0) }
+        })
+        if let stackId = query["stack"], UUID(uuidString: stackId) != document.document.stack.id {
+            return nil
+        }
+        guard let kind = query["target"],
+              let target = scriptTarget(kind: kind, query: query) else { return nil }
+        return ScriptErrorSheetRequest(
+            target: target,
+            partId: partId(for: target),
+            line: query["line"].flatMap(Int.init),
+            message: query["message"]
+        )
+    }
+
+    private func scriptTarget(kind: String, query: [String: String]) -> ScriptTarget? {
+        switch kind {
+        case "part":
+            return query["id"].flatMap(UUID.init(uuidString:)).map(ScriptTarget.part)
+        case "card":
+            return query["id"].flatMap(UUID.init(uuidString:)).map(ScriptTarget.card)
+        case "background":
+            return query["id"].flatMap(UUID.init(uuidString:)).map(ScriptTarget.background)
+        case "scene":
+            guard let partId = query["partId"].flatMap(UUID.init(uuidString:)),
+                  let sceneId = query["id"].flatMap(UUID.init(uuidString:)) else { return nil }
+            return .scene(partId: partId, sceneId: sceneId)
+        case "node":
+            guard let partId = query["partId"].flatMap(UUID.init(uuidString:)),
+                  let nodeId = query["id"].flatMap(UUID.init(uuidString:)) else { return nil }
+            return .node(partId: partId, nodeId: nodeId)
+        case "stack":
+            return .stack
+        case "hype":
+            return .hype
+        case "object":
+            return query["id"].flatMap(UUID.init(uuidString:)).flatMap(resolveObjectScriptTarget)
+        default:
+            return nil
+        }
+    }
+
+    private func resolveObjectScriptTarget(_ id: UUID) -> ScriptTarget? {
+        if document.document.parts.contains(where: { $0.id == id }) {
+            return .part(id)
+        }
+        if document.document.cards.contains(where: { $0.id == id }) {
+            return .card(id)
+        }
+        if document.document.backgrounds.contains(where: { $0.id == id }) {
+            return .background(id)
+        }
+        if document.document.stack.id == id {
+            return .stack
+        }
+        if id == MessageDispatcher.hypeScriptSentinel {
+            return .hype
+        }
+        return nil
+    }
+
+    private func openHypeReference(_ url: URL) {
+        guard url.scheme == "hype",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
+        let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in
+            item.value.map { (item.name, $0) }
+        })
+        if let stackId = query["stack"], UUID(uuidString: stackId) != document.document.stack.id {
+            return
+        }
+        switch url.host {
+        case "card":
+            if let cardId = query["id"].flatMap(UUID.init(uuidString:)) {
+                navigateToCard(cardId)
+            }
+        case "object":
+            if let objectId = query["id"].flatMap(UUID.init(uuidString:)),
+               let target = resolveObjectScriptTarget(objectId) {
+                revealScriptTarget(target)
+            }
+        default:
+            return
+        }
+    }
+
+    private func partId(for target: ScriptTarget) -> UUID? {
+        switch target {
+        case .part(let id), .scene(let id, _), .node(let id, _):
+            return id
+        case .card, .background, .stack, .hype:
+            return nil
+        }
+    }
+
+    private func revealScriptTarget(_ target: ScriptTarget) {
+        currentTool = .select
+        switch target {
+        case .part(let id), .scene(let id, _), .node(let id, _):
+            selectedPartIds = [id]
+            if let part = document.document.parts.first(where: { $0.id == id }) {
+                if let cardId = part.cardId {
+                    navigateToCard(cardId)
+                } else if let bgId = part.backgroundId,
+                          let cardId = document.document.cards.first(where: { $0.backgroundId == bgId })?.id {
+                    navigateToCard(cardId)
+                }
+            }
+        case .card(let id):
+            selectedPartIds = []
+            navigateToCard(id)
+        case .background(let id):
+            selectedPartIds = []
+            if let cardId = document.document.cards.first(where: { $0.backgroundId == id })?.id {
+                navigateToCard(cardId)
+            }
+        case .stack, .hype:
+            selectedPartIds = []
+        }
+    }
+
+    private func navigateToCard(_ cardId: UUID) {
+        guard document.document.cards.contains(where: { $0.id == cardId }) else { return }
+        currentCardId = cardId
+    }
+}
+
 /// Sub-modifier for navigation, tool, card, and background notifications.
 private struct NavigationHandlers: ViewModifier {
     @Binding var document: HypeDocumentWrapper
@@ -825,36 +1012,6 @@ private struct NavigationHandlers: ViewModifier {
                 if let cardId = currentCardId {
                     dispatchLifecycle("quit", targetId: cardId, currentCardId: cardId)
                 }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .showScriptError)) { notification in
-                // Runtime / parse error from HypeTalk dispatch.
-                //
-                // Two things have to happen in lockstep here, both
-                // motivated by a real bug a user hit: a buggy
-                // `on idle` handler kept throwing every 500 ms,
-                // and the editor opened a fresh window each time
-                // because (a) we didn't dedupe and (b) the idle
-                // timer kept firing in browse mode.
-                //
-                // 1. Drop out of browse mode into edit mode (the
-                //    `.select` tool sits in the .edit category, so
-                //    `CardCanvasNSView.startIdleTimer`'s
-                //    `category == .browse` guard immediately stops
-                //    every subsequent tick). This is the primary
-                //    fix — once the timer stops firing, no more
-                //    error events get generated and the user can
-                //    actually fix the script.
-                //
-                // 2. Open (or refresh) the script editor for the
-                //    offending object. `openScriptEditorWindow` is
-                //    now idempotent per target — a second call for
-                //    the same target reuses the existing window
-                //    and just refreshes its highlight, so even
-                //    other event paths (mouseEnter, etc.) can't
-                //    spawn duplicates.
-                currentTool = .select
-                selectedPartIds = []
-                openScriptErrorEditor(notification: notification)
             }
             .onReceive(NotificationCenter.default.publisher(for: .openPartScriptEditor)) { notification in
                 openPartScriptEditor(notification: notification)

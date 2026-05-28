@@ -16,6 +16,68 @@ private actor RecordingClock: RuntimeClock {
     }
 }
 
+private actor GatedClock: RuntimeClock {
+    private(set) var sleeps: [TimeInterval] = []
+    private var continuations: [CheckedContinuation<Void, Never>] = []
+
+    func sleep(seconds: TimeInterval) async throws {
+        sleeps.append(seconds)
+        await withCheckedContinuation { continuation in
+            continuations.append(continuation)
+        }
+    }
+
+    func releaseAll() {
+        let pending = continuations
+        continuations.removeAll()
+        for continuation in pending {
+            continuation.resume()
+        }
+    }
+}
+
+private final class RuntimeDocumentPublishProbe: @unchecked Sendable {
+    private let stackId: UUID
+    private let fieldId: UUID
+    private let lock = NSLock()
+    private var observer: NSObjectProtocol?
+    private var observedTexts: [String] = []
+
+    init(stackId: UUID, fieldId: UUID) {
+        self.stackId = stackId
+        self.fieldId = fieldId
+        observer = NotificationCenter.default.addObserver(
+            forName: .stackRuntimeDocumentDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            self?.record(notification)
+        }
+    }
+
+    deinit {
+        if let observer {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    func texts() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return observedTexts
+    }
+
+    private func record(_ notification: Notification) {
+        guard let stackId = notification.userInfo?["stackId"] as? UUID,
+              stackId == self.stackId,
+              let document = notification.userInfo?["document"] as? HypeDocument,
+              let text = document.parts.first(where: { $0.id == fieldId })?.textContent else { return }
+        lock.lock()
+        observedTexts.append(text)
+        lock.unlock()
+    }
+}
+
 private struct FixedAIProvider: AIScriptingProvider {
     let model: String
     let models: [String]
@@ -255,6 +317,168 @@ struct StackRuntimeAsyncTests {
 
         #expect(result.status == .completed)
         #expect(await clock.sleeps == [2])
+        #expect(outputText(from: updated, fieldID: fieldID) == "done")
+    }
+
+    @Test("wait duration defaults to HyperCard ticks")
+    func waitDurationDefaultsToTicks() async {
+        let clock = RecordingClock()
+        let (doc, cardId, buttonId, fieldID) = makeRuntimeDocument(buttonScript: """
+        on mouseUp
+          wait 120
+          wait for 30 ticks
+          wait 1 second
+          put "done" into field "output"
+        end mouseUp
+        """)
+
+        let runtime = await StackRuntimeRegistry.shared.runtime(
+            for: doc,
+            configuration: runtimeConfiguration(clock: clock)
+        )
+        let result = await runtime.dispatchAndWait("mouseUp", params: [], targetId: buttonId, currentCardId: cardId)
+        let updated = result.modifiedDocument ?? doc
+        await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
+
+        #expect(result.status == .completed)
+        #expect(await clock.sleeps == [2, 0.5, 1])
+        #expect(outputText(from: updated, fieldID: fieldID) == "done")
+    }
+
+    @Test("bare wait 30 sleeps for half a second")
+    func bareWaitThirtySleepsForHalfSecond() async {
+        let clock = RecordingClock()
+        let (doc, cardId, buttonId, fieldID) = makeRuntimeDocument(buttonScript: """
+        on mouseUp
+          wait 30
+          put "done" into field "output"
+        end mouseUp
+        """)
+
+        let runtime = await StackRuntimeRegistry.shared.runtime(
+            for: doc,
+            configuration: runtimeConfiguration(clock: clock)
+        )
+        let result = await runtime.dispatchAndWait("mouseUp", params: [], targetId: buttonId, currentCardId: cardId)
+        let updated = result.modifiedDocument ?? doc
+        await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
+
+        #expect(result.status == .completed)
+        #expect(await clock.sleeps == [0.5])
+        #expect(outputText(from: updated, fieldID: fieldID) == "done")
+    }
+
+    @Test("script publishes document changes while suspended in wait")
+    func scriptPublishesDocumentChangesWhileSuspendedInWait() async {
+        let clock = GatedClock()
+        let (doc, cardId, buttonId, fieldID) = makeRuntimeDocument(buttonScript: """
+        on mouseUp
+          put "before wait" into field "output"
+          wait 1 second
+          put "after wait" into field "output"
+        end mouseUp
+        """)
+        let probe = RuntimeDocumentPublishProbe(stackId: doc.stack.id, fieldId: fieldID)
+
+        let runtime = await StackRuntimeRegistry.shared.runtime(
+            for: doc,
+            configuration: runtimeConfiguration(clock: clock)
+        )
+        let task = Task {
+            await runtime.dispatchAndWait("mouseUp", params: [], targetId: buttonId, currentCardId: cardId)
+        }
+
+        let sawBeforeWait = await waitUntil {
+            probe.texts().contains("before wait")
+        }
+        #expect(sawBeforeWait)
+        #expect(await clock.sleeps == [1])
+        #expect(!probe.texts().contains("after wait"))
+
+        await clock.releaseAll()
+        let result = await task.value
+        let updated = result.modifiedDocument ?? doc
+        await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
+
+        #expect(result.status == .completed)
+        #expect(outputText(from: updated, fieldID: fieldID) == "after wait")
+        #expect(probe.texts().contains("after wait"))
+    }
+
+    @Test("classic nextCard aliases navigate to the next card")
+    func classicNextCardAliasesNavigate() async {
+        var doc = HypeDocument.newDocument(name: "Classic Nav Test")
+        let _ = doc.addCard()
+        let sorted = doc.sortedCards
+        let card1 = sorted[0]
+        let card2 = sorted[1]
+        var button = Part(partType: .button, cardId: card1.id, name: "Next")
+        button.script = """
+        on mouseUp
+          nextCard
+        end mouseUp
+        """
+        doc.addPart(button)
+
+        let runtime = await StackRuntimeRegistry.shared.runtime(
+            for: doc,
+            configuration: runtimeConfiguration()
+        )
+        let result = await runtime.dispatchAndWait("mouseUp", params: [], targetId: button.id, currentCardId: card1.id)
+        await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
+
+        #expect(result.status == .completed)
+        #expect(result.navigationTarget == card2.id)
+    }
+
+    @Test("repeated go next advances from the last navigation target")
+    func repeatedGoNextAdvancesFromLastNavigationTarget() async {
+        var doc = HypeDocument.newDocument(name: "Repeated Nav Test")
+        let _ = doc.addCard()
+        let _ = doc.addCard()
+        let sorted = doc.sortedCards
+        let card1 = sorted[0]
+        let card3 = sorted[2]
+        var button = Part(partType: .button, cardId: card1.id, name: "Next Twice")
+        button.script = """
+        on mouseUp
+          go next
+          go next
+        end mouseUp
+        """
+        doc.addPart(button)
+
+        let runtime = await StackRuntimeRegistry.shared.runtime(
+            for: doc,
+            configuration: runtimeConfiguration()
+        )
+        let result = await runtime.dispatchAndWait("mouseUp", params: [], targetId: button.id, currentCardId: card1.id)
+        await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
+
+        #expect(result.status == .completed)
+        #expect(result.navigationTarget == card3.id)
+    }
+
+    @Test("wait while exits when condition is false")
+    func waitWhileFalseCompletesWithoutSleeping() async {
+        let clock = RecordingClock()
+        let (doc, cardId, buttonId, fieldID) = makeRuntimeDocument(buttonScript: """
+        on mouseUp
+          wait while false
+          put "done" into field "output"
+        end mouseUp
+        """)
+
+        let runtime = await StackRuntimeRegistry.shared.runtime(
+            for: doc,
+            configuration: runtimeConfiguration(clock: clock)
+        )
+        let result = await runtime.dispatchAndWait("mouseUp", params: [], targetId: buttonId, currentCardId: cardId)
+        let updated = result.modifiedDocument ?? doc
+        await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
+
+        #expect(result.status == .completed)
+        #expect(await clock.sleeps == [])
         #expect(outputText(from: updated, fieldID: fieldID) == "done")
     }
 

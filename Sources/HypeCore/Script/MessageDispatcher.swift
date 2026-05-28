@@ -222,11 +222,23 @@ public struct MessageDispatcher: Sendable {
                 let fullMessage = "[HypeTalk parse error] in script on \(ownerDescription): \(description)"
                 var stderr = StderrOutputStream()
                 print(fullMessage, to: &stderr)
-                HypeLogger.shared.error(fullMessage, source: "Parser")
+                let line = Self.extractLineNumber(from: description) ?? 0
+                let actionURL = Self.scriptErrorActionURL(
+                    objectId: objectId,
+                    document: currentDocument,
+                    line: line,
+                    message: fullMessage
+                )
+                HypeLogger.shared.log(
+                    .error,
+                    Self.messageWithHypeReference(fullMessage, actionURL: actionURL),
+                    source: "Parser",
+                    actionTitle: actionURL == nil ? nil : "Open script",
+                    actionURL: actionURL
+                )
                 if firstParseError == nil {
                     // Extract the line number from the ParseError if
                     // possible (errorDescription is "Line N: ...").
-                    let line = Self.extractLineNumber(from: description) ?? 0
                     firstParseError = ScriptError(
                         message: fullMessage,
                         line: line,
@@ -239,7 +251,19 @@ public struct MessageDispatcher: Sendable {
                 let fullMessage = "[HypeTalk parse error] \(error.localizedDescription)"
                 var stderr = StderrOutputStream()
                 print(fullMessage, to: &stderr)
-                HypeLogger.shared.error(fullMessage, source: "Parser")
+                let actionURL = Self.scriptErrorActionURL(
+                    objectId: objectId,
+                    document: currentDocument,
+                    line: 0,
+                    message: fullMessage
+                )
+                HypeLogger.shared.log(
+                    .error,
+                    Self.messageWithHypeReference(fullMessage, actionURL: actionURL),
+                    source: "Parser",
+                    actionTitle: actionURL == nil ? nil : "Open script",
+                    actionURL: actionURL
+                )
                 if firstParseError == nil {
                     firstParseError = ScriptError(
                         message: fullMessage,
@@ -322,7 +346,19 @@ public struct MessageDispatcher: Sendable {
                 let runtimeMessage = "[HypeTalk runtime error] in handler '\(patched.handler)' on \(ownerDescription) (line \(patched.line)): \(patched.message)"
                 var stderr = StderrOutputStream()
                 print(runtimeMessage, to: &stderr)
-                HypeLogger.shared.error(runtimeMessage, source: "Runtime")
+                let actionURL = Self.scriptErrorActionURL(
+                    objectId: objectId,
+                    document: currentDocument,
+                    line: patched.line,
+                    message: runtimeMessage
+                )
+                HypeLogger.shared.log(
+                    .error,
+                    Self.messageWithHypeReference(runtimeMessage, actionURL: actionURL),
+                    source: "Runtime",
+                    actionTitle: actionURL == nil ? nil : "Open script",
+                    actionURL: actionURL
+                )
                 result.error = patched
                 if result.modifiedDocument == nil {
                     result.modifiedDocument = latestModifiedDocument
@@ -485,6 +521,47 @@ public struct MessageDispatcher: Sendable {
         let afterLine = description.dropFirst("Line ".count)
         let numberPart = afterLine.prefix { $0.isNumber }
         return Int(numberPart)
+    }
+
+    private static func messageWithHypeReference(_ message: String, actionURL: URL?) -> String {
+        guard let actionURL else { return message }
+        return "\(message) | hype-ref=\(actionURL.absoluteString)"
+    }
+
+    private static func scriptErrorActionURL(
+        objectId: UUID,
+        document: HypeDocument,
+        line: Int,
+        message: String
+    ) -> URL? {
+        var items = [
+            URLQueryItem(name: "stack", value: document.stack.id.uuidString),
+            URLQueryItem(name: "line", value: "\(line)"),
+            URLQueryItem(name: "message", value: message),
+        ]
+        if document.parts.contains(where: { $0.id == objectId }) {
+            items.append(URLQueryItem(name: "target", value: "part"))
+            items.append(URLQueryItem(name: "id", value: objectId.uuidString))
+        } else if document.cards.contains(where: { $0.id == objectId }) {
+            items.append(URLQueryItem(name: "target", value: "card"))
+            items.append(URLQueryItem(name: "id", value: objectId.uuidString))
+        } else if document.backgrounds.contains(where: { $0.id == objectId }) {
+            items.append(URLQueryItem(name: "target", value: "background"))
+            items.append(URLQueryItem(name: "id", value: objectId.uuidString))
+        } else if document.stack.id == objectId {
+            items.append(URLQueryItem(name: "target", value: "stack"))
+        } else if objectId == Self.hypeScriptSentinel {
+            items.append(URLQueryItem(name: "target", value: "hype"))
+        } else {
+            items.append(URLQueryItem(name: "target", value: "object"))
+            items.append(URLQueryItem(name: "id", value: objectId.uuidString))
+        }
+
+        var components = URLComponents()
+        components.scheme = "hype"
+        components.host = "script-error"
+        components.queryItems = items
+        return components.url
     }
 
     /// Build the message-passing hierarchy chain from the target up to the stack.

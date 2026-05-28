@@ -471,8 +471,9 @@ public enum HypeTalkGuide {
             play stop                                -- stop current sound
             beep                                     -- system alert sound (once)
             beep 3                                   -- system alert sound (3 times)
-            wait 2                                   -- pause script for 2 seconds
-            wait 2 seconds                           -- same with explicit unit
+            wait 120                                 -- pause script for 120 ticks (2 seconds)
+            wait 2 seconds                           -- pause script for 2 seconds
+            wait while the sound is not "done"        -- block while condition remains true
             wait until the sound is "done"           -- block until playback ends
             put the sound into s                     -- "done" or name of playing sound
         Note format: NAOD, e.g. c4q, f#5e, r4q. Durations: w h q e s t x. Suffix: . dotted, 3 triplet. Octave/duration carry forward.
@@ -1072,7 +1073,8 @@ public enum HypeTalkGuide {
             value(s)                             -- coerce to number (0 if non-numeric)
 
         **System / lifecycle (no argument; can be called as `the X` too):**
-            the date           the time          the ticks         the seconds
+            the date           the time          the long time     the English time
+            the ticks          the seconds
             the version        the systemVersion the screenRect
             the diskSpace      the heapSpace     the stackSpace
             the mouseLoc       the mouseH        the mouseV

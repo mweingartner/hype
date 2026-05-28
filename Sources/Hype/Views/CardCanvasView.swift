@@ -813,6 +813,7 @@ struct CardCanvasView: NSViewRepresentable {
             completion: (@MainActor () -> Void)? = nil
         ) {
             let cardId = parent.currentCardId
+            logButtonPressIfNeeded(message: message, partId: partId, currentCardId: cardId, mouseX: mouseX, mouseY: mouseY)
             dispatchThroughRuntime(
                 message: message,
                 params: params,
@@ -823,6 +824,54 @@ struct CardCanvasView: NSViewRepresentable {
                 scriptContext: scriptContext,
                 completion: completion
             )
+        }
+
+        private func logButtonPressIfNeeded(
+            message: String,
+            partId: UUID,
+            currentCardId: UUID,
+            mouseX: Double,
+            mouseY: Double
+        ) {
+            guard message.caseInsensitiveCompare("mouseUp") == .orderedSame else { return }
+            let snapshot = parent.document.document
+            guard let part = snapshot.parts.first(where: { $0.id == partId }),
+                  part.partType == .button else { return }
+            let card = snapshot.cards.first(where: { $0.id == currentCardId })
+            let buttonName = part.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cardName = card?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let scriptState = part.script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "empty script" : "script chars=\(part.script.count)"
+            let title = buttonName.isEmpty ? "button" : "button \"\(buttonName)\""
+            let cardTitle = cardName.isEmpty ? cardDisplayName(currentCardId) : "card \"\(cardName)\""
+            HypeLogger.shared.info(
+                "\(title) pressed on \(cardTitle) at x=\(Int(mouseX.rounded())), y=\(Int(mouseY.rounded())) (\(scriptState))",
+                source: "Button Press"
+            )
+        }
+
+        private func cardDisplayName(_ cardId: UUID) -> String {
+            let document = parent.document.document
+            if let card = document.cards.first(where: { $0.id == cardId }) {
+                let name = card.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !name.isEmpty {
+                    return "card \"\(name)\""
+                }
+            }
+            if let index = document.sortedCards.firstIndex(where: { $0.id == cardId }) {
+                return "card \(index + 1)"
+            }
+            return "card"
+        }
+
+        private func cardReferenceURL(cardId: UUID) -> URL? {
+            var components = URLComponents()
+            components.scheme = "hype"
+            components.host = "card"
+            components.queryItems = [
+                URLQueryItem(name: "stack", value: parent.document.document.stack.id.uuidString),
+                URLQueryItem(name: "id", value: cardId.uuidString),
+            ]
+            return components.url
         }
 
         func dispatchIdleBurst(cardTargetId: UUID, includeCardTarget: Bool, partTargetIds: [UUID]) {
@@ -869,7 +918,14 @@ struct CardCanvasView: NSViewRepresentable {
                 }
                 // Handle navigation (e.g., go next card)
                 if let navTarget = result.navigationTarget {
-                    HypeLogger.shared.info("navigate to \(navTarget.uuidString.prefix(8))… effect=\(result.visualEffect ?? "nil") dur=\(result.visualEffectDuration ?? -1) nsView=\(nsView != nil ? "ok" : "NIL")", source: "Navigation")
+                    let cardTitle = cardDisplayName(navTarget)
+                    HypeLogger.shared.log(
+                        .info,
+                        "navigate to \(cardTitle) effect=\(result.visualEffect ?? "nil") dur=\(result.visualEffectDuration ?? -1) nsView=\(nsView != nil ? "ok" : "NIL")",
+                        source: "Navigation",
+                        actionTitle: "Go to \(cardTitle)",
+                        actionURL: cardReferenceURL(cardId: navTarget)
+                    )
                     if let effectName = result.visualEffect, !effectName.isEmpty {
                         let effect = HypeCore.VisualEffect.fromName(effectName)
                         if effect != .none {
@@ -952,11 +1008,89 @@ struct CardCanvasView: NSViewRepresentable {
             } else {
                 userInfo["target"] = ScriptTarget.stack
             }
+            let actionURL = scriptErrorActionURL(
+                target: userInfo["target"] as? ScriptTarget,
+                err: err,
+                document: doc
+            )
+            if let actionURL {
+                userInfo["url"] = actionURL
+            }
+            HypeLogger.shared.scriptError(
+                err,
+                source: "Script",
+                context: scriptErrorContext(target: userInfo["target"] as? ScriptTarget, document: doc),
+                actionURL: actionURL
+            )
             NotificationCenter.default.post(
                 name: .showScriptError,
                 object: nil,
                 userInfo: userInfo
             )
+        }
+
+        private func scriptErrorContext(target: ScriptTarget?, document: HypeDocument) -> String {
+            guard let target else { return document.stack.name }
+            switch target {
+            case .part(let id):
+                if let part = document.parts.first(where: { $0.id == id }) {
+                    return "\(part.partType.rawValue) \"\(part.name)\""
+                }
+            case .card(let id):
+                if let card = document.cards.first(where: { $0.id == id }) {
+                    return "card \"\(card.name)\""
+                }
+            case .background(let id):
+                if let background = document.backgrounds.first(where: { $0.id == id }) {
+                    return "background \"\(background.name)\""
+                }
+            case .scene:
+                return "SpriteKit scene script"
+            case .node:
+                return "SpriteKit node script"
+            case .stack:
+                return "stack \"\(document.stack.name)\""
+            case .hype:
+                return "Hype app script"
+            }
+            return document.stack.name
+        }
+
+        private func scriptErrorActionURL(target: ScriptTarget?, err: ScriptError, document: HypeDocument) -> URL? {
+            guard let target else { return nil }
+            var items = [
+                URLQueryItem(name: "stack", value: document.stack.id.uuidString),
+                URLQueryItem(name: "line", value: "\(err.line)"),
+                URLQueryItem(name: "message", value: err.message),
+            ]
+            switch target {
+            case .part(let id):
+                items.append(URLQueryItem(name: "target", value: "part"))
+                items.append(URLQueryItem(name: "id", value: id.uuidString))
+            case .card(let id):
+                items.append(URLQueryItem(name: "target", value: "card"))
+                items.append(URLQueryItem(name: "id", value: id.uuidString))
+            case .background(let id):
+                items.append(URLQueryItem(name: "target", value: "background"))
+                items.append(URLQueryItem(name: "id", value: id.uuidString))
+            case .scene(let partId, let sceneId):
+                items.append(URLQueryItem(name: "target", value: "scene"))
+                items.append(URLQueryItem(name: "partId", value: partId.uuidString))
+                items.append(URLQueryItem(name: "id", value: sceneId.uuidString))
+            case .node(let partId, let nodeId):
+                items.append(URLQueryItem(name: "target", value: "node"))
+                items.append(URLQueryItem(name: "partId", value: partId.uuidString))
+                items.append(URLQueryItem(name: "id", value: nodeId.uuidString))
+            case .stack:
+                items.append(URLQueryItem(name: "target", value: "stack"))
+            case .hype:
+                items.append(URLQueryItem(name: "target", value: "hype"))
+            }
+            var components = URLComponents()
+            components.scheme = "hype"
+            components.host = "script-error"
+            components.queryItems = items
+            return components.url
         }
 
         private func dispatchThroughRuntime(
@@ -1277,9 +1411,8 @@ class CardCanvasNSView: NSView {
     // Alignment snap guides currently visible
     private var activeGuides: [SnapGuide] = []
 
-    // Idle timer for dispatching idle messages in browse mode
-    private var idleTimer: Timer?
-    private static let idleTimerInterval: TimeInterval = 1.0 / 60.0
+    // Fixed-rate HypeTalk tick loop for dispatching idle messages in browse mode.
+    private var idleTickTask: Task<Void, Never>?
     private var idleDispatchTargetSignature = ""
     private var idleDispatchCachedPartIDs: [UUID] = []
     private var idleDispatchCachedIncludesCard = true
@@ -1528,8 +1661,8 @@ class CardCanvasNSView: NSView {
         }
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
 
-        // Ensure idle timer is running (may not start from updateTrackingAreas alone)
-        if idleTimer == nil { startIdleTimer() }
+        // Ensure the HypeTalk tick loop is running (may not start from updateTrackingAreas alone).
+        if idleTickTask == nil { startIdleTimer() }
 
         // Skip drawing the part being edited inline — the NSTextField overlay replaces it.
         //
@@ -2400,30 +2533,45 @@ class CardCanvasNSView: NSView {
     }
 
     private func startIdleTimer() {
-        idleTimer?.invalidate()
-        let timer = Timer(timeInterval: Self.idleTimerInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self = self else { return }
-                let toolState = ToolState(currentTool: self.currentTool.rawValue)
-                guard toolState.category == .browse, self.activeFieldEditor == nil else { return }
+        idleTickTask?.cancel()
+        idleTickTask = Task { @MainActor [weak self] in
+            var schedule = HypeTalkTickSchedule()
+            while !Task.isCancelled {
+                let delay = schedule.delayBeforeNextTick(now: Date.timeIntervalSinceReferenceDate)
+                if delay > 0 {
+                    do {
+                        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    } catch {
+                        break
+                    }
+                } else {
+                    await Task.yield()
+                }
 
-                let targets = self.idleDispatchTargetsForCurrentCard()
-                guard targets.includeCardTarget || !targets.partIDs.isEmpty else { return }
-                self.coordinator?.dispatchIdleBurst(
-                    cardTargetId: self.currentCardId,
-                    includeCardTarget: targets.includeCardTarget,
-                    partTargetIds: targets.partIDs
-                )
+                guard !Task.isCancelled else { break }
+                self?.dispatchIdleTickIfNeeded()
+                schedule.recordTickCompleted(at: Date.timeIntervalSinceReferenceDate)
             }
         }
-        timer.tolerance = Self.idleTimerInterval / 4
-        RunLoop.main.add(timer, forMode: .common)
-        idleTimer = timer
+    }
+
+    @MainActor
+    private func dispatchIdleTickIfNeeded() {
+        let toolState = ToolState(currentTool: currentTool.rawValue)
+        guard toolState.category == .browse, activeFieldEditor == nil else { return }
+
+        let targets = idleDispatchTargetsForCurrentCard()
+        guard targets.includeCardTarget || !targets.partIDs.isEmpty else { return }
+        coordinator?.dispatchIdleBurst(
+            cardTargetId: currentCardId,
+            includeCardTarget: targets.includeCardTarget,
+            partTargetIds: targets.partIDs
+        )
     }
 
     private func stopIdleTimer() {
-        idleTimer?.invalidate()
-        idleTimer = nil
+        idleTickTask?.cancel()
+        idleTickTask = nil
     }
 
     // MARK: - Card-Level SpriteKit Transition
@@ -2521,12 +2669,14 @@ class CardCanvasNSView: NSView {
 
         isTransitioning = true
 
+        let usesInSceneFlip = effect == .flipHorizontal || effect == .flipVertical
+
         // Render the current card as a texture BEFORE hiding
         // embedded subviews — renderToImage only captures the
         // CGContext-drawn content (buttons, fields, shapes, text),
         // not the NSView overlays. The texture is a complete-enough
         // representation of the card for the transition.
-        let currentNativePartIds = CardSKScene.nativeRenderablePartIds(document: document, cardId: currentCardId)
+        let currentNativePartIds = usesInSceneFlip ? [] : CardSKScene.nativeRenderablePartIds(document: document, cardId: currentCardId)
         let currentImage = renderer.renderToImage(document: document, cardId: currentCardId, size: size, nativePartIds: currentNativePartIds)
         HypeLogger.shared.debug("Current card rendered: \(Int(currentImage.size.width))×\(Int(currentImage.size.height))", source: "Transition")
 
@@ -2545,16 +2695,29 @@ class CardCanvasNSView: NSView {
 
         HypeLogger.shared.debug("SKView frame=\(skView.frame), superview=\(skView.superview != nil), window=\(skView.window != nil)", source: "Transition")
 
+        // Pre-render the new card texture
+        let newNativePartIds = usesInSceneFlip ? [] : CardSKScene.nativeRenderablePartIds(document: document, cardId: newCardId)
+        let newImage = renderer.renderToImage(document: document, cardId: newCardId, size: size, nativePartIds: newNativePartIds)
+        HypeLogger.shared.debug("New card rendered: \(Int(newImage.size.width))×\(Int(newImage.size.height))", source: "Transition")
+
+        if usesInSceneFlip {
+            performSafeFlipTransition(
+                in: skView,
+                currentImage: currentImage,
+                newImage: newImage,
+                cardSize: size,
+                effect: effect,
+                duration: dur
+            )
+            scheduleTransitionCleanup(duration: dur)
+            return true
+        }
+
         let currentScene = CardSKScene(cardSize: size)
         currentScene.updateCardTexture(currentImage)
         currentScene.updateNativeContent(document: document, cardId: currentCardId)
         skView.presentScene(currentScene)
         HypeLogger.shared.debug("Presented currentScene, skView.scene=\(skView.scene != nil)", source: "Transition")
-
-        // Pre-render the new card texture
-        let newNativePartIds = CardSKScene.nativeRenderablePartIds(document: document, cardId: newCardId)
-        let newImage = renderer.renderToImage(document: document, cardId: newCardId, size: size, nativePartIds: newNativePartIds)
-        HypeLogger.shared.debug("New card rendered: \(Int(newImage.size.width))×\(Int(newImage.size.height))", source: "Transition")
 
         let newScene = CardSKScene(cardSize: size)
         newScene.updateCardTexture(newImage)
@@ -2571,15 +2734,67 @@ class CardCanvasNSView: NSView {
             skView.presentScene(newScene, transition: transition)
         }
 
-        // Cleanup after transition
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.cleanupDelay(forTransitionDuration: dur)) { [weak self] in
+        scheduleTransitionCleanup(duration: dur)
+        return true
+    }
+
+    private func performSafeFlipTransition(
+        in skView: SKView,
+        currentImage: NSImage,
+        newImage: NSImage,
+        cardSize: CGSize,
+        effect: HypeCore.VisualEffect,
+        duration: TimeInterval
+    ) {
+        let scene = SKScene(size: cardSize)
+        scene.scaleMode = .resizeFill
+        scene.backgroundColor = .white
+
+        let currentNode = SKSpriteNode(texture: SKTexture(image: currentImage), size: cardSize)
+        currentNode.position = CGPoint(x: cardSize.width / 2, y: cardSize.height / 2)
+        currentNode.zPosition = 1
+        scene.addChild(currentNode)
+
+        let newNode = SKSpriteNode(texture: SKTexture(image: newImage), size: cardSize)
+        newNode.position = CGPoint(x: cardSize.width / 2, y: cardSize.height / 2)
+        newNode.zPosition = 2
+        newNode.isHidden = true
+        scene.addChild(newNode)
+
+        skView.presentScene(scene)
+        HypeLogger.shared.debug("Presented safe flip scene, skView.scene=\(skView.scene != nil)", source: "Transition")
+
+        let halfDuration = max(duration / 2, 0)
+        let shrink: SKAction
+        let grow: SKAction
+        switch effect {
+        case .flipVertical:
+            shrink = .scaleY(to: 0.001, duration: halfDuration)
+            grow = .scaleY(to: 1, duration: halfDuration)
+            newNode.yScale = 0.001
+        default:
+            shrink = .scaleX(to: 0.001, duration: halfDuration)
+            grow = .scaleX(to: 1, duration: halfDuration)
+            newNode.xScale = 0.001
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.transitionPrimingDelay) {
+            currentNode.run(shrink) {
+                currentNode.isHidden = true
+                newNode.isHidden = false
+                newNode.run(grow)
+            }
+        }
+    }
+
+    private func scheduleTransitionCleanup(duration: TimeInterval) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.cleanupDelay(forTransitionDuration: duration)) { [weak self] in
             HypeLogger.shared.info("Transition complete — hiding SKView, resuming draw()", source: "Transition")
             self?.isTransitioning = false
             self?.cardSKView?.isHidden = true
             self?.cardScene = nil
             self?.needsDisplay = true
         }
-        return true
     }
 
     /// Convert a HyperCard-style VisualEffect into an SKTransition.

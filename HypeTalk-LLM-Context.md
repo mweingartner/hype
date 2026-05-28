@@ -76,7 +76,7 @@ set the visible of field "info" to false
 
 **Part properties:** name, id, left, top, width, height, right, bottom, loc (x,y), rect (l,t,r,b), visible, enabled, hilite, style, textFont, textSize, textAlign, textStyle, fillColor, strokeColor, strokeWidth, cornerRadius, script, showName, autoHilite, lockText
 
-**Global properties:** the date, the time, the ticks, the seconds, the mouseLoc (x,y), the mouseH, the mouseV, the version
+**Global properties:** the date, the time, the long time, the English time, the ticks, the seconds, the mouseLoc (x,y), the mouseH, the mouseV, the version
 
 ## Chunk Expressions
 
@@ -189,7 +189,10 @@ end aiFinished
 
 ```
 beep              beep 3
+wait 120          -- ticks by default; 60 ticks = 1 second
 wait 2 seconds
+wait until the sound is "done"
+wait while the sound is not "done"
 hide button "x"   show button "x"
 delete button "x"
 lock screen       unlock screen

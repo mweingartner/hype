@@ -112,7 +112,10 @@ struct ConsoleLogView: View {
             // Timestamp
             Text(timeString(entry.timestamp))
                 .foregroundColor(.secondary)
-                .frame(width: 75, alignment: .leading)
+                .font(.system(size: 11, design: .monospaced).monospacedDigit())
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(width: 88, alignment: .leading)
 
             // Level badge
             Text(entry.level.rawValue)
@@ -124,16 +127,90 @@ struct ConsoleLogView: View {
             if !entry.source.isEmpty {
                 Text(entry.source)
                     .foregroundColor(.purple)
-                    .frame(width: 80, alignment: .leading)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(width: 128, alignment: .leading)
             }
 
             // Message (selectable)
-            Text(entry.message)
-                .foregroundColor(.primary)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.message)
+                    .foregroundColor(.primary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                let references = hypeReferences(for: entry)
+                if !references.isEmpty {
+                    HStack(spacing: 8) {
+                        ForEach(references, id: \.absoluteString) { url in
+                            Button {
+                                NotificationCenter.default.post(
+                                    name: .openScriptErrorLink,
+                                    object: nil,
+                                    userInfo: ["url": url]
+                                )
+                            } label: {
+                                hypeReferenceChip(
+                                    title: hypeReferenceTitle(for: url, fallback: entry.actionTitle),
+                                    url: url
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .help(url.absoluteString)
+                        }
+                    }
+                    .padding(.top, 1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 1)
+    }
+
+    private func hypeReferenceChip(title: String, url: URL) -> some View {
+        let color = hypeReferenceColor(for: url)
+        return HStack(spacing: 4) {
+            Image(systemName: hypeReferenceIconName(for: url))
+                .font(.system(size: 9, weight: .semibold))
+            Text(title)
+                .font(.system(size: 10, weight: .semibold))
+                .lineLimit(1)
+        }
+        .foregroundColor(color)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(color.opacity(0.12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 5)
+                .stroke(color.opacity(0.55), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+    }
+
+    private func hypeReferenceColor(for url: URL) -> Color {
+        switch url.host {
+        case "card":
+            return .teal
+        case "object":
+            return .indigo
+        case "script-error", "script":
+            return .red
+        default:
+            return .accentColor
+        }
+    }
+
+    private func hypeReferenceIconName(for url: URL) -> String {
+        switch url.host {
+        case "card":
+            return "rectangle.stack"
+        case "object":
+            return "scope"
+        case "script-error", "script":
+            return "exclamationmark.triangle"
+        default:
+            return "link"
+        }
     }
 
     private func levelColor(_ level: LogLevel) -> Color {
@@ -149,6 +226,45 @@ struct ConsoleLogView: View {
         let df = DateFormatter()
         df.dateFormat = "HH:mm:ss.SSS"
         return df.string(from: date)
+    }
+
+    private func hypeReferences(for entry: LogEntry) -> [URL] {
+        var urls: [URL] = []
+        if let url = entry.actionURL {
+            urls.append(url)
+        }
+        for url in embeddedHypeReferences(in: entry.message) where !urls.contains(url) {
+            urls.append(url)
+        }
+        return urls
+    }
+
+    private func embeddedHypeReferences(in message: String) -> [URL] {
+        let pattern = #"hype://[^\s|<>"']+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let nsRange = NSRange(message.startIndex..<message.endIndex, in: message)
+        return regex.matches(in: message, range: nsRange).compactMap { match in
+            guard let range = Range(match.range, in: message) else { return nil }
+            var raw = String(message[range])
+            let trailingPunctuation: Set<Character> = [")", "]", ".", ","]
+            while let last = raw.last, trailingPunctuation.contains(last) {
+                raw.removeLast()
+            }
+            return URL(string: raw)
+        }
+    }
+
+    private func hypeReferenceTitle(for url: URL, fallback: String?) -> String {
+        switch url.host {
+        case "script-error", "script":
+            return fallback ?? "Open script"
+        case "card":
+            return "Go to card"
+        case "object":
+            return "Reveal object"
+        default:
+            return "Open reference"
+        }
     }
 
     // MARK: - Actions
