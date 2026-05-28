@@ -528,6 +528,12 @@ Runtime-only fields
 that are intentionally excluded from `HypeDocument.CodingKeys` (for example
 `scriptGlobals`) do not create persistent undo entries.
 
+`MainContentView` treats the current card selection as document-scoped UI
+state, not persistent stack data. It validates the selected card through
+`CurrentCardSelectionResolver` whenever a document, card list, or background
+list changes, falling back to the first renderable card instead of passing stale
+card IDs into `CardCanvasView` and `CardRenderer`.
+
 Converted HyperCard stacks add one optional persisted field:
 `legacyImport: LegacyStackImportMetadata?`. It stores the import report, block
 and resource summaries, discovered XCMD/XFCN resources, SHA-256 hashes, and,

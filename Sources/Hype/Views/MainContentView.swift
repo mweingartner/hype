@@ -100,12 +100,16 @@ struct MainContentView: View {
         return HypeDeviceProfileCatalog.profile(id: emulatedProfileId)
     }
 
+    private var effectiveCurrentCardId: UUID? {
+        CurrentCardSelectionResolver.resolvedCardId(preferred: currentCardId, in: document.document)
+    }
+
     /// Resolve the currently-active theme through the cascade so
     /// every downstream view sees a consistent value via
     /// `@Environment(\.hypeTheme)`. Card → background → stack →
     /// `BuiltInThemes.system`. See ThemeResolver.swift for details.
     private var resolvedTheme: HypeTheme {
-        document.document.effectiveTheme(forCard: currentCardId)
+        document.document.effectiveTheme(forCard: effectiveCurrentCardId)
     }
 
     var body: some View {
@@ -113,7 +117,7 @@ struct MainContentView: View {
             .environment(\.hypeTheme, resolvedTheme)
             .onAppear {
                 HypeDocumentMutationCoordinator.shared.noteDocumentOpened(document.document)
-                currentCardId = document.document.sortedCards.first?.id
+                resetCurrentCardSelection()
                 updateAutomationRegistry()
                 if !document.document.stack.deploymentTargets.selectionPromptAcknowledged && !isRuntimeMode {
                     showTargetSelectionSheet = true
@@ -184,6 +188,22 @@ struct MainContentView: View {
                 HypeAutomationRegistry.shared.remove(stackId: document.document.stack.id)
                 HypeDocumentMutationCoordinator.shared.activeDocumentBinding = nil
             }
+            .onChange(of: document.document.stack.id) { _, _ in
+                resetCurrentCardSelection()
+                updateAutomationRegistry()
+            }
+            .onChange(of: document.document.cards.map(\.id)) { _, _ in
+                repairCurrentCardSelection()
+                updateAutomationRegistry()
+            }
+            .onChange(of: document.document.cards.map(\.backgroundId)) { _, _ in
+                repairCurrentCardSelection()
+                updateAutomationRegistry()
+            }
+            .onChange(of: document.document.backgrounds.map(\.id)) { _, _ in
+                repairCurrentCardSelection()
+                updateAutomationRegistry()
+            }
             .onChange(of: currentCardId) { _, _ in updateAutomationRegistry() }
             .onChange(of: selectedPartIds) { _, _ in updateAutomationRegistry() }
             .onChange(of: currentTool) { _, _ in updateAutomationRegistry() }
@@ -193,11 +213,28 @@ struct MainContentView: View {
     private func updateAutomationRegistry() {
         HypeAutomationRegistry.shared.upsert(
             binding: trackedDocumentBinding,
-            currentCardId: currentCardId,
+            currentCardId: effectiveCurrentCardId,
             selectedPartIds: selectedPartIds,
             currentTool: currentTool,
             editingBackground: editingBackground
         )
+    }
+
+    private func resetCurrentCardSelection() {
+        currentCardId = CurrentCardSelectionResolver.resolvedCardId(preferred: nil, in: document.document)
+        selectedPartIds = []
+        editingBackground = false
+    }
+
+    private func repairCurrentCardSelection() {
+        let resolved = CurrentCardSelectionResolver.resolvedCardId(preferred: currentCardId, in: document.document)
+        if currentCardId != resolved {
+            currentCardId = resolved
+            selectedPartIds = []
+            if resolved == nil {
+                editingBackground = false
+            }
+        }
     }
 
     private var mainContent: some View {
@@ -332,23 +369,29 @@ struct MainContentView: View {
     @ViewBuilder
     private var canvasArea: some View {
         VStack(spacing: 0) {
-            CardCanvasView(
-                document: trackedDocumentBinding,
-                currentCardId: currentCardId ?? document.document.sortedCards.first?.id ?? UUID(),
-                currentTool: currentTool,
-                selectedPartIds: $selectedPartIds,
-                editingBackground: editingBackground,
-                paintColorHex: paintColor.toHex(),
-                pencilRadius: Int(pencilRadius)
-            )
-            .accessibilityIdentifier(HypeAccessibilityID.canvas(cardId: currentCardId ?? document.document.sortedCards.first?.id ?? document.document.stack.id))
-            .modifier(TargetCanvasFrameModifier(stack: document.document.stack, emulatedProfile: emulatedProfile))
-            // Canvas margin — the area visible when the window
-            // is larger than the card. Pulls from the active
-            // theme's canvasMargin so a Sunset theme tints the
-            // surround warm and a Neon theme drops it to near-
-            // black, matching the card surface.
-            .background(resolvedTheme.canvasMargin.swiftUIColor)
+            if let cardId = effectiveCurrentCardId {
+                CardCanvasView(
+                    document: trackedDocumentBinding,
+                    currentCardId: cardId,
+                    currentTool: currentTool,
+                    selectedPartIds: $selectedPartIds,
+                    editingBackground: editingBackground,
+                    paintColorHex: paintColor.toHex(),
+                    pencilRadius: Int(pencilRadius)
+                )
+                .accessibilityIdentifier(HypeAccessibilityID.canvas(cardId: cardId))
+                .modifier(TargetCanvasFrameModifier(stack: document.document.stack, emulatedProfile: emulatedProfile))
+                // Canvas margin — the area visible when the window
+                // is larger than the card. Pulls from the active
+                // theme's canvasMargin so a Sunset theme tints the
+                // surround warm and a Neon theme drops it to near-
+                // black, matching the card surface.
+                .background(resolvedTheme.canvasMargin.swiftUIColor)
+            } else {
+                Text("No cards in stack")
+                    .frame(minWidth: CGFloat(document.document.stack.width), minHeight: CGFloat(document.document.stack.height))
+                    .background(resolvedTheme.canvasMargin.swiftUIColor)
+            }
 
             // Status bar
             HStack {
@@ -384,7 +427,7 @@ struct MainContentView: View {
     private var sidePanels: some View {
         if showInspector {
             PropertyInspector(document: trackedDocumentBinding, selectedPartIds: $selectedPartIds,
-                              currentTool: currentTool, currentCardId: currentCardId,
+                              currentTool: currentTool, currentCardId: effectiveCurrentCardId,
                               paintColor: $paintColor, pencilRadius: $pencilRadius)
             .accessibilityIdentifier(HypeAccessibilityID.propertyInspector)
         }
@@ -397,23 +440,23 @@ struct MainContentView: View {
     // MARK: - Navigation
 
     private var canNavigatePrevious: Bool {
-        guard let cardId = currentCardId else { return false }
+        guard let cardId = effectiveCurrentCardId else { return false }
         return CardNavigator.navigate(direction: .previous, currentCardId: cardId, document: document.document) != nil
     }
 
     private var canNavigateNext: Bool {
-        guard let cardId = currentCardId else { return false }
+        guard let cardId = effectiveCurrentCardId else { return false }
         return CardNavigator.navigate(direction: .next, currentCardId: cardId, document: document.document) != nil
     }
 
     private func navigatePrevious() {
-        guard let cardId = currentCardId,
+        guard let cardId = effectiveCurrentCardId,
               let newId = CardNavigator.navigate(direction: .previous, currentCardId: cardId, document: document.document) else { return }
         navigateToCard(newId)
     }
 
     private func navigateNext() {
-        guard let cardId = currentCardId,
+        guard let cardId = effectiveCurrentCardId,
               let newId = CardNavigator.navigate(direction: .next, currentCardId: cardId, document: document.document) else { return }
         navigateToCard(newId)
     }
@@ -505,7 +548,7 @@ struct MainContentView: View {
 
     /// Resolve layout constraints for all parts on the current card.
     private func resolveConstraints() {
-        guard let cardId = currentCardId else { return }
+        guard let cardId = effectiveCurrentCardId else { return }
         let solver = ConstraintSolver()
         let cardParts = document.document.partsForCard(cardId)
         let card = document.document.cards.first(where: { $0.id == cardId })
@@ -569,7 +612,7 @@ struct MainContentView: View {
     // MARK: - Info text
 
     private var cardInfoText: String {
-        guard let cardId = currentCardId else { return "No stack open" }
+        guard let cardId = effectiveCurrentCardId else { return "No cards in stack" }
         let (index, count) = CardNavigator.cardPosition(currentCardId: cardId, document: document.document)
         let card = document.document.cards.first { $0.id == cardId }
         let name = card?.name.isEmpty == false ? card!.name : "Card \(index + 1)"
@@ -666,6 +709,11 @@ struct MainContentView: View {
             undoManager: undoManager,
             actionName: actionName
         )
+        let resolved = CurrentCardSelectionResolver.resolvedCardId(preferred: currentCardId, in: updated)
+        if currentCardId != resolved {
+            currentCardId = resolved
+            selectedPartIds = []
+        }
     }
 }
 
