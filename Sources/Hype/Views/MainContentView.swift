@@ -57,6 +57,212 @@ fileprivate struct ScriptErrorSheetRequest: Identifiable {
     var message: String?
 }
 
+private struct ScriptActivityStatusControl: View {
+    let runningScripts: [RuntimeStatusSnapshot.RunningScriptSummary]
+    var action: () -> Void
+
+    private var label: String {
+        runningScripts.count == 1 ? "Script running" : "\(runningScripts.count) scripts running"
+    }
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(Color.orange)
+                .frame(width: 6, height: 6)
+            Text(label)
+                .font(.system(size: 10, weight: .medium))
+            Button(action: action) {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 9, weight: .semibold))
+            }
+            .buttonStyle(.borderless)
+            .help("Stop running scripts (Command-.)")
+            .accessibilityLabel("Stop running scripts")
+        }
+        .foregroundColor(.secondary)
+        .padding(.horizontal, 8)
+        .frame(height: 22)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.orange.opacity(0.11))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(Color.orange.opacity(0.2), lineWidth: 0.5)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(label)
+    }
+}
+
+private struct CardStatusSummary: Equatable {
+    var title: String
+    var index: Int
+    var count: Int
+    var isEditingBackground: Bool
+    var canGoFirst: Bool
+    var canGoPrevious: Bool
+    var canGoNext: Bool
+    var canGoLast: Bool
+}
+
+private struct StatusIconButtonStyle: SwiftUI.ButtonStyle {
+    func makeBody(configuration: Self.Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: 22, height: 22)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(configuration.isPressed ? Color.primary.opacity(0.12) : Color.primary.opacity(0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+            )
+    }
+}
+
+private struct StatusChip<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        HStack(spacing: 5) {
+            content
+        }
+        .font(.system(size: 10, weight: .medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 8)
+        .frame(height: 22)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.primary.opacity(0.055))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+        )
+    }
+}
+
+private struct CardNavigationStatusControl: View {
+    var summary: CardStatusSummary
+    var navigate: (NavigationDirection) -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button {
+                navigate(.first)
+            } label: {
+                Image(systemName: "backward.end.fill")
+            }
+            .buttonStyle(StatusIconButtonStyle())
+            .disabled(!summary.canGoFirst)
+            .help("First card")
+            .accessibilityLabel("First card")
+
+            Button {
+                navigate(.previous)
+            } label: {
+                Image(systemName: "chevron.left")
+            }
+            .buttonStyle(StatusIconButtonStyle())
+            .disabled(!summary.canGoPrevious)
+            .help("Previous card")
+            .accessibilityLabel("Previous card")
+
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(summary.title)
+                        .font(.system(size: 11, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if summary.isEditingBackground {
+                        Text("Background edit")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Text("\(summary.index + 1) / \(summary.count)")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(width: cardCountBadgeWidth, height: 18)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(Color.primary.opacity(0.06))
+                    )
+            }
+            .frame(width: cardReadoutWidth, alignment: .leading)
+            .padding(.horizontal, 8)
+            .frame(height: 26)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(0.045))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+            )
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(summary.title), card \(summary.index + 1) of \(summary.count)")
+
+            Button {
+                navigate(.next)
+            } label: {
+                Image(systemName: "chevron.right")
+            }
+            .buttonStyle(StatusIconButtonStyle())
+            .disabled(!summary.canGoNext)
+            .help("Next card")
+            .accessibilityLabel("Next card")
+
+            Button {
+                navigate(.last)
+            } label: {
+                Image(systemName: "forward.end.fill")
+            }
+            .buttonStyle(StatusIconButtonStyle())
+            .disabled(!summary.canGoLast)
+            .help("Last card")
+            .accessibilityLabel("Last card")
+        }
+    }
+
+    private var cardReadoutWidth: CGFloat {
+        switch cardCountDigitBreak {
+        case 0...3:
+            return 140
+        case 4...5:
+            return 160
+        case 6:
+            return 178
+        default:
+            return 196
+        }
+    }
+
+    private var cardCountBadgeWidth: CGFloat {
+        switch cardCountDigitBreak {
+        case 0...3:
+            return 48
+        case 4...5:
+            return 66
+        case 6:
+            return 82
+        default:
+            return 98
+        }
+    }
+
+    private var cardCountDigitBreak: Int {
+        let largestVisibleNumber = max(summary.index + 1, summary.count)
+        return String(largestVisibleNumber).count
+    }
+}
+
 struct MainContentView: View {
     @Binding var document: HypeDocumentWrapper
     @Environment(\.undoManager) private var undoManager
@@ -73,6 +279,10 @@ struct MainContentView: View {
     @State private var runtimeStatus = RuntimeStatusSnapshot(requests: [], listeners: [], connections: [])
     @State private var showTargetSelectionSheet: Bool = false
     @State private var emulatedProfileId: String?
+    @State private var debuggerConnectionCount = 0
+    @State private var displayedRunningScripts: [RuntimeStatusSnapshot.RunningScriptSummary] = []
+    @State private var scriptActivityTask: Task<Void, Never>?
+    @State private var scriptActivityShownAt: Date?
 
     /// Whether the slide-out objects panel is open. Toggled via the
     /// Tools menu (⇧⌘O) or the toolbar button. Persisted so users
@@ -157,6 +367,12 @@ struct MainContentView: View {
                       stackId == document.document.stack.id else { return }
                 refreshRuntimeStatus()
             }
+            .onChange(of: runtimeStatus.runningScripts) { _, runningScripts in
+                updateDisplayedScriptActivity(runningScripts)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .cancelRunningScripts)) { _ in
+                cancelRunningScripts()
+            }
             .modifier(ScriptErrorConsoleHandlers(
                 document: trackedDocumentBinding,
                 currentCardId: $currentCardId,
@@ -202,6 +418,7 @@ struct MainContentView: View {
             }
             .onDisappear {
                 HypeAutomationRegistry.shared.remove(stackId: document.document.stack.id)
+                scriptActivityTask?.cancel()
                 HypeDocumentMutationCoordinator.shared.activeDocumentBinding = nil
             }
             .onChange(of: document.document.stack.id) { _, _ in
@@ -420,34 +637,77 @@ struct MainContentView: View {
                     .background(resolvedTheme.canvasMargin.swiftUIColor)
             }
 
-            // Status bar
-            HStack {
-                Text(cardInfoText)
-                    .font(.system(size: 11))
+            HStack(spacing: 10) {
+                if let summary = cardStatusSummary {
+                    CardNavigationStatusControl(summary: summary) { direction in
+                        navigate(direction)
+                    }
+                } else {
+                    Text("No stack open")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
                 Spacer()
                 // Paint color picker (shown for spray, bucket, pencil, eraser tools)
                 if currentTool == .spray || currentTool == .bucket || currentTool == .pencil || currentTool == .eraser {
-                    ColorPicker("", selection: $paintColor, supportsOpacity: false)
-                        .labelsHidden()
-                        .frame(width: 24, height: 18)
-                    Text("Color")
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
+                    StatusChip {
+                        ColorPicker("", selection: $paintColor, supportsOpacity: false)
+                            .labelsHidden()
+                            .frame(width: 18, height: 16)
+                        Text("Color")
+                    }
                 }
-                Text(toolModeText)
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                if debuggerConnectionCount > 0 {
+                    StatusChip {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 6, height: 6)
+                        Text("Debugger")
+                    }
+                    .help(debuggerConnectionCount == 1 ? "Debugger connected" : "\(debuggerConnectionCount) debugger connections")
+                    .accessibilityLabel("Debugger connected")
+                }
+                if !displayedRunningScripts.isEmpty {
+                    ScriptActivityStatusControl(
+                        runningScripts: displayedRunningScripts,
+                        action: cancelRunningScripts
+                    )
+                    .help(runningScriptHelpText)
+                }
+                StatusChip {
+                    Image(systemName: toolModeIconName)
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(toolModeText)
+                }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 2)
-            // Status strip below the canvas — tinted with the
-            // active theme's toolbar background so it matches the
-            // top toolbar visually.
-            .background(resolvedTheme.toolbarBackground.swiftUIColor)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .frame(minHeight: 36)
+            .background(
+                ZStack(alignment: .top) {
+                    resolvedTheme.toolbarBackground.swiftUIColor
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.08))
+                        .frame(height: 0.5)
+                        .frame(maxHeight: .infinity, alignment: .top)
+                }
+                .shadow(color: .black.opacity(0.12), radius: 6, x: 0, y: -1)
+            )
             // Same colorScheme override as the inspector — keep
             // the labels readable on the themed background.
             .environment(\.colorScheme, resolvedTheme.toolbarColorScheme)
+            .onAppear {
+                debuggerConnectionCount = HypeDebugServer.shared.activeConnectionCount
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .hypeDebugConnectionStatusDidChange)) { notification in
+                debuggerConnectionCount = notification.userInfo?["connectionCount"] as? Int ?? 0
+            }
         }
+    }
+
+    private var runningScriptHelpText: String {
+        let names = displayedRunningScripts.map(\.message).joined(separator: ", ")
+        return names.isEmpty ? "Scripts are running" : "Running: \(names)"
     }
 
     @ViewBuilder
@@ -466,6 +726,26 @@ struct MainContentView: View {
 
     // MARK: - Navigation
 
+    private var cardStatusSummary: CardStatusSummary? {
+        guard let cardId = currentCardId else { return nil }
+        let (index, count) = CardNavigator.cardPosition(currentCardId: cardId, document: document.document)
+        let card = document.document.cards.first { $0.id == cardId }
+        let fallback = "Card \(index + 1)"
+        let title = card?.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? card?.name ?? fallback
+            : fallback
+        return CardStatusSummary(
+            title: title,
+            index: index,
+            count: count,
+            isEditingBackground: editingBackground,
+            canGoFirst: index > 0,
+            canGoPrevious: canNavigatePrevious,
+            canGoNext: canNavigateNext,
+            canGoLast: index + 1 < count
+        )
+    }
+
     private var canNavigatePrevious: Bool {
         guard let cardId = effectiveCurrentCardId else { return false }
         return CardNavigator.navigate(direction: .previous, currentCardId: cardId, document: document.document) != nil
@@ -474,6 +754,12 @@ struct MainContentView: View {
     private var canNavigateNext: Bool {
         guard let cardId = effectiveCurrentCardId else { return false }
         return CardNavigator.navigate(direction: .next, currentCardId: cardId, document: document.document) != nil
+    }
+
+    private func navigate(_ direction: NavigationDirection) {
+        guard let cardId = currentCardId,
+              let newId = CardNavigator.navigate(direction: direction, currentCardId: cardId, document: document.document) else { return }
+        navigateToCard(newId)
     }
 
     private func navigatePrevious() {
@@ -665,6 +951,14 @@ struct MainContentView: View {
         return "\(currentTool.rawValue.capitalized) (\(mode))"
     }
 
+    private var toolModeIconName: String {
+        switch toolState.category {
+        case .browse: return "hand.point.up.left"
+        case .edit: return "cursorarrow"
+        case .paint: return "paintbrush"
+        }
+    }
+
     // MARK: - Tool palette
 
     @ViewBuilder
@@ -700,6 +994,49 @@ struct MainContentView: View {
             await MainActor.run {
                 runtimeStatus = status
             }
+        }
+    }
+
+    private func cancelRunningScripts() {
+        let snapshot = document.document
+        let config = runtimeConfiguration()
+        Task {
+            let runtime = await StackRuntimeRegistry.shared.runtime(for: snapshot, configuration: config)
+            await runtime.cancelRunningScripts()
+            let status = await runtime.statusSnapshot()
+            await MainActor.run {
+                runtimeStatus = status
+            }
+        }
+    }
+
+    private func updateDisplayedScriptActivity(_ runningScripts: [RuntimeStatusSnapshot.RunningScriptSummary]) {
+        scriptActivityTask?.cancel()
+        if runningScripts.isEmpty {
+            let shownAt = scriptActivityShownAt ?? Date()
+            let visibleTime = Date().timeIntervalSince(shownAt)
+            let remaining = max(0, 0.25 - visibleTime)
+            scriptActivityTask = Task { @MainActor in
+                if remaining > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+                }
+                guard !Task.isCancelled else { return }
+                displayedRunningScripts = []
+                scriptActivityShownAt = nil
+            }
+            return
+        }
+
+        if !displayedRunningScripts.isEmpty {
+            displayedRunningScripts = runningScripts
+            return
+        }
+
+        scriptActivityTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled else { return }
+            displayedRunningScripts = runningScripts
+            scriptActivityShownAt = Date()
         }
     }
 

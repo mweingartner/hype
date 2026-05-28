@@ -54,6 +54,7 @@ struct PreferencesView: View {
     private enum PreferenceCategory: String, CaseIterable, Hashable {
         case ai = "AI"
         case services = "Services"
+        case debug = "Debug"
         case speech = "Speech"
         case assets = "Assets"
         case context = "Context"
@@ -70,9 +71,15 @@ struct PreferencesView: View {
                 "photo.on.rectangle"
             case .context:
                 "books.vertical"
+            case .debug:
+                "ant.fill"
             }
         }
     }
+
+    // MARK: - Debug bridge state
+
+    @AppStorage("hype.debug.enabled") private var debugEnabled = true
 
     // MARK: - Meshy.ai state
 
@@ -126,6 +133,10 @@ struct PreferencesView: View {
             integrationSettings
                 .tabItem { Label(PreferenceCategory.services.rawValue, systemImage: PreferenceCategory.services.systemImage) }
                 .tag(PreferenceCategory.services)
+
+            debugSettings
+                .tabItem { Label(PreferenceCategory.debug.rawValue, systemImage: PreferenceCategory.debug.systemImage) }
+                .tag(PreferenceCategory.debug)
 
             speechSettings
                 .tabItem { Label(PreferenceCategory.speech.rawValue, systemImage: PreferenceCategory.speech.systemImage) }
@@ -671,6 +682,28 @@ struct PreferencesView: View {
                     .foregroundColor(.secondary)
             }
         }
+    }
+
+    private var debugSettings: some View {
+        settingsForm {
+            Section("Debug Bridge") {
+                Toggle("Enable debug socket", isOn: $debugEnabled)
+
+                Text("The debug bridge exposes a Unix socket that external tools (like the MCP server) use to call Hype authoring tools. Enable to allow AI agents to control Hype.app.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("Socket directory: \(debugSocketDirectoryLabel)")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    private var debugSocketDirectoryLabel: String {
+        (try? HypeDebugDirectory.socketDirectory().path) ?? "unavailable"
     }
 
     @ViewBuilder

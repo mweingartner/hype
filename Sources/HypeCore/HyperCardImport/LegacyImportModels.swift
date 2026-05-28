@@ -165,6 +165,23 @@ public struct HyperCardImportOptions: Sendable {
 }
 
 public enum LegacyHyperTalkScript {
+    private static let disabledHeader = "-- Imported HyperCard script preserved for reference."
+
+    public static func preparedForHypeTalkRuntime(_ script: String) -> String {
+        let normalized = script
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\0"))
+        guard !normalized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return ""
+        }
+        let compatible = normalizeCommonLegacySpellings(normalized)
+        if parsesAsHypeTalk(compatible) {
+            return compatible
+        }
+        return disabledForHypeTalkRuntime(compatible)
+    }
+
     public static func disabledForHypeTalkRuntime(_ script: String) -> String {
         let normalized = script
             .replacingOccurrences(of: "\r\n", with: "\n")
@@ -174,12 +191,41 @@ public enum LegacyHyperTalkScript {
             return ""
         }
         let header = [
-            "-- Imported HyperCard script preserved for reference.",
+            disabledHeader,
             "-- Disabled until translated to native HypeTalk.",
         ]
         let body = normalized.split(separator: "\n", omittingEmptySubsequences: false)
             .map { "-- \($0)" }
         return (header + body).joined(separator: "\n")
+    }
+
+    public static func isDisabledForHypeTalkRuntime(_ script: String) -> Bool {
+        script.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(disabledHeader)
+    }
+
+    private static func normalizeCommonLegacySpellings(_ script: String) -> String {
+        script.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line -> String in
+                let text = String(line)
+                let trimmed = text.trimmingCharacters(in: .whitespaces)
+                guard trimmed.caseInsensitiveCompare("gonext") == .orderedSame else {
+                    return text
+                }
+                let indent = text.prefix { $0 == " " || $0 == "\t" }
+                return "\(indent)go next"
+            }
+            .joined(separator: "\n")
+    }
+
+    private static func parsesAsHypeTalk(_ script: String) -> Bool {
+        do {
+            var lexer = Lexer(source: script)
+            var parser = Parser(tokens: lexer.tokenize())
+            let parsed = try parser.parse()
+            return !parsed.handlers.isEmpty
+        } catch {
+            return false
+        }
     }
 }
 

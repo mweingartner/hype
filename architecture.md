@@ -2301,6 +2301,23 @@ the speech side:
 Preferences store the selected AI provider/model and speech provider/model in
 `UserDefaults`, while OpenAI, llama-swap, and Pexels API keys stay in Keychain.
 
+Hype.app exposes local automation to external agents through a split debug/MCP
+bridge. The app itself owns only `HypeDebugServer`, a preference-gated
+per-process Unix-domain socket under `<discovery>/<pid>.sock` plus a JSON
+descriptor for discovery. Discovery uses `HYPE_DEBUG_SOCKET_DIR` env var, then
+`.hype/debug/` relative to the repo, then
+`~/Library/Application Support/Hype/debug/`. That debug bridge speaks
+newline-delimited JSON-RPC methods such as `debug/keepalive`, `debug/hello`,
+`debug/listTools`, and `debug/callTool`; it does not speak MCP and it does not
+bind a TCP port. Socket accept/read handling runs on a dedicated dispatch queue
+and supports long-lived connections, while document and tool mutations still
+hop to the main actor. MCP protocol handling lives in the TypeScript stdio
+server at `Tools/hype-mcp-server`, which discovers active Hype descriptors,
+attaches or detaches from one running process, keeps a debug connection alive
+with `debug/keepalive`, and proxies MCP tool calls into the debug bridge. This
+lets Hype.app instances come and go independently while MCP clients keep a
+stable stdio server process.
+
 Tool schemas use OpenAI-style JSON: `{type: "function", function: {name,
 description, parameters: { … JSON Schema … }}}`. The client encodes those
 schemas in the request body alongside the conversation messages. When

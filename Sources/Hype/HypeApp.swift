@@ -10,6 +10,7 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
     private let launchState = AppLaunchState()
     private var pendingWindowFrame: NSRect?
     private var hasAppliedPendingFrame = false
+    private var debugDefaultsObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Halve the system tooltip delay. AppKit reads the
@@ -24,12 +25,23 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
         // `.help(...)` modifier and every per-part NSToolTip we
         // register on `CardCanvasNSView`.
         UserDefaults.standard.set(0.35, forKey: "NSInitialToolTipDelay")
+        UserDefaults.standard.register(defaults: ["hype.debug.enabled": true])
 
         pendingWindowFrame = launchState.visibleWindowFrame(
             using: NSScreen.screens.map(\.visibleFrame)
         )
         installWindowObservers()
         HypeMCPAppServer.shared.startIfNeeded()
+        updateDebugServerState()
+        debugDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.updateDebugServerState()
+            }
+        }
 
         if let lastURL = launchState.lastOpenedFileURL {
             openDocument(at: lastURL)
@@ -87,6 +99,11 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
         // Dispatch "quit" message to the current card of each open document.
         // This gives scripts a chance to run cleanup handlers before the app exits.
         NotificationCenter.default.post(name: .hypeQuit, object: nil)
+        if let debugDefaultsObserver {
+            NotificationCenter.default.removeObserver(debugDefaultsObserver)
+            self.debugDefaultsObserver = nil
+        }
+        HypeDebugServer.shared.stop()
         HypeDocumentMutationCoordinator.shared.flushAllAutosaves()
 
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
@@ -113,6 +130,14 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
         center.addObserver(self, selector: #selector(windowDidMoveOrResize(_:)), name: NSWindow.didMoveNotification, object: nil)
         center.addObserver(self, selector: #selector(windowDidMoveOrResize(_:)), name: NSWindow.didResizeNotification, object: nil)
         center.addObserver(self, selector: #selector(windowWillClose(_:)), name: NSWindow.willCloseNotification, object: nil)
+    }
+
+    private func updateDebugServerState() {
+        if UserDefaults.standard.bool(forKey: "hype.debug.enabled") {
+            HypeDebugServer.shared.start()
+        } else {
+            HypeDebugServer.shared.stop()
+        }
     }
 
     private func openDocument(at url: URL) {
@@ -366,21 +391,99 @@ private enum HyperCardImportPanel {
         panel.allowedContentTypes = [.hyperCardStack, .data]
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+
+        let progressState = HyperCardImportProgressState()
+        let progressView = HyperCardImportProgressView(state: progressState)
+        let progressWindow = sheetWindow(
+            title: "Importing HyperCard Stack",
+            rootView: progressView,
+            size: NSSize(width: 360, height: 200)
+        )
+
+        window.beginSheet(progressWindow)
+        Task {
+            await performImport(url: url, parentWindow: window, progressWindow: progressWindow, state: progressState)
+        }
+    }
+
+    private static func performImport(
+        url: URL,
+        parentWindow: NSWindow,
+        progressWindow: NSWindow,
+        state: HyperCardImportProgressState
+    ) async {
         do {
-            let result = try StackImportCImporter().importStack(at: url)
+            var importer = StackImportCImporter()
+            importer.progressHandler = { message, percent in
+                Task { @MainActor in
+                    state.message = message
+                    state.percent = percent
+                }
+            }
+
+            let result = try await Task.detached(priority: .userInitiated) {
+                try importer.importStack(at: url)
+            }.value
+
             let outputURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent(url.deletingPathExtension().lastPathComponent + "-imported.hype")
             try HypeSQLiteStackStore().save(result.document, toPackageAt: outputURL)
-            NSDocumentController.shared.openDocument(withContentsOf: outputURL, display: true) { _, _, error in
-                if let error {
-                    HypeLogger.shared.error("Failed to open converted HyperCard import: \(error.localizedDescription)", source: "HyperCardImport")
-                    showImportError(error)
-                }
+
+            await MainActor.run {
+                state.message = "Import complete."
+                state.percent = 100
+                state.result = result
+                state.outputURL = outputURL
+                parentWindow.endSheet(progressWindow)
+
+                let celebrationView = HyperCardImportCelebrationView(
+                    result: result,
+                    outputURL: outputURL,
+                    onOpen: {
+                        if let sheet = parentWindow.attachedSheet {
+                            parentWindow.endSheet(sheet)
+                        }
+                        NSDocumentController.shared.openDocument(withContentsOf: outputURL, display: true) { _, _, error in
+                            if let error {
+                                HypeLogger.shared.error("Failed to open converted HyperCard import: \(error.localizedDescription)", source: "HyperCardImport")
+                                showImportError(error)
+                            }
+                        }
+                    },
+                    onDone: {
+                        if let sheet = parentWindow.attachedSheet {
+                            parentWindow.endSheet(sheet)
+                        }
+                    }
+                )
+                let celebrationWindow = sheetWindow(
+                    title: "HyperCard Import Complete",
+                    rootView: celebrationView,
+                    size: NSSize(width: 480, height: 440)
+                )
+                parentWindow.beginSheet(celebrationWindow)
             }
         } catch {
-            HypeLogger.shared.error("HyperCard import failed: \(error.localizedDescription)", source: "HyperCardImport")
-            showImportError(error)
+            await MainActor.run {
+                parentWindow.endSheet(progressWindow)
+                HypeLogger.shared.error("HyperCard import failed: \(error.localizedDescription)", source: "HyperCardImport")
+                showImportError(error)
+            }
         }
+    }
+
+    private static func sheetWindow<Content: View>(title: String, rootView: Content, size: NSSize) -> NSWindow {
+        let hostingController = NSHostingController(rootView: rootView)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = title
+        window.contentViewController = hostingController
+        return window
     }
 
     private static func showImportError(_ error: Error) {
@@ -402,18 +505,617 @@ private enum HyperCardImportPanel {
 }
 
 @MainActor
+private final class HyperCardImportProgressState: ObservableObject {
+    @Published var message: String = "Preparing..."
+    @Published var percent: Int = 0
+    @Published var result: HyperCardImportResult?
+    @Published var outputURL: URL?
+}
+
+import SwiftUI
+
+private struct HyperCardImportProgressView: View {
+    @ObservedObject var state: HyperCardImportProgressState
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Spacer()
+            Image(systemName: "square.stack.3d.down.right.fill")
+                .font(.system(size: 36))
+                .foregroundColor(.accentColor)
+            Text("Importing HyperCard Stack")
+                .font(.system(size: 14, weight: .medium))
+            Text(state.message)
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+            ProgressView(value: Double(state.percent), total: 100)
+                .progressViewStyle(.linear)
+                .frame(width: 280)
+            Text("\(state.percent)%")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 40)
+        .padding(.vertical, 30)
+        .frame(width: 360, height: 200)
+    }
+}
+
+private struct HyperCardImportCelebrationView: View {
+    let result: HyperCardImportResult
+    let outputURL: URL
+    var onOpen: () -> Void
+    var onDone: () -> Void
+
+    private var report: HyperCardImportReport { result.report }
+
+    private var totalAssets: Int {
+        result.document.assetRepository.assets.count
+    }
+
+    private var totalAssetBytes: Int {
+        result.document.assetRepository.assets.reduce(0) { $0 + $1.data.count }
+    }
+
+    private var formattedBytes: String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: Int64(totalAssetBytes))
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    statsSection
+                    if !report.resourceSummary.isEmpty {
+                        resourcesSection
+                    }
+                    if !report.warnings.isEmpty {
+                        warningsSection
+                    }
+                    if !report.unsupportedFeatures.isEmpty {
+                        unsupportedSection
+                    }
+                }
+                .padding()
+            }
+            .frame(maxHeight: 300)
+            Divider()
+            footer
+        }
+        .frame(width: 480, height: 440)
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 28))
+                .foregroundColor(.green)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Import Complete")
+                    .font(.system(size: 14, weight: .semibold))
+                Text(report.stackName)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+        }
+        .padding()
+    }
+
+    private var statsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Stack Contents")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.secondary)
+            HStack(spacing: 24) {
+                statItem(value: "\(report.importedBackgrounds)", label: "Backgrounds")
+                statItem(value: "\(report.importedCards)", label: "Cards")
+                statItem(value: "\(report.importedParts)", label: "Parts")
+                statItem(value: "\(report.importedScripts)", label: "Scripts")
+            }
+            if totalAssets > 0 {
+                HStack(spacing: 24) {
+                    statItem(value: "\(totalAssets)", label: "Assets")
+                    statItem(value: formattedBytes, label: "Asset Size")
+                    if let cardSize = Optional(report.cardSize) {
+                        statItem(value: "\(cardSize.width)×\(cardSize.height)", label: "Card Size")
+                    }
+                }
+            }
+        }
+    }
+
+    private func statItem(value: String, label: String) -> some View {
+        VStack(spacing: 2) {
+            Text(value)
+                .font(.system(size: 18, weight: .medium, design: .rounded))
+            Text(label)
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private var resourcesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Converted Resources")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.secondary)
+            ForEach(report.resourceSummary.prefix(6), id: \.type) { summary in
+                HStack {
+                    Text(resourceTypeLabel(summary.type))
+                        .font(.system(size: 11))
+                    Spacer()
+                    Text("\(summary.count)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+            }
+            if report.resourceSummary.count > 6 {
+                Text("+ \(report.resourceSummary.count - 6) more resource types")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(10)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(6)
+    }
+
+    private var warningsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.orange)
+                    .font(.system(size: 11))
+                Text("Warnings (\(report.warnings.count))")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+            }
+            ForEach(report.warnings.prefix(3), id: \.self) { warning in
+                Text("• \(warning)")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+            if report.warnings.count > 3 {
+                Text("+ \(report.warnings.count - 3) more warnings")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private var unsupportedSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Image(systemName: "questionmark.circle.fill")
+                    .foregroundColor(.blue)
+                    .font(.system(size: 11))
+                Text("Unknown (\(report.unsupportedFeatures.count))")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+            }
+            Text("Some stack features were not fully understood during import.")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 12) {
+            Button("Open Stack") {
+                onOpen()
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("Done") {
+                onDone()
+            }
+        }
+        .padding()
+    }
+
+    private func resourceTypeLabel(_ type: String) -> String {
+        let labels: [String: String] = [
+            "snd": "Sounds",
+            "PICT": "Pictures",
+            "ICN#": "Icons",
+            "IC07": "Icons (large)",
+            "IC18": "Icons (8-bit)",
+            "IC19": "Icons (16-color)",
+            "CRSR": "Cursors",
+            "PAT ": "Patterns",
+            "DLOG": "Dialogs",
+            "DITL": "Dialog Items",
+            "TMPL": "Templates",
+            "STR ": "Strings",
+            "TEXT": "Text",
+            "MCod": "XCMDs",
+            "FKEY": "Function Keys",
+            "code": "Code",
+            "vers": "Version"
+        ]
+        return labels[type] ?? type
+    }
+}
+
+@MainActor
 private enum HypeAboutPanel {
     static func show() {
-        let status = StackImportRuntime.status
-        let credits = NSAttributedString(
-            string: status.aboutLine,
-            attributes: [
-                .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
-                .foregroundColor: NSColor.secondaryLabelColor,
-            ]
+        if let window = hypeAboutWindow {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 620),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
         )
-        NSApp.orderFrontStandardAboutPanel(options: [
-            .credits: credits,
-        ])
+        window.title = "About Hype"
+        window.isReleasedWhenClosed = false
+        window.center()
+        window.contentView = NSHostingView(rootView: HypeAboutView(
+            optionalFrameworks: [
+                OptionalFrameworkAboutItem.stackImport(status: StackImportRuntime.status)
+            ],
+            openSourceManifest: OpenSourceManifest.load()
+        ))
+        hypeAboutWindow = window
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                hypeAboutWindow = nil
+            }
+        }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
+}
+
+@MainActor
+private var hypeAboutWindow: NSWindow?
+
+private struct OptionalFrameworkAboutItem: Identifiable {
+    enum State {
+        case available
+        case unavailable
+    }
+
+    let id: String
+    let name: String
+    let purpose: String
+    let state: State
+    let version: String?
+    let frameworkPath: String
+    let installCommand: String
+    let detail: String?
+
+    static func stackImport(status: StackImportLibraryStatus) -> OptionalFrameworkAboutItem {
+        OptionalFrameworkAboutItem(
+            id: "stackimport",
+            name: "StackImport.framework",
+            purpose: "HyperCard stack import",
+            state: status.isAvailable ? .available : .unavailable,
+            version: status.version,
+            frameworkPath: status.frameworkPath,
+            installCommand: status.installCommand,
+            detail: status.detail
+        )
+    }
+}
+
+private struct HypeAboutView: View {
+    let optionalFrameworks: [OptionalFrameworkAboutItem]
+    let openSourceManifest: OpenSourceManifest
+
+    private var appName: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Hype"
+    }
+
+    private var appVersion: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        switch (version?.isEmpty == false ? version : nil, build?.isEmpty == false ? build : nil) {
+        case let (version?, build?):
+            return "Version \(version) (\(build))"
+        case let (version?, nil):
+            return "Version \(version)"
+        case let (nil, build?):
+            return "Build \(build)"
+        default:
+            return "Development Build"
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(spacing: 14) {
+                    appIcon
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(appName)
+                            .font(.system(size: 28, weight: .semibold))
+                        Text(appVersion)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Optional Frameworks")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+
+                    VStack(spacing: 8) {
+                        ForEach(optionalFrameworks) { item in
+                            OptionalFrameworkRow(item: item)
+                        }
+                    }
+                }
+
+                OpenSourceManifestSection(manifest: openSourceManifest)
+            }
+            .padding(24)
+        }
+        .frame(width: 640, height: 620)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var appIcon: some View {
+        Image(nsImage: NSApp.applicationIconImage)
+            .resizable()
+            .frame(width: 64, height: 64)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+    }
+}
+
+private struct OpenSourceManifestSection: View {
+    let manifest: OpenSourceManifest
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Open Source")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text("\(manifest.components.count) components")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(manifest.reportText, forType: .string)
+                } label: {
+                    Label("Copy Report", systemImage: "doc.on.doc")
+                }
+                .font(.system(size: 11))
+                .help("Copy open source report")
+            }
+
+            VStack(spacing: 8) {
+                ForEach(manifest.components) { component in
+                    OpenSourceComponentRow(component: component)
+                }
+            }
+        }
+    }
+}
+
+private struct OpenSourceComponentRow: View {
+    let component: OpenSourceComponent
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: iconName)
+                    .foregroundStyle(.blue)
+                    .font(.system(size: 14, weight: .semibold))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(component.name)
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(component.usage)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Text(component.license)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.blue)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.blue.opacity(0.10))
+                    .clipShape(Capsule())
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                metadata(label: "Kind", value: component.kind)
+                metadata(label: "Version", value: component.version)
+            }
+
+            Text(component.sourceURL)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+        }
+        .padding(13)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
+        )
+    }
+
+    private var iconName: String {
+        component.kind.lowercased().contains("framework") ? "shippingbox" : "curlybraces"
+    }
+
+    private func metadata(label: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(size: 11))
+        }
+    }
+}
+
+private struct OptionalFrameworkRow: View {
+    let item: OptionalFrameworkAboutItem
+
+    private var isAvailable: Bool { item.state == .available }
+    private var statusColor: Color { isAvailable ? .green : .orange }
+    private var statusTitle: String { isAvailable ? "Available" : "Unavailable" }
+    private var statusIcon: String { isAvailable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill" }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: statusIcon)
+                    .foregroundStyle(statusColor)
+                    .font(.system(size: 15, weight: .semibold))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.name)
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(item.purpose)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Text(statusTitle)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(statusColor)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(statusColor.opacity(0.12))
+                    .clipShape(Capsule())
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                metadataLine(label: "Version", value: item.version ?? "Not installed")
+                metadataLine(label: "Path", value: item.frameworkPath)
+            }
+
+            if !isAvailable {
+                VStack(alignment: .leading, spacing: 7) {
+                    if let detail = item.detail, !detail.isEmpty {
+                        Text(detail)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    HStack(spacing: 8) {
+                        Text(item.installCommand)
+                            .font(.system(size: 11, design: .monospaced))
+                            .textSelection(.enabled)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(Color(nsColor: .textBackgroundColor))
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(item.installCommand, forType: .string)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Copy install command")
+                    }
+                }
+            }
+        }
+        .padding(13)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
+        )
+    }
+
+    private func metadataLine(label: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 48, alignment: .leading)
+            Text(value)
+                .font(.system(size: 11, design: label == "Path" ? .monospaced : .default))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+}
+
+private struct OpenSourceManifest: Decodable {
+    var schemaVersion: Int
+    var components: [OpenSourceComponent]
+
+    static func load() -> OpenSourceManifest {
+        guard let url = Bundle.main.url(forResource: "OpenSourceManifest", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let manifest = try? JSONDecoder().decode(OpenSourceManifest.self, from: data) else {
+            return OpenSourceManifest(schemaVersion: 1, components: [])
+        }
+        return manifest
+    }
+
+    var reportText: String {
+        var lines: [String] = [
+            "Hype Open Source Manifest",
+            "Schema Version: \(schemaVersion)",
+            "",
+        ]
+        for component in components {
+            lines.append("\(component.name)")
+            lines.append("  Kind: \(component.kind)")
+            lines.append("  Version: \(component.version)")
+            lines.append("  License: \(component.license)")
+            lines.append("  Source: \(component.sourceURL)")
+            lines.append("  Usage: \(component.usage)")
+            lines.append("")
+        }
+        return lines.joined(separator: "\n")
+    }
+}
+
+private struct OpenSourceComponent: Decodable, Identifiable {
+    var id: String { "\(name)-\(version)" }
+    var name: String
+    var kind: String
+    var version: String
+    var license: String
+    var sourceURL: String
+    var usage: String
 }

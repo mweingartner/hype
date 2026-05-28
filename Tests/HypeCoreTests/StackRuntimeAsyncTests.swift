@@ -405,6 +405,39 @@ struct StackRuntimeAsyncTests {
         #expect(probe.texts().contains("after wait"))
     }
 
+    @Test("runtime exposes and cancels running scripts")
+    func runtimeExposesAndCancelsRunningScripts() async {
+        let (doc, cardId, buttonId, fieldID) = makeRuntimeDocument(buttonScript: """
+        on mouseUp
+          put "started" into field "output"
+          wait 10 seconds
+          put "finished" into field "output"
+        end mouseUp
+        """)
+
+        let runtime = await StackRuntimeRegistry.shared.runtime(
+            for: doc,
+            configuration: runtimeConfiguration()
+        )
+        let task = Task {
+            await runtime.dispatchAndWait("mouseUp", params: [], targetId: buttonId, currentCardId: cardId)
+        }
+
+        let reportedRunning = await waitUntil {
+            await !runtime.statusSnapshot().runningScripts.isEmpty
+        }
+        await runtime.cancelRunningScripts()
+        let result = await task.value
+        let finalStatus = await runtime.statusSnapshot()
+        await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
+
+        #expect(reportedRunning)
+        #expect(result.status == .error)
+        #expect(result.error?.message == "Script cancelled")
+        #expect(finalStatus.runningScripts.isEmpty)
+        #expect(outputText(from: result.modifiedDocument ?? doc, fieldID: fieldID) != "finished")
+    }
+
     @Test("classic nextCard aliases navigate to the next card")
     func classicNextCardAliasesNavigate() async {
         var doc = HypeDocument.newDocument(name: "Classic Nav Test")
@@ -837,4 +870,113 @@ struct StackRuntimeAsyncTests {
         #expect(outputText(from: updated, fieldID: fieldID) == "ping")
     }
     #endif
+
+    @Test("rooted async script navigation is rooted in the last navigation target, not the visible card")
+    func rootedAsyncNavigationIsRootedInLastNavigationTarget() async {
+        let clock = GatedClock()
+        var doc = HypeDocument.newDocument(name: "Rooted Nav Test")
+        let _ = doc.addCard()
+        let _ = doc.addCard()
+        let sorted = doc.sortedCards
+        let card1 = sorted[0]
+        let _ = sorted[1]
+        let card3 = sorted[2]
+
+        var button = Part(partType: .button, cardId: card1.id, name: "Navigate")
+        button.script = """
+        on mouseUp
+          nextCard
+          wait 1 second
+          nextCard
+        end mouseUp
+        """
+        doc.addPart(button)
+
+        let runtime = await StackRuntimeRegistry.shared.runtime(
+            for: doc,
+            configuration: runtimeConfiguration(clock: clock)
+        )
+
+        let task = Task {
+            await runtime.dispatchAndWait("mouseUp", params: [], targetId: button.id, currentCardId: card1.id)
+        }
+
+        _ = await waitUntil {
+            await clock.sleeps.contains(1)
+        }
+
+        await clock.releaseAll()
+        let result = await task.value
+        await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
+
+        #expect(result.status == .completed)
+        #expect(result.navigationTarget == card3.id)
+    }
+
+    @Test("resolveNavigation uses navigationTarget as anchor for subsequent navigation")
+    func resolveNavigationUsesNavigationTargetAsAnchor() async {
+        var doc = HypeDocument.newDocument(name: "Nav Anchor Test")
+        let _ = doc.addCard()
+        let _ = doc.addCard()
+        let sorted = doc.sortedCards
+        let card1 = sorted[0]
+        let card2 = sorted[1]
+        let card3 = sorted[2]
+
+        let resolved1 = CardNavigator.navigate(direction: .next, currentCardId: card1.id, document: doc)
+        #expect(resolved1 == card2.id)
+
+        let resolved2 = CardNavigator.navigate(direction: .next, currentCardId: card2.id, document: doc)
+        #expect(resolved2 == card3.id)
+
+        let resolved3 = CardNavigator.navigate(direction: .next, currentCardId: card3.id, document: doc)
+        #expect(resolved3 == nil)
+    }
+
+    @Test("script navigation continues from last navigation target even when visible card changes during wait")
+    func scriptNavigationContinuesFromLastNavTargetWhenVisibleCardChangesDuringWait() async {
+        let clock = GatedClock()
+        var doc = HypeDocument.newDocument(name: "Rooted Nav Test")
+        let _ = doc.addCard()
+        let _ = doc.addCard()
+        let sorted = doc.sortedCards
+        let card1 = sorted[0]
+        let _ = sorted[1]
+        let card3 = sorted[2]
+
+        var button = Part(partType: .button, cardId: card1.id, name: "Navigate")
+        button.script = """
+        on mouseUp
+          nextCard
+          wait 1 second
+          nextCard
+        end mouseUp
+        """
+        doc.addPart(button)
+
+        let runtime = await StackRuntimeRegistry.shared.runtime(
+            for: doc,
+            configuration: runtimeConfiguration(clock: clock)
+        )
+
+        let task = Task {
+            await runtime.dispatchAndWait("mouseUp", params: [], targetId: button.id, currentCardId: card1.id)
+        }
+
+        _ = await waitUntil {
+            await clock.sleeps.contains(1)
+        }
+
+        _ = await runtime.currentDocument()
+
+        await runtime.syncDocument(doc)
+        _ = await runtime.currentDocument()
+
+        await clock.releaseAll()
+        let result = await task.value
+        await StackRuntimeRegistry.shared.shutdown(stackID: doc.stack.id)
+
+        #expect(result.status == .completed)
+        #expect(result.navigationTarget == card3.id)
+    }
 }

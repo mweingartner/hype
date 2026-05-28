@@ -131,7 +131,7 @@ public struct StackImportPackageConverter: Sendable {
         let unsupported = project.blocks
             .filter { $0.understood == false }
             .map { "Block \($0.type) \($0.id) was emitted by stackimport as not fully understood." }
-        let scriptWarning = "Imported HyperCard scripts are preserved as comments and disabled until translated to native HypeTalk."
+        let scriptWarning = "Imported HyperCard scripts that are not valid HypeTalk are preserved as comments and disabled until translated."
 
         let report = HyperCardImportReport(
             stackName: document.stack.name,
@@ -142,7 +142,7 @@ public struct StackImportPackageConverter: Sendable {
             importedCards: document.cards.count,
             importedParts: importedPartCount,
             importedScripts: importedScriptCount(document),
-            warnings: stableUnique(warnings + (importedScriptCount(document) > 0 ? [scriptWarning] : [])),
+            warnings: stableUnique(warnings + (disabledScriptCount(document) > 0 ? [scriptWarning] : [])),
             unsupportedFeatures: stableUnique(unsupported)
         )
 
@@ -597,7 +597,7 @@ public struct StackImportPackageConverter: Sendable {
     }
 
     private func disabledLegacyScript(_ text: String?) -> String {
-        LegacyHyperTalkScript.disabledForHypeTalkRuntime(normalizeText(text))
+        LegacyHyperTalkScript.preparedForHypeTalkRuntime(normalizeText(text))
     }
 
     private func nonEmpty(_ value: String?, fallback: String) -> String {
@@ -614,6 +614,12 @@ public struct StackImportPackageConverter: Sendable {
             document.backgrounds.filter { !$0.script.isEmpty }.count +
             document.cards.filter { !$0.script.isEmpty }.count +
             document.parts.filter { !$0.script.isEmpty }.count
+    }
+
+    private func disabledScriptCount(_ document: HypeDocument) -> Int {
+        ([document.stack.script] + document.backgrounds.map(\.script) + document.cards.map(\.script) + document.parts.map(\.script))
+            .filter(LegacyHyperTalkScript.isDisabledForHypeTalkRuntime)
+            .count
     }
 
     private func stableUnique(_ values: [String]) -> [String] {

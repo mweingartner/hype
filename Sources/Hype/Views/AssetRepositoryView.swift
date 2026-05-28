@@ -1400,13 +1400,15 @@ struct AssetRepositoryView: View {
                 let name = url.deletingPathExtension().lastPathComponent
                 let ext = url.pathExtension.lowercased()
                 guard let image = NSImage(data: data) else { continue }
+                let tags = HypeToolExecutor.suggestTagsFromFilename(name)
                 let asset = Asset(
                     name: name,
                     kind: .tileSet,
                     mimeType: ext == "png" ? "image/png" : "image/jpeg",
                     data: data,
                     width: Int(image.size.width),
-                    height: Int(image.size.height)
+                    height: Int(image.size.height),
+                    tags: tags
                 )
                 document.document.assetRepository.addAsset(asset)
                 lastImportedId = asset.id
@@ -1463,14 +1465,27 @@ struct AssetRepositoryView: View {
         }
 
         guard let image = NSImage(data: data) else { return nil }
-        let kind: AssetKind = HypeToolExecutor.filenameLooksLikeTileset(name) ? .tileSet : .imageTexture
+        let imageWidth = Int(image.size.width)
+        let imageHeight = Int(image.size.height)
+        let filenameTags = HypeToolExecutor.suggestTagsFromFilename(name)
+        let resourceTags = HypeToolExecutor.suggestTagsFromResource(ext: ext, width: imageWidth, height: imageHeight)
+        let tags = filenameTags + resourceTags
+        let kind: AssetKind
+        if HypeToolExecutor.filenameLooksLikeTileset(name) {
+            kind = .tileSet
+        } else if HypeToolExecutor.filenameLooksLikeSpriteSheet(name) {
+            kind = .spriteSheet
+        } else {
+            kind = .imageTexture
+        }
         return Asset(
             name: name,
             kind: kind,
             mimeType: imageMimeType(forExtension: ext),
             data: data,
             width: Int(image.size.width),
-            height: Int(image.size.height)
+            height: Int(image.size.height),
+            tags: tags
         )
     }
 

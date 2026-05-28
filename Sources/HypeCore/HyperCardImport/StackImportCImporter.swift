@@ -2,6 +2,14 @@ import CStackImport
 import AppKit
 import Foundation
 
+public protocol StackImportProgressHandler: Sendable {
+    func updateProgress(_ message: String, percent: Int)
+}
+
+extension StackImportProgressHandler {
+    func updateProgress(_ message: String, percent: Int) {}
+}
+
 /// Adapter for the stackimport C ABI.
 ///
 /// The C importer is path-based and emits a generated `.xstk` directory. Hype's
@@ -13,6 +21,7 @@ import Foundation
 /// `resource_wants`/`resource_payload` callbacks, avoiding unnecessary disk I/O.
 public struct StackImportCImporter: Sendable {
     public var options: HyperCardImportOptions
+    public var progressHandler: (@Sendable (String, Int) -> Void)?
 
     public init(options: HyperCardImportOptions = HyperCardImportOptions()) {
         self.options = options
@@ -47,6 +56,7 @@ public struct StackImportCImporter: Sendable {
     }
 
     private func runStackImport(inputPath: String, outputPath: String) throws -> [String: Data] {
+        progressHandler?("Parsing HyperCard stack...", 10)
         let stackImport = try StackImportRuntime.requireAvailable()
         let output = StackImportInMemoryOutput(rootPath: outputPath)
         let outputPointer = Unmanaged.passRetained(output).toOpaque()
@@ -55,6 +65,8 @@ public struct StackImportCImporter: Sendable {
         let resourceCollector = StackImportResourceCollector()
         let collectorPointer = Unmanaged.passRetained(resourceCollector).toOpaque()
         defer { Unmanaged<StackImportResourceCollector>.fromOpaque(collectorPointer).release() }
+
+        progressHandler?("Converting resources...", 30)
 
         var platform = stackimport_platform()
         stackImport.platformInit(&platform)
@@ -84,12 +96,14 @@ public struct StackImportCImporter: Sendable {
             outputPath.withCString { outputCString in
                 importOptions.input_path = inputCString
                 importOptions.output_package_path = outputCString
+                progressHandler?("Importing stack...", 50)
                 return stackImport.importStack(context, &importOptions)
             }
         }
         guard status == STACKIMPORT_STATUS_OK else {
             throw HyperCardImportError.stackimportFailed(statusMessage(status, stackImport: stackImport))
         }
+        progressHandler?("Building document...", 70)
         var files = output.files
         for (path, data) in generatedFiles(at: URL(fileURLWithPath: outputPath)) where files[path] == nil {
             files[path] = data
@@ -97,6 +111,7 @@ public struct StackImportCImporter: Sendable {
         for (path, data) in resourceCollector.files where files[path] == nil && !hasExistingPayload(data, in: files) {
             files[path] = data
         }
+        progressHandler?("Finalizing...", 90)
         return files
     }
 

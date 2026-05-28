@@ -136,17 +136,12 @@ public struct HyperCardToHypeConverter: Sendable {
         if !externalResources.isEmpty {
             unsupported.append("Original XCMD/XFCN native code is not executed. Hype uses a Swift emulation registry and reports unsupported externals at runtime.")
         }
-        if [document.stack.script].contains(where: { !$0.isEmpty }) ||
-            document.backgrounds.contains(where: { !$0.script.isEmpty }) ||
-            document.cards.contains(where: { !$0.script.isEmpty }) ||
-            document.parts.contains(where: { !$0.script.isEmpty }) {
-            warnings.append("Imported HyperCard scripts are preserved as comments and disabled until translated to native HypeTalk.")
+        let allScripts = [document.stack.script] + document.backgrounds.map(\.script) + document.cards.map(\.script) + document.parts.map(\.script)
+        if allScripts.contains(where: LegacyHyperTalkScript.isDisabledForHypeTalkRuntime) {
+            warnings.append("Imported HyperCard scripts that are not valid HypeTalk are preserved as comments and disabled until translated.")
         }
 
-        let importedScripts = [document.stack.script].filter { !$0.isEmpty }.count +
-            document.backgrounds.filter { !$0.script.isEmpty }.count +
-            document.cards.filter { !$0.script.isEmpty }.count +
-            document.parts.filter { !$0.script.isEmpty }.count
+        let importedScripts = allScripts.filter { !$0.isEmpty }.count
 
         let report = HyperCardImportReport(
             stackName: stackInfo.name,
@@ -409,7 +404,7 @@ public struct HyperCardToHypeConverter: Sendable {
     }
 
     private func disabledLegacyScript(_ script: String) -> String {
-        LegacyHyperTalkScript.disabledForHypeTalkRuntime(script)
+        LegacyHyperTalkScript.preparedForHypeTalkRuntime(script)
     }
 
     private func orderCards(_ cards: [ImportedCard], blocks: [HyperCardBlock]) -> [ImportedCard] {

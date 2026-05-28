@@ -53,6 +53,7 @@ struct ConsoleLogView: View {
                 Button(action: copySelected) {
                     Image(systemName: "doc.on.doc")
                 }
+                .keyboardShortcut("c", modifiers: .command)
                 .help("Copy selected entries")
                 .disabled(selectedEntryIds.isEmpty)
 

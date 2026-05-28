@@ -76,12 +76,69 @@ public struct HypeToolExecutor: Sendable {
     /// share the same heuristic without reimplementing it.
     public static func filenameLooksLikeTileset(_ name: String) -> Bool {
         let lower = name.lowercased()
-        // Matches "tileset", "tile_set", "tiles", "tilemap" and
-        // common prefixes/suffixes like "grass_tileset" or
-        // "dungeon-tiles". Matching is substring-based so
-        // "tile" alone wouldn't count — that's too loose.
         let keywords = ["tileset", "tile_set", "tile-set", "tilemap", "tilesheet", "tiles"]
         return keywords.contains { lower.contains($0) }
+    }
+
+    public static func filenameLooksLikeSpriteSheet(_ name: String) -> Bool {
+        let lower = name.lowercased()
+        let keywords = ["spritesheet", "sprite_sheet", "sprite-sheet", "sprites", "sheet", "atlas"]
+        return keywords.contains { lower.contains($0) }
+    }
+
+    public static func suggestTagsFromFilename(_ name: String) -> [String] {
+        let lower = name.lowercased()
+        var tags: [String] = []
+        let tagHints: [(keywords: [String], tag: String)] = [
+            (["background", "bg_", "_bg", "backdrop"], "background"),
+            (["card", "card_", "_card"], "card"),
+            (["ui_", "_ui", "icon", "button", "gui"], "ui"),
+            (["character", "char_", "_char", "player", "enemy", "npc"], "character"),
+            (["tile", "grid", "map"], "tilemap"),
+            (["sprite", "animation", "anim"], "sprite"),
+            (["texture", "material"], "texture"),
+            (["icon", "emblem"], "icon"),
+            (["particle", "fx", "effect"], "effects"),
+            (["audio", "sound", "sfx", "music"], "audio")
+        ]
+        for hint in tagHints {
+            if hint.keywords.contains(where: { lower.contains($0) }) {
+                tags.append(hint.tag)
+            }
+        }
+        return tags
+    }
+
+    public static func suggestTagsFromResource(ext: String, width: Int, height: Int) -> [String] {
+        var tags: [String] = []
+        let ext = ext.lowercased()
+        if ["jpg", "jpeg"].contains(ext) {
+            tags.append("jpeg")
+        } else if ext == "png" {
+            tags.append("png")
+        } else if ext == "gif" {
+            tags.append("gif")
+        } else if ext == "webp" {
+            tags.append("webp")
+        } else if ext == "svg" {
+            tags.append("svg")
+        }
+        if width > 0 && height > 0 {
+            let aspect = Double(width) / Double(height)
+            if aspect > 1.5 {
+                tags.append("wide")
+            } else if aspect < 0.67 {
+                tags.append("tall")
+            } else if aspect >= 0.8 && aspect <= 1.25 {
+                tags.append("square")
+            }
+            if width >= 2048 || height >= 2048 {
+                tags.append("highres")
+            } else if width < 128 && height < 128 {
+                tags.append("lowres")
+            }
+        }
+        return tags
     }
 
     private static func shouldDefaultGeneratedAssetToSingleTile(_ asset: Asset) -> Bool {
