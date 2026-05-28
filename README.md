@@ -785,11 +785,16 @@ Recent milestones:
 ## Contributing
 
 The repository is open-source under the MIT license. Issues and
-pull requests are welcome. See `AGENTS.md` for the repo workflow and
-`architecture.md` before opening a substantive PR — many design choices
-have load-bearing rationale documented there.
+pull requests are welcome. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md)
+for contributor workflow and PR documentation expectations, then read
+[`architecture.md`](architecture.md) and [`decisions.md`](decisions.md)
+before opening a substantive PR — many design choices have load-bearing
+rationale documented there.
 
-For PRs:
+For PRs, GitHub automatically uses
+[`.github/pull_request_template.md`](.github/pull_request_template.md)
+to standardize Summary, Context, Changes Made, Testing & Verification,
+Screenshots / GIFs, and Checklist sections.
 
 - Run `scripts/test.sh` and confirm green.
 - Match the existing commit-message style (`area: imperative

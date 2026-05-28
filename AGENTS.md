@@ -6,7 +6,8 @@ Repository-level instructions for agentic coding harnesses working on Hype.
 
 - Start with `architecture.md` before substantive code changes. It is the product and runtime architecture source of truth.
 - Read and follow `decisions.md` for Hype product behavior, persistence, scripting, AI tooling, provider, and runtime guardrails. It is mandatory for all substantive changes.
-- Use `README.md` for user-facing overview, setup, and contribution context.
+- Use `README.md` for user-facing overview and setup context.
+- Use `CONTRIBUTING.md` for contributor workflow and pull request documentation expectations.
 - Use `HypeTalk-LLM-Context.md` and `Sources/HypeCore/AI/HypeTalkGuide.swift` when changing HypeTalk or AI model guidance.
 - Treat `.hype` stack files as user documents. Do not stage or rewrite them unless the task explicitly requires it.
 
@@ -22,6 +23,27 @@ Meaningful changes should follow this sequence:
 6. Deploy when user-facing macOS behavior changed: install `/Applications/Hype.app` and verify launch.
 
 For review-only tasks, do not edit files unless the user asks for implementation.
+
+## Status Notifications
+
+For substantive work, post concise status updates to the shared ntfy topic:
+`https://ntfy.sh/hype-train-555`.
+
+Send an update when work starts, when a meaningful milestone completes, when a
+blocker needs attention, and when the task is done. Keep messages short and
+actionable. Emoji and Markdown formatting are allowed when they make the action
+or status easier to scan. Favor coordination updates and significant results in
+testing, feature work, bug fixes, and polish progress. Do not post updates that
+are only about local-facing test mechanics or routine command execution unless
+the result changes project coordination or needs attention. Do not include
+secrets, tokens, private user data, stack contents, or large diffs in ntfy
+messages.
+
+Example:
+
+```bash
+curl -d "✅ **Hype:** finished PR template cleanup; PR #20 updated" https://ntfy.sh/hype-train-555
+```
 
 ## Document Breaking Changes
 
@@ -85,6 +107,8 @@ PATH=/usr/bin:/bin:/usr/sbin:/sbin:/Applications/Codex.app/Contents/Resources ./
 
 - `decisions.md`: product behavior guardrails and durable build decisions.
 - `architecture.md`: full architecture, subsystem map, persistence/runtime boundaries, feature gaps.
+- `CONTRIBUTING.md`: contributor workflow, PR documentation, verification expectations, and git hygiene.
+- `.github/pull_request_template.md`: GitHub PR template with Summary, Context, Changes Made, Testing & Verification, Screenshots / GIFs, and Checklist sections.
 - `docs/SQLiteStackStorageDesign.md`: SQLite package schema, document versioning, and migration workflow.
 - `README.md`: setup, run/test commands, project overview.
 - `docs/HyperCardImportAndXCMDCompatibility.md`: HyperCard import and XCMD/XFCN emulation rules.
