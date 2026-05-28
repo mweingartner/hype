@@ -384,26 +384,38 @@ private enum HyperCardImportPanel {
         panel.allowedContentTypes = [.hyperCardStack, .data]
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        let parentWindow = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first ?? makeImportParentWindow()
 
         let progressState = HyperCardImportProgressState()
-        let progressView = HyperCardImportProgressView(state: progressState)
-        let progressWindow = sheetWindow(
+        let importView = HyperCardImportView(state: progressState)
+        let importWindow = sheetWindow(
             title: "Importing HyperCard Stack",
-            rootView: progressView,
-            size: NSSize(width: 360, height: 200)
+            rootView: importView,
+            size: NSSize(width: 360, height: 280)
         )
 
-        window.beginSheet(progressWindow)
+        parentWindow.beginSheet(importWindow)
         Task {
-            await performImport(url: url, parentWindow: window, progressWindow: progressWindow, state: progressState)
+            await performImport(url: url, parentWindow: parentWindow, importWindow: importWindow, state: progressState)
         }
+    }
+
+    private static func makeImportParentWindow() -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: 1, height: 1),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.orderFront(nil)
+        return window
     }
 
     private static func performImport(
         url: URL,
         parentWindow: NSWindow,
-        progressWindow: NSWindow,
+        importWindow: NSWindow,
         state: HyperCardImportProgressState
     ) async {
         do {
@@ -428,40 +440,11 @@ private enum HyperCardImportPanel {
                 state.percent = 100
                 state.result = result
                 state.outputURL = outputURL
-                parentWindow.endSheet(progressWindow)
-
-                let celebrationView = HyperCardImportCelebrationView(
-                    result: result,
-                    outputURL: outputURL,
-                    onOpen: {
-                        if let sheet = parentWindow.attachedSheet {
-                            parentWindow.endSheet(sheet)
-                        }
-                        NSDocumentController.shared.openDocument(withContentsOf: outputURL, display: true) { _, _, error in
-                            if let error {
-                                HypeLogger.shared.error("Failed to open converted HyperCard import: \(error.localizedDescription)", source: "HyperCardImport")
-                                showImportError(error)
-                            }
-                        }
-                    },
-                    onDone: {
-                        if let sheet = parentWindow.attachedSheet {
-                            parentWindow.endSheet(sheet)
-                        }
-                    }
-                )
-                let celebrationWindow = sheetWindow(
-                    title: "HyperCard Import Complete",
-                    rootView: celebrationView,
-                    size: NSSize(width: 480, height: 440)
-                )
-                parentWindow.beginSheet(celebrationWindow)
+                state.isComplete = true
             }
         } catch {
             await MainActor.run {
-                parentWindow.endSheet(progressWindow)
-                HypeLogger.shared.error("HyperCard import failed: \(error.localizedDescription)", source: "HyperCardImport")
-                showImportError(error)
+                state.error = error
             }
         }
     }
@@ -503,24 +486,38 @@ private final class HyperCardImportProgressState: ObservableObject {
     @Published var percent: Int = 0
     @Published var result: HyperCardImportResult?
     @Published var outputURL: URL?
+    @Published var isComplete: Bool = false
+    @Published var error: Error?
 }
 
 import SwiftUI
 
-private struct HyperCardImportProgressView: View {
+private struct HyperCardImportView: View {
     @ObservedObject var state: HyperCardImportProgressState
 
     var body: some View {
-        VStack(spacing: 20) {
+        if state.isComplete, let result = state.result, let outputURL = state.outputURL {
+            completionCard(result: result, outputURL: outputURL)
+        } else if let error = state.error {
+            errorCard(error: error)
+        } else {
+            progressView
+        }
+    }
+
+    private var progressView: some View {
+        VStack(spacing: 16) {
             Spacer()
             Image(systemName: "square.stack.3d.down.right.fill")
-                .font(.system(size: 36))
+                .font(.system(size: 32))
                 .foregroundColor(.accentColor)
             Text("Importing HyperCard Stack")
                 .font(.system(size: 14, weight: .medium))
             Text(state.message)
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
             ProgressView(value: Double(state.percent), total: 100)
                 .progressViewStyle(.linear)
                 .frame(width: 280)
@@ -531,59 +528,53 @@ private struct HyperCardImportProgressView: View {
         }
         .padding(.horizontal, 40)
         .padding(.vertical, 30)
-        .frame(width: 360, height: 200)
-    }
-}
-
-private struct HyperCardImportCelebrationView: View {
-    let result: HyperCardImportResult
-    let outputURL: URL
-    var onOpen: () -> Void
-    var onDone: () -> Void
-
-    private var report: HyperCardImportReport { result.report }
-
-    private var totalAssets: Int {
-        result.document.assetRepository.assets.count
+        .frame(width: 360, height: 280)
     }
 
-    private var totalAssetBytes: Int {
-        result.document.assetRepository.assets.reduce(0) { $0 + $1.data.count }
-    }
-
-    private var formattedBytes: String {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: Int64(totalAssetBytes))
-    }
-
-    var body: some View {
+    private func completionCard(result: HyperCardImportResult, outputURL: URL) -> some View {
         VStack(spacing: 0) {
-            header
+            completionHeader(stackName: result.report.stackName)
             Divider()
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    statsSection
-                    if !report.resourceSummary.isEmpty {
-                        resourcesSection
+                VStack(alignment: .leading, spacing: 12) {
+                    statsSection(report: result.report, document: result.document)
+                    if !result.report.resourceSummary.isEmpty {
+                        resourcesSection(report: result.report)
                     }
-                    if !report.warnings.isEmpty {
-                        warningsSection
+                    if !result.report.warnings.isEmpty {
+                        warningsSection(report: result.report)
                     }
-                    if !report.unsupportedFeatures.isEmpty {
-                        unsupportedSection
+                    if !result.report.unsupportedFeatures.isEmpty {
+                        unsupportedSection(report: result.report)
                     }
                 }
                 .padding()
             }
-            .frame(maxHeight: 300)
+            .frame(maxHeight: 260)
             Divider()
-            footer
+            completionFooter(result: result, outputURL: outputURL)
         }
         .frame(width: 480, height: 440)
     }
 
-    private var header: some View {
+    private func errorCard(error: Error) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 36))
+                .foregroundColor(.orange)
+            Text("Import Failed")
+                .font(.system(size: 14, weight: .medium))
+            Text(error.localizedDescription)
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+            Spacer()
+        }
+        .padding(40)
+        .frame(width: 360, height: 200)
+    }
+
+    private func completionHeader(stackName: String) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 28))
@@ -591,7 +582,7 @@ private struct HyperCardImportCelebrationView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Import Complete")
                     .font(.system(size: 14, weight: .semibold))
-                Text(report.stackName)
+                Text(stackName)
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
@@ -601,7 +592,7 @@ private struct HyperCardImportCelebrationView: View {
         .padding()
     }
 
-    private var statsSection: some View {
+    private func statsSection(report: HyperCardImportReport, document: HypeDocument) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Stack Contents")
                 .font(.system(size: 11, weight: .semibold))
@@ -612,10 +603,12 @@ private struct HyperCardImportCelebrationView: View {
                 statItem(value: "\(report.importedParts)", label: "Parts")
                 statItem(value: "\(report.importedScripts)", label: "Scripts")
             }
+            let totalAssets = document.assetRepository.assets.count
+            let totalAssetBytes = document.assetRepository.assets.reduce(0) { $0 + $1.data.count }
             if totalAssets > 0 {
                 HStack(spacing: 24) {
                     statItem(value: "\(totalAssets)", label: "Assets")
-                    statItem(value: formattedBytes, label: "Asset Size")
+                    statItem(value: ByteCountFormatter.string(fromByteCount: Int64(totalAssetBytes), countStyle: .file), label: "Asset Size")
                     if let cardSize = Optional(report.cardSize) {
                         statItem(value: "\(cardSize.width)×\(cardSize.height)", label: "Card Size")
                     }
@@ -634,7 +627,7 @@ private struct HyperCardImportCelebrationView: View {
         }
     }
 
-    private var resourcesSection: some View {
+    private func resourcesSection(report: HyperCardImportReport) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Converted Resources")
                 .font(.system(size: 11, weight: .semibold))
@@ -660,7 +653,7 @@ private struct HyperCardImportCelebrationView: View {
         .cornerRadius(6)
     }
 
-    private var warningsSection: some View {
+    private func warningsSection(report: HyperCardImportReport) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -684,7 +677,7 @@ private struct HyperCardImportCelebrationView: View {
         }
     }
 
-    private var unsupportedSection: some View {
+    private func unsupportedSection(report: HyperCardImportReport) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Image(systemName: "questionmark.circle.fill")
@@ -700,14 +693,18 @@ private struct HyperCardImportCelebrationView: View {
         }
     }
 
-    private var footer: some View {
+    private func completionFooter(result: HyperCardImportResult, outputURL: URL) -> some View {
         HStack(spacing: 12) {
             Button("Open Stack") {
-                onOpen()
+                NSDocumentController.shared.openDocument(withContentsOf: outputURL, display: true) { _, _, error in
+                    if let error {
+                        HypeLogger.shared.error("Failed to open converted HyperCard import: \(error.localizedDescription)", source: "HyperCardImport")
+                    }
+                }
             }
             .keyboardShortcut(.defaultAction)
             Button("Done") {
-                onDone()
+                NSApp.keyWindow?.endSheet(NSApp.keyWindow?.attachedSheet ?? NSApp.keyWindow!)
             }
         }
         .padding()
@@ -722,16 +719,8 @@ private struct HyperCardImportCelebrationView: View {
             "IC18": "Icons (8-bit)",
             "IC19": "Icons (16-color)",
             "CRSR": "Cursors",
-            "PAT ": "Patterns",
-            "DLOG": "Dialogs",
-            "DITL": "Dialog Items",
-            "TMPL": "Templates",
-            "STR ": "Strings",
-            "TEXT": "Text",
-            "MCod": "XCMDs",
-            "FKEY": "Function Keys",
-            "code": "Code",
-            "vers": "Version"
+            "STR#": "Strings",
+            "IDes": "Icon Definitions",
         ]
         return labels[type] ?? type
     }
