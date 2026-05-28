@@ -18,6 +18,19 @@ extension Notification.Name {
     static let hypeDebugConnectionStatusDidChange = Notification.Name("hypeDebugConnectionStatusDidChange")
 }
 
+struct HypeDebugServerStatus: Equatable {
+    var isRunning: Bool
+    var instanceId: String
+    var socketPath: String
+    var descriptorPath: String
+    var discoveryDirectory: String
+    var activeConnectionCount: Int
+
+    var instanceLink: String {
+        "hype://debug/instances/\(instanceId)"
+    }
+}
+
 final class HypeDebugServer: @unchecked Sendable {
     @MainActor
     static let shared = HypeDebugServer()
@@ -124,6 +137,18 @@ final class HypeDebugServer: @unchecked Sendable {
         connectionLock.lock()
         defer { connectionLock.unlock() }
         return connectionCount
+    }
+
+    @MainActor
+    var status: HypeDebugServerStatus {
+        HypeDebugServerStatus(
+            isRunning: listenSocket != -1,
+            instanceId: instanceId,
+            socketPath: socketPath,
+            descriptorPath: descriptorPath,
+            discoveryDirectory: descriptorPath.isEmpty ? "" : (descriptorPath as NSString).deletingLastPathComponent,
+            activeConnectionCount: activeConnectionCount
+        )
     }
 
     @MainActor

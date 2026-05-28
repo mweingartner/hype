@@ -1,5 +1,6 @@
 import SwiftUI
 import HypeCore
+import AppKit
 
 struct PreferencesView: View {
     @AppStorage("ollamaHost") private var ollamaHost = "localhost"
@@ -50,6 +51,7 @@ struct PreferencesView: View {
     @State private var appleMusicStatus = "Not checked"
     @State private var isCheckingAppleMusic = false
     @State private var selectedCategory: PreferenceCategory = .ai
+    @State private var debugStatus: HypeDebugServerStatus?
 
     private enum PreferenceCategory: String, CaseIterable, Hashable {
         case ai = "AI"
@@ -694,16 +696,115 @@ struct PreferencesView: View {
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("Socket directory: \(debugSocketDirectoryLabel)")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundColor(.secondary)
-                    .textSelection(.enabled)
+                debugStatusRows
             }
         }
+        .onAppear(perform: refreshDebugStatus)
+        .onChange(of: debugEnabled) { _, _ in
+            DispatchQueue.main.async {
+                refreshDebugStatus()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .hypeDebugConnectionStatusDidChange)) { _ in
+            refreshDebugStatus()
+        }
+    }
+
+    private var debugStatusRows: some View {
+        let status = debugStatus ?? HypeDebugServer.shared.status
+
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(status.isRunning ? Color.green : Color.secondary.opacity(0.45))
+                    .frame(width: 7, height: 7)
+
+                Text(status.isRunning ? "Running" : "Stopped")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.secondary)
+
+                if status.activeConnectionCount > 0 {
+                    Text("\(status.activeConnectionCount) connection\(status.activeConnectionCount == 1 ? "" : "s")")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            debugValueRow(
+                title: "Instance link",
+                value: status.instanceLink,
+                copyValue: status.instanceLink,
+                copyHelp: "Copy instance link"
+            )
+
+            debugValueRow(
+                title: "Socket path",
+                value: status.socketPath.isEmpty ? debugPendingSocketPathLabel : status.socketPath,
+                copyValue: status.socketPath,
+                copyHelp: "Copy socket path",
+                copyDisabled: status.socketPath.isEmpty
+            )
+
+            debugValueRow(
+                title: "Socket directory",
+                value: status.discoveryDirectory.isEmpty ? debugSocketDirectoryLabel : status.discoveryDirectory,
+                copyValue: status.discoveryDirectory,
+                copyHelp: "Copy socket directory",
+                copyDisabled: status.discoveryDirectory.isEmpty
+            )
+        }
+    }
+
+    private var debugPendingSocketPathLabel: String {
+        let directory = debugSocketDirectoryLabel
+        guard directory != "unavailable" else { return "unavailable" }
+        return "\(directory)/\(ProcessInfo.processInfo.processIdentifier).sock"
     }
 
     private var debugSocketDirectoryLabel: String {
         (try? HypeDebugDirectory.socketDirectory().path) ?? "unavailable"
+    }
+
+    private func debugValueRow(
+        title: String,
+        value: String,
+        copyValue: String,
+        copyHelp: String,
+        copyDisabled: Bool = false
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(title)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(.secondary)
+                .frame(width: 92, alignment: .leading)
+
+            Text(value.isEmpty ? "unavailable" : value)
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundColor(.secondary)
+                .lineLimit(2)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                copyDebugValue(copyValue)
+            } label: {
+                Image(systemName: "doc.on.clipboard")
+                    .imageScale(.small)
+            }
+            .buttonStyle(.borderless)
+            .disabled(copyDisabled || copyValue.isEmpty)
+            .help(copyHelp)
+        }
+    }
+
+    private func refreshDebugStatus() {
+        debugStatus = HypeDebugServer.shared.status
+    }
+
+    private func copyDebugValue(_ value: String) {
+        guard !value.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
     }
 
     @ViewBuilder
