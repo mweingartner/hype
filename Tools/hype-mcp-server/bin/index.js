@@ -406,8 +406,12 @@ async function handleMCPMessage(message) {
         switch (method) {
             case "initialize":
                 sendResult(id, {
-                    protocolVersion: "2024-11-05",
-                    capabilities: { tools: { listChanged: false } },
+                    protocolVersion: "2025-06-18",
+                    capabilities: {
+                        tools: { listChanged: false },
+                        resources: { subscribe: false, listChanged: false },
+                        prompts: { listChanged: false },
+                    },
                     serverInfo: { name: "hype-mcp-server", version: "0.1.0" },
                 });
                 return;
@@ -419,6 +423,18 @@ async function handleMCPMessage(message) {
                 return;
             case "tools/call":
                 sendResult(id, await callMCPTool(message.params ?? {}));
+                return;
+            case "resources/list":
+                sendResult(id, { resources: await listResources() });
+                return;
+            case "resources/read":
+                sendResult(id, await readResource(message.params ?? {}));
+                return;
+            case "prompts/list":
+                sendResult(id, { prompts: await listPrompts() });
+                return;
+            case "prompts/get":
+                sendResult(id, await getPrompt(message.params ?? {}));
                 return;
             default:
                 sendError(id, -32601, "Method not found");
@@ -440,6 +456,74 @@ async function listTools() {
         attached = null;
         return connectionTools;
     }
+}
+async function listResources() {
+    const session = await ensureAttached();
+    if (!session) {
+        return [{
+                uri: "hype://app/state",
+                name: "App State",
+                description: "Current Hype app and debug-session state.",
+                mimeType: "application/json",
+            }];
+    }
+    try {
+        const result = (await debugRPC(session.socketPath, "debug/listResources", {}));
+        return result.resources ?? [];
+    }
+    catch {
+        attached = null;
+        return [];
+    }
+}
+async function readResource(params) {
+    const uri = stringArg(params, "uri");
+    if (!uri)
+        throw new Error("resources/read requires params.uri");
+    const session = await ensureAttached();
+    if (!session) {
+        return {
+            contents: [{
+                    uri,
+                    mimeType: "application/json",
+                    text: JSON.stringify({ error: "No active Hype session attached." }, null, 2),
+                }],
+        };
+    }
+    const result = (await debugRPC(session.socketPath, "debug/readResource", { uri }));
+    return {
+        contents: [{
+                uri: result.uri ?? uri,
+                mimeType: result.mimeType ?? "application/json",
+                text: JSON.stringify(result.value ?? null, null, 2),
+            }],
+    };
+}
+async function listPrompts() {
+    const session = await ensureAttached();
+    if (!session)
+        return [];
+    try {
+        const result = (await debugRPC(session.socketPath, "debug/listPrompts", {}));
+        return result.prompts ?? [];
+    }
+    catch {
+        attached = null;
+        return [];
+    }
+}
+async function getPrompt(params) {
+    const name = stringArg(params, "name");
+    if (!name)
+        throw new Error("prompts/get requires params.name");
+    const session = await ensureAttached();
+    if (!session)
+        throw new Error("No active Hype session attached.");
+    const result = (await debugRPC(session.socketPath, "debug/getPrompt", {
+        name,
+        arguments: params.arguments ?? {},
+    }));
+    return result.value ?? {};
 }
 async function callMCPTool(params) {
     const name = typeof params.name === "string" ? params.name : "";

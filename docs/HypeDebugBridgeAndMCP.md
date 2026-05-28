@@ -58,13 +58,20 @@ Methods:
 - `debug/hello`
 - `debug/getState`
 - `debug/listTools`
+- `debug/listResources`
+- `debug/readResource`
+- `debug/listPrompts`
+- `debug/getPrompt`
 - `debug/callTool`
 
 `debug/keepalive` is answered by the socket server without touching document UI
 state. The MCP server uses it as the persistent-connection heartbeat.
-`debug/listTools` returns the same tool schemas Hype's AI surfaces use.
-`debug/callTool` applies mutations to the active focused document through
-`HypeToolExecutor` and `HypeDocumentMutationCoordinator`.
+`debug/listTools` returns Hype's authoring tools plus MCP control tools.
+Resources and prompts are exposed as debug methods so the app remains a debug
+server rather than an MCP server. `debug/callTool` applies mutations to the
+active focused document through `HypeToolExecutor` and
+`HypeDocumentMutationCoordinator`, or dispatches control operations such as
+preference reads and preview/apply transactions.
 
 ## MCP Server
 
@@ -79,8 +86,9 @@ It implements stdio MCP framing and always exposes connection-management tools:
 
 When attached to a Hype process, the MCP server keeps one Unix-socket debug
 connection open, sends periodic `debug/keepalive` requests, and reuses that
-connection for proxied calls. `tools/list` also includes the active Hype tool
-surface, and `tools/call` proxies those tool calls over the debug bridge.
+connection for proxied calls. `tools/list`, `resources/list`, and
+`prompts/list` include the active Hype surface, and calls/read/get requests are
+proxied over the debug bridge.
 When detached, startup and `tools/list` still complete with only the
 connection-management tools while background discovery continues.
 

@@ -24,6 +24,19 @@ interface McpTool {
   inputSchema: JsonObject
 }
 
+interface McpResource {
+  uri: string
+  name: string
+  description: string
+  mimeType?: string
+}
+
+interface McpPrompt {
+  name: string
+  description: string
+  arguments?: JsonObject[]
+}
+
 let nextDebugId = 1
 let attached: HypeSessionDescriptor | null = null
 let stdinBuffer = Buffer.alloc(0)
@@ -431,8 +444,12 @@ async function handleMCPMessage(message: JsonObject): Promise<void> {
     switch (method) {
       case "initialize":
         sendResult(id, {
-          protocolVersion: "2024-11-05",
-          capabilities: { tools: { listChanged: false } },
+          protocolVersion: "2025-06-18",
+          capabilities: {
+            tools: { listChanged: false },
+            resources: { subscribe: false, listChanged: false },
+            prompts: { listChanged: false },
+          },
           serverInfo: { name: "hype-mcp-server", version: "0.1.0" },
         })
         return
@@ -444,6 +461,18 @@ async function handleMCPMessage(message: JsonObject): Promise<void> {
         return
       case "tools/call":
         sendResult(id, await callMCPTool((message.params as JsonObject | undefined) ?? {}))
+        return
+      case "resources/list":
+        sendResult(id, { resources: await listResources() })
+        return
+      case "resources/read":
+        sendResult(id, await readResource((message.params as JsonObject | undefined) ?? {}))
+        return
+      case "prompts/list":
+        sendResult(id, { prompts: await listPrompts() })
+        return
+      case "prompts/get":
+        sendResult(id, await getPrompt((message.params as JsonObject | undefined) ?? {}))
         return
       default:
         sendError(id, -32601, "Method not found")
@@ -463,6 +492,76 @@ async function listTools(): Promise<McpTool[]> {
     attached = null
     return connectionTools
   }
+}
+
+async function listResources(): Promise<McpResource[]> {
+  const session = await ensureAttached()
+  if (!session) {
+    return [{
+      uri: "hype://app/state",
+      name: "App State",
+      description: "Current Hype app and debug-session state.",
+      mimeType: "application/json",
+    }]
+  }
+  try {
+    const result = (await debugRPC(session.socketPath, "debug/listResources", {})) as { resources?: McpResource[] }
+    return result.resources ?? []
+  } catch {
+    attached = null
+    return []
+  }
+}
+
+async function readResource(params: JsonObject): Promise<JsonObject> {
+  const uri = stringArg(params, "uri")
+  if (!uri) throw new Error("resources/read requires params.uri")
+  const session = await ensureAttached()
+  if (!session) {
+    return {
+      contents: [{
+        uri,
+        mimeType: "application/json",
+        text: JSON.stringify({ error: "No active Hype session attached." }, null, 2),
+      }],
+    }
+  }
+  const result = (await debugRPC(session.socketPath, "debug/readResource", { uri })) as {
+    uri?: string
+    mimeType?: string
+    value?: unknown
+  }
+  return {
+    contents: [{
+      uri: result.uri ?? uri,
+      mimeType: result.mimeType ?? "application/json",
+      text: JSON.stringify(result.value ?? null, null, 2),
+    }],
+  }
+}
+
+async function listPrompts(): Promise<McpPrompt[]> {
+  const session = await ensureAttached()
+  if (!session) return []
+  try {
+    const result = (await debugRPC(session.socketPath, "debug/listPrompts", {})) as { prompts?: McpPrompt[] }
+    return result.prompts ?? []
+  } catch {
+    attached = null
+    return []
+  }
+}
+
+async function getPrompt(params: JsonObject): Promise<JsonObject> {
+  const name = stringArg(params, "name")
+  if (!name) throw new Error("prompts/get requires params.name")
+  const session = await ensureAttached()
+  if (!session) throw new Error("No active Hype session attached.")
+  const result = (await debugRPC(session.socketPath, "debug/getPrompt", {
+    name,
+    arguments: (params.arguments as JsonObject | undefined) ?? {},
+  })) as { value?: JsonObject }
+  return result.value ?? {}
 }
 
 async function callMCPTool(params: JsonObject): Promise<JsonObject> {

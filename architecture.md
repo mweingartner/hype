@@ -104,7 +104,6 @@ hype-v2/
 │   │       │   └── ThemePicker.swift                    # Picker bound to BuiltInThemes + stack themes
 │   │       ├── ToolName.swift             # Tool palette catalog
 │   │       └── GoMenuCommands.swift       # Menu items (Go, Objects, Arrange, Tools, AI + View/Window additions)
-│   ├── HypeMCPBridge/              # stdio-to-loopback MCP bridge executable
 │   ├── HypePacmanTestbedBuilder/   # CLI that emits a Pac-Man .hype regression stack
 │   └── HypeCore/                   # Library target — model, scripting, AI, rendering
 │       ├── Models/                 # Document model (all value types)
@@ -239,17 +238,15 @@ hype-v2/
 └── Tests/HypeTests/                # App/SpriteKit/AppKit/accessibility smoke coverage
 ```
 
-The package defines four production surfaces: **HypeCore** (model, scripting,
+The package defines three production surfaces: **HypeCore** (model, scripting,
 AI, MCP types, and Core Graphics/AppKit rendering helpers — fully testable
 without launching the app), **Hype** (the macOS executable — SwiftUI, NSView,
-AppKit, SpriteKit, AVKit, WKWebView, and the loopback MCP server),
-**HypeMCPBridge** (a stdio client bridge for external MCP hosts that forwards
-JSON-RPC lines into the running app), and **HypePacmanTestbedBuilder** (a small
-CLI that emits a deterministic Pac-Man-style `.hype` stack for accessibility
-and SpriteKit regression work). The hard split keeps the document model and
-script runtime as value-oriented Swift while the executable owns windows,
-menus, live AppKit hosts, SpriteKit scenes, and live-stack automation
-registration. HypeCore conditionally imports AppKit for macOS
+AppKit, SpriteKit, AVKit, WKWebView, and the local debug server), and
+**HypePacmanTestbedBuilder** (a small CLI that emits a deterministic
+Pac-Man-style `.hype` stack for accessibility and SpriteKit regression work).
+The hard split keeps the document model and script runtime as value-oriented
+Swift while the executable owns windows, menus, live AppKit hosts, SpriteKit
+scenes, and live debug automation. HypeCore conditionally imports AppKit for macOS
 rendering/audio/image utilities, but it does not own SwiftUI windows or live
 SpriteKit nodes.
 
@@ -2553,29 +2550,25 @@ The implementation is split by runtime boundary:
   `hype_apply_transaction`, `hype_rollback_transaction`, and
   `hype_create_test_stack`.
 - `Sources/HypeCore/MCP/HypeMCPPreferenceStore.swift` exposes preferences as
-  scalar descriptors and exposes secrets only as redacted `isSet` status.
-  Provider API keys remain in Keychain; the MCP bearer token is a local
-  automation token in the Hype app preference domain so app launch never blocks
-  on Keychain decryption.
+  scalar descriptors and exposes provider secrets only as redacted `isSet`
+  status. Provider API keys remain in Keychain.
 - `Sources/HypeCore/MCP/HypeMCPDocumentBackend.swift` is the testable in-memory
   backend used by unit tests and non-UI harnesses.
 - `Sources/Hype/MCP/HypeAutomationRegistry.swift` tracks live
   `MainContentView` document bindings, current card, selection, active tool,
   and background-editing state.
-- `Sources/Hype/MCP/HypeLiveMCPBackend.swift` runs MCP calls against the active
-  registered stack and applies changed documents through
-  `HypeDocumentMutationCoordinator`, preserving autosave and undo behavior.
-- `Sources/Hype/MCP/HypeMCPAppServer.swift` starts a loopback HTTP endpoint
-  (`POST /mcp`, `GET /health`) when Hype launches.
-- `Sources/HypeMCPBridge/main.swift` is a stdio bridge executable for MCP
-  hosts that expect line-delimited JSON-RPC over stdin/stdout; it reads or
-  creates the redacted Hype MCP token from the Hype app preference domain and
-  forwards each request to the running app.
+- `Sources/Hype/HypeDebugServer.swift` owns the live app automation server. It
+  exposes debug JSON-RPC over a per-process Unix-domain socket, including tool,
+  resource, prompt, preference, and transaction methods for the stdio MCP
+  client to translate.
+- `Tools/hype-mcp-server` is the only MCP-facing server. It discovers running
+  Hype debug descriptors, attaches to one Unix socket, and translates MCP
+  `tools/*`, `resources/*`, and `prompts/*` requests into debug JSON-RPC.
 
-Security policy is local-first and explicit. The HTTP endpoint accepts only
-loopback client endpoints, every `/mcp` request requires either
-`Authorization: Bearer <token>` or `X-Hype-MCP-Token`, and the token lives in
-the Hype app preference domain under `hype.mcp.token`.
+Security policy is local-first and explicit. Hype.app does not bind a TCP port
+and does not speak MCP directly. Debug sockets and descriptors are written into
+a user-owned discovery directory with restrictive permissions; external MCP
+hosts only interact with the repo-local stdio MCP server.
 `hype://app/preferences` and `hype_get_preferences` never return secret
 values. Mutating calls are gated by `hype.mcp.allowMutations`;
 when disabled, read-only tools still work but stack mutations and transaction
@@ -2596,7 +2589,8 @@ The initial resource catalog is intentionally diagnosable:
 Tests in `HypeMCPTests` cover JSON-RPC initialization, tool/resource catalog
 exposure, preference redaction, document mutation, mutation-policy refusal, and
 preview/apply transaction semantics. Live app validation uses
-`hype-mcp` against `/Applications/Hype.app` after deployment.
+`Tools/hype-mcp-server/bin/hype-mcp.js` against `/Applications/Hype.app` after
+deployment.
 
 ### 7.7 Lightweight Q&A and bulk generator
 

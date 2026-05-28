@@ -90,17 +90,17 @@ public enum HypeMCPToolBridge {
             ),
             tool(
                 "hype_set_secret",
-                "Store an MCP-exposed secret. Provider API secrets are stored in Keychain; mcp-token is stored as a redacted local automation token. Values are never returned by any MCP resource or tool.",
+                "Store an MCP-exposed provider secret in Keychain. Values are never returned by any MCP resource or tool.",
                 [
-                    "name": ("string", "Secret name: openai, llama-swap, z.ai, minimax, meshy, pexels, or mcp-token.", true),
+                    "name": ("string", "Secret name: openai, llama-swap, z.ai, minimax, meshy, or pexels.", true),
                     "value": ("string", "Secret value to store", true)
                 ]
             ),
             tool(
                 "hype_delete_secret",
-                "Delete an MCP-exposed secret. Provider API secrets are removed from Keychain; mcp-token is removed from local automation preferences.",
+                "Delete an MCP-exposed provider secret from Keychain.",
                 [
-                    "name": ("string", "Secret name: openai, llama-swap, z.ai, minimax, meshy, pexels, or mcp-token.", true)
+                    "name": ("string", "Secret name: openai, llama-swap, z.ai, minimax, meshy, or pexels.", true)
                 ]
             ),
             tool(

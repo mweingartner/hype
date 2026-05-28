@@ -377,32 +377,31 @@ profile for safe-area, hit-size, text-size, spacing, and availability issues.
 
 ### MCP automation
 
-Hype starts a local MCP endpoint when the macOS app launches. It is intended
-for trusted local clients and automation harnesses:
+Hype.app exposes a local debug server, not MCP directly. MCP protocol handling
+lives in the repo-local TypeScript stdio server, which discovers running Hype
+debug sockets and translates MCP requests into debug JSON-RPC:
 
-- HTTP transport: `POST http://127.0.0.1:47891/mcp`
-- Health check: `GET http://127.0.0.1:47891/health`
-- Auth: `Authorization: Bearer <token>` or `X-Hype-MCP-Token: <token>`
-- Bridge executable: `swift run hype-mcp`
+- Debug transport: per-process Unix-domain socket under the Hype debug discovery directory
+- MCP server: `node Tools/hype-mcp-server/bin/hype-mcp.js`
 - Codex bridge wrapper: `scripts/hype-mcp-stdio.sh`
 
-The token is generated once in the Hype app preference domain as
-`hype.mcp.token`; it is treated as a local automation secret and never returned
-by any MCP resource. Use `hype://app/preferences` or
-`hype_get_preferences` to see redacted `isSet` status for provider secrets.
+Use `hype://app/preferences` or `hype_get_preferences` to see redacted `isSet`
+status for provider secrets. Provider secret values are never returned by any
+MCP resource or tool.
 
 For Codex, configure the wrapper as a stdio MCP server:
 
 ```toml
 [mcp_servers.hype]
-command = "/Users/mweingar/dev/hype-v2/scripts/hype-mcp-stdio.sh"
+command = "/path/to/hype/scripts/hype-mcp-stdio.sh"
 args = []
 startup_timeout_sec = 120
 ```
 
-The wrapper builds the bridge if needed, launches `/Applications/Hype.app` when
-the loopback MCP endpoint is not already healthy, waits for `/health`, and then
-execs the stdio bridge without writing non-JSON output to stdout.
+The wrapper builds the TypeScript server if needed, launches
+`/Applications/Hype.app`, and then execs the stdio MCP server without writing
+non-JSON output to stdout. The MCP server can start detached and will attach
+automatically when exactly one live Hype debug session is discoverable.
 
 The MCP tool catalog contains every in-app authoring tool plus control tools:
 `hype_get_app_state`, `hype_get_preferences`, `hype_set_preference`,

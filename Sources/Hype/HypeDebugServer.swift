@@ -27,6 +27,7 @@ final class HypeDebugServer: @unchecked Sendable {
     private let webAssetSession = WebAssetSession()
     private let startedAt = Date()
     private let startedAtString: String
+    private var transactions: [UUID: AIEditTransaction] = [:]
     private var listenSocket: Int32 = -1
     private var acceptSource: DispatchSourceRead?
     private var socketPath = ""
@@ -350,12 +351,32 @@ final class HypeDebugServer: @unchecked Sendable {
                 return jsonRPCResult(id: id, result: descriptor())
             case "debug/listTools":
                 return jsonRPCResult(id: id, result: ["tools": debugTools()])
+            case "debug/listResources":
+                return jsonRPCResult(id: id, result: ["resources": await debugResources()])
+            case "debug/readResource":
+                guard let uri = params["uri"] as? String, !uri.isEmpty else {
+                    return jsonRPCError(id: id, code: -32602, message: "debug/readResource requires params.uri")
+                }
+                return jsonRPCResult(id: id, result: ["uri": uri, "mimeType": "application/json", "value": await debugResource(uri: uri)])
+            case "debug/listPrompts":
+                return jsonRPCResult(id: id, result: ["prompts": await debugPrompts()])
+            case "debug/getPrompt":
+                guard let name = params["name"] as? String, !name.isEmpty else {
+                    return jsonRPCError(id: id, code: -32602, message: "debug/getPrompt requires params.name")
+                }
+                let arguments = mcpArguments(from: params["arguments"] as? [String: Any] ?? [:])
+                return jsonRPCResult(id: id, result: ["value": await debugPrompt(name: name, arguments: arguments)])
             case "debug/callTool":
                 guard let name = params["name"] as? String else {
                     return jsonRPCError(id: id, code: -32602, message: "debug/callTool requires params.name")
                 }
-                let arguments = stringifyArguments(params["arguments"] as? [String: Any] ?? [:])
-                let result = await callTool(name: name, arguments: arguments)
+                let rawArguments = params["arguments"] as? [String: Any] ?? [:]
+                let result: (text: String, isError: Bool)
+                if HypeMCPToolBridge.mcpControlToolNames.contains(name) {
+                    result = await callControlTool(name: name, arguments: mcpArguments(from: rawArguments))
+                } else {
+                    result = await callTool(name: name, arguments: stringifyArguments(rawArguments))
+                }
                 return jsonRPCResult(id: id, result: ["text": result.text, "isError": result.isError])
             default:
                 return jsonRPCError(id: id, code: -32601, message: "Method not found")
@@ -557,13 +578,106 @@ final class HypeDebugServer: @unchecked Sendable {
 
     @MainActor
     private func debugTools() -> [[String: Any]] {
-        availableTools().map { tool in
+        let authoringTools = availableTools().map { tool in
             [
                 "name": tool.function.name,
                 "description": tool.function.description,
                 "inputSchema": inputSchema(for: tool),
             ]
         }
+        let controlTools = HypeMCPToolBridge.allTools
+            .filter { HypeMCPToolBridge.mcpControlToolNames.contains($0.name) }
+            .map(mcpToolJSON)
+        return controlTools + authoringTools
+    }
+
+    @MainActor
+    private func debugResources() async -> [[String: Any]] {
+        guard let backend = documentBackend() else {
+            return [
+                [
+                    "uri": "hype://app/state",
+                    "name": "App State",
+                    "description": "Current Hype app and active debug-session state.",
+                    "mimeType": "application/json",
+                ]
+            ]
+        }
+        return await backend.listResources().map(mcpResourceJSON)
+    }
+
+    @MainActor
+    private func debugResource(uri: String) async -> Any {
+        guard let backend = documentBackend() else {
+            if uri == "hype://app/state" {
+                return [
+                    "activeStackId": NSNull(),
+                    "openStacks": [],
+                    "debug": descriptor(),
+                ] as [String: Any]
+            }
+            return ["error": "No active Hype document."] as [String: Any]
+        }
+        return (await backend.readResource(uri: uri)).jsonObject
+    }
+
+    @MainActor
+    private func debugPrompts() async -> [[String: Any]] {
+        guard let backend = documentBackend() else { return [] }
+        return await backend.listPrompts().map(mcpPromptJSON)
+    }
+
+    @MainActor
+    private func debugPrompt(name: String, arguments: [String: HypeMCPJSONValue]) async -> Any {
+        guard let backend = documentBackend() else {
+            return ["error": "No active Hype document."] as [String: Any]
+        }
+        return (await backend.getPrompt(name: name, arguments: arguments)).jsonObject
+    }
+
+    @MainActor
+    private func documentBackend() -> HypeMCPDocumentBackend? {
+        guard let document = HypeDocumentMutationCoordinator.shared.activeDocumentBinding?.wrappedValue.document else {
+            return nil
+        }
+        let currentCardId = HypeDocumentMutationCoordinator.shared.activeCardId
+            ?? document.sortedCards.first?.id
+        return HypeMCPDocumentBackend(
+            document: document,
+            currentCardId: currentCardId,
+            allowMutations: allowMCPMutations()
+        )
+    }
+
+    private func mcpToolJSON(_ tool: HypeMCPTool) -> [String: Any] {
+        [
+            "name": tool.name,
+            "description": tool.description,
+            "inputSchema": tool.inputSchema.jsonObject,
+        ]
+    }
+
+    private func mcpResourceJSON(_ resource: HypeMCPResource) -> [String: Any] {
+        [
+            "uri": resource.uri,
+            "name": resource.name,
+            "description": resource.description,
+            "mimeType": resource.mimeType,
+        ]
+    }
+
+    private func mcpPromptJSON(_ prompt: HypeMCPPrompt) -> [String: Any] {
+        [
+            "name": prompt.name,
+            "description": prompt.description,
+            "arguments": prompt.arguments.map {
+                [
+                    "name": $0.name,
+                    "description": $0.description,
+                    "required": $0.required,
+                ] as [String: Any]
+            },
+        ]
     }
 
     @MainActor
@@ -594,6 +708,195 @@ final class HypeDebugServer: @unchecked Sendable {
             "properties": properties,
             "required": tool.function.parameters.required,
         ]
+    }
+
+    @MainActor
+    private func callControlTool(name: String, arguments: [String: HypeMCPJSONValue]) async -> (text: String, isError: Bool) {
+        switch name {
+        case "hype_get_app_state", "hype_list_open_stacks":
+            return (debugJSONText(await debugResource(uri: "hype://app/state")), false)
+        case "hype_get_preferences":
+            return (debugJSONText(HypeMCPPreferenceStore.snapshot().jsonObject), false)
+        case "hype_set_preference":
+            guard allowMCPMutations() else { return ("MCP mutations are disabled.", true) }
+            let result = HypeMCPPreferenceStore.setPreference(
+                name: arguments["name"]?.flattenedString ?? "",
+                value: arguments["value"]?.flattenedString ?? ""
+            )
+            return (debugJSONText(["result": result, "preferences": HypeMCPPreferenceStore.snapshot().jsonObject]), false)
+        case "hype_set_secret":
+            guard allowMCPMutations() else { return ("MCP mutations are disabled.", true) }
+            let result = HypeMCPPreferenceStore.setSecret(
+                name: arguments["name"]?.flattenedString ?? "",
+                value: arguments["value"]?.flattenedString ?? ""
+            )
+            return (debugJSONText(["result": result, "preferences": HypeMCPPreferenceStore.snapshot().jsonObject]), false)
+        case "hype_delete_secret":
+            guard allowMCPMutations() else { return ("MCP mutations are disabled.", true) }
+            let result = HypeMCPPreferenceStore.deleteSecret(name: arguments["name"]?.flattenedString ?? "")
+            return (debugJSONText(["result": result, "preferences": HypeMCPPreferenceStore.snapshot().jsonObject]), false)
+        case "hype_run_existing_tool":
+            guard allowMCPMutations() else { return ("MCP mutations are disabled.", true) }
+            let toolName = arguments["tool_name"]?.flattenedString ?? ""
+            let toolArguments = HypeMCPToolBridge.parseArgumentsJSON(arguments["arguments_json"]?.flattenedString ?? "{}")
+            return await callTool(name: toolName, arguments: toolArguments)
+        case "hype_preview_transaction":
+            guard allowMCPMutations() else { return ("MCP mutations are disabled.", true) }
+            return await previewTransaction(arguments: arguments)
+        case "hype_apply_transaction":
+            guard allowMCPMutations() else { return ("MCP mutations are disabled.", true) }
+            return await applyTransaction(idText: arguments["transaction_id"]?.flattenedString ?? "")
+        case "hype_rollback_transaction":
+            return rollbackTransaction(idText: arguments["transaction_id"]?.flattenedString ?? "")
+        case "hype_create_test_stack":
+            guard allowMCPMutations() else { return ("MCP mutations are disabled.", true) }
+            return createTestStack(name: arguments["name"]?.flattenedString.nonEmpty ?? "MCP Test Stack")
+        default:
+            return ("Unknown MCP control tool \(name)", true)
+        }
+    }
+
+    @MainActor
+    private func previewTransaction(arguments: [String: HypeMCPJSONValue]) async -> (text: String, isError: Bool) {
+        guard let binding = HypeDocumentMutationCoordinator.shared.activeDocumentBinding else {
+            return ("No active Hype document. Open or focus a stack window before previewing transactions.", true)
+        }
+        let current = binding.wrappedValue.document
+        let currentCardId = HypeDocumentMutationCoordinator.shared.activeCardId
+            ?? current.sortedCards.first?.id
+            ?? UUID()
+        let calls = transactionCalls(from: arguments)
+        guard !calls.isEmpty else {
+            return ("hype_preview_transaction requires tool_calls_json or tool_name.", true)
+        }
+        let transaction = await AIEditTransactionRunner(executor: makeExecutor(for: current)).preview(
+            toolCalls: calls,
+            document: current,
+            currentCardId: currentCardId,
+            prompt: arguments["prompt"]?.flattenedString ?? "MCP transaction",
+            providerName: "debug-mcp"
+        )
+        transactions[transaction.id] = transaction
+        return (debugJSONText(transactionSummary(transaction)), false)
+    }
+
+    @MainActor
+    private func applyTransaction(idText: String) async -> (text: String, isError: Bool) {
+        guard let id = UUID(uuidString: idText), var transaction = transactions[id] else {
+            return ("Unknown transaction \(idText)", true)
+        }
+        guard let binding = HypeDocumentMutationCoordinator.shared.activeDocumentBinding else {
+            return ("No active Hype document. Open or focus a stack window before applying transactions.", true)
+        }
+        var document = binding.wrappedValue.document
+        let currentCardId = HypeDocumentMutationCoordinator.shared.activeCardId
+            ?? document.sortedCards.first?.id
+            ?? UUID()
+        let applied = await AIEditTransactionRunner(executor: makeExecutor(for: document)).apply(
+            &transaction,
+            to: &document,
+            currentCardId: currentCardId
+        )
+        transactions[id] = applied
+        HypeDocumentMutationCoordinator.shared.applyDocument(
+            document,
+            to: binding,
+            undoManager: nil,
+            actionName: "Debug MCP Transaction"
+        )
+        return (debugJSONText(transactionSummary(applied)), false)
+    }
+
+    @MainActor
+    private func rollbackTransaction(idText: String) -> (text: String, isError: Bool) {
+        guard let id = UUID(uuidString: idText), var transaction = transactions[id] else {
+            return ("Unknown transaction \(idText)", true)
+        }
+        guard let binding = HypeDocumentMutationCoordinator.shared.activeDocumentBinding else {
+            return ("No active Hype document. Open or focus a stack window before rolling back transactions.", true)
+        }
+        var document = binding.wrappedValue.document
+        let rolledBack = AIEditTransactionRunner(executor: makeExecutor(for: document)).rollback(&transaction, to: &document)
+        transactions[id] = rolledBack
+        HypeDocumentMutationCoordinator.shared.applyDocument(
+            document,
+            to: binding,
+            undoManager: nil,
+            actionName: "Debug MCP Transaction Rollback"
+        )
+        return (debugJSONText(transactionSummary(rolledBack)), false)
+    }
+
+    @MainActor
+    private func createTestStack(name: String) -> (text: String, isError: Bool) {
+        guard let binding = HypeDocumentMutationCoordinator.shared.activeDocumentBinding else {
+            return ("No active Hype document. Open or focus a stack window before creating a test stack.", true)
+        }
+        let document = HypeDocument.newDocument(name: name)
+        HypeDocumentMutationCoordinator.shared.activeCardId = document.sortedCards.first?.id
+        HypeDocumentMutationCoordinator.shared.applyDocument(
+            document,
+            to: binding,
+            undoManager: nil,
+            actionName: "Debug MCP Test Stack"
+        )
+        transactions.removeAll()
+        return (debugJSONText(["result": "Created test stack", "state": ["activeStackId": document.stack.id.uuidString]]), false)
+    }
+
+    private func transactionCalls(from arguments: [String: HypeMCPJSONValue]) -> [OllamaToolCall] {
+        if let json = arguments["tool_calls_json"]?.flattenedString,
+           let data = json.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode(HypeMCPJSONValue.self, from: data),
+           let array = decoded.arrayValue {
+            return array.compactMap { item in
+                guard let object = item.objectValue,
+                      let name = object["tool_name"]?.flattenedString.nonEmpty ?? object["name"]?.flattenedString.nonEmpty else {
+                    return nil
+                }
+                let args = HypeMCPToolBridge.stringArguments(from: object["arguments"])
+                return OllamaToolCall(function: OllamaToolCallFunction(name: name, arguments: args))
+            }
+        }
+
+        guard let name = arguments["tool_name"]?.flattenedString.nonEmpty else { return [] }
+        let args = HypeMCPToolBridge.parseArgumentsJSON(arguments["arguments_json"]?.flattenedString ?? "{}")
+        return [OllamaToolCall(function: OllamaToolCallFunction(name: name, arguments: args))]
+    }
+
+    private func transactionSummary(_ transaction: AIEditTransaction) -> Any {
+        [
+            "transactionId": transaction.id.uuidString,
+            "state": transaction.state.rawValue,
+            "operationCount": transaction.operations.count,
+            "diagnostics": transaction.diagnostics,
+            "operations": transaction.operations.map { operation in
+                [
+                    "toolName": operation.toolName,
+                    "result": operation.result,
+                    "phase": operation.phase.rawValue,
+                    "delta": [
+                        "createdPartIds": operation.delta.createdPartIds.map(\.uuidString),
+                        "deletedPartIds": operation.delta.deletedPartIds.map(\.uuidString),
+                        "changedPartIds": operation.delta.changedPartIds.map(\.uuidString),
+                        "createdCardIds": operation.delta.createdCardIds.map(\.uuidString),
+                        "changedCardIds": operation.delta.changedCardIds.map(\.uuidString),
+                        "stackChanged": operation.delta.stackChanged,
+                    ] as [String: Any],
+                ] as [String: Any]
+            },
+        ] as [String: Any]
+    }
+
+    private func allowMCPMutations() -> Bool {
+        if UserDefaults.standard.object(forKey: HypeMCPConfiguration.allowMutationsKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: HypeMCPConfiguration.allowMutationsKey)
+    }
+
+    private func mcpArguments(from arguments: [String: Any]) -> [String: HypeMCPJSONValue] {
+        arguments.mapValues(HypeMCPJSONValue.init(any:))
     }
 
     @MainActor
@@ -711,6 +1014,40 @@ final class HypeDebugServer: @unchecked Sendable {
 
     private nonisolated func jsonRPCError(id: Any?, code: Int, message: String) -> [String: Any] {
         ["jsonrpc": "2.0", "id": id ?? NSNull(), "error": ["code": code, "message": message]]
+    }
+}
+
+private extension HypeMCPJSONValue {
+    var jsonObject: Any {
+        switch self {
+        case .null:
+            return NSNull()
+        case .bool(let value):
+            return value
+        case .number(let value):
+            return value
+        case .string(let value):
+            return value
+        case .array(let values):
+            return values.map(\.jsonObject)
+        case .object(let values):
+            return values.mapValues(\.jsonObject)
+        }
+    }
+}
+
+private func debugJSONText(_ value: Any) -> String {
+    guard JSONSerialization.isValidJSONObject(value),
+          let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else {
+        return String(describing: value)
+    }
+    return text
+}
+
+private extension String {
+    var nonEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 
