@@ -4,6 +4,7 @@ import net from "node:net"
 import os from "node:os"
 import path from "node:path"
 import process from "node:process"
+import { fileURLToPath } from "node:url"
 
 type JsonObject = Record<string, unknown>
 
@@ -44,6 +45,7 @@ const debugConnections = new Map<string, DebugConnection>()
 let discoveryPollInFlight = false
 
 const discoveryPollIntervalMs = 2_000
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..")
 
 const connectionTools: McpTool[] = [
   {
@@ -121,7 +123,7 @@ function discoveryDirectory(): string {
     return configured.replace(/^~/, os.homedir())
   }
 
-  const repoLocal = path.join(process.cwd(), ".hype", "debug")
+  const repoLocal = path.join(repoRoot, ".hype", "debug")
   try {
     fsSync.mkdirSync(repoLocal, { recursive: true, mode: 0o700 })
     return repoLocal

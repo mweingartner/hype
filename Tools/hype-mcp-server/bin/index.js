@@ -4,12 +4,14 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 let nextDebugId = 1;
 let attached = null;
 let stdinBuffer = Buffer.alloc(0);
 const debugConnections = new Map();
 let discoveryPollInFlight = false;
 const discoveryPollIntervalMs = 2_000;
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const connectionTools = [
     {
         name: "hype_list_sessions",
@@ -84,7 +86,7 @@ function discoveryDirectory() {
     if (configured && configured.length > 0) {
         return configured.replace(/^~/, os.homedir());
     }
-    const repoLocal = path.join(process.cwd(), ".hype", "debug");
+    const repoLocal = path.join(repoRoot, ".hype", "debug");
     try {
         fsSync.mkdirSync(repoLocal, { recursive: true, mode: 0o700 });
         return repoLocal;
