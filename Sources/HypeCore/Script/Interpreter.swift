@@ -114,6 +114,68 @@ public struct StubSystemProvider: SystemProvider, Sendable {
     public init() {}
 }
 
+// MARK: - HostApplicationProvider
+
+/// The target object for `print card` / `print field` commands.
+public enum HostPrintTarget: Sendable {
+    /// Print the current card as a rendered image.
+    case card
+    /// Print the text content of a named or numbered field.
+    case field(String)
+}
+
+/// Protocol for application-shell operations that require platform UI access —
+/// injected by the UI layer, mirroring the `SystemProvider` pattern.
+///
+/// Every method has a default no-op implementation in the extension below so
+/// the stub and CLI paths continue to compile without changes.
+public protocol HostApplicationProvider: Sendable {
+    /// Suppress canvas redraws for the duration of a visual batch.
+    func lockScreen() async
+    /// Re-enable canvas redraws and refresh the display.
+    func unlockScreen() async
+    /// Open a `.hype` stack at the given absolute path.
+    func openStack(path: String) async
+    /// Save the frontmost stack document.
+    func saveStack() async
+    /// Close the frontmost window.
+    func closeWindow() async
+    /// Terminate the application.
+    func quitApp() async
+    /// Open the Script Editor for the object identified by `objectId`.
+    /// `nil` falls back to editing the current card's script.
+    func editScript(ofObjectId: UUID?) async
+    /// Print a card or field.
+    func print(target: HostPrintTarget) async
+    /// Perform a named menu item from the curated allowlist.
+    /// Returns `true` if the item was recognised and handled, `false` otherwise.
+    /// Unknown or destructive items always return `false` without side-effects.
+    func doMenu(item: String) async -> Bool
+    /// Return the titles of every top-level menu in the application's menu bar.
+    /// Used by `the menus` HypeTalk property.
+    /// The stub returns `[]`; the AppKit implementation reads `NSApplication.shared.mainMenu`.
+    func menuTitles() async -> [String]
+}
+
+public extension HostApplicationProvider {
+    func lockScreen() async {}
+    func unlockScreen() async {}
+    func openStack(path: String) async {}
+    func saveStack() async {}
+    func closeWindow() async {}
+    func quitApp() async {}
+    func editScript(ofObjectId: UUID?) async {}
+    func print(target: HostPrintTarget) async {}
+    func doMenu(item: String) async -> Bool { false }
+    func menuTitles() async -> [String] { [] }
+}
+
+/// Default host provider that silently no-ops all operations.
+/// Used by CLI tools, benchmarks, and test paths that have no UI context.
+public struct StubHostApplicationProvider: HostApplicationProvider, Sendable {
+    public init() {}
+}
+
 /// Context for script execution.
 public struct ExecutionContext: Sendable {
     public var targetId: UUID
@@ -123,6 +185,8 @@ public struct ExecutionContext: Sendable {
     public var dialogProvider: DialogProvider
     public var drawingProvider: DrawingProvider
     public var systemProvider: SystemProvider
+    /// Provider for application-shell commands (`open stack`, `save stack`, `quit`, etc.).
+    public var hostProvider: any HostApplicationProvider
     public var aiProvider: any AIScriptingProvider
     public var speechOutputProvider: SpeechOutputProvider
     public var runtimeProvider: (any ScriptRuntimeProviding)?
@@ -136,6 +200,12 @@ public struct ExecutionContext: Sendable {
     public var appScript: String
     public var nestedSendDepth: Int
     public var profiler: HypeTalkExecutionProfiler?
+    /// Provider for sandboxed `read from file` / `write to file` operations.
+    /// `StubFileAccessProvider` (deny-by-default) is used when file access is disabled.
+    public var fileProvider: any FileAccessProvider
+    /// Current nesting depth of `do <expr>` evaluation.
+    /// Counted independently of `nestedSendDepth`; capped at `Interpreter.maxNestedEvalDepth`.
+    public var nestedEvalDepth: Int
 
     /// Consolidated initializer.
     ///
@@ -149,6 +219,7 @@ public struct ExecutionContext: Sendable {
                 dialogProvider: DialogProvider = StubDialogProvider(),
                 drawingProvider: DrawingProvider = StubDrawingProvider(),
                 systemProvider: SystemProvider = StubSystemProvider(),
+                hostProvider: any HostApplicationProvider = StubHostApplicationProvider(),
                 aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
                 speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
                 runtimeProvider: (any ScriptRuntimeProviding)? = nil,
@@ -158,7 +229,9 @@ public struct ExecutionContext: Sendable {
                 scriptContext: ScriptDispatchContext? = nil,
                 appScript: String = "",
                 nestedSendDepth: Int = 0,
-                profiler: HypeTalkExecutionProfiler? = nil) {
+                profiler: HypeTalkExecutionProfiler? = nil,
+                fileProvider: any FileAccessProvider = StubFileAccessProvider(),
+                nestedEvalDepth: Int = 0) {
         self.targetId = targetId
         self.currentCardId = currentCardId
         self.document = document
@@ -166,6 +239,7 @@ public struct ExecutionContext: Sendable {
         self.dialogProvider = dialogProvider
         self.drawingProvider = drawingProvider
         self.systemProvider = systemProvider
+        self.hostProvider = hostProvider
         self.aiProvider = aiProvider
         self.speechOutputProvider = speechOutputProvider
         self.runtimeProvider = runtimeProvider
@@ -177,6 +251,8 @@ public struct ExecutionContext: Sendable {
         self.appScript = appScript
         self.nestedSendDepth = nestedSendDepth
         self.profiler = profiler
+        self.fileProvider = fileProvider
+        self.nestedEvalDepth = nestedEvalDepth
     }
 }
 
@@ -434,6 +510,16 @@ private enum SpriteAreaMutationScope {
 public struct Interpreter: Sendable {
 
     public init() {}
+
+    // MARK: - Security limits for `do <expr>` eval
+
+    /// Maximum nesting depth for `do`-inside-`do` evaluation.
+    /// Counted independently of `nestedSendDepth` (the `send` budget).
+    static let maxNestedEvalDepth = 8
+
+    /// Maximum UTF-8 byte count of a string passed to `do`.
+    /// Limits parse-time work, which runs outside the instruction budget.
+    static let maxDoEvalBytes = 64 * 1024
 
     /// Execute a handler with the given parameters and context.
     public func execute(handler: Handler, params: [Value], context: ExecutionContext) -> ExecutionResult {
@@ -1340,9 +1426,33 @@ public struct Interpreter: Sendable {
             _ = try await evaluate(expr, env: &env, document: document, context: context)
 
         case .doBlock(let expr):
+            // SECURITY: depth gate FIRST (Finding 1/2). Independent counter;
+            // separate from nestedSendDepth so send-depth budget cannot be
+            // exhausted via do-nesting, and vice-versa.
+            guard context.nestedEvalDepth < Self.maxNestedEvalDepth else {
+                throw ScriptError(message: "do-eval nesting too deep", line: handler.line, handler: handler.name)
+            }
             let scriptText = try await evaluate(expr, env: &env, document: document, context: context)
-            // Simplified: parse and execute inline. Not fully implemented.
-            _ = scriptText
+            // SECURITY (Finding 3): cap parse-time work — lex/parse runs
+            // OUTSIDE the instruction budget so an oversize string must be
+            // rejected before we hand it to the lexer.
+            guard scriptText.utf8.count <= Self.maxDoEvalBytes else {
+                throw ScriptError(message: "do: script too large", line: handler.line, handler: handler.name)
+            }
+            var lexer = Lexer(source: scriptText)
+            let tokens = lexer.tokenize()
+            var parser = Parser(tokens: tokens)
+            let stmts: [Statement]
+            do {
+                stmts = try parser.parseStatements()
+            } catch let e as ParseError {
+                throw ScriptError(message: "do: \(e.errorDescription ?? "parse error")", line: handler.line, handler: handler.name)
+            }
+            var childContext = context
+            childContext.nestedEvalDepth = context.nestedEvalDepth + 1
+            for s in stmts {
+                try await executeStatement(s, env: &env, document: &document, context: childContext, instructionCount: &instructionCount, navigationTarget: &navigationTarget, handler: handler)
+            }
 
         case .createCard(let bgNameExpr):
             var bgName: String? = nil
@@ -1437,17 +1547,67 @@ public struct Interpreter: Sendable {
             }
 
         case .findText(let expr):
-            // Stub: find is complex — for now store the search text in `it`.
-            let text = try await evaluate(expr, env: &env, document: document, context: context)
-            env.it = text
+            // HyperCard `find "text"` — case-insensitive substring search across
+            // all field textContent, starting from the current card and wrapping.
+            // Sets the runtime's found state and navigates to the matching card.
+            let searchTerm = try await evaluate(expr, env: &env, document: document, context: context)
+            env.it = searchTerm
+            if let found = findTextInDocument(
+                searchTerm,
+                document: document,
+                startingCardId: context.currentCardId
+            ) {
+                await context.runtimeProvider?.setFoundState(found)
+                navigationTarget = found.cardId
+                await context.runtimeProvider?.navigateToCard(found.cardId)
+            } else {
+                await context.runtimeProvider?.setFoundState(nil)
+            }
 
-        case .selectObject:
-            break // UI operation — stub
+        case .selectObject(let expr):
+            // HyperCard `select <expr>` — record selection state so that
+            // `the selectedText` / `selectedChunk` / `selectedField` / `selectedLine`
+            // return the right values.  Model state is fully implemented;
+            // UI highlight (field-editor range selection) is a follow-up (see report).
+            if let selected = await resolveSelectExpression(
+                expr,
+                env: &env,
+                document: document,
+                context: context
+            ) {
+                await context.runtimeProvider?.setSelectedState(selected)
+            }
 
         case .sortCards(let byExpr):
-            // Sort cards by evaluating the expression for each card.
-            let _ = try await evaluate(byExpr, env: &env, document: document, context: context)
-            // Complex — stub for now
+            // Evaluate the key expression once per card, in that card's context,
+            // then stably sort ascending. Numeric order is used when every key
+            // parses as a finite number; otherwise case-insensitive text order.
+            var cardKeys: [(cardId: UUID, key: String)] = []
+            for card in document.sortedCards {
+                var cardContext = context
+                cardContext.currentCardId = card.id
+                let key = try await evaluateSortKey(byExpr, env: &env, document: document, context: cardContext)
+                cardKeys.append((cardId: card.id, key: key))
+            }
+            let allNumeric = cardKeys.allSatisfy {
+                let d = Double($0.key)
+                return d != nil && d!.isFinite
+            }
+            let sortedIds: [UUID]
+            if allNumeric {
+                sortedIds = cardKeys.sorted { Double($0.key)! < Double($1.key)! }.map(\.cardId)
+            } else {
+                sortedIds = cardKeys.sorted {
+                    $0.key.compare($1.key, options: .caseInsensitive) == .orderedAscending
+                }.map(\.cardId)
+            }
+            // Rewrite sortKeys as evenly-spaced "a%06d" strings matching the
+            // scheme used by HypeDocument.addCard.
+            for (index, cardId) in sortedIds.enumerated() {
+                if let i = document.cards.firstIndex(where: { $0.id == cardId }) {
+                    document.cards[i].sortKey = String(format: "a%06d", index)
+                }
+            }
 
         case .hideObject(let expr):
             if case .objectRef(let ref) = expr {
@@ -1465,17 +1625,32 @@ public struct Interpreter: Sendable {
                 }
             }
 
-        case .lockScreen, .unlockScreen:
-            break // UI operation — stub
+        case .lockScreen:
+            await context.hostProvider.lockScreen()
 
-        case .openStack:
-            break // Complex — stub
+        case .unlockScreen:
+            await context.hostProvider.unlockScreen()
+
+        case .openStack(let pathExpr):
+            let path = try await evaluate(pathExpr, env: &env, document: document, context: context)
+            await context.hostProvider.openStack(path: path)
 
         case .externalCommand(let name, let argumentExprs):
             var args: [Value] = []
             for expr in argumentExprs {
                 args.append(try await evaluate(expr, env: &env, document: document, context: context))
             }
+
+            // Intercept HypeTalk application-shell commands that the parser routes
+            // through externalCommand because they have no dedicated keyword token.
+            // `doMenu` and `print` (when passed an argument string) land here.
+            let normalizedName = name.lowercased()
+            if normalizedName == "domenu" {
+                let item = args.first ?? ""
+                _ = await context.hostProvider.doMenu(item: item)
+                break
+            }
+
             let result = await context.externalRegistry.invoke(
                 HyperCardExternalCall(name: name, kind: .xcmd, arguments: args),
                 context: HyperCardExternalCallContext(
@@ -1538,6 +1713,7 @@ public struct Interpreter: Sendable {
                 dialogProvider: context.dialogProvider,
                 drawingProvider: context.drawingProvider,
                 systemProvider: context.systemProvider,
+                hostProvider: context.hostProvider,
                 aiProvider: context.aiProvider,
                 speechOutputProvider: context.speechOutputProvider,
                 appScript: context.appScript,
@@ -1545,7 +1721,8 @@ public struct Interpreter: Sendable {
                 mouseY: context.mouseY,
                 scriptContext: context.scriptContext,
                 runtimeProvider: context.runtimeProvider,
-                nestedSendDepth: context.nestedSendDepth + 1
+                nestedSendDepth: context.nestedSendDepth + 1,
+                fileProvider: context.fileProvider
             )
             if let modifiedDocument = result.modifiedDocument {
                 document = modifiedDocument
@@ -1924,12 +2101,69 @@ public struct Interpreter: Sendable {
             env.it = text
 
         case .convert(let sourceExpr, let targetExpr):
-            let _ = try await evaluate(sourceExpr, env: &env, document: document, context: context)
-            let _ = try await evaluate(targetExpr, env: &env, document: document, context: context)
-            // Stub: conversion between date/time formats not yet implemented
+            // Read the source value directly from the container rather than via
+            // evaluate(), which returns the Part's UUID string for objectRefs.
+            let sourceValue: String
+            switch sourceExpr {
+            case .variable(let name):
+                sourceValue = env.getVariable(name)
+            case .it:
+                sourceValue = env.it
+            case .objectRef(let ref):
+                let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+                if let idx = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
+                    sourceValue = document.parts[idx].textContent
+                } else {
+                    sourceValue = try await evaluate(sourceExpr, env: &env, document: document, context: context)
+                }
+            default:
+                // Bare literal, chunk expression, etc. — evaluate normally.
+                sourceValue = try await evaluate(sourceExpr, env: &env, document: document, context: context)
+            }
+            let formatValue = try await evaluate(targetExpr, env: &env, document: document, context: context)
+            let converted = convertDateTime(sourceValue, toFormat: formatValue)
+            // Write the converted value back into the source container, mirroring
+            // the `put X into <container>` assignment path.
+            switch sourceExpr {
+            case .variable(let name):
+                env.setVariable(name, converted)
+            case .it:
+                env.it = converted
+            case .objectRef(let ref):
+                let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+                if let idx = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
+                    document.parts[idx].textContent = converted
+                }
+            default:
+                // Bare literal or unrecognised container — store in `it`
+                env.it = converted
+            }
 
-        case .closeWindow, .saveStack, .quitApp, .editScriptOf:
-            break // UI operations — stubs requiring platform integration
+        case .saveStack:
+            await context.hostProvider.saveStack()
+
+        case .closeWindow:
+            await context.hostProvider.closeWindow()
+
+        case .quitApp:
+            await context.hostProvider.quitApp()
+
+        case .editScriptOf(let targetExpr):
+            // Resolve the expression to an object UUID if possible.
+            // We attempt to interpret it as an objectRef (part/card/background/stack);
+            // if resolution fails we pass nil so the host opens the current card's editor.
+            let objectId: UUID?
+            if case .objectRef(let ref) = targetExpr {
+                let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+                if let idx = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
+                    objectId = document.parts[idx].id
+                } else {
+                    objectId = nil
+                }
+            } else {
+                objectId = nil
+            }
+            await context.hostProvider.editScript(ofObjectId: objectId)
 
         case .dragFrom(let fromExpr, let toExpr):
             let fromVal = try await evaluate(fromExpr, env: &env, document: document, context: context)
@@ -2577,12 +2811,296 @@ public struct Interpreter: Sendable {
                 }
             }
 
-        // Phase 2: Stub commands (recognized but no-op)
-        case .push, .pop, .clickAt, .doMenuCmd, .disableCmd, .enableCmd,
-             .helpCmd, .debugCmd, .dialCmd, .printCmd, .readCmd, .writeCmd,
+        case .push(let cardExpr):
+            // HyperCard `push [card]` — save the specified (or current) card ID
+            // onto the session card-history stack so `pop card` can return to it.
+            let cardId: UUID
+            if let expr = cardExpr {
+                let refValue = try await evaluate(expr, env: &env, document: document, context: context)
+                // Accept a UUID string directly, or a navigation keyword / card name.
+                if let uuid = UUID(uuidString: refValue) {
+                    cardId = uuid
+                } else if let resolved = resolveNavigation(refValue, document: document, currentCardId: context.currentCardId) {
+                    cardId = resolved
+                } else {
+                    cardId = context.currentCardId
+                }
+            } else {
+                cardId = context.currentCardId
+            }
+            await context.runtimeProvider?.pushCardToHistory(cardId)
+
+        case .pop:
+            // HyperCard `pop [card]` — navigate to the most-recently-pushed card.
+            // Empty stack is a documented no-op.
+            if let poppedId = await context.runtimeProvider?.popCardFromHistory() {
+                navigationTarget = poppedId
+                await context.runtimeProvider?.navigateToCard(poppedId)
+            }
+
+        case .printCmd(let expr):
+            // `print` (no argument) prints the current card.
+            // `print field "Name"` or `print <expr>` prints the field's text.
+            // For objectRef expressions (e.g. field "Name"), we resolve to text
+            // content directly so the provider receives meaningful content.
+            let target: HostPrintTarget
+            if let expr = expr {
+                if case .objectRef(let ref) = expr {
+                    let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+                    let ltype = ref.objectType.lowercased()
+                    if (ltype == "field" || ltype == "fld"),
+                       let idx = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
+                        target = .field(document.parts[idx].textContent)
+                    } else {
+                        let val = try await evaluate(expr, env: &env, document: document, context: context)
+                        target = .field(val)
+                    }
+                } else {
+                    let val = try await evaluate(expr, env: &env, document: document, context: context)
+                    target = .field(val)
+                }
+            } else {
+                target = .card
+            }
+            await context.hostProvider.print(target: target)
+
+        case .doMenuCmd(let expr):
+            let item = try await evaluate(expr, env: &env, document: document, context: context)
+            _ = await context.hostProvider.doMenu(item: item)
+
+        // Phase 2 / A″: Legacy HyperCard commands — recognised so scripts don't
+        // produce "unknown command" errors, but intentionally no-op in Hype.
+        // See Stubs&CompletionPlan §Cluster A″ for rationale.
+        case .clickAt, .disableCmd, .enableCmd,
+             .helpCmd, .debugCmd, .dialCmd,
              .runCmd, .startUsing, .stopUsing,
-             .copyTemplate, .exportPaint, .importPaint:
+             .copyTemplate:
             break
+
+        case .exportPaint(let nameExpr):
+            let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
+            #if canImport(AppKit)
+            let layer = document.paintLayer(forCardId: context.currentCardId)
+                ?? CardPaintLayer(cardId: context.currentCardId, width: 1, height: 1, rgbaData: Data(count: 4))
+            guard let png = PaintImageCodec.encodePNG(layer) else {
+                throw ScriptError(message: "Could not export paint.", line: handler.line, handler: handler.name)
+            }
+            do {
+                try await context.fileProvider.writeData(png, named: name)
+            } catch let e as FileAccessError {
+                throw ScriptError(message: e.scriptMessage, line: handler.line, handler: handler.name)
+            }
+            #else
+            throw ScriptError(message: "Paint export is not available on this platform.", line: handler.line, handler: handler.name)
+            #endif
+
+        case .importPaint(let nameExpr):
+            let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
+            #if canImport(AppKit)
+            let data: Data
+            do {
+                data = try await context.fileProvider.readData(named: name)
+            } catch let e as FileAccessError {
+                throw ScriptError(message: e.scriptMessage, line: handler.line, handler: handler.name)
+            }
+            guard let layer = PaintImageCodec.decodePNG(data, cardId: context.currentCardId) else {
+                throw ScriptError(message: "Could not import paint. The file is not a valid image.", line: handler.line, handler: handler.name)
+            }
+            document.setPaintLayer(layer)
+            #else
+            throw ScriptError(message: "Paint import is not available on this platform.", line: handler.line, handler: handler.name)
+            #endif
+
+        case .readCmd(let pathExpr):
+            let name = try await evaluate(pathExpr, env: &env, document: document, context: context)
+            do {
+                let contents = try await context.fileProvider.readFile(named: name)
+                env.it = contents
+            } catch let e as FileAccessError {
+                throw ScriptError(message: e.scriptMessage, line: handler.line, handler: handler.name)
+            }
+
+        case .writeCmd(let dataExpr, let pathExpr):
+            let data = try await evaluate(dataExpr, env: &env, document: document, context: context)
+            let name = try await evaluate(pathExpr, env: &env, document: document, context: context)
+            do {
+                try await context.fileProvider.writeFile(data, named: name)
+            } catch let e as FileAccessError {
+                throw ScriptError(message: e.scriptMessage, line: handler.line, handler: handler.name)
+            }
+        }
+    }
+
+    // MARK: - Sort key evaluation helper
+
+    /// Evaluate a sort-by expression in the given card context, returning the
+    /// sort key as a plain string.
+    ///
+    /// For `objectRef` expressions that target a field or button the HyperCard
+    /// semantics are to return the part's *text content*, not its UUID (which
+    /// is what the generic `evaluate` path returns for part references). This
+    /// helper special-cases that path so `sort cards by field "Name"` produces
+    /// the field's text rather than its ID.
+    private func evaluateSortKey(
+        _ expr: Expression,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async throws -> String {
+        if case .objectRef(let ref) = expr {
+            let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+            let ltype = ref.objectType.lowercased()
+            if ltype == "field" || ltype == "fld" || ltype == "button" || ltype == "btn" {
+                if let idx = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
+                    return document.parts[idx].textContent
+                }
+            }
+        }
+        return try await evaluate(expr, env: &env, document: document, context: context)
+    }
+
+    // MARK: - Date/time conversion helper
+
+    /// Convert a date/time value to the requested HyperCard format string.
+    ///
+    /// The `source` is accepted as:
+    /// - An integer seconds-since-epoch value (e.g., `"0"`)
+    /// - An ISO-8601 or common locale date string parsed via `DateFormatter`
+    /// - Any of the HyperCard `dateItems` comma-separated format
+    ///
+    /// The `format` keyword vocabulary mirrors HyperCard:
+    /// - `"seconds"` → Unix epoch integer
+    /// - `"dateItems"` → comma-separated `year,month,day,hour,minute,second,weekday`
+    /// - `"short date"` → locale short date (e.g. `"5/29/26"`)
+    /// - `"abbreviated date"` / `"abbrev date"` / `"abbr date"` → medium date (e.g. `"May 29, 2026"`)
+    /// - `"long date"` → full date (e.g. `"Friday, May 29, 2026"`)
+    /// - `"short time"` → short time (e.g. `"3:04 PM"`)
+    /// - `"long time"` → medium time with seconds (e.g. `"3:04:05 PM"`)
+    /// - Combinations like `"long date and long time"` are split and rendered with a space.
+    ///
+    /// All formatters use `en_US_POSIX` locale so output is deterministic in tests.
+    /// When the source cannot be parsed the original value is returned unchanged.
+    private func convertDateTime(_ source: String, toFormat format: String) -> String {
+        guard let date = parseHyperCardDate(source) else { return source }
+        let fmtLower = format.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        // Handle compound formats: "long date and long time", "short date and short time", etc.
+        if let andRange = fmtLower.range(of: " and ") {
+            let leftFmt = String(fmtLower[fmtLower.startIndex..<andRange.lowerBound])
+            let rightFmt = String(fmtLower[andRange.upperBound...])
+            let left = formatHyperCardDate(date, formatKeyword: leftFmt)
+            let right = formatHyperCardDate(date, formatKeyword: rightFmt)
+            return "\(left) \(right)"
+        }
+        return formatHyperCardDate(date, formatKeyword: fmtLower)
+    }
+
+    /// Parse a string into a `Date` using the formats HyperCard scripts commonly produce.
+    private func parseHyperCardDate(_ source: String) -> Date? {
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 1. Bare integer — treat as seconds since epoch.
+        if let seconds = Double(trimmed), seconds.isFinite {
+            return Date(timeIntervalSince1970: seconds)
+        }
+        // 2. HyperCard dateItems: "year,month,day,hour,minute,second,weekday"
+        let parts = trimmed.split(separator: ",", omittingEmptySubsequences: false)
+        if parts.count >= 6 {
+            let nums = parts.compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+            if nums.count >= 6 {
+                var comps = DateComponents()
+                comps.year   = nums[0]
+                comps.month  = nums[1]
+                comps.day    = nums[2]
+                comps.hour   = nums[3]
+                comps.minute = nums[4]
+                comps.second = nums[5]
+                var cal = Calendar(identifier: .gregorian)
+                cal.timeZone = TimeZone(identifier: "UTC")!
+                if let date = cal.date(from: comps) { return date }
+            }
+        }
+        // 3. Try common string formats with en_US_POSIX locale and UTC timezone
+        // so parsing is deterministic regardless of the host machine's locale.
+        let utc = TimeZone(identifier: "UTC")!
+        let candidates = [
+            "M/d/yy",
+            "M/d/yyyy",
+            "MMM d, yyyy",
+            "MMMM d, yyyy",
+            "EEEE, MMMM d, yyyy",
+            "h:mm a",
+            "h:mm:ss a",
+            "yyyy-MM-dd",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm:ssZ",
+        ]
+        for fmt in candidates {
+            let df = DateFormatter()
+            df.locale = Locale(identifier: "en_US_POSIX")
+            df.timeZone = utc
+            df.dateFormat = fmt
+            if let date = df.date(from: trimmed) { return date }
+        }
+        return nil
+    }
+
+    /// Format a `Date` using a single HyperCard format keyword.
+    ///
+    /// All formatters use UTC timezone so output is deterministic regardless
+    /// of the machine's local timezone. This matches the test expectation that
+    /// epoch 0 formats as January 1, 1970 everywhere.
+    private func formatHyperCardDate(_ date: Date, formatKeyword: String) -> String {
+        let posix = Locale(identifier: "en_US_POSIX")
+        let utc = TimeZone(identifier: "UTC")!
+        switch formatKeyword {
+        case "seconds":
+            return String(Int(date.timeIntervalSince1970))
+        case "dateitems":
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = utc
+            let comps = cal.dateComponents([.year, .month, .day, .hour, .minute, .second, .weekday], from: date)
+            let y  = comps.year   ?? 0
+            let mo = comps.month  ?? 0
+            let d  = comps.day    ?? 0
+            let h  = comps.hour   ?? 0
+            let mi = comps.minute ?? 0
+            let s  = comps.second ?? 0
+            let wd = comps.weekday ?? 1   // 1=Sunday in Gregorian, matches HyperCard
+            return "\(y),\(mo),\(d),\(h),\(mi),\(s),\(wd)"
+        case "short date":
+            let df = DateFormatter()
+            df.locale = posix
+            df.timeZone = utc
+            df.dateFormat = "M/d/yy"
+            return df.string(from: date)
+        case "abbreviated date", "abbrev date", "abbr date":
+            let df = DateFormatter()
+            df.locale = posix
+            df.timeZone = utc
+            df.dateFormat = "MMM d, yyyy"
+            return df.string(from: date)
+        case "long date":
+            let df = DateFormatter()
+            df.locale = posix
+            df.timeZone = utc
+            df.dateFormat = "EEEE, MMMM d, yyyy"
+            return df.string(from: date)
+        case "short time":
+            let df = DateFormatter()
+            df.locale = posix
+            df.timeZone = utc
+            df.dateFormat = "h:mm a"
+            return df.string(from: date)
+        case "long time":
+            let df = DateFormatter()
+            df.locale = posix
+            df.timeZone = utc
+            df.dateFormat = "h:mm:ss a"
+            return df.string(from: date)
+        default:
+            // Unrecognised keyword — fall back to long date format.
+            return formatHyperCardDate(date, formatKeyword: "long date")
         }
     }
 
@@ -3171,12 +3689,46 @@ public struct Interpreter: Sendable {
         case "windows":
             return "Hype"
 
-        // Click/selection/find stubs
-        case "clickchunk", "clickh", "clickv", "clickline", "clickloc", "clicktext":
-            return ""
-        case "foundchunk", "foundfield", "foundline", "foundtext":
-            return ""
-        case "selectedbutton", "selectedchunk", "selectedfield", "selectedline", "selectedloc", "selectedtext":
+        // Phase 2: click-info getters — read the runtime's last-click state.
+        case "clickh":
+            return formatNumber(await context.runtimeProvider?.clickState()?.clickH ?? 0)
+        case "clickv":
+            return formatNumber(await context.runtimeProvider?.clickState()?.clickV ?? 0)
+        case "clickloc":
+            if let cs = await context.runtimeProvider?.clickState() {
+                return "\(formatNumber(cs.clickH)),\(formatNumber(cs.clickV))"
+            }
+            return "0,0"
+        case "clicktext":
+            return await context.runtimeProvider?.clickState()?.clickText ?? ""
+        case "clickchunk":
+            return await context.runtimeProvider?.clickState()?.clickChunk ?? ""
+        case "clickline":
+            return await context.runtimeProvider?.clickState()?.clickLine ?? ""
+
+        // Phase 2: found-text getters — read the runtime's found state.
+        case "foundtext":
+            return await context.runtimeProvider?.foundState()?.foundText ?? ""
+        case "foundchunk":
+            return await context.runtimeProvider?.foundState()?.foundChunk ?? ""
+        case "foundfield":
+            return await context.runtimeProvider?.foundState()?.foundField ?? ""
+        case "foundline":
+            return await context.runtimeProvider?.foundState()?.foundLine ?? ""
+
+        // Phase 2: selected-text getters — read the runtime's selection state.
+        // `selectedButton` and `selectedLoc` have no model backing here (they
+        // require live UI state); they return empty, which matches HyperCard when
+        // no radio group / location is active.
+        case "selectedtext":
+            return await context.runtimeProvider?.selectedState()?.selectedText ?? ""
+        case "selectedchunk":
+            return await context.runtimeProvider?.selectedState()?.selectedChunk ?? ""
+        case "selectedfield":
+            return await context.runtimeProvider?.selectedState()?.selectedField ?? ""
+        case "selectedline":
+            return await context.runtimeProvider?.selectedState()?.selectedLine ?? ""
+        case "selectedbutton", "selectedloc":
             return ""
         case "sound":
             return await context.systemProvider.currentSoundName()
@@ -3204,9 +3756,13 @@ public struct Interpreter: Sendable {
         case "programs":
             return "Hype"
         case "menus":
-            return ""
+            // Return the titles of every top-level menu in the application menu bar,
+            // newline-separated, via the HostApplicationProvider.
+            let titles = await context.hostProvider.menuTitles()
+            return titles.joined(separator: "\n")
         case "destination":
-            return ""
+            // HyperCard `the destination` — the current stack's name (minimal implementation).
+            return context.document.stack.name
         case "stacks":
             return "Hype"
 
@@ -3422,6 +3978,55 @@ public struct Interpreter: Sendable {
                 return "\u{2713}"
             case "menumessage":
                 return ""
+            case "recentcards", "recent cards":
+                return await context.runtimeProvider?.recentCards() ?? ""
+
+            // Phase 2: click-info properties
+            case "clickh":
+                return formatNumber(await context.runtimeProvider?.clickState()?.clickH ?? 0)
+            case "clickv":
+                return formatNumber(await context.runtimeProvider?.clickState()?.clickV ?? 0)
+            case "clickloc":
+                if let cs = await context.runtimeProvider?.clickState() {
+                    return "\(formatNumber(cs.clickH)),\(formatNumber(cs.clickV))"
+                }
+                return "0,0"
+            case "clicktext":
+                return await context.runtimeProvider?.clickState()?.clickText ?? ""
+            case "clickchunk":
+                return await context.runtimeProvider?.clickState()?.clickChunk ?? ""
+            case "clickline":
+                return await context.runtimeProvider?.clickState()?.clickLine ?? ""
+
+            // Phase 2: found-text properties
+            case "foundtext":
+                return await context.runtimeProvider?.foundState()?.foundText ?? ""
+            case "foundchunk":
+                return await context.runtimeProvider?.foundState()?.foundChunk ?? ""
+            case "foundfield":
+                return await context.runtimeProvider?.foundState()?.foundField ?? ""
+            case "foundline":
+                return await context.runtimeProvider?.foundState()?.foundLine ?? ""
+
+            // Phase 2: selected-text properties
+            case "selectedtext":
+                return await context.runtimeProvider?.selectedState()?.selectedText ?? ""
+            case "selectedchunk":
+                return await context.runtimeProvider?.selectedState()?.selectedChunk ?? ""
+            case "selectedfield":
+                return await context.runtimeProvider?.selectedState()?.selectedField ?? ""
+            case "selectedline":
+                return await context.runtimeProvider?.selectedState()?.selectedLine ?? ""
+            case "selectedbutton", "selectedloc":
+                return ""
+
+            // Phase 2: menus and destination
+            case "menus":
+                let titles = await context.hostProvider.menuTitles()
+                return titles.joined(separator: "\n")
+            case "destination":
+                return document.stack.name
+
             default:
                 return env.getVariable(property)
             }
@@ -3803,7 +4408,13 @@ public struct Interpreter: Sendable {
         case "recording":           return part.audioRecording ? "true" : "false"
         case "playing":             return part.audioPlaying ? "true" : "false"
         case "duration":
-            return formatNumber(part.partType == .appleMusicBrowser ? part.musicDuration : part.audioDuration)
+            if part.partType == .video {
+                return formatNumber(part.videoDuration)
+            } else if part.partType == .appleMusicBrowser {
+                return formatNumber(part.musicDuration)
+            } else {
+                return formatNumber(part.audioDuration)
+            }
         case "outputpath", "output_path", "filepath", "file_path": return part.audioOutputPath
         case "format":              return part.audioFormat
         case "saveinstack", "save_in_stack", "embedinstack", "embed_in_stack", "embedded", "audioembedded":
@@ -4012,6 +4623,10 @@ public struct Interpreter: Sendable {
             return part.invertOnClick ? "true" : "false"
         case "videourl", "video_url":
             return part.videoURL
+        case "currenttime", "current_time":
+            return formatNumber(part.videoCurrentTime)
+        case "playrate", "play_rate", "rate":
+            return formatNumber(part.videoPlayRate)
         case "popupitems", "popup_items":
             return part.popupItems
         case "htmlcontent", "html_content":
@@ -4178,6 +4793,161 @@ public struct Interpreter: Sendable {
             .replacingOccurrences(of: "\r", with: "\n")
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
+    }
+
+    // MARK: - Phase 2: find / select helpers
+
+    /// Search for `searchTerm` (case-insensitive substring) in all field parts
+    /// across the document's cards.  The search starts from `startingCardId` and
+    /// wraps around — HyperCard's default behaviour.
+    ///
+    /// Returns a fully-populated `FoundState` on the first hit, or `nil` when the
+    /// term does not appear in any field.
+    private func findTextInDocument(
+        _ searchTerm: String,
+        document: HypeDocument,
+        startingCardId: UUID
+    ) -> FoundState? {
+        guard !searchTerm.isEmpty else { return nil }
+        let lowerTerm = searchTerm.lowercased()
+
+        let sortedCards = document.sortedCards
+        guard !sortedCards.isEmpty else { return nil }
+
+        // Build a search order starting from the current card (inclusive),
+        // then wrapping back around to the beginning of the sorted list.
+        let startIndex = sortedCards.firstIndex(where: { $0.id == startingCardId }) ?? 0
+        let orderedCards = Array(sortedCards[startIndex...]) + Array(sortedCards[..<startIndex])
+
+        for card in orderedCards {
+            // Collect card-level fields, then background-level fields.
+            let cardFields = document.partsForCard(card.id).filter { $0.partType == .field }
+            let bgFields   = document.partsForBackground(card.backgroundId).filter { $0.partType == .field }
+            let fields     = cardFields + bgFields
+
+            for field in fields {
+                let text = field.textContent
+                let lowerText = text.lowercased()
+                guard let range = lowerText.range(of: lowerTerm) else { continue }
+
+                // Compute 1-based character positions (Swift String indices → UTF-16 offset).
+                let charStart = lowerText.distance(from: lowerText.startIndex, to: range.lowerBound) + 1
+                let charEnd   = charStart + searchTerm.count - 1
+
+                // Build the HyperCard descriptors.
+                let fieldDescriptor = "field \"\(field.name)\""
+                let foundChunk      = "char \(charStart) to \(charEnd) of \(fieldDescriptor)"
+
+                // Determine the 1-based line number of the match.
+                let prefix      = String(text[..<text.index(text.startIndex, offsetBy: charStart - 1)])
+                let lineNumber  = prefix.components(separatedBy: "\n").count
+                let foundLine   = "line \(lineNumber) of \(fieldDescriptor)"
+
+                // The matched text preserves the original casing from the field.
+                let originalStart = text.index(text.startIndex, offsetBy: charStart - 1)
+                let originalEnd   = text.index(originalStart, offsetBy: searchTerm.count)
+                let foundText     = String(text[originalStart..<originalEnd])
+
+                return FoundState(
+                    foundText: foundText,
+                    foundChunk: foundChunk,
+                    foundField: fieldDescriptor,
+                    foundLine: foundLine,
+                    cardId: card.id
+                )
+            }
+        }
+        return nil
+    }
+
+    /// Build a `SelectedState` from a `select <expr>` AST expression.
+    ///
+    /// Handles two forms:
+    ///   1. `select field "Name"` — selects the entire text of the named field.
+    ///   2. `select chunk of field "Name"` — selects a specific chunk (via `.chunk`
+    ///      wrapping an `.objectRef`).
+    ///
+    /// Returns `nil` when the expression cannot be resolved (unknown field, etc.).
+    private func resolveSelectExpression(
+        _ expr: Expression,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async -> SelectedState? {
+        switch expr {
+
+        case .objectRef(let ref)
+            where ref.objectType.lowercased() == "field" || ref.objectType.lowercased() == "fld":
+            // `select field "Name"` — select the whole field.
+            let ident = try? await evaluate(ref.identifier, env: &env, document: document, context: context)
+            guard let ident,
+                  let idx = findPartIndex(ref.objectType, identifier: ident, env: &env,
+                                          document: document, currentCardId: context.currentCardId)
+            else { return nil }
+            let field = document.parts[idx]
+            let text  = field.textContent
+            let fieldDesc = "field \"\(field.name)\""
+            let lineCount = text.isEmpty ? 1 : text.components(separatedBy: "\n").count
+            return SelectedState(
+                selectedText:  text,
+                selectedChunk: text.isEmpty ? "char 0 of \(fieldDesc)"
+                                            : "char 1 to \(text.count) of \(fieldDesc)",
+                selectedField: fieldDesc,
+                selectedLine:  "line 1 to \(lineCount) of \(fieldDesc)"
+            )
+
+        case .chunk(let chunkType, let range, let source):
+            // `select char 3 to 7 of field "Notes"` — evaluate chunk source to get
+            // the field text, then compute the selected substring.
+            guard case .objectRef(let ref) = source,
+                  ref.objectType.lowercased() == "field" || ref.objectType.lowercased() == "fld"
+            else {
+                // Non-field chunk: evaluate and store generic selected text only.
+                let text = await evaluateChunk(chunkType, range: range, source: "",
+                                              env: &env, document: document, context: context)
+                return SelectedState(selectedText: text, selectedChunk: "", selectedField: "", selectedLine: "")
+            }
+
+            let ident = try? await evaluate(ref.identifier, env: &env, document: document, context: context)
+            guard let ident,
+                  let idx = findPartIndex(ref.objectType, identifier: ident, env: &env,
+                                          document: document, currentCardId: context.currentCardId)
+            else { return nil }
+            let field     = document.parts[idx]
+            let fieldDesc = "field \"\(field.name)\""
+            let sourceVal = field.textContent
+            let selectedText = await evaluateChunk(chunkType, range: range, source: sourceVal,
+                                                    env: &env, document: document, context: context)
+
+            // Build a char-range chunk descriptor for selectedChunk.
+            let lowerSource = sourceVal.lowercased()
+            let lowerSel    = selectedText.lowercased()
+            let selectedChunk: String
+            let selectedLine: String
+            if let matchRange = lowerSource.range(of: lowerSel), !selectedText.isEmpty {
+                let charStart = lowerSource.distance(from: lowerSource.startIndex, to: matchRange.lowerBound) + 1
+                let charEnd   = charStart + selectedText.count - 1
+                selectedChunk = "char \(charStart) to \(charEnd) of \(fieldDesc)"
+                let prefix    = String(sourceVal[..<sourceVal.index(sourceVal.startIndex, offsetBy: charStart - 1)])
+                let lineNum   = prefix.components(separatedBy: "\n").count
+                selectedLine  = "line \(lineNum) of \(fieldDesc)"
+            } else {
+                selectedChunk = "char 0 of \(fieldDesc)"
+                selectedLine  = "line 1 of \(fieldDesc)"
+            }
+
+            return SelectedState(
+                selectedText:  selectedText,
+                selectedChunk: selectedChunk,
+                selectedField: fieldDesc,
+                selectedLine:  selectedLine
+            )
+
+        default:
+            // Unrecognised expression form — evaluate as text only.
+            let text = (try? await evaluate(expr, env: &env, document: document, context: context)) ?? ""
+            return SelectedState(selectedText: text, selectedChunk: "", selectedField: "", selectedLine: "")
+        }
     }
 
     // MARK: - Object reference resolution
@@ -4931,6 +5701,14 @@ public struct Interpreter: Sendable {
             #endif
         case "videourl", "video_url":
             document.parts[partIndex].videoURL = value
+        case "currenttime", "current_time":
+            document.parts[partIndex].videoCurrentTime = max(0, toNumber(value))
+        case "playrate", "play_rate", "rate":
+            // SECURITY (review Finding 2): reject NaN/Inf and bound to AVPlayer's
+            // practical rate range so an absurd script value can't poison the
+            // player's playback engine. Negative (reverse) is intentionally allowed.
+            let requestedRate = toNumber(value)
+            document.parts[partIndex].videoPlayRate = requestedRate.isFinite ? max(-4.0, min(requestedRate, 4.0)) : 1.0
         // Calendar-specific writes — settable on .calendar parts.
         // Empty string clears the bound (NSDatePicker.minDate/maxDate accept nil).
         case "selecteddate", "selected_date":

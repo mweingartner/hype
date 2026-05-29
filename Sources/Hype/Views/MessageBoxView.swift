@@ -67,14 +67,19 @@ struct MessageBoxView: View {
             }
             let snapshot = document.document
             let cardId = currentCardId ?? snapshot.sortedCards.first?.id ?? snapshot.stack.id
+            let fileProvider: any FileAccessProvider = snapshot.stack.fileAccessAllowed
+                ? AppKitFileAccessProvider(stackId: snapshot.stack.id)
+                : StubFileAccessProvider()
             Task {
                 let runtime = await StackRuntimeRegistry.shared.runtime(
                     for: snapshot,
                     configuration: StackRuntimeConfiguration(
                         systemProvider: AppKitSystemProvider(),
+                        hostProvider: AppKitHostApplicationProvider(),
                         aiProvider: SelectedAIScriptingProvider(),
                         speechOutputProvider: OpenAISpeechOutputProvider.shared,
-                        speechListenerProvider: RuntimeSpeechListenerProvider.shared
+                        speechListenerProvider: RuntimeSpeechListenerProvider.shared,
+                        fileProvider: fileProvider
                     )
                 )
                 let liveDocument = await runtime.currentDocument()
@@ -83,9 +88,11 @@ struct MessageBoxView: View {
                     currentCardId: cardId,
                     document: liveDocument,
                     systemProvider: AppKitSystemProvider(),
+                    hostProvider: AppKitHostApplicationProvider(),
                     aiProvider: SelectedAIScriptingProvider(),
                     speechOutputProvider: OpenAISpeechOutputProvider.shared,
-                    runtimeProvider: runtime
+                    runtimeProvider: runtime,
+                    fileProvider: fileProvider
                 )
                 let interpreter = Interpreter()
                 let result = await interpreter.executeAsync(handler: handler, params: [], context: context)

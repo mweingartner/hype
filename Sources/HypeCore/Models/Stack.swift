@@ -49,6 +49,13 @@ public struct Stack: Identifiable, Codable, Sendable {
     /// licensed content.
     public var appleMusicAllowed: Bool
 
+    /// Whether HypeTalk `read from file` and `write to file` commands are
+    /// enabled for this stack. Defaults to `false` (opt-in, backward-compatible).
+    /// When `false`, all file-access commands throw a script error via
+    /// `StubFileAccessProvider`. When `true`, access is confined to a
+    /// per-stack sandbox directory by `SandboxedFileAccessProvider`.
+    public var fileAccessAllowed: Bool
+
     /// Whether this stack should open in end-user runtime mode.
     ///
     /// This is stack data, not an application preference: a stack distributed
@@ -88,6 +95,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         case aiContextCloudSharingAllowed
         case meshyEnabled
         case appleMusicAllowed
+        case fileAccessAllowed
         case runtimeModeEnabled
         case deploymentTargets
         case runtimeAISettings
@@ -108,6 +116,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         aiContextCloudSharingAllowed: Bool = false,
         meshyEnabled: Bool = false,
         appleMusicAllowed: Bool = false,
+        fileAccessAllowed: Bool = false,
         runtimeModeEnabled: Bool = false,
         deploymentTargets: StackDeploymentTargets = .macOSDefault(selectionPromptAcknowledged: false),
         runtimeAISettings: RuntimeAISettings = .defaultRuntime,
@@ -126,6 +135,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         self.aiContextCloudSharingAllowed = aiContextCloudSharingAllowed
         self.meshyEnabled = meshyEnabled
         self.appleMusicAllowed = appleMusicAllowed
+        self.fileAccessAllowed = fileAccessAllowed
         self.runtimeModeEnabled = runtimeModeEnabled
         self.deploymentTargets = deploymentTargets
         self.runtimeAISettings = runtimeAISettings
@@ -151,6 +161,8 @@ public struct Stack: Identifiable, Codable, Sendable {
         // pattern for webAssetsAllowed.
         meshyEnabled = try c.decodeIfPresent(Bool.self, forKey: .meshyEnabled) ?? false
         appleMusicAllowed = try c.decodeIfPresent(Bool.self, forKey: .appleMusicAllowed) ?? false
+        // Backward-compatible: pre-file-access stacks default to disabled (opt-in).
+        fileAccessAllowed = try c.decodeIfPresent(Bool.self, forKey: .fileAccessAllowed) ?? false
         // Backward-compatible: pre-runtime-mode stacks open in edit mode.
         runtimeModeEnabled = try c.decodeIfPresent(Bool.self, forKey: .runtimeModeEnabled) ?? false
         // Backward-compatible: existing stacks are macOS-only and should not be

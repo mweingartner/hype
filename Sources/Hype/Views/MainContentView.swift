@@ -978,12 +978,18 @@ struct MainContentView: View {
     }
 
     private func runtimeConfiguration() -> StackRuntimeConfiguration {
-        StackRuntimeConfiguration(
+        let stack = document.document.stack
+        let fileProvider: any FileAccessProvider = stack.fileAccessAllowed
+            ? AppKitFileAccessProvider(stackId: stack.id)
+            : StubFileAccessProvider()
+        return StackRuntimeConfiguration(
             systemProvider: AppKitSystemProvider(),
+            hostProvider: AppKitHostApplicationProvider(),
             aiProvider: SelectedAIScriptingProvider(),
             meshyProvider: LiveMeshyScriptingProvider(),
             speechOutputProvider: OpenAISpeechOutputProvider.shared,
-            speechListenerProvider: RuntimeSpeechListenerProvider.shared
+            speechListenerProvider: RuntimeSpeechListenerProvider.shared,
+            fileProvider: fileProvider
         )
     }
 
@@ -1492,14 +1498,20 @@ private struct NavigationHandlers: ViewModifier {
         currentCardId: UUID
     ) async {
         let snapshot = document.document
+        let stack = snapshot.stack
+        let fileProvider: any FileAccessProvider = stack.fileAccessAllowed
+            ? AppKitFileAccessProvider(stackId: stack.id)
+            : StubFileAccessProvider()
         let runtime = await StackRuntimeRegistry.shared.runtime(
             for: snapshot,
             configuration: StackRuntimeConfiguration(
                 systemProvider: AppKitSystemProvider(),
+                hostProvider: AppKitHostApplicationProvider(),
                 aiProvider: SelectedAIScriptingProvider(),
                 meshyProvider: LiveMeshyScriptingProvider(),
                 speechOutputProvider: OpenAISpeechOutputProvider.shared,
-                speechListenerProvider: RuntimeSpeechListenerProvider.shared
+                speechListenerProvider: RuntimeSpeechListenerProvider.shared,
+                fileProvider: fileProvider
             )
         )
         let result = await runtime.dispatchAndWait(

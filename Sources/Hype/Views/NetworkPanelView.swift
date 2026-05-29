@@ -357,11 +357,17 @@ struct NetworkPanelView: View {
 
     private func toggleListener(_ listener: SavedNetworkListener) {
         let snapshot = document.document
+        let stack = snapshot.stack
+        let fileProvider: any FileAccessProvider = stack.fileAccessAllowed
+            ? AppKitFileAccessProvider(stackId: stack.id)
+            : StubFileAccessProvider()
         let configuration = StackRuntimeConfiguration(
             systemProvider: AppKitSystemProvider(),
+            hostProvider: AppKitHostApplicationProvider(),
             aiProvider: SelectedAIScriptingProvider(),
             speechOutputProvider: OpenAISpeechOutputProvider.shared,
-            speechListenerProvider: RuntimeSpeechListenerProvider.shared
+            speechListenerProvider: RuntimeSpeechListenerProvider.shared,
+            fileProvider: fileProvider
         )
         Task {
             let runtime = await StackRuntimeRegistry.shared.runtime(for: snapshot, configuration: configuration)

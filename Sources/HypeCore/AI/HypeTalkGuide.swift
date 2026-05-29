@@ -401,6 +401,10 @@ public enum HypeTalkGuide {
             pass mouseUp       -- stop this handler AND let the next handler in the chain see the message
             return x           -- exit this handler with a value (caller reads it via `the result` only on user functions; for messages, the value is discarded)
 
+        **Dynamic eval:**
+            do "put 1 + 1 into x"  -- evaluate a string as HypeTalk in the current handler
+        `do` is real — it parses and executes the string as statements sharing the current variable environment. Nesting is depth-capped; oversized strings are refused. Prefer inlining code directly over `do`.
+
         ## Navigation
             go next            go previous        go first         go last
             go card "name"     go card 3          go back
@@ -413,12 +417,58 @@ public enum HypeTalkGuide {
             visual effect "dissolve"             -- the quoted form is also accepted
         Effect names: dissolve, wipe (left|right|up|down), iris (open|close), barn (door open|door close), zoom (in|out|open|close), scroll (left|right|up|down), checkerboard, venetian blinds, push (left|right|up|down).
 
+        **Card history (bounded 50-entry stack):**
+            push card                  -- save current card onto history stack
+            push card "name"           -- save a named card
+            pop card                   -- navigate to the most-recently-pushed card (no-op if empty)
+            put the recent cards into f -- newline-separated list of recently-visited card names
+
+        **Sort cards:**
+            sort cards by field "Name"         -- stable alpha sort on a field value
+            sort cards by the number of cards  -- or any HypeTalk expression
+
+        **Date/time conversion:**
+            put the date into d
+            convert d to seconds               -- epoch integer
+            convert d to short date            -- "M/d/yy"
+            convert d to abbreviated date      -- "MMM d, yyyy"
+            convert d to long date             -- "EEEE, MMMM d, yyyy"
+            convert d to short time            -- "h:mm a"
+            convert d to long time             -- "h:mm:ss a"
+            convert d to dateItems             -- "year,month,day,hour,minute,second,weekday" CSV
+        Compound: `convert d to long date and long time`. Writes result back into the source container.
+
         ## Dialogs
             answer "Are you sure?"               -- alert with OK; `it` is set to "OK" or the chosen button
             answer "Save?" with "Save" or "Discard" or "Cancel"   -- 3-way choice
             ask "What is your name?"             -- input prompt; typed text in `it`
             ask "Pick:" with "default text"      -- prefilled input
         After every `ask`/`answer`, READ FROM `it` IMMEDIATELY — any subsequent command can overwrite it.
+
+        ## Find, select & click
+            find "needle"                   -- case-insensitive search across all card+bg fields;
+                                            --   navigates to the matching card on success
+            find "needle" in field "X"      -- restrict search to a single field (navigates on match)
+            select word 3 of field "X"      -- record selection; sets the selected-* getters
+            select char 1 to 5 of field "X"
+            select field "X"               -- select entire field
+
+        **Found-state getters** (set by the last `find`; `""` if no match):
+            the foundText   -- matched substring
+            the foundChunk  -- chunk descriptor, e.g. "char 3 to 8 of field \"Notes\""
+            the foundField  -- field descriptor, e.g. "field \"Notes\" of card \"Home\""
+            the foundLine   -- line descriptor, e.g. "line 2 of field \"Notes\""
+
+        **Selected-state getters** (set by the last `select`):
+            the selectedText    the selectedChunk    the selectedField    the selectedLine
+        Note: `the selectedButton` and `the selectedLoc` return `""` (not implemented).
+
+        **Click-state getters** (set by the last user mouse click, read-only):
+            the clickH    the clickV    the clickLoc    the clickText    the clickChunk    the clickLine
+
+        **Other environment getters:**
+            the menus        -- newline-separated list of top-level menu titles
+            the destination  -- current stack's name
 
         ## Speech
             say "this is a test of the speech support in Hype!"     -- speak text aloud
@@ -477,6 +527,13 @@ public enum HypeTalkGuide {
             wait until the sound is "done"           -- block until playback ends
             put the sound into s                     -- "done" or name of playing sound
         Note format: NAOD, e.g. c4q, f#5e, r4q. Durations: w h q e s t x. Suffix: . dotted, 3 triplet. Octave/duration carry forward.
+
+        **Video transport (video parts):**
+            put the currentTime of video "intro" into t   -- playhead position (seconds, read/write)
+            set the currentTime of video "intro" to 30    -- seek to 30 s
+            put the duration of video "intro" into d      -- total duration (seconds, read-only)
+            put the playRate of video "intro" into r      -- playback rate (read/write, clamped ±4.0)
+            set the playRate of video "intro" to 2.0      -- fast-forward 2×
 
         ## Music (AudioKit-backed, stack-contained)
             create music pattern "Theme" with instrument "Harpsichord" tempo 120 notes "c4q e4q g4q c5h"
@@ -1095,20 +1152,45 @@ public enum HypeTalkGuide {
 
         Imported XCMD/XFCN calls never execute native code; unknown externals set `the result` to `Can't Load External...`.
 
+        ## Host commands (desktop app only)
+        These require the desktop-app HostApplicationProvider. In headless/CLI contexts they are no-ops.
+            lock screen          -- suppress canvas redraws (batch visual changes)
+            unlock screen        -- flush suppressed redraws
+            open stack "path"    -- open a stack file by path
+            save [stack]         -- save the current stack to disk
+            close [window]       -- close the front window
+            edit script of button "OK"   -- open the script editor for a part
+            quit                 -- quit the application
+            print                -- print the current card
+            print field "Name"   -- print the text of a field
+            doMenu "Go Next"     -- invoke a menu item from the curated allowlist
+                                 --   (navigation items + Copy/Paste only;
+                                 --    destructive items and Undo are refused)
+
+        ## Files & paint (opt-in, gated by fileAccessAllowed)
+        File commands are disabled by default. They only execute when the per-stack
+        `fileAccessAllowed` flag is enabled. Names are relative paths inside the
+        per-stack sandbox directory — absolute paths and `..` are refused.
+            read from file "data.txt"        -- read entire file into `it`
+            write "hello" to file "out.txt"  -- overwrite file with value
+
+        **Paint (macOS AppKit only, same fileAccessAllowed gate):**
+            import paint "card-bg.png"       -- load a PNG into the current card's paint layer
+            export paint "card-bg.png"       -- write the current card's paint layer as PNG
+
         ## Stub commands & getters — recognized but no-op
 
         These exist in the lexer/parser for HyperTalk lineage but currently do nothing observable. **Do not rely on them for real behavior.** Use the alternative shown.
 
         | Stub | What it does today | Alternative |
         | --- | --- | --- |
-        | `find "needle" in field "X"` | Stores the search string in `it`. Does NOT highlight / scroll / locate. | `if field "X" contains "needle" then ...` for membership; iterate `line N of field "X"` for line-level search. |
-        | `select word 3 of field "X"` | No selection happens; field text is unaffected. | None — programmatic selection is not exposed. |
-        | `do "<expression>"` | No-op (parsed but not evaluated). | Inline the expression directly. |
-        | `push card`, `pop card` | No-op. | Track navigation in a global if you need a stack. |
-        | `clickAt`, `dial`, `print`, `reset`, `run`, `doMenu`, `copy template`, `type "X"` | No-op (recognized as legacy verbs). | Use the relevant explicit command (`go card "X"`, `play "Glass"`, `set the textContent of field "Y" to "X"`). |
+        | `clickAt` | No-op. | Dispatch a handler message explicitly. |
+        | `dial` | No-op. | — |
+        | `reset` | No-op. | — |
+        | `run` | No-op. | — |
+        | `copy template` | No-op. | — |
+        | `type "X"` | Puts `"X"` into `it`; no UI input is simulated. | Set field text directly with `put`. |
         | `the result` | Returns diagnostics/results only for operations that set it explicitly. | Read sync return values from `it`; for async, use the callback handler and `the body of request <id>`. |
-        | `the foundChunk` / `the foundField` / `the foundLine` / `the foundText` | Always return `""`. | Same as `find` row above. |
-        | `the selectedChunk` / `the selectedField` / `the selectedLine` / `the selectedText` | Always return `""`. | Read field text and parse it yourself. |
         | `the target` | Returns `""`. | Use `the name of me` or pass identifiers explicitly. |
 
         ## Common AI hallucinations to AVOID
@@ -1121,8 +1203,8 @@ public enum HypeTalkGuide {
         - **`x starts with "foo"` / `x ends with "foo"`** are NOT operators. Use `char 1 to 3 of x is "foo"` for prefix, `char -3 to -1 of x is "foo"` for suffix, or `x contains "foo"` if position doesn't matter.
         - **`set the word 3 of field "X" to "Hi"`** is a parse error. Chunks are read-only — splice and write the whole field back.
         - **`put "Hi" before/after word 3 of field "X"`** is a parse error too. `put before/after` only targets variables, `it`, or whole object refs (e.g. `put "Hi" before field "X"`).
-        - **`do "put 5 into x"` (eval string as script)** is a no-op. Inline the code directly.
-        - **`find "x" in field "Y"` followed by reading `the foundChunk`** does not work — both are stubs. Use `if field "Y" contains "x" then ...`.
+        - **`do "put 5 into x"`** evaluates real HypeTalk — it is NOT a no-op. Prefer inlining code directly; use `do` only when the script text is dynamic at runtime.
+        - **`find "x"` navigates** to the matching card. After a successful `find`, read `the foundText`, `the foundChunk`, `the foundField`, or `the foundLine`. If you only need membership without navigation, use `if field "Y" contains "x" then ...`.
         - **`the result` after `request ...` / `ask ai ...`** always returns `""`. The sync forms (`ollama(prompt)`, `ask "question"`) put the answer in `it`; the async forms (`request ... with message ...`) deliver it to the callback handler — read `the body of request <id>` there.
         - **Handler params are one-based in `param N`**: `param 1` is the first parameter. Prefer named handler parameters for readability, but `the paramCount`, `the params`, and `param N` are supported.
         - **TCP `send` without `connection` is wrong.** `send "doCamp" to this stack` dispatches a HypeTalk handler. `send "ping" to connection connId` writes to a TCP connection. Use the `connection` keyword for sockets.

@@ -99,6 +99,29 @@ public struct Parser: Sendable {
 
     // MARK: - Top-level
 
+    /// Parse a bare sequence of statements (for `do <expr>` evaluation).
+    ///
+    /// Rejects handler/function definitions and stray `end` tokens.
+    /// `do` runs statements in the CURRENT handler scope; it must not
+    /// be able to define or break out of handlers — the synthetic-wrapper
+    /// approach is unsafe because `isEndOfHandler` is handler-name-blind.
+    public mutating func parseStatements() throws -> [Statement] {
+        var stmts: [Statement] = []
+        skipNewlines()
+        while current.type != .eof {
+            if current.type == .on || current.type == .function {
+                throw ParseError.unexpected(current, expected: "statement (handler definitions are not allowed in `do`)")
+            }
+            if current.type == .end {
+                throw ParseError.unexpected(current, expected: "statement")
+            }
+            let s = try parseStatement()
+            stmts.append(s)
+            skipNewlines()
+        }
+        return stmts
+    }
+
     /// Parse the full script into handler declarations.
     public mutating func parse() throws -> Script {
         var handlers: [Handler] = []
@@ -234,7 +257,12 @@ public struct Parser: Sendable {
         case .edit:     return try parseEditStatement()
         case .typeText: return try parseTypeStatement()
         case .push:     return try parsePushStatement()
-        case .pop:      _ = advance(); skipNewlines(); return .pop
+        case .pop:
+            _ = advance()
+            // Skip optional `card` keyword — `pop card` is the idiomatic HyperCard form.
+            if current.type == .card { _ = advance() }
+            skipNewlines()
+            return .pop
         case .click:    return try parseClickStatement()
         case .drag:     return try parseDragStatement()
         case .help:     _ = advance(); skipNewlines(); return .helpCmd
@@ -263,6 +291,9 @@ public struct Parser: Sendable {
         case .animate:   return try parseAnimateStatement()
         case .remesh:    return try parseRemeshAssetStatement()
         case .retexture: return try parseRetextureAssetStatement()
+        case .doKeyword:    return try parseDoStatement()
+        case .readKeyword:  return try parseReadStatement()
+        case .writeKeyword: return try parseWriteStatement()
         case .identifier:
             // Check for SpriteKit commands and aliases
             switch current.value.lowercased() {
@@ -868,6 +899,62 @@ public struct Parser: Sendable {
         return .retextureAsset(sourceName: nameExpr, stylePrompt: prompt, callback: callback)
     }
 
+    // MARK: - do / read file / write file (Phase 4)
+
+    /// Parse: `do <expr>`
+    ///
+    /// Evaluates the expression to a HypeTalk string at runtime and
+    /// executes it as bare statements in the current handler scope.
+    /// Handler definitions are forbidden inside `do` — that gate is
+    /// enforced by `parseStatements()` at eval time, not here.
+    private mutating func parseDoStatement() throws -> Statement {
+        _ = try expect(.doKeyword)
+        let e = try parseExpression()
+        skipNewlines()
+        return .doBlock(e)
+    }
+
+    /// Parse: `read from file <expr>`
+    ///
+    /// Reads the entire named file from the sandbox root.
+    /// Result is placed in `it`. Delimiter forms (`until`, `for`,
+    /// `to`) are NOT supported; encountering them is a parse error
+    /// because silently ignoring them would produce confusing results.
+    private mutating func parseReadStatement() throws -> Statement {
+        _ = try expect(.readKeyword)
+        _ = try expect(.from)
+        _ = try expect(.file)
+        let path = try parseExpression()
+        // Reject delimiter forms that the single-arg whole-file read
+        // does not support, so authors get a clear error rather than
+        // silent truncation.
+        if current.type == .identifier {
+            let v = current.value.lowercased()
+            if v == "until" || v == "for" {
+                throw ParseError.unexpected(current, expected: "end of read statement")
+            }
+        }
+        if current.type == .to {
+            throw ParseError.unexpected(current, expected: "end of read statement")
+        }
+        skipNewlines()
+        return .readCmd(path)
+    }
+
+    /// Parse: `write <expr> to file <expr>`
+    ///
+    /// Writes the first expression's value to the named file in the
+    /// sandbox root, replacing any existing content.
+    private mutating func parseWriteStatement() throws -> Statement {
+        _ = try expect(.writeKeyword)
+        let data = try parseExpression()
+        _ = try expect(.to)
+        _ = try expect(.file)
+        let path = try parseExpression()
+        skipNewlines()
+        return .writeCmd(data, path)
+    }
+
     private mutating func parseAnswerStatement() throws -> Statement {
         _ = try expect(.answer)
         let expr = try parseExpression()
@@ -1459,6 +1546,17 @@ public struct Parser: Sendable {
         if current.type == .newline || current.type == .eof {
             skipNewlines()
             return .push(nil)
+        }
+        // `push card` with no identifier means "push the current card".
+        // HyperCard treats bare `card` as the current card — consume the
+        // keyword and emit push(nil) rather than trying to parse an objectRef.
+        if current.type == .card {
+            let next = pos + 1 < tokens.count ? tokens[pos + 1] : Token(type: .eof, value: "", line: 0)
+            if next.type == .newline || next.type == .eof {
+                _ = advance()  // consume `card`
+                skipNewlines()
+                return .push(nil)
+            }
         }
         let expr = try parseExpression()
         skipNewlines()

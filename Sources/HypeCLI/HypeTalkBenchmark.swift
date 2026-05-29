@@ -366,6 +366,18 @@ final class BenchmarkRuntime: ScriptRuntimeProviding, @unchecked Sendable {
             properties[id]?[property.lowercased()] ?? ""
         }
     }
+
+    func pushCardToHistory(_ cardId: UUID) async {}
+    func popCardFromHistory() async -> UUID? { nil }
+    func recentCards() async -> String { "" }
+
+    // Phase 2 — no-op stubs for benchmark/CLI paths
+    func setFoundState(_ state: FoundState?) async {}
+    func foundState() async -> FoundState? { nil }
+    func setSelectedState(_ state: SelectedState?) async {}
+    func selectedState() async -> SelectedState? { nil }
+    func setClickState(_ state: ClickState) async {}
+    func clickState() async -> ClickState? { nil }
 }
 
 func printBenchmarkReport(_ report: HypeTalkBenchmarkReport, format: HypeTalkBenchmarkFormat) throws {

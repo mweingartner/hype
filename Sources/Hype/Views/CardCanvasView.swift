@@ -116,6 +116,20 @@ struct CardCanvasView: NSViewRepresentable {
         // accumulation of CGImage arrays and a dangling timer across
         // document open/close cycles.
         GIFAnimator.shared.removeAll()
+        // Drop the screen-lock observers so a torn-down canvas doesn't
+        // keep receiving lock/unlock notifications.
+        NotificationCenter.default.removeObserver(nsView, name: .hypeScreenLock, object: nil)
+        NotificationCenter.default.removeObserver(nsView, name: .hypeScreenUnlock, object: nil)
+        // Remove all periodic video time observers BEFORE the players are released.
+        // AVFoundation crashes if a player is deallocated while a periodic observer
+        // is still registered (Security Condition 10).
+        for (id, playerView) in nsView.videoPlayers {
+            if let tok = nsView.videoTimeObservers[id] {
+                playerView.player?.removeTimeObserver(tok)
+            }
+            nsView.videoTimeObservers[id] = nil
+            nsView.videoSeekEpoch[id] = nil
+        }
     }
 
     func updateNSView(_ nsView: CardCanvasNSView, context: Context) {
@@ -527,6 +541,26 @@ struct CardCanvasView: NSViewRepresentable {
             }
         }
 
+        /// Report current playback position and duration from a periodic AVPlayer
+        /// time observer. Updates the document model atomically and records the
+        /// reported time in `videoSeekEpoch` so the canvas does not immediately
+        /// re-seek the player back to the same position (feedback-loop guard,
+        /// Security Condition 9).
+        func reportVideo(id: UUID, player: AVPlayer) {
+            let ct = player.currentTime().seconds
+            let d = player.currentItem?.duration.seconds ?? 0
+            guard ct.isFinite else { return }
+            parent.document.document.updatePart(id: id) { part in
+                part.videoCurrentTime = ct
+                if d.isFinite && d > 0 {
+                    part.videoDuration = d
+                }
+            }
+            // Update the epoch so the next updateVideoPlayers() pass does not
+            // treat the reported position as a script-originated seek.
+            nsView?.videoSeekEpoch[id] = ct
+        }
+
         func setPartAppleMusicSearchConfiguration(
             id: UUID,
             term: String,
@@ -743,6 +777,7 @@ struct CardCanvasView: NSViewRepresentable {
         /// Dispatch a HypeTalk message to the current card (for card-level events).
         private let dialogProvider = AppKitDialogProvider()
         private let systemProvider = AppKitSystemProvider()
+        private let hostProvider = AppKitHostApplicationProvider()
         private let aiProvider = SelectedAIScriptingProvider()
 
         private var drawingProvider: DrawingProvider {
@@ -874,6 +909,82 @@ struct CardCanvasView: NSViewRepresentable {
             return components.url
         }
 
+        /// Record a mouse-down event in the runtime's click state so that
+        /// `the clickH` / `clickV` / `clickLoc` / `clickText` / `clickChunk` /
+        /// `the clickLine` HypeTalk properties return meaningful values.
+        ///
+        /// - Parameters:
+        ///   - point: Card-space coordinate of the click.
+        ///   - hitPart: The part under the cursor, if any.
+        ///   - document: The current document snapshot used to read field text.
+        func recordClickState(point: CGPoint, hitPart: Part?, document: HypeDocument) {
+            let snapshot = document
+            let config = runtimeConfiguration()
+            let clickH = Double(point.x)
+            let clickV = Double(point.y)
+            Task {
+                let runtime = await StackRuntimeRegistry.shared.runtime(for: snapshot, configuration: config)
+                // Compute click-text / chunk / line when a field was hit.
+                var clickText  = ""
+                var clickChunk = ""
+                var clickLine  = ""
+                if let part = hitPart, part.partType == .field {
+                    let text    = part.textContent
+                    let fieldDesc = "field \"\(part.name)\""
+                    if !text.isEmpty {
+                        // Approximate character offset from the horizontal position
+                        // within the field. This is a best-effort approximation:
+                        // the field editor has more precise glyph-hit-test information
+                        // but is not reachable here without deep NSTextView surgery.
+                        // We find the word under the click by dividing the field width
+                        // evenly across characters (good enough for `the clickText` / chunk
+                        // use in classic HyperCard stacks).
+                        let fieldWidth = max(1.0, part.width)
+                        let relX = max(0.0, min(point.x - part.left, fieldWidth))
+                        let charFraction = relX / fieldWidth
+                        let charIndex = min(
+                            max(0, Int(Double(text.count) * charFraction)),
+                            max(0, text.count - 1)
+                        )
+                        // Find the word boundary around charIndex.
+                        let nsText = text as NSString
+                        let wordRange = nsText.rangeOfCharacter(
+                            from: .init(charactersIn: " \t\n\r"),
+                            options: .backwards,
+                            range: NSRange(location: 0, length: charIndex)
+                        )
+                        let wordStart = wordRange.location == NSNotFound ? 0 : wordRange.location + wordRange.length
+                        let wordEnd: Int
+                        let afterRange = nsText.rangeOfCharacter(
+                            from: .init(charactersIn: " \t\n\r"),
+                            range: NSRange(location: charIndex, length: text.count - charIndex)
+                        )
+                        wordEnd = afterRange.location == NSNotFound ? text.count : afterRange.location
+
+                        let charStart = wordStart + 1  // 1-based
+                        let charEndIdx = wordEnd
+                        if charStart <= charEndIdx {
+                            let startIdx  = text.index(text.startIndex, offsetBy: wordStart)
+                            let endIdx    = text.index(text.startIndex, offsetBy: wordEnd)
+                            clickText  = String(text[startIdx..<endIdx])
+                            clickChunk = "char \(charStart) to \(charEndIdx) of \(fieldDesc)"
+                            let prefix = String(text[..<startIdx])
+                            let lineNum = prefix.components(separatedBy: "\n").count
+                            clickLine  = "line \(lineNum) of \(fieldDesc)"
+                        }
+                    }
+                }
+                let state = ClickState(
+                    clickH: clickH,
+                    clickV: clickV,
+                    clickText: clickText,
+                    clickChunk: clickChunk,
+                    clickLine: clickLine
+                )
+                await runtime.setClickState(state)
+            }
+        }
+
         func dispatchIdleBurst(cardTargetId: UUID, includeCardTarget: Bool, partTargetIds: [UUID]) {
             let snapshot = parent.document.document
             let config = runtimeConfiguration()
@@ -908,6 +1019,21 @@ struct CardCanvasView: NSViewRepresentable {
                 // `result.modifiedDocument`; writing it back is what
                 // makes the mutation actually visible.
                 if let modified = result.modifiedDocument {
+                    // Drop the cached PaintLayer when the document's stored layer
+                    // differs from what is in the cache. This ensures that an
+                    // `import paint` command (which writes a new CardPaintLayer into
+                    // the document) is reflected on the next draw() call rather than
+                    // being masked by a stale in-memory PaintLayer.
+                    // Guard: only evict when the paint layer actually changed to
+                    // avoid clobbering an in-progress drawing on unrelated writes.
+                    if let view = nsView {
+                        let cardId = view.currentCardId
+                        let docLayer = modified.paintLayer(forCardId: cardId)
+                        let cacheSnapshot = view.paintLayers[cardId]?.snapshot(cardId: cardId)
+                        if docLayer != cacheSnapshot {
+                            view.paintLayers[cardId] = nil
+                        }
+                    }
                     parent.document.document = modified
                     nsView?.document = modified
                     nsView?.needsDisplay = true
@@ -1130,14 +1256,20 @@ struct CardCanvasView: NSViewRepresentable {
         }
 
         private func runtimeConfiguration() -> StackRuntimeConfiguration {
-            StackRuntimeConfiguration(
+            let stack = parent.document.document.stack
+            let fileProvider: any FileAccessProvider = stack.fileAccessAllowed
+                ? AppKitFileAccessProvider(stackId: stack.id)
+                : StubFileAccessProvider()
+            return StackRuntimeConfiguration(
                 dialogProvider: dialogProvider,
                 drawingProvider: drawingProvider,
                 systemProvider: systemProvider,
+                hostProvider: hostProvider,
                 aiProvider: aiProvider,
                 speechOutputProvider: OpenAISpeechOutputProvider.shared,
                 speechListenerProvider: RuntimeSpeechListenerProvider.shared,
-                appScript: appScript
+                appScript: appScript,
+                fileProvider: fileProvider
             )
         }
 
@@ -1217,6 +1349,30 @@ class CardCanvasNSView: NSView {
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
         registerForDraggedTypes(Self.objectToolPasteboardTypes)
+        // HyperTalk `lock screen` / `unlock screen` (Phase 3). The
+        // host provider posts these; the canvas suppresses repaints
+        // while locked and forces one redraw on unlock.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleScreenLock),
+            name: .hypeScreenLock,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleScreenUnlock),
+            name: .hypeScreenUnlock,
+            object: nil
+        )
+    }
+
+    @objc private func handleScreenLock() {
+        screenLocked = true
+    }
+
+    @objc private func handleScreenUnlock() {
+        screenLocked = false
+        needsDisplay = true
     }
 
     /// Keep process-wide animation callbacks pointed at the active canvas.
@@ -1278,10 +1434,18 @@ class CardCanvasNSView: NSView {
     // Track which URLs are loaded to avoid redundant loads
     private var loadedURLs: [UUID: String] = [:]
 
-    // Active AVPlayerViews for video parts (keyed by part ID)
-    private var videoPlayers: [UUID: AVPlayerView] = [:]
+    // Active AVPlayerViews for video parts (keyed by part ID).
+    // Access level is `internal` so dismantleNSView can reach it.
+    var videoPlayers: [UUID: AVPlayerView] = [:]
     // Track which video URLs are loaded to avoid redundant loads
     private var loadedVideoURLs: [UUID: String] = [:]
+    // Last script-set seek position per part — used to detect script-originated
+    // seeks and prevent reportVideo from immediately re-seeking back to them.
+    // Access level is `internal` so dismantleNSView and Coordinator can reach it.
+    var videoSeekEpoch: [UUID: Double] = [:]
+    // Periodic time observer tokens — MUST be removed before the player is released.
+    // Access level is `internal` so dismantleNSView and Coordinator can reach it.
+    var videoTimeObservers: [UUID: Any] = [:]
 
     // Active NSHostingViews for chart parts (keyed by part ID)
     private var chartViews: [UUID: NSView] = [:]
@@ -1381,8 +1545,16 @@ class CardCanvasNSView: NSView {
     /// after the SKView is hidden.
     var isTransitioning = false
 
+    /// HyperTalk `lock screen` state. While true, `draw(_:)` early-returns
+    /// so a script can batch visual mutations; `unlock screen` clears it and
+    /// forces one redraw. Toggled by the `.hypeScreenLock` / `.hypeScreenUnlock`
+    /// notifications posted by `AppKitHostApplicationProvider`.
+    var screenLocked = false
+
     // Paint layers keyed by card ID
-    private var paintLayers: [UUID: PaintLayer] = [:]
+    // Access level is `internal` (not private) so Coordinator.applyDispatchResult
+    // can evict stale cached layers after an `import paint` command.
+    var paintLayers: [UUID: PaintLayer] = [:]
 
     // Drag state
     private var dragStart: CGPoint?
@@ -1663,6 +1835,13 @@ class CardCanvasNSView: NSView {
         // repaint the CGContext content — it would composite over
         // the animating SKView and make the transition invisible.
         if isTransitioning {
+            return
+        }
+        // HyperTalk `lock screen`: suppress repaints until `unlock
+        // screen`. Mirrors classic HyperCard's screen-lock so a
+        // script can batch many visual mutations and present them
+        // in one update. The unlock handler forces a single redraw.
+        if screenLocked {
             return
         }
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
@@ -3233,6 +3412,14 @@ class CardCanvasNSView: NSView {
 
         let result = mouseHandler.handleMouseDown(tool: toolState, hitPart: hitPart, point: point)
 
+        // Phase 2: record click coordinates (and field-click context if applicable)
+        // for `the clickH` / `clickV` / `clickLoc` / `clickText` / `clickChunk` / `the clickLine`.
+        // Recorded in the StackRuntime actor; the coordinator method fires a Task so
+        // this stays non-blocking on the main thread.
+        if toolCheck.category == .browse {
+            coordinator?.recordClickState(point: point, hitPart: hitPart, document: document)
+        }
+
         switch result {
         case .selectPart(let id):
             coordinator?.selectPart(id)
@@ -3727,9 +3914,15 @@ class CardCanvasNSView: NSView {
 
         // In edit mode or no video parts, hide all players
         if !isBrowseMode || videoParts.isEmpty {
-            for (_, player) in videoPlayers {
-                player.player?.pause()
-                player.removeFromSuperview()
+            for (id, playerView) in videoPlayers {
+                // Remove periodic observer BEFORE releasing the player (Security Condition 10).
+                if let tok = videoTimeObservers[id] {
+                    playerView.player?.removeTimeObserver(tok)
+                }
+                videoTimeObservers[id] = nil
+                videoSeekEpoch[id] = nil
+                playerView.player?.pause()
+                playerView.removeFromSuperview()
             }
             videoPlayers.removeAll()
             loadedVideoURLs.removeAll()
@@ -3746,13 +3939,43 @@ class CardCanvasNSView: NSView {
 
             let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
 
-            if let existing = videoPlayers[part.id] {
+            if let existing = videoPlayers[part.id], let player = existing.player {
                 existing.frame = frame
                 if loadedVideoURLs[part.id] != urlString {
-                    // URL changed — reload
+                    // URL changed — remove the old observer before replacing the player.
+                    if let tok = videoTimeObservers[part.id] {
+                        player.removeTimeObserver(tok)
+                        videoTimeObservers[part.id] = nil
+                    }
+                    videoSeekEpoch[part.id] = nil
                     let url = URL(string: urlString) ?? URL(fileURLWithPath: urlString)
                     existing.player = AVPlayer(url: url)
                     loadedVideoURLs[part.id] = urlString
+                } else {
+                    // Apply script-set playback rate in browse mode.
+                    if abs(player.rate - Float(part.videoPlayRate)) > 0.001 {
+                        player.rate = Float(part.videoPlayRate)
+                    }
+                    // Apply script-set seek position only when it differs from the
+                    // last reported position (prevents feedback loop, Condition 9).
+                    let target = part.videoCurrentTime
+                    let epoch = videoSeekEpoch[part.id] ?? target
+                    if abs(target - epoch) > 0.25 {
+                        player.seek(to: CMTime(seconds: target, preferredTimescale: 600))
+                        videoSeekEpoch[part.id] = target
+                    }
+                    // Install periodic observer once per player lifetime.
+                    if videoTimeObservers[part.id] == nil {
+                        let partId = part.id
+                        let tok = player.addPeriodicTimeObserver(
+                            forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
+                            queue: .main
+                        ) { [weak self, weak player] _ in
+                            guard let self, let player else { return }
+                            self.coordinator?.reportVideo(id: partId, player: player)
+                        }
+                        videoTimeObservers[part.id] = tok
+                    }
                 }
             } else {
                 let playerView = AVPlayerView(frame: frame)
@@ -3760,16 +3983,38 @@ class CardCanvasNSView: NSView {
                 playerView.showsFullScreenToggleButton = true
 
                 let url = URL(string: urlString) ?? URL(fileURLWithPath: urlString)
-                playerView.player = AVPlayer(url: url)
+                let player = AVPlayer(url: url)
+                playerView.player = player
 
                 addSubview(playerView, positioned: .above, relativeTo: nil)
                 videoPlayers[part.id] = playerView
                 loadedVideoURLs[part.id] = urlString
+
+                // Apply initial rate from document state.
+                if abs(player.rate - Float(part.videoPlayRate)) > 0.001 {
+                    player.rate = Float(part.videoPlayRate)
+                }
+                // Install the periodic time observer for this new player.
+                let partId = part.id
+                let tok = player.addPeriodicTimeObserver(
+                    forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
+                    queue: .main
+                ) { [weak self, weak player] _ in
+                    guard let self, let player else { return }
+                    self.coordinator?.reportVideo(id: partId, player: player)
+                }
+                videoTimeObservers[part.id] = tok
             }
         }
 
         // Remove players for parts that no longer exist
         for id in videoPlayers.keys where !activeIds.contains(id) {
+            // Remove periodic observer BEFORE releasing the player (Security Condition 10).
+            if let tok = videoTimeObservers[id] {
+                videoPlayers[id]?.player?.removeTimeObserver(tok)
+            }
+            videoTimeObservers[id] = nil
+            videoSeekEpoch[id] = nil
             videoPlayers[id]?.player?.pause()
             videoPlayers[id]?.removeFromSuperview()
             videoPlayers.removeValue(forKey: id)

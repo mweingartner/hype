@@ -107,6 +107,7 @@ public struct MessageDispatcher: Sendable {
         dialogProvider: DialogProvider = StubDialogProvider(),
         drawingProvider: DrawingProvider = StubDrawingProvider(),
         systemProvider: SystemProvider = StubSystemProvider(),
+        hostProvider: any HostApplicationProvider = StubHostApplicationProvider(),
         aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
         speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
         runtimeProvider: (any ScriptRuntimeProviding)? = nil,
@@ -114,7 +115,8 @@ public struct MessageDispatcher: Sendable {
         mouseX: Double = 0,
         mouseY: Double = 0,
         scriptContext: ScriptDispatchContext? = nil,
-        nestedSendDepth: Int = 0
+        nestedSendDepth: Int = 0,
+        fileProvider: any FileAccessProvider = StubFileAccessProvider()
     ) -> ExecutionResult {
         _DispatchSyncGate.semaphore.wait()
         defer { _DispatchSyncGate.semaphore.signal() }
@@ -130,6 +132,7 @@ public struct MessageDispatcher: Sendable {
                 dialogProvider: dialogProvider,
                 drawingProvider: drawingProvider,
                 systemProvider: systemProvider,
+                hostProvider: hostProvider,
                 aiProvider: aiProvider,
                 speechOutputProvider: speechOutputProvider,
                 appScript: appScript,
@@ -137,7 +140,8 @@ public struct MessageDispatcher: Sendable {
                 mouseY: mouseY,
                 scriptContext: scriptContext,
                 runtimeProvider: runtimeProvider,
-                nestedSendDepth: nestedSendDepth
+                nestedSendDepth: nestedSendDepth,
+                fileProvider: fileProvider
             )
             semaphore.signal()
         }
@@ -168,6 +172,7 @@ public struct MessageDispatcher: Sendable {
         dialogProvider: DialogProvider = StubDialogProvider(),
         drawingProvider: DrawingProvider = StubDrawingProvider(),
         systemProvider: SystemProvider = StubSystemProvider(),
+        hostProvider: any HostApplicationProvider = StubHostApplicationProvider(),
         aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
         meshyProvider: (any MeshyScriptingProvider)? = nil,
         speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
@@ -176,7 +181,8 @@ public struct MessageDispatcher: Sendable {
         mouseY: Double = 0,
         scriptContext: ScriptDispatchContext? = nil,
         runtimeProvider: (any ScriptRuntimeProviding)? = nil,
-        nestedSendDepth: Int = 0
+        nestedSendDepth: Int = 0,
+        fileProvider: any FileAccessProvider = StubFileAccessProvider()
     ) async -> ExecutionResult {
         let chain = buildHierarchy(
             targetId: targetId,
@@ -293,6 +299,7 @@ public struct MessageDispatcher: Sendable {
                 dialogProvider: dialogProvider,
                 drawingProvider: drawingProvider,
                 systemProvider: systemProvider,
+                hostProvider: hostProvider,
                 aiProvider: aiProvider,
                 speechOutputProvider: speechOutputProvider,
                 runtimeProvider: runtimeProvider,
@@ -300,7 +307,8 @@ public struct MessageDispatcher: Sendable {
                 mouseX: mouseX,
                 mouseY: mouseY,
                 appScript: appScript,
-                nestedSendDepth: nestedSendDepth
+                nestedSendDepth: nestedSendDepth,
+                fileProvider: fileProvider
             )
             let interpreter = Interpreter()
             var result = await interpreter.executeAsync(handler: handler, params: params, context: context)

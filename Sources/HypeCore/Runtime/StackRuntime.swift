@@ -262,12 +262,121 @@ public protocol ScriptRuntimeProviding: Sendable {
     func closeConnection(_ id: UUID) async
     func stopListener(_ id: UUID) async
     func runtimeProperty(objectType: String, id: UUID, property: String, argument: String?) async -> String
+    /// Push a card ID onto the session card-history stack (HyperCard `push card`).
+    /// The stack is bounded to 50 entries; oldest entries are dropped when full.
+    func pushCardToHistory(_ cardId: UUID) async
+    /// Pop the most-recently-pushed card ID from the session card-history stack.
+    /// Returns `nil` when the history is empty (HyperCard `pop card` on empty stack
+    /// is a documented no-op).
+    func popCardFromHistory() async -> UUID?
+    /// Return all history card IDs, oldest-first, as newline-separated UUID strings.
+    /// Used by `the recent cards` property.
+    func recentCards() async -> String
+
+    // MARK: Phase 2 — Text search / selection / click state
+
+    /// Overwrite the runtime's found state after a successful `find` command.
+    /// Pass `nil` to clear the state (no match).
+    func setFoundState(_ state: FoundState?) async
+    /// Read the current found state for `the foundText` / `foundChunk` / `foundField` / `foundLine`.
+    func foundState() async -> FoundState?
+
+    /// Overwrite the runtime's selection state after a `select` command.
+    /// Pass `nil` to clear.
+    func setSelectedState(_ state: SelectedState?) async
+    /// Read the current selection state for `the selectedText` / `selectedChunk` /
+    /// `selectedField` / `selectedLine`.
+    func selectedState() async -> SelectedState?
+
+    /// Record a mouse-down event for `the clickH` / `clickV` / `clickLoc` /
+    /// `clickText` / `clickChunk` / `clickLine`.
+    func setClickState(_ state: ClickState) async
+    /// Read the most-recently-recorded click state.
+    func clickState() async -> ClickState?
+}
+
+// MARK: - Phase 2 Session-State Value Types
+
+/// The text-search state recorded after a successful `find` command.
+///
+/// Mirrors HyperCard's `the foundText` / `foundChunk` / `foundField` / `foundLine`
+/// family.  All four getters derive from a single recorded hit.
+public struct FoundState: Sendable {
+    /// The substring that was matched (case-preserving from the field text).
+    public var foundText: String
+    /// HyperCard `foundChunk` — a chunk descriptor such as `"char 3 to 7"`.
+    /// Encodes the position inside the field's `textContent`.
+    public var foundChunk: String
+    /// HyperCard `foundField` — a quoted field-name descriptor, e.g. `"field \"Notes\""`.
+    public var foundField: String
+    /// HyperCard `foundLine` — the 1-based line number that contains the match,
+    /// expressed as a line-chunk descriptor, e.g. `"line 2 of field \"Notes\""`.
+    public var foundLine: String
+    /// The card the match was found on.
+    public var cardId: UUID
+
+    public init(foundText: String, foundChunk: String, foundField: String, foundLine: String, cardId: UUID) {
+        self.foundText = foundText
+        self.foundChunk = foundChunk
+        self.foundField = foundField
+        self.foundLine = foundLine
+        self.cardId = cardId
+    }
+}
+
+/// The selection state recorded after a `select` command.
+///
+/// Backs `the selectedText` / `selectedChunk` / `selectedField` / `selectedLine`.
+public struct SelectedState: Sendable {
+    /// The literal text of the selection.
+    public var selectedText: String
+    /// HyperCard `selectedChunk` — chunk descriptor, e.g. `"char 3 to 7 of field \"Notes\""`.
+    public var selectedChunk: String
+    /// HyperCard `selectedField` — field descriptor, e.g. `"field \"Notes\""`.
+    public var selectedField: String
+    /// HyperCard `selectedLine` — line descriptor, e.g. `"line 2 of field \"Notes\""`.
+    public var selectedLine: String
+
+    public init(selectedText: String, selectedChunk: String, selectedField: String, selectedLine: String) {
+        self.selectedText = selectedText
+        self.selectedChunk = selectedChunk
+        self.selectedField = selectedField
+        self.selectedLine = selectedLine
+    }
+}
+
+/// The most-recent-click state recorded when a mouse-down event enters the canvas.
+///
+/// Backs `the clickH` / `clickV` / `clickLoc` / `clickText` / `clickChunk` / `clickLine`.
+public struct ClickState: Sendable {
+    /// Horizontal coordinate of the click in card-space pixels.
+    public var clickH: Double
+    /// Vertical coordinate of the click in card-space pixels.
+    public var clickV: Double
+    /// The text word or run under the click point if a field was hit; empty otherwise.
+    public var clickText: String
+    /// Chunk descriptor for the clicked text, e.g. `"char 3 to 5 of field \"Notes\""`.
+    /// Empty when no field was hit.
+    public var clickChunk: String
+    /// Line descriptor for the clicked line, e.g. `"line 2 of field \"Notes\""`.
+    /// Empty when no field was hit.
+    public var clickLine: String
+
+    public init(clickH: Double, clickV: Double, clickText: String = "", clickChunk: String = "", clickLine: String = "") {
+        self.clickH = clickH
+        self.clickV = clickV
+        self.clickText = clickText
+        self.clickChunk = clickChunk
+        self.clickLine = clickLine
+    }
 }
 
 public struct StackRuntimeConfiguration: Sendable {
     public var dialogProvider: DialogProvider
     public var drawingProvider: DrawingProvider
     public var systemProvider: SystemProvider
+    /// Provider for application-shell commands (`open stack`, `save stack`, `quit`, etc.).
+    public var hostProvider: any HostApplicationProvider
     public var aiProvider: any AIScriptingProvider
     /// Phase 3: Meshy scripting provider for `ask meshy` async-callback generation.
     public var meshyProvider: any MeshyScriptingProvider
@@ -277,11 +386,15 @@ public struct StackRuntimeConfiguration: Sendable {
     public var approvalPrompter: any NetworkPermissionPrompting
     public var permissionStore: UserDefaultsNetworkPermissionStore
     public var clock: RuntimeClock
+    /// Provider for sandboxed `read from file` / `write to file` commands.
+    /// `StubFileAccessProvider` (deny-all) is the default when file access is disabled.
+    public var fileProvider: any FileAccessProvider
 
     public init(
         dialogProvider: DialogProvider = StubDialogProvider(),
         drawingProvider: DrawingProvider = StubDrawingProvider(),
         systemProvider: SystemProvider = StubSystemProvider(),
+        hostProvider: any HostApplicationProvider = StubHostApplicationProvider(),
         aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
         meshyProvider: any MeshyScriptingProvider = StubMeshyScriptingProvider(),
         speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
@@ -289,11 +402,13 @@ public struct StackRuntimeConfiguration: Sendable {
         appScript: String = "",
         approvalPrompter: any NetworkPermissionPrompting = AllowAllNetworkPermissionPrompter(),
         permissionStore: UserDefaultsNetworkPermissionStore = UserDefaultsNetworkPermissionStore(),
-        clock: RuntimeClock = SystemRuntimeClock()
+        clock: RuntimeClock = SystemRuntimeClock(),
+        fileProvider: any FileAccessProvider = StubFileAccessProvider()
     ) {
         self.dialogProvider = dialogProvider
         self.drawingProvider = drawingProvider
         self.systemProvider = systemProvider
+        self.hostProvider = hostProvider
         self.aiProvider = aiProvider
         self.meshyProvider = meshyProvider
         self.speechOutputProvider = speechOutputProvider
@@ -302,6 +417,7 @@ public struct StackRuntimeConfiguration: Sendable {
         self.approvalPrompter = approvalPrompter
         self.permissionStore = permissionStore
         self.clock = clock
+        self.fileProvider = fileProvider
     }
 }
 
@@ -428,6 +544,16 @@ public actor StackRuntime: ScriptRuntimeProviding {
     private var connections: [UUID: ConnectionState] = [:]
     private var savedListenerRuntimeIDs: [UUID: UUID] = [:]
     private var speechListenerActive = false
+    /// Session card-history stack for HyperCard `push card` / `pop card`.
+    /// Entries are card UUIDs; index 0 is the oldest. Bounded to 50 entries.
+    private var cardHistory: [UUID] = []
+    private static let cardHistoryCapacity = 50
+    /// Phase 2: text-search result state for `the foundText` / `foundChunk` / etc.
+    private var _foundState: FoundState?
+    /// Phase 2: selection state for `the selectedText` / `selectedChunk` / etc.
+    private var _selectedState: SelectedState?
+    /// Phase 2: last-click state for `the clickH` / `clickV` / `clickLoc` / etc.
+    private var _clickState: ClickState?
     #if canImport(Network)
     private var listenerBoxes: [UUID: ListenerBox] = [:]
     private var connectionBoxes: [UUID: ConnectionBox] = [:]
@@ -641,6 +767,48 @@ public actor StackRuntime: ScriptRuntimeProviding {
         // navigation. Without this, many `go` commands in one handler
         // can coalesce into a single visible update.
         try? await Task.sleep(nanoseconds: 16_666_667)
+    }
+
+    public func pushCardToHistory(_ cardId: UUID) async {
+        if cardHistory.count >= StackRuntime.cardHistoryCapacity {
+            cardHistory.removeFirst()
+        }
+        cardHistory.append(cardId)
+    }
+
+    public func popCardFromHistory() async -> UUID? {
+        guard !cardHistory.isEmpty else { return nil }
+        return cardHistory.removeLast()
+    }
+
+    public func recentCards() async -> String {
+        cardHistory.reversed().map(\.uuidString).joined(separator: "\n")
+    }
+
+    // MARK: Phase 2 — Found / Selected / Click state
+
+    public func setFoundState(_ state: FoundState?) async {
+        _foundState = state
+    }
+
+    public func foundState() async -> FoundState? {
+        _foundState
+    }
+
+    public func setSelectedState(_ state: SelectedState?) async {
+        _selectedState = state
+    }
+
+    public func selectedState() async -> SelectedState? {
+        _selectedState
+    }
+
+    public func setClickState(_ state: ClickState) async {
+        _clickState = state
+    }
+
+    public func clickState() async -> ClickState? {
+        _clickState
     }
 
     public func publishDocument(_ updatedDocument: HypeDocument) async {
@@ -1194,6 +1362,7 @@ public actor StackRuntime: ScriptRuntimeProviding {
                         dialogProvider: configuration.dialogProvider,
                         drawingProvider: configuration.drawingProvider,
                         systemProvider: configuration.systemProvider,
+                        hostProvider: configuration.hostProvider,
                         aiProvider: configuration.aiProvider,
                         meshyProvider: configuration.meshyProvider,
                         speechOutputProvider: configuration.speechOutputProvider,
@@ -1201,7 +1370,8 @@ public actor StackRuntime: ScriptRuntimeProviding {
                         mouseX: item.mouseX,
                         mouseY: item.mouseY,
                         scriptContext: item.scriptContext,
-                        runtimeProvider: self
+                        runtimeProvider: self,
+                        fileProvider: configuration.fileProvider
                     )
                 }
                 currentScriptTask = task
