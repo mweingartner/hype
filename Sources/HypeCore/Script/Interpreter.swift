@@ -2874,8 +2874,42 @@ public struct Interpreter: Sendable {
         case .clickAt, .disableCmd, .enableCmd,
              .helpCmd, .debugCmd, .dialCmd,
              .runCmd, .startUsing, .stopUsing,
-             .copyTemplate, .exportPaint, .importPaint:
+             .copyTemplate:
             break
+
+        case .exportPaint(let nameExpr):
+            let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
+            #if canImport(AppKit)
+            let layer = document.paintLayer(forCardId: context.currentCardId)
+                ?? CardPaintLayer(cardId: context.currentCardId, width: 1, height: 1, rgbaData: Data(count: 4))
+            guard let png = PaintImageCodec.encodePNG(layer) else {
+                throw ScriptError(message: "Could not export paint.", line: handler.line, handler: handler.name)
+            }
+            do {
+                try await context.fileProvider.writeData(png, named: name)
+            } catch let e as FileAccessError {
+                throw ScriptError(message: e.scriptMessage, line: handler.line, handler: handler.name)
+            }
+            #else
+            throw ScriptError(message: "Paint export is not available on this platform.", line: handler.line, handler: handler.name)
+            #endif
+
+        case .importPaint(let nameExpr):
+            let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
+            #if canImport(AppKit)
+            let data: Data
+            do {
+                data = try await context.fileProvider.readData(named: name)
+            } catch let e as FileAccessError {
+                throw ScriptError(message: e.scriptMessage, line: handler.line, handler: handler.name)
+            }
+            guard let layer = PaintImageCodec.decodePNG(data, cardId: context.currentCardId) else {
+                throw ScriptError(message: "Could not import paint. The file is not a valid image.", line: handler.line, handler: handler.name)
+            }
+            document.setPaintLayer(layer)
+            #else
+            throw ScriptError(message: "Paint import is not available on this platform.", line: handler.line, handler: handler.name)
+            #endif
 
         case .readCmd(let pathExpr):
             let name = try await evaluate(pathExpr, env: &env, document: document, context: context)
@@ -4374,7 +4408,13 @@ public struct Interpreter: Sendable {
         case "recording":           return part.audioRecording ? "true" : "false"
         case "playing":             return part.audioPlaying ? "true" : "false"
         case "duration":
-            return formatNumber(part.partType == .appleMusicBrowser ? part.musicDuration : part.audioDuration)
+            if part.partType == .video {
+                return formatNumber(part.videoDuration)
+            } else if part.partType == .appleMusicBrowser {
+                return formatNumber(part.musicDuration)
+            } else {
+                return formatNumber(part.audioDuration)
+            }
         case "outputpath", "output_path", "filepath", "file_path": return part.audioOutputPath
         case "format":              return part.audioFormat
         case "saveinstack", "save_in_stack", "embedinstack", "embed_in_stack", "embedded", "audioembedded":
@@ -4583,6 +4623,10 @@ public struct Interpreter: Sendable {
             return part.invertOnClick ? "true" : "false"
         case "videourl", "video_url":
             return part.videoURL
+        case "currenttime", "current_time":
+            return formatNumber(part.videoCurrentTime)
+        case "playrate", "play_rate", "rate":
+            return formatNumber(part.videoPlayRate)
         case "popupitems", "popup_items":
             return part.popupItems
         case "htmlcontent", "html_content":
@@ -5657,6 +5701,14 @@ public struct Interpreter: Sendable {
             #endif
         case "videourl", "video_url":
             document.parts[partIndex].videoURL = value
+        case "currenttime", "current_time":
+            document.parts[partIndex].videoCurrentTime = max(0, toNumber(value))
+        case "playrate", "play_rate", "rate":
+            // SECURITY (review Finding 2): reject NaN/Inf and bound to AVPlayer's
+            // practical rate range so an absurd script value can't poison the
+            // player's playback engine. Negative (reverse) is intentionally allowed.
+            let requestedRate = toNumber(value)
+            document.parts[partIndex].videoPlayRate = requestedRate.isFinite ? max(-4.0, min(requestedRate, 4.0)) : 1.0
         // Calendar-specific writes — settable on .calendar parts.
         // Empty string clears the bound (NSDatePicker.minDate/maxDate accept nil).
         case "selecteddate", "selected_date":

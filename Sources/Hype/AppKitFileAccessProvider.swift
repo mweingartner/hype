@@ -54,6 +54,16 @@ public struct AppKitFileAccessProvider: FileAccessProvider, Sendable {
 
     // MARK: - FileAccessProvider
 
+    public func readData(named name: String) async throws -> Data {
+        let provider = SandboxedFileAccessProvider(root: makeSandboxRoot())
+        return try await provider.readData(named: name)
+    }
+
+    public func writeData(_ data: Data, named name: String) async throws {
+        let provider = SandboxedFileAccessProvider(root: makeSandboxRoot())
+        try await provider.writeData(data, named: name)
+    }
+
     public func readFile(named name: String) async throws -> String {
         let provider = SandboxedFileAccessProvider(root: makeSandboxRoot())
         return try await provider.readFile(named: name)

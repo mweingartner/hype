@@ -262,13 +262,51 @@ added Token + Lexer + Parser support, not just interpreter logic.
   separate hardening track); (2) cloned stacks inherit the same `stackId` and so
   share a sandbox directory (documented in `SandboxedFileAccessProvider`).
 
-### Phase 5 — Framework-depth finishers (≈2–3 days)
+### Phase 5 — Framework-depth finishers — ✅ DONE (2026-05-29)
 **Scope:** B1 video transport, B2 paint import/export.
 - Video: expose `the currentTime` / `set the playRate` / `seek` on video parts via
   the `AVPlayer` already hosted; add transport getters/setters to the property
   dispatch.
 - Paint: wire `import paint "file"` / `export paint "file"` to the existing
   `PaintLayer` + the Phase-4 file-access provider (depends on Phase 4).
+
+**✅ DONE — Architect→Builder→Security(code)→Tester (paint import is file I/O on
+untrusted input; the egress sandbox was inherited verbatim from Phase 4 so the
+novel surface was just the PNG decode).** First reconciled with origin branch
+`codex/imported-paint-layer-assets` — it's already merged into origin/main (our
+base) and is orthogonal (HyperCard-import asset classification, not the
+`import paint`/`export paint` commands), so no conflict.
+
+- **Video transport** (B1, Lite tier): 3 backward-compat `Part` fields
+  (`videoCurrentTime`/`videoDuration`/`videoPlayRate`, defaults 0/0/1). Interpreter
+  getters `the currentTime`/`the playRate`/`the duration` (duration now three-way:
+  video→`videoDuration`, appleMusic→`musicDuration`, else `audioDuration`) and
+  setters for currentTime (clamped ≥0) + playRate. The canvas
+  (`CardCanvasView.updateVideoPlayers`) is the apply+report layer: applies rate +
+  script-originated seeks to the `AVPlayerView`, and a `addPeriodicTimeObserver`
+  reports live `currentTime`/`duration` back to the Part. A **seek-epoch sentinel**
+  prevents the report→seek feedback loop; observers are removed before every player
+  release (all 4 teardown paths) to avoid the AVFoundation crash.
+- **Paint import/export** (B2): `exportPaint`/`importPaint` AST cases existed and
+  the parser produced them but the interpreter no-op'd them. Now: `FileAccessProvider`
+  gained binary `readData`/`writeData` (the canonical sandbox path; the text
+  `readFile`/`writeFile` are re-expressed over them — one containment path, no
+  Phase-4 regression). New AppKit-gated `PaintImageCodec` (RGBA↔PNG) reusing
+  `PaintLayer.pngData()` for encode and a new `NSBitmapImageRep`→RGBA decode.
+  `export paint "f"` writes the card's `CardPaintLayer` (1×1 transparent if unpainted);
+  `import paint "f"` reads+decodes+`setPaintLayer` and busts the canvas paint cache
+  so it redraws. All gated by Phase 4's `fileAccessAllowed` + sandbox.
+- **Security:** the untrusted PNG decode is bounded by a **decompression-bomb cap**
+  (reject >4096/side or >maxPixelCount **on `rep.pixelsWide/pixelsHigh` BEFORE the
+  `cgImage` allocation** — review Finding 1), the inherited 10 MB byte cap, nil-on-
+  failure (no force-unwraps), traversal/symlink/opt-in inherited from Phase 4, no
+  path leak in errors, fail-closed when the flag is off, and a throwing `#else` on
+  non-AppKit. Code review also clamped `playRate` to ±4 rejecting NaN/Inf (Finding 2).
+- **Tests:** +33 (`Phase5PaintIOTests` 19 incl. codec round-trip / bomb / corrupt /
+  oversize / traversal / flag-off; `Phase5VideoTransportTests` 14 incl. property
+  round-trips, duration disambiguation, decode defaults, and the playRate-clamp
+  regression). Full suite 2486 tests; only the pre-existing `HypeTalkGuide` 64 KB
+  failure remains. Background paint layers stay out of scope (no model for them).
 
 ### Phase 6 — On-demand Apple frameworks (size when requested)
 ContactsUI, EventKit events, OAuth (WebAuthenticationServices), UserNotifications,

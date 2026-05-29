@@ -35,7 +35,12 @@ public enum FileAccessError: Error, Sendable, Equatable {
 public protocol FileAccessProvider: Sendable {
     /// Returns the sandbox root URL, or `nil` to deny all access.
     func sandboxRoot() -> URL?
-    /// Read the entire contents of the named file from the sandbox root.
+    /// Read the entire contents of the named file from the sandbox root as raw bytes.
+    func readData(named name: String) async throws -> Data
+    /// Write raw bytes to the named file in the sandbox root,
+    /// replacing any existing content.
+    func writeData(_ data: Data, named name: String) async throws
+    /// Read the entire contents of the named file from the sandbox root as a UTF-8 string.
     func readFile(named name: String) async throws -> String
     /// Write `contents` to the named file in the sandbox root,
     /// replacing any existing content.
@@ -52,6 +57,8 @@ public protocol FileAccessProvider: Sendable {
 public struct StubFileAccessProvider: FileAccessProvider, Sendable {
     public init() {}
     public func sandboxRoot() -> URL? { nil }
+    public func readData(named name: String) async throws -> Data { throw FileAccessError.accessDenied }
+    public func writeData(_ data: Data, named name: String) async throws { throw FileAccessError.accessDenied }
     public func readFile(named name: String) async throws -> String { throw FileAccessError.accessDenied }
     public func writeFile(_ contents: String, named name: String) async throws { throw FileAccessError.accessDenied }
 }
@@ -129,9 +136,13 @@ public struct SandboxedFileAccessProvider: FileAccessProvider, Sendable {
         return resolved
     }
 
-    // MARK: - Read
+    // MARK: - Binary read (canonical containment path)
 
-    public func readFile(named name: String) async throws -> String {
+    /// Read raw bytes from the named file within the sandbox.
+    ///
+    /// This is the ONLY path that touches the filesystem for reads; `readFile`
+    /// delegates to this method so there is a single containment gate.
+    public func readData(named name: String) async throws -> Data {
         guard let root else { throw FileAccessError.accessDenied }
         let url = try Self.resolveSandboxedURL(name: name, root: root)
         let fm = FileManager.default
@@ -143,14 +154,17 @@ public struct SandboxedFileAccessProvider: FileAccessProvider, Sendable {
         }
         guard let data = try? Data(contentsOf: url) else { throw FileAccessError.ioFailure }
         guard data.count <= Self.maxReadBytes else { throw FileAccessError.tooLarge }
-        return String(decoding: data, as: UTF8.self)
+        return data
     }
 
-    // MARK: - Write
+    // MARK: - Binary write (canonical containment path)
 
-    public func writeFile(_ contents: String, named name: String) async throws {
+    /// Write raw bytes to the named file within the sandbox.
+    ///
+    /// This is the ONLY path that touches the filesystem for writes; `writeFile`
+    /// delegates to this method so there is a single containment gate.
+    public func writeData(_ data: Data, named name: String) async throws {
         guard let root else { throw FileAccessError.accessDenied }
-        let data = Data(contents.utf8)
         guard data.count <= Self.maxWriteBytes else { throw FileAccessError.tooLarge }
         let url = try Self.resolveSandboxedURL(name: name, root: root)
         let fm = FileManager.default
@@ -169,5 +183,16 @@ public struct SandboxedFileAccessProvider: FileAccessProvider, Sendable {
         } catch {
             throw FileAccessError.ioFailure
         }
+    }
+
+    // MARK: - Text read/write (expressed in terms of binary methods)
+
+    public func readFile(named name: String) async throws -> String {
+        let data = try await readData(named: name)
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    public func writeFile(_ contents: String, named name: String) async throws {
+        try await writeData(Data(contents.utf8), named: name)
     }
 }

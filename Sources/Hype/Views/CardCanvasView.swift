@@ -120,6 +120,16 @@ struct CardCanvasView: NSViewRepresentable {
         // keep receiving lock/unlock notifications.
         NotificationCenter.default.removeObserver(nsView, name: .hypeScreenLock, object: nil)
         NotificationCenter.default.removeObserver(nsView, name: .hypeScreenUnlock, object: nil)
+        // Remove all periodic video time observers BEFORE the players are released.
+        // AVFoundation crashes if a player is deallocated while a periodic observer
+        // is still registered (Security Condition 10).
+        for (id, playerView) in nsView.videoPlayers {
+            if let tok = nsView.videoTimeObservers[id] {
+                playerView.player?.removeTimeObserver(tok)
+            }
+            nsView.videoTimeObservers[id] = nil
+            nsView.videoSeekEpoch[id] = nil
+        }
     }
 
     func updateNSView(_ nsView: CardCanvasNSView, context: Context) {
@@ -529,6 +539,26 @@ struct CardCanvasView: NSViewRepresentable {
             if playing != priorPlaying {
                 dispatchMessage(playing ? "playbackStarted" : "playbackStopped", to: id)
             }
+        }
+
+        /// Report current playback position and duration from a periodic AVPlayer
+        /// time observer. Updates the document model atomically and records the
+        /// reported time in `videoSeekEpoch` so the canvas does not immediately
+        /// re-seek the player back to the same position (feedback-loop guard,
+        /// Security Condition 9).
+        func reportVideo(id: UUID, player: AVPlayer) {
+            let ct = player.currentTime().seconds
+            let d = player.currentItem?.duration.seconds ?? 0
+            guard ct.isFinite else { return }
+            parent.document.document.updatePart(id: id) { part in
+                part.videoCurrentTime = ct
+                if d.isFinite && d > 0 {
+                    part.videoDuration = d
+                }
+            }
+            // Update the epoch so the next updateVideoPlayers() pass does not
+            // treat the reported position as a script-originated seek.
+            nsView?.videoSeekEpoch[id] = ct
         }
 
         func setPartAppleMusicSearchConfiguration(
@@ -989,6 +1019,21 @@ struct CardCanvasView: NSViewRepresentable {
                 // `result.modifiedDocument`; writing it back is what
                 // makes the mutation actually visible.
                 if let modified = result.modifiedDocument {
+                    // Drop the cached PaintLayer when the document's stored layer
+                    // differs from what is in the cache. This ensures that an
+                    // `import paint` command (which writes a new CardPaintLayer into
+                    // the document) is reflected on the next draw() call rather than
+                    // being masked by a stale in-memory PaintLayer.
+                    // Guard: only evict when the paint layer actually changed to
+                    // avoid clobbering an in-progress drawing on unrelated writes.
+                    if let view = nsView {
+                        let cardId = view.currentCardId
+                        let docLayer = modified.paintLayer(forCardId: cardId)
+                        let cacheSnapshot = view.paintLayers[cardId]?.snapshot(cardId: cardId)
+                        if docLayer != cacheSnapshot {
+                            view.paintLayers[cardId] = nil
+                        }
+                    }
                     parent.document.document = modified
                     nsView?.document = modified
                     nsView?.needsDisplay = true
@@ -1389,10 +1434,18 @@ class CardCanvasNSView: NSView {
     // Track which URLs are loaded to avoid redundant loads
     private var loadedURLs: [UUID: String] = [:]
 
-    // Active AVPlayerViews for video parts (keyed by part ID)
-    private var videoPlayers: [UUID: AVPlayerView] = [:]
+    // Active AVPlayerViews for video parts (keyed by part ID).
+    // Access level is `internal` so dismantleNSView can reach it.
+    var videoPlayers: [UUID: AVPlayerView] = [:]
     // Track which video URLs are loaded to avoid redundant loads
     private var loadedVideoURLs: [UUID: String] = [:]
+    // Last script-set seek position per part — used to detect script-originated
+    // seeks and prevent reportVideo from immediately re-seeking back to them.
+    // Access level is `internal` so dismantleNSView and Coordinator can reach it.
+    var videoSeekEpoch: [UUID: Double] = [:]
+    // Periodic time observer tokens — MUST be removed before the player is released.
+    // Access level is `internal` so dismantleNSView and Coordinator can reach it.
+    var videoTimeObservers: [UUID: Any] = [:]
 
     // Active NSHostingViews for chart parts (keyed by part ID)
     private var chartViews: [UUID: NSView] = [:]
@@ -1499,7 +1552,9 @@ class CardCanvasNSView: NSView {
     var screenLocked = false
 
     // Paint layers keyed by card ID
-    private var paintLayers: [UUID: PaintLayer] = [:]
+    // Access level is `internal` (not private) so Coordinator.applyDispatchResult
+    // can evict stale cached layers after an `import paint` command.
+    var paintLayers: [UUID: PaintLayer] = [:]
 
     // Drag state
     private var dragStart: CGPoint?
@@ -3859,9 +3914,15 @@ class CardCanvasNSView: NSView {
 
         // In edit mode or no video parts, hide all players
         if !isBrowseMode || videoParts.isEmpty {
-            for (_, player) in videoPlayers {
-                player.player?.pause()
-                player.removeFromSuperview()
+            for (id, playerView) in videoPlayers {
+                // Remove periodic observer BEFORE releasing the player (Security Condition 10).
+                if let tok = videoTimeObservers[id] {
+                    playerView.player?.removeTimeObserver(tok)
+                }
+                videoTimeObservers[id] = nil
+                videoSeekEpoch[id] = nil
+                playerView.player?.pause()
+                playerView.removeFromSuperview()
             }
             videoPlayers.removeAll()
             loadedVideoURLs.removeAll()
@@ -3878,13 +3939,43 @@ class CardCanvasNSView: NSView {
 
             let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
 
-            if let existing = videoPlayers[part.id] {
+            if let existing = videoPlayers[part.id], let player = existing.player {
                 existing.frame = frame
                 if loadedVideoURLs[part.id] != urlString {
-                    // URL changed — reload
+                    // URL changed — remove the old observer before replacing the player.
+                    if let tok = videoTimeObservers[part.id] {
+                        player.removeTimeObserver(tok)
+                        videoTimeObservers[part.id] = nil
+                    }
+                    videoSeekEpoch[part.id] = nil
                     let url = URL(string: urlString) ?? URL(fileURLWithPath: urlString)
                     existing.player = AVPlayer(url: url)
                     loadedVideoURLs[part.id] = urlString
+                } else {
+                    // Apply script-set playback rate in browse mode.
+                    if abs(player.rate - Float(part.videoPlayRate)) > 0.001 {
+                        player.rate = Float(part.videoPlayRate)
+                    }
+                    // Apply script-set seek position only when it differs from the
+                    // last reported position (prevents feedback loop, Condition 9).
+                    let target = part.videoCurrentTime
+                    let epoch = videoSeekEpoch[part.id] ?? target
+                    if abs(target - epoch) > 0.25 {
+                        player.seek(to: CMTime(seconds: target, preferredTimescale: 600))
+                        videoSeekEpoch[part.id] = target
+                    }
+                    // Install periodic observer once per player lifetime.
+                    if videoTimeObservers[part.id] == nil {
+                        let partId = part.id
+                        let tok = player.addPeriodicTimeObserver(
+                            forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
+                            queue: .main
+                        ) { [weak self, weak player] _ in
+                            guard let self, let player else { return }
+                            self.coordinator?.reportVideo(id: partId, player: player)
+                        }
+                        videoTimeObservers[part.id] = tok
+                    }
                 }
             } else {
                 let playerView = AVPlayerView(frame: frame)
@@ -3892,16 +3983,38 @@ class CardCanvasNSView: NSView {
                 playerView.showsFullScreenToggleButton = true
 
                 let url = URL(string: urlString) ?? URL(fileURLWithPath: urlString)
-                playerView.player = AVPlayer(url: url)
+                let player = AVPlayer(url: url)
+                playerView.player = player
 
                 addSubview(playerView, positioned: .above, relativeTo: nil)
                 videoPlayers[part.id] = playerView
                 loadedVideoURLs[part.id] = urlString
+
+                // Apply initial rate from document state.
+                if abs(player.rate - Float(part.videoPlayRate)) > 0.001 {
+                    player.rate = Float(part.videoPlayRate)
+                }
+                // Install the periodic time observer for this new player.
+                let partId = part.id
+                let tok = player.addPeriodicTimeObserver(
+                    forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
+                    queue: .main
+                ) { [weak self, weak player] _ in
+                    guard let self, let player else { return }
+                    self.coordinator?.reportVideo(id: partId, player: player)
+                }
+                videoTimeObservers[part.id] = tok
             }
         }
 
         // Remove players for parts that no longer exist
         for id in videoPlayers.keys where !activeIds.contains(id) {
+            // Remove periodic observer BEFORE releasing the player (Security Condition 10).
+            if let tok = videoTimeObservers[id] {
+                videoPlayers[id]?.player?.removeTimeObserver(tok)
+            }
+            videoTimeObservers[id] = nil
+            videoSeekEpoch[id] = nil
             videoPlayers[id]?.player?.pause()
             videoPlayers[id]?.removeFromSuperview()
             videoPlayers.removeValue(forKey: id)
