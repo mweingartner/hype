@@ -600,6 +600,59 @@ struct ChartToolTests {
         #expect(config.spiderRingCount == 5)
         #expect(config.spiderDecimalPlaces == 0)
     }
+
+    // MARK: - spiderShowSplitArea / spiderCircularGrid defaults and round-trip
+
+    @Test("spiderShowSplitArea defaults to true, spiderCircularGrid defaults to false")
+    func spiderAppearanceKnobDefaults() {
+        let config = ChartConfig()
+        #expect(config.spiderShowSplitArea == true)
+        #expect(config.spiderCircularGrid == false)
+    }
+
+    @Test("legacy JSON without spiderShowSplitArea or spiderCircularGrid decodes to defaults")
+    func legacyJSONDecodesSpiderAppearanceDefaults() throws {
+        // JSON that does not include the two new keys — simulates a document
+        // created before the fields existed.
+        let json = """
+        {"chartType":"spider","title":"Legacy","series":[],"showLegend":true,"showGrid":true,"xAxisLabel":"","yAxisLabel":""}
+        """
+        let decoded = try #require(ChartConfig.fromJSON(json))
+        #expect(decoded.spiderShowSplitArea == true)
+        #expect(decoded.spiderCircularGrid == false)
+    }
+
+    @Test("encode/decode round-trip preserves spiderShowSplitArea and spiderCircularGrid")
+    func spiderAppearanceKnobRoundTrip() throws {
+        let original = ChartConfig(
+            chartType: .spider,
+            series: [
+                ChartSeries(name: "A", color: "#4A90D9", data: [
+                    ChartDataPoint(name: "X", value: 10, minimumValue: 0, maximumValue: 100),
+                    ChartDataPoint(name: "Y", value: 50, minimumValue: 0, maximumValue: 100),
+                    ChartDataPoint(name: "Z", value: 80, minimumValue: 0, maximumValue: 100),
+                ])
+            ],
+            spiderShowSplitArea: false,
+            spiderCircularGrid: true
+        )
+        let decoded = try #require(ChartConfig.fromJSON(original.toJSON()))
+        #expect(decoded.spiderShowSplitArea == false)
+        #expect(decoded.spiderCircularGrid == true)
+    }
+
+    @Test("encode/decode round-trip preserves spiderShowSplitArea=true and spiderCircularGrid=false")
+    func spiderAppearanceKnobRoundTripNonDefault() throws {
+        let original = ChartConfig(
+            chartType: .spider,
+            series: [],
+            spiderShowSplitArea: true,
+            spiderCircularGrid: false
+        )
+        let decoded = try #require(ChartConfig.fromJSON(original.toJSON()))
+        #expect(decoded.spiderShowSplitArea == true)
+        #expect(decoded.spiderCircularGrid == false)
+    }
 }
 
 /// Regression tests for `ChartConfig.legendEntries()` and for the

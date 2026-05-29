@@ -52,6 +52,14 @@ public struct ChartConfig: Codable, Sendable {
     public var spiderPointRadius: Double
     public var spiderShowValueLabels: Bool
     public var spiderDecimalPlaces: Int
+    /// When `true` and `showGrid` is enabled, alternating ring bands are drawn
+    /// behind the ring strokes — even-index bands are lightly filled, odd-index
+    /// bands are clear — producing an ECharts-style "split area" effect.
+    public var spiderShowSplitArea: Bool
+    /// When `true`, the background ring grid is drawn as circles instead of
+    /// polygons. Axis spokes and the data series polygons are always polygonal
+    /// regardless of this setting.
+    public var spiderCircularGrid: Bool
 
     public init(
         chartType: ChartType = .bar,
@@ -69,7 +77,9 @@ public struct ChartConfig: Codable, Sendable {
         spiderFillOpacity: Double = 0.28,
         spiderPointRadius: Double = 4,
         spiderShowValueLabels: Bool = true,
-        spiderDecimalPlaces: Int = 0
+        spiderDecimalPlaces: Int = 0,
+        spiderShowSplitArea: Bool = true,
+        spiderCircularGrid: Bool = false
     ) {
         self.chartType = chartType
         self.title = title
@@ -87,6 +97,8 @@ public struct ChartConfig: Codable, Sendable {
         self.spiderPointRadius = Self.clamp(spiderPointRadius, min: 1, max: 12)
         self.spiderShowValueLabels = spiderShowValueLabels
         self.spiderDecimalPlaces = spiderDecimalPlaces
+        self.spiderShowSplitArea = spiderShowSplitArea
+        self.spiderCircularGrid = spiderCircularGrid
         normalizeSpiderDisplay()
         normalizeSpiderValuesToPrecision()
     }
@@ -98,6 +110,7 @@ public struct ChartConfig: Codable, Sendable {
         case spiderMinimumValue, spiderMaximumValue, spiderAutoScale, spiderRingCount
         case spiderGridColor, spiderAxisColor, spiderLabelColor, spiderFillOpacity
         case spiderPointRadius, spiderShowValueLabels, spiderDecimalPlaces
+        case spiderShowSplitArea, spiderCircularGrid
     }
 
     public init(from decoder: Decoder) throws {
@@ -137,6 +150,8 @@ public struct ChartConfig: Codable, Sendable {
         )
         spiderShowValueLabels = try c.decodeIfPresent(Bool.self, forKey: .spiderShowValueLabels) ?? true
         spiderDecimalPlaces = try c.decodeIfPresent(Int.self, forKey: .spiderDecimalPlaces) ?? 0
+        spiderShowSplitArea = try c.decodeIfPresent(Bool.self, forKey: .spiderShowSplitArea) ?? true
+        spiderCircularGrid = try c.decodeIfPresent(Bool.self, forKey: .spiderCircularGrid) ?? false
         normalizeSpiderDisplay()
         if chartType == .spider,
            legacySpiderMinimumValue != nil || legacySpiderMaximumValue != nil {
@@ -168,6 +183,8 @@ public struct ChartConfig: Codable, Sendable {
         try c.encode(spiderPointRadius, forKey: .spiderPointRadius)
         try c.encode(spiderShowValueLabels, forKey: .spiderShowValueLabels)
         try c.encode(spiderDecimalPlaces, forKey: .spiderDecimalPlaces)
+        try c.encode(spiderShowSplitArea, forKey: .spiderShowSplitArea)
+        try c.encode(spiderCircularGrid, forKey: .spiderCircularGrid)
     }
 
     private mutating func normalizeSpiderDisplay() {

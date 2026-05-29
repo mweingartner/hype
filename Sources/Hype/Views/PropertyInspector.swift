@@ -3732,6 +3732,8 @@ struct PropertyInspector: View {
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
                     Toggle("Show Value Labels", isOn: bindChartBool(part.id, \.spiderShowValueLabels))
+                    Toggle("Split Area", isOn: bindChartBool(part.id, \.spiderShowSplitArea))
+                    Toggle("Circular Grid", isOn: bindChartBool(part.id, \.spiderCircularGrid))
                     HStack(spacing: 6) {
                         Text("Rings").font(.system(size: 10)).frame(width: 48, alignment: .leading)
                         Stepper(

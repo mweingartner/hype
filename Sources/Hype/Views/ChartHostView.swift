@@ -366,6 +366,10 @@ private struct SpiderChartCanvas: View {
 
     @State private var dragTarget: SpiderChartDragTarget?
     @State private var liveValues: [UUID: Double] = [:]
+    /// Drives the grow-from-center reveal animation on first appear.
+    /// Starts at 0 (invisible/collapsed) and animates to 1 (full size).
+    @State private var revealProgress: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GeometryReader { geometry in
@@ -391,6 +395,15 @@ private struct SpiderChartCanvas: View {
             } else {
                 gridLayer(labels: labels, layout: layout)
                 seriesLayer(seriesList: renderableSeries, layout: layout)
+                    // Grow-from-center reveal on first appear (reduce-motion safe).
+                    .scaleEffect(reduceMotion ? 1 : revealProgress, anchor: .center)
+                    .opacity(reduceMotion ? 1 : revealProgress)
+                    // Animate data changes smoothly; suppress during live drag so
+                    // the cursor tracks 1:1 with no lag.
+                    .animation(
+                        (reduceMotion || dragTarget != nil) ? nil : .easeInOut(duration: 0.3),
+                        value: config.toJSON()
+                    )
                 if config.spiderShowValueLabels {
                     valueLabelLayer(seriesList: renderableSeries, layout: layout)
                 }
@@ -408,6 +421,18 @@ private struct SpiderChartCanvas: View {
             }
         }
         .clipped()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Spider chart: \(labels.count) axes, \(renderableSeries.count) series")
+        .onAppear {
+            guard revealProgress == 0 else { return }
+            if reduceMotion {
+                revealProgress = 1
+            } else {
+                withAnimation(.easeOut(duration: 0.5)) {
+                    revealProgress = 1
+                }
+            }
+        }
         .onChange(of: config.toJSON()) { _, _ in
             liveValues.removeAll(keepingCapacity: true)
             dragTarget = nil
@@ -419,15 +444,58 @@ private struct SpiderChartCanvas: View {
             if config.showGrid {
                 let ringCount = max(ChartConfig.spiderMinimumRingCount, config.spiderRingCount)
                 let scale = config.spiderValueScale()
+
+                // Split-area alternating filled bands — drawn largest-to-smallest
+                // so smaller rings paint over the centers, yielding visible bands.
+                if config.spiderShowSplitArea {
+                    ForEach((1...ringCount).reversed(), id: \.self) { ring in
+                        let fraction = Double(ring) / Double(ringCount)
+                        // Even-index rings (0-based: 0, 2, 4 …) get a subtle fill;
+                        // odd-index rings are clear. Ring index is (ring - 1).
+                        let bandOpacity: Double = (ring % 2 == 0) ? 0.10 : 0.0
+                        if config.spiderCircularGrid {
+                            Circle()
+                                .inset(by: 0)
+                                .path(in: CGRect(
+                                    x: layout.center.x - layout.radius * CGFloat(fraction),
+                                    y: layout.center.y - layout.radius * CGFloat(fraction),
+                                    width: layout.radius * CGFloat(fraction) * 2,
+                                    height: layout.radius * CGFloat(fraction) * 2
+                                ))
+                                .fill(Color(hex: config.spiderGridColor).opacity(bandOpacity))
+                        } else {
+                            Path { path in
+                                polygonPath(&path, layout: layout, normalizedValue: fraction)
+                            }
+                            .fill(Color(hex: config.spiderGridColor).opacity(bandOpacity))
+                        }
+                    }
+                }
+
                 ForEach(1...ringCount, id: \.self) { ring in
                     let fraction = Double(ring) / Double(ringCount)
-                    Path { path in
-                        polygonPath(&path, layout: layout, normalizedValue: fraction)
+                    // Ring strokes — drawn on top of any split-area fills.
+                    if config.spiderCircularGrid {
+                        Circle()
+                            .path(in: CGRect(
+                                x: layout.center.x - layout.radius * CGFloat(fraction),
+                                y: layout.center.y - layout.radius * CGFloat(fraction),
+                                width: layout.radius * CGFloat(fraction) * 2,
+                                height: layout.radius * CGFloat(fraction) * 2
+                            ))
+                            .stroke(
+                                Color(hex: config.spiderGridColor).opacity(ring == ringCount ? 0.9 : 0.55),
+                                lineWidth: ring == ringCount ? 1.1 : 0.7
+                            )
+                    } else {
+                        Path { path in
+                            polygonPath(&path, layout: layout, normalizedValue: fraction)
+                        }
+                        .stroke(
+                            Color(hex: config.spiderGridColor).opacity(ring == ringCount ? 0.9 : 0.55),
+                            lineWidth: ring == ringCount ? 1.1 : 0.7
+                        )
                     }
-                    .stroke(
-                        Color(hex: config.spiderGridColor).opacity(ring == ringCount ? 0.9 : 0.55),
-                        lineWidth: ring == ringCount ? 1.1 : 0.7
-                    )
 
                     Text(config.formattedSpiderValue(scale.minimum + fraction * (scale.maximum - scale.minimum)))
                         .font(.system(size: 8, weight: .medium))
@@ -450,20 +518,32 @@ private struct SpiderChartCanvas: View {
             ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
                 let endpoint = layout.point(axis: index, normalizedValue: 1.0)
                 let labelPoint = axisLabelPoint(endpoint: endpoint, center: layout.center)
+                // Angle-aware alignment: right-side labels left-align,
+                // left-side labels right-align, top/bottom labels center.
+                let cosA = cos(layout.angle(for: index))
+                let side: Int = cosA > 0.25 ? 1 : (cosA < -0.25 ? -1 : 0)
+                let alignment: Alignment = side > 0 ? .leading : (side < 0 ? .trailing : .center)
+                let nudgedX = labelPoint.x + CGFloat(side) * 8
                 Text(label)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(Color(hex: config.spiderLabelColor))
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .minimumScaleFactor(0.65)
-                    .frame(width: 74)
-                    .position(labelPoint)
+                    .frame(width: 82, alignment: alignment)
+                    .position(x: nudgedX, y: labelPoint.y)
             }
         }
     }
 
     private func seriesLayer(seriesList: [ChartSeries], layout: SpiderChartLayout) -> some View {
-        ZStack {
+        // When three or more series stack on top of each other the fills can
+        // become muddy. Cap the effective fill opacity at 0.16 so the stroke
+        // remains the primary visual discriminator.
+        let effectiveFillOpacity = seriesList.count >= 3
+            ? min(config.spiderFillOpacity, 0.16)
+            : config.spiderFillOpacity
+        return ZStack {
             ForEach(seriesList) { series in
                 Path { path in
                     for index in 0..<layout.axisCount {
@@ -476,7 +556,7 @@ private struct SpiderChartCanvas: View {
                     }
                     path.closeSubpath()
                 }
-                .fill(Color(hex: series.color).opacity(config.spiderFillOpacity))
+                .fill(Color(hex: series.color).opacity(effectiveFillOpacity))
 
                 Path { path in
                     for index in 0..<layout.axisCount {
@@ -489,7 +569,10 @@ private struct SpiderChartCanvas: View {
                     }
                     path.closeSubpath()
                 }
-                .stroke(Color(hex: series.color), lineWidth: 2)
+                .stroke(
+                    Color(hex: series.color),
+                    style: StrokeStyle(lineWidth: 2, lineJoin: .round)
+                )
 
                 ForEach(Array(series.data.enumerated()), id: \.element.id) { index, point in
                     let markerPoint = spiderPoint(for: series, dataIndex: index, layout: layout)
