@@ -96,24 +96,37 @@ public struct HypeToolDefinitions {
             (e.g. 'Jan=120,Feb=150,Mar=180') or 'data_json' for JSON format. \
             ALWAYS provide meaningful x_axis_label and y_axis_label (e.g. 'Month', 'Sales') \
             for bar/line/area/point/rule charts so the rendered chart has visible axis \
-            titles. show_legend defaults to 'true' and identifies the series in the rendered \
-            legend; set it to 'false' only if the user explicitly wants the legend hidden.
+            titles. Spider/radar charts do not use X/Y labels; each data_json point should \
+            include name, value, min, and max, and the series color controls the layered polygon. \
+            For spider charts, min is the selectable floor, not the starting/default value; \
+            set spider_decimal_places to 0 for integer values or higher for real-valued data. \
+            show_legend defaults to 'true' and identifies the series in the rendered legend; set \
+            it to 'false' only if the user explicitly wants the legend hidden.
             """, params: [
             "name": ("string", "Chart name", true),
-            "chart_type": ("string", "Chart type: bar, line, area, point, pie, rule", true),
+            "chart_type": ("string", "Chart type: bar, line, area, point, pie, rule, spider. Radar/spider chart requests should use spider.", true),
             "title": ("string", "Chart title", false),
             "left": ("string", "X position", true),
             "top": ("string", "Y position", true),
             "width": ("string", "Width", true),
             "height": ("string", "Height", true),
             "data": ("string", "Simple data format: name=value pairs separated by commas, e.g. 'Jan=120,Feb=150,Mar=180'", false),
-            "data_json": ("string", "JSON array of data points with name, value, color: [{\"name\":\"Jan\",\"value\":120,\"color\":\"#4A90D9\"}]", false),
+            "data_json": ("string", "JSON array of data points. Normal charts accept name, value, color. Spider charts accept name, value, min, max; point color is ignored for spider.", false),
             "series_name": ("string", "Series name shown in the legend (e.g. 'Sales')", false),
             "series_color": ("string", "Series color hex, e.g. #FF6B6B", false),
             "x_axis_label": ("string", "X-axis title, e.g. 'Month'. Shown under the X axis.", false),
             "y_axis_label": ("string", "Y-axis title, e.g. 'Sales'. Shown beside the Y axis.", false),
             "show_legend": ("string", "'true' (default) to show the legend, 'false' to hide it", false),
             "show_grid": ("string", "'true' (default) to show grid lines, 'false' to hide them", false),
+            "interactable": ("string", "'true' to let users drag spider chart data points at runtime and dispatch chartChange", false),
+            "spider_ring_count": ("string", "Spider/radar grid ring count, 3 to 12. Defaults to 5.", false),
+            "spider_grid_color": ("string", "Spider/radar grid color hex, e.g. #D8DEE9.", false),
+            "spider_axis_color": ("string", "Spider/radar axis color hex, e.g. #6B7280.", false),
+            "spider_label_color": ("string", "Spider/radar axis/data label color hex, e.g. #111827.", false),
+            "spider_fill_opacity": ("string", "Spider/radar polygon fill opacity, 0.0 to 1.0. Defaults to 0.28.", false),
+            "spider_point_radius": ("string", "Spider/radar point radius, 1 to 12. Defaults to 4.", false),
+            "spider_show_value_labels": ("string", "'true' to show data point labels on spider charts.", false),
+            "spider_decimal_places": ("string", "Spider/radar value precision, 0 to 6 decimal places. 0 or omitted means integer values.", false),
             "on_background": ("string", "true to place on background", false),
         ]),
 
@@ -818,7 +831,8 @@ public struct HypeToolDefinitions {
             composites against the card so an image part placed BENEATH the sprite area shows \
             through (the scene's nodes still render normally on top). \
             Chart-specific properties: chartdata, charttype, charttitle, x_axis_label, y_axis_label, \
-            show_legend, show_grid. \
+            show_legend, show_grid, interactable, spider_ring_count, spider_grid_color, spider_axis_color, spider_label_color, \
+            spider_fill_opacity, spider_point_radius, spider_show_value_labels, spider_decimal_places. \
             Scene3D parts also accept: object, model, modelAsset, assetName, modelURL, \
             modelSource, allowsCameraControl, autoLighting, antialiasing, sceneBackground. \
             Use model/modelAsset/assetName for Asset Repository model3D assets; Hype accepts \
@@ -1050,7 +1064,10 @@ public struct HypeToolDefinitions {
             part doesn't exist. Property names match set_part_property: name, left, top, width, \
             height, text, url, videoURL, fillColor, strokeColor, strokeWidth, cornerRadius, \
             visible, enabled, hilite, autoHilite, showName, lockText, textFont, textSize, \
-            textAlign, textStyle, fontColor, helpText, script, style. For Sprite Area parts, property=script returns \
+            textAlign, textStyle, fontColor, helpText, script, style. Chart parts also expose charttype, \
+            charttitle, x_axis_label, y_axis_label, show_legend, show_grid, interactable, spider_ring_count, spider_grid_color, spider_axis_color, \
+            spider_label_color, spider_fill_opacity, spider_point_radius, spider_show_value_labels, and spider_decimal_places. \
+            For Sprite Area parts, property=script returns \
             the active scene script, matching set_part_property's compatibility routing. Scene3D parts also return \
             object/model, modelAsset, modelURL, modelSource, allowsCameraControl, autoLighting, antialiasing, and sceneBackground.
             """, params: [

@@ -772,12 +772,24 @@ public struct HypeToolExecutor: Sendable {
             if let config = ChartConfig.fromJSON(p.chartData) {
                 props.append("chartType=\(config.chartType.rawValue)")
                 if !config.title.isEmpty { props.append("chartTitle=\"\(config.title)\"") }
-                if !config.xAxisLabel.isEmpty { props.append("xAxisLabel=\"\(config.xAxisLabel)\"") }
-                if !config.yAxisLabel.isEmpty { props.append("yAxisLabel=\"\(config.yAxisLabel)\"") }
+                if config.chartType != .spider {
+                    if !config.xAxisLabel.isEmpty { props.append("xAxisLabel=\"\(config.xAxisLabel)\"") }
+                    if !config.yAxisLabel.isEmpty { props.append("yAxisLabel=\"\(config.yAxisLabel)\"") }
+                }
                 props.append("showLegend=\(config.showLegend)")
                 props.append("showGrid=\(config.showGrid)")
+                if config.chartType == .spider {
+                    props.append("interactable=\(config.interactable)")
+                    props.append("spiderRingCount=\(config.spiderRingCount)")
+                    props.append("spiderDecimalPlaces=\(config.spiderDecimalPlaces)")
+                }
                 for series in config.series {
-                    let dataDesc = series.data.map { "\($0.name)=\($0.value)" }.joined(separator: ",")
+                    let dataDesc = series.data.map {
+                        if config.chartType == .spider {
+                            return "\($0.name) min=\(config.formattedSpiderValue($0.minimumValue)) value=\(config.formattedSpiderValue($0.value)) max=\(config.formattedSpiderValue($0.maximumValue))"
+                        }
+                        return "\($0.name)=\(Self.formatNumber($0.value))"
+                    }.joined(separator: ",")
                     props.append("series '\(series.name)' color=\(series.color) data=[\(dataDesc)]")
                 }
             }
@@ -1245,7 +1257,7 @@ public struct HypeToolExecutor: Sendable {
                 width: Double(arguments["width"] ?? "300") ?? 300,
                 height: Double(arguments["height"] ?? "200") ?? 200
             )
-            let chartType = ChartType(rawValue: arguments["chart_type"] ?? "bar") ?? .bar
+            let chartType = ChartType.fromUserValue(arguments["chart_type"] ?? "bar") ?? .bar
             // Default-initialise ChartConfig (showLegend/showGrid both true)
             // then override each field if the AI supplied it. The x/y axis
             // labels are a named chart part (title + series) that the
@@ -1263,22 +1275,64 @@ public struct HypeToolExecutor: Sendable {
             if let sg = arguments["show_grid"] {
                 config.showGrid = (sg.lowercased() == "true")
             }
+            if let interactable = arguments["interactable"] {
+                config.interactable = Self.boolArgument(interactable)
+            }
+            if let ringCount = arguments["spider_ring_count"], let value = Double(ringCount) {
+                config.spiderRingCount = Int(ChartConfig.clamp(
+                    value,
+                    min: Double(ChartConfig.spiderMinimumRingCount),
+                    max: Double(ChartConfig.spiderMaximumRingCount)
+                ))
+            }
+            if let gridColor = arguments["spider_grid_color"] {
+                config.spiderGridColor = ChartConfig.normalizedHex(gridColor, fallback: config.spiderGridColor)
+            }
+            if let axisColor = arguments["spider_axis_color"] {
+                config.spiderAxisColor = ChartConfig.normalizedHex(axisColor, fallback: config.spiderAxisColor)
+            }
+            if let labelColor = arguments["spider_label_color"] {
+                config.spiderLabelColor = ChartConfig.normalizedHex(labelColor, fallback: config.spiderLabelColor)
+            }
+            if let opacity = arguments["spider_fill_opacity"], let value = Double(opacity) {
+                config.spiderFillOpacity = ChartConfig.clamp(value, min: 0, max: 1)
+            }
+            if let radius = arguments["spider_point_radius"], let value = Double(radius) {
+                config.spiderPointRadius = ChartConfig.clamp(value, min: 1, max: 12)
+            }
+            if let showValueLabels = arguments["spider_show_value_labels"] {
+                config.spiderShowValueLabels = Self.boolArgument(showValueLabels)
+            }
+            if let decimalPlaces = arguments["spider_decimal_places"], let value = Double(decimalPlaces) {
+                config.spiderDecimalPlaces = Int(ChartConfig.clamp(
+                    value,
+                    min: Double(ChartConfig.spiderMinimumDecimalPlaces),
+                    max: Double(ChartConfig.spiderMaximumDecimalPlaces)
+                ))
+            }
             // Parse data points from multiple formats
             var dataPoints: [ChartDataPoint] = []
 
             if let dataJSON = arguments["data_json"], !dataJSON.isEmpty {
                 if let jsonData = dataJSON.data(using: .utf8) {
-                    // Try array of {"name":"X","value":123,"color":"#hex"} (also accepts legacy "label" key)
+                    // Try array of {"name":"X","value":123,"color":"#hex"}.
+                    // Spider charts use per-point min/value/max and series color only.
                     if let rawPoints = try? JSONSerialization.jsonObject(with: jsonData) as? [[String: Any]] {
                         for raw in rawPoints {
                             let name = raw["name"] as? String ?? raw["label"] as? String ?? ""
-                            let value: Double
-                            if let v = raw["value"] as? Double { value = v }
-                            else if let v = raw["value"] as? Int { value = Double(v) }
-                            else if let v = raw["value"] as? String { value = Double(v) ?? 0 }
-                            else { value = 0 }
-                            let color = raw["color"] as? String ?? ""
-                            dataPoints.append(ChartDataPoint(name: name, value: value, color: color))
+                            let value = Self.doubleValue(raw["value"]) ?? 0
+                            let minimumValue = Self.doubleValue(raw["minimumValue"] ?? raw["min"]) ?? 0
+                            let maximumValue = Self.doubleValue(raw["maximumValue"] ?? raw["max"]) ?? 100
+                            let color = chartType == .spider ? "" : (raw["color"] as? String ?? "")
+                            dataPoints.append(
+                                ChartDataPoint(
+                                    name: name,
+                                    value: value,
+                                    color: color,
+                                    minimumValue: minimumValue,
+                                    maximumValue: maximumValue
+                                )
+                            )
                         }
                     }
                 }
@@ -1952,6 +2006,10 @@ public struct HypeToolExecutor: Sendable {
             let property = arguments["property"] ?? ""
             let value = arguments["value"] ?? ""
             if let index = scopedPartIndex(named: partName, currentCardId: currentCardId, in: document) {
+                if document.parts[index].partType == .chart,
+                   Self.applyChartProperty(property, value: value, part: &document.parts[index]) {
+                    return "Set \(property) of '\(partName)' to '\(value)'"
+                }
                 switch property.lowercased() {
                 case "name": document.parts[index].name = value
                 case "left": document.parts[index].left = Double(value) ?? 0
@@ -2309,7 +2367,7 @@ public struct HypeToolExecutor: Sendable {
                     document.parts[index].chartData = value
                 case "charttype", "chart_type":
                     var config = ChartConfig.fromJSON(document.parts[index].chartData) ?? ChartConfig()
-                    config.chartType = ChartType(rawValue: value) ?? .bar
+                    config.chartType = ChartType.fromUserValue(value) ?? .bar
                     document.parts[index].chartData = config.toJSON()
                 case "charttitle", "chart_title":
                     var config = ChartConfig.fromJSON(document.parts[index].chartData) ?? ChartConfig()
@@ -2432,6 +2490,9 @@ public struct HypeToolExecutor: Sendable {
             guard var config = ChartConfig.fromJSON(document.parts[partIndex].chartData) else {
                 return "Chart '\(chartName)' has no data"
             }
+            guard config.chartType != .spider else {
+                return "Spider chart data points do not have individual colors; set the series color instead."
+            }
             // Resolve series by 1-based index or name.
             let seriesIdx: Int
             if let num = Int(seriesRef), num > 0, num <= config.series.count {
@@ -2481,8 +2542,14 @@ public struct HypeToolExecutor: Sendable {
             for (sidx, series) in config.series.enumerated() {
                 lines.append("  Series \(sidx + 1) '\(series.name)' color=\(series.color):")
                 for (pidx, point) in series.data.enumerated() {
-                    let effective = point.color.isEmpty ? series.color : point.color
-                    lines.append("    Point \(pidx + 1) '\(point.name)'=\(point.value) color=\(effective)\(point.color.isEmpty ? " (inherited)" : "")")
+                    if config.chartType == .spider {
+                        lines.append(
+                            "    Point \(pidx + 1) '\(point.name)' min=\(config.formattedSpiderValue(point.minimumValue)) value=\(config.formattedSpiderValue(point.value)) max=\(config.formattedSpiderValue(point.maximumValue))"
+                        )
+                    } else {
+                        let effective = point.color.isEmpty ? series.color : point.color
+                        lines.append("    Point \(pidx + 1) '\(point.name)'=\(point.value) color=\(effective)\(point.color.isEmpty ? " (inherited)" : "")")
+                    }
                 }
             }
             return lines.joined(separator: "\n")
@@ -3480,6 +3547,9 @@ public struct HypeToolExecutor: Sendable {
                 return "Part '\(partName)' not found"
             }
             let part = document.parts[partIndex]
+            if let chartValue = Self.chartPropertyValue(property, part: part) {
+                return chartValue
+            }
             switch property.lowercased() {
             case "name": return part.name
             case "left": return String(part.left)
@@ -6004,6 +6074,25 @@ public struct HypeToolExecutor: Sendable {
             row("imageFilterIntensity", String(p.imageFilterIntensity), "0.7")
         case .chart:
             row("chartData", "\"\(p.chartData.prefix(80))\(p.chartData.count > 80 ? "..." : "")\"", "JSON config")
+            if let config = ChartConfig.fromJSON(p.chartData) {
+                row("chartType", config.chartType.rawValue, "bar")
+                row("chartTitle", "\"\(config.title)\"", "\"\"")
+                if config.chartType != .spider {
+                    row("x_axis_label", "\"\(config.xAxisLabel)\"", "\"\"")
+                    row("y_axis_label", "\"\(config.yAxisLabel)\"", "\"\"")
+                }
+                row("show_legend", String(config.showLegend), "true")
+                row("show_grid", String(config.showGrid), "true")
+                row("interactable", String(config.interactable), "false")
+                row("spider_ring_count", String(config.spiderRingCount), "5")
+                row("spider_grid_color", config.spiderGridColor, "#D8DEE9")
+                row("spider_axis_color", config.spiderAxisColor, "#6B7280")
+                row("spider_label_color", config.spiderLabelColor, "#111827")
+                row("spider_fill_opacity", Self.formatNumber(config.spiderFillOpacity), "0.28")
+                row("spider_point_radius", Self.formatNumber(config.spiderPointRadius), "4")
+                row("spider_show_value_labels", String(config.spiderShowValueLabels), "true")
+                row("spider_decimal_places", String(config.spiderDecimalPlaces), "0")
+            }
         case .spriteArea:
             row("sceneSpec", "\"\(p.sceneSpec.prefix(80))\(p.sceneSpec.count > 80 ? "..." : "")\"", "JSON spec")
         case .calendar:
@@ -6185,6 +6274,123 @@ public struct HypeToolExecutor: Sendable {
             HypeLogger.shared.error("STL conversion failed: unknown error", source: "HypeToolExecutor")
             return ""
         }
+    }
+
+    private static func boolArgument(_ value: String) -> Bool {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "true", "yes", "y", "1", "on":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func doubleValue(_ value: Any?) -> Double? {
+        switch value {
+        case let double as Double:
+            return double
+        case let int as Int:
+            return Double(int)
+        case let string as String:
+            return Double(string.trimmingCharacters(in: .whitespacesAndNewlines))
+        default:
+            return nil
+        }
+    }
+
+    private static func chartPropertyValue(_ property: String, part: Part) -> String? {
+        guard part.partType == .chart,
+              let config = ChartConfig.fromJSON(part.chartData) else {
+            return nil
+        }
+        switch property.lowercased() {
+        case "charttype", "chart_type":
+            return config.chartType.rawValue
+        case "charttitle", "chart_title", "title":
+            return config.title
+        case "xaxislabel", "x_axis_label", "xlabel", "x_label":
+            guard config.chartType != .spider else { return nil }
+            return config.xAxisLabel
+        case "yaxislabel", "y_axis_label", "ylabel", "y_label":
+            guard config.chartType != .spider else { return nil }
+            return config.yAxisLabel
+        case "showlegend", "show_legend":
+            return String(config.showLegend)
+        case "showgrid", "show_grid":
+            return String(config.showGrid)
+        case "interactable", "interactive":
+            return String(config.interactable)
+        case "spiderringcount", "spider_ring_count":
+            return String(config.spiderRingCount)
+        case "spidergridcolor", "spider_grid_color":
+            return config.spiderGridColor
+        case "spideraxiscolor", "spider_axis_color":
+            return config.spiderAxisColor
+        case "spiderlabelcolor", "spider_label_color":
+            return config.spiderLabelColor
+        case "spiderfillopacity", "spider_fill_opacity":
+            return Self.formatNumber(config.spiderFillOpacity)
+        case "spiderpointradius", "spider_point_radius":
+            return Self.formatNumber(config.spiderPointRadius)
+        case "spidershowvaluelabels", "spider_show_value_labels":
+            return String(config.spiderShowValueLabels)
+        case "spiderdecimalplaces", "spider_decimal_places", "decimalplaces", "decimal_places":
+            return String(config.spiderDecimalPlaces)
+        default:
+            return nil
+        }
+    }
+
+    private static func applyChartProperty(_ property: String, value: String, part: inout Part) -> Bool {
+        guard part.partType == .chart else { return false }
+        var config = ChartConfig.fromJSON(part.chartData) ?? ChartConfig()
+        switch property.lowercased() {
+        case "charttype", "chart_type":
+            guard let chartType = ChartType.fromUserValue(value) else { return false }
+            config.chartType = chartType
+        case "charttitle", "chart_title", "title":
+            config.title = value
+        case "xaxislabel", "x_axis_label", "xlabel", "x_label":
+            guard config.chartType != .spider else { return false }
+            config.xAxisLabel = value
+        case "yaxislabel", "y_axis_label", "ylabel", "y_label":
+            guard config.chartType != .spider else { return false }
+            config.yAxisLabel = value
+        case "showlegend", "show_legend":
+            config.showLegend = Self.boolArgument(value)
+        case "showgrid", "show_grid":
+            config.showGrid = Self.boolArgument(value)
+        case "interactable", "interactive":
+            config.interactable = Self.boolArgument(value)
+        case "spiderringcount", "spider_ring_count":
+            config.spiderRingCount = Int(ChartConfig.clamp(
+                Double(value) ?? Double(config.spiderRingCount),
+                min: Double(ChartConfig.spiderMinimumRingCount),
+                max: Double(ChartConfig.spiderMaximumRingCount)
+            ))
+        case "spidergridcolor", "spider_grid_color":
+            config.spiderGridColor = ChartConfig.normalizedHex(value, fallback: config.spiderGridColor)
+        case "spideraxiscolor", "spider_axis_color":
+            config.spiderAxisColor = ChartConfig.normalizedHex(value, fallback: config.spiderAxisColor)
+        case "spiderlabelcolor", "spider_label_color":
+            config.spiderLabelColor = ChartConfig.normalizedHex(value, fallback: config.spiderLabelColor)
+        case "spiderfillopacity", "spider_fill_opacity":
+            config.spiderFillOpacity = ChartConfig.clamp(Double(value) ?? config.spiderFillOpacity, min: 0, max: 1)
+        case "spiderpointradius", "spider_point_radius":
+            config.spiderPointRadius = ChartConfig.clamp(Double(value) ?? config.spiderPointRadius, min: 1, max: 12)
+        case "spidershowvaluelabels", "spider_show_value_labels":
+            config.spiderShowValueLabels = Self.boolArgument(value)
+        case "spiderdecimalplaces", "spider_decimal_places", "decimalplaces", "decimal_places":
+            config.spiderDecimalPlaces = Int(ChartConfig.clamp(
+                Double(value) ?? Double(config.spiderDecimalPlaces),
+                min: Double(ChartConfig.spiderMinimumDecimalPlaces),
+                max: Double(ChartConfig.spiderMaximumDecimalPlaces)
+            ))
+        default:
+            return false
+        }
+        part.chartData = config.toJSON()
+        return true
     }
 
     private static func formatNumber(_ value: Double) -> String {

@@ -2,11 +2,40 @@ import Foundation
 
 /// Supported chart types.
 public enum ChartType: String, Codable, Sendable, CaseIterable {
-    case bar, line, area, point, pie, rule
+    case bar, line, area, point, pie, rule, spider
+
+    public static func fromUserValue(_ value: String) -> ChartType? {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "spider", "spiderchart", "spider_chart", "radar", "radarchart", "radar_chart":
+            return .spider
+        default:
+            return ChartType(rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        guard let type = Self.fromUserValue(raw) else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Unknown chart type '\(raw)'")
+            )
+        }
+        self = type
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 /// A complete chart configuration stored as JSON in Part.chartData.
 public struct ChartConfig: Codable, Sendable {
+    public static let spiderMinimumRingCount = 3
+    public static let spiderMaximumRingCount = 12
+    public static let spiderMinimumDecimalPlaces = 0
+    public static let spiderMaximumDecimalPlaces = 6
+
     public var chartType: ChartType
     public var title: String
     public var series: [ChartSeries]
@@ -14,6 +43,15 @@ public struct ChartConfig: Codable, Sendable {
     public var showGrid: Bool
     public var xAxisLabel: String
     public var yAxisLabel: String
+    public var interactable: Bool
+    public var spiderRingCount: Int
+    public var spiderGridColor: String
+    public var spiderAxisColor: String
+    public var spiderLabelColor: String
+    public var spiderFillOpacity: Double
+    public var spiderPointRadius: Double
+    public var spiderShowValueLabels: Bool
+    public var spiderDecimalPlaces: Int
 
     public init(
         chartType: ChartType = .bar,
@@ -22,7 +60,16 @@ public struct ChartConfig: Codable, Sendable {
         showLegend: Bool = true,
         showGrid: Bool = true,
         xAxisLabel: String = "",
-        yAxisLabel: String = ""
+        yAxisLabel: String = "",
+        interactable: Bool = false,
+        spiderRingCount: Int = 5,
+        spiderGridColor: String = "#D8DEE9",
+        spiderAxisColor: String = "#6B7280",
+        spiderLabelColor: String = "#111827",
+        spiderFillOpacity: Double = 0.28,
+        spiderPointRadius: Double = 4,
+        spiderShowValueLabels: Bool = true,
+        spiderDecimalPlaces: Int = 0
     ) {
         self.chartType = chartType
         self.title = title
@@ -31,6 +78,151 @@ public struct ChartConfig: Codable, Sendable {
         self.showGrid = showGrid
         self.xAxisLabel = xAxisLabel
         self.yAxisLabel = yAxisLabel
+        self.interactable = interactable
+        self.spiderRingCount = spiderRingCount
+        self.spiderGridColor = Self.normalizedHex(spiderGridColor, fallback: "#D8DEE9")
+        self.spiderAxisColor = Self.normalizedHex(spiderAxisColor, fallback: "#6B7280")
+        self.spiderLabelColor = Self.normalizedHex(spiderLabelColor, fallback: "#111827")
+        self.spiderFillOpacity = Self.clamp(spiderFillOpacity, min: 0, max: 1)
+        self.spiderPointRadius = Self.clamp(spiderPointRadius, min: 1, max: 12)
+        self.spiderShowValueLabels = spiderShowValueLabels
+        self.spiderDecimalPlaces = spiderDecimalPlaces
+        normalizeSpiderDisplay()
+        normalizeSpiderValuesToPrecision()
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case chartType, title, series, showLegend, showGrid, xAxisLabel, yAxisLabel
+        case interactable
+        // Legacy decode-only keys from the earlier spider chart model.
+        case spiderMinimumValue, spiderMaximumValue, spiderAutoScale, spiderRingCount
+        case spiderGridColor, spiderAxisColor, spiderLabelColor, spiderFillOpacity
+        case spiderPointRadius, spiderShowValueLabels, spiderDecimalPlaces
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        chartType = try c.decodeIfPresent(ChartType.self, forKey: .chartType) ?? .bar
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        series = try c.decodeIfPresent([ChartSeries].self, forKey: .series) ?? []
+        showLegend = try c.decodeIfPresent(Bool.self, forKey: .showLegend) ?? true
+        showGrid = try c.decodeIfPresent(Bool.self, forKey: .showGrid) ?? true
+        xAxisLabel = try c.decodeIfPresent(String.self, forKey: .xAxisLabel) ?? ""
+        yAxisLabel = try c.decodeIfPresent(String.self, forKey: .yAxisLabel) ?? ""
+        interactable = try c.decodeIfPresent(Bool.self, forKey: .interactable) ?? false
+        let legacySpiderMinimumValue = try c.decodeIfPresent(Double.self, forKey: .spiderMinimumValue)
+        let legacySpiderMaximumValue = try c.decodeIfPresent(Double.self, forKey: .spiderMaximumValue)
+        spiderRingCount = try c.decodeIfPresent(Int.self, forKey: .spiderRingCount) ?? 5
+        spiderGridColor = Self.normalizedHex(
+            try c.decodeIfPresent(String.self, forKey: .spiderGridColor) ?? "#D8DEE9",
+            fallback: "#D8DEE9"
+        )
+        spiderAxisColor = Self.normalizedHex(
+            try c.decodeIfPresent(String.self, forKey: .spiderAxisColor) ?? "#6B7280",
+            fallback: "#6B7280"
+        )
+        spiderLabelColor = Self.normalizedHex(
+            try c.decodeIfPresent(String.self, forKey: .spiderLabelColor) ?? "#111827",
+            fallback: "#111827"
+        )
+        spiderFillOpacity = Self.clamp(
+            try c.decodeIfPresent(Double.self, forKey: .spiderFillOpacity) ?? 0.28,
+            min: 0,
+            max: 1
+        )
+        spiderPointRadius = Self.clamp(
+            try c.decodeIfPresent(Double.self, forKey: .spiderPointRadius) ?? 4,
+            min: 1,
+            max: 12
+        )
+        spiderShowValueLabels = try c.decodeIfPresent(Bool.self, forKey: .spiderShowValueLabels) ?? true
+        spiderDecimalPlaces = try c.decodeIfPresent(Int.self, forKey: .spiderDecimalPlaces) ?? 0
+        normalizeSpiderDisplay()
+        if chartType == .spider,
+           legacySpiderMinimumValue != nil || legacySpiderMaximumValue != nil {
+            applyLegacySpiderRange(
+                min: legacySpiderMinimumValue ?? 0,
+                max: legacySpiderMaximumValue ?? 100
+            )
+        } else {
+            normalizeDataPointRanges(includeCurrentValue: true)
+        }
+        normalizeSpiderValuesToPrecision()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(chartType, forKey: .chartType)
+        try c.encode(title, forKey: .title)
+        try c.encode(series, forKey: .series)
+        try c.encode(showLegend, forKey: .showLegend)
+        try c.encode(showGrid, forKey: .showGrid)
+        try c.encode(xAxisLabel, forKey: .xAxisLabel)
+        try c.encode(yAxisLabel, forKey: .yAxisLabel)
+        try c.encode(interactable, forKey: .interactable)
+        try c.encode(spiderRingCount, forKey: .spiderRingCount)
+        try c.encode(spiderGridColor, forKey: .spiderGridColor)
+        try c.encode(spiderAxisColor, forKey: .spiderAxisColor)
+        try c.encode(spiderLabelColor, forKey: .spiderLabelColor)
+        try c.encode(spiderFillOpacity, forKey: .spiderFillOpacity)
+        try c.encode(spiderPointRadius, forKey: .spiderPointRadius)
+        try c.encode(spiderShowValueLabels, forKey: .spiderShowValueLabels)
+        try c.encode(spiderDecimalPlaces, forKey: .spiderDecimalPlaces)
+    }
+
+    private mutating func normalizeSpiderDisplay() {
+        spiderRingCount = Int(Self.clamp(
+            Double(spiderRingCount),
+            min: Double(Self.spiderMinimumRingCount),
+            max: Double(Self.spiderMaximumRingCount)
+        ))
+        spiderDecimalPlaces = Int(Self.clamp(
+            Double(spiderDecimalPlaces),
+            min: Double(Self.spiderMinimumDecimalPlaces),
+            max: Double(Self.spiderMaximumDecimalPlaces)
+        ))
+    }
+
+    private mutating func normalizeDataPointRanges(includeCurrentValue: Bool) {
+        for seriesIndex in series.indices {
+            for pointIndex in series[seriesIndex].data.indices {
+                series[seriesIndex].data[pointIndex].normalizeRangeAndValue(includeCurrentValue: includeCurrentValue)
+            }
+        }
+    }
+
+    private mutating func applyLegacySpiderRange(min: Double, max: Double) {
+        let range = ChartDataPoint.normalizedRange(min: min, max: max)
+        for seriesIndex in series.indices {
+            for pointIndex in series[seriesIndex].data.indices {
+                series[seriesIndex].data[pointIndex].minimumValue = range.min
+                series[seriesIndex].data[pointIndex].maximumValue = range.max
+                series[seriesIndex].data[pointIndex].value = series[seriesIndex].data[pointIndex].clampedValue(
+                    series[seriesIndex].data[pointIndex].value
+                )
+            }
+        }
+    }
+
+    public mutating func normalizeForStorage() {
+        normalizeSpiderDisplay()
+        normalizeDataPointRanges(includeCurrentValue: true)
+        normalizeSpiderValuesToPrecision()
+    }
+
+    private mutating func normalizeSpiderValuesToPrecision() {
+        guard chartType == .spider else { return }
+        for seriesIndex in series.indices {
+            for pointIndex in series[seriesIndex].data.indices {
+                var point = series[seriesIndex].data[pointIndex]
+                point.value = Self.quantizedValue(
+                    point.clampedValue(point.value),
+                    decimalPlaces: spiderDecimalPlaces
+                )
+                point.value = point.clampedValue(point.value)
+                series[seriesIndex].data[pointIndex] = point
+            }
+        }
     }
 
     /// Parse from JSON string. Routes through the shared
@@ -45,7 +237,111 @@ public struct ChartConfig: Codable, Sendable {
     /// Serialize to JSON string. Routes through the shared
     /// `JSONCodec.encoder`.
     public func toJSON() -> String {
-        return JSONCodec.encode(self)
+        var copy = self
+        copy.normalizeForStorage()
+        return JSONCodec.encode(copy)
+    }
+
+    public func spiderAxisLabels() -> [String] {
+        let count = spiderAxisCount()
+        guard count > 0 else { return [] }
+        let renderable = spiderRenderableSeries()
+        return (0..<count).map { index in
+            for series in renderable where index < series.data.count {
+                let name = series.data[index].name.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !name.isEmpty { return name }
+            }
+            return "Axis \(index + 1)"
+        }
+    }
+
+    /// The axis count for spider charts. The first series with at
+    /// least three data points establishes the axes; additional
+    /// series must match this count to render as a comparable layer.
+    public func spiderAxisCount() -> Int {
+        series.first(where: { $0.data.count >= 3 })?.data.count ?? 0
+    }
+
+    /// Series that can be drawn as spider/radar polygons. Incomplete
+    /// series remain in the document for editing but are intentionally
+    /// skipped by rendering, legends, labels, and hit testing because
+    /// a partial series cannot map cleanly onto the established axes.
+    public func spiderRenderableSeries() -> [ChartSeries] {
+        let count = spiderAxisCount()
+        guard count >= 3 else { return [] }
+        return series.filter { $0.data.count == count }
+    }
+
+    /// Shared radial scale for a spider/radar chart. Standard radar charts use
+    /// one value scale across all axes so series polygons are comparable. Hype
+    /// still keeps each point's min/max as authoring and drag bounds, but the
+    /// visual position is derived from one chart-wide scale.
+    public func spiderValueScale() -> (minimum: Double, maximum: Double) {
+        let points = spiderRenderableSeries().flatMap(\.data)
+        guard !points.isEmpty else { return (0, 1) }
+
+        let rawMinimum = points
+            .map { Swift.min($0.minimumValue, $0.value) }
+            .min() ?? 0
+        let rawMaximum = points
+            .map { Swift.max($0.maximumValue, $0.value) }
+            .max() ?? 1
+
+        let visualMinimum = rawMinimum >= 0 ? 0 : rawMinimum
+        let visualMaximum = rawMaximum <= visualMinimum
+            ? visualMinimum + 1
+            : rawMaximum
+        return (visualMinimum, visualMaximum)
+    }
+
+    public func normalizedSpiderValue(for point: ChartDataPoint, value: Double? = nil) -> Double {
+        let scale = spiderValueScale()
+        guard scale.maximum > scale.minimum else { return 0 }
+        let safe = clampedSpiderValue(value ?? point.value, for: point)
+        return Self.clamp((safe - scale.minimum) / (scale.maximum - scale.minimum), min: 0, max: 1)
+    }
+
+    public func spiderValue(for point: ChartDataPoint, from normalizedValue: Double) -> Double {
+        let scale = spiderValueScale()
+        let normalized = Self.clamp(normalizedValue, min: 0, max: 1)
+        let candidate = scale.minimum + normalized * (scale.maximum - scale.minimum)
+        return clampedSpiderValue(candidate, for: point)
+    }
+
+    public func clampedSpiderValue(_ value: Double, for point: ChartDataPoint) -> Double {
+        let clamped = point.clampedValue(value)
+        let rounded = Self.quantizedValue(clamped, decimalPlaces: spiderDecimalPlaces)
+        return point.clampedValue(rounded)
+    }
+
+    public func formattedSpiderValue(_ value: Double) -> String {
+        Self.formattedValue(value, decimalPlaces: spiderDecimalPlaces)
+    }
+
+    public static func quantizedValue(_ value: Double, decimalPlaces: Int) -> Double {
+        guard value.isFinite else { return value }
+        let places = Int(Self.clamp(
+            Double(decimalPlaces),
+            min: Double(Self.spiderMinimumDecimalPlaces),
+            max: Double(Self.spiderMaximumDecimalPlaces)
+        ))
+        guard places > 0 else { return value.rounded() }
+        let factor = pow(10.0, Double(places))
+        return (value * factor).rounded() / factor
+    }
+
+    public static func normalizedHex(_ value: String, fallback: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        guard body.count == 6, UInt64(body, radix: 16) != nil else {
+            return fallback
+        }
+        return "#\(body.uppercased())"
+    }
+
+    public static func clamp(_ value: Double, min minValue: Double, max maxValue: Double) -> Double {
+        guard value.isFinite else { return minValue }
+        return Swift.min(Swift.max(value, minValue), maxValue)
     }
 }
 
@@ -56,31 +352,65 @@ public struct ChartSeries: Codable, Sendable, Identifiable {
     public var color: String  // hex color (default for all data points)
     public var data: [ChartDataPoint]
 
+    enum CodingKeys: String, CodingKey {
+        case id, name, color, data
+    }
+
     public init(id: UUID = UUID(), name: String = "Series", color: String = "#4A90D9", data: [ChartDataPoint] = []) {
         self.id = id
         self.name = name
         self.color = color
         self.data = data
     }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? "Series"
+        color = try c.decodeIfPresent(String.self, forKey: .color) ?? "#4A90D9"
+        data = try c.decodeIfPresent([ChartDataPoint].self, forKey: .data) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(color, forKey: .color)
+        try c.encode(data, forKey: .data)
+    }
 }
 
-/// A single data point with name, value, and color.
+/// A single data point with name, value, optional color, and a
+/// per-axis range used by spider/radar charts.
 public struct ChartDataPoint: Codable, Sendable, Identifiable {
     public var id: UUID
     public var name: String
     public var value: Double
     public var color: String  // hex color, e.g. "#FF6B6B"
+    public var minimumValue: Double
+    public var maximumValue: Double
 
     enum CodingKeys: String, CodingKey {
-        case id, name, value, color
+        case id, name, value, color, minimumValue, maximumValue
+        case min, max
         case label  // backward compat
     }
 
-    public init(id: UUID = UUID(), name: String = "", value: Double = 0, color: String = "") {
+    public init(
+        id: UUID = UUID(),
+        name: String = "",
+        value: Double = 0,
+        color: String = "",
+        minimumValue: Double = 0,
+        maximumValue: Double = 100
+    ) {
         self.id = id
         self.name = name
         self.value = value
         self.color = color
+        self.minimumValue = minimumValue
+        self.maximumValue = maximumValue
+        normalizeRangeAndValue(includeCurrentValue: true)
     }
 
     public init(from decoder: Decoder) throws {
@@ -90,8 +420,11 @@ public struct ChartDataPoint: Codable, Sendable, Identifiable {
         name = try c.decodeIfPresent(String.self, forKey: .name)
             ?? c.decodeIfPresent(String.self, forKey: .label)
             ?? ""
-        value = try c.decodeIfPresent(Double.self, forKey: .value) ?? 0
+        value = try Self.decodeDouble(c, keys: [.value]) ?? 0
         color = try c.decodeIfPresent(String.self, forKey: .color) ?? ""
+        minimumValue = try Self.decodeDouble(c, keys: [.minimumValue, .min]) ?? 0
+        maximumValue = try Self.decodeDouble(c, keys: [.maximumValue, .max]) ?? 100
+        normalizeRangeAndValue(includeCurrentValue: true)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -100,6 +433,69 @@ public struct ChartDataPoint: Codable, Sendable, Identifiable {
         try c.encode(name, forKey: .name)
         try c.encode(value, forKey: .value)
         try c.encode(color, forKey: .color)
+        try c.encode(minimumValue, forKey: .minimumValue)
+        try c.encode(maximumValue, forKey: .maximumValue)
+    }
+
+    public mutating func normalizeRangeAndValue(includeCurrentValue: Bool) {
+        let range = Self.normalizedRange(
+            min: minimumValue,
+            max: maximumValue,
+            including: includeCurrentValue ? value : nil
+        )
+        minimumValue = range.min
+        maximumValue = range.max
+        value = clampedValue(value)
+    }
+
+    public func normalizedValue(_ candidate: Double) -> Double {
+        guard maximumValue > minimumValue else { return 0 }
+        let safe = clampedValue(candidate)
+        return ChartConfig.clamp((safe - minimumValue) / (maximumValue - minimumValue), min: 0, max: 1)
+    }
+
+    public func value(fromNormalized normalizedValue: Double) -> Double {
+        let normalized = ChartConfig.clamp(normalizedValue, min: 0, max: 1)
+        return minimumValue + normalized * (maximumValue - minimumValue)
+    }
+
+    public func clampedValue(_ candidate: Double) -> Double {
+        guard candidate.isFinite else { return minimumValue }
+        return ChartConfig.clamp(candidate, min: minimumValue, max: maximumValue)
+    }
+
+    public static func normalizedRange(
+        min minValue: Double,
+        max maxValue: Double,
+        including candidate: Double? = nil
+    ) -> (min: Double, max: Double) {
+        var safeMin = minValue.isFinite ? minValue : 0
+        var safeMax = maxValue.isFinite ? maxValue : safeMin + 100
+        if let candidate, candidate.isFinite {
+            safeMin = Swift.min(safeMin, candidate)
+            safeMax = Swift.max(safeMax, candidate)
+        }
+        if safeMax <= safeMin { safeMax = safeMin + 1 }
+        return (safeMin, safeMax)
+    }
+
+    private static func decodeDouble(
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        keys: [CodingKeys]
+    ) throws -> Double? {
+        for key in keys {
+            if let value = try container.decodeIfPresent(Double.self, forKey: key) {
+                return value
+            }
+            if let value = try container.decodeIfPresent(Int.self, forKey: key) {
+                return Double(value)
+            }
+            if let value = try container.decodeIfPresent(String.self, forKey: key),
+               let parsed = Double(value) {
+                return parsed
+            }
+        }
+        return nil
     }
 }
 
@@ -129,6 +525,9 @@ extension ChartConfig {
     /// Policy:
     ///
     /// - **Empty chart** (no series): returns `[]`.
+    /// - **Spider chart**: returns one entry per series. Spider
+    ///   charts are layered by series, and data points do not have
+    ///   individual colors.
     /// - **Single series**: returns one entry per data point, using the
     ///   point's effective color (per-point color overrides the series
     ///   color; empty falls back to the series color). Hype charts are
@@ -149,6 +548,10 @@ extension ChartConfig {
     /// returned entries; this method does not consult that flag.
     public func legendEntries() -> [ChartLegendEntry] {
         if series.isEmpty { return [] }
+
+        if chartType == .spider {
+            return spiderRenderableSeries().map { ChartLegendEntry(name: $0.name, colorHex: $0.color) }
+        }
 
         if series.count == 1, let only = series.first {
             if only.data.isEmpty {
@@ -176,6 +579,19 @@ extension ChartConfig {
         return "\(pointName) \(value)"
     }
 
+    /// User-facing value label for spider/radar chart points. Spider charts
+    /// render only complete, same-axis-count series, so incomplete editable
+    /// series should not force visible labels into multi-series wording.
+    public func spiderDataPointLabel(for point: ChartDataPoint, in series: ChartSeries) -> String {
+        let pointName = point.name.isEmpty ? "Point" : point.name
+        let value = formattedSpiderValue(point.value)
+        if spiderRenderableSeries().count > 1 {
+            let seriesName = series.name.isEmpty ? "Series" : series.name
+            return "\(seriesName): \(pointName) \(value)"
+        }
+        return "\(pointName) \(value)"
+    }
+
     /// Compact numeric formatting for visible chart labels.
     public static func formattedValue(_ value: Double) -> String {
         guard value.isFinite else { return "\(value)" }
@@ -194,5 +610,24 @@ extension ChartConfig {
             text.removeLast()
         }
         return text
+    }
+
+    /// Fixed-precision formatting for spider/radar values. A precision of 0
+    /// means integer data, which is the default for an omitted property.
+    public static func formattedValue(_ value: Double, decimalPlaces: Int) -> String {
+        guard value.isFinite else { return "\(value)" }
+        let places = Int(Self.clamp(
+            Double(decimalPlaces),
+            min: Double(Self.spiderMinimumDecimalPlaces),
+            max: Double(Self.spiderMaximumDecimalPlaces)
+        ))
+        let rounded = Self.quantizedValue(value, decimalPlaces: places)
+        guard places > 0 else {
+            if rounded >= Double(Int64.min), rounded <= Double(Int64.max) {
+                return "\(Int64(rounded))"
+            }
+            return String(format: "%.0f", rounded)
+        }
+        return String(format: "%.\(places)f", rounded)
     }
 }

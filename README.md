@@ -45,7 +45,8 @@ emitters in the same document, with one unified scripting model.
 
 - **One document, infinite control types.** Cards host buttons,
   fields, shapes, images, video players (AVKit), web pages
-  (WKWebView), charts (Apple Charts), maps (MapKit), PDFs (PDFKit),
+  (WKWebView), charts (Apple Charts plus Hype-native spider/radar charts),
+  maps (MapKit), PDFs (PDFKit),
   calendars (EventKit-aware), color wells, steppers, sliders,
   segmented controls, gauges, progress views, dividers, audio
   recorders (AVFoundation), stack-contained music controls (AudioKit),
@@ -141,7 +142,10 @@ uniformly across them.
 `field` (7 styles incl. search/secure/scrolling),
 `shape` (rectangle, roundRect, oval, line, freeform path),
 `image`, `video` (AVKit), `webpage` (WKWebView),
-`chart` (Apple Charts).
+`chart` (Apple Charts plus Hype-native spider/radar charts; spider charts use
+layered series colors, a shared radial visual scale, per-point min/value/max
+editing bounds, configurable decimal precision, and optional runtime point
+dragging with `chartChange` script events).
 
 **Form controls:**
 `stepper`, `slider`, `segmented`, `toggle`, `colorWell`,

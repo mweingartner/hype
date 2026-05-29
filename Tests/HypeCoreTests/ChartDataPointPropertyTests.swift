@@ -508,6 +508,113 @@ struct ChartDataPointPropertyTests {
         #expect(config?.chartType == .line)
     }
 
+    @Test("changes chart type by radar alias and sets spider display plus point ranges")
+    func setsSpiderDisplayAndPointRangeProperties() throws {
+        let (doc, cardId, _) = makeDocWithColoredChart()
+        let (modified, _) = try runScript(
+            """
+            set the chartType of chart "Sales" to "radar"
+            set the interactable of chart "Sales" to true
+            set the spider_ring_count of chart "Sales" to 7
+            set the spider_grid_color of chart "Sales" to "abc123"
+            set the spider_axis_color of chart "Sales" to "#123456"
+            set the spider_label_color of chart "Sales" to "#654321"
+            set the spider_fill_opacity of chart "Sales" to 0.5
+            set the spider_point_radius of chart "Sales" to 6
+            set the spider_show_value_labels of chart "Sales" to false
+            set the spider_decimal_places of chart "Sales" to 2
+            set the min of data point "Jan" of chart "Sales" to 5
+            set the max of data point "Jan" of chart "Sales" to 95
+            set the value of data point "Jan" of chart "Sales" to 94.567
+            """,
+            on: doc,
+            currentCardId: cardId
+        )
+
+        let config = chartConfig(in: modified, named: "Sales")
+        #expect(config?.chartType == .spider)
+        #expect(config?.interactable == true)
+        #expect(config?.spiderRingCount == 7)
+        #expect(config?.spiderGridColor == "#ABC123")
+        #expect(config?.spiderAxisColor == "#123456")
+        #expect(config?.spiderLabelColor == "#654321")
+        #expect(config?.spiderFillOpacity == 0.5)
+        #expect(config?.spiderPointRadius == 6)
+        #expect(config?.spiderShowValueLabels == false)
+        #expect(config?.spiderDecimalPlaces == 2)
+        #expect(config?.series[0].data[0].minimumValue == 5)
+        #expect(config?.series[0].data[0].maximumValue == 95)
+        #expect(config?.series[0].data[0].value == 94.57)
+    }
+
+    @Test("spider data point color is series-owned and not mutable per point")
+    func spiderDataPointColorUsesSeriesColor() throws {
+        let (doc, cardId, _) = makeDocWithColoredChart()
+        var modified = doc
+        (modified, _) = try runScript(
+            """
+            set the chartType of chart "Sales" to "spider"
+            set the color of data point "Jan" of chart "Sales" to "#AABBCC"
+            """,
+            on: modified,
+            currentCardId: cardId
+        )
+
+        let (_, color) = try runScript(
+            """
+            put the color of data point "Jan" of chart "Sales" into it
+            """,
+            on: modified,
+            currentCardId: cardId
+        )
+        let config = chartConfig(in: modified, named: "Sales")
+        #expect(config?.series[0].data[0].color == "#FF0000")
+        #expect(color == "#4A90D9")
+    }
+
+    @Test("chartChange binds dataset, it, chartValue and passes up")
+    func chartChangeBindsContextAndPassesUp() {
+        var (doc, cardId, chartId) = makeDocWithColoredChart()
+        var log = Part(
+            partType: .field,
+            cardId: cardId,
+            name: "Log",
+            left: 0,
+            top: 0,
+            width: 200,
+            height: 40
+        )
+        log.textContent = ""
+        doc.addPart(log)
+        doc.updatePart(id: chartId) { part in
+            part.script = """
+            on chartChange dataSetName
+              put dataSetName & ":" & it & ":" & chartValue into field "Log"
+              pass chartChange
+            end chartChange
+            """
+        }
+        if let index = doc.cards.firstIndex(where: { $0.id == cardId }) {
+            doc.cards[index].script = """
+            on chartChange dataSetName
+              put the text of field "Log" & " card:" & it into field "Log"
+            end chartChange
+            """
+        }
+
+        let result = MessageDispatcher().dispatch(
+            message: "chartChange",
+            params: ["Revenue", "Feb", "155"],
+            targetId: chartId,
+            document: doc,
+            currentCardId: cardId
+        )
+
+        let modified = result.modifiedDocument ?? doc
+        let logText = modified.parts.first(where: { $0.name == "Log" })?.textContent
+        #expect(logText == "Revenue:Feb:155 card:Feb")
+    }
+
     @Test("chart-level property set preserves series and per-point colors")
     func chartLevelSetPreservesSeries() throws {
         let (doc, cardId, _) = makeDocWithColoredChart()
@@ -566,6 +673,31 @@ struct ChartDataPointPropertyTests {
         )
         let config = chartConfig(in: mutable, named: "Sales")
         #expect(config?.series[0].data[2].color == "#112233")
+    }
+
+    @Test("set_chart_data_point_color refuses spider charts")
+    func toolRefusesSpiderPointColor() async {
+        let (doc, cardId, _) = makeDocWithColoredChart()
+        var mutable = doc
+        mutable.updatePart(id: mutable.parts.first(where: { $0.name == "Sales" })!.id) { part in
+            var config = ChartConfig.fromJSON(part.chartData) ?? ChartConfig()
+            config.chartType = .spider
+            part.chartData = config.toJSON()
+        }
+        let executor = HypeToolExecutor()
+        let result = await executor.execute(
+            toolName: "set_chart_data_point_color",
+            arguments: [
+                "chart_name": "Sales",
+                "point": "Jan",
+                "color": "#112233",
+            ],
+            document: &mutable,
+            currentCardId: cardId
+        )
+        let config = chartConfig(in: mutable, named: "Sales")
+        #expect(result.contains("Spider chart data points do not have individual colors"))
+        #expect(config?.series[0].data[0].color == "#FF0000")
     }
 
     @Test("set_chart_data_point_color reports unknown chart")

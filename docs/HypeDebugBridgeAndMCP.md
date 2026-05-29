@@ -112,9 +112,11 @@ Repo-local Codex config uses the same server:
 
 ```toml
 [mcp_servers.hype]
-command = "node"
-args = ["Tools/hype-mcp-server/bin/hype-mcp.js"]
-enabled = true
+command = "/usr/bin/env"
+args = ["node", "/path/to/hype/Tools/hype-mcp-server/bin/hype-mcp.js"]
+
+[mcp_servers.hype.env]
+HYPE_DEBUG_SOCKET_DIR = "/path/to/hype/.hype/debug"
 ```
 
 The Node server is the only stdio entrypoint. By default it scans the

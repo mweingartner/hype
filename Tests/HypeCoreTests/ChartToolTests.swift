@@ -307,6 +307,177 @@ struct ChartToolTests {
         #expect(chartConfig(in: doc, named: "Gridded")?.showGrid == false)
     }
 
+    @Test("create_chart supports spider chart configuration")
+    func createChartSupportsSpiderConfiguration() async {
+        var (doc, cardId) = makeDoc()
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_chart",
+            arguments: [
+                "name": "Skills",
+                "chart_type": "radar",
+                "title": "Team Skills",
+                "left": "0", "top": "0",
+                "width": "320", "height": "280",
+                "data_json": """
+                [
+                  {"name":"Speed","value":65,"min":0,"max":120},
+                  {"name":"Strength","value":80,"min":0,"max":120},
+                  {"name":"Focus","value":72,"min":0,"max":120},
+                  {"name":"Design","value":90,"min":0,"max":120},
+                  {"name":"QA","value":55,"min":0,"max":120}
+                ]
+                """,
+                "series_name": "Alex",
+                "series_color": "#3366CC",
+                "interactable": "true",
+                "spider_ring_count": "6",
+                "spider_grid_color": "ccddee",
+                "spider_axis_color": "#334455",
+                "spider_label_color": "#112233",
+                "spider_fill_opacity": "0.4",
+                "spider_point_radius": "5",
+                "spider_show_value_labels": "true",
+                "spider_decimal_places": "2",
+            ],
+            document: &doc,
+            currentCardId: cardId
+        )
+
+        let config = chartConfig(in: doc, named: "Skills")
+        #expect(config?.chartType == .spider)
+        #expect(config?.interactable == true)
+        #expect(config?.spiderRingCount == 6)
+        #expect(config?.spiderGridColor == "#CCDDEE")
+        #expect(config?.spiderAxisColor == "#334455")
+        #expect(config?.spiderLabelColor == "#112233")
+        #expect(config?.spiderFillOpacity == 0.4)
+        #expect(config?.spiderPointRadius == 5)
+        #expect(config?.spiderDecimalPlaces == 2)
+        #expect(config?.series.first?.data.count == 5)
+        #expect(config?.series.first?.data.first?.minimumValue == 0)
+        #expect(config?.series.first?.data.first?.maximumValue == 120)
+        #expect(config?.spiderAxisLabels() == ["Speed", "Strength", "Focus", "Design", "QA"])
+    }
+
+    @Test("create_chart spider data without min max defaults to editable zero floor")
+    func createChartSpiderDataWithoutMinMaxDefaultsToZeroFloor() async throws {
+        var (doc, cardId) = makeDoc()
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_chart",
+            arguments: [
+                "name": "Attributes",
+                "chart_type": "spider",
+                "left": "0", "top": "0",
+                "width": "320", "height": "280",
+                "data_json": """
+                [
+                  {"name":"Strength","value":18},
+                  {"name":"Dexterity","value":12},
+                  {"name":"Wisdom","value":11}
+                ]
+                """,
+            ],
+            document: &doc,
+            currentCardId: cardId
+        )
+
+        let config = try #require(chartConfig(in: doc, named: "Attributes"))
+        let point = try #require(config.series.first?.data.first)
+        #expect(point.minimumValue == 0)
+        #expect(point.maximumValue == 100)
+        #expect(config.spiderValue(for: point, from: 0) == 0)
+    }
+
+    @Test("set_part_property and get_part_property expose spider chart properties")
+    func setAndGetSpiderChartProperties() async {
+        var (doc, cardId) = makeDoc()
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_chart",
+            arguments: [
+                "name": "Radar",
+                "chart_type": "spider",
+                "left": "0", "top": "0",
+                "width": "240", "height": "220",
+                "data": "A=10,B=20,C=30",
+            ],
+            document: &doc,
+            currentCardId: cardId
+        )
+
+        _ = await executor.execute(
+            toolName: "set_part_property",
+            arguments: ["part_name": "Radar", "property": "interactable", "value": "true"],
+            document: &doc,
+            currentCardId: cardId
+        )
+        _ = await executor.execute(
+            toolName: "set_part_property",
+            arguments: ["part_name": "Radar", "property": "spider_grid_color", "value": "#123abc"],
+            document: &doc,
+            currentCardId: cardId
+        )
+        _ = await executor.execute(
+            toolName: "set_part_property",
+            arguments: ["part_name": "Radar", "property": "spider_ring_count", "value": "99"],
+            document: &doc,
+            currentCardId: cardId
+        )
+        _ = await executor.execute(
+            toolName: "set_part_property",
+            arguments: ["part_name": "Radar", "property": "spider_decimal_places", "value": "99"],
+            document: &doc,
+            currentCardId: cardId
+        )
+
+        #expect(chartConfig(in: doc, named: "Radar")?.interactable == true)
+        #expect(chartConfig(in: doc, named: "Radar")?.spiderGridColor == "#123ABC")
+        #expect(chartConfig(in: doc, named: "Radar")?.spiderRingCount == 12)
+        #expect(chartConfig(in: doc, named: "Radar")?.spiderDecimalPlaces == ChartConfig.spiderMaximumDecimalPlaces)
+
+        let interactable = await executor.execute(
+            toolName: "get_part_property",
+            arguments: ["part_name": "Radar", "property": "interactable"],
+            document: &doc,
+            currentCardId: cardId
+        )
+        let gridColor = await executor.execute(
+            toolName: "get_part_property",
+            arguments: ["part_name": "Radar", "property": "spider_grid_color"],
+            document: &doc,
+            currentCardId: cardId
+        )
+        let decimalPlaces = await executor.execute(
+            toolName: "get_part_property",
+            arguments: ["part_name": "Radar", "property": "spider_decimal_places"],
+            document: &doc,
+            currentCardId: cardId
+        )
+        #expect(interactable == "true")
+        #expect(gridColor == "#123ABC")
+        #expect(decimalPlaces == "\(ChartConfig.spiderMaximumDecimalPlaces)")
+    }
+
+    @Test("create_chart tool schema exposes spider chart options")
+    func createChartToolSchemaExposesSpiderOptions() {
+        let tool = HypeToolDefinitions.allTools.first { $0.function.name == "create_chart" }
+        #expect(tool != nil)
+        let properties = tool?.function.parameters.properties ?? [:]
+        #expect(properties.keys.contains("chart_type"))
+        #expect(properties.keys.contains("interactable"))
+        #expect(!properties.keys.contains("spider_min"))
+        #expect(!properties.keys.contains("spider_max"))
+        #expect(!properties.keys.contains("spider_auto_scale"))
+        #expect(properties.keys.contains("spider_grid_color"))
+        #expect(properties.keys.contains("spider_axis_color"))
+        #expect(properties.keys.contains("spider_label_color"))
+        #expect(properties.keys.contains("spider_show_value_labels"))
+        #expect(properties.keys.contains("spider_decimal_places"))
+        #expect(properties["chart_type"]?.description.contains("spider") == true)
+    }
+
     // MARK: - ChartConfig round-trips
 
     @Test("ChartConfig JSON round-trip preserves axis labels and legend flags")
@@ -337,6 +508,87 @@ struct ChartToolTests {
         #expect(roundTripped?.series.first?.data.count == 2)
     }
 
+    @Test("ChartConfig JSON round-trip preserves spider fields")
+    func chartConfigRoundTripPreservesSpiderFields() throws {
+        let original = ChartConfig(
+            chartType: .spider,
+            title: "Skills",
+            series: [
+                ChartSeries(name: "Player", color: "#4A90D9", data: [
+                    ChartDataPoint(name: "Speed", value: 80, minimumValue: 0, maximumValue: 120),
+                    ChartDataPoint(name: "Power", value: 70, minimumValue: 10, maximumValue: 110),
+                    ChartDataPoint(name: "Focus", value: 90, minimumValue: 25, maximumValue: 125),
+                ])
+            ],
+            interactable: true,
+            spiderRingCount: 4,
+            spiderGridColor: "#ABCDEF",
+            spiderAxisColor: "#123456",
+            spiderLabelColor: "#654321",
+            spiderFillOpacity: 0.35,
+            spiderPointRadius: 6,
+            spiderShowValueLabels: false,
+            spiderDecimalPlaces: 2
+        )
+
+        let decoded = ChartConfig.fromJSON(original.toJSON())
+        #expect(decoded?.chartType == .spider)
+        #expect(decoded?.interactable == true)
+        #expect(decoded?.series.first?.data[0].minimumValue == 0)
+        #expect(decoded?.series.first?.data[0].maximumValue == 120)
+        #expect(decoded?.series.first?.data[1].minimumValue == 10)
+        #expect(decoded?.series.first?.data[1].maximumValue == 110)
+        #expect(decoded?.spiderRingCount == 4)
+        #expect(decoded?.spiderGridColor == "#ABCDEF")
+        #expect(decoded?.spiderAxisColor == "#123456")
+        #expect(decoded?.spiderLabelColor == "#654321")
+        #expect(decoded?.spiderFillOpacity == 0.35)
+        #expect(decoded?.spiderPointRadius == 6)
+        #expect(decoded?.spiderShowValueLabels == false)
+        #expect(decoded?.spiderDecimalPlaces == 2)
+    }
+
+    @Test("legacy ChartConfig JSON decodes spider defaults")
+    func legacyChartConfigJSONDecodesSpiderDefaults() throws {
+        let json = """
+        {"chartType":"bar","title":"Legacy","series":[],"showLegend":true,"showGrid":true,"xAxisLabel":"","yAxisLabel":""}
+        """
+
+        let decoded = ChartConfig.fromJSON(json)
+        #expect(decoded?.chartType == .bar)
+        #expect(decoded?.interactable == false)
+        #expect(decoded?.spiderRingCount == 5)
+        #expect(decoded?.spiderGridColor == "#D8DEE9")
+        #expect(decoded?.spiderAxisColor == "#6B7280")
+        #expect(decoded?.spiderLabelColor == "#111827")
+        #expect(decoded?.spiderDecimalPlaces == 0)
+    }
+
+    @Test("legacy spider chart-level range migrates to data point ranges")
+    func legacySpiderChartLevelRangeMigratesToPointRanges() throws {
+        let json = """
+        {"chartType":"spider","title":"Legacy","series":[{"name":"Player","color":"#4A90D9","data":[{"name":"Speed","value":80},{"name":"Power","value":70}]}],"showLegend":true,"showGrid":true,"xAxisLabel":"","yAxisLabel":"","spiderMinimumValue":10,"spiderMaximumValue":120,"spiderAutoScale":false}
+        """
+
+        let decoded = ChartConfig.fromJSON(json)
+        #expect(decoded?.chartType == .spider)
+        #expect(decoded?.series.first?.data[0].minimumValue == 10)
+        #expect(decoded?.series.first?.data[0].maximumValue == 120)
+        #expect(decoded?.series.first?.data[0].value == 80)
+        #expect(decoded?.series.first?.data[1].minimumValue == 10)
+        #expect(decoded?.series.first?.data[1].maximumValue == 120)
+    }
+
+    @Test("ChartConfig JSON decodes radar alias as spider")
+    func chartConfigJSONDecodesRadarAlias() throws {
+        let json = """
+        {"chartType":"radar","title":"Alias","series":[],"showLegend":true,"showGrid":true,"xAxisLabel":"","yAxisLabel":""}
+        """
+
+        let decoded = ChartConfig.fromJSON(json)
+        #expect(decoded?.chartType == .spider)
+    }
+
     @Test("ChartConfig defaults: empty xAxisLabel/yAxisLabel, legend on, grid on")
     func chartConfigDefaultsAreSane() {
         let config = ChartConfig()
@@ -344,6 +596,9 @@ struct ChartToolTests {
         #expect(config.yAxisLabel == "")
         #expect(config.showLegend == true)
         #expect(config.showGrid == true)
+        #expect(config.interactable == false)
+        #expect(config.spiderRingCount == 5)
+        #expect(config.spiderDecimalPlaces == 0)
     }
 }
 
@@ -490,6 +745,151 @@ struct ChartLegendTests {
         #expect(entries[0].colorHex == "#4A90D9")
         #expect(entries[1].name == "B")
         #expect(entries[1].colorHex == "#FF6B6B")
+    }
+
+    @Test("spider chart legend always uses layered series colors")
+    func spiderLegendUsesSeriesColors() {
+        let config = ChartConfig(
+            chartType: .spider,
+            series: [
+                ChartSeries(name: "Player", color: "#4A90D9", data: [
+                    ChartDataPoint(name: "Speed", value: 80, color: "#FF0000"),
+                    ChartDataPoint(name: "Power", value: 70, color: "#00FF00"),
+                    ChartDataPoint(name: "Focus", value: 90, color: "#0000FF"),
+                ])
+            ]
+        )
+        let entries = config.legendEntries()
+        #expect(entries == [ChartLegendEntry(name: "Player", colorHex: "#4A90D9")])
+    }
+
+    @Test("spider chart ignores incomplete series for axes and legend")
+    func spiderChartIgnoresIncompleteSeries() {
+        let config = ChartConfig(
+            chartType: .spider,
+            series: [
+                ChartSeries(name: "Attributes", color: "#1316EA", data: [
+                    ChartDataPoint(name: "Strength", value: 18, minimumValue: 0, maximumValue: 20),
+                    ChartDataPoint(name: "Dexterity", value: 12, minimumValue: 0, maximumValue: 20),
+                    ChartDataPoint(name: "Constitution", value: 14, minimumValue: 0, maximumValue: 20),
+                    ChartDataPoint(name: "Intelligence", value: 10, minimumValue: 0, maximumValue: 20),
+                    ChartDataPoint(name: "Wisdom", value: 11, minimumValue: 0, maximumValue: 20),
+                    ChartDataPoint(name: "Charisma", value: 13, minimumValue: 0, maximumValue: 20),
+                ]),
+                ChartSeries(name: "Series 2", color: "#E74C3C", data: [
+                    ChartDataPoint(name: "Item 1", value: 50, minimumValue: 0, maximumValue: 100),
+                ]),
+            ]
+        )
+
+        #expect(config.spiderAxisLabels() == [
+            "Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma",
+        ])
+        #expect(config.spiderRenderableSeries().map(\.name) == ["Attributes"])
+        #expect(config.legendEntries() == [ChartLegendEntry(name: "Attributes", colorHex: "#1316EA")])
+        #expect(config.spiderDataPointLabel(for: config.series[0].data[0], in: config.series[0]) == "Strength 18")
+    }
+
+    @Test("spider chart uses one shared radial scale and point ranges as drag bounds")
+    func spiderChartUsesSharedRadialScale() {
+        let config = ChartConfig(
+            chartType: .spider,
+            series: [
+                ChartSeries(name: "Attributes", data: [
+                    ChartDataPoint(name: "Strength", value: 18, minimumValue: 18, maximumValue: 19),
+                    ChartDataPoint(name: "Dexterity", value: 12, minimumValue: 12, maximumValue: 18),
+                    ChartDataPoint(name: "Constitution", value: 14, minimumValue: 14, maximumValue: 18),
+                ])
+            ]
+        )
+
+        #expect(config.spiderValueScale().minimum == 0)
+        #expect(config.spiderValueScale().maximum == 19)
+        #expect(abs(config.normalizedSpiderValue(for: config.series[0].data[0]) - (18.0 / 19.0)) < 0.000_001)
+        #expect(abs(config.normalizedSpiderValue(for: config.series[0].data[1]) - (12.0 / 19.0)) < 0.000_001)
+        #expect(config.spiderValue(for: config.series[0].data[0], from: 0) == 18)
+        #expect(config.spiderValue(for: config.series[0].data[0], from: 1) == 19)
+    }
+
+    @Test("interactive spider values use min and max bounds, not initial value")
+    func spiderDragValuesUseExplicitMinAndMaxBounds() {
+        let config = ChartConfig(
+            chartType: .spider,
+            series: [
+                ChartSeries(name: "Attributes", data: [
+                    ChartDataPoint(name: "Strength", value: 18, minimumValue: 0, maximumValue: 20),
+                    ChartDataPoint(name: "Dexterity", value: 12, minimumValue: 0, maximumValue: 20),
+                    ChartDataPoint(name: "Wisdom", value: 11, minimumValue: 0, maximumValue: 20),
+                ])
+            ],
+            interactable: true
+        )
+
+        let point = config.series[0].data[0]
+        #expect(config.spiderValue(for: point, from: 0) == 0)
+        #expect(config.spiderValue(for: point, from: 0.5) == 10)
+        #expect(config.spiderValue(for: point, from: 1) == 20)
+    }
+
+    @Test("spider decimal places quantize drag values and labels")
+    func spiderDecimalPlacesQuantizeValuesAndLabels() {
+        let integerConfig = ChartConfig(
+            chartType: .spider,
+            series: [
+                ChartSeries(name: "Attributes", data: [
+                    ChartDataPoint(name: "Strength", value: 18.448, minimumValue: 0, maximumValue: 20),
+                    ChartDataPoint(name: "Dexterity", value: 12, minimumValue: 0, maximumValue: 20),
+                    ChartDataPoint(name: "Wisdom", value: 11, minimumValue: 0, maximumValue: 20),
+                ])
+            ]
+        )
+        #expect(integerConfig.series[0].data[0].value == 18)
+        #expect(integerConfig.clampedSpiderValue(18.448, for: integerConfig.series[0].data[0]) == 18)
+        #expect(integerConfig.spiderDataPointLabel(for: integerConfig.series[0].data[0], in: integerConfig.series[0]) == "Strength 18")
+
+        let preciseConfig = ChartConfig(
+            chartType: .spider,
+            series: [
+                ChartSeries(name: "Attributes", data: [
+                    ChartDataPoint(name: "Strength", value: 18.448, minimumValue: 0, maximumValue: 20),
+                    ChartDataPoint(name: "Dexterity", value: 12, minimumValue: 0, maximumValue: 20),
+                    ChartDataPoint(name: "Wisdom", value: 11, minimumValue: 0, maximumValue: 20),
+                ])
+            ],
+            spiderDecimalPlaces: 2
+        )
+        #expect(preciseConfig.series[0].data[0].value == 18.45)
+        #expect(preciseConfig.clampedSpiderValue(18.444, for: preciseConfig.series[0].data[0]) == 18.44)
+        #expect(preciseConfig.spiderDataPointLabel(for: preciseConfig.series[0].data[0], in: preciseConfig.series[0]) == "Strength 18.45")
+    }
+
+    @Test("spider ring count is clamped to a real web")
+    func spiderRingCountHasUsefulMinimum() {
+        let config = ChartConfig(chartType: .spider, spiderRingCount: 1)
+        #expect(config.spiderRingCount == ChartConfig.spiderMinimumRingCount)
+    }
+
+    @Test("spider data point labels include series names only for multiple renderable layers")
+    func spiderDataPointLabelsUseRenderableSeriesCount() {
+        let first = ChartSeries(name: "Player", color: "#4A90D9", data: [
+            ChartDataPoint(name: "Speed", value: 80),
+            ChartDataPoint(name: "Power", value: 70),
+            ChartDataPoint(name: "Focus", value: 90),
+        ])
+        let second = ChartSeries(name: "Rival", color: "#E74C3C", data: [
+            ChartDataPoint(name: "Speed", value: 75),
+            ChartDataPoint(name: "Power", value: 82),
+            ChartDataPoint(name: "Focus", value: 60),
+        ])
+        let incomplete = ChartSeries(name: "Draft", color: "#999999", data: [
+            ChartDataPoint(name: "Item 1", value: 50),
+        ])
+
+        let singleRenderable = ChartConfig(chartType: .spider, series: [first, incomplete])
+        #expect(singleRenderable.spiderDataPointLabel(for: first.data[0], in: first) == "Speed 80")
+
+        let multipleRenderable = ChartConfig(chartType: .spider, series: [first, second, incomplete])
+        #expect(multipleRenderable.spiderDataPointLabel(for: first.data[0], in: first) == "Player: Speed 80")
     }
 
     @Test("legendEntries round-trips through JSON unchanged")

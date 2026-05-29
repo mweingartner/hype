@@ -22,17 +22,43 @@ public enum ChartRenderer {
         let typeLabel = config?.chartType.rawValue.capitalized ?? "Chart"
         let title = config?.title ?? ""
 
-        // Draw simple bar chart icon
+        // Draw simple chart icon
         let iconSize: CGFloat = min(30, rect.width / 4, rect.height / 4)
         let cx = rect.midX
         let cy = rect.midY - 10
         ctx.setFillColor(NSColor.systemBlue.withAlphaComponent(0.5).cgColor)
-        let heights: [CGFloat] = [0.6, 1.0, 0.8]
-        for i in 0..<3 {
-            let bw: CGFloat = iconSize / 5
-            let bh: CGFloat = iconSize * heights[i]
-            let bx = cx - iconSize / 2 + CGFloat(i) * (bw + 3)
-            ctx.fill(CGRect(x: bx, y: cy + iconSize / 2 - bh, width: bw, height: bh))
+        if config?.chartType == .spider {
+            let center = CGPoint(x: cx, y: cy)
+            let radius = iconSize / 2
+            let points = (0..<5).map { index -> CGPoint in
+                let angle = -.pi / 2 - CGFloat(index) * (2 * .pi / 5)
+                let factor: CGFloat = [0.9, 0.55, 0.78, 0.45, 0.68][index]
+                return CGPoint(
+                    x: center.x + cos(angle) * radius * factor,
+                    y: center.y + sin(angle) * radius * factor
+                )
+            }
+            ctx.setStrokeColor(NSColor.systemBlue.withAlphaComponent(0.55).cgColor)
+            for index in 0..<5 {
+                let angle = -.pi / 2 - CGFloat(index) * (2 * .pi / 5)
+                ctx.move(to: center)
+                ctx.addLine(to: CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius))
+            }
+            ctx.strokePath()
+            ctx.setFillColor(NSColor.systemBlue.withAlphaComponent(0.22).cgColor)
+            ctx.setStrokeColor(NSColor.systemBlue.withAlphaComponent(0.8).cgColor)
+            ctx.move(to: points[0])
+            for point in points.dropFirst() { ctx.addLine(to: point) }
+            ctx.closePath()
+            ctx.drawPath(using: .fillStroke)
+        } else {
+            let heights: [CGFloat] = [0.6, 1.0, 0.8]
+            for i in 0..<3 {
+                let bw: CGFloat = iconSize / 5
+                let bh: CGFloat = iconSize * heights[i]
+                let bx = cx - iconSize / 2 + CGFloat(i) * (bw + 3)
+                ctx.fill(CGRect(x: bx, y: cy + iconSize / 2 - bh, width: bw, height: bh))
+            }
         }
 
         // Type and title text

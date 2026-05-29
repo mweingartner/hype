@@ -71,7 +71,7 @@ public enum ToolName: String, CaseIterable, Sendable {
         case .video:
             return "Place a movie player on the card. Choose a video file or address, then let users play, pause, and scrub through the movie."
         case .chart:
-            return "Place a chart on the card. Charts can show bars, lines, areas, points, or pie slices from data you provide through the inspector, script, or AI tools."
+            return "Place a chart on the card. Charts can show bars, lines, areas, points, pie slices, or spider/radar plots from data you provide through the inspector, script, or AI tools."
         case .spriteArea:
             return "Place an interactive 2D game or animation area on the card. Use it for sprites, motion, collisions, tile maps, effects, and game templates created by the AI tools."
         case .calendar:

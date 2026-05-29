@@ -3717,8 +3717,74 @@ struct PropertyInspector: View {
             Toggle("Show Legend", isOn: bindChartBool(part.id, \.showLegend))
             Toggle("Show Grid", isOn: bindChartBool(part.id, \.showGrid))
 
-            propertyRow("X Label", binding: bindChartField(part.id, \.xAxisLabel))
-            propertyRow("Y Label", binding: bindChartField(part.id, \.yAxisLabel))
+            if config.chartType == .spider {
+                Toggle("Interactable", isOn: bindChartBool(part.id, \.interactable, defaultValue: false))
+            } else {
+                propertyRow("X Label", binding: bindChartField(part.id, \.xAxisLabel))
+                propertyRow("Y Label", binding: bindChartField(part.id, \.yAxisLabel))
+            }
+
+            if config.chartType == .spider {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Spider Chart")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("Each data point has its own min, current, and max value. Series color controls the layered polygon.")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                    Toggle("Show Value Labels", isOn: bindChartBool(part.id, \.spiderShowValueLabels))
+                    HStack(spacing: 6) {
+                        Text("Rings").font(.system(size: 10)).frame(width: 48, alignment: .leading)
+                        Stepper(
+                            value: bindChartInt(
+                                part.id,
+                                \.spiderRingCount,
+                                min: ChartConfig.spiderMinimumRingCount,
+                                max: ChartConfig.spiderMaximumRingCount
+                            ),
+                            in: ChartConfig.spiderMinimumRingCount...ChartConfig.spiderMaximumRingCount
+                        ) {
+                            Text("\(config.spiderRingCount)")
+                                .font(.system(size: 10, weight: .medium))
+                                .frame(width: 24, alignment: .trailing)
+                        }
+                    }
+                    HStack(spacing: 6) {
+                        Text("Decimals").font(.system(size: 10)).frame(width: 48, alignment: .leading)
+                        Stepper(
+                            value: bindChartInt(
+                                part.id,
+                                \.spiderDecimalPlaces,
+                                min: ChartConfig.spiderMinimumDecimalPlaces,
+                                max: ChartConfig.spiderMaximumDecimalPlaces
+                            ),
+                            in: ChartConfig.spiderMinimumDecimalPlaces...ChartConfig.spiderMaximumDecimalPlaces
+                        ) {
+                            Text("\(config.spiderDecimalPlaces)")
+                                .font(.system(size: 10, weight: .medium))
+                                .frame(width: 24, alignment: .trailing)
+                        }
+                        Text("0 = integers")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                    }
+                    HStack(spacing: 6) {
+                        Text("Opacity").font(.system(size: 10)).frame(width: 48, alignment: .leading)
+                        TextField("0.28", value: bindChartDouble(part.id, \.spiderFillOpacity, min: 0, max: 1), format: .number)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    HStack(spacing: 6) {
+                        Text("Point").font(.system(size: 10)).frame(width: 48, alignment: .leading)
+                        TextField("4", value: bindChartDouble(part.id, \.spiderPointRadius, min: 1, max: 12), format: .number)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    chartColorRow("Grid", partId: part.id, keyPath: \.spiderGridColor, fallback: "#D8DEE9")
+                    chartColorRow("Axis", partId: part.id, keyPath: \.spiderAxisColor, fallback: "#6B7280")
+                    chartColorRow("Labels", partId: part.id, keyPath: \.spiderLabelColor, fallback: "#111827")
+                }
+                .padding(6)
+                .background(Color.gray.opacity(0.05))
+                .cornerRadius(4)
+            }
 
             Divider()
 
@@ -3730,6 +3796,10 @@ struct PropertyInspector: View {
                         Spacer()
                         ColorPicker("", selection: bindSeriesColor(part.id, seriesIndex: index))
                             .labelsHidden().frame(width: 20)
+                        TextField("Hex", text: bindSeriesColorHex(part.id, seriesIndex: index))
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 10))
+                            .frame(width: 78)
                         Button(action: { removeSeries(partId: part.id, index: index) }) {
                             Image(systemName: "minus.circle").foregroundColor(.red)
                         }.buttonStyle(.borderless)
@@ -3737,18 +3807,38 @@ struct PropertyInspector: View {
                     TextField("Name", text: bindSeriesName(part.id, seriesIndex: index))
                         .textFieldStyle(.roundedBorder).font(.system(size: 11))
 
-                    // Data points with per-point color
+                    // Data points. Spider charts use per-point min/value/max and series color only.
                     ForEach(Array(series.data.enumerated()), id: \.element.id) { di, _ in
-                        HStack(spacing: 3) {
-                            ColorPicker("", selection: bindDataPointColor(part.id, seriesIndex: index, dataIndex: di, seriesColor: series.color))
-                                .labelsHidden().frame(width: 18, height: 18)
-                            TextField("Label", text: bindDataLabel(part.id, seriesIndex: index, dataIndex: di))
-                                .textFieldStyle(.roundedBorder).font(.system(size: 10))
-                            TextField("Value", value: bindDataValue(part.id, seriesIndex: index, dataIndex: di), format: .number)
-                                .textFieldStyle(.roundedBorder).font(.system(size: 10)).frame(width: 55)
-                            Button(action: { removeDataPoint(partId: part.id, seriesIndex: index, dataIndex: di) }) {
-                                Image(systemName: "xmark").font(.system(size: 8))
-                            }.buttonStyle(.borderless)
+                        if config.chartType == .spider {
+                            HStack(spacing: 3) {
+                                TextField("Label", text: bindDataLabel(part.id, seriesIndex: index, dataIndex: di))
+                                    .textFieldStyle(.roundedBorder).font(.system(size: 10))
+                                TextField("Min", value: bindDataMinimumValue(part.id, seriesIndex: index, dataIndex: di), format: .number)
+                                    .textFieldStyle(.roundedBorder).font(.system(size: 10)).frame(width: 52)
+                                TextField("Value", value: bindDataValue(part.id, seriesIndex: index, dataIndex: di), format: .number)
+                                    .textFieldStyle(.roundedBorder).font(.system(size: 10)).frame(width: 56)
+                                TextField("Max", value: bindDataMaximumValue(part.id, seriesIndex: index, dataIndex: di), format: .number)
+                                    .textFieldStyle(.roundedBorder).font(.system(size: 10)).frame(width: 52)
+                                Button(action: { removeDataPoint(partId: part.id, seriesIndex: index, dataIndex: di) }) {
+                                    Image(systemName: "xmark").font(.system(size: 8))
+                                }.buttonStyle(.borderless)
+                            }
+                        } else {
+                            HStack(spacing: 3) {
+                                ColorPicker("", selection: bindDataPointColor(part.id, seriesIndex: index, dataIndex: di, seriesColor: series.color))
+                                    .labelsHidden().frame(width: 18, height: 18)
+                                TextField("Hex", text: bindDataPointColorHex(part.id, seriesIndex: index, dataIndex: di, seriesColor: series.color))
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.system(size: 10))
+                                    .frame(width: 72)
+                                TextField("Label", text: bindDataLabel(part.id, seriesIndex: index, dataIndex: di))
+                                    .textFieldStyle(.roundedBorder).font(.system(size: 10))
+                                TextField("Value", value: bindDataValue(part.id, seriesIndex: index, dataIndex: di), format: .number)
+                                    .textFieldStyle(.roundedBorder).font(.system(size: 10)).frame(width: 55)
+                                Button(action: { removeDataPoint(partId: part.id, seriesIndex: index, dataIndex: di) }) {
+                                    Image(systemName: "xmark").font(.system(size: 8))
+                                }.buttonStyle(.borderless)
+                            }
                         }
                     }
                     Button("+ Add Data Point") { addDataPoint(partId: part.id, seriesIndex: index) }
@@ -3790,14 +3880,114 @@ struct PropertyInspector: View {
         )
     }
 
-    private func bindChartBool(_ id: UUID, _ keyPath: WritableKeyPath<ChartConfig, Bool>) -> Binding<Bool> {
+    private func bindChartBool(
+        _ id: UUID,
+        _ keyPath: WritableKeyPath<ChartConfig, Bool>,
+        defaultValue: Bool = true
+    ) -> Binding<Bool> {
         Binding(
             get: {
                 let json = document.document.parts.first(where: { $0.id == id })?.chartData ?? ""
-                return ChartConfig.fromJSON(json)?[keyPath: keyPath] ?? true
+                return ChartConfig.fromJSON(json)?[keyPath: keyPath] ?? defaultValue
             },
             set: { newVal in modifyChartConfig(partId: id) { $0[keyPath: keyPath] = newVal } }
         )
+    }
+
+    private func bindChartDouble(
+        _ id: UUID,
+        _ keyPath: WritableKeyPath<ChartConfig, Double>,
+        min: Double? = nil,
+        max: Double? = nil
+    ) -> Binding<Double> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == id })?.chartData ?? ""
+                return ChartConfig.fromJSON(json)?[keyPath: keyPath] ?? 0
+            },
+            set: { newVal in
+                modifyChartConfig(partId: id) { config in
+                    var value = newVal
+                    if let min { value = Swift.max(value, min) }
+                    if let max { value = Swift.min(value, max) }
+                    config[keyPath: keyPath] = value
+                }
+            }
+        )
+    }
+
+    private func bindChartInt(
+        _ id: UUID,
+        _ keyPath: WritableKeyPath<ChartConfig, Int>,
+        min: Int,
+        max: Int
+    ) -> Binding<Int> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == id })?.chartData ?? ""
+                return ChartConfig.fromJSON(json)?[keyPath: keyPath] ?? min
+            },
+            set: { newVal in
+                modifyChartConfig(partId: id) { config in
+                    config[keyPath: keyPath] = Swift.min(Swift.max(newVal, min), max)
+                }
+            }
+        )
+    }
+
+    private func bindChartColor(
+        _ id: UUID,
+        _ keyPath: WritableKeyPath<ChartConfig, String>,
+        fallback: String
+    ) -> Binding<Color> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == id })?.chartData ?? ""
+                let hex = ChartConfig.fromJSON(json)?[keyPath: keyPath] ?? fallback
+                return Color(hex: hex)
+            },
+            set: { newVal in
+                modifyChartConfig(partId: id) { config in
+                    config[keyPath: keyPath] = ChartConfig.normalizedHex(newVal.toHex(), fallback: fallback)
+                }
+            }
+        )
+    }
+
+    private func bindChartColorHex(
+        _ id: UUID,
+        _ keyPath: WritableKeyPath<ChartConfig, String>,
+        fallback: String
+    ) -> Binding<String> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == id })?.chartData ?? ""
+                return ChartConfig.fromJSON(json)?[keyPath: keyPath] ?? fallback
+            },
+            set: { newVal in
+                modifyChartConfig(partId: id) { config in
+                    let current = config[keyPath: keyPath]
+                    config[keyPath: keyPath] = ChartConfig.normalizedHex(newVal, fallback: current.isEmpty ? fallback : current)
+                }
+            }
+        )
+    }
+
+    private func chartColorRow(
+        _ title: String,
+        partId: UUID,
+        keyPath: WritableKeyPath<ChartConfig, String>,
+        fallback: String
+    ) -> some View {
+        HStack(spacing: 6) {
+            Text(title).font(.system(size: 10)).frame(width: 48, alignment: .leading)
+            ColorPicker("", selection: bindChartColor(partId, keyPath, fallback: fallback))
+                .labelsHidden()
+                .frame(width: 22)
+            TextField("Hex", text: bindChartColorHex(partId, keyPath, fallback: fallback))
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 10))
+        }
     }
 
     private func bindSeriesName(_ id: UUID, seriesIndex: Int) -> Binding<String> {
@@ -3834,6 +4024,26 @@ struct PropertyInspector: View {
         )
     }
 
+    private func bindSeriesColorHex(_ id: UUID, seriesIndex: Int) -> Binding<String> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == id })?.chartData ?? ""
+                let config = ChartConfig.fromJSON(json) ?? ChartConfig()
+                guard seriesIndex < config.series.count else { return "#4A90D9" }
+                return config.series[seriesIndex].color
+            },
+            set: { newVal in
+                modifyChartConfig(partId: id) { config in
+                    guard seriesIndex < config.series.count else { return }
+                    config.series[seriesIndex].color = ChartConfig.normalizedHex(
+                        newVal,
+                        fallback: config.series[seriesIndex].color.isEmpty ? "#4A90D9" : config.series[seriesIndex].color
+                    )
+                }
+            }
+        )
+    }
+
     private func bindDataLabel(_ id: UUID, seriesIndex: Int, dataIndex: Int) -> Binding<String> {
         Binding(
             get: {
@@ -3862,7 +4072,48 @@ struct PropertyInspector: View {
             set: { newVal in
                 modifyChartConfig(partId: id) { config in
                     guard seriesIndex < config.series.count, dataIndex < config.series[seriesIndex].data.count else { return }
-                    config.series[seriesIndex].data[dataIndex].value = newVal
+                    if config.chartType == .spider {
+                        let point = config.series[seriesIndex].data[dataIndex]
+                        config.series[seriesIndex].data[dataIndex].value = config.clampedSpiderValue(newVal, for: point)
+                    } else {
+                        config.series[seriesIndex].data[dataIndex].value = newVal
+                    }
+                }
+            }
+        )
+    }
+
+    private func bindDataMinimumValue(_ id: UUID, seriesIndex: Int, dataIndex: Int) -> Binding<Double> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == id })?.chartData ?? ""
+                let config = ChartConfig.fromJSON(json) ?? ChartConfig()
+                guard seriesIndex < config.series.count, dataIndex < config.series[seriesIndex].data.count else { return 0 }
+                return config.series[seriesIndex].data[dataIndex].minimumValue
+            },
+            set: { newVal in
+                modifyChartConfig(partId: id) { config in
+                    guard seriesIndex < config.series.count, dataIndex < config.series[seriesIndex].data.count else { return }
+                    config.series[seriesIndex].data[dataIndex].minimumValue = newVal
+                    config.series[seriesIndex].data[dataIndex].normalizeRangeAndValue(includeCurrentValue: false)
+                }
+            }
+        )
+    }
+
+    private func bindDataMaximumValue(_ id: UUID, seriesIndex: Int, dataIndex: Int) -> Binding<Double> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == id })?.chartData ?? ""
+                let config = ChartConfig.fromJSON(json) ?? ChartConfig()
+                guard seriesIndex < config.series.count, dataIndex < config.series[seriesIndex].data.count else { return 100 }
+                return config.series[seriesIndex].data[dataIndex].maximumValue
+            },
+            set: { newVal in
+                modifyChartConfig(partId: id) { config in
+                    guard seriesIndex < config.series.count, dataIndex < config.series[seriesIndex].data.count else { return }
+                    config.series[seriesIndex].data[dataIndex].maximumValue = newVal
+                    config.series[seriesIndex].data[dataIndex].normalizeRangeAndValue(includeCurrentValue: false)
                 }
             }
         )
@@ -3887,7 +4138,10 @@ struct PropertyInspector: View {
         modifyChartConfig(partId: partId) { config in
             guard seriesIndex < config.series.count else { return }
             let count = config.series[seriesIndex].data.count
-            config.series[seriesIndex].data.append(ChartDataPoint(name: "Item \(count + 1)", value: 0))
+            let point = config.chartType == .spider
+                ? ChartDataPoint(name: "Item \(count + 1)", value: 50, minimumValue: 0, maximumValue: 100)
+                : ChartDataPoint(name: "Item \(count + 1)", value: 0)
+            config.series[seriesIndex].data.append(point)
         }
     }
 
@@ -3907,6 +4161,36 @@ struct PropertyInspector: View {
                 modifyChartConfig(partId: id) { config in
                     guard seriesIndex < config.series.count, dataIndex < config.series[seriesIndex].data.count else { return }
                     config.series[seriesIndex].data[dataIndex].color = newVal.toHex()
+                }
+            }
+        )
+    }
+
+    private func bindDataPointColorHex(
+        _ id: UUID,
+        seriesIndex: Int,
+        dataIndex: Int,
+        seriesColor: String
+    ) -> Binding<String> {
+        Binding(
+            get: {
+                let json = document.document.parts.first(where: { $0.id == id })?.chartData ?? ""
+                let config = ChartConfig.fromJSON(json) ?? ChartConfig()
+                guard seriesIndex < config.series.count,
+                      dataIndex < config.series[seriesIndex].data.count else {
+                    return seriesColor
+                }
+                let pointColor = config.series[seriesIndex].data[dataIndex].color
+                return pointColor.isEmpty ? seriesColor : pointColor
+            },
+            set: { newVal in
+                modifyChartConfig(partId: id) { config in
+                    guard seriesIndex < config.series.count,
+                          dataIndex < config.series[seriesIndex].data.count else { return }
+                    let fallback = config.series[seriesIndex].data[dataIndex].color.isEmpty
+                        ? seriesColor
+                        : config.series[seriesIndex].data[dataIndex].color
+                    config.series[seriesIndex].data[dataIndex].color = ChartConfig.normalizedHex(newVal, fallback: fallback)
                 }
             }
         )

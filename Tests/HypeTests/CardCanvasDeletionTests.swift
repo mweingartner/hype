@@ -42,6 +42,9 @@ struct CardCanvasDeletionTests {
         let coordinator = CardCanvasView.Coordinator(parent: view)
 
         coordinator.deletePart(id: spriteArea.id)
+        #expect(!wrapper.document.parts.contains(where: { $0.id == spriteArea.id }))
+        #expect(!selection.contains(spriteArea.id))
+
         try await Task.sleep(nanoseconds: 250_000_000)
 
         #expect(!wrapper.document.parts.contains(where: { $0.id == spriteArea.id }))

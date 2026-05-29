@@ -512,6 +512,74 @@ struct CardCanvasView: NSViewRepresentable {
             dispatchMessage("valueChanged", to: id)
         }
 
+        /// Writeback for an interactive spider/radar chart point drag.
+        /// The SwiftUI chart view keeps transient drag state locally, so
+        /// we mark the serialized chart data as already loaded after each
+        /// write. That prevents `updateChartViews()` from tearing down the
+        /// hosting view mid-drag while still keeping the document model as
+        /// the source of truth.
+        func setPartChartDataPointValue(id: UUID, change: SpiderChartPointChange) {
+            let actionName = "Change Chart Value"
+            switch change.phase {
+            case .began:
+                beginCoalescedCanvasMutation(actionName: actionName)
+                performContinuousCanvasMutation {
+                    _ = updateChartDataPointValue(id: id, change: change)
+                }
+            case .changed:
+                performContinuousCanvasMutation {
+                    _ = updateChartDataPointValue(id: id, change: change)
+                }
+            case .ended:
+                var result: (seriesName: String, pointName: String, value: Double, formattedValue: String)?
+                performContinuousCanvasMutation {
+                    result = updateChartDataPointValue(id: id, change: change)
+                }
+                endCoalescedCanvasMutation(actionName: actionName)
+                let event = result ?? (
+                    seriesName: change.seriesName,
+                    pointName: change.pointName,
+                    value: change.value,
+                    formattedValue: ChartConfig.formattedValue(change.value)
+                )
+                dispatchMessage(
+                    "chartChange",
+                    to: id,
+                    params: [
+                        event.seriesName,
+                        event.pointName,
+                        event.formattedValue,
+                    ]
+                )
+            }
+        }
+
+        private func updateChartDataPointValue(
+            id: UUID,
+            change: SpiderChartPointChange
+        ) -> (seriesName: String, pointName: String, value: Double, formattedValue: String)? {
+            var result: (seriesName: String, pointName: String, value: Double, formattedValue: String)?
+            parent.document.document.updatePart(id: id) { part in
+                guard part.partType == .chart,
+                      var config = ChartConfig.fromJSON(part.chartData),
+                      let seriesIndex = config.series.firstIndex(where: { $0.id == change.seriesId }),
+                      let pointIndex = config.series[seriesIndex].data.firstIndex(where: { $0.id == change.pointId }) else {
+                    return
+                }
+                let point = config.series[seriesIndex].data[pointIndex]
+                let clamped = config.clampedSpiderValue(change.value, for: point)
+                config.series[seriesIndex].data[pointIndex].value = clamped
+                part.chartData = config.toJSON()
+                let seriesName = config.series[seriesIndex].name
+                let rawPointName = config.series[seriesIndex].data[pointIndex].name
+                let pointName = rawPointName.isEmpty ? "Point \(pointIndex + 1)" : rawPointName
+                result = (seriesName, pointName, clamped, config.formattedSpiderValue(clamped))
+                nsView?.markChartDataLoaded(partId: id, chartData: part.chartData)
+            }
+            nsView?.needsDisplay = true
+            return result
+        }
+
         /// Writeback for the audio-recorder host. State changes
         /// update recorder state atomically. Dispatches
         /// `recordingStarted` or `recordingStopped` on transitions so
@@ -672,15 +740,45 @@ struct CardCanvasView: NSViewRepresentable {
                 dispatchDeleteMessagesThenRemove(orderedIds, index: index + 1)
                 return
             }
+            let message = Self.deleteMessageName(for: part.partType)
+            guard deleteHierarchyHasHandler(message, for: part) else {
+                dispatchDeleteMessagesThenRemove(orderedIds, index: index + 1)
+                return
+            }
 
             dispatchMessage(
-                Self.deleteMessageName(for: part.partType),
+                message,
                 to: id,
                 params: [],
                 completion: { [weak self] in
                     self?.dispatchDeleteMessagesThenRemove(orderedIds, index: index + 1)
                 }
             )
+        }
+
+        private func deleteHierarchyHasHandler(_ handlerName: String, for part: Part) -> Bool {
+            let document = parent.document.document
+            if CardCanvasNSView.scriptHasHandler(part.script, named: handlerName) {
+                return true
+            }
+            if let cardId = part.cardId,
+               let card = document.cards.first(where: { $0.id == cardId }) {
+                if CardCanvasNSView.scriptHasHandler(card.script, named: handlerName) {
+                    return true
+                }
+                if let background = document.backgrounds.first(where: { $0.id == card.backgroundId }),
+                   CardCanvasNSView.scriptHasHandler(background.script, named: handlerName) {
+                    return true
+                }
+            } else if let backgroundId = part.backgroundId,
+                      let background = document.backgrounds.first(where: { $0.id == backgroundId }),
+                      CardCanvasNSView.scriptHasHandler(background.script, named: handlerName) {
+                return true
+            }
+            if CardCanvasNSView.scriptHasHandler(document.stack.script, named: handlerName) {
+                return true
+            }
+            return CardCanvasNSView.scriptHasHandler(appScript, named: handlerName)
         }
 
         private func removeDeletedParts(_ ids: [UUID]) {
@@ -4024,6 +4122,10 @@ class CardCanvasNSView: NSView {
 
     // MARK: - Chart View Management
 
+    func markChartDataLoaded(partId: UUID, chartData: String) {
+        loadedChartData[partId] = chartData
+    }
+
     /// Create, update, or remove NSHostingViews for chart parts on the current card.
     private func updateChartViews() {
         let toolState = ToolState(currentTool: currentTool.rawValue)
@@ -4061,18 +4163,32 @@ class CardCanvasNSView: NSView {
             if let existing = chartViews[part.id] {
                 existing.frame = frame
                 if loadedChartData[part.id] != part.chartData {
-                    // Data changed — recreate the hosting view
-                    existing.removeFromSuperview()
-                    chartViews.removeValue(forKey: part.id)
-                    loadedChartData.removeValue(forKey: part.id)
-                    // Fall through to creation below
+                    if let config = ChartConfig.fromJSON(part.chartData),
+                       let hostingView = existing as? NSHostingView<ChartHostView> {
+                        let partId = part.id
+                        hostingView.rootView = ChartHostView(config: config) { [weak self] change in
+                            self?.coordinator?.setPartChartDataPointValue(id: partId, change: change)
+                        }
+                        loadedChartData[part.id] = part.chartData
+                    } else {
+                        // Data changed but this view cannot be updated in place.
+                        existing.removeFromSuperview()
+                        chartViews.removeValue(forKey: part.id)
+                        loadedChartData.removeValue(forKey: part.id)
+                    }
+                    if chartViews[part.id] != nil {
+                        continue
+                    }
                 } else {
                     continue
                 }
             }
 
             if let config = ChartConfig.fromJSON(part.chartData) {
-                let chartView = ChartHostView(config: config)
+                let partId = part.id
+                let chartView = ChartHostView(config: config) { [weak self] change in
+                    self?.coordinator?.setPartChartDataPointValue(id: partId, change: change)
+                }
                 let hostingView = NSHostingView(rootView: chartView)
                 hostingView.frame = frame
                 addSubview(hostingView, positioned: .above, relativeTo: nil)

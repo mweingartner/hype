@@ -1587,7 +1587,7 @@ scene-node type. A few representative ones:
 | shape         | `shapeType`, `fillColor`, `strokeColor`, `strokeWidth`, `cornerRadius`                              |
 | webpage       | `url`                                                                                              |
 | image         | `imageFilter`, `imageFilterIntensity`, `transparentBackground`, `animated`                          |
-| chart         | `chartData`, `charttitle`, `xAxisLabel`, `yAxisLabel`, `showLegend`, `showGrid`                    |
+| chart         | `chartData`, `charttype` (`bar`, `line`, `area`, `point`, `pie`, `rule`, `spider`), `charttitle`, `xAxisLabel`, `yAxisLabel` *(non-spider only)*, `showLegend`, `showGrid`, `interactable`, spider/radar display properties (`spider_ring_count`, `spider_grid_color`, `spider_axis_color`, `spider_label_color`, `spider_fill_opacity`, `spider_point_radius`, `spider_show_value_labels`, `spider_decimal_places`); spider data points own `min`/`value`/`max` |
 | calendar      | `selectedDate`, `displayMonth`, `minDate`, `maxDate`, `calendarStyle`                               |
 | pdf           | `pdfurl`, `currentPage`, `displayMode`, `autoScales`, `pageCount`                                   |
 | map           | `centerLat`, `centerLon`, `span`, `mapType`, `annotations`, `location` *(geocoded async)*           |
@@ -1848,17 +1848,29 @@ configured. Parts that disappear have their overlays torn down. The
 overlay set is recorded in a `nativePartIds` set so `CardRenderer`
 knows to skip those parts during the Core Graphics pass.
 
-Charts are notable: `ChartHostView.swift` is a SwiftUI view built on
-Apple's Charts framework, hosted inside an `NSHostingView` so it can live
-inside an AppKit subview hierarchy. It intentionally uses direct per-mark
-colors from `ChartDataPoint.color` / `ChartSeries.color`, draws its own
-legend from `ChartConfig.legendEntries()`, and annotates bar, line, area,
-point, pie, and rule marks with compact point labels. Single-series legends
-list each data point by name even when all points inherit the series color;
-multi-series legends group by series while mark labels include the series
-name for disambiguation. Because the chart canvas is rendered white, the host
-forces light chart chrome and black text so axes, axis titles, labels, and
-legends remain visible when macOS is in Dark Mode.
+Charts are notable: `ChartHostView.swift` is a SwiftUI view hosted inside an
+`NSHostingView` so it can live inside an AppKit subview hierarchy. Bar, line,
+area, point, pie, and rule charts use Apple's Charts framework. Spider/radar
+charts are rendered by Hype's native `SpiderChartCanvas` because Apple Charts
+does not provide a radar-mark primitive. Normal chart types use direct
+per-mark colors from `ChartDataPoint.color` / `ChartSeries.color`; spider
+charts are layered by series and use only the series color. Spider charts do
+not have X/Y labels or user-authored chart-level min/max values. Each spider
+data point owns `minimumValue`, current `value`, and `maximumValue` as editing
+and drag bounds; `spiderDecimalPlaces` controls drag and label precision, with
+`0` / omitted meaning integer values. Rendering derives one shared radial visual scale from the
+visible spider series so polygons follow standard radar-chart semantics instead
+of giving each axis a separate visual scale. The chart host draws its own legend
+from `ChartConfig.legendEntries()` and adorns every chart type with compact
+point labels; spider legends always list series rows.
+Interactive spider charts keep `SceneSpec`-style discipline: runtime drags
+write the changed point value back into the serialized `ChartConfig` on the
+part, then dispatch `chartChange` to the chart's script with param 1 as the
+series/dataset name, `it` as the data point name, and `chartValue` as the new
+precision-rounded value. `pass chartChange` continues through card/background/stack like other
+HypeTalk messages. Because the chart canvas is rendered white, the host forces
+light chart chrome and black text so axes, axis titles, labels, and legends
+remain visible when macOS is in Dark Mode.
 
 Sprite areas now host the active scene from `SpriteAreaSpec` rather than a
 single anonymous `SceneSpec`. `SceneBridge` diffing and cache invalidation are
@@ -2342,7 +2354,7 @@ schema struct. The categories:
 | Part introspection        | `get_part_property`, `list_all_properties` (full property dump w/ defaults), `get_card_parts`, `get_background_parts`, `capture_card_image` |
 | Target-aware layout       | `list_target_profiles`, `get_hig_layout_guide`, `apply_hig_layout`, `validate_hig_layout`, `pin_part_to_safe_area`, `add_part_layout_constraint`, `list_part_layout_constraints`, `preview_layout_profile` |
 | Themes                    | `list_themes`, `get_theme`, `create_or_update_theme`, `delete_theme`, `apply_theme` |
-| Charts                    | `set_chart_data_point_color`, `get_chart_data_points` |
+| Charts                    | `create_chart` / `set_part_property` / `get_part_property` for chart-level config; spider/radar charts use series colors, per-point min/value/max ranges, and `spider_decimal_places` precision, plus `set_chart_data_point_color` *(non-spider)* and `get_chart_data_points` |
 | Maps                      | `add_map_annotation`, `clear_map_annotations` |
 | Images                    | `set_image_filter` |
 | Music                     | `list_music_instruments`, `create_music_pattern`, `list_music_patterns`, `export_music_pattern`, `get_apple_music_capabilities`, `authorize_apple_music`, `search_apple_music`, `set_apple_music_selection`, `play_apple_music`, `play_music_player`, `pause_apple_music`, `resume_apple_music`, `stop_apple_music` |

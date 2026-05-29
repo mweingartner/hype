@@ -84,6 +84,8 @@ private let scriptTemplates: [ScriptTemplate] = [
         code: "on closeField\n  \nend closeField"),
     ScriptTemplate(name: "on enterKey", category: "Events",
         code: "on enterKey\n  \nend enterKey"),
+    ScriptTemplate(name: "on chartChange", category: "Events",
+        code: "on chartChange dataSetName\n  put it into changedPointName\n  -- it is the data point name; dataSetName is the series that changed\n  pass chartChange\nend chartChange"),
     ScriptTemplate(name: "on idle", category: "Events",
         code: "on idle\n  \nend idle"),
 

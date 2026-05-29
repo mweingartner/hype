@@ -28,6 +28,31 @@ struct ChartHostViewRenderingTests {
         }
     }
 
+    @Test("spider chart renders with incomplete extra series without leaking labels")
+    func spiderChartRendersWithIncompleteExtraSeries() {
+        let config = ChartConfig(
+            chartType: .spider,
+            title: "Attributes",
+            series: [
+                ChartSeries(name: "Attributes", color: "#1316EA", data: [
+                    ChartDataPoint(name: "Strength", value: 18, minimumValue: 0, maximumValue: 20),
+                    ChartDataPoint(name: "Dexterity", value: 12, minimumValue: 0, maximumValue: 20),
+                    ChartDataPoint(name: "Constitution", value: 14, minimumValue: 0, maximumValue: 20),
+                    ChartDataPoint(name: "Intelligence", value: 10, minimumValue: 0, maximumValue: 20),
+                    ChartDataPoint(name: "Wisdom", value: 11, minimumValue: 0, maximumValue: 20),
+                    ChartDataPoint(name: "Charisma", value: 13, minimumValue: 0, maximumValue: 20),
+                ]),
+                ChartSeries(name: "Series 2", color: "#E74C3C", data: [
+                    ChartDataPoint(name: "Item 1", value: 50, minimumValue: 0, maximumValue: 100),
+                ]),
+            ],
+            interactable: true
+        )
+        let renderer = ImageRenderer(content: ChartHostView(config: config).frame(width: 496, height: 352))
+        renderer.scale = 1
+        #expect(renderer.nsImage != nil)
+    }
+
     @Test("ChartHostView source wires mark annotations and custom legend")
     func chartHostViewWiresLabelsAndLegend() throws {
         let source = try String(
@@ -41,6 +66,25 @@ struct ChartHostViewRenderingTests {
         #expect(source.contains("config.legendEntries()"))
         #expect(source.contains(".environment(\\.colorScheme, .light)"))
         #expect(source.contains(".foregroundColor(.black)"))
+        #expect(source.contains("SpiderChartCanvas"))
+        #expect(source.contains("DragGesture"))
+        #expect(source.contains("onPointChange?("))
+        #expect(source.contains("spiderRenderableSeries()"))
+        #expect(source.contains("spiderDataPointLabel(for: displayedPoint(point), in: series)"))
+        #expect(source.contains("spiderValueScale()"))
+        #expect(source.contains("nearestAxisTarget"))
+        #expect(source.contains("radialTickLabelPoint"))
+    }
+
+    @Test("CardCanvas wires interactive spider chart changes to chartChange")
+    func cardCanvasWiresInteractiveSpiderChartChanges() throws {
+        let source = try String(
+            contentsOf: packageRoot().appendingPathComponent("Sources/Hype/Views/CardCanvasView.swift"),
+            encoding: .utf8
+        )
+        #expect(source.contains("setPartChartDataPointValue"))
+        #expect(source.contains("dispatchMessage(\n                    \"chartChange\""))
+        #expect(source.contains("markChartDataLoaded(partId: id"))
     }
 
     private func packageRoot() throws -> URL {

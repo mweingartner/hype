@@ -600,6 +600,25 @@ public struct Interpreter: Sendable {
                 env.locals["contactnode"] = params[0]
             }
         }
+        if handlerLower == "chartchange" {
+            if !params.isEmpty {
+                if env.locals["dataset"] == nil { env.locals["dataset"] = params[0] }
+                if env.locals["datasetname"] == nil { env.locals["datasetname"] = params[0] }
+                if env.locals["chartseries"] == nil { env.locals["chartseries"] = params[0] }
+                if env.locals["series"] == nil { env.locals["series"] = params[0] }
+            }
+            if params.count > 1 {
+                if env.locals["datapoint"] == nil { env.locals["datapoint"] = params[1] }
+                if env.locals["datapointname"] == nil { env.locals["datapointname"] = params[1] }
+                env.it = params[1]
+            } else if !params.isEmpty {
+                env.it = params[0]
+            }
+            if params.count > 2 {
+                if env.locals["chartvalue"] == nil { env.locals["chartvalue"] = params[2] }
+                if env.locals["value"] == nil { env.locals["value"] = params[2] }
+            }
+        }
 
         do {
             try Task.checkCancellation()
@@ -5439,13 +5458,19 @@ public struct Interpreter: Sendable {
         let series = loc.config.series[loc.seriesIndex]
         switch property.lowercased() {
         case "color", "fillcolor", "fill_color":
+            if loc.config.chartType == .spider { return series.color }
             // Resolve per-point color with fallback to series color,
             // matching the ChartHostView rendering logic.
             return point.color.isEmpty ? series.color : point.color
         case "rawcolor", "raw_color":
+            if loc.config.chartType == .spider { return "" }
             return point.color
-        case "value":
+        case "value", "current", "currentvalue", "current_value":
             return formatNumber(point.value)
+        case "min", "minimum", "minimumvalue", "minimum_value":
+            return formatNumber(point.minimumValue)
+        case "max", "maximum", "maximumvalue", "maximum_value":
+            return formatNumber(point.maximumValue)
         case "name":
             return point.name
         default:
@@ -6101,9 +6126,22 @@ public struct Interpreter: Sendable {
         var config = loc.config
         switch property.lowercased() {
         case "color", "fillcolor", "fill_color", "rawcolor", "raw_color":
+            if config.chartType == .spider { return }
             config.series[loc.seriesIndex].data[loc.pointIndex].color = value
-        case "value":
-            config.series[loc.seriesIndex].data[loc.pointIndex].value = toNumber(value)
+        case "value", "current", "currentvalue", "current_value":
+            let newValue = toNumber(value)
+            if config.chartType == .spider {
+                let point = config.series[loc.seriesIndex].data[loc.pointIndex]
+                config.series[loc.seriesIndex].data[loc.pointIndex].value = config.clampedSpiderValue(newValue, for: point)
+            } else {
+                config.series[loc.seriesIndex].data[loc.pointIndex].value = newValue
+            }
+        case "min", "minimum", "minimumvalue", "minimum_value":
+            config.series[loc.seriesIndex].data[loc.pointIndex].minimumValue = toNumber(value)
+            config.series[loc.seriesIndex].data[loc.pointIndex].normalizeRangeAndValue(includeCurrentValue: false)
+        case "max", "maximum", "maximumvalue", "maximum_value":
+            config.series[loc.seriesIndex].data[loc.pointIndex].maximumValue = toNumber(value)
+            config.series[loc.seriesIndex].data[loc.pointIndex].normalizeRangeAndValue(includeCurrentValue: false)
         case "name":
             config.series[loc.seriesIndex].data[loc.pointIndex].name = value
         default:
@@ -6130,8 +6168,10 @@ public struct Interpreter: Sendable {
         case "title":
             return config.title
         case "xaxislabel", "x_axis_label", "xlabel", "x_label":
+            guard config.chartType != .spider else { return nil }
             return config.xAxisLabel
         case "yaxislabel", "y_axis_label", "ylabel", "y_label":
+            guard config.chartType != .spider else { return nil }
             return config.yAxisLabel
         case "showlegend", "show_legend":
             return config.showLegend ? "true" : "false"
@@ -6139,6 +6179,24 @@ public struct Interpreter: Sendable {
             return config.showGrid ? "true" : "false"
         case "charttype", "chart_type":
             return config.chartType.rawValue
+        case "interactable", "interactive":
+            return config.interactable ? "true" : "false"
+        case "spiderringcount", "spider_ring_count":
+            return String(config.spiderRingCount)
+        case "spidergridcolor", "spider_grid_color":
+            return config.spiderGridColor
+        case "spideraxiscolor", "spider_axis_color":
+            return config.spiderAxisColor
+        case "spiderlabelcolor", "spider_label_color":
+            return config.spiderLabelColor
+        case "spiderfillopacity", "spider_fill_opacity":
+            return formatNumber(config.spiderFillOpacity)
+        case "spiderpointradius", "spider_point_radius":
+            return formatNumber(config.spiderPointRadius)
+        case "spidershowvaluelabels", "spider_show_value_labels":
+            return config.spiderShowValueLabels ? "true" : "false"
+        case "spiderdecimalplaces", "spider_decimal_places", "decimalplaces", "decimal_places":
+            return String(config.spiderDecimalPlaces)
         case "seriescount", "series_count":
             return String(config.series.count)
         default:
@@ -6162,19 +6220,47 @@ public struct Interpreter: Sendable {
         case "title":
             config.title = value
         case "xaxislabel", "x_axis_label", "xlabel", "x_label":
+            guard config.chartType != .spider else { return false }
             config.xAxisLabel = value
         case "yaxislabel", "y_axis_label", "ylabel", "y_label":
+            guard config.chartType != .spider else { return false }
             config.yAxisLabel = value
         case "showlegend", "show_legend":
             config.showLegend = isTruthy(value)
         case "showgrid", "show_grid":
             config.showGrid = isTruthy(value)
         case "charttype", "chart_type":
-            if let t = ChartType(rawValue: value.lowercased()) {
+            if let t = ChartType.fromUserValue(value) {
                 config.chartType = t
             } else {
                 return false
             }
+        case "interactable", "interactive":
+            config.interactable = isTruthy(value)
+        case "spiderringcount", "spider_ring_count":
+            config.spiderRingCount = Int(ChartConfig.clamp(
+                toNumber(value),
+                min: Double(ChartConfig.spiderMinimumRingCount),
+                max: Double(ChartConfig.spiderMaximumRingCount)
+            ))
+        case "spidergridcolor", "spider_grid_color":
+            config.spiderGridColor = ChartConfig.normalizedHex(value, fallback: config.spiderGridColor)
+        case "spideraxiscolor", "spider_axis_color":
+            config.spiderAxisColor = ChartConfig.normalizedHex(value, fallback: config.spiderAxisColor)
+        case "spiderlabelcolor", "spider_label_color":
+            config.spiderLabelColor = ChartConfig.normalizedHex(value, fallback: config.spiderLabelColor)
+        case "spiderfillopacity", "spider_fill_opacity":
+            config.spiderFillOpacity = ChartConfig.clamp(toNumber(value), min: 0, max: 1)
+        case "spiderpointradius", "spider_point_radius":
+            config.spiderPointRadius = ChartConfig.clamp(toNumber(value), min: 1, max: 12)
+        case "spidershowvaluelabels", "spider_show_value_labels":
+            config.spiderShowValueLabels = isTruthy(value)
+        case "spiderdecimalplaces", "spider_decimal_places", "decimalplaces", "decimal_places":
+            config.spiderDecimalPlaces = Int(ChartConfig.clamp(
+                toNumber(value),
+                min: Double(ChartConfig.spiderMinimumDecimalPlaces),
+                max: Double(ChartConfig.spiderMaximumDecimalPlaces)
+            ))
         default:
             return false
         }
