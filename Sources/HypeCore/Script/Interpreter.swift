@@ -151,6 +151,10 @@ public protocol HostApplicationProvider: Sendable {
     /// Returns `true` if the item was recognised and handled, `false` otherwise.
     /// Unknown or destructive items always return `false` without side-effects.
     func doMenu(item: String) async -> Bool
+    /// Return the titles of every top-level menu in the application's menu bar.
+    /// Used by `the menus` HypeTalk property.
+    /// The stub returns `[]`; the AppKit implementation reads `NSApplication.shared.mainMenu`.
+    func menuTitles() async -> [String]
 }
 
 public extension HostApplicationProvider {
@@ -163,6 +167,7 @@ public extension HostApplicationProvider {
     func editScript(ofObjectId: UUID?) async {}
     func print(target: HostPrintTarget) async {}
     func doMenu(item: String) async -> Bool { false }
+    func menuTitles() async -> [String] { [] }
 }
 
 /// Default host provider that silently no-ops all operations.
@@ -1498,12 +1503,36 @@ public struct Interpreter: Sendable {
             }
 
         case .findText(let expr):
-            // Stub: find is complex — for now store the search text in `it`.
-            let text = try await evaluate(expr, env: &env, document: document, context: context)
-            env.it = text
+            // HyperCard `find "text"` — case-insensitive substring search across
+            // all field textContent, starting from the current card and wrapping.
+            // Sets the runtime's found state and navigates to the matching card.
+            let searchTerm = try await evaluate(expr, env: &env, document: document, context: context)
+            env.it = searchTerm
+            if let found = findTextInDocument(
+                searchTerm,
+                document: document,
+                startingCardId: context.currentCardId
+            ) {
+                await context.runtimeProvider?.setFoundState(found)
+                navigationTarget = found.cardId
+                await context.runtimeProvider?.navigateToCard(found.cardId)
+            } else {
+                await context.runtimeProvider?.setFoundState(nil)
+            }
 
-        case .selectObject:
-            break // UI operation — stub
+        case .selectObject(let expr):
+            // HyperCard `select <expr>` — record selection state so that
+            // `the selectedText` / `selectedChunk` / `selectedField` / `selectedLine`
+            // return the right values.  Model state is fully implemented;
+            // UI highlight (field-editor range selection) is a follow-up (see report).
+            if let selected = await resolveSelectExpression(
+                expr,
+                env: &env,
+                document: document,
+                context: context
+            ) {
+                await context.runtimeProvider?.setSelectedState(selected)
+            }
 
         case .sortCards(let byExpr):
             // Evaluate the key expression once per card, in that card's context,
@@ -3562,12 +3591,46 @@ public struct Interpreter: Sendable {
         case "windows":
             return "Hype"
 
-        // Click/selection/find stubs
-        case "clickchunk", "clickh", "clickv", "clickline", "clickloc", "clicktext":
-            return ""
-        case "foundchunk", "foundfield", "foundline", "foundtext":
-            return ""
-        case "selectedbutton", "selectedchunk", "selectedfield", "selectedline", "selectedloc", "selectedtext":
+        // Phase 2: click-info getters — read the runtime's last-click state.
+        case "clickh":
+            return formatNumber(await context.runtimeProvider?.clickState()?.clickH ?? 0)
+        case "clickv":
+            return formatNumber(await context.runtimeProvider?.clickState()?.clickV ?? 0)
+        case "clickloc":
+            if let cs = await context.runtimeProvider?.clickState() {
+                return "\(formatNumber(cs.clickH)),\(formatNumber(cs.clickV))"
+            }
+            return "0,0"
+        case "clicktext":
+            return await context.runtimeProvider?.clickState()?.clickText ?? ""
+        case "clickchunk":
+            return await context.runtimeProvider?.clickState()?.clickChunk ?? ""
+        case "clickline":
+            return await context.runtimeProvider?.clickState()?.clickLine ?? ""
+
+        // Phase 2: found-text getters — read the runtime's found state.
+        case "foundtext":
+            return await context.runtimeProvider?.foundState()?.foundText ?? ""
+        case "foundchunk":
+            return await context.runtimeProvider?.foundState()?.foundChunk ?? ""
+        case "foundfield":
+            return await context.runtimeProvider?.foundState()?.foundField ?? ""
+        case "foundline":
+            return await context.runtimeProvider?.foundState()?.foundLine ?? ""
+
+        // Phase 2: selected-text getters — read the runtime's selection state.
+        // `selectedButton` and `selectedLoc` have no model backing here (they
+        // require live UI state); they return empty, which matches HyperCard when
+        // no radio group / location is active.
+        case "selectedtext":
+            return await context.runtimeProvider?.selectedState()?.selectedText ?? ""
+        case "selectedchunk":
+            return await context.runtimeProvider?.selectedState()?.selectedChunk ?? ""
+        case "selectedfield":
+            return await context.runtimeProvider?.selectedState()?.selectedField ?? ""
+        case "selectedline":
+            return await context.runtimeProvider?.selectedState()?.selectedLine ?? ""
+        case "selectedbutton", "selectedloc":
             return ""
         case "sound":
             return await context.systemProvider.currentSoundName()
@@ -3595,9 +3658,13 @@ public struct Interpreter: Sendable {
         case "programs":
             return "Hype"
         case "menus":
-            return ""
+            // Return the titles of every top-level menu in the application menu bar,
+            // newline-separated, via the HostApplicationProvider.
+            let titles = await context.hostProvider.menuTitles()
+            return titles.joined(separator: "\n")
         case "destination":
-            return ""
+            // HyperCard `the destination` — the current stack's name (minimal implementation).
+            return context.document.stack.name
         case "stacks":
             return "Hype"
 
@@ -3815,6 +3882,53 @@ public struct Interpreter: Sendable {
                 return ""
             case "recentcards", "recent cards":
                 return await context.runtimeProvider?.recentCards() ?? ""
+
+            // Phase 2: click-info properties
+            case "clickh":
+                return formatNumber(await context.runtimeProvider?.clickState()?.clickH ?? 0)
+            case "clickv":
+                return formatNumber(await context.runtimeProvider?.clickState()?.clickV ?? 0)
+            case "clickloc":
+                if let cs = await context.runtimeProvider?.clickState() {
+                    return "\(formatNumber(cs.clickH)),\(formatNumber(cs.clickV))"
+                }
+                return "0,0"
+            case "clicktext":
+                return await context.runtimeProvider?.clickState()?.clickText ?? ""
+            case "clickchunk":
+                return await context.runtimeProvider?.clickState()?.clickChunk ?? ""
+            case "clickline":
+                return await context.runtimeProvider?.clickState()?.clickLine ?? ""
+
+            // Phase 2: found-text properties
+            case "foundtext":
+                return await context.runtimeProvider?.foundState()?.foundText ?? ""
+            case "foundchunk":
+                return await context.runtimeProvider?.foundState()?.foundChunk ?? ""
+            case "foundfield":
+                return await context.runtimeProvider?.foundState()?.foundField ?? ""
+            case "foundline":
+                return await context.runtimeProvider?.foundState()?.foundLine ?? ""
+
+            // Phase 2: selected-text properties
+            case "selectedtext":
+                return await context.runtimeProvider?.selectedState()?.selectedText ?? ""
+            case "selectedchunk":
+                return await context.runtimeProvider?.selectedState()?.selectedChunk ?? ""
+            case "selectedfield":
+                return await context.runtimeProvider?.selectedState()?.selectedField ?? ""
+            case "selectedline":
+                return await context.runtimeProvider?.selectedState()?.selectedLine ?? ""
+            case "selectedbutton", "selectedloc":
+                return ""
+
+            // Phase 2: menus and destination
+            case "menus":
+                let titles = await context.hostProvider.menuTitles()
+                return titles.joined(separator: "\n")
+            case "destination":
+                return document.stack.name
+
             default:
                 return env.getVariable(property)
             }
@@ -4571,6 +4685,161 @@ public struct Interpreter: Sendable {
             .replacingOccurrences(of: "\r", with: "\n")
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
+    }
+
+    // MARK: - Phase 2: find / select helpers
+
+    /// Search for `searchTerm` (case-insensitive substring) in all field parts
+    /// across the document's cards.  The search starts from `startingCardId` and
+    /// wraps around — HyperCard's default behaviour.
+    ///
+    /// Returns a fully-populated `FoundState` on the first hit, or `nil` when the
+    /// term does not appear in any field.
+    private func findTextInDocument(
+        _ searchTerm: String,
+        document: HypeDocument,
+        startingCardId: UUID
+    ) -> FoundState? {
+        guard !searchTerm.isEmpty else { return nil }
+        let lowerTerm = searchTerm.lowercased()
+
+        let sortedCards = document.sortedCards
+        guard !sortedCards.isEmpty else { return nil }
+
+        // Build a search order starting from the current card (inclusive),
+        // then wrapping back around to the beginning of the sorted list.
+        let startIndex = sortedCards.firstIndex(where: { $0.id == startingCardId }) ?? 0
+        let orderedCards = Array(sortedCards[startIndex...]) + Array(sortedCards[..<startIndex])
+
+        for card in orderedCards {
+            // Collect card-level fields, then background-level fields.
+            let cardFields = document.partsForCard(card.id).filter { $0.partType == .field }
+            let bgFields   = document.partsForBackground(card.backgroundId).filter { $0.partType == .field }
+            let fields     = cardFields + bgFields
+
+            for field in fields {
+                let text = field.textContent
+                let lowerText = text.lowercased()
+                guard let range = lowerText.range(of: lowerTerm) else { continue }
+
+                // Compute 1-based character positions (Swift String indices → UTF-16 offset).
+                let charStart = lowerText.distance(from: lowerText.startIndex, to: range.lowerBound) + 1
+                let charEnd   = charStart + searchTerm.count - 1
+
+                // Build the HyperCard descriptors.
+                let fieldDescriptor = "field \"\(field.name)\""
+                let foundChunk      = "char \(charStart) to \(charEnd) of \(fieldDescriptor)"
+
+                // Determine the 1-based line number of the match.
+                let prefix      = String(text[..<text.index(text.startIndex, offsetBy: charStart - 1)])
+                let lineNumber  = prefix.components(separatedBy: "\n").count
+                let foundLine   = "line \(lineNumber) of \(fieldDescriptor)"
+
+                // The matched text preserves the original casing from the field.
+                let originalStart = text.index(text.startIndex, offsetBy: charStart - 1)
+                let originalEnd   = text.index(originalStart, offsetBy: searchTerm.count)
+                let foundText     = String(text[originalStart..<originalEnd])
+
+                return FoundState(
+                    foundText: foundText,
+                    foundChunk: foundChunk,
+                    foundField: fieldDescriptor,
+                    foundLine: foundLine,
+                    cardId: card.id
+                )
+            }
+        }
+        return nil
+    }
+
+    /// Build a `SelectedState` from a `select <expr>` AST expression.
+    ///
+    /// Handles two forms:
+    ///   1. `select field "Name"` — selects the entire text of the named field.
+    ///   2. `select chunk of field "Name"` — selects a specific chunk (via `.chunk`
+    ///      wrapping an `.objectRef`).
+    ///
+    /// Returns `nil` when the expression cannot be resolved (unknown field, etc.).
+    private func resolveSelectExpression(
+        _ expr: Expression,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async -> SelectedState? {
+        switch expr {
+
+        case .objectRef(let ref)
+            where ref.objectType.lowercased() == "field" || ref.objectType.lowercased() == "fld":
+            // `select field "Name"` — select the whole field.
+            let ident = try? await evaluate(ref.identifier, env: &env, document: document, context: context)
+            guard let ident,
+                  let idx = findPartIndex(ref.objectType, identifier: ident, env: &env,
+                                          document: document, currentCardId: context.currentCardId)
+            else { return nil }
+            let field = document.parts[idx]
+            let text  = field.textContent
+            let fieldDesc = "field \"\(field.name)\""
+            let lineCount = text.isEmpty ? 1 : text.components(separatedBy: "\n").count
+            return SelectedState(
+                selectedText:  text,
+                selectedChunk: text.isEmpty ? "char 0 of \(fieldDesc)"
+                                            : "char 1 to \(text.count) of \(fieldDesc)",
+                selectedField: fieldDesc,
+                selectedLine:  "line 1 to \(lineCount) of \(fieldDesc)"
+            )
+
+        case .chunk(let chunkType, let range, let source):
+            // `select char 3 to 7 of field "Notes"` — evaluate chunk source to get
+            // the field text, then compute the selected substring.
+            guard case .objectRef(let ref) = source,
+                  ref.objectType.lowercased() == "field" || ref.objectType.lowercased() == "fld"
+            else {
+                // Non-field chunk: evaluate and store generic selected text only.
+                let text = await evaluateChunk(chunkType, range: range, source: "",
+                                              env: &env, document: document, context: context)
+                return SelectedState(selectedText: text, selectedChunk: "", selectedField: "", selectedLine: "")
+            }
+
+            let ident = try? await evaluate(ref.identifier, env: &env, document: document, context: context)
+            guard let ident,
+                  let idx = findPartIndex(ref.objectType, identifier: ident, env: &env,
+                                          document: document, currentCardId: context.currentCardId)
+            else { return nil }
+            let field     = document.parts[idx]
+            let fieldDesc = "field \"\(field.name)\""
+            let sourceVal = field.textContent
+            let selectedText = await evaluateChunk(chunkType, range: range, source: sourceVal,
+                                                    env: &env, document: document, context: context)
+
+            // Build a char-range chunk descriptor for selectedChunk.
+            let lowerSource = sourceVal.lowercased()
+            let lowerSel    = selectedText.lowercased()
+            let selectedChunk: String
+            let selectedLine: String
+            if let matchRange = lowerSource.range(of: lowerSel), !selectedText.isEmpty {
+                let charStart = lowerSource.distance(from: lowerSource.startIndex, to: matchRange.lowerBound) + 1
+                let charEnd   = charStart + selectedText.count - 1
+                selectedChunk = "char \(charStart) to \(charEnd) of \(fieldDesc)"
+                let prefix    = String(sourceVal[..<sourceVal.index(sourceVal.startIndex, offsetBy: charStart - 1)])
+                let lineNum   = prefix.components(separatedBy: "\n").count
+                selectedLine  = "line \(lineNum) of \(fieldDesc)"
+            } else {
+                selectedChunk = "char 0 of \(fieldDesc)"
+                selectedLine  = "line 1 of \(fieldDesc)"
+            }
+
+            return SelectedState(
+                selectedText:  selectedText,
+                selectedChunk: selectedChunk,
+                selectedField: fieldDesc,
+                selectedLine:  selectedLine
+            )
+
+        default:
+            // Unrecognised expression form — evaluate as text only.
+            let text = (try? await evaluate(expr, env: &env, document: document, context: context)) ?? ""
+            return SelectedState(selectedText: text, selectedChunk: "", selectedField: "", selectedLine: "")
+        }
     }
 
     // MARK: - Object reference resolution

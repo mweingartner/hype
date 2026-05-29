@@ -879,6 +879,82 @@ struct CardCanvasView: NSViewRepresentable {
             return components.url
         }
 
+        /// Record a mouse-down event in the runtime's click state so that
+        /// `the clickH` / `clickV` / `clickLoc` / `clickText` / `clickChunk` /
+        /// `the clickLine` HypeTalk properties return meaningful values.
+        ///
+        /// - Parameters:
+        ///   - point: Card-space coordinate of the click.
+        ///   - hitPart: The part under the cursor, if any.
+        ///   - document: The current document snapshot used to read field text.
+        func recordClickState(point: CGPoint, hitPart: Part?, document: HypeDocument) {
+            let snapshot = document
+            let config = runtimeConfiguration()
+            let clickH = Double(point.x)
+            let clickV = Double(point.y)
+            Task {
+                let runtime = await StackRuntimeRegistry.shared.runtime(for: snapshot, configuration: config)
+                // Compute click-text / chunk / line when a field was hit.
+                var clickText  = ""
+                var clickChunk = ""
+                var clickLine  = ""
+                if let part = hitPart, part.partType == .field {
+                    let text    = part.textContent
+                    let fieldDesc = "field \"\(part.name)\""
+                    if !text.isEmpty {
+                        // Approximate character offset from the horizontal position
+                        // within the field. This is a best-effort approximation:
+                        // the field editor has more precise glyph-hit-test information
+                        // but is not reachable here without deep NSTextView surgery.
+                        // We find the word under the click by dividing the field width
+                        // evenly across characters (good enough for `the clickText` / chunk
+                        // use in classic HyperCard stacks).
+                        let fieldWidth = max(1.0, part.width)
+                        let relX = max(0.0, min(point.x - part.left, fieldWidth))
+                        let charFraction = relX / fieldWidth
+                        let charIndex = min(
+                            max(0, Int(Double(text.count) * charFraction)),
+                            max(0, text.count - 1)
+                        )
+                        // Find the word boundary around charIndex.
+                        let nsText = text as NSString
+                        let wordRange = nsText.rangeOfCharacter(
+                            from: .init(charactersIn: " \t\n\r"),
+                            options: .backwards,
+                            range: NSRange(location: 0, length: charIndex)
+                        )
+                        let wordStart = wordRange.location == NSNotFound ? 0 : wordRange.location + wordRange.length
+                        let wordEnd: Int
+                        let afterRange = nsText.rangeOfCharacter(
+                            from: .init(charactersIn: " \t\n\r"),
+                            range: NSRange(location: charIndex, length: text.count - charIndex)
+                        )
+                        wordEnd = afterRange.location == NSNotFound ? text.count : afterRange.location
+
+                        let charStart = wordStart + 1  // 1-based
+                        let charEndIdx = wordEnd
+                        if charStart <= charEndIdx {
+                            let startIdx  = text.index(text.startIndex, offsetBy: wordStart)
+                            let endIdx    = text.index(text.startIndex, offsetBy: wordEnd)
+                            clickText  = String(text[startIdx..<endIdx])
+                            clickChunk = "char \(charStart) to \(charEndIdx) of \(fieldDesc)"
+                            let prefix = String(text[..<startIdx])
+                            let lineNum = prefix.components(separatedBy: "\n").count
+                            clickLine  = "line \(lineNum) of \(fieldDesc)"
+                        }
+                    }
+                }
+                let state = ClickState(
+                    clickH: clickH,
+                    clickV: clickV,
+                    clickText: clickText,
+                    clickChunk: clickChunk,
+                    clickLine: clickLine
+                )
+                await runtime.setClickState(state)
+            }
+        }
+
         func dispatchIdleBurst(cardTargetId: UUID, includeCardTarget: Bool, partTargetIds: [UUID]) {
             let snapshot = parent.document.document
             let config = runtimeConfiguration()
@@ -3275,6 +3351,14 @@ class CardCanvasNSView: NSView {
         }
 
         let result = mouseHandler.handleMouseDown(tool: toolState, hitPart: hitPart, point: point)
+
+        // Phase 2: record click coordinates (and field-click context if applicable)
+        // for `the clickH` / `clickV` / `clickLoc` / `clickText` / `clickChunk` / `the clickLine`.
+        // Recorded in the StackRuntime actor; the coordinator method fires a Task so
+        // this stays non-blocking on the main thread.
+        if toolCheck.category == .browse {
+            coordinator?.recordClickState(point: point, hitPart: hitPart, document: document)
+        }
 
         switch result {
         case .selectPart(let id):

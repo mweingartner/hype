@@ -188,11 +188,13 @@ public struct AppKitHostApplicationProvider: HostApplicationProvider, Sendable {
     /// **Go menu (navigation):**  "Next", "Prev"/"Previous", "First", "Last",
     ///   "Back" — pure navigation, no mutations.
     ///
-    /// **Edit (non-destructive clipboard):**  "Copy", "Paste", "Undo" —
-    ///   these mirror what a user can do with a keyboard shortcut.
+    /// **Edit (non-destructive clipboard):**  "Copy", "Paste" — these mirror
+    ///   what a user can do with a keyboard shortcut.
     ///
-    /// **Explicitly excluded (destructive):**  "Delete Card", "Cut", "Clear",
-    ///   "Delete Stack", "New Card", "Delete Current Card".  Any item not in
+    /// **Explicitly excluded:**  "Undo" (responder-chain undo can reverse the
+    ///   user's own edits — security review Finding 1), plus destructive items
+    ///   "Delete Card", "Cut", "Clear", "Delete Stack", "New Card",
+    ///   "Delete Current Card".  Any item not in
     ///   the allowlist is also excluded by default.
     ///
     /// This means a script-scripted `doMenu "Delete Card"` returns `false`
@@ -251,6 +253,23 @@ public struct AppKitHostApplicationProvider: HostApplicationProvider, Sendable {
             }
         }
         return handled
+    }
+
+    // MARK: - Menus
+
+    /// Return the titles of every top-level menu in the application's menu bar.
+    ///
+    /// Reads `NSApplication.shared.mainMenu` on the main actor and returns the
+    /// titles of all items that have a submenu (i.e. the top-level menu titles
+    /// such as "Apple", "File", "Edit", "Go", "Window", "Help").  Items without
+    /// a submenu (separators and bare menu items at top level) are excluded.
+    public func menuTitles() async -> [String] {
+        await MainActor.run {
+            guard let mainMenu = NSApplication.shared.mainMenu else { return [] }
+            return mainMenu.items
+                .filter { $0.submenu != nil }
+                .compactMap { $0.title.isEmpty ? nil : $0.title }
+        }
     }
 
     // MARK: - Private helpers

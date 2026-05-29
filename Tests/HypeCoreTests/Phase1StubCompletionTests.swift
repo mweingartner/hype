@@ -112,6 +112,14 @@ private final class TestRuntime: ScriptRuntimeProviding, @unchecked Sendable {
 
     /// Synchronous snapshot for assertions.
     var history: [UUID] { lock.withLock { _history } }
+
+    // Phase 2 — no-op stubs so this minimal runtime stays conformant.
+    func setFoundState(_ state: FoundState?) async {}
+    func foundState() async -> FoundState? { nil }
+    func setSelectedState(_ state: SelectedState?) async {}
+    func selectedState() async -> SelectedState? { nil }
+    func setClickState(_ state: ClickState) async {}
+    func clickState() async -> ClickState? { nil }
 }
 
 // MARK: - §1  sort cards by <expr>

@@ -150,7 +150,21 @@ no security surface — fully headless-testable, highest ROI per risk.
   over `Date` + `DateFormatter`.
 - Tests: parser already accepts these; add interpreter-level behavior tests.
 
-### Phase 2 — Text search & selection subsystem (≈4–6 days)
+### Phase 2 — Text search & selection subsystem — ✅ DONE (2026-05-29)
+**Status: shipped on `feat/complete-stubs`** (+24 tests, `Phase2FindSelectClickTests`).
+`find "text"` does a real case-insensitive substring search across card + background
+fields with wrap-around, sets found-text/chunk/field/line session state on
+`StackRuntime`, and navigates to the matching card; the `the foundText`/`foundChunk`/
+`foundField`/`foundLine` getters read it. `select <chunk> of <field>` records selection
+state; `the selectedText`/`selectedChunk`/`selectedField`/`selectedLine` are fully live
+(model + getters). click-position getters (`the clickH/V/Loc/Text/Chunk/Line`) record
+on mouse-down in browse mode and read back. `the menus` reuses the Phase-3
+`HostApplicationProvider` (`menuTitles()` → real NSApp main-menu titles); `the
+destination` returns the stack name. Session state follows the Phase-1 runtime pattern.
+**Follow-ups (documented, not stubs):** actual `NSTextView` range-highlight for `select`
+is a UI-layer enhancement (the getters are correct without it); `the selectedButton` /
+`the selectedLoc` remain `""` (need live radio-group / pixel state).
+
 **Scope:** A1 `find` + found-* getters, A2 `select` + selected-* getters, A8
 click-* getters, A9 `the menus`/`destination`.
 - Build a `find` engine over field/card text honoring `find`, `find word`,
