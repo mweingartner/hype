@@ -4069,8 +4069,13 @@ class CardCanvasNSView: NSView {
                             forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
                             queue: .main
                         ) { [weak self, weak player] _ in
-                            guard let self, let player else { return }
-                            self.coordinator?.reportVideo(id: partId, player: player)
+                            // The observer is installed with `queue: .main`, so this
+                            // fires on the main actor — assert that isolation to touch
+                            // the main-actor `coordinator` without an async hop.
+                            MainActor.assumeIsolated {
+                                guard let self, let player else { return }
+                                self.coordinator?.reportVideo(id: partId, player: player)
+                            }
                         }
                         videoTimeObservers[part.id] = tok
                     }
@@ -4098,8 +4103,13 @@ class CardCanvasNSView: NSView {
                     forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
                     queue: .main
                 ) { [weak self, weak player] _ in
-                    guard let self, let player else { return }
-                    self.coordinator?.reportVideo(id: partId, player: player)
+                    // The observer is installed with `queue: .main`, so this
+                    // fires on the main actor — assert that isolation to touch
+                    // the main-actor `coordinator` without an async hop.
+                    MainActor.assumeIsolated {
+                        guard let self, let player else { return }
+                        self.coordinator?.reportVideo(id: partId, player: player)
+                    }
                 }
                 videoTimeObservers[part.id] = tok
             }
