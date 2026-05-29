@@ -366,6 +366,10 @@ final class BenchmarkRuntime: ScriptRuntimeProviding, @unchecked Sendable {
             properties[id]?[property.lowercased()] ?? ""
         }
     }
+
+    func pushCardToHistory(_ cardId: UUID) async {}
+    func popCardFromHistory() async -> UUID? { nil }
+    func recentCards() async -> String { "" }
 }
 
 func printBenchmarkReport(_ report: HypeTalkBenchmarkReport, format: HypeTalkBenchmarkFormat) throws {

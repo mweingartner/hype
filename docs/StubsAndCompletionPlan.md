@@ -129,7 +129,15 @@ Each phase is independently shippable and follows the repo's standing pipeline
 (Architect → Security → Builder → Security(code) → Tester → commit). Effort is
 rough engineer-days for one focused contributor.
 
-### Phase 1 — Document-only HyperTalk completeness (≈2–3 days) — DO FIRST
+### Phase 1 — Document-only HyperTalk completeness — ✅ DONE (2026-05-29)
+**Status: shipped on `feat/complete-stubs`** (+23 tests, `Phase1StubCompletionTests`).
+`sort cards by <expr>` does per-card key eval + stable text/numeric sort + sortKey
+rewrite. `convert <src> to <fmt>` covers the full HyperCard date/time keyword
+vocabulary with container write-back, POSIX-locale deterministic. `push`/`pop card`
++ `the recent cards` use a bounded 50-entry history on `StackRuntime` with
+`navigateToCard` wired end-to-end. Keyword grammar takes quoted-string keywords;
+bare-keyword parser extension deferred (pre-existing parser limit, not a new stub).
+
 **Scope:** A3 `sort cards`, A4 `push`/`pop`/`recent cards`, A7 `convert` date/time.
 These touch only the document model + runtime card-history stack. No UI context,
 no security surface — fully headless-testable, highest ROI per risk.

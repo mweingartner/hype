@@ -234,7 +234,12 @@ public struct Parser: Sendable {
         case .edit:     return try parseEditStatement()
         case .typeText: return try parseTypeStatement()
         case .push:     return try parsePushStatement()
-        case .pop:      _ = advance(); skipNewlines(); return .pop
+        case .pop:
+            _ = advance()
+            // Skip optional `card` keyword — `pop card` is the idiomatic HyperCard form.
+            if current.type == .card { _ = advance() }
+            skipNewlines()
+            return .pop
         case .click:    return try parseClickStatement()
         case .drag:     return try parseDragStatement()
         case .help:     _ = advance(); skipNewlines(); return .helpCmd
@@ -1459,6 +1464,17 @@ public struct Parser: Sendable {
         if current.type == .newline || current.type == .eof {
             skipNewlines()
             return .push(nil)
+        }
+        // `push card` with no identifier means "push the current card".
+        // HyperCard treats bare `card` as the current card — consume the
+        // keyword and emit push(nil) rather than trying to parse an objectRef.
+        if current.type == .card {
+            let next = pos + 1 < tokens.count ? tokens[pos + 1] : Token(type: .eof, value: "", line: 0)
+            if next.type == .newline || next.type == .eof {
+                _ = advance()  // consume `card`
+                skipNewlines()
+                return .push(nil)
+            }
         }
         let expr = try parseExpression()
         skipNewlines()

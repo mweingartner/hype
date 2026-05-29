@@ -1445,9 +1445,35 @@ public struct Interpreter: Sendable {
             break // UI operation — stub
 
         case .sortCards(let byExpr):
-            // Sort cards by evaluating the expression for each card.
-            let _ = try await evaluate(byExpr, env: &env, document: document, context: context)
-            // Complex — stub for now
+            // Evaluate the key expression once per card, in that card's context,
+            // then stably sort ascending. Numeric order is used when every key
+            // parses as a finite number; otherwise case-insensitive text order.
+            var cardKeys: [(cardId: UUID, key: String)] = []
+            for card in document.sortedCards {
+                var cardContext = context
+                cardContext.currentCardId = card.id
+                let key = try await evaluateSortKey(byExpr, env: &env, document: document, context: cardContext)
+                cardKeys.append((cardId: card.id, key: key))
+            }
+            let allNumeric = cardKeys.allSatisfy {
+                let d = Double($0.key)
+                return d != nil && d!.isFinite
+            }
+            let sortedIds: [UUID]
+            if allNumeric {
+                sortedIds = cardKeys.sorted { Double($0.key)! < Double($1.key)! }.map(\.cardId)
+            } else {
+                sortedIds = cardKeys.sorted {
+                    $0.key.compare($1.key, options: .caseInsensitive) == .orderedAscending
+                }.map(\.cardId)
+            }
+            // Rewrite sortKeys as evenly-spaced "a%06d" strings matching the
+            // scheme used by HypeDocument.addCard.
+            for (index, cardId) in sortedIds.enumerated() {
+                if let i = document.cards.firstIndex(where: { $0.id == cardId }) {
+                    document.cards[i].sortKey = String(format: "a%06d", index)
+                }
+            }
 
         case .hideObject(let expr):
             if case .objectRef(let ref) = expr {
@@ -1924,9 +1950,43 @@ public struct Interpreter: Sendable {
             env.it = text
 
         case .convert(let sourceExpr, let targetExpr):
-            let _ = try await evaluate(sourceExpr, env: &env, document: document, context: context)
-            let _ = try await evaluate(targetExpr, env: &env, document: document, context: context)
-            // Stub: conversion between date/time formats not yet implemented
+            // Read the source value directly from the container rather than via
+            // evaluate(), which returns the Part's UUID string for objectRefs.
+            let sourceValue: String
+            switch sourceExpr {
+            case .variable(let name):
+                sourceValue = env.getVariable(name)
+            case .it:
+                sourceValue = env.it
+            case .objectRef(let ref):
+                let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+                if let idx = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
+                    sourceValue = document.parts[idx].textContent
+                } else {
+                    sourceValue = try await evaluate(sourceExpr, env: &env, document: document, context: context)
+                }
+            default:
+                // Bare literal, chunk expression, etc. — evaluate normally.
+                sourceValue = try await evaluate(sourceExpr, env: &env, document: document, context: context)
+            }
+            let formatValue = try await evaluate(targetExpr, env: &env, document: document, context: context)
+            let converted = convertDateTime(sourceValue, toFormat: formatValue)
+            // Write the converted value back into the source container, mirroring
+            // the `put X into <container>` assignment path.
+            switch sourceExpr {
+            case .variable(let name):
+                env.setVariable(name, converted)
+            case .it:
+                env.it = converted
+            case .objectRef(let ref):
+                let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+                if let idx = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
+                    document.parts[idx].textContent = converted
+                }
+            default:
+                // Bare literal or unrecognised container — store in `it`
+                env.it = converted
+            }
 
         case .closeWindow, .saveStack, .quitApp, .editScriptOf:
             break // UI operations — stubs requiring platform integration
@@ -2577,12 +2637,212 @@ public struct Interpreter: Sendable {
                 }
             }
 
+        case .push(let cardExpr):
+            // HyperCard `push [card]` — save the specified (or current) card ID
+            // onto the session card-history stack so `pop card` can return to it.
+            let cardId: UUID
+            if let expr = cardExpr {
+                let refValue = try await evaluate(expr, env: &env, document: document, context: context)
+                // Accept a UUID string directly, or a navigation keyword / card name.
+                if let uuid = UUID(uuidString: refValue) {
+                    cardId = uuid
+                } else if let resolved = resolveNavigation(refValue, document: document, currentCardId: context.currentCardId) {
+                    cardId = resolved
+                } else {
+                    cardId = context.currentCardId
+                }
+            } else {
+                cardId = context.currentCardId
+            }
+            await context.runtimeProvider?.pushCardToHistory(cardId)
+
+        case .pop:
+            // HyperCard `pop [card]` — navigate to the most-recently-pushed card.
+            // Empty stack is a documented no-op.
+            if let poppedId = await context.runtimeProvider?.popCardFromHistory() {
+                navigationTarget = poppedId
+                await context.runtimeProvider?.navigateToCard(poppedId)
+            }
+
         // Phase 2: Stub commands (recognized but no-op)
-        case .push, .pop, .clickAt, .doMenuCmd, .disableCmd, .enableCmd,
+        case .clickAt, .doMenuCmd, .disableCmd, .enableCmd,
              .helpCmd, .debugCmd, .dialCmd, .printCmd, .readCmd, .writeCmd,
              .runCmd, .startUsing, .stopUsing,
              .copyTemplate, .exportPaint, .importPaint:
             break
+        }
+    }
+
+    // MARK: - Sort key evaluation helper
+
+    /// Evaluate a sort-by expression in the given card context, returning the
+    /// sort key as a plain string.
+    ///
+    /// For `objectRef` expressions that target a field or button the HyperCard
+    /// semantics are to return the part's *text content*, not its UUID (which
+    /// is what the generic `evaluate` path returns for part references). This
+    /// helper special-cases that path so `sort cards by field "Name"` produces
+    /// the field's text rather than its ID.
+    private func evaluateSortKey(
+        _ expr: Expression,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async throws -> String {
+        if case .objectRef(let ref) = expr {
+            let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+            let ltype = ref.objectType.lowercased()
+            if ltype == "field" || ltype == "fld" || ltype == "button" || ltype == "btn" {
+                if let idx = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
+                    return document.parts[idx].textContent
+                }
+            }
+        }
+        return try await evaluate(expr, env: &env, document: document, context: context)
+    }
+
+    // MARK: - Date/time conversion helper
+
+    /// Convert a date/time value to the requested HyperCard format string.
+    ///
+    /// The `source` is accepted as:
+    /// - An integer seconds-since-epoch value (e.g., `"0"`)
+    /// - An ISO-8601 or common locale date string parsed via `DateFormatter`
+    /// - Any of the HyperCard `dateItems` comma-separated format
+    ///
+    /// The `format` keyword vocabulary mirrors HyperCard:
+    /// - `"seconds"` → Unix epoch integer
+    /// - `"dateItems"` → comma-separated `year,month,day,hour,minute,second,weekday`
+    /// - `"short date"` → locale short date (e.g. `"5/29/26"`)
+    /// - `"abbreviated date"` / `"abbrev date"` / `"abbr date"` → medium date (e.g. `"May 29, 2026"`)
+    /// - `"long date"` → full date (e.g. `"Friday, May 29, 2026"`)
+    /// - `"short time"` → short time (e.g. `"3:04 PM"`)
+    /// - `"long time"` → medium time with seconds (e.g. `"3:04:05 PM"`)
+    /// - Combinations like `"long date and long time"` are split and rendered with a space.
+    ///
+    /// All formatters use `en_US_POSIX` locale so output is deterministic in tests.
+    /// When the source cannot be parsed the original value is returned unchanged.
+    private func convertDateTime(_ source: String, toFormat format: String) -> String {
+        guard let date = parseHyperCardDate(source) else { return source }
+        let fmtLower = format.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        // Handle compound formats: "long date and long time", "short date and short time", etc.
+        if let andRange = fmtLower.range(of: " and ") {
+            let leftFmt = String(fmtLower[fmtLower.startIndex..<andRange.lowerBound])
+            let rightFmt = String(fmtLower[andRange.upperBound...])
+            let left = formatHyperCardDate(date, formatKeyword: leftFmt)
+            let right = formatHyperCardDate(date, formatKeyword: rightFmt)
+            return "\(left) \(right)"
+        }
+        return formatHyperCardDate(date, formatKeyword: fmtLower)
+    }
+
+    /// Parse a string into a `Date` using the formats HyperCard scripts commonly produce.
+    private func parseHyperCardDate(_ source: String) -> Date? {
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 1. Bare integer — treat as seconds since epoch.
+        if let seconds = Double(trimmed), seconds.isFinite {
+            return Date(timeIntervalSince1970: seconds)
+        }
+        // 2. HyperCard dateItems: "year,month,day,hour,minute,second,weekday"
+        let parts = trimmed.split(separator: ",", omittingEmptySubsequences: false)
+        if parts.count >= 6 {
+            let nums = parts.compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+            if nums.count >= 6 {
+                var comps = DateComponents()
+                comps.year   = nums[0]
+                comps.month  = nums[1]
+                comps.day    = nums[2]
+                comps.hour   = nums[3]
+                comps.minute = nums[4]
+                comps.second = nums[5]
+                var cal = Calendar(identifier: .gregorian)
+                cal.timeZone = TimeZone(identifier: "UTC")!
+                if let date = cal.date(from: comps) { return date }
+            }
+        }
+        // 3. Try common string formats with en_US_POSIX locale and UTC timezone
+        // so parsing is deterministic regardless of the host machine's locale.
+        let utc = TimeZone(identifier: "UTC")!
+        let candidates = [
+            "M/d/yy",
+            "M/d/yyyy",
+            "MMM d, yyyy",
+            "MMMM d, yyyy",
+            "EEEE, MMMM d, yyyy",
+            "h:mm a",
+            "h:mm:ss a",
+            "yyyy-MM-dd",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm:ssZ",
+        ]
+        for fmt in candidates {
+            let df = DateFormatter()
+            df.locale = Locale(identifier: "en_US_POSIX")
+            df.timeZone = utc
+            df.dateFormat = fmt
+            if let date = df.date(from: trimmed) { return date }
+        }
+        return nil
+    }
+
+    /// Format a `Date` using a single HyperCard format keyword.
+    ///
+    /// All formatters use UTC timezone so output is deterministic regardless
+    /// of the machine's local timezone. This matches the test expectation that
+    /// epoch 0 formats as January 1, 1970 everywhere.
+    private func formatHyperCardDate(_ date: Date, formatKeyword: String) -> String {
+        let posix = Locale(identifier: "en_US_POSIX")
+        let utc = TimeZone(identifier: "UTC")!
+        switch formatKeyword {
+        case "seconds":
+            return String(Int(date.timeIntervalSince1970))
+        case "dateitems":
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = utc
+            let comps = cal.dateComponents([.year, .month, .day, .hour, .minute, .second, .weekday], from: date)
+            let y  = comps.year   ?? 0
+            let mo = comps.month  ?? 0
+            let d  = comps.day    ?? 0
+            let h  = comps.hour   ?? 0
+            let mi = comps.minute ?? 0
+            let s  = comps.second ?? 0
+            let wd = comps.weekday ?? 1   // 1=Sunday in Gregorian, matches HyperCard
+            return "\(y),\(mo),\(d),\(h),\(mi),\(s),\(wd)"
+        case "short date":
+            let df = DateFormatter()
+            df.locale = posix
+            df.timeZone = utc
+            df.dateFormat = "M/d/yy"
+            return df.string(from: date)
+        case "abbreviated date", "abbrev date", "abbr date":
+            let df = DateFormatter()
+            df.locale = posix
+            df.timeZone = utc
+            df.dateFormat = "MMM d, yyyy"
+            return df.string(from: date)
+        case "long date":
+            let df = DateFormatter()
+            df.locale = posix
+            df.timeZone = utc
+            df.dateFormat = "EEEE, MMMM d, yyyy"
+            return df.string(from: date)
+        case "short time":
+            let df = DateFormatter()
+            df.locale = posix
+            df.timeZone = utc
+            df.dateFormat = "h:mm a"
+            return df.string(from: date)
+        case "long time":
+            let df = DateFormatter()
+            df.locale = posix
+            df.timeZone = utc
+            df.dateFormat = "h:mm:ss a"
+            return df.string(from: date)
+        default:
+            // Unrecognised keyword — fall back to long date format.
+            return formatHyperCardDate(date, formatKeyword: "long date")
         }
     }
 
@@ -3422,6 +3682,8 @@ public struct Interpreter: Sendable {
                 return "\u{2713}"
             case "menumessage":
                 return ""
+            case "recentcards", "recent cards":
+                return await context.runtimeProvider?.recentCards() ?? ""
             default:
                 return env.getVariable(property)
             }

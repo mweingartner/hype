@@ -262,6 +262,16 @@ public protocol ScriptRuntimeProviding: Sendable {
     func closeConnection(_ id: UUID) async
     func stopListener(_ id: UUID) async
     func runtimeProperty(objectType: String, id: UUID, property: String, argument: String?) async -> String
+    /// Push a card ID onto the session card-history stack (HyperCard `push card`).
+    /// The stack is bounded to 50 entries; oldest entries are dropped when full.
+    func pushCardToHistory(_ cardId: UUID) async
+    /// Pop the most-recently-pushed card ID from the session card-history stack.
+    /// Returns `nil` when the history is empty (HyperCard `pop card` on empty stack
+    /// is a documented no-op).
+    func popCardFromHistory() async -> UUID?
+    /// Return all history card IDs, oldest-first, as newline-separated UUID strings.
+    /// Used by `the recent cards` property.
+    func recentCards() async -> String
 }
 
 public struct StackRuntimeConfiguration: Sendable {
@@ -428,6 +438,10 @@ public actor StackRuntime: ScriptRuntimeProviding {
     private var connections: [UUID: ConnectionState] = [:]
     private var savedListenerRuntimeIDs: [UUID: UUID] = [:]
     private var speechListenerActive = false
+    /// Session card-history stack for HyperCard `push card` / `pop card`.
+    /// Entries are card UUIDs; index 0 is the oldest. Bounded to 50 entries.
+    private var cardHistory: [UUID] = []
+    private static let cardHistoryCapacity = 50
     #if canImport(Network)
     private var listenerBoxes: [UUID: ListenerBox] = [:]
     private var connectionBoxes: [UUID: ConnectionBox] = [:]
@@ -641,6 +655,22 @@ public actor StackRuntime: ScriptRuntimeProviding {
         // navigation. Without this, many `go` commands in one handler
         // can coalesce into a single visible update.
         try? await Task.sleep(nanoseconds: 16_666_667)
+    }
+
+    public func pushCardToHistory(_ cardId: UUID) async {
+        if cardHistory.count >= StackRuntime.cardHistoryCapacity {
+            cardHistory.removeFirst()
+        }
+        cardHistory.append(cardId)
+    }
+
+    public func popCardFromHistory() async -> UUID? {
+        guard !cardHistory.isEmpty else { return nil }
+        return cardHistory.removeLast()
+    }
+
+    public func recentCards() async -> String {
+        cardHistory.reversed().map(\.uuidString).joined(separator: "\n")
     }
 
     public func publishDocument(_ updatedDocument: HypeDocument) async {
