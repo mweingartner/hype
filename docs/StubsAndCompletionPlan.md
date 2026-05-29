@@ -308,10 +308,26 @@ base) and is orthogonal (HyperCard-import asset classification, not the
   regression). Full suite 2486 tests; only the pre-existing `HypeTalkGuide` 64 KB
   failure remains. Background paint layers stay out of scope (no model for them).
 
-### Phase 6 — On-demand Apple frameworks (size when requested)
+### Phase 6 — On-demand Apple frameworks — ⏸️ INTENTIONALLY DEFERRED (per plan) (2026-05-29)
 ContactsUI, EventKit events, OAuth (WebAuthenticationServices), UserNotifications,
 AVKit PiP, CoreLocation user-location. **Do not build speculatively.** Each is a
 clean ≈1–2 day add when a real stack needs it; the roadmap doc already scopes them.
+
+**Decision (autonomous, evidence-based):** confirmed via grep that NONE of these six
+are partial stubs — there are zero AST/parser cases or provider hooks for
+contact/event/oauth/notification/PiP/user-location anywhere in `Sources/`. (The only
+CoreLocation usage is `MapLocationGeocoder`/`MapGeocodeCache` — address→coords
+geocoding for the map part, which is complete, not device user-location.) So there is
+no stub here to *finish*; these are entirely greenfield framework integrations.
+
+Per this plan's own directive they remain **demand-driven**: each pulls in
+entitlements, an Info.plist privacy-usage string, a runtime authorization prompt, and
+(for Contacts/CoreLocation) PII surface or (for OAuth/WebAuthenticationServices) a
+credential+network surface. Building them speculatively — with no stack requiring
+them — would add risk and maintenance with zero current user value, and would violate
+the "do not build speculatively" guidance. They will be implemented one at a time,
+behind the established provider + per-stack opt-in pattern, when a concrete stack
+creates the demand signal. **Phases 1–5 closed every genuinely user-facing stub.**
 
 ### Explicitly parked (Cluster C) — revisit only on demand
 C1 Live Sync transport, C2 full SpriteKit native rendering, C3 broad XCMD

@@ -32,45 +32,41 @@ struct HypeTalkGuideTests {
         #expect(HypeTalkGuide.llmContext.count > 500)
     }
 
-    @Test("guide stays under the 64 KB budget so it is cheap to ship on every request")
+    @Test("guide stays under the 80 KB budget so it is cheap to ship on every request")
     func guideStaysUnderBudget() {
-        // Budget: 64 KB (≈ 16000 tokens). Raised from 32 KB on
-        // 2026-05-05 to accommodate the grammar-coverage expansion
-        // requested to push smaller models (qwen3:35b, etc.) into
-        // the lead on accuracy benchmarks. The expansion adds:
-        //   - a dedicated Operators & Precedence section
-        //     (membership, type tests, existence tests, boolean
-        //     operators, full precedence ladder)
-        //   - a Constants section (empty, quote, return, tab, pi,
-        //     up/down, zero..ten)
-        //   - explicit `it` lifecycle and `global` redeclaration
-        //     rules
-        //   - a comprehensive Built-in Functions list (replaces
-        //     the prior brief paragraph)
-        //   - a Stub commands table — verbs the parser accepts but
-        //     do nothing (find/select/do/push/pop/clickAt/etc.)
-        //     so the model stops generating dead code that pretends
-        //     to work
-        //   - control-flow expansion: single-line if/then/else,
-        //     else-if ladders, repeat for / down to / until, and
-        //     the canonical nested-if form
-        //   - chunk expansion: ranges, ordinals, plural keywords,
-        //     and the explicit READ-ONLY rule with the splice-and-
-        //     write-back idiom
-        //   - ~20 additional AVOID bullets covering the most common
-        //     model hallucinations (elseif, starts with / ends with,
-        //     chunk writes, do "...", the result, send to button,
-        //     named colors, comparing me to a string, "yes" being
-        //     falsy, etc.)
+        // Budget: 80 KB (≈ 20000 tokens). History:
+        //   32 KB → 64 KB (2026-05-05): grammar-coverage expansion
+        //     (Operators & Precedence, Constants, Built-in Functions,
+        //      Stub commands table, control-flow and chunk expansion,
+        //      ~20 AVOID bullets).
+        //   64 KB → 80 KB (2026-05-29): Phases 1–5 real-command
+        //     documentation. Several commands that were listed as
+        //     stubs or no-ops are now fully implemented and must be
+        //     documented accurately so the AI generates working code:
+        //       - sort cards by <expr> (stable sort, rewrites card order)
+        //       - push card / pop card / the recent cards (bounded history)
+        //       - convert <container> to <date/time format>
+        //       - find "needle" (navigates to match) + found-* getters
+        //       - select <chunk> of field + selected-* getters
+        //       - click-state getters (clickH/clickV/clickLoc/…)
+        //       - the menus / the destination
+        //       - do "<script>" (real eval, depth-capped)
+        //       - read from file / write … to file (fileAccessAllowed gate)
+        //       - import paint / export paint (fileAccessAllowed + AppKit)
+        //       - video transport: currentTime, duration, playRate
+        //       - host commands: lock/unlock screen, doMenu (allowlisted),
+        //         open/save/close/print/edit script (desktop-app only)
+        //     Stub table shrank (removed rows now documented elsewhere);
+        //     two stale AVOID bullets corrected. Net: ~78 KB.
         //
-        // At ~54 KB it's ≈11% of a 128K-context model — still well
-        // within typical chat budgets, and the accuracy gain on
-        // smaller open-weight models is the explicit reason for
-        // the trade.
+        // At ~78 KB it's ≈16% of a 128K-context model — within typical
+        // chat budgets. Documenting real command surface accurately
+        // prevents the AI from refusing or mis-generating working commands,
+        // which is the explicit reason for this increase.
         //
         // Raise the budget deliberately if future additions justify
         // it, but only with an accompanying note on the tradeoff.
-        #expect(HypeTalkGuide.llmContext.count < 65536,
+        #expect(HypeTalkGuide.llmContext.count < 81920,
                 "HypeTalkGuide.llmContext is \(HypeTalkGuide.llmContext.count) characters — bump the budget intentionally if this is expected")
     }
 
@@ -324,6 +320,74 @@ struct HypeTalkGuideTests {
         #expect(text.contains("auto-wraps"))
         // The instruction to stick to the documented surface.
         #expect(text.lowercased().contains("do not invent"))
+    }
+
+    // MARK: - Phases 1–5 real-command coverage
+
+    @Test("guide documents Phase 1–5 real commands and no longer calls them stubs")
+    func guideDocumentsRealCommands() {
+        let text = HypeTalkGuide.llmContext
+
+        // Phase 1: sort cards, push/pop card history, convert date/time
+        #expect(text.contains("sort cards by"), "guide missing sort cards")
+        #expect(text.contains("push card"), "guide missing push card")
+        #expect(text.contains("pop card"), "guide missing pop card")
+        #expect(text.contains("the recent cards"), "guide missing the recent cards")
+        #expect(text.contains("convert"), "guide missing convert")
+        #expect(text.contains("long date"), "guide missing date format keywords")
+
+        // Phase 2: find (navigates), found-* getters, select + selected-* getters, click-* getters
+        #expect(text.contains("find \"needle\""), "guide missing find command")
+        #expect(text.contains("navigates"), "guide should state find navigates to match")
+        #expect(text.contains("the foundText"), "guide missing foundText")
+        #expect(text.contains("the foundChunk"), "guide missing foundChunk")
+        #expect(text.contains("the foundField"), "guide missing foundField")
+        #expect(text.contains("the foundLine"), "guide missing foundLine")
+        #expect(text.contains("select word"), "guide missing select command")
+        #expect(text.contains("the selectedText"), "guide missing selectedText")
+        #expect(text.contains("the selectedChunk"), "guide missing selectedChunk")
+        #expect(text.contains("the clickH"), "guide missing clickH")
+        #expect(text.contains("the clickLoc"), "guide missing clickLoc")
+        #expect(text.contains("the menus"), "guide missing the menus")
+        #expect(text.contains("the destination"), "guide missing the destination")
+
+        // Phase 3: host commands (lock screen, doMenu, open/save/close/print)
+        #expect(text.contains("lock screen"), "guide missing lock screen")
+        #expect(text.contains("unlock screen"), "guide missing unlock screen")
+        #expect(text.contains("doMenu"), "guide missing doMenu")
+        #expect(text.contains("allowlist"), "guide missing doMenu allowlist note")
+        #expect(text.contains("open stack"), "guide missing open stack")
+        #expect(text.contains("Host commands"), "guide missing Host commands section")
+
+        // Phase 4: do eval, file I/O
+        #expect(text.contains("do \"put 1 + 1"), "guide missing do eval example")
+        #expect(text.contains("read from file"), "guide missing read from file")
+        #expect(text.contains("write"), "guide missing write to file")
+        #expect(text.contains("fileAccessAllowed"), "guide missing fileAccessAllowed gate note")
+
+        // Phase 5: import/export paint, video transport
+        #expect(text.contains("import paint"), "guide missing import paint")
+        #expect(text.contains("export paint"), "guide missing export paint")
+        #expect(text.contains("the currentTime"), "guide missing currentTime getter")
+        #expect(text.contains("the playRate"), "guide missing playRate getter")
+        #expect(text.contains("the duration of video"), "guide missing video duration")
+
+        // Negative: old stub table rows for now-real commands must be gone
+        #expect(!text.contains("Does NOT highlight / scroll / locate"),
+                "guide still has stale stub claim for find")
+        #expect(!text.contains("No selection happens; field text is unaffected"),
+                "guide still has stale stub claim for select")
+        #expect(!text.contains("No-op (parsed but not evaluated)"),
+                "guide still has stale stub claim for do")
+        #expect(!text.contains("| `push card`, `pop card` | No-op"),
+                "guide still has stale stub claim for push/pop card")
+        #expect(!text.contains("Always return `\"\"`"),
+                "guide still has stale stub claim for found-*/selected-* getters")
+        // Negative: old stale AVOID bullets must be gone
+        #expect(!text.contains("is a no-op. Inline the code directly"),
+                "guide still has stale do-is-no-op AVOID bullet")
+        #expect(!text.contains("both are stubs"),
+                "guide still has stale find-is-stub AVOID bullet")
     }
 
     // MARK: - Drop-in verification for AIChatPanel
