@@ -163,7 +163,22 @@ click-* getters, A9 `the menus`/`destination`.
   (the dispatcher already knows the hit part + point).
 - This is the highest HyperCard-compat-value cluster; size it generously.
 
-### Phase 3 — `HostApplicationProvider` (≈3–4 days) — the big lever
+### Phase 3 — `HostApplicationProvider` — ✅ DONE (2026-05-29)
+**Status: shipped on `feat/complete-stubs`** (+33 tests: 24 dispatch in
+`Phase3HostApplicationProviderTests` + 9 real-provider security tests in
+`AppKitHostApplicationProviderTests`). New `HostApplicationProvider` protocol
+(no-op default + `StubHostApplicationProvider`) threaded through the single
+interpreter init; `AppKitHostApplicationProvider` wired into all UI entry points.
+Resolved: `lock`/`unlock screen` (real — canvas observes `.hypeScreenLock`/`Unlock`,
+`draw()` early-returns while locked, forces redraw on unlock, observers removed on
+dismantle), `open stack`, `save stack`, `close window`, `quit`, `edit script of`,
+`print`, `doMenu`. **Security:** `doMenu` allowlist is strictly non-destructive
+(navigation + copy/paste only; Delete Card/Cut/Clear/Delete Stack/New Card all
+refused; `undo` dropped per code review — responder-chain undo could reverse the
+user's own edits); `openStack` canonicalizes (`..` + symlink) before the `.hype`
+guard (CWE-22); `print` caches the decoded doc by path+mtime to avoid main-thread
+self-DoS in a loop. Code-stage security review: GO (3 findings all fixed inline).
+
 **Scope:** A5 `lock`/`unlock screen`, A10 `open stack`, A11 `save stack`, A12
 `close window`/`quit app`, A13 `edit script of`, A14 `print`, A15 `doMenu`.
 **Architecture:** mirror `SystemProvider` exactly. Define a `HostApplicationProvider`

@@ -116,6 +116,10 @@ struct CardCanvasView: NSViewRepresentable {
         // accumulation of CGImage arrays and a dangling timer across
         // document open/close cycles.
         GIFAnimator.shared.removeAll()
+        // Drop the screen-lock observers so a torn-down canvas doesn't
+        // keep receiving lock/unlock notifications.
+        NotificationCenter.default.removeObserver(nsView, name: .hypeScreenLock, object: nil)
+        NotificationCenter.default.removeObserver(nsView, name: .hypeScreenUnlock, object: nil)
     }
 
     func updateNSView(_ nsView: CardCanvasNSView, context: Context) {
@@ -743,6 +747,7 @@ struct CardCanvasView: NSViewRepresentable {
         /// Dispatch a HypeTalk message to the current card (for card-level events).
         private let dialogProvider = AppKitDialogProvider()
         private let systemProvider = AppKitSystemProvider()
+        private let hostProvider = AppKitHostApplicationProvider()
         private let aiProvider = SelectedAIScriptingProvider()
 
         private var drawingProvider: DrawingProvider {
@@ -1134,6 +1139,7 @@ struct CardCanvasView: NSViewRepresentable {
                 dialogProvider: dialogProvider,
                 drawingProvider: drawingProvider,
                 systemProvider: systemProvider,
+                hostProvider: hostProvider,
                 aiProvider: aiProvider,
                 speechOutputProvider: OpenAISpeechOutputProvider.shared,
                 speechListenerProvider: RuntimeSpeechListenerProvider.shared,
@@ -1217,6 +1223,30 @@ class CardCanvasNSView: NSView {
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
         registerForDraggedTypes(Self.objectToolPasteboardTypes)
+        // HyperTalk `lock screen` / `unlock screen` (Phase 3). The
+        // host provider posts these; the canvas suppresses repaints
+        // while locked and forces one redraw on unlock.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleScreenLock),
+            name: .hypeScreenLock,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleScreenUnlock),
+            name: .hypeScreenUnlock,
+            object: nil
+        )
+    }
+
+    @objc private func handleScreenLock() {
+        screenLocked = true
+    }
+
+    @objc private func handleScreenUnlock() {
+        screenLocked = false
+        needsDisplay = true
     }
 
     /// Keep process-wide animation callbacks pointed at the active canvas.
@@ -1380,6 +1410,12 @@ class CardCanvasNSView: NSView {
     /// Cleared in `performCardTransition`'s completion handler
     /// after the SKView is hidden.
     var isTransitioning = false
+
+    /// HyperTalk `lock screen` state. While true, `draw(_:)` early-returns
+    /// so a script can batch visual mutations; `unlock screen` clears it and
+    /// forces one redraw. Toggled by the `.hypeScreenLock` / `.hypeScreenUnlock`
+    /// notifications posted by `AppKitHostApplicationProvider`.
+    var screenLocked = false
 
     // Paint layers keyed by card ID
     private var paintLayers: [UUID: PaintLayer] = [:]
@@ -1663,6 +1699,13 @@ class CardCanvasNSView: NSView {
         // repaint the CGContext content — it would composite over
         // the animating SKView and make the transition invisible.
         if isTransitioning {
+            return
+        }
+        // HyperTalk `lock screen`: suppress repaints until `unlock
+        // screen`. Mirrors classic HyperCard's screen-lock so a
+        // script can batch many visual mutations and present them
+        // in one update. The unlock handler forces a single redraw.
+        if screenLocked {
             return
         }
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }

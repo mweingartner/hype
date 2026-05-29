@@ -278,6 +278,8 @@ public struct StackRuntimeConfiguration: Sendable {
     public var dialogProvider: DialogProvider
     public var drawingProvider: DrawingProvider
     public var systemProvider: SystemProvider
+    /// Provider for application-shell commands (`open stack`, `save stack`, `quit`, etc.).
+    public var hostProvider: any HostApplicationProvider
     public var aiProvider: any AIScriptingProvider
     /// Phase 3: Meshy scripting provider for `ask meshy` async-callback generation.
     public var meshyProvider: any MeshyScriptingProvider
@@ -292,6 +294,7 @@ public struct StackRuntimeConfiguration: Sendable {
         dialogProvider: DialogProvider = StubDialogProvider(),
         drawingProvider: DrawingProvider = StubDrawingProvider(),
         systemProvider: SystemProvider = StubSystemProvider(),
+        hostProvider: any HostApplicationProvider = StubHostApplicationProvider(),
         aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
         meshyProvider: any MeshyScriptingProvider = StubMeshyScriptingProvider(),
         speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
@@ -304,6 +307,7 @@ public struct StackRuntimeConfiguration: Sendable {
         self.dialogProvider = dialogProvider
         self.drawingProvider = drawingProvider
         self.systemProvider = systemProvider
+        self.hostProvider = hostProvider
         self.aiProvider = aiProvider
         self.meshyProvider = meshyProvider
         self.speechOutputProvider = speechOutputProvider
@@ -1224,6 +1228,7 @@ public actor StackRuntime: ScriptRuntimeProviding {
                         dialogProvider: configuration.dialogProvider,
                         drawingProvider: configuration.drawingProvider,
                         systemProvider: configuration.systemProvider,
+                        hostProvider: configuration.hostProvider,
                         aiProvider: configuration.aiProvider,
                         meshyProvider: configuration.meshyProvider,
                         speechOutputProvider: configuration.speechOutputProvider,

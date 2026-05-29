@@ -861,6 +861,7 @@ struct AIChatPanel: View {
             for: snapshot,
             configuration: StackRuntimeConfiguration(
                 systemProvider: AppKitSystemProvider(),
+                hostProvider: AppKitHostApplicationProvider(),
                 aiProvider: SelectedAIScriptingProvider(),
                 meshyProvider: LiveMeshyScriptingProvider(),
                 speechOutputProvider: OpenAISpeechOutputProvider.shared,

@@ -72,6 +72,7 @@ struct MessageBoxView: View {
                     for: snapshot,
                     configuration: StackRuntimeConfiguration(
                         systemProvider: AppKitSystemProvider(),
+                        hostProvider: AppKitHostApplicationProvider(),
                         aiProvider: SelectedAIScriptingProvider(),
                         speechOutputProvider: OpenAISpeechOutputProvider.shared,
                         speechListenerProvider: RuntimeSpeechListenerProvider.shared
@@ -83,6 +84,7 @@ struct MessageBoxView: View {
                     currentCardId: cardId,
                     document: liveDocument,
                     systemProvider: AppKitSystemProvider(),
+                    hostProvider: AppKitHostApplicationProvider(),
                     aiProvider: SelectedAIScriptingProvider(),
                     speechOutputProvider: OpenAISpeechOutputProvider.shared,
                     runtimeProvider: runtime

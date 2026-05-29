@@ -359,6 +359,7 @@ struct NetworkPanelView: View {
         let snapshot = document.document
         let configuration = StackRuntimeConfiguration(
             systemProvider: AppKitSystemProvider(),
+            hostProvider: AppKitHostApplicationProvider(),
             aiProvider: SelectedAIScriptingProvider(),
             speechOutputProvider: OpenAISpeechOutputProvider.shared,
             speechListenerProvider: RuntimeSpeechListenerProvider.shared

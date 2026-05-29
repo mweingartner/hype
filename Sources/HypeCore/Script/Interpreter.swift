@@ -114,6 +114,63 @@ public struct StubSystemProvider: SystemProvider, Sendable {
     public init() {}
 }
 
+// MARK: - HostApplicationProvider
+
+/// The target object for `print card` / `print field` commands.
+public enum HostPrintTarget: Sendable {
+    /// Print the current card as a rendered image.
+    case card
+    /// Print the text content of a named or numbered field.
+    case field(String)
+}
+
+/// Protocol for application-shell operations that require platform UI access —
+/// injected by the UI layer, mirroring the `SystemProvider` pattern.
+///
+/// Every method has a default no-op implementation in the extension below so
+/// the stub and CLI paths continue to compile without changes.
+public protocol HostApplicationProvider: Sendable {
+    /// Suppress canvas redraws for the duration of a visual batch.
+    func lockScreen() async
+    /// Re-enable canvas redraws and refresh the display.
+    func unlockScreen() async
+    /// Open a `.hype` stack at the given absolute path.
+    func openStack(path: String) async
+    /// Save the frontmost stack document.
+    func saveStack() async
+    /// Close the frontmost window.
+    func closeWindow() async
+    /// Terminate the application.
+    func quitApp() async
+    /// Open the Script Editor for the object identified by `objectId`.
+    /// `nil` falls back to editing the current card's script.
+    func editScript(ofObjectId: UUID?) async
+    /// Print a card or field.
+    func print(target: HostPrintTarget) async
+    /// Perform a named menu item from the curated allowlist.
+    /// Returns `true` if the item was recognised and handled, `false` otherwise.
+    /// Unknown or destructive items always return `false` without side-effects.
+    func doMenu(item: String) async -> Bool
+}
+
+public extension HostApplicationProvider {
+    func lockScreen() async {}
+    func unlockScreen() async {}
+    func openStack(path: String) async {}
+    func saveStack() async {}
+    func closeWindow() async {}
+    func quitApp() async {}
+    func editScript(ofObjectId: UUID?) async {}
+    func print(target: HostPrintTarget) async {}
+    func doMenu(item: String) async -> Bool { false }
+}
+
+/// Default host provider that silently no-ops all operations.
+/// Used by CLI tools, benchmarks, and test paths that have no UI context.
+public struct StubHostApplicationProvider: HostApplicationProvider, Sendable {
+    public init() {}
+}
+
 /// Context for script execution.
 public struct ExecutionContext: Sendable {
     public var targetId: UUID
@@ -123,6 +180,8 @@ public struct ExecutionContext: Sendable {
     public var dialogProvider: DialogProvider
     public var drawingProvider: DrawingProvider
     public var systemProvider: SystemProvider
+    /// Provider for application-shell commands (`open stack`, `save stack`, `quit`, etc.).
+    public var hostProvider: any HostApplicationProvider
     public var aiProvider: any AIScriptingProvider
     public var speechOutputProvider: SpeechOutputProvider
     public var runtimeProvider: (any ScriptRuntimeProviding)?
@@ -149,6 +208,7 @@ public struct ExecutionContext: Sendable {
                 dialogProvider: DialogProvider = StubDialogProvider(),
                 drawingProvider: DrawingProvider = StubDrawingProvider(),
                 systemProvider: SystemProvider = StubSystemProvider(),
+                hostProvider: any HostApplicationProvider = StubHostApplicationProvider(),
                 aiProvider: any AIScriptingProvider = StubAIScriptingProvider(),
                 speechOutputProvider: SpeechOutputProvider = StubSpeechOutputProvider(),
                 runtimeProvider: (any ScriptRuntimeProviding)? = nil,
@@ -166,6 +226,7 @@ public struct ExecutionContext: Sendable {
         self.dialogProvider = dialogProvider
         self.drawingProvider = drawingProvider
         self.systemProvider = systemProvider
+        self.hostProvider = hostProvider
         self.aiProvider = aiProvider
         self.speechOutputProvider = speechOutputProvider
         self.runtimeProvider = runtimeProvider
@@ -1491,17 +1552,32 @@ public struct Interpreter: Sendable {
                 }
             }
 
-        case .lockScreen, .unlockScreen:
-            break // UI operation — stub
+        case .lockScreen:
+            await context.hostProvider.lockScreen()
 
-        case .openStack:
-            break // Complex — stub
+        case .unlockScreen:
+            await context.hostProvider.unlockScreen()
+
+        case .openStack(let pathExpr):
+            let path = try await evaluate(pathExpr, env: &env, document: document, context: context)
+            await context.hostProvider.openStack(path: path)
 
         case .externalCommand(let name, let argumentExprs):
             var args: [Value] = []
             for expr in argumentExprs {
                 args.append(try await evaluate(expr, env: &env, document: document, context: context))
             }
+
+            // Intercept HypeTalk application-shell commands that the parser routes
+            // through externalCommand because they have no dedicated keyword token.
+            // `doMenu` and `print` (when passed an argument string) land here.
+            let normalizedName = name.lowercased()
+            if normalizedName == "domenu" {
+                let item = args.first ?? ""
+                _ = await context.hostProvider.doMenu(item: item)
+                break
+            }
+
             let result = await context.externalRegistry.invoke(
                 HyperCardExternalCall(name: name, kind: .xcmd, arguments: args),
                 context: HyperCardExternalCallContext(
@@ -1988,8 +2064,31 @@ public struct Interpreter: Sendable {
                 env.it = converted
             }
 
-        case .closeWindow, .saveStack, .quitApp, .editScriptOf:
-            break // UI operations — stubs requiring platform integration
+        case .saveStack:
+            await context.hostProvider.saveStack()
+
+        case .closeWindow:
+            await context.hostProvider.closeWindow()
+
+        case .quitApp:
+            await context.hostProvider.quitApp()
+
+        case .editScriptOf(let targetExpr):
+            // Resolve the expression to an object UUID if possible.
+            // We attempt to interpret it as an objectRef (part/card/background/stack);
+            // if resolution fails we pass nil so the host opens the current card's editor.
+            let objectId: UUID?
+            if case .objectRef(let ref) = targetExpr {
+                let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+                if let idx = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
+                    objectId = document.parts[idx].id
+                } else {
+                    objectId = nil
+                }
+            } else {
+                objectId = nil
+            }
+            await context.hostProvider.editScript(ofObjectId: objectId)
 
         case .dragFrom(let fromExpr, let toExpr):
             let fromVal = try await evaluate(fromExpr, env: &env, document: document, context: context)
@@ -2664,9 +2763,41 @@ public struct Interpreter: Sendable {
                 await context.runtimeProvider?.navigateToCard(poppedId)
             }
 
-        // Phase 2: Stub commands (recognized but no-op)
-        case .clickAt, .doMenuCmd, .disableCmd, .enableCmd,
-             .helpCmd, .debugCmd, .dialCmd, .printCmd, .readCmd, .writeCmd,
+        case .printCmd(let expr):
+            // `print` (no argument) prints the current card.
+            // `print field "Name"` or `print <expr>` prints the field's text.
+            // For objectRef expressions (e.g. field "Name"), we resolve to text
+            // content directly so the provider receives meaningful content.
+            let target: HostPrintTarget
+            if let expr = expr {
+                if case .objectRef(let ref) = expr {
+                    let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+                    let ltype = ref.objectType.lowercased()
+                    if (ltype == "field" || ltype == "fld"),
+                       let idx = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
+                        target = .field(document.parts[idx].textContent)
+                    } else {
+                        let val = try await evaluate(expr, env: &env, document: document, context: context)
+                        target = .field(val)
+                    }
+                } else {
+                    let val = try await evaluate(expr, env: &env, document: document, context: context)
+                    target = .field(val)
+                }
+            } else {
+                target = .card
+            }
+            await context.hostProvider.print(target: target)
+
+        case .doMenuCmd(let expr):
+            let item = try await evaluate(expr, env: &env, document: document, context: context)
+            _ = await context.hostProvider.doMenu(item: item)
+
+        // Phase 2 / A″: Legacy HyperCard commands — recognised so scripts don't
+        // produce "unknown command" errors, but intentionally no-op in Hype.
+        // See Stubs&CompletionPlan §Cluster A″ for rationale.
+        case .clickAt, .disableCmd, .enableCmd,
+             .helpCmd, .debugCmd, .dialCmd, .readCmd, .writeCmd,
              .runCmd, .startUsing, .stopUsing,
              .copyTemplate, .exportPaint, .importPaint:
             break
