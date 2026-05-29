@@ -58,6 +58,7 @@ public struct Lexer: Sendable {
         "start": .start, "stop": .stop, "using": .using,
         "template": .template, "paint": .paint,
         "report": .report, "file": .file, "printing": .printing,
+        "do": .doKeyword, "read": .readKeyword, "write": .writeKeyword,
         "convert": .convert,
         "method": .method, "headers": .headers, "body": .body,
         "username": .username, "password": .password,

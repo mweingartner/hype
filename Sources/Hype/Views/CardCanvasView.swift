@@ -1211,7 +1211,11 @@ struct CardCanvasView: NSViewRepresentable {
         }
 
         private func runtimeConfiguration() -> StackRuntimeConfiguration {
-            StackRuntimeConfiguration(
+            let stack = parent.document.document.stack
+            let fileProvider: any FileAccessProvider = stack.fileAccessAllowed
+                ? AppKitFileAccessProvider(stackId: stack.id)
+                : StubFileAccessProvider()
+            return StackRuntimeConfiguration(
                 dialogProvider: dialogProvider,
                 drawingProvider: drawingProvider,
                 systemProvider: systemProvider,
@@ -1219,7 +1223,8 @@ struct CardCanvasView: NSViewRepresentable {
                 aiProvider: aiProvider,
                 speechOutputProvider: OpenAISpeechOutputProvider.shared,
                 speechListenerProvider: RuntimeSpeechListenerProvider.shared,
-                appScript: appScript
+                appScript: appScript,
+                fileProvider: fileProvider
             )
         }
 

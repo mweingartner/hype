@@ -208,7 +208,7 @@ one-line `await context.hostProvider.X(...)` call replacing the current `break`.
   (Go menu nav, Edit copy/paste) — NOT arbitrary menu reflection.
 - One provider, one security review, the whole A′ cluster closes.
 
-### Phase 4 — Powerful primitives + security model (≈3–4 days)
+### Phase 4 — Powerful primitives + security model — ✅ DONE (2026-05-29)
 **Scope:** D1 `do <expr>`, D2 `read`/`write file`.
 - `do <expr>`: lex+parse the evaluated string and execute it in the current
   environment with the same instruction-limit + nesting-depth guards the main
@@ -217,6 +217,50 @@ one-line `await context.hostProvider.X(...)` call replacing the current `break`.
   `MeshyImageInput` (absolute-path, symlink-resolve, blocked-prefix, containment
   under a user-chosen sandbox root) + a per-stack `fileAccessAllowed` opt-in flag
   mirroring `meshyEnabled` / `webAssetsAllowed`. Full-tier pipeline.
+
+**✅ DONE — Full-tier pipeline (Architect→Security(plan)→Builder→Security(code)→Tester).**
+Critical discovery: `do`/`read`/`write` were never lexer keywords and the AST
+cases (`.doBlock`/`.readCmd`/`.writeCmd`) were unreachable dead code — so this
+added Token + Lexer + Parser support, not just interpreter logic.
+
+- **`do <expr>`** (Interpreter `.doBlock`): evaluates the string then parses it
+  as a **bare statement list** via the new `Parser.parseStatements()` (NO
+  synthetic `on _doEval … end` wrapper — that approach was rejected by the
+  plan-stage security review because `isEndOfHandler` is handler-name-blind, so
+  a string containing `end _doEval` could break out and define extra handlers).
+  `parseStatements()` rejects `.on`/`.function`/`.end` at top level. Runs inline
+  in the current handler env (`do "put 5 into x"` mutates `x`; `do "go next"`
+  navigates) sharing the SAME `instructionCount` budget; guarded by a dedicated
+  `nestedEvalDepth` (cap 8, checked FIRST, independent of `nestedSendDepth`=32)
+  and a 64 KB script-length cap (lex/parse runs outside the instruction budget).
+  Parse errors surface as `ScriptError`, never crash.
+- **`read from file "x"` / `write <expr> to file "x"`**: new `FileAccessProvider`
+  protocol (HypeCore) — deny-by-default `StubFileAccessProvider` (nil root →
+  `.accessDenied`) + `SandboxedFileAccessProvider(root:)` with a pure,
+  unit-testable `resolveSandboxedURL` (reject empty/absolute/`..`; canonicalize
+  both sides via `resolvingSymlinksInPath`; containment via `hasPrefix(root+"/")`;
+  supplemental blocked-prefix list; 10 MB read/write caps with TOCTOU rechecks;
+  write re-validates path after mkdir before atomic write). `read` puts whole
+  file into `it`; `write` overwrites atomically. App-layer
+  `AppKitFileAccessProvider` supplies a per-stack sandbox
+  `~/Library/Application Support/Hype/StackFiles/<stackId>/` (0o700). Gated by a
+  per-stack `Stack.fileAccessAllowed` flag (default false, `decodeIfPresent`),
+  wired at all 6 provider call-sites as
+  `flag ? AppKitFileAccessProvider(stackId:) : StubFileAccessProvider()`. Error
+  messages never leak resolved paths.
+- **Security code review found 1 medium defect, fixed inline:** the interpreter's
+  `.send` dispatch omitted `fileProvider` *and* `hostProvider` (Phase 3) — so a
+  handler reached via `send` silently got the deny/no-op stubs. Both now
+  propagate through `MessageDispatcher.dispatchAsync`; +1 regression test.
+- **Tests:** +46 (`Phase4DoEvalTests` 24 + `Phase4FileAccessTests` 22 incl. the
+  send-propagation regression). Full suite 2453 tests; only the pre-existing
+  `HypeTalkGuide` 64 KB-budget failure remains red (untouched by this branch;
+  resolved at end-of-run when the new commands are documented).
+- **Documented follow-ups:** (1) the per-handler instruction budget resets on
+  `send` (pre-existing interpreter-wide property, bounded by `nestedSendDepth`,
+  cancellable — out of Phase 4 scope; a global shared-budget propagation is a
+  separate hardening track); (2) cloned stacks inherit the same `stackId` and so
+  share a sandbox directory (documented in `SandboxedFileAccessProvider`).
 
 ### Phase 5 — Framework-depth finishers (≈2–3 days)
 **Scope:** B1 video transport, B2 paint import/export.

@@ -67,6 +67,12 @@ public enum TokenType: String, Sendable {
     // Unconditionally reserved per C15 (simpler; names unlikely to collide).
     case remesh
     case retexture
+
+    // Phase 4 — file access and eval commands.
+    // Named with "Keyword" suffix to avoid collision with Swift reserved words.
+    case doKeyword = "do"
+    case readKeyword = "read"
+    case writeKeyword = "write"
 }
 
 /// A single token produced by the HypeTalk lexer.

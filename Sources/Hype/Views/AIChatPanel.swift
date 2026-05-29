@@ -857,6 +857,9 @@ struct AIChatPanel: View {
     }
 
     private func syncRuntimeAfterAIMutation(_ snapshot: HypeDocument) async {
+        let fileProvider: any FileAccessProvider = snapshot.stack.fileAccessAllowed
+            ? AppKitFileAccessProvider(stackId: snapshot.stack.id)
+            : StubFileAccessProvider()
         _ = await StackRuntimeRegistry.shared.runtime(
             for: snapshot,
             configuration: StackRuntimeConfiguration(
@@ -865,7 +868,8 @@ struct AIChatPanel: View {
                 aiProvider: SelectedAIScriptingProvider(),
                 meshyProvider: LiveMeshyScriptingProvider(),
                 speechOutputProvider: OpenAISpeechOutputProvider.shared,
-                speechListenerProvider: RuntimeSpeechListenerProvider.shared
+                speechListenerProvider: RuntimeSpeechListenerProvider.shared,
+                fileProvider: fileProvider
             )
         )
     }

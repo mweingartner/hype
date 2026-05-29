@@ -386,6 +386,9 @@ public struct StackRuntimeConfiguration: Sendable {
     public var approvalPrompter: any NetworkPermissionPrompting
     public var permissionStore: UserDefaultsNetworkPermissionStore
     public var clock: RuntimeClock
+    /// Provider for sandboxed `read from file` / `write to file` commands.
+    /// `StubFileAccessProvider` (deny-all) is the default when file access is disabled.
+    public var fileProvider: any FileAccessProvider
 
     public init(
         dialogProvider: DialogProvider = StubDialogProvider(),
@@ -399,7 +402,8 @@ public struct StackRuntimeConfiguration: Sendable {
         appScript: String = "",
         approvalPrompter: any NetworkPermissionPrompting = AllowAllNetworkPermissionPrompter(),
         permissionStore: UserDefaultsNetworkPermissionStore = UserDefaultsNetworkPermissionStore(),
-        clock: RuntimeClock = SystemRuntimeClock()
+        clock: RuntimeClock = SystemRuntimeClock(),
+        fileProvider: any FileAccessProvider = StubFileAccessProvider()
     ) {
         self.dialogProvider = dialogProvider
         self.drawingProvider = drawingProvider
@@ -413,6 +417,7 @@ public struct StackRuntimeConfiguration: Sendable {
         self.approvalPrompter = approvalPrompter
         self.permissionStore = permissionStore
         self.clock = clock
+        self.fileProvider = fileProvider
     }
 }
 
@@ -1365,7 +1370,8 @@ public actor StackRuntime: ScriptRuntimeProviding {
                         mouseX: item.mouseX,
                         mouseY: item.mouseY,
                         scriptContext: item.scriptContext,
-                        runtimeProvider: self
+                        runtimeProvider: self,
+                        fileProvider: configuration.fileProvider
                     )
                 }
                 currentScriptTask = task

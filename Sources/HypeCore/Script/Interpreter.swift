@@ -200,6 +200,12 @@ public struct ExecutionContext: Sendable {
     public var appScript: String
     public var nestedSendDepth: Int
     public var profiler: HypeTalkExecutionProfiler?
+    /// Provider for sandboxed `read from file` / `write to file` operations.
+    /// `StubFileAccessProvider` (deny-by-default) is used when file access is disabled.
+    public var fileProvider: any FileAccessProvider
+    /// Current nesting depth of `do <expr>` evaluation.
+    /// Counted independently of `nestedSendDepth`; capped at `Interpreter.maxNestedEvalDepth`.
+    public var nestedEvalDepth: Int
 
     /// Consolidated initializer.
     ///
@@ -223,7 +229,9 @@ public struct ExecutionContext: Sendable {
                 scriptContext: ScriptDispatchContext? = nil,
                 appScript: String = "",
                 nestedSendDepth: Int = 0,
-                profiler: HypeTalkExecutionProfiler? = nil) {
+                profiler: HypeTalkExecutionProfiler? = nil,
+                fileProvider: any FileAccessProvider = StubFileAccessProvider(),
+                nestedEvalDepth: Int = 0) {
         self.targetId = targetId
         self.currentCardId = currentCardId
         self.document = document
@@ -243,6 +251,8 @@ public struct ExecutionContext: Sendable {
         self.appScript = appScript
         self.nestedSendDepth = nestedSendDepth
         self.profiler = profiler
+        self.fileProvider = fileProvider
+        self.nestedEvalDepth = nestedEvalDepth
     }
 }
 
@@ -500,6 +510,16 @@ private enum SpriteAreaMutationScope {
 public struct Interpreter: Sendable {
 
     public init() {}
+
+    // MARK: - Security limits for `do <expr>` eval
+
+    /// Maximum nesting depth for `do`-inside-`do` evaluation.
+    /// Counted independently of `nestedSendDepth` (the `send` budget).
+    static let maxNestedEvalDepth = 8
+
+    /// Maximum UTF-8 byte count of a string passed to `do`.
+    /// Limits parse-time work, which runs outside the instruction budget.
+    static let maxDoEvalBytes = 64 * 1024
 
     /// Execute a handler with the given parameters and context.
     public func execute(handler: Handler, params: [Value], context: ExecutionContext) -> ExecutionResult {
@@ -1406,9 +1426,33 @@ public struct Interpreter: Sendable {
             _ = try await evaluate(expr, env: &env, document: document, context: context)
 
         case .doBlock(let expr):
+            // SECURITY: depth gate FIRST (Finding 1/2). Independent counter;
+            // separate from nestedSendDepth so send-depth budget cannot be
+            // exhausted via do-nesting, and vice-versa.
+            guard context.nestedEvalDepth < Self.maxNestedEvalDepth else {
+                throw ScriptError(message: "do-eval nesting too deep", line: handler.line, handler: handler.name)
+            }
             let scriptText = try await evaluate(expr, env: &env, document: document, context: context)
-            // Simplified: parse and execute inline. Not fully implemented.
-            _ = scriptText
+            // SECURITY (Finding 3): cap parse-time work — lex/parse runs
+            // OUTSIDE the instruction budget so an oversize string must be
+            // rejected before we hand it to the lexer.
+            guard scriptText.utf8.count <= Self.maxDoEvalBytes else {
+                throw ScriptError(message: "do: script too large", line: handler.line, handler: handler.name)
+            }
+            var lexer = Lexer(source: scriptText)
+            let tokens = lexer.tokenize()
+            var parser = Parser(tokens: tokens)
+            let stmts: [Statement]
+            do {
+                stmts = try parser.parseStatements()
+            } catch let e as ParseError {
+                throw ScriptError(message: "do: \(e.errorDescription ?? "parse error")", line: handler.line, handler: handler.name)
+            }
+            var childContext = context
+            childContext.nestedEvalDepth = context.nestedEvalDepth + 1
+            for s in stmts {
+                try await executeStatement(s, env: &env, document: &document, context: childContext, instructionCount: &instructionCount, navigationTarget: &navigationTarget, handler: handler)
+            }
 
         case .createCard(let bgNameExpr):
             var bgName: String? = nil
@@ -1669,6 +1713,7 @@ public struct Interpreter: Sendable {
                 dialogProvider: context.dialogProvider,
                 drawingProvider: context.drawingProvider,
                 systemProvider: context.systemProvider,
+                hostProvider: context.hostProvider,
                 aiProvider: context.aiProvider,
                 speechOutputProvider: context.speechOutputProvider,
                 appScript: context.appScript,
@@ -1676,7 +1721,8 @@ public struct Interpreter: Sendable {
                 mouseY: context.mouseY,
                 scriptContext: context.scriptContext,
                 runtimeProvider: context.runtimeProvider,
-                nestedSendDepth: context.nestedSendDepth + 1
+                nestedSendDepth: context.nestedSendDepth + 1,
+                fileProvider: context.fileProvider
             )
             if let modifiedDocument = result.modifiedDocument {
                 document = modifiedDocument
@@ -2826,10 +2872,28 @@ public struct Interpreter: Sendable {
         // produce "unknown command" errors, but intentionally no-op in Hype.
         // See Stubs&CompletionPlan §Cluster A″ for rationale.
         case .clickAt, .disableCmd, .enableCmd,
-             .helpCmd, .debugCmd, .dialCmd, .readCmd, .writeCmd,
+             .helpCmd, .debugCmd, .dialCmd,
              .runCmd, .startUsing, .stopUsing,
              .copyTemplate, .exportPaint, .importPaint:
             break
+
+        case .readCmd(let pathExpr):
+            let name = try await evaluate(pathExpr, env: &env, document: document, context: context)
+            do {
+                let contents = try await context.fileProvider.readFile(named: name)
+                env.it = contents
+            } catch let e as FileAccessError {
+                throw ScriptError(message: e.scriptMessage, line: handler.line, handler: handler.name)
+            }
+
+        case .writeCmd(let dataExpr, let pathExpr):
+            let data = try await evaluate(dataExpr, env: &env, document: document, context: context)
+            let name = try await evaluate(pathExpr, env: &env, document: document, context: context)
+            do {
+                try await context.fileProvider.writeFile(data, named: name)
+            } catch let e as FileAccessError {
+                throw ScriptError(message: e.scriptMessage, line: handler.line, handler: handler.name)
+            }
         }
     }
 
