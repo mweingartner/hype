@@ -19,6 +19,14 @@ public enum HypeMCPToolBridge {
         HypeToolDefinitions.allTools.map(mcpTool(from:)) + controlTools
     }
 
+    public static func tools(from hypeTools: [OllamaTool]) -> [HypeMCPTool] {
+        hypeTools.map(mcpTool(from:)) + controlTools
+    }
+
+    public static var controlOnlyTools: [HypeMCPTool] {
+        controlTools
+    }
+
     public static func stringArguments(from value: HypeMCPJSONValue?) -> [String: String] {
         guard let object = value?.objectValue else { return [:] }
         return object.mapValues(\.flattenedString)

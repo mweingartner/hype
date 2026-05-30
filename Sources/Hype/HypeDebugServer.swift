@@ -610,9 +610,7 @@ final class HypeDebugServer: @unchecked Sendable {
                 "inputSchema": inputSchema(for: tool),
             ]
         }
-        let controlTools = HypeMCPToolBridge.allTools
-            .filter { HypeMCPToolBridge.mcpControlToolNames.contains($0.name) }
-            .map(mcpToolJSON)
+        let controlTools = HypeMCPToolBridge.controlOnlyTools.map(mcpToolJSON)
         return controlTools + authoringTools
     }
 
@@ -712,8 +710,20 @@ final class HypeDebugServer: @unchecked Sendable {
             HypeToolDefinitions.allTools,
             enabled: document?.stack.webAssetsAllowed == true
         )
-        let hasContext = !(document?.aiContextLibrary.items.isEmpty ?? true)
-        return HypeToolDefinitions.withAIContextTools(withWebAssets, enabled: hasContext)
+        guard let document else {
+            return HypeToolDefinitions.toolsApplyingAIContextPolicy(
+                withWebAssets,
+                policy: AIContextToolPolicy.explicit(readExistingContext: false)
+            )
+        }
+        return HypeToolDefinitions.toolsApplyingAIContextPolicy(
+            withWebAssets,
+            policy: AIContextToolPolicy(
+                provider: HypeAIConfiguration.selectedProvider(),
+                trustBoundary: .localDebugMCP,
+                document: document
+            )
+        )
     }
 
     private func inputSchema(for tool: OllamaTool) -> [String: Any] {

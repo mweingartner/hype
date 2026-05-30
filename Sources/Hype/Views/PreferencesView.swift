@@ -52,6 +52,7 @@ struct PreferencesView: View {
     @State private var isCheckingAppleMusic = false
     @State private var selectedCategory: PreferenceCategory = .ai
     @State private var debugStatus: HypeDebugServerStatus?
+    @State private var aiContextCloudWarning: AIContextCloudWarning?
 
     private enum PreferenceCategory: String, CaseIterable, Hashable {
         case ai = "AI"
@@ -76,6 +77,24 @@ struct PreferencesView: View {
             case .debug:
                 "ant.fill"
             }
+        }
+    }
+
+    private struct AIContextCloudWarning: Identifiable {
+        let id = UUID()
+        let findings: [AIContextSecretFinding]
+
+        var message: String {
+            var lines = [
+                "Hype found text that looks like credentials or tokens in the current stack's AI Context Library. Review the context before sending it to cloud AI providers."
+            ]
+            for finding in findings.prefix(6) {
+                lines.append("- \(finding.relativePath): \(finding.kind.displayName)")
+            }
+            if findings.count > 6 {
+                lines.append("- ... \(findings.count - 6) more")
+            }
+            return lines.joined(separator: "\n")
         }
     }
 
@@ -170,6 +189,16 @@ struct PreferencesView: View {
         }
         .onChange(of: aiProviderRaw) { _, _ in
             fetchModels()
+        }
+        .alert(item: $aiContextCloudWarning) { warning in
+            Alert(
+                title: Text("Review AI Context Before Cloud Sharing"),
+                message: Text(warning.message),
+                primaryButton: .destructive(Text("Enable Anyway")) {
+                    setAIContextCloudSharing(true, force: true)
+                },
+                secondaryButton: .cancel(Text("Keep Disabled"))
+            )
         }
     }
 
@@ -670,11 +699,11 @@ struct PreferencesView: View {
     private var contextSettings: some View {
         settingsForm {
             Section("AI Context Library") {
-                Toggle("Allow Current Stack Context with OpenAI", isOn: currentStackAIContextCloudSharingBinding)
+                Toggle("Allow Current Stack Context with Cloud AI", isOn: currentStackAIContextCloudSharingBinding)
                     .disabled(document == nil)
-                    .help("Allow attached AI Context Library text and asset metadata to be sent to OpenAI for this stack.")
+                    .help("Allow attached AI Context Library text and asset metadata to be sent to cloud AI providers for this stack.")
 
-                Text("Local Ollama models can use attached context without this setting. Cloud models only receive stack-attached files, notes, image metadata, and text snippets when this is enabled for the current stack.")
+                Text("Local models can use attached context without this setting. Cloud models only receive stack-attached files, notes, image metadata, and text snippets when this is enabled for the current stack. Hype warns if context text looks like it may contain secrets.")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -847,11 +876,24 @@ struct PreferencesView: View {
                 document?.document.stack.aiContextCloudSharingAllowed ?? false
             },
             set: { newValue in
-                guard var wrapper = document else { return }
-                wrapper.document.stack.aiContextCloudSharingAllowed = newValue
-                document = wrapper
+                setAIContextCloudSharing(newValue, force: false)
             }
         )
+    }
+
+    private func setAIContextCloudSharing(_ newValue: Bool, force: Bool) {
+        guard var wrapper = document else { return }
+        if newValue && !force {
+            let findings = AIContextSecretScanner.findings(in: wrapper.document.aiContextLibrary)
+            if !findings.isEmpty {
+                aiContextCloudWarning = AIContextCloudWarning(findings: findings)
+                wrapper.document.stack.aiContextCloudSharingAllowed = false
+                document = wrapper
+                return
+            }
+        }
+        wrapper.document.stack.aiContextCloudSharingAllowed = newValue
+        document = wrapper
     }
 
     private var currentStackAppleMusicBinding: Binding<Bool> {

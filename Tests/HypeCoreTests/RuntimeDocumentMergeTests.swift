@@ -55,4 +55,28 @@ struct RuntimeDocumentMergeTests {
         #expect(result.document.parts.contains(where: { $0.id == currentOnly.id }))
         #expect(result.document.parts.contains(where: { $0.id == runtimeOnly.id }))
     }
+
+    @Test("current-only AI context sources are preserved with their items")
+    func currentOnlyAIContextSourcesArePreserved() throws {
+        let runtime = HypeDocument.newDocument(name: "Runtime")
+        var current = runtime
+        let note = AIContextIngestor.makeTextNote(
+            title: "Project Memory",
+            text: "The current card uses the customer entry naming convention.",
+            role: .projectMemory
+        )
+        current.aiContextLibrary.addSource(note.0, items: note.1)
+
+        let result = RuntimeDocumentMerge.preservingCurrentOnlyEntities(
+            runtimeDocument: runtime,
+            currentDocument: current
+        )
+
+        let source = try #require(result.document.aiContextLibrary.sources.first)
+        let item = try #require(result.document.aiContextLibrary.items.first)
+        #expect(result.preservedCurrentOnlyEntities)
+        #expect(source.id == note.0.id)
+        #expect(source.itemIds == [item.id])
+        #expect(item.sourceId == source.id)
+    }
 }

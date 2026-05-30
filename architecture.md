@@ -1240,7 +1240,9 @@ from the stored link and fingerprints.
 user-curated context channel for AI stack creation. It snapshots selected
 files, folders, images, and freeform notes into `HypeDocument` so complex
 instructions and asset packs travel with the stack without exposing arbitrary
-filesystem tools to the model.
+filesystem tools to the model. Context imports are embedded snapshots; the
+persisted `referenced` access-mode hook is reserved for a future bookmark-backed
+refresh flow and is not exposed as a user-facing import mode yet.
 
 The ingestion path is deliberately narrow:
 
@@ -1250,14 +1252,24 @@ The ingestion path is deliberately narrow:
 - text chunked into bounded snippets for search/read tools
 - image bytes embedded as context items and importable into the Sprite
   Repository via `import_context_asset`
+- directory imports return structured diagnostics for skipped unsupported,
+  hidden, package, symlink, too-deep, oversized, or unreadable files
+- text imports are scanned for secret-like material so cloud sharing can warn
+  before the user enables `aiContextCloudSharingAllowed`
 - AI-authored project-memory notes written through `write_ai_context_note`
   so decisions, TODOs, naming conventions, and known issues persist with
   the stack across build sessions
 
-Cloud sharing is gated by `Stack.aiContextCloudSharingAllowed`. Local Ollama
-models can use context tools directly; OpenAI models only see context summaries
-and context tool schemas after the current stack is explicitly opted in from
-Preferences or script/tool property setters.
+Context tool visibility is centralized through `AIContextToolPolicy`. Local
+providers (`ollama`, `llama-swap`, `llama.cpp`) can use context read/import
+tools directly when the stack has attached context. Cloud providers (`openai`,
+`z.ai`, `minimax`) only see context summaries and context read/import tool
+schemas after the current stack is explicitly opted in from Preferences or
+script/tool property setters. The local MCP/debug bridge is treated as a
+privileged local boundary so agent harnesses can diagnose the running app
+without sending stack context to a cloud provider. The write-only
+`write_ai_context_note` tool remains available on authoring surfaces because it
+does not reveal existing context contents.
 
 ### 4.3 Stable references via `AssetRef`
 

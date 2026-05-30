@@ -34,12 +34,16 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
     }
 
     public func listTools() async -> [HypeMCPTool] {
-        HypeMCPToolBridge.allTools
+        HypeMCPToolBridge.tools(from: availableHypeTools())
     }
 
     public func callTool(name: String, arguments: [String: HypeMCPJSONValue]) async -> HypeMCPJSONValue {
         if HypeMCPToolBridge.mcpControlToolNames.contains(name) {
             return await callControlTool(name: name, arguments: arguments)
+        }
+
+        guard availableHypeToolNames.contains(name) else {
+            return error("Tool \(name) is not available under the current AI context policy.")
         }
 
         guard allowMutations || isReadOnlyHypeTool(name) else {
@@ -307,7 +311,8 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
             "allowMutations": .bool(allowMutations),
             "mcp": .object([
                 "protocolVersion": .string("2025-06-18"),
-                "transport": .string("stdio-debug-socket")
+                "transport": .string("stdio-debug-socket"),
+                "aiContextPolicy": .string(aiContextPolicy.stateDescription)
             ])
         ])
     }
@@ -322,6 +327,9 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
             "partCount": .number(Double(document.parts.count)),
             "currentCardId": .string(currentCardId.uuidString),
             "runtimeModeEnabled": .bool(document.stack.runtimeModeEnabled),
+            "aiContextItemCount": .number(Double(document.aiContextLibrary.itemCount)),
+            "aiContextCloudSharingAllowed": .bool(document.stack.aiContextCloudSharingAllowed),
+            "aiContextPolicy": .string(aiContextPolicy.stateDescription),
             "targetPlatforms": .array(document.stack.deploymentTargets.selectedPlatforms.map { .string($0.rawValue) })
         ]
         if !compact {
@@ -357,6 +365,25 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
 
     private var sortedBackgrounds: [Background] {
         document.backgrounds.sorted { $0.sortKey < $1.sortKey }
+    }
+
+    private var aiContextPolicy: AIContextToolPolicy {
+        AIContextToolPolicy(
+            provider: HypeAIConfiguration.selectedProvider(defaults: defaults),
+            trustBoundary: .localDebugMCP,
+            document: document
+        )
+    }
+
+    private func availableHypeTools() -> [OllamaTool] {
+        HypeToolDefinitions.toolsApplyingAIContextPolicy(
+            HypeToolDefinitions.allTools,
+            policy: aiContextPolicy
+        )
+    }
+
+    private var availableHypeToolNames: Set<String> {
+        Set(availableHypeTools().map { $0.function.name })
     }
 
     private func partSummary(_ part: Part) -> HypeMCPJSONValue {

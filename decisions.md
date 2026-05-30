@@ -47,6 +47,7 @@ document semantics.
 - Treat provider integrations as user-controlled side effects. Respect existing preferences, keychain handling, hostname allowlists, and stack-level opt-in gates.
 - Keep deployed-runtime AI tools separate from authoring tools. Runtime AI may read runtime-safe stack/card/object context by default; any side-effect tool must be explicitly allowlisted by stack runtime AI settings.
 - For stack context memory, use the stack-scoped AI context library and avoid secrets, API keys, credentials, or private tokens.
+- Apply AI Context Library access through the centralized tool policy. Context read/import tools must be withheld from cloud providers until the stack opts in; write-only project-memory notes may remain available because they do not expose existing context. The local MCP/debug bridge is a privileged local boundary for diagnosis and automation.
 - Tool changes need schema coverage and execution-path tests.
 - AI transactions should preserve preview/apply/rollback semantics where applicable.
 

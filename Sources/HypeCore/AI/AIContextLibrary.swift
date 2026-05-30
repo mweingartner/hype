@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -159,6 +160,186 @@ public struct AIContextSearchResult: Identifiable, Sendable, Equatable {
     }
 }
 
+public enum AIContextIngestIssueReason: String, Codable, Sendable, Equatable {
+    case unsupportedFileType
+    case fileTooLarge
+    case readFailed
+    case directoryEnumerationFailed
+    case skippedHidden
+    case skippedPackage
+    case skippedSymlink
+    case skippedTooDeep
+}
+
+public struct AIContextIngestIssue: Codable, Sendable, Equatable, Identifiable {
+    public var id: UUID
+    public var relativePath: String
+    public var reason: AIContextIngestIssueReason
+    public var message: String
+
+    public init(
+        id: UUID = UUID(),
+        relativePath: String,
+        reason: AIContextIngestIssueReason,
+        message: String
+    ) {
+        self.id = id
+        self.relativePath = relativePath
+        self.reason = reason
+        self.message = message
+    }
+}
+
+public struct AIContextIngestedSource: Sendable, Equatable {
+    public var source: AIContextSource
+    public var items: [AIContextItem]
+
+    public init(source: AIContextSource, items: [AIContextItem]) {
+        self.source = source
+        self.items = items
+    }
+}
+
+public struct AIContextImportReport: Sendable, Equatable, Identifiable {
+    public var id: UUID
+    public var sources: [AIContextIngestedSource]
+    public var issues: [AIContextIngestIssue]
+    public var secretFindings: [AIContextSecretFinding]
+
+    public init(
+        id: UUID = UUID(),
+        sources: [AIContextIngestedSource] = [],
+        issues: [AIContextIngestIssue] = [],
+        secretFindings: [AIContextSecretFinding] = []
+    ) {
+        self.id = id
+        self.sources = sources
+        self.issues = issues
+        self.secretFindings = secretFindings
+    }
+
+    public var importedItemCount: Int {
+        sources.reduce(0) { $0 + $1.items.count }
+    }
+
+    public var importedSourceCount: Int {
+        sources.count
+    }
+
+    public var shouldNotifyUser: Bool {
+        !issues.isEmpty || !secretFindings.isEmpty
+    }
+
+    public var userSummary: String {
+        var lines = [
+            "Imported \(importedItemCount) item(s) from \(importedSourceCount) source(s)."
+        ]
+        if !issues.isEmpty {
+            lines.append("Skipped \(issues.count) item(s):")
+            for issue in issues.prefix(8) {
+                lines.append("- \(issue.relativePath): \(issue.message)")
+            }
+            if issues.count > 8 {
+                lines.append("- ... \(issues.count - 8) more")
+            }
+        }
+        if !secretFindings.isEmpty {
+            lines.append("Potential secret-like text was detected in \(secretFindings.count) context item(s). Review these before enabling cloud AI context sharing:")
+            for finding in secretFindings.prefix(6) {
+                lines.append("- \(finding.relativePath): \(finding.kind.displayName)")
+            }
+            if secretFindings.count > 6 {
+                lines.append("- ... \(secretFindings.count - 6) more")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+}
+
+public enum AIContextSecretKind: String, Codable, Sendable, Equatable {
+    case openAIKey
+    case awsAccessKey
+    case bearerToken
+    case credentialAssignment
+    case privateKey
+
+    public var displayName: String {
+        switch self {
+        case .openAIKey: return "OpenAI-style API key"
+        case .awsAccessKey: return "AWS access key"
+        case .bearerToken: return "Bearer token"
+        case .credentialAssignment: return "Credential-like assignment"
+        case .privateKey: return "Private key material"
+        }
+    }
+}
+
+public struct AIContextSecretFinding: Codable, Sendable, Equatable, Identifiable {
+    public var id: UUID
+    public var itemId: UUID
+    public var itemName: String
+    public var relativePath: String
+    public var kind: AIContextSecretKind
+
+    public init(
+        id: UUID = UUID(),
+        itemId: UUID,
+        itemName: String,
+        relativePath: String,
+        kind: AIContextSecretKind
+    ) {
+        self.id = id
+        self.itemId = itemId
+        self.itemName = itemName
+        self.relativePath = relativePath
+        self.kind = kind
+    }
+}
+
+public enum AIContextSecretScanner {
+    public static func findings(in library: AIContextLibrary, limit: Int = 50) -> [AIContextSecretFinding] {
+        findings(in: library.items, limit: limit)
+    }
+
+    public static func findings(in items: [AIContextItem], limit: Int = 50) -> [AIContextSecretFinding] {
+        var findings: [AIContextSecretFinding] = []
+        for item in items where item.isText {
+            let text = ([item.textSummary] + item.textChunks.map(\.text)).joined(separator: "\n")
+            for kind in matchingKinds(in: text) {
+                findings.append(AIContextSecretFinding(
+                    itemId: item.id,
+                    itemName: item.name,
+                    relativePath: item.relativePath,
+                    kind: kind
+                ))
+                if findings.count >= limit { return findings }
+            }
+        }
+        return findings
+    }
+
+    private static func matchingKinds(in text: String) -> [AIContextSecretKind] {
+        var kinds: [AIContextSecretKind] = []
+        let checks: [(AIContextSecretKind, String)] = [
+            (.privateKey, #"-----BEGIN [A-Z ]*PRIVATE KEY-----"#),
+            (.openAIKey, #"\bsk-[A-Za-z0-9_\-]{20,}\b"#),
+            (.awsAccessKey, #"\bAKIA[0-9A-Z]{16}\b"#),
+            (.bearerToken, #"(?i)\bAuthorization\s*:\s*Bearer\s+[A-Za-z0-9_\-\.=]{12,}"#),
+            (.credentialAssignment, #"(?i)\b(api[_-]?key|secret|token|password|passwd)\b\s*[:=]\s*['\"]?[A-Za-z0-9_\-\.\/+=]{8,}"#),
+        ]
+        for (kind, pattern) in checks where contains(pattern: pattern, in: text) {
+            kinds.append(kind)
+        }
+        return kinds
+    }
+
+    private static func contains(pattern: String, in text: String) -> Bool {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return false }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.firstMatch(in: text, range: range) != nil
+    }
+}
+
 public struct AIContextLibrary: Codable, Sendable, Equatable {
     public var sources: [AIContextSource]
     public var items: [AIContextItem]
@@ -288,6 +469,31 @@ public enum AIContextIngestor {
         case directoryEnumerationFailed(String)
     }
 
+    public static func ingestFiles(urls: [URL], role: AIContextRole = .reference) -> AIContextImportReport {
+        var sources: [AIContextIngestedSource] = []
+        var issues: [AIContextIngestIssue] = []
+        for url in urls {
+            do {
+                let result = try ingestFile(url: url, role: role)
+                sources.append(AIContextIngestedSource(source: result.0, items: result.1))
+            } catch let error as IngestError {
+                issues.append(issue(for: error, relativePath: url.lastPathComponent))
+            } catch {
+                issues.append(AIContextIngestIssue(
+                    relativePath: url.lastPathComponent,
+                    reason: .readFailed,
+                    message: "Could not read file."
+                ))
+            }
+        }
+        let items = sources.flatMap(\.items)
+        return AIContextImportReport(
+            sources: sources,
+            issues: issues,
+            secretFindings: AIContextSecretScanner.findings(in: items)
+        )
+    }
+
     public static func makeTextNote(title: String, text: String, role: AIContextRole = .rules) -> (AIContextSource, [AIContextItem]) {
         let sourceId = UUID()
         let name = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "AI Context Note" : title
@@ -312,37 +518,99 @@ public enum AIContextIngestor {
     }
 
     public static func ingestDirectory(url: URL, role: AIContextRole = .reference) throws -> (AIContextSource, [AIContextItem]) {
+        let report = ingestDirectoryWithReport(url: url, role: role)
+        if let source = report.sources.first {
+            return (source.source, source.items)
+        }
+        if let issue = report.issues.first {
+            throw ingestError(for: issue)
+        }
+        let source = AIContextSource(id: UUID(), name: url.lastPathComponent, kind: .directory)
+        return (source, [])
+    }
+
+    public static func ingestDirectoryWithReport(url: URL, role: AIContextRole = .reference) -> AIContextImportReport {
         let sourceId = UUID()
         guard let enumerator = FileManager.default.enumerator(
             at: url,
-            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            includingPropertiesForKeys: [.isDirectoryKey, .isHiddenKey, .isPackageKey, .isSymbolicLinkKey, .fileSizeKey],
+            options: []
         ) else {
-            throw IngestError.directoryEnumerationFailed(url.lastPathComponent)
+            let issue = AIContextIngestIssue(
+                relativePath: url.lastPathComponent,
+                reason: .directoryEnumerationFailed,
+                message: "Could not enumerate directory."
+            )
+            return AIContextImportReport(issues: [issue])
         }
 
         var items: [AIContextItem] = []
+        var issues: [AIContextIngestIssue] = []
         for case let fileURL as URL in enumerator {
             if items.count >= maxDirectoryItems { break }
             let relative = relativePath(fileURL, baseURL: url)
+            let values = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .isHiddenKey, .isPackageKey, .isSymbolicLinkKey])
+            let isDirectory = values?.isDirectory == true
+            if values?.isHidden == true || fileURL.lastPathComponent.hasPrefix(".") {
+                if isDirectory { enumerator.skipDescendants() }
+                issues.append(AIContextIngestIssue(
+                    relativePath: relative,
+                    reason: .skippedHidden,
+                    message: "Hidden files and folders are skipped."
+                ))
+                continue
+            }
             let depth = relative.split(separator: "/").count
             if depth > maxDirectoryDepth {
                 enumerator.skipDescendants()
+                issues.append(AIContextIngestIssue(
+                    relativePath: relative,
+                    reason: .skippedTooDeep,
+                    message: "Path is deeper than the \(maxDirectoryDepth)-level AI context import limit."
+                ))
                 continue
             }
-            let values = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
             if values?.isSymbolicLink == true {
-                if values?.isDirectory == true { enumerator.skipDescendants() }
+                if isDirectory { enumerator.skipDescendants() }
+                issues.append(AIContextIngestIssue(
+                    relativePath: relative,
+                    reason: .skippedSymlink,
+                    message: "Symlinks are skipped so AI context cannot escape the selected folder."
+                ))
                 continue
             }
-            if values?.isDirectory == true { continue }
-            if let item = try? ingestFileItem(url: fileURL, sourceId: sourceId, baseURL: url, role: inferredRole(for: fileURL, fallback: role)) {
+            if isDirectory {
+                if values?.isPackage == true {
+                    enumerator.skipDescendants()
+                    issues.append(AIContextIngestIssue(
+                        relativePath: relative,
+                        reason: .skippedPackage,
+                        message: "Application/package directories are skipped."
+                    ))
+                }
+                continue
+            }
+            do {
+                let item = try ingestFileItem(url: fileURL, sourceId: sourceId, baseURL: url, role: inferredRole(for: fileURL, fallback: role))
                 items.append(item)
+            } catch let error as IngestError {
+                issues.append(issue(for: error, relativePath: relative))
+            } catch {
+                issues.append(AIContextIngestIssue(
+                    relativePath: relative,
+                    reason: .readFailed,
+                    message: "Could not read file."
+                ))
             }
         }
 
         let source = AIContextSource(id: sourceId, name: url.lastPathComponent, kind: .directory)
-        return (source, items)
+        let additions = items.isEmpty ? [] : [AIContextIngestedSource(source: source, items: items)]
+        return AIContextImportReport(
+            sources: additions,
+            issues: issues,
+            secretFindings: AIContextSecretScanner.findings(in: items)
+        )
     }
 
     private static func ingestFileItem(
@@ -387,7 +655,7 @@ public enum AIContextIngestor {
         role: AIContextRole,
         data: Data
     ) -> AIContextItem {
-        let text = String(data: Data(data.prefix(maxTextBytes)), encoding: .utf8) ?? ""
+        let text = decodedText(from: Data(data.prefix(maxTextBytes)), mimeType: mimeType)
         let chunks = chunks(for: text)
         let summary = summarize(text)
         return AIContextItem(
@@ -414,10 +682,12 @@ public enum AIContextIngestor {
     ) -> AIContextItem {
         var width: Int?
         var height: Int?
+        var thumbnail: Data?
         #if canImport(AppKit)
         if let image = NSImage(data: data) {
             width = Int(image.size.width.rounded())
             height = Int(image.size.height.rounded())
+            thumbnail = thumbnailData(for: image)
         }
         #endif
         return AIContextItem(
@@ -428,7 +698,7 @@ public enum AIContextIngestor {
             role: role == .reference ? .asset : role,
             textSummary: "Visual asset \(url.lastPathComponent)\(width.map { " \($0)x\(height ?? 0)" } ?? "").",
             data: data,
-            thumbnailData: data,
+            thumbnailData: thumbnail,
             width: width,
             height: height,
             byteCount: data.count,
@@ -460,6 +730,40 @@ public enum AIContextIngestor {
         return String(cleaned.prefix(600))
     }
 
+    private static func decodedText(from data: Data, mimeType: String) -> String {
+        if mimeType == "text/rtf" {
+            #if canImport(AppKit)
+            if let attributed = try? NSAttributedString(
+                data: data,
+                options: [.documentType: NSAttributedString.DocumentType.rtf],
+                documentAttributes: nil
+            ) {
+                return attributed.string
+            }
+            #endif
+        }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    #if canImport(AppKit)
+    private static func thumbnailData(for image: NSImage, maxDimension: CGFloat = 256) -> Data? {
+        let original = image.size
+        guard original.width > 0, original.height > 0 else { return nil }
+        let scale = min(1, maxDimension / max(original.width, original.height))
+        let size = NSSize(width: max(1, original.width * scale), height: max(1, original.height * scale))
+        let thumbnail = NSImage(size: size)
+        thumbnail.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        image.draw(in: NSRect(origin: .zero, size: size), from: .zero, operation: .copy, fraction: 1)
+        thumbnail.unlockFocus()
+        guard let tiff = thumbnail.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff) else {
+            return nil
+        }
+        return rep.representation(using: .png, properties: [:])
+    }
+    #endif
+
     private static func inferredRole(for url: URL, fallback: AIContextRole) -> AIContextRole {
         let lower = url.lastPathComponent.lowercased()
         if lower.contains("rule") || lower.contains("design") || lower.contains("spec") { return .rules }
@@ -480,7 +784,7 @@ public enum AIContextIngestor {
 
     private static let textExtensions: Set<String> = [
         "txt", "md", "markdown", "json", "csv", "tsv", "yaml", "yml", "xml",
-        "hype", "hypetalk", "script", "rules", "rtf"
+        "hypetalk", "script", "rules", "rtf"
     ]
     private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp"]
     private static let supportedExtensions: Set<String> = textExtensions.union(imageExtensions)
@@ -504,11 +808,48 @@ public enum AIContextIngestor {
     }
 
     private static func stableHash(_ data: Data) -> String {
-        var hash: UInt64 = 0xcbf29ce484222325
-        for byte in data.prefix(2_000_000) {
-            hash ^= UInt64(byte)
-            hash = hash &* 0x100000001b3
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func issue(for error: IngestError, relativePath: String) -> AIContextIngestIssue {
+        switch error {
+        case .unsupportedFileType:
+            return AIContextIngestIssue(
+                relativePath: relativePath,
+                reason: .unsupportedFileType,
+                message: "Unsupported file type."
+            )
+        case .fileTooLarge:
+            return AIContextIngestIssue(
+                relativePath: relativePath,
+                reason: .fileTooLarge,
+                message: "File exceeds the AI context size limit."
+            )
+        case .readFailed:
+            return AIContextIngestIssue(
+                relativePath: relativePath,
+                reason: .readFailed,
+                message: "Could not read file."
+            )
+        case .directoryEnumerationFailed:
+            return AIContextIngestIssue(
+                relativePath: relativePath,
+                reason: .directoryEnumerationFailed,
+                message: "Could not enumerate directory."
+            )
         }
-        return String(format: "%016llx", hash)
+    }
+
+    private static func ingestError(for issue: AIContextIngestIssue) -> IngestError {
+        switch issue.reason {
+        case .unsupportedFileType:
+            return .unsupportedFileType(issue.relativePath)
+        case .fileTooLarge:
+            return .fileTooLarge(issue.relativePath)
+        case .directoryEnumerationFailed:
+            return .directoryEnumerationFailed(issue.relativePath)
+        case .readFailed, .skippedHidden, .skippedPackage, .skippedSymlink, .skippedTooDeep:
+            return .readFailed(issue.relativePath)
+        }
     }
 }

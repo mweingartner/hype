@@ -99,11 +99,27 @@ public enum RuntimeDocumentMerge {
         currentLibrary: AIContextLibrary
     ) -> (library: AIContextLibrary, preserved: Bool) {
         var merged = runtimeLibrary
+        var preserved = false
+        let existingSourceIds = Set(merged.sources.map(\.id))
+        let missingSources = currentLibrary.sources.filter { !existingSourceIds.contains($0.id) }
+        if !missingSources.isEmpty {
+            merged.sources.append(contentsOf: missingSources)
+            preserved = true
+        }
+
         let existingItemIds = Set(merged.items.map(\.id))
         let missingItems = currentLibrary.items.filter { !existingItemIds.contains($0.id) }
         if !missingItems.isEmpty {
             merged.items.append(contentsOf: missingItems)
+            for item in missingItems {
+                guard let index = merged.sources.firstIndex(where: { $0.id == item.sourceId }),
+                      !merged.sources[index].itemIds.contains(item.id) else {
+                    continue
+                }
+                merged.sources[index].itemIds.append(item.id)
+            }
+            preserved = true
         }
-        return (merged, !missingItems.isEmpty)
+        return (merged, preserved)
     }
 }

@@ -69,6 +69,38 @@ struct HypeMCPTests {
         #expect(resourceURIs.contains("hype://stacks"))
     }
 
+    @Test("MCP tool list applies AI context policy")
+    func mcpToolListAppliesAIContextPolicy() async {
+        let emptyBackend = HypeMCPDocumentBackend(document: HypeDocument.newDocument(name: "MCP"))
+        let emptyNames = Set(await emptyBackend.listTools().map(\.name))
+        #expect(!emptyNames.contains("list_ai_context"))
+        #expect(emptyNames.contains("write_ai_context_note"))
+
+        let suiteName = "HypeMCPTests.contextPolicy.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(HypeAIProvider.openAI.rawValue, forKey: HypeAIConfiguration.providerKey)
+
+        var document = HypeDocument.newDocument(name: "MCP Context")
+        document.stack.aiContextCloudSharingAllowed = false
+        let note = AIContextIngestor.makeTextNote(title: "Rules", text: "Use native controls.", role: .rules)
+        document.aiContextLibrary.addSource(note.0, items: note.1)
+        let contextBackend = HypeMCPDocumentBackend(document: document, defaults: defaults)
+        let contextNames = Set(await contextBackend.listTools().map(\.name))
+
+        #expect(contextNames.contains("list_ai_context"))
+        #expect(contextNames.contains("read_ai_context_item"))
+    }
+
+    @Test("MCP rejects context read tools that are unavailable under policy")
+    func mcpRejectsUnavailableContextReadTool() async {
+        let backend = HypeMCPDocumentBackend(document: HypeDocument.newDocument(name: "MCP"))
+
+        let result = await backend.callTool(name: "list_ai_context", arguments: [:])
+
+        #expect(result.object?["error"]?.string?.contains("not available") == true)
+    }
+
     @Test("preferences resource redacts secrets")
     func preferencesRedactSecrets() async throws {
         let suiteName = "HypeMCPTests.preferences.\(UUID().uuidString)"

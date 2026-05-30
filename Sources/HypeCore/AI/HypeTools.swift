@@ -2316,20 +2316,59 @@ public struct HypeToolDefinitions {
     /// write-only project-memory note tool is also listed here for enabled
     /// context surfaces, but may be present in base authoring surfaces because
     /// it does not expose existing context contents.
+    public static let aiContextReadToolNames: Set<String> = [
+        "list_ai_context",
+        "search_ai_context",
+        "read_ai_context_item",
+        "import_context_asset",
+    ]
+
+    public static let aiContextWriteToolNames: Set<String> = [
+        "write_ai_context_note",
+    ]
+
+    public static let aiContextToolNames: Set<String> = aiContextReadToolNames.union(aiContextWriteToolNames)
+
     public static let aiContextTools: [OllamaTool] = allTools.filter {
-        Set([
-            "list_ai_context",
-            "search_ai_context",
-            "read_ai_context_item",
-            "import_context_asset",
-            "write_ai_context_note",
-        ]).contains($0.function.name)
+        aiContextToolNames.contains($0.function.name)
+    }
+
+    public static let aiContextReadTools: [OllamaTool] = allTools.filter {
+        aiContextReadToolNames.contains($0.function.name)
+    }
+
+    public static let aiContextWriteTools: [OllamaTool] = allTools.filter {
+        aiContextWriteToolNames.contains($0.function.name)
+    }
+
+    public static func toolsApplyingAIContextPolicy(_ base: [OllamaTool], policy: AIContextToolPolicy) -> [OllamaTool] {
+        var result = base.filter { tool in
+            let name = tool.function.name
+            if aiContextReadToolNames.contains(name) {
+                return policy.canReadExistingContext
+            }
+            if aiContextWriteToolNames.contains(name) {
+                return policy.canWriteContextNotes
+            }
+            return true
+        }
+
+        let existing = Set(result.map { $0.function.name })
+        if policy.canReadExistingContext {
+            result.append(contentsOf: aiContextReadTools.filter { !existing.contains($0.function.name) })
+        }
+        let updatedExisting = Set(result.map { $0.function.name })
+        if policy.canWriteContextNotes {
+            result.append(contentsOf: aiContextWriteTools.filter { !updatedExisting.contains($0.function.name) })
+        }
+        return result
     }
 
     public static func withAIContextTools(_ base: [OllamaTool], enabled: Bool) -> [OllamaTool] {
-        guard enabled else { return base }
-        let existing = Set(base.map { $0.function.name })
-        return base + aiContextTools.filter { !existing.contains($0.function.name) }
+        toolsApplyingAIContextPolicy(
+            base,
+            policy: AIContextToolPolicy.explicit(readExistingContext: enabled)
+        )
     }
 
     // MARK: - Tool builder

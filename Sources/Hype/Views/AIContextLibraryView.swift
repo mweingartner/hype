@@ -7,6 +7,7 @@ struct AIContextShelfView: View {
     @Environment(\.hypeTheme) private var hypeTheme
     @State private var isExpanded = false
     @State private var showNoteSheet = false
+    @State private var latestImportSummary: AIContextImportSummary?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -27,14 +28,18 @@ struct AIContextShelfView: View {
                 Spacer()
 
                 Button("Files") {
-                    AIContextImportController.importFiles(into: $document)
+                    AIContextImportController.importFiles(into: $document) { report in
+                        latestImportSummary = report.shouldNotifyUser ? AIContextImportSummary(report: report) : nil
+                    }
                 }
                 .font(.system(size: 10))
                 .buttonStyle(.borderless)
                 .help("Attach files or images to this stack's AI context")
 
                 Button("Folder") {
-                    AIContextImportController.importFolder(into: $document)
+                    AIContextImportController.importFolder(into: $document) { report in
+                        latestImportSummary = report.shouldNotifyUser ? AIContextImportSummary(report: report) : nil
+                    }
                 }
                 .font(.system(size: 10))
                 .buttonStyle(.borderless)
@@ -96,6 +101,13 @@ struct AIContextShelfView: View {
         .sheet(isPresented: $showNoteSheet) {
             AIContextNoteSheet(document: $document, isPresented: $showNoteSheet)
         }
+        .alert(item: $latestImportSummary) { summary in
+            Alert(
+                title: Text("AI Context Import Summary"),
+                message: Text(summary.text),
+                dismissButton: .default(Text("OK"))
+            )
+        }
     }
 
     private var summary: String {
@@ -113,6 +125,7 @@ struct AIContextLibraryView: View {
     @Environment(\.hypeTheme) private var hypeTheme
     @State private var selectedItemId: UUID?
     @State private var showNoteSheet = false
+    @State private var latestImportSummary: AIContextImportSummary?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -120,8 +133,16 @@ struct AIContextLibraryView: View {
                 Label("AI Context Library", systemImage: "folder.badge.gearshape")
                     .font(.headline)
                 Spacer()
-                Button("Add Files") { AIContextImportController.importFiles(into: $document) }
-                Button("Add Folder") { AIContextImportController.importFolder(into: $document) }
+                Button("Add Files") {
+                    AIContextImportController.importFiles(into: $document) { report in
+                        latestImportSummary = report.shouldNotifyUser ? AIContextImportSummary(report: report) : nil
+                    }
+                }
+                Button("Add Folder") {
+                    AIContextImportController.importFolder(into: $document) { report in
+                        latestImportSummary = report.shouldNotifyUser ? AIContextImportSummary(report: report) : nil
+                    }
+                }
                 Button("Add Note") { showNoteSheet = true }
                 if let onDone {
                     Button("Done") { onDone() }
@@ -143,6 +164,13 @@ struct AIContextLibraryView: View {
         .environment(\.colorScheme, hypeTheme.chromeColorScheme)
         .sheet(isPresented: $showNoteSheet) {
             AIContextNoteSheet(document: $document, isPresented: $showNoteSheet)
+        }
+        .alert(item: $latestImportSummary) { summary in
+            Alert(
+                title: Text("AI Context Import Summary"),
+                message: Text(summary.text),
+                dismissButton: .default(Text("OK"))
+            )
         }
         .onAppear {
             if selectedItemId == nil {
@@ -311,9 +339,25 @@ private struct AIContextNoteSheet: View {
     }
 }
 
+private struct AIContextImportSummary: Identifiable {
+    let id = UUID()
+    let text: String
+
+    init(report: AIContextImportReport) {
+        self.text = report.userSummary
+    }
+}
+
 @MainActor
 enum AIContextImportController {
     static func importFiles(into document: Binding<HypeDocumentWrapper>) {
+        importFiles(into: document, onReport: { _ in })
+    }
+
+    static func importFiles(
+        into document: Binding<HypeDocumentWrapper>,
+        onReport: @escaping (AIContextImportReport) -> Void
+    ) {
         let panel = NSOpenPanel()
         panel.title = "Add AI Context Files"
         panel.allowsMultipleSelection = true
@@ -321,18 +365,21 @@ enum AIContextImportController {
         panel.canChooseFiles = true
         panel.begin { response in
             guard response == .OK else { return }
-            for url in panel.urls {
-                do {
-                    let result = try AIContextIngestor.ingestFile(url: url)
-                    add(result, to: document)
-                } catch {
-                    HypeLogger.shared.warn("AI context import skipped \(url.lastPathComponent)", source: "AI Context")
-                }
-            }
+            let report = AIContextIngestor.ingestFiles(urls: panel.urls)
+            add(report, to: document)
+            log(report)
+            onReport(report)
         }
     }
 
     static func importFolder(into document: Binding<HypeDocumentWrapper>) {
+        importFolder(into: document, onReport: { _ in })
+    }
+
+    static func importFolder(
+        into document: Binding<HypeDocumentWrapper>,
+        onReport: @escaping (AIContextImportReport) -> Void
+    ) {
         let panel = NSOpenPanel()
         panel.title = "Add AI Context Folder"
         panel.allowsMultipleSelection = false
@@ -340,23 +387,32 @@ enum AIContextImportController {
         panel.canChooseFiles = false
         panel.begin { response in
             guard response == .OK, let url = panel.urls.first else { return }
-            do {
-                let result = try AIContextIngestor.ingestDirectory(url: url)
-                add(result, to: document)
-            } catch {
-                HypeLogger.shared.warn("AI context folder import failed for \(url.lastPathComponent)", source: "AI Context")
-            }
+            let report = AIContextIngestor.ingestDirectoryWithReport(url: url)
+            add(report, to: document)
+            log(report)
+            onReport(report)
         }
     }
 
     private static func add(
-        _ result: (AIContextSource, [AIContextItem]),
+        _ report: AIContextImportReport,
         to document: Binding<HypeDocumentWrapper>
     ) {
+        guard !report.sources.isEmpty else { return }
         var wrapper = document.wrappedValue
-        wrapper.document.aiContextLibrary.addSource(result.0, items: result.1)
+        for addition in report.sources {
+            wrapper.document.aiContextLibrary.addSource(addition.source, items: addition.items)
+        }
         document.wrappedValue = wrapper
         HypeDocumentMutationCoordinator.shared.flushAllAutosaves()
+    }
+
+    private static func log(_ report: AIContextImportReport) {
+        if report.shouldNotifyUser {
+            HypeLogger.shared.warn(report.userSummary, source: "AI Context")
+        } else {
+            HypeLogger.shared.info(report.userSummary, source: "AI Context")
+        }
     }
 }
 

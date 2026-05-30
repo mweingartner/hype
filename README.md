@@ -464,17 +464,22 @@ is a discarded draft, not a half-mutated stack.
 ### AI Context Library
 
 Each stack carries an `AIContextLibrary` of files, images, text
-notes, and folders that the AI sees on every prompt. Items are
-tagged by role — **rules**, **asset**, **styleGuide**,
-**example**, **projectMemory**, **reference** — so a long-running
-project can teach the model its own conventions without
-re-pasting them. Items can be **embedded** (bytes stored in the
-`.hype` file) or **referenced** (path on disk, included only when
-the file is reachable).
+notes, and folder snapshots that the AI can discover through tools
+instead of large prompt inserts. Items are tagged by role —
+**rules**, **asset**, **styleGuide**, **example**,
+**projectMemory**, **reference** — so a long-running project can
+teach the model its own conventions without re-pasting them. Current
+imports are embedded snapshots stored inside the `.hype` file; this
+keeps stacks self-contained and portable.
 
-Context is gated by both the provider preference and the per-stack
-`aiContextCloudSharingAllowed` flag, so private rules and customer
-artifacts never reach OpenAI by accident.
+Context read/import tools are gated by both the provider preference
+and the per-stack `aiContextCloudSharingAllowed` flag. Local providers
+can use attached context directly. Cloud providers only receive
+stack-attached file text snippets, image metadata, and context tool
+schemas after the stack is opted in, and Hype warns if attached text
+looks like it may contain credentials or tokens. The write-only
+`write_ai_context_note` tool remains available so models can store
+durable project memory without reading withheld context.
 
 ### Image generation
 

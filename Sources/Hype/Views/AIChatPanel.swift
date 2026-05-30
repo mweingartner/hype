@@ -1426,8 +1426,12 @@ struct AIChatPanel: View {
             .joined(separator: ", ")
 
         let hasAIContext = !workingDocument.aiContextLibrary.items.isEmpty
-        let aiContextCanBeShared = selectedAIProvider != .openAI || workingDocument.stack.aiContextCloudSharingAllowed
-        let aiContextToolsEnabled = hasAIContext && aiContextCanBeShared
+        let aiContextPolicy = AIContextToolPolicy(
+            provider: selectedAIProvider,
+            trustBoundary: .authoringChat,
+            document: workingDocument
+        )
+        let aiContextToolsEnabled = aiContextPolicy.canReadExistingContext
         let aiContextPromptRules: String = {
             if aiContextToolsEnabled {
                 return """
@@ -1439,7 +1443,7 @@ struct AIChatPanel: View {
             }
             if hasAIContext {
                 return """
-                - This stack has \(workingDocument.aiContextLibrary.itemCount) attached AI Context Library item(s), but the selected cloud provider cannot receive them until the user enables `aiContextCloudSharingAllowed` for this stack. Ask for explicit permission before enabling it.
+                - This stack has \(workingDocument.aiContextLibrary.itemCount) attached AI Context Library item(s), but the selected cloud provider cannot receive them until the user enables `aiContextCloudSharingAllowed` for this stack and reviews any context safety warnings. Ask for explicit permission before enabling it.
                 - You may still use write_ai_context_note to save new project-memory notes; do not read or summarize withheld context.
                 """
             }
@@ -1656,9 +1660,12 @@ struct AIChatPanel: View {
                     baseTools,
                     enabled: workingDocument.stack.webAssetsAllowed
                 )
-                let tools = HypeToolDefinitions.withAIContextTools(
-                    webTools,
-                    enabled: aiContextToolsEnabled
+                let tools = HypeToolDefinitions.toolsApplyingAIContextPolicy(
+                    HypeToolDefinitions.withAIContextTools(
+                        webTools,
+                        enabled: aiContextToolsEnabled
+                    ),
+                    policy: aiContextPolicy
                 )
 
                 var streamingMessageId: UUID?

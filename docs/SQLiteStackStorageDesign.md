@@ -82,6 +82,16 @@ the primary payload only; future schema versions can project compilation links
 into SQL when validation needs to detect stale runtime outputs or missing source
 assets without decoding payload JSON.
 
+AI context rows project each embedded source and item into
+`ai_context_sources` and `ai_context_items`, while the original value-model
+payload remains in `payload_json`. Text summaries and chunks are indexed into
+`search_fts` as `ai_context_item` rows so attached rules, examples, and
+project-memory notes are diagnosable through SQLite search. Current user-facing
+imports are embedded snapshots; referenced/bookmark-backed context is reserved
+for a future refresh workflow and should not be assumed by storage migrations.
+Import diagnostics and secret-risk findings are transient UI/tool feedback, not
+persisted stack data.
+
 Schema version 2 projects embedded audio recorder content into
 `parts.audio_data` as a SQLite BLOB. The runtime `Part.audioData` field is
 restored from that column on load, and the JSON payload intentionally omits the
