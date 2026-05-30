@@ -71,7 +71,12 @@ struct ChartHostViewRenderingTests {
         #expect(source.contains("onPointChange?("))
         #expect(source.contains("spiderRenderableSeries()"))
         #expect(source.contains("spiderDataPointLabel(for: displayedPoint(point), in: series)"))
-        #expect(source.contains("spiderValueScale()"))
+        #expect(source.contains("spiderRadialTickValue(fraction: fraction)"))
+        #expect(source.contains("interactionLayer(seriesList: renderableSeries, layout: layout)"))
+        #expect(source.contains("pointDragGesture("))
+        #expect(source.contains("SpiderChartInteractionResolver"))
+        #expect(source.contains("spiderCanvasRect(in: geometry.size, config: config)"))
+        #expect(!source.contains("Drag points to edit"))
         #expect(source.contains("nearestAxisTarget"))
         #expect(source.contains("radialTickLabelPoint"))
     }
@@ -164,17 +169,131 @@ struct ChartHostViewRenderingTests {
         #expect(source.contains("accessibilityReduceMotion"))
         // Drag-interaction functions remain present and unmodified.
         #expect(source.contains("func dragGesture(layout:"))
+        #expect(source.contains("func pointDragGesture("))
+        #expect(source.contains("func interactionLayer(seriesList:"))
+        #expect(source.contains(".frame(width: 44, height: 44)"))
+        #expect(source.contains(".fill(Color.black.opacity(0.001))"))
+        #expect(source.contains("markerPoint: markerPoint"))
+        #expect(source.contains("chartLocation(fromHitTargetLocation:"))
+        #expect(source.contains("location.x - 22"))
+        #expect(source.contains("var size: CGSize"))
+        #expect(source.contains(".frame(width: layout.size.width, height: layout.size.height)"))
         #expect(source.contains("func applyDrag("))
         #expect(source.contains("func nearestTarget(to location:"))
         #expect(source.contains("func nearestMarkerTarget(to location:"))
         #expect(source.contains("func nearestAxisTarget(to location:"))
         #expect(source.contains("func resolvedTarget("))
+        #expect(source.contains("static func resolve("))
         #expect(source.contains("func spiderPoint(for series:"))
         #expect(source.contains("layout.normalizedValue(for: location"))
         #expect(source.contains("onPointChange?("))
         #expect(source.contains("SpiderChartPointChange("))
         #expect(source.contains("dragTarget"))
         #expect(source.contains("liveValues"))
+    }
+
+    @Test("SpiderChartCanvas source uses reference radar chart geometry")
+    func spiderChartCanvasSourceUsesReferenceRadarGeometry() throws {
+        let source = try String(
+            contentsOf: packageRoot().appendingPathComponent("Sources/Hype/Views/ChartHostView.swift"),
+            encoding: .utf8
+        )
+        #expect(source.contains("return -.pi / 2 + CGFloat(index)"))
+        #expect(source.contains("ForEach(0...ringCount"))
+        #expect(source.contains(".frame(width: 110"))
+        #expect(source.contains("spiderShowValueLabels"))
+        #expect(!source.contains(".background(Capsule().fill(Color.white.opacity(0.72)))"))
+        #expect(!source.contains(".clipped()"))
+    }
+
+    @Test("PropertyInspector source labels spider data point fields")
+    func propertyInspectorSourceLabelsSpiderDataPointFields() throws {
+        let source = try String(
+            contentsOf: packageRoot().appendingPathComponent("Sources/Hype/Views/PropertyInspector.swift"),
+            encoding: .utf8
+        )
+        #expect(source.contains("spiderDataPointEditor"))
+        #expect(source.contains("Data Point \\(dataIndex + 1)"))
+        #expect(source.contains("Text(\"Name\")"))
+        #expect(source.contains("\"Value\""))
+        #expect(source.contains("\"Minimum\""))
+        #expect(source.contains("\"Maximum\""))
+        #expect(source.contains("Runtime dragging maps the point along its vector from minimum to maximum."))
+    }
+
+    @Test("spider chart reference-style two-series render does not crash")
+    func spiderChartReferenceStyleTwoSeriesRendersWithoutCrashing() {
+        let labels = ["Party A", "Party B", "Party C", "Party D", "Party E", "Party F", "Party G", "Party H", "Party I"]
+        let green = [200.0, 80, 160, 120, 140, 120, 80, 180, 190]
+        let red = [120.0, 160, 110, 90, 190, 80, 210, 100, 200]
+        let config = ChartConfig(
+            chartType: .spider,
+            title: "",
+            series: [
+                ChartSeries(name: "Green", color: "#B7FF79", data: zip(labels, green).map {
+                    ChartDataPoint(name: $0.0, value: $0.1, minimumValue: 0, maximumValue: 220)
+                }),
+                ChartSeries(name: "Red", color: "#FF6F8A", data: zip(labels, red).map {
+                    ChartDataPoint(name: $0.0, value: $0.1, minimumValue: 0, maximumValue: 220)
+                }),
+            ],
+            showLegend: false,
+            spiderRingCount: 5
+        )
+
+        let renderer = ImageRenderer(
+            content: ChartHostView(config: config).frame(width: 650, height: 560)
+        )
+        renderer.scale = 1
+        #expect(renderer.nsImage != nil, "reference-style spider chart should render")
+    }
+
+    @Test("spider interaction resolver maps axis clicks and active drags to point ranges")
+    func spiderInteractionResolverMapsClicksAndDragsToPointRanges() {
+        let firstPoint = ChartDataPoint(name: "Strength", value: 18, minimumValue: 3, maximumValue: 18)
+        let secondPoint = ChartDataPoint(name: "Dexterity", value: 12, minimumValue: 3, maximumValue: 18)
+        let series = ChartSeries(name: "Attributes", color: "#1316EA", data: [
+            firstPoint,
+            secondPoint,
+            ChartDataPoint(name: "Constitution", value: 14, minimumValue: 3, maximumValue: 18),
+            ChartDataPoint(name: "Intelligence", value: 15, minimumValue: 3, maximumValue: 18),
+            ChartDataPoint(name: "Wisdom", value: 15, minimumValue: 3, maximumValue: 18),
+            ChartDataPoint(name: "Charisma", value: 13, minimumValue: 3, maximumValue: 18),
+        ])
+        let config = ChartConfig(
+            chartType: .spider,
+            title: "Attributes",
+            series: [series],
+            showLegend: true,
+            interactable: true
+        )
+        let hostSize = CGSize(width: 496, height: 352)
+        let canvasRect = ChartHostView.spiderCanvasRect(in: hostSize, config: config)
+        let layout = SpiderChartInteractionResolver.layout(in: canvasRect.size, axisCount: config.spiderAxisLabels().count)
+        let halfWayOnDexterity = layout.point(axis: 1, normalizedValue: 0.5)
+
+        let clickResolution = SpiderChartInteractionResolver.resolve(
+            config: config,
+            location: halfWayOnDexterity,
+            size: canvasRect.size,
+            activeTarget: nil
+        )
+
+        #expect(clickResolution?.pointName == "Dexterity")
+        #expect(clickResolution?.seriesName == "Attributes")
+        #expect(clickResolution?.value == 11)
+
+        let activeTarget = SpiderChartDragTarget(seriesId: series.id, pointId: firstPoint.id)
+        let minimumOnStrength = layout.point(axis: 0, normalizedValue: 0)
+        let dragResolution = SpiderChartInteractionResolver.resolve(
+            config: config,
+            location: minimumOnStrength,
+            size: canvasRect.size,
+            activeTarget: activeTarget
+        )
+
+        #expect(dragResolution?.pointName == "Strength")
+        #expect(dragResolution?.value == 3)
     }
 
     @Test("CardCanvas wires interactive spider chart changes to chartChange")
@@ -184,6 +303,20 @@ struct ChartHostViewRenderingTests {
             encoding: .utf8
         )
         #expect(source.contains("setPartChartDataPointValue"))
+        #expect(source.contains("ChartHostingView"))
+        #expect(source.contains("acceptsChartInteraction"))
+        #expect(source.contains("configureChartInteraction"))
+        #expect(source.contains("override func mouseDragged(with event: NSEvent)"))
+        #expect(source.contains("handleSpiderMouse(event, phase: .changed)"))
+        #expect(source.contains("handleSpiderChartCanvasInteraction(part: part, at: point, phase: .began)"))
+        #expect(source.contains("activeSpiderChartDrag"))
+        #expect(source.contains("phase: .ended"))
+        #expect(source.contains("override func hitTest(_ point: NSPoint) -> NSView?"))
+        #expect(source.contains("chartHost.frame.contains(point)"))
+        #expect(source.contains("ChartHostView.spiderCanvasRect(in: bounds.size, config: config)"))
+        #expect(source.contains("SpiderChartInteractionResolver.resolve("))
+        #expect(source.contains("return self"))
+        #expect(!source.contains("return bounds.contains(point) ? self : nil"))
         #expect(source.contains("dispatchMessage(\n                    \"chartChange\""))
         #expect(source.contains("markChartDataLoaded(partId: id"))
     }

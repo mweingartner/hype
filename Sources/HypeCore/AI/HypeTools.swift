@@ -99,7 +99,8 @@ public struct HypeToolDefinitions {
             titles. Spider/radar charts do not use X/Y labels; each data_json point should \
             include name, value, min, and max, and the series color controls the layered polygon. \
             For spider charts, min is the selectable floor, not the starting/default value; \
-            set spider_decimal_places to 0 for integer values or higher for real-valued data. \
+            max is the selectable ceiling, and runtime dragging maps each point along its \
+            vector from min to max. Set spider_decimal_places to 0 for integer values or higher for real-valued data. \
             show_legend defaults to 'true' and identifies the series in the rendered legend; set \
             it to 'false' only if the user explicitly wants the legend hidden.
             """, params: [
@@ -120,12 +121,12 @@ public struct HypeToolDefinitions {
             "show_grid": ("string", "'true' (default) to show grid lines, 'false' to hide them", false),
             "interactable": ("string", "'true' to let users drag spider chart data points at runtime and dispatch chartChange", false),
             "spider_ring_count": ("string", "Spider/radar grid ring count, 3 to 12. Defaults to 5.", false),
-            "spider_grid_color": ("string", "Spider/radar grid color hex, e.g. #D8DEE9.", false),
-            "spider_axis_color": ("string", "Spider/radar axis color hex, e.g. #6B7280.", false),
+            "spider_grid_color": ("string", "Spider/radar grid color hex, e.g. #C9CDD3.", false),
+            "spider_axis_color": ("string", "Spider/radar axis color hex, e.g. #AEB4BE.", false),
             "spider_label_color": ("string", "Spider/radar axis/data label color hex, e.g. #111827.", false),
-            "spider_fill_opacity": ("string", "Spider/radar polygon fill opacity, 0.0 to 1.0. Defaults to 0.28.", false),
-            "spider_point_radius": ("string", "Spider/radar point radius, 1 to 12. Defaults to 4.", false),
-            "spider_show_value_labels": ("string", "'true' to show data point labels on spider charts.", false),
+            "spider_fill_opacity": ("string", "Spider/radar polygon fill opacity, 0.0 to 1.0. Defaults to 0.24.", false),
+            "spider_point_radius": ("string", "Spider/radar point radius, 1 to 12. Defaults to 2.", false),
+            "spider_show_value_labels": ("string", "'true' to show data point value labels on spider charts. Defaults to false for a clean radar-chart style.", false),
             "spider_decimal_places": ("string", "Spider/radar value precision, 0 to 6 decimal places. 0 or omitted means integer values.", false),
             "on_background": ("string", "true to place on background", false),
         ]),

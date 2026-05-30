@@ -58,6 +58,14 @@ struct ChartHostView: View {
     }
 
     var body: some View {
+        if config.chartType == .spider {
+            spiderHostBody
+        } else {
+            standardChartHostBody
+        }
+    }
+
+    private var standardChartHostBody: some View {
         VStack(spacing: 6) {
             if !config.title.isEmpty {
                 Text(config.title)
@@ -80,6 +88,83 @@ struct ChartHostView: View {
         // axes, axis titles, and legend text remain visible when macOS is in
         // Dark Mode.
         .environment(\.colorScheme, .light)
+    }
+
+    private var spiderHostBody: some View {
+        GeometryReader { geometry in
+            let entries = config.showLegend ? config.legendEntries() : []
+            let canvasRect = Self.spiderCanvasRect(in: geometry.size, config: config)
+            let legendRect = Self.spiderLegendRect(in: geometry.size, config: config)
+
+            ZStack(alignment: .topLeading) {
+                Color.white
+
+                if !config.title.isEmpty {
+                    Text(config.title)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.black)
+                        .frame(
+                            width: max(1, geometry.size.width - Self.spiderOuterPadding * 2),
+                            height: Self.spiderTitleHeight,
+                            alignment: .center
+                        )
+                        .position(
+                            x: geometry.size.width / 2,
+                            y: Self.spiderOuterPadding + Self.spiderTitleHeight / 2
+                        )
+                }
+
+                SpiderChartCanvas(
+                    config: config,
+                    onPointChange: onSpiderPointChange
+                )
+                .frame(width: canvasRect.width, height: canvasRect.height)
+                .position(x: canvasRect.midX, y: canvasRect.midY)
+
+                if let legendRect, !entries.isEmpty {
+                    legend(for: entries)
+                        .frame(width: legendRect.width, height: legendRect.height, alignment: .topLeading)
+                        .position(x: legendRect.midX, y: legendRect.midY)
+                }
+            }
+        }
+        .background(Color.white)
+        .environment(\.colorScheme, .light)
+    }
+
+    static let spiderOuterPadding: CGFloat = 10
+    static let spiderVerticalSpacing: CGFloat = 6
+    static let spiderTitleHeight: CGFloat = 24
+    static let spiderLegendRowHeight: CGFloat = 18
+
+    static func spiderCanvasRect(in size: CGSize, config: ChartConfig) -> CGRect {
+        let width = max(1, size.width - spiderOuterPadding * 2)
+        let titleBlock = config.title.isEmpty ? 0 : spiderTitleHeight + spiderVerticalSpacing
+        let legendHeight = spiderLegendRect(in: size, config: config)?.height ?? 0
+        let legendBlock = legendHeight > 0 ? legendHeight + spiderVerticalSpacing : 0
+        let height = max(80, size.height - spiderOuterPadding * 2 - titleBlock - legendBlock)
+        return CGRect(
+            x: spiderOuterPadding,
+            y: spiderOuterPadding + titleBlock,
+            width: width,
+            height: height
+        )
+    }
+
+    static func spiderLegendRect(in size: CGSize, config: ChartConfig) -> CGRect? {
+        guard config.showLegend else { return nil }
+        let entries = config.legendEntries()
+        guard !entries.isEmpty else { return nil }
+        let width = max(1, size.width - spiderOuterPadding * 2)
+        let columnCount = max(1, Int((width + 10) / 90))
+        let rowCount = Int(ceil(Double(entries.count) / Double(columnCount)))
+        let height = CGFloat(rowCount) * spiderLegendRowHeight + 4
+        return CGRect(
+            x: spiderOuterPadding,
+            y: max(spiderOuterPadding, size.height - spiderOuterPadding - height),
+            width: width,
+            height: height
+        )
     }
 
     @ViewBuilder
@@ -326,19 +411,20 @@ struct ChartHostView: View {
     }
 }
 
-private struct SpiderChartDragTarget: Equatable {
+struct SpiderChartDragTarget: Equatable, Sendable {
     var seriesId: UUID
     var pointId: UUID
 }
 
-private struct SpiderChartLayout {
+struct SpiderChartLayout {
+    var size: CGSize
     var center: CGPoint
     var radius: CGFloat
     var axisCount: Int
 
     func angle(for index: Int) -> CGFloat {
         guard axisCount > 0 else { return -.pi / 2 }
-        return -.pi / 2 - CGFloat(index) * (2 * .pi / CGFloat(axisCount))
+        return -.pi / 2 + CGFloat(index) * (2 * .pi / CGFloat(axisCount))
     }
 
     func point(axis index: Int, normalizedValue: Double) -> CGPoint {
@@ -360,6 +446,179 @@ private struct SpiderChartLayout {
     }
 }
 
+struct SpiderChartInteractionResolution {
+    var target: SpiderChartDragTarget
+    var seriesName: String
+    var pointName: String
+    var pointIndex: Int
+    var value: Double
+}
+
+enum SpiderChartInteractionResolver {
+    static func layout(in size: CGSize, axisCount: Int) -> SpiderChartLayout {
+        let labelInsetX: CGFloat = 108
+        let labelInsetY: CGFloat = 72
+        let usableWidth = max(40, size.width - labelInsetX * 2)
+        let usableHeight = max(40, size.height - labelInsetY * 2)
+        let radius = max(20, min(usableWidth, usableHeight) / 2)
+        return SpiderChartLayout(
+            size: size,
+            center: CGPoint(x: size.width / 2, y: size.height / 2 + 2),
+            radius: radius,
+            axisCount: axisCount
+        )
+    }
+
+    static func point(
+        for series: ChartSeries,
+        dataIndex: Int,
+        config: ChartConfig,
+        layout: SpiderChartLayout,
+        liveValue: Double? = nil
+    ) -> CGPoint {
+        guard dataIndex < series.data.count else {
+            return layout.point(axis: dataIndex, normalizedValue: 0)
+        }
+        let point = series.data[dataIndex]
+        return layout.point(
+            axis: dataIndex,
+            normalizedValue: config.normalizedSpiderValue(for: point, value: liveValue ?? point.value)
+        )
+    }
+
+    static func resolve(
+        config: ChartConfig,
+        location: CGPoint,
+        size: CGSize,
+        activeTarget: SpiderChartDragTarget?
+    ) -> SpiderChartInteractionResolution? {
+        let axisCount = config.spiderAxisLabels().count
+        guard axisCount >= 3 else { return nil }
+        let layout = layout(in: size, axisCount: axisCount)
+        let target = activeTarget ?? nearestTarget(to: location, config: config, layout: layout)
+        guard let target,
+              let resolved = resolvedTarget(target, config: config) else {
+            return nil
+        }
+        let normalized = layout.normalizedValue(for: location, axis: resolved.pointIndex)
+        let value = config.spiderValue(for: resolved.point, from: normalized)
+        return SpiderChartInteractionResolution(
+            target: target,
+            seriesName: resolved.series.name,
+            pointName: resolved.point.name.isEmpty ? "Point \(resolved.pointIndex + 1)" : resolved.point.name,
+            pointIndex: resolved.pointIndex,
+            value: value
+        )
+    }
+
+    static func nearestTarget(
+        to location: CGPoint,
+        config: ChartConfig,
+        layout: SpiderChartLayout
+    ) -> SpiderChartDragTarget? {
+        if let markerTarget = nearestMarkerTarget(to: location, config: config, layout: layout) {
+            return markerTarget
+        }
+        return nearestAxisTarget(to: location, config: config, layout: layout)
+    }
+
+    static func nearestMarkerTarget(
+        to location: CGPoint,
+        config: ChartConfig,
+        layout: SpiderChartLayout
+    ) -> SpiderChartDragTarget? {
+        var best: (target: SpiderChartDragTarget, distance: CGFloat)?
+        for series in config.spiderRenderableSeries() {
+            for (index, point) in series.data.enumerated() {
+                let marker = self.point(for: series, dataIndex: index, config: config, layout: layout)
+                let label = valueLabelPoint(markerPoint: marker, axisIndex: index, layout: layout)
+                let distance = min(
+                    hypot(marker.x - location.x, marker.y - location.y),
+                    hypot(label.x - location.x, label.y - location.y)
+                )
+                if best == nil || distance < best!.distance {
+                    best = (SpiderChartDragTarget(seriesId: series.id, pointId: point.id), distance)
+                }
+            }
+        }
+        guard let best, best.distance <= 34 else { return nil }
+        return best.target
+    }
+
+    static func nearestAxisTarget(
+        to location: CGPoint,
+        config: ChartConfig,
+        layout: SpiderChartLayout
+    ) -> SpiderChartDragTarget? {
+        let vector = CGPoint(x: location.x - layout.center.x, y: location.y - layout.center.y)
+        let distance = hypot(vector.x, vector.y)
+        guard layout.axisCount >= 3,
+              distance > 4,
+              distance <= layout.radius + 44 else {
+            return nil
+        }
+
+        var bestAxis = 0
+        var bestDot = -CGFloat.greatestFiniteMagnitude
+        for index in 0..<layout.axisCount {
+            let angle = layout.angle(for: index)
+            let unit = CGPoint(x: cos(angle), y: sin(angle))
+            let dot = (vector.x / distance) * unit.x + (vector.y / distance) * unit.y
+            if dot > bestDot {
+                bestDot = dot
+                bestAxis = index
+            }
+        }
+
+        let sectorThreshold = cos(.pi / CGFloat(layout.axisCount))
+        guard bestDot >= sectorThreshold || distance <= 34 else { return nil }
+        let projectedDistance = ChartConfig.clamp(Double(distance * bestDot / layout.radius), min: 0, max: 1)
+
+        var best: (target: SpiderChartDragTarget, distance: Double)?
+        for series in config.spiderRenderableSeries() where bestAxis < series.data.count {
+            let point = series.data[bestAxis]
+            let pointDistance = config.normalizedSpiderValue(for: point)
+            let radialDelta = abs(pointDistance - projectedDistance)
+            let target = SpiderChartDragTarget(seriesId: series.id, pointId: point.id)
+            if best == nil || radialDelta < best!.distance {
+                best = (target, radialDelta)
+            }
+        }
+        return best?.target
+    }
+
+    static func resolvedTarget(
+        _ target: SpiderChartDragTarget,
+        config: ChartConfig
+    ) -> (series: ChartSeries, seriesIndex: Int, point: ChartDataPoint, pointIndex: Int)? {
+        guard let seriesIndex = config.series.firstIndex(where: { $0.id == target.seriesId }) else {
+            return nil
+        }
+        let series = config.series[seriesIndex]
+        guard let pointIndex = series.data.firstIndex(where: { $0.id == target.pointId }) else {
+            return nil
+        }
+        guard config.spiderRenderableSeries().contains(where: { $0.id == target.seriesId }) else {
+            return nil
+        }
+        return (series, seriesIndex, series.data[pointIndex], pointIndex)
+    }
+
+    static func valueLabelPoint(markerPoint: CGPoint, axisIndex: Int, layout: SpiderChartLayout) -> CGPoint {
+        let angle = layout.angle(for: axisIndex)
+        let axisUnit = CGPoint(x: cos(angle), y: sin(angle))
+        let dx = markerPoint.x - layout.center.x
+        let dy = markerPoint.y - layout.center.y
+        let distance = hypot(dx, dy)
+        let unit = distance < 1 ? axisUnit : CGPoint(x: dx / distance, y: dy / distance)
+        let labelDistance = min(layout.radius * 0.95, max(layout.radius * 0.12, distance + 14))
+        return CGPoint(
+            x: layout.center.x + unit.x * labelDistance,
+            y: layout.center.y + unit.y * labelDistance
+        )
+    }
+}
+
 private struct SpiderChartCanvas: View {
     let config: ChartConfig
     let onPointChange: ((SpiderChartPointChange) -> Void)?
@@ -374,7 +633,7 @@ private struct SpiderChartCanvas: View {
     var body: some View {
         GeometryReader { geometry in
             let labels = config.spiderAxisLabels()
-            let layout = Self.layout(in: geometry.size, axisCount: labels.count)
+            let layout = SpiderChartInteractionResolver.layout(in: geometry.size, axisCount: labels.count)
             if config.interactable {
                 content(labels: labels, layout: layout)
                     .contentShape(Rectangle())
@@ -408,19 +667,11 @@ private struct SpiderChartCanvas: View {
                     valueLabelLayer(seriesList: renderableSeries, layout: layout)
                 }
                 if config.interactable {
-                    Text("Drag points to edit")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.black.opacity(0.52))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(
-                            Capsule().fill(Color.white.opacity(0.8))
-                        )
-                        .position(x: layout.center.x, y: max(12, layout.center.y - layout.radius - 24))
+                    interactionLayer(seriesList: renderableSeries, layout: layout)
                 }
             }
         }
-        .clipped()
+        .frame(width: layout.size.width, height: layout.size.height)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Spider chart: \(labels.count) axes, \(renderableSeries.count) series")
         .onAppear {
@@ -443,7 +694,6 @@ private struct SpiderChartCanvas: View {
         ZStack {
             if config.showGrid {
                 let ringCount = max(ChartConfig.spiderMinimumRingCount, config.spiderRingCount)
-                let scale = config.spiderValueScale()
 
                 // Split-area alternating filled bands — drawn largest-to-smallest
                 // so smaller rings paint over the centers, yielding visible bands.
@@ -452,7 +702,7 @@ private struct SpiderChartCanvas: View {
                         let fraction = Double(ring) / Double(ringCount)
                         // Even-index rings (0-based: 0, 2, 4 …) get a subtle fill;
                         // odd-index rings are clear. Ring index is (ring - 1).
-                        let bandOpacity: Double = (ring % 2 == 0) ? 0.10 : 0.0
+                        let bandOpacity: Double = (ring % 2 == 0) ? 0.04 : 0.0
                         if config.spiderCircularGrid {
                             Circle()
                                 .inset(by: 0)
@@ -484,26 +734,19 @@ private struct SpiderChartCanvas: View {
                                 height: layout.radius * CGFloat(fraction) * 2
                             ))
                             .stroke(
-                                Color(hex: config.spiderGridColor).opacity(ring == ringCount ? 0.9 : 0.55),
-                                lineWidth: ring == ringCount ? 1.1 : 0.7
+                                Color(hex: config.spiderGridColor).opacity(ring == ringCount ? 0.95 : 0.78),
+                                lineWidth: ring == ringCount ? 1.2 : 0.9
                             )
                     } else {
                         Path { path in
                             polygonPath(&path, layout: layout, normalizedValue: fraction)
                         }
                         .stroke(
-                            Color(hex: config.spiderGridColor).opacity(ring == ringCount ? 0.9 : 0.55),
-                            lineWidth: ring == ringCount ? 1.1 : 0.7
+                            Color(hex: config.spiderGridColor).opacity(ring == ringCount ? 0.95 : 0.78),
+                            lineWidth: ring == ringCount ? 1.2 : 0.9
                         )
                     }
 
-                    Text(config.formattedSpiderValue(scale.minimum + fraction * (scale.maximum - scale.minimum)))
-                        .font(.system(size: 8, weight: .medium))
-                        .foregroundColor(Color(hex: config.spiderAxisColor).opacity(0.7))
-                        .padding(.horizontal, 3)
-                        .padding(.vertical, 1)
-                        .background(Capsule().fill(Color.white.opacity(0.72)))
-                        .position(radialTickLabelPoint(fraction: fraction, layout: layout))
                 }
             }
 
@@ -512,7 +755,18 @@ private struct SpiderChartCanvas: View {
                     path.move(to: layout.center)
                     path.addLine(to: layout.point(axis: index, normalizedValue: 1.0))
                 }
-                .stroke(Color(hex: config.spiderAxisColor).opacity(0.72), lineWidth: 0.8)
+                .stroke(Color(hex: config.spiderAxisColor).opacity(0.8), lineWidth: 0.95)
+            }
+
+            if config.showGrid {
+                let ringCount = max(ChartConfig.spiderMinimumRingCount, config.spiderRingCount)
+                ForEach(0...ringCount, id: \.self) { ring in
+                    let fraction = Double(ring) / Double(ringCount)
+                    Text(config.formattedSpiderValue(config.spiderRadialTickValue(fraction: fraction)))
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(Color(hex: config.spiderLabelColor).opacity(0.9))
+                        .position(radialTickLabelPoint(fraction: fraction, layout: layout))
+                }
             }
 
             ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
@@ -525,12 +779,12 @@ private struct SpiderChartCanvas: View {
                 let alignment: Alignment = side > 0 ? .leading : (side < 0 ? .trailing : .center)
                 let nudgedX = labelPoint.x + CGFloat(side) * 8
                 Text(label)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundColor(Color(hex: config.spiderLabelColor))
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .minimumScaleFactor(0.65)
-                    .frame(width: 82, alignment: alignment)
+                    .frame(width: 110, alignment: alignment)
                     .position(x: nudgedX, y: labelPoint.y)
             }
         }
@@ -571,17 +825,47 @@ private struct SpiderChartCanvas: View {
                 }
                 .stroke(
                     Color(hex: series.color),
-                    style: StrokeStyle(lineWidth: 2, lineJoin: .round)
+                    style: StrokeStyle(lineWidth: 2.8, lineJoin: .round)
                 )
 
+                if config.interactable {
+                    ForEach(Array(series.data.enumerated()), id: \.element.id) { index, point in
+                        let markerPoint = spiderPoint(for: series, dataIndex: index, layout: layout)
+                        Circle()
+                            .fill(Color(hex: series.color))
+                            .frame(width: markerDiameter(for: point), height: markerDiameter(for: point))
+                            .overlay(Circle().stroke(Color.white, lineWidth: 1.2))
+                            .shadow(color: markerShadow(for: point), radius: 5, x: 0, y: 0)
+                            .position(markerPoint)
+                    }
+                }
+            }
+        }
+        .frame(width: layout.size.width, height: layout.size.height)
+    }
+
+    private func interactionLayer(seriesList: [ChartSeries], layout: SpiderChartLayout) -> some View {
+        ZStack {
+            ForEach(seriesList) { series in
                 ForEach(Array(series.data.enumerated()), id: \.element.id) { index, point in
                     let markerPoint = spiderPoint(for: series, dataIndex: index, layout: layout)
                     Circle()
-                        .fill(Color(hex: series.color))
-                        .frame(width: markerDiameter(for: point), height: markerDiameter(for: point))
-                        .overlay(Circle().stroke(Color.white, lineWidth: 1.5))
-                        .shadow(color: markerShadow(for: point), radius: 5, x: 0, y: 0)
+                        // A nearly transparent fill gives SwiftUI a real hit
+                        // region without drawing a visible affordance over the
+                        // chart. The visible marker can remain compact while
+                        // the pointer target follows macOS' practical 44pt hit
+                        // area for drag handles.
+                        .fill(Color.black.opacity(0.001))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Circle())
                         .position(markerPoint)
+                        .accessibilityLabel("Drag \(point.name.isEmpty ? "Point \(index + 1)" : point.name)")
+                        .accessibilityValue(config.formattedSpiderValue(liveValues[point.id] ?? point.value))
+                        .gesture(pointDragGesture(
+                            target: SpiderChartDragTarget(seriesId: series.id, pointId: point.id),
+                            markerPoint: markerPoint,
+                            layout: layout
+                        ))
                 }
             }
         }
@@ -609,6 +893,61 @@ private struct SpiderChartCanvas: View {
                 }
             }
         }
+    }
+
+    private func pointDragGesture(
+        target: SpiderChartDragTarget,
+        markerPoint: CGPoint,
+        layout: SpiderChartLayout
+    ) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .onChanged { value in
+                guard layout.axisCount >= 3,
+                      dragTarget == nil || dragTarget == target,
+                      let resolved = resolvedTarget(target) else { return }
+                let chartLocation = chartLocation(fromHitTargetLocation: value.location, markerPoint: markerPoint)
+                if dragTarget == nil {
+                    dragTarget = target
+                    applyDrag(
+                        target: target,
+                        resolved: resolved,
+                        location: chartLocation,
+                        layout: layout,
+                        phase: .began
+                    )
+                } else {
+                    applyDrag(
+                        target: target,
+                        resolved: resolved,
+                        location: chartLocation,
+                        layout: layout,
+                        phase: .changed
+                    )
+                }
+            }
+            .onEnded { value in
+                guard dragTarget == nil || dragTarget == target,
+                      let resolved = resolvedTarget(target) else {
+                    dragTarget = nil
+                    return
+                }
+                let chartLocation = chartLocation(fromHitTargetLocation: value.location, markerPoint: markerPoint)
+                applyDrag(
+                    target: target,
+                    resolved: resolved,
+                    location: chartLocation,
+                    layout: layout,
+                    phase: .ended
+                )
+                dragTarget = nil
+            }
+    }
+
+    private func chartLocation(fromHitTargetLocation location: CGPoint, markerPoint: CGPoint) -> CGPoint {
+        CGPoint(
+            x: markerPoint.x + location.x - 22,
+            y: markerPoint.y + location.y - 22
+        )
     }
 
     private func dragGesture(layout: SpiderChartLayout) -> some Gesture {
@@ -744,27 +1083,16 @@ private struct SpiderChartCanvas: View {
     private func resolvedTarget(
         _ target: SpiderChartDragTarget
     ) -> (series: ChartSeries, seriesIndex: Int, point: ChartDataPoint, pointIndex: Int)? {
-        guard let seriesIndex = config.series.firstIndex(where: { $0.id == target.seriesId }) else {
-            return nil
-        }
-        let series = config.series[seriesIndex]
-        guard let pointIndex = series.data.firstIndex(where: { $0.id == target.pointId }) else {
-            return nil
-        }
-        guard config.spiderRenderableSeries().contains(where: { $0.id == target.seriesId }) else {
-            return nil
-        }
-        return (series, seriesIndex, series.data[pointIndex], pointIndex)
+        SpiderChartInteractionResolver.resolvedTarget(target, config: config)
     }
 
     private func spiderPoint(for series: ChartSeries, dataIndex: Int, layout: SpiderChartLayout) -> CGPoint {
-        guard dataIndex < series.data.count else {
-            return layout.point(axis: dataIndex, normalizedValue: 0)
-        }
-        let value = liveValues[series.data[dataIndex].id] ?? series.data[dataIndex].value
-        return layout.point(
-            axis: dataIndex,
-            normalizedValue: config.normalizedSpiderValue(for: series.data[dataIndex], value: value)
+        SpiderChartInteractionResolver.point(
+            for: series,
+            dataIndex: dataIndex,
+            config: config,
+            layout: layout,
+            liveValue: dataIndex < series.data.count ? liveValues[series.data[dataIndex].id] : nil
         )
     }
 
@@ -777,7 +1105,7 @@ private struct SpiderChartCanvas: View {
 
     private func markerDiameter(for point: ChartDataPoint) -> CGFloat {
         let selected = dragTarget?.pointId == point.id
-        return CGFloat(config.spiderPointRadius) * (selected ? 2.9 : 2.0)
+        return CGFloat(config.spiderPointRadius) * (selected ? 2.6 : 1.2)
     }
 
     private func markerShadow(for point: ChartDataPoint) -> Color {
@@ -801,40 +1129,21 @@ private struct SpiderChartCanvas: View {
         let dy = endpoint.y - center.y
         let distance = max(1, hypot(dx, dy))
         return CGPoint(
-            x: endpoint.x + dx / distance * 34,
-            y: endpoint.y + dy / distance * 22
+            x: endpoint.x + dx / distance * 38,
+            y: endpoint.y + dy / distance * 34
         )
     }
 
     private func radialTickLabelPoint(fraction: Double, layout: SpiderChartLayout) -> CGPoint {
         let point = layout.point(axis: 0, normalizedValue: fraction)
-        return CGPoint(x: layout.center.x + 20, y: point.y)
+        return CGPoint(x: layout.center.x + 18, y: point.y)
     }
 
     private func valueLabelPoint(markerPoint: CGPoint, axisIndex: Int, layout: SpiderChartLayout) -> CGPoint {
-        let angle = layout.angle(for: axisIndex)
-        let axisUnit = CGPoint(x: cos(angle), y: sin(angle))
-        let dx = markerPoint.x - layout.center.x
-        let dy = markerPoint.y - layout.center.y
-        let distance = hypot(dx, dy)
-        let unit = distance < 1 ? axisUnit : CGPoint(x: dx / distance, y: dy / distance)
-        let labelDistance = min(layout.radius * 0.95, max(layout.radius * 0.12, distance + 14))
-        return CGPoint(
-            x: layout.center.x + unit.x * labelDistance,
-            y: layout.center.y + unit.y * labelDistance
-        )
+        SpiderChartInteractionResolver.valueLabelPoint(markerPoint: markerPoint, axisIndex: axisIndex, layout: layout)
     }
 
     private static func layout(in size: CGSize, axisCount: Int) -> SpiderChartLayout {
-        let labelInsetX: CGFloat = 58
-        let labelInsetY: CGFloat = 48
-        let usableWidth = max(40, size.width - labelInsetX * 2)
-        let usableHeight = max(40, size.height - labelInsetY * 2)
-        let radius = max(20, min(usableWidth, usableHeight) / 2)
-        return SpiderChartLayout(
-            center: CGPoint(x: size.width / 2, y: size.height / 2 + 2),
-            radius: radius,
-            axisCount: axisCount
-        )
+        SpiderChartInteractionResolver.layout(in: size, axisCount: axisCount)
     }
 }

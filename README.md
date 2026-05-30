@@ -143,9 +143,9 @@ uniformly across them.
 `shape` (rectangle, roundRect, oval, line, freeform path),
 `image`, `video` (AVKit), `webpage` (WKWebView),
 `chart` (Apple Charts plus Hype-native spider/radar charts; spider charts use
-layered series colors, a shared radial visual scale, per-point min/value/max
-editing bounds, configurable decimal precision, and optional runtime point
-dragging with `chartChange` script events).
+layered series colors, per-point min/value/max vector ranges, polygonal
+radar-style grid rings and radial tick labels, configurable decimal precision,
+and optional runtime point dragging with `chartChange` script events).
 
 **Form controls:**
 `stepper`, `slider`, `segmented`, `toggle`, `colorWell`,

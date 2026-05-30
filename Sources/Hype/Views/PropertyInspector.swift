@@ -3771,16 +3771,16 @@ struct PropertyInspector: View {
                     }
                     HStack(spacing: 6) {
                         Text("Opacity").font(.system(size: 10)).frame(width: 48, alignment: .leading)
-                        TextField("0.28", value: bindChartDouble(part.id, \.spiderFillOpacity, min: 0, max: 1), format: .number)
+                        TextField("0.24", value: bindChartDouble(part.id, \.spiderFillOpacity, min: 0, max: 1), format: .number)
                             .textFieldStyle(.roundedBorder)
                     }
                     HStack(spacing: 6) {
                         Text("Point").font(.system(size: 10)).frame(width: 48, alignment: .leading)
-                        TextField("4", value: bindChartDouble(part.id, \.spiderPointRadius, min: 1, max: 12), format: .number)
+                        TextField("2", value: bindChartDouble(part.id, \.spiderPointRadius, min: 1, max: 12), format: .number)
                             .textFieldStyle(.roundedBorder)
                     }
-                    chartColorRow("Grid", partId: part.id, keyPath: \.spiderGridColor, fallback: "#D8DEE9")
-                    chartColorRow("Axis", partId: part.id, keyPath: \.spiderAxisColor, fallback: "#6B7280")
+                    chartColorRow("Grid", partId: part.id, keyPath: \.spiderGridColor, fallback: "#C9CDD3")
+                    chartColorRow("Axis", partId: part.id, keyPath: \.spiderAxisColor, fallback: "#AEB4BE")
                     chartColorRow("Labels", partId: part.id, keyPath: \.spiderLabelColor, fallback: "#111827")
                 }
                 .padding(6)
@@ -3812,19 +3812,7 @@ struct PropertyInspector: View {
                     // Data points. Spider charts use per-point min/value/max and series color only.
                     ForEach(Array(series.data.enumerated()), id: \.element.id) { di, _ in
                         if config.chartType == .spider {
-                            HStack(spacing: 3) {
-                                TextField("Label", text: bindDataLabel(part.id, seriesIndex: index, dataIndex: di))
-                                    .textFieldStyle(.roundedBorder).font(.system(size: 10))
-                                TextField("Min", value: bindDataMinimumValue(part.id, seriesIndex: index, dataIndex: di), format: .number)
-                                    .textFieldStyle(.roundedBorder).font(.system(size: 10)).frame(width: 52)
-                                TextField("Value", value: bindDataValue(part.id, seriesIndex: index, dataIndex: di), format: .number)
-                                    .textFieldStyle(.roundedBorder).font(.system(size: 10)).frame(width: 56)
-                                TextField("Max", value: bindDataMaximumValue(part.id, seriesIndex: index, dataIndex: di), format: .number)
-                                    .textFieldStyle(.roundedBorder).font(.system(size: 10)).frame(width: 52)
-                                Button(action: { removeDataPoint(partId: part.id, seriesIndex: index, dataIndex: di) }) {
-                                    Image(systemName: "xmark").font(.system(size: 8))
-                                }.buttonStyle(.borderless)
-                            }
+                            spiderDataPointEditor(partId: part.id, seriesIndex: index, dataIndex: di)
                         } else {
                             HStack(spacing: 3) {
                                 ColorPicker("", selection: bindDataPointColor(part.id, seriesIndex: index, dataIndex: di, seriesColor: series.color))
@@ -3857,6 +3845,77 @@ struct PropertyInspector: View {
     }
 
     // MARK: - Chart Binding Helpers
+
+    private func spiderDataPointEditor(partId: UUID, seriesIndex: Int, dataIndex: Int) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("Data Point \(dataIndex + 1)")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button(action: { removeDataPoint(partId: partId, seriesIndex: seriesIndex, dataIndex: dataIndex) }) {
+                    Label("Remove Data Point", systemImage: "xmark.circle")
+                        .labelStyle(.iconOnly)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Remove this data point")
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Name")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(.secondary)
+                TextField("Name", text: bindDataLabel(partId, seriesIndex: seriesIndex, dataIndex: dataIndex))
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 11))
+                    .accessibilityLabel("Data point name")
+            }
+
+            HStack(alignment: .top, spacing: 6) {
+                spiderNumberField(
+                    "Value",
+                    value: bindDataValue(partId, seriesIndex: seriesIndex, dataIndex: dataIndex),
+                    help: "Current value. Interactive dragging moves this value between the minimum and maximum."
+                )
+                spiderNumberField(
+                    "Minimum",
+                    value: bindDataMinimumValue(partId, seriesIndex: seriesIndex, dataIndex: dataIndex),
+                    help: "Lowest selectable value for this point."
+                )
+                spiderNumberField(
+                    "Maximum",
+                    value: bindDataMaximumValue(partId, seriesIndex: seriesIndex, dataIndex: dataIndex),
+                    help: "Highest selectable value for this point."
+                )
+            }
+        }
+        .padding(6)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.gray.opacity(0.06))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.gray.opacity(0.16), lineWidth: 1)
+        )
+        .help("Spider points store name, value, minimum, and maximum. Runtime dragging maps the point along its vector from minimum to maximum.")
+    }
+
+    private func spiderNumberField(_ title: String, value: Binding<Double>, help: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(.secondary)
+            TextField(title, value: value, format: .number)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 11))
+                .accessibilityLabel("Data point \(title.lowercased())")
+                .help(help)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
     private func modifyChartConfig(partId: UUID, transform: (inout ChartConfig) -> Void) {
         let existing = document.document.parts.first(where: { $0.id == partId })?.chartData ?? ""

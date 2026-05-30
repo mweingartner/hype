@@ -388,6 +388,9 @@ struct ChartToolTests {
         #expect(point.minimumValue == 0)
         #expect(point.maximumValue == 100)
         #expect(config.spiderValue(for: point, from: 0) == 0)
+        #expect(config.spiderShowValueLabels == false)
+        #expect(config.spiderShowSplitArea == false)
+        #expect(config.spiderPointRadius == 2)
     }
 
     @Test("set_part_property and get_part_property expose spider chart properties")
@@ -558,9 +561,12 @@ struct ChartToolTests {
         #expect(decoded?.chartType == .bar)
         #expect(decoded?.interactable == false)
         #expect(decoded?.spiderRingCount == 5)
-        #expect(decoded?.spiderGridColor == "#D8DEE9")
-        #expect(decoded?.spiderAxisColor == "#6B7280")
+        #expect(decoded?.spiderGridColor == "#C9CDD3")
+        #expect(decoded?.spiderAxisColor == "#AEB4BE")
         #expect(decoded?.spiderLabelColor == "#111827")
+        #expect(decoded?.spiderFillOpacity == 0.24)
+        #expect(decoded?.spiderPointRadius == 2)
+        #expect(decoded?.spiderShowValueLabels == false)
         #expect(decoded?.spiderDecimalPlaces == 0)
     }
 
@@ -603,10 +609,10 @@ struct ChartToolTests {
 
     // MARK: - spiderShowSplitArea / spiderCircularGrid defaults and round-trip
 
-    @Test("spiderShowSplitArea defaults to true, spiderCircularGrid defaults to false")
+    @Test("spiderShowSplitArea defaults to false, spiderCircularGrid defaults to false")
     func spiderAppearanceKnobDefaults() {
         let config = ChartConfig()
-        #expect(config.spiderShowSplitArea == true)
+        #expect(config.spiderShowSplitArea == false)
         #expect(config.spiderCircularGrid == false)
     }
 
@@ -618,7 +624,7 @@ struct ChartToolTests {
         {"chartType":"spider","title":"Legacy","series":[],"showLegend":true,"showGrid":true,"xAxisLabel":"","yAxisLabel":""}
         """
         let decoded = try #require(ChartConfig.fromJSON(json))
-        #expect(decoded.spiderShowSplitArea == true)
+        #expect(decoded.spiderShowSplitArea == false)
         #expect(decoded.spiderCircularGrid == false)
     }
 
@@ -843,25 +849,27 @@ struct ChartLegendTests {
         #expect(config.spiderDataPointLabel(for: config.series[0].data[0], in: config.series[0]) == "Strength 18")
     }
 
-    @Test("spider chart uses one shared radial scale and point ranges as drag bounds")
-    func spiderChartUsesSharedRadialScale() {
+    @Test("spider chart uses each point range for geometry and drag values")
+    func spiderChartUsesEachPointRangeForGeometryAndDrag() {
         let config = ChartConfig(
             chartType: .spider,
             series: [
                 ChartSeries(name: "Attributes", data: [
                     ChartDataPoint(name: "Strength", value: 18, minimumValue: 18, maximumValue: 19),
-                    ChartDataPoint(name: "Dexterity", value: 12, minimumValue: 12, maximumValue: 18),
+                    ChartDataPoint(name: "Dexterity", value: 15, minimumValue: 12, maximumValue: 18),
                     ChartDataPoint(name: "Constitution", value: 14, minimumValue: 14, maximumValue: 18),
                 ])
-            ]
+            ],
+            spiderDecimalPlaces: 1
         )
 
-        #expect(config.spiderValueScale().minimum == 0)
-        #expect(config.spiderValueScale().maximum == 19)
-        #expect(abs(config.normalizedSpiderValue(for: config.series[0].data[0]) - (18.0 / 19.0)) < 0.000_001)
-        #expect(abs(config.normalizedSpiderValue(for: config.series[0].data[1]) - (12.0 / 19.0)) < 0.000_001)
+        #expect(config.normalizedSpiderValue(for: config.series[0].data[0]) == 0)
+        #expect(abs(config.normalizedSpiderValue(for: config.series[0].data[1]) - 0.5) < 0.000_001)
         #expect(config.spiderValue(for: config.series[0].data[0], from: 0) == 18)
+        #expect(config.spiderValue(for: config.series[0].data[0], from: 0.5) == 18.5)
         #expect(config.spiderValue(for: config.series[0].data[0], from: 1) == 19)
+        #expect(config.spiderRadialTickValue(fraction: 0) == 18)
+        #expect(config.spiderRadialTickValue(fraction: 1) == 19)
     }
 
     @Test("interactive spider values use min and max bounds, not initial value")

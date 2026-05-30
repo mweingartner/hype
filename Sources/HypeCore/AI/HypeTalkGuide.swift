@@ -216,7 +216,7 @@ public enum HypeTalkGuide {
           - **button (style=toggle / checkBox):** hilite (true/false — backs the on/off state of toggle / checkbox styles); the `on` of <kind> "X" is also accepted as an alias for hilite on these styles. (`style=switch` is a deprecated alias that resolves to `toggle`.)
           - **segmented:** segments, selectedSegment
           - **recorder:** recording, playing, duration, outputPath, format (m4a | caf), saveInStack (true/false), audioSize
-          - **chart:** type,title,legend/grid,spider min/value/max,spider_decimal_places(0=int)
+          - **chart:** type,title,legend/grid,spider point name/value/min/max,spider_decimal_places(0=int)
           - **music controls:** musicPattern, instrument, tempo, keyCount 49/61/76/88, optional chrome flags, loop, volume, tracks, source/kind, appleMusic fields
           - **scene3d:** object (source path — preferred), modelURL (resolved path, legacy alias), allowsCameraControl, autoLighting, antialiasing, background3d
           - **image:** imageFilter, imageFilterIntensity (along with the standard part properties)

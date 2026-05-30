@@ -71,14 +71,14 @@ public struct ChartConfig: Codable, Sendable {
         yAxisLabel: String = "",
         interactable: Bool = false,
         spiderRingCount: Int = 5,
-        spiderGridColor: String = "#D8DEE9",
-        spiderAxisColor: String = "#6B7280",
+        spiderGridColor: String = "#C9CDD3",
+        spiderAxisColor: String = "#AEB4BE",
         spiderLabelColor: String = "#111827",
-        spiderFillOpacity: Double = 0.28,
-        spiderPointRadius: Double = 4,
-        spiderShowValueLabels: Bool = true,
+        spiderFillOpacity: Double = 0.24,
+        spiderPointRadius: Double = 2,
+        spiderShowValueLabels: Bool = false,
         spiderDecimalPlaces: Int = 0,
-        spiderShowSplitArea: Bool = true,
+        spiderShowSplitArea: Bool = false,
         spiderCircularGrid: Bool = false
     ) {
         self.chartType = chartType
@@ -90,8 +90,8 @@ public struct ChartConfig: Codable, Sendable {
         self.yAxisLabel = yAxisLabel
         self.interactable = interactable
         self.spiderRingCount = spiderRingCount
-        self.spiderGridColor = Self.normalizedHex(spiderGridColor, fallback: "#D8DEE9")
-        self.spiderAxisColor = Self.normalizedHex(spiderAxisColor, fallback: "#6B7280")
+        self.spiderGridColor = Self.normalizedHex(spiderGridColor, fallback: "#C9CDD3")
+        self.spiderAxisColor = Self.normalizedHex(spiderAxisColor, fallback: "#AEB4BE")
         self.spiderLabelColor = Self.normalizedHex(spiderLabelColor, fallback: "#111827")
         self.spiderFillOpacity = Self.clamp(spiderFillOpacity, min: 0, max: 1)
         self.spiderPointRadius = Self.clamp(spiderPointRadius, min: 1, max: 12)
@@ -127,30 +127,30 @@ public struct ChartConfig: Codable, Sendable {
         let legacySpiderMaximumValue = try c.decodeIfPresent(Double.self, forKey: .spiderMaximumValue)
         spiderRingCount = try c.decodeIfPresent(Int.self, forKey: .spiderRingCount) ?? 5
         spiderGridColor = Self.normalizedHex(
-            try c.decodeIfPresent(String.self, forKey: .spiderGridColor) ?? "#D8DEE9",
-            fallback: "#D8DEE9"
+            try c.decodeIfPresent(String.self, forKey: .spiderGridColor) ?? "#C9CDD3",
+            fallback: "#C9CDD3"
         )
         spiderAxisColor = Self.normalizedHex(
-            try c.decodeIfPresent(String.self, forKey: .spiderAxisColor) ?? "#6B7280",
-            fallback: "#6B7280"
+            try c.decodeIfPresent(String.self, forKey: .spiderAxisColor) ?? "#AEB4BE",
+            fallback: "#AEB4BE"
         )
         spiderLabelColor = Self.normalizedHex(
             try c.decodeIfPresent(String.self, forKey: .spiderLabelColor) ?? "#111827",
             fallback: "#111827"
         )
         spiderFillOpacity = Self.clamp(
-            try c.decodeIfPresent(Double.self, forKey: .spiderFillOpacity) ?? 0.28,
+            try c.decodeIfPresent(Double.self, forKey: .spiderFillOpacity) ?? 0.24,
             min: 0,
             max: 1
         )
         spiderPointRadius = Self.clamp(
-            try c.decodeIfPresent(Double.self, forKey: .spiderPointRadius) ?? 4,
+            try c.decodeIfPresent(Double.self, forKey: .spiderPointRadius) ?? 2,
             min: 1,
             max: 12
         )
-        spiderShowValueLabels = try c.decodeIfPresent(Bool.self, forKey: .spiderShowValueLabels) ?? true
+        spiderShowValueLabels = try c.decodeIfPresent(Bool.self, forKey: .spiderShowValueLabels) ?? false
         spiderDecimalPlaces = try c.decodeIfPresent(Int.self, forKey: .spiderDecimalPlaces) ?? 0
-        spiderShowSplitArea = try c.decodeIfPresent(Bool.self, forKey: .spiderShowSplitArea) ?? true
+        spiderShowSplitArea = try c.decodeIfPresent(Bool.self, forKey: .spiderShowSplitArea) ?? false
         spiderCircularGrid = try c.decodeIfPresent(Bool.self, forKey: .spiderCircularGrid) ?? false
         normalizeSpiderDisplay()
         if chartType == .spider,
@@ -289,10 +289,10 @@ public struct ChartConfig: Codable, Sendable {
         return series.filter { $0.data.count == count }
     }
 
-    /// Shared radial scale for a spider/radar chart. Standard radar charts use
-    /// one value scale across all axes so series polygons are comparable. Hype
-    /// still keeps each point's min/max as authoring and drag bounds, but the
-    /// visual position is derived from one chart-wide scale.
+    /// Aggregate range across all renderable spider/radar points. This remains
+    /// useful for diagnostics and legacy callers, but rendering and dragging use
+    /// each `ChartDataPoint`'s own min/max so every vector is editable across
+    /// its full configured range.
     public func spiderValueScale() -> (minimum: Double, maximum: Double) {
         let points = spiderRenderableSeries().flatMap(\.data)
         guard !points.isEmpty else { return (0, 1) }
@@ -311,18 +311,25 @@ public struct ChartConfig: Codable, Sendable {
         return (visualMinimum, visualMaximum)
     }
 
+    /// Value displayed beside the radial grid for the reference axis. Spider
+    /// charts have per-point ranges, so tick labels describe the first visible
+    /// axis rather than pretending there is one chart-level min/max scale.
+    public func spiderRadialTickValue(fraction: Double, axisIndex: Int = 0) -> Double {
+        let renderable = spiderRenderableSeries()
+        guard let first = renderable.first, axisIndex >= 0, axisIndex < first.data.count else {
+            return fraction
+        }
+        let point = first.data[axisIndex]
+        return clampedSpiderValue(point.value(fromNormalized: fraction), for: point)
+    }
+
     public func normalizedSpiderValue(for point: ChartDataPoint, value: Double? = nil) -> Double {
-        let scale = spiderValueScale()
-        guard scale.maximum > scale.minimum else { return 0 }
         let safe = clampedSpiderValue(value ?? point.value, for: point)
-        return Self.clamp((safe - scale.minimum) / (scale.maximum - scale.minimum), min: 0, max: 1)
+        return point.normalizedValue(safe)
     }
 
     public func spiderValue(for point: ChartDataPoint, from normalizedValue: Double) -> Double {
-        let scale = spiderValueScale()
-        let normalized = Self.clamp(normalizedValue, min: 0, max: 1)
-        let candidate = scale.minimum + normalized * (scale.maximum - scale.minimum)
-        return clampedSpiderValue(candidate, for: point)
+        clampedSpiderValue(point.value(fromNormalized: normalizedValue), for: point)
     }
 
     public func clampedSpiderValue(_ value: Double, for point: ChartDataPoint) -> Double {

@@ -1877,13 +1877,17 @@ does not provide a radar-mark primitive. Normal chart types use direct
 per-mark colors from `ChartDataPoint.color` / `ChartSeries.color`; spider
 charts are layered by series and use only the series color. Spider charts do
 not have X/Y labels or user-authored chart-level min/max values. Each spider
-data point owns `minimumValue`, current `value`, and `maximumValue` as editing
-and drag bounds; `spiderDecimalPlaces` controls drag and label precision, with
-`0` / omitted meaning integer values. Rendering derives one shared radial visual scale from the
-visible spider series so polygons follow standard radar-chart semantics instead
-of giving each axis a separate visual scale. The chart host draws its own legend
-from `ChartConfig.legendEntries()` and adorns every chart type with compact
-point labels; spider legends always list series rows.
+data point owns `minimumValue`, current `value`, and `maximumValue`. Rendering
+and interactive dragging normalize each point against that point's own
+min-to-max range, so dragging a point along its vector can reach any valid value
+for that point. `spiderDecimalPlaces` controls drag and label precision, with
+`0` / omitted meaning integer values. Spider charts render like classic radar
+charts by default: polygonal grid rings, radial spokes, outer data-point labels,
+center-to-edge radial tick labels for the reference/top axis, and translucent
+layered series polygons. Per-point value labels remain available through
+`spiderShowValueLabels` but default off to avoid clutter. The chart host draws
+its own legend from `ChartConfig.legendEntries()`; spider legends always list
+series rows.
 Interactive spider charts keep `SceneSpec`-style discipline: runtime drags
 write the changed point value back into the serialized `ChartConfig` on the
 part, then dispatch `chartChange` to the chart's script with param 1 as the

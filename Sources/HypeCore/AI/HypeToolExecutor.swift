@@ -6085,12 +6085,12 @@ public struct HypeToolExecutor: Sendable {
                 row("show_grid", String(config.showGrid), "true")
                 row("interactable", String(config.interactable), "false")
                 row("spider_ring_count", String(config.spiderRingCount), "5")
-                row("spider_grid_color", config.spiderGridColor, "#D8DEE9")
-                row("spider_axis_color", config.spiderAxisColor, "#6B7280")
+                row("spider_grid_color", config.spiderGridColor, "#C9CDD3")
+                row("spider_axis_color", config.spiderAxisColor, "#AEB4BE")
                 row("spider_label_color", config.spiderLabelColor, "#111827")
-                row("spider_fill_opacity", Self.formatNumber(config.spiderFillOpacity), "0.28")
-                row("spider_point_radius", Self.formatNumber(config.spiderPointRadius), "4")
-                row("spider_show_value_labels", String(config.spiderShowValueLabels), "true")
+                row("spider_fill_opacity", Self.formatNumber(config.spiderFillOpacity), "0.24")
+                row("spider_point_radius", Self.formatNumber(config.spiderPointRadius), "2")
+                row("spider_show_value_labels", String(config.spiderShowValueLabels), "false")
                 row("spider_decimal_places", String(config.spiderDecimalPlaces), "0")
             }
         case .spriteArea:

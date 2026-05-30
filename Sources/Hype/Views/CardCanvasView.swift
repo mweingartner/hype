@@ -1397,6 +1397,111 @@ private class PassthroughSKView: SKView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
+private final class ChartHostingView: NSHostingView<ChartHostView> {
+    var acceptsChartInteraction = false
+    private var chartInteractionConfig: ChartConfig?
+    private var chartInteractionHandler: ((SpiderChartPointChange) -> Void)?
+    private var activeSpiderTarget: SpiderChartDragTarget?
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        acceptsChartInteraction || super.acceptsFirstMouse(for: event)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard acceptsChartInteraction else { return super.hitTest(point) }
+        guard bounds.contains(point) else { return nil }
+        return self
+    }
+
+    func configureChartInteraction(
+        config: ChartConfig,
+        handler: @escaping (SpiderChartPointChange) -> Void
+    ) {
+        chartInteractionConfig = config
+        chartInteractionHandler = handler
+        acceptsChartInteraction = config.chartType == .spider && config.interactable
+        if !acceptsChartInteraction {
+            activeSpiderTarget = nil
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if handleSpiderMouse(event, phase: .began) { return }
+        super.mouseDown(with: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        if handleSpiderMouse(event, phase: .changed) { return }
+        super.mouseDragged(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if handleSpiderMouse(event, phase: .ended) { return }
+        super.mouseUp(with: event)
+    }
+
+    private func handleSpiderMouse(_ event: NSEvent, phase: SpiderChartPointChangePhase) -> Bool {
+        guard acceptsChartInteraction,
+              let config = chartInteractionConfig,
+              config.chartType == .spider,
+              config.interactable,
+              let handler = chartInteractionHandler else {
+            activeSpiderTarget = nil
+            return false
+        }
+
+        let pointInView = convert(event.locationInWindow, from: nil)
+        let topLeftPoint = CGPoint(
+            x: pointInView.x,
+            y: isFlipped ? pointInView.y : bounds.height - pointInView.y
+        )
+        let canvasRect = ChartHostView.spiderCanvasRect(in: bounds.size, config: config)
+        let pointInCanvas = CGPoint(
+            x: topLeftPoint.x - canvasRect.minX,
+            y: topLeftPoint.y - canvasRect.minY
+        )
+        guard phase != .began || CGRect(origin: .zero, size: canvasRect.size).insetBy(dx: -44, dy: -44).contains(pointInCanvas),
+              let resolution = SpiderChartInteractionResolver.resolve(
+                config: config,
+                location: pointInCanvas,
+                size: canvasRect.size,
+                activeTarget: activeSpiderTarget
+              ) else {
+            if phase == .ended { activeSpiderTarget = nil }
+            return true
+        }
+
+        activeSpiderTarget = resolution.target
+        let change = SpiderChartPointChange(
+            chartPartId: nil,
+            seriesId: resolution.target.seriesId,
+            seriesName: resolution.seriesName,
+            pointId: resolution.target.pointId,
+            pointName: resolution.pointName,
+            value: resolution.value,
+            phase: phase
+        )
+        applyLocalSpiderChange(change)
+        handler(change)
+        if phase == .ended {
+            activeSpiderTarget = nil
+        }
+        return true
+    }
+
+    private func applyLocalSpiderChange(_ change: SpiderChartPointChange) {
+        guard var config = chartInteractionConfig,
+              let seriesIndex = config.series.firstIndex(where: { $0.id == change.seriesId }),
+              let pointIndex = config.series[seriesIndex].data.firstIndex(where: { $0.id == change.pointId }) else {
+            return
+        }
+        let point = config.series[seriesIndex].data[pointIndex]
+        config.series[seriesIndex].data[pointIndex].value = config.clampedSpiderValue(change.value, for: point)
+        chartInteractionConfig = config
+        rootView = ChartHostView(config: config, onSpiderPointChange: chartInteractionHandler)
+    }
+}
+
 class CardCanvasNSView: NSView {
     private static let objectToolPasteboardType = NSPasteboard.PasteboardType(ObjectToolCatalog.dragPasteboardTypeRaw)
     private static let objectToolPasteboardTypes: [NSPasteboard.PasteboardType] = [
@@ -1513,6 +1618,23 @@ class CardCanvasNSView: NSView {
         setNeedsDisplay(bounds)
     }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // Layer-backed canvas rendering can otherwise keep mouse events on the
+        // canvas even when an interactive SwiftUI chart host sits above it.
+        // Route spider-chart hits explicitly so value-dot drags and axis-line
+        // clicks reach `ChartHostingView.mouseDown/Dragged/Up`.
+        for view in chartViews.values.reversed() {
+            guard let chartHost = view as? ChartHostingView,
+                  chartHost.acceptsChartInteraction,
+                  chartHost.frame.contains(point) else {
+                continue
+            }
+            let localPoint = convert(point, to: chartHost)
+            return chartHost.hitTest(localPoint) ?? chartHost
+        }
+        return super.hitTest(point)
+    }
+
     /// Eraser radius in pixels (adjustable with [ and ] keys).
     var eraserRadius: Int = 10
     /// Spray radius in pixels (adjustable with [ and ] keys when spray tool active).
@@ -1551,6 +1673,7 @@ class CardCanvasNSView: NSView {
     private var chartViews: [UUID: NSView] = [:]
     // Track which chart data is loaded to avoid redundant recreations
     private var loadedChartData: [UUID: String] = [:]
+    private var activeSpiderChartDrag: (partId: UUID, target: SpiderChartDragTarget)?
 
     // Active NSDatePicker hosts for calendar parts (keyed by part ID).
     // Mirrors chart/sprite pattern — the live picker shows in browse
@@ -3292,6 +3415,63 @@ class CardCanvasNSView: NSView {
         return nil
     }
 
+    @discardableResult
+    private func handleSpiderChartCanvasInteraction(
+        part: Part,
+        at point: CGPoint,
+        phase: SpiderChartPointChangePhase
+    ) -> Bool {
+        guard part.partType == .chart,
+              part.visible,
+              part.enabled,
+              let config = ChartConfig.fromJSON(part.chartData),
+              config.chartType == .spider,
+              config.interactable else {
+            if phase == .ended { activeSpiderChartDrag = nil }
+            return false
+        }
+
+        let partSize = CGSize(width: part.width, height: part.height)
+        let canvasRect = ChartHostView.spiderCanvasRect(in: partSize, config: config)
+        let pointInCanvas = CGPoint(
+            x: point.x - part.left - canvasRect.minX,
+            y: point.y - part.top - canvasRect.minY
+        )
+        let activeTarget = activeSpiderChartDrag?.partId == part.id ? activeSpiderChartDrag?.target : nil
+        guard phase != .began || CGRect(origin: .zero, size: canvasRect.size).insetBy(dx: -44, dy: -44).contains(pointInCanvas),
+              let resolution = SpiderChartInteractionResolver.resolve(
+                config: config,
+                location: pointInCanvas,
+                size: canvasRect.size,
+                activeTarget: activeTarget
+              ) else {
+            if phase == .ended { activeSpiderChartDrag = nil }
+            return false
+        }
+
+        activeSpiderChartDrag = (part.id, resolution.target)
+        coordinator?.setPartChartDataPointValue(
+            id: part.id,
+            change: SpiderChartPointChange(
+                chartPartId: part.id,
+                seriesId: resolution.target.seriesId,
+                seriesName: resolution.seriesName,
+                pointId: resolution.target.pointId,
+                pointName: resolution.pointName,
+                value: resolution.value,
+                phase: phase
+            )
+        )
+        loadedChartData.removeValue(forKey: part.id)
+        scheduleEmbeddedSubviewSync()
+        needsDisplay = true
+
+        if phase == .ended {
+            activeSpiderChartDrag = nil
+        }
+        return true
+    }
+
     // MARK: - Mouse events
 
     override func mouseDown(with event: NSEvent) {
@@ -3342,6 +3522,11 @@ class CardCanvasNSView: NSView {
         let rawHitPart = renderer.partAtPoint(point, document: document, cardId: currentCardId)
 
         let toolCheck = ToolState(currentTool: currentTool.rawValue)
+        if toolCheck.category == .browse,
+           let part = rawHitPart,
+           handleSpiderChartCanvasInteraction(part: part, at: point, phase: .began) {
+            return
+        }
 
         // Filter hit parts only for edit-mode authoring. Browse mode must hit
         // the topmost visible card or background part so background controls
@@ -3557,6 +3742,13 @@ class CardCanvasNSView: NSView {
     override func mouseDragged(with event: NSEvent) {
         let point = flippedPoint(for: event)
 
+        if let activeSpiderChartDrag {
+            if let part = document.parts.first(where: { $0.id == activeSpiderChartDrag.partId }) {
+                _ = handleSpiderChartCanvasInteraction(part: part, at: point, phase: .changed)
+            }
+            return
+        }
+
         // Handle constraint drag
         if isConstraintDragging {
             constraintDragEnd = point
@@ -3689,6 +3881,13 @@ class CardCanvasNSView: NSView {
         endMusicControlDrag()
 
         let point = flippedPoint(for: event)
+
+        if let activeSpiderChartDrag,
+           let part = document.parts.first(where: { $0.id == activeSpiderChartDrag.partId }) {
+            _ = handleSpiderChartCanvasInteraction(part: part, at: point, phase: .ended)
+            self.activeSpiderChartDrag = nil
+            return
+        }
 
         // Handle constraint drag completion
         if isConstraintDragging {
@@ -4188,6 +4387,11 @@ class CardCanvasNSView: NSView {
                         hostingView.rootView = ChartHostView(config: config) { [weak self] change in
                             self?.coordinator?.setPartChartDataPointValue(id: partId, change: change)
                         }
+                        if let chartHost = hostingView as? ChartHostingView {
+                            chartHost.configureChartInteraction(config: config) { [weak self] change in
+                                self?.coordinator?.setPartChartDataPointValue(id: partId, change: change)
+                            }
+                        }
                         loadedChartData[part.id] = part.chartData
                     } else {
                         // Data changed but this view cannot be updated in place.
@@ -4208,7 +4412,10 @@ class CardCanvasNSView: NSView {
                 let chartView = ChartHostView(config: config) { [weak self] change in
                     self?.coordinator?.setPartChartDataPointValue(id: partId, change: change)
                 }
-                let hostingView = NSHostingView(rootView: chartView)
+                let hostingView = ChartHostingView(rootView: chartView)
+                hostingView.configureChartInteraction(config: config) { [weak self] change in
+                    self?.coordinator?.setPartChartDataPointValue(id: partId, change: change)
+                }
                 hostingView.frame = frame
                 addSubview(hostingView, positioned: .above, relativeTo: nil)
                 chartViews[part.id] = hostingView
