@@ -512,6 +512,20 @@ public struct Parser: Sendable {
         }
         // `set the <property> of <target> to <value>`
         _ = match(.the)
+        // Accept the explicit form users and AI often write:
+        // `set property span of map "mapper" to ...`
+        // `set the property span of map "mapper" to ...`
+        // HypeTalk's canonical form is still `set the span of ...`;
+        // this merely treats `property` as transparent syntax.
+        if current.type == .identifier,
+           current.value.lowercased() == "property",
+           pos + 1 < tokens.count,
+           tokens[pos + 1].type != .of,
+           tokens[pos + 1].type != .to,
+           tokens[pos + 1].type != .newline,
+           tokens[pos + 1].type != .eof {
+            _ = advance()
+        }
         let propTok = advance()
         let property = propTok.value
 
@@ -2944,6 +2958,20 @@ public struct Parser: Sendable {
             _ = try expect(.of)
             let target = try parsePrimary()
             return .headerAccess(headerName, target)
+        }
+
+        // Accept `the property span of map "mapper"` as a read-side
+        // synonym for `the span of map "mapper"`. This mirrors the
+        // set-side compatibility shim in `parseSetStatement` and
+        // keeps AI-authored scripts from failing on the transparent
+        // word "property".
+        if current.type == .identifier,
+           current.value.lowercased() == "property",
+           pos + 1 < tokens.count,
+           tokens[pos + 1].type != .of,
+           tokens[pos + 1].type != .newline,
+           tokens[pos + 1].type != .eof {
+            _ = advance()
         }
 
         let propTok = advance()

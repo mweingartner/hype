@@ -368,6 +368,64 @@ struct Phase1ControlsTests {
         #expect(updated.mapLocation == "97537")
     }
 
+    @Test("HypeTalk: `set property span of map \"X\" to the value of me` updates map span")
+    func hypeTalkSetPropertySpanAliasUpdatesMapSpanFromControlValue() throws {
+        var doc = HypeDocument.newDocument(name: "MapTest")
+        let cardId = doc.cards[0].id
+        var map = Part(partType: .map, cardId: cardId, name: "mapper",
+                       left: 0, top: 0, width: 400, height: 300)
+        map.mapSpan = 0.05
+        var slider = Part(partType: .slider, cardId: cardId, name: "zoom",
+                          left: 500, top: 0, width: 32, height: 232)
+        slider.controlValue = 0.005
+        doc.addPart(map)
+        doc.addPart(slider)
+
+        let source = """
+        on mouseUp
+          set property span of map "mapper" to the value of me
+        end mouseUp
+        """
+        var lexer = Lexer(source: source)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        let handler = script.handlers.first!
+        let context = ExecutionContext(targetId: slider.id, currentCardId: cardId, document: doc)
+        let result = Interpreter().execute(handler: handler, params: [], context: context)
+
+        let updated = (result.modifiedDocument ?? doc).parts.first { $0.name == "mapper" }!
+        #expect(updated.mapSpan == 0.005)
+    }
+
+    @Test("HypeTalk: `the property span of map \"X\"` reads map span")
+    func hypeTalkPropertySpanAliasReadsMapSpan() throws {
+        var doc = HypeDocument.newDocument(name: "MapTest")
+        let cardId = doc.cards[0].id
+        var map = Part(partType: .map, cardId: cardId, name: "mapper",
+                       left: 0, top: 0, width: 400, height: 300)
+        map.mapSpan = 0.005
+        let output = Part(partType: .field, cardId: cardId, name: "log")
+        doc.addPart(map)
+        doc.addPart(output)
+
+        let source = """
+        on test
+          put the property span of map "mapper" into field "log"
+        end test
+        """
+        var lexer = Lexer(source: source)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        let handler = script.handlers.first!
+        let context = ExecutionContext(targetId: cardId, currentCardId: cardId, document: doc)
+        let result = Interpreter().execute(handler: handler, params: [], context: context)
+
+        let updated = (result.modifiedDocument ?? doc).parts.first { $0.name == "log" }!
+        #expect(updated.textContent == "0.005")
+    }
+
     @Test("AI tool getter: `location` on map returns mapLocation when set")
     func aiGetMapLocationWhenSet() async {
         var doc = HypeDocument.newDocument(name: "MapTest")

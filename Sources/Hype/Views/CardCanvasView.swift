@@ -166,6 +166,7 @@ struct CardCanvasView: NSViewRepresentable {
         // completion handler clears isTransitioning and calls
         // needsDisplay itself to update to the new card.
         guard !nsView.isTransitioning else { return }
+        nsView.scheduleEmbeddedSubviewSync()
         // Only redraw if not actively editing a field — constant redraws
         // during editing can interfere with the NSTextField overlay
         if nsView.isFieldEditing {
@@ -1531,6 +1532,7 @@ class CardCanvasNSView: NSView {
     private var webViews: [UUID: WKWebView] = [:]
     // Track which URLs are loaded to avoid redundant loads
     private var loadedURLs: [UUID: String] = [:]
+    private var embeddedSubviewSyncScheduled = false
 
     // Active AVPlayerViews for video parts (keyed by part ID).
     // Access level is `internal` so dismantleNSView can reach it.
@@ -1963,9 +1965,10 @@ class CardCanvasNSView: NSView {
         // We derive the set from the DOCUMENT (not the live `spriteViews` /
         // `chartViews` etc. dictionaries) and only in browse mode, because
         // (a) on a card-return, the dictionaries lag by one frame —
-        // `updateSpriteViews()` runs LATER in this same draw, so the SKView
-        // for a returning sprite area isn't in `spriteViews` yet — which
-        // would let the placeholder flash through for one frame; and
+        // the deferred embedded-subview sync runs after this draw, so the
+        // SKView for a returning sprite area may not be in `spriteViews`
+        // yet — which would let the placeholder flash through for one
+        // frame; and
         // (b) in edit mode we WANT the placeholder visible, since the SKView
         // is intentionally torn down in edit mode and the placeholder is
         // the authoring affordance.
@@ -2068,42 +2071,11 @@ class CardCanvasNSView: NSView {
             }
         }
 
-        // Update web views for webpage parts
-        updateWebViews()
-
-        // Update video players for video parts
-        updateVideoPlayers()
-
-        // Update chart views for chart parts
-        updateChartViews()
-
-        // Update calendar views for calendar parts
-        updateCalendarViews()
-
-        // Update PDF / map / color-well overlays for their parts.
-        updatePDFViews()
-        updateMapViews()
-        updateColorWellViews()
-        updateFormControlViews()
-        updateAppleMusicBrowserViews()
-        updateMusicInstrumentPopupViews()
-        updateAudioRecorderViews()
-        updateScene3DViews()
-        // Phase 3 controls.
-        updateProgressViewHosts()
-        updateGaugeHosts()
-
-        // Refresh per-part hover-help tooltips. Runs in both
-        // edit and browse mode (the function itself short-circuits
-        // out of edit mode), so changes to `Part.helpText` from
-        // the inspector or HypeTalk show up on the next draw.
-        updatePartToolTips()
-        // Link / Menu / SearchField hosts removed in dedup —
-        // those PartTypes are migrated to button (.link / .popup
-        // style) and field (.search style) on decode.
-
-        // Update sprite views for spriteArea parts
-        updateSpriteViews()
+        // AppKit/WebKit/SpriteKit host-view reconciliation mutates
+        // the view hierarchy and can synchronously initialize heavy
+        // framework objects. Keep draw(_:) paint-only and coalesce
+        // host sync onto the next main-run-loop turn.
+        scheduleEmbeddedSubviewSync()
 
         // Dim card parts and draw border when editing background
         if editingBackground {
@@ -2895,8 +2867,8 @@ class CardCanvasNSView: NSView {
     /// so they don't float on top of the SpriteKit card
     /// transition. Called after capturing the current card's
     /// bitmap but before the transition animation starts.
-    /// The subviews are recreated by updateNSView → draw()
-    /// after the transition completes.
+    /// The subviews are recreated by the deferred embedded-subview
+    /// sync after the transition completes.
     private func hideAllEmbeddedSubviews() {
         for (_, wv) in webViews { wv.isHidden = true }
         for (_, vp) in videoPlayers { vp.isHidden = true }
@@ -2905,7 +2877,7 @@ class CardCanvasNSView: NSView {
         // New control overlays added in 2026 — every native overlay
         // host needs to hide during a SpriteKit card transition,
         // otherwise it floats over the transition animation in its
-        // old-card position. Recreated by updateNSView → draw().
+        // old-card position. Recreated by the deferred host sync.
         for (_, v) in calendarViews { v.isHidden = true }
         for (_, v) in pdfViews { v.isHidden = true }
         for (_, v) in mapViews { v.isHidden = true }
@@ -3904,6 +3876,43 @@ class CardCanvasNSView: NSView {
 
     // MARK: - Web View Management
 
+    func scheduleEmbeddedSubviewSync() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.scheduleEmbeddedSubviewSync()
+            }
+            return
+        }
+        guard !isTransitioning, !screenLocked else { return }
+        guard !embeddedSubviewSyncScheduled else { return }
+        embeddedSubviewSyncScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.embeddedSubviewSyncScheduled = false
+            guard !self.isTransitioning, !self.screenLocked else { return }
+            self.syncEmbeddedSubviews()
+        }
+    }
+
+    private func syncEmbeddedSubviews() {
+        updateWebViews()
+        updateVideoPlayers()
+        updateChartViews()
+        updateCalendarViews()
+        updatePDFViews()
+        updateMapViews()
+        updateColorWellViews()
+        updateFormControlViews()
+        updateAppleMusicBrowserViews()
+        updateMusicInstrumentPopupViews()
+        updateAudioRecorderViews()
+        updateScene3DViews()
+        updateProgressViewHosts()
+        updateGaugeHosts()
+        updatePartToolTips()
+        updateSpriteViews()
+    }
+
     /// Create, update, or remove WKWebViews for webpage parts on the current card.
     private func updateWebViews() {
         let toolState = ToolState(currentTool: currentTool.rawValue)
@@ -4598,6 +4607,9 @@ class CardCanvasNSView: NSView {
                     host.apply(part)
                     host.onValueChange = { [weak self] v in
                         self?.coordinator?.setPartControlValue(id: partId, value: v, message: "valueChanged")
+                    }
+                    host.onInteractionEnd = { [weak self] in
+                        self?.coordinator?.dispatchMessage("mouseUp", to: partId)
                     }
                     addSubview(host, positioned: .above, relativeTo: nil)
                     sliderViews[partId] = host

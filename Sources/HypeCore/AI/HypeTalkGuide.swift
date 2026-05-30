@@ -151,6 +151,8 @@ public enum HypeTalkGuide {
             set the visible of button "OK" to false        -- hide a button
             set the visible of image "logo" to not the visible of image "logo"   -- toggle (boolean negation)
             set the loc of sprite "player" to "200,300"      -- points are "x,y" strings
+            -- Prefer `set the <property> of <object> to <value>`.
+            -- `set property <property> of <object> to <value>` is accepted for compatibility only.
             set the location of map "store" to "97537"       -- map: location is overloaded — non-coords routes to mapLocation (geocode)
             set the location of button "play" to "100,200"   -- non-map: location = geometric center (same as loc)
             answer the theme of this card                    -- direct card override; may be empty when inherited
@@ -654,7 +656,9 @@ public enum HypeTalkGuide {
               set the textContent of field "level" to v
             end valueChanged
             -- Stepper has the same `value` property and the same
-            -- `valueChanged` message.
+            -- `valueChanged` message. Sliders also receive mouseUp
+            -- once when the user releases the knob after a click/drag;
+            -- use valueChanged for live updates and mouseUp for commit work.
 
         **React to a toggle / switch flip:**
             -- Switch / checkbox / toggle styled buttons flip `hilite`

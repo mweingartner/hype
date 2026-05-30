@@ -77,9 +77,23 @@ final class StepperHostNSView: NSView {
 
 // MARK: - Slider
 
+final class HypeSliderControl: NSSlider {
+    var onMouseTrackingEnded: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        super.mouseDown(with: event)
+        notifyMouseTrackingEnded()
+    }
+
+    func notifyMouseTrackingEnded() {
+        onMouseTrackingEnded?()
+    }
+}
+
 final class SliderHostNSView: NSView {
-    let slider = NSSlider()
+    let slider = HypeSliderControl()
     var onValueChange: ((Double) -> Void)?
+    var onInteractionEnd: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -87,6 +101,9 @@ final class SliderHostNSView: NSView {
         slider.target = self
         slider.action = #selector(sliderDidChange)
         slider.isContinuous = true
+        slider.onMouseTrackingEnded = { [weak self] in
+            self?.onInteractionEnd?()
+        }
         addSubview(slider)
         NSLayoutConstraint.activate([
             slider.topAnchor.constraint(equalTo: topAnchor),

@@ -190,3 +190,54 @@ struct CardCanvasAnimatorCallbackTests {
         window.contentView = nil
     }
 }
+
+@MainActor
+@Suite("CardCanvasNSView — draw side effects")
+struct CardCanvasDrawSideEffectTests {
+    @Test("draw schedules embedded subview sync instead of constructing hosts inline")
+    func drawSchedulesEmbeddedSubviewSyncInsteadOfConstructingHostsInline() throws {
+        let source = try String(
+            contentsOf: packageRoot().appendingPathComponent("Sources/Hype/Views/CardCanvasView.swift"),
+            encoding: .utf8
+        )
+        guard let drawStart = source.range(of: "override func draw(_ dirtyRect: NSRect)")?.lowerBound,
+              let mouseDownStart = source.range(of: "override func mouseDown", range: drawStart..<source.endIndex)?.lowerBound else {
+            Issue.record("Could not locate CardCanvasNSView.draw(_:) body")
+            return
+        }
+
+        let drawBody = source[drawStart..<mouseDownStart]
+        #expect(drawBody.contains("scheduleEmbeddedSubviewSync()"))
+        for updateCall in [
+            "updateWebViews()",
+            "updateVideoPlayers()",
+            "updateChartViews()",
+            "updateCalendarViews()",
+            "updatePDFViews()",
+            "updateMapViews()",
+            "updateColorWellViews()",
+            "updateFormControlViews()",
+            "updateAppleMusicBrowserViews()",
+            "updateMusicInstrumentPopupViews()",
+            "updateAudioRecorderViews()",
+            "updateScene3DViews()",
+            "updateProgressViewHosts()",
+            "updateGaugeHosts()",
+            "updatePartToolTips()",
+            "updateSpriteViews()",
+        ] {
+            #expect(!drawBody.contains("\n        \(updateCall)"))
+        }
+    }
+
+    private func packageRoot() throws -> URL {
+        var url = URL(fileURLWithPath: #filePath)
+        while url.path != "/" {
+            url.deleteLastPathComponent()
+            if FileManager.default.fileExists(atPath: url.appendingPathComponent("Package.swift").path) {
+                return url
+            }
+        }
+        throw CocoaError(.fileNoSuchFile)
+    }
+}

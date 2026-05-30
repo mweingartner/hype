@@ -439,7 +439,7 @@ given `partType`. The fields fall into bands:
 | pdf              | `pdfURL`, `pdfCurrentPage`, `pdfDisplayMode`, `pdfAutoScales`            |
 | map              | `mapCenterLat`, `mapCenterLon`, `mapSpan`, `mapType`, `mapAnnotationsJSON`, `mapLocation` *(geocoded)* |
 | colorWell        | `colorWellHex`, `colorWellInteractive`                                   |
-| stepper / slider | `controlValue`, `controlMin`, `controlMax`, `controlStep`; sliders derive horizontal/vertical rendering from their bounds, using the longest dimension as the interactive axis |
+| stepper / slider | `controlValue`, `controlMin`, `controlMax`, `controlStep`; sliders derive horizontal/vertical rendering from their bounds, using the longest dimension as the interactive axis, and dispatch `valueChanged` during tracking plus `mouseUp` when tracking ends |
 | segmented        | `segmentItems` *(pipe-separated)*, `controlValue` *(selected index)*     |
 | progressView     | `progressValue`, `progressTotal`, `progressIsCircular`, `progressIsIndeterminate`, `progressLabel`, `progressTint`, `progressDecimals` |
 | gauge            | `gaugeValue`, `gaugeMin`, `gaugeMax`, `gaugeStyle`, `gaugeTint`, `gaugeLabel`, `gaugeMinLabel`, `gaugeMaxLabel`, `gaugeDecimals` |
@@ -961,10 +961,14 @@ var loadedSceneSpecs:   [UUID: String]   // last applied spec, JSON-equality cac
 var loadedActiveSceneIDs: [UUID: UUID]    // active scene ID for lifecycle close/open
 ```
 
-`updateSpriteViews()` (CardCanvasView.swift:3530) is called from `draw()`.
-It considers both visible card parts and visible parts on the current card's
-background, so embedded scenes owned by either layer follow the same lifecycle.
-For each visible `spriteArea` part it:
+`updateSpriteViews()` participates in the canvas native-overlay sync pass,
+which is scheduled outside `draw(_:)` on the main run loop. `draw(_:)` remains
+paint-only: it renders the Core Graphics card surface and coalesces host-view
+reconciliation for later, but it does not create `WKWebView`, `AVPlayerView`,
+`NSHostingView`, `SKView`, or other native subviews during the Core Animation
+display transaction. The sync pass considers both visible card parts and
+visible parts on the current card's background, so embedded scenes owned by
+either layer follow the same lifecycle. For each visible `spriteArea` part it:
 
 1. Lazily creates a `PassthroughSKView` and a `HypeSKScene` if none exist.
 2. Compares the part's current `sceneSpec` JSON to the cached one. Because that
@@ -1842,7 +1846,12 @@ var paintLayers:         [UUID: PaintLayer]   // per-card runtime cache, mirrore
 var activeFieldEditor:   NSTextField?         // single inline editor at a time
 ```
 
-On every layout pass, each visible part of an overlay-eligible type has
+On every document/layout/bounds update, `CardCanvasNSView` coalesces an
+embedded-subview sync onto the next main-run-loop turn. The sync pass creates,
+updates, hides, or removes overlay hosts after drawing completes; this avoids
+synchronous WebKit/AppKit/SpriteKit host construction inside `draw(_:)`, where
+Core Animation is already committing a display transaction. Each visible part
+of an overlay-eligible type has
 its overlay subview created (lazily), positioned to its part rect, and
 configured. Parts that disappear have their overlays torn down. The
 overlay set is recorded in a `nativePartIds` set so `CardRenderer`
@@ -2720,7 +2729,8 @@ HypeTalk message hierarchy:
 - `sceneDidLoad` — once per scene rebuild, dispatched before `openScene`
   through the scene → sprite area → card → background → stack chain
 - `mouseDown` / `mouseUp` / `mouseDragged` — both for classic parts and
-  for sprite-area nodes
+  for sprite-area nodes; native browse-mode slider overlays synthesize
+  `mouseUp` through the normal dispatcher when AppKit slider tracking ends
 - `mouseWithin` / `frameUpdate` — SpriteKit-driven interaction / frame hooks
 - `beginContact` / `endContact` / `actionFinished` — physics and action events
 - async callback messages chosen by the user, e.g. `aiFinished`,

@@ -49,14 +49,6 @@ private struct TargetCanvasFrameModifier: ViewModifier {
     }
 }
 
-fileprivate struct ScriptErrorSheetRequest: Identifiable {
-    let id = UUID()
-    var target: ScriptTarget
-    var partId: UUID?
-    var line: Int?
-    var message: String?
-}
-
 private struct ScriptActivityStatusControl: View {
     let runningScripts: [RuntimeStatusSnapshot.RunningScriptSummary]
     var action: () -> Void
@@ -275,7 +267,6 @@ struct MainContentView: View {
     @State private var pencilRadius: Double = 2
     @State private var showRepository: Bool = false
     @State private var showNetworkPanel: Bool = false
-    @State private var scriptErrorSheetRequest: ScriptErrorSheetRequest?
     @State private var runtimeStatus = RuntimeStatusSnapshot(requests: [], listeners: [], connections: [])
     @State private var showTargetSelectionSheet: Bool = false
     @State private var emulatedProfileId: String?
@@ -377,8 +368,7 @@ struct MainContentView: View {
                 document: trackedDocumentBinding,
                 currentCardId: $currentCardId,
                 currentTool: $currentTool,
-                selectedPartIds: $selectedPartIds,
-                scriptErrorSheetRequest: $scriptErrorSheetRequest
+                selectedPartIds: $selectedPartIds
             ))
             .modifier(NavigationHandlers(
                 document: trackedDocumentBinding,
@@ -596,17 +586,6 @@ struct MainContentView: View {
         }
         .sheet(isPresented: $showTargetSelectionSheet) {
             StackTargetSelectionSheet(document: trackedDocumentBinding)
-        }
-        .sheet(item: $scriptErrorSheetRequest) { request in
-            ScriptEditor(
-                document: trackedDocumentBinding,
-                partId: request.partId,
-                target: request.target,
-                initialErrorLine: request.line,
-                initialErrorMessage: request.message,
-                identityKey: request.target.identityKey,
-                onDone: { scriptErrorSheetRequest = nil }
-            )
         }
     }
 
@@ -1125,7 +1104,6 @@ private struct ScriptErrorConsoleHandlers: ViewModifier {
     @Binding var currentCardId: UUID?
     @Binding var currentTool: ToolName
     @Binding var selectedPartIds: Set<UUID>
-    @Binding var scriptErrorSheetRequest: ScriptErrorSheetRequest?
 
     func body(content: Content) -> some View {
         content
@@ -1141,15 +1119,26 @@ private struct ScriptErrorConsoleHandlers: ViewModifier {
 
     private func openScriptErrorLink(notification: Notification) {
         guard let url = notification.userInfo?["url"] as? URL else { return }
-        if let request = makeScriptErrorSheetRequest(from: url) {
+        if let request = makeScriptErrorOpenRequest(from: url) {
             revealScriptTarget(request.target)
-            scriptErrorSheetRequest = request
+            openScriptEditorWindow(
+                document: $document,
+                partId: request.partId,
+                target: request.target,
+                initialErrorLine: request.line,
+                initialErrorMessage: request.message
+            )
             return
         }
         openHypeReference(url)
     }
 
-    private func makeScriptErrorSheetRequest(from url: URL) -> ScriptErrorSheetRequest? {
+    private func makeScriptErrorOpenRequest(from url: URL) -> (
+        target: ScriptTarget,
+        partId: UUID?,
+        line: Int?,
+        message: String?
+    )? {
         guard url.scheme == "hype",
               url.host == "script-error" || url.host == "script",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
@@ -1161,7 +1150,7 @@ private struct ScriptErrorConsoleHandlers: ViewModifier {
         }
         guard let kind = query["target"],
               let target = scriptTarget(kind: kind, query: query) else { return nil }
-        return ScriptErrorSheetRequest(
+        return (
             target: target,
             partId: partId(for: target),
             line: query["line"].flatMap(Int.init),

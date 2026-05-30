@@ -38,6 +38,8 @@ next repeat    -- continue
 
 `on mouseUp`, `on mouseDown`, `on mouseEnter`, `on mouseLeave`, `on mouseWithin`, `on openCard`, `on closeCard`, `on openField`, `on closeField`, `on enterKey`, `on idle`, `on keyDown`, `on keyUp`, `on listen`, `on chartChange`, `on sceneDidLoad`, `on openScene`, `on closeScene`, `on frameUpdate`, `on beginContact`, `on endContact`, `on actionFinished`
 
+Sliders dispatch `valueChanged` during live changes and `mouseUp` once when the user releases the slider after a click or drag. Use `valueChanged` for immediate feedback and `mouseUp` for commit-style work.
+
 Interactive spider/radar charts dispatch `chartChange` when a dragged data point changes. Param 1 is the series/dataset name, `it` is the data point name, and `chartValue` is the new value. Spider charts use series colors and per-point `min` / `value` / `max`; they do not have X/Y labels or chart-level min/max. `spider_decimal_places` controls drag and label precision; `0` or an omitted value means integer values. Use `pass chartChange` to continue up the part/card/background/stack chain.
 
 ## Variables & Data
@@ -75,6 +77,11 @@ set the loc of button "OK" to "100,200"
 put the text of field "input" into t
 set the visible of field "info" to false
 ```
+
+Prefer canonical property syntax: `set the <property> of <object> to <value>` and
+`the <property> of <object>`. The parser also tolerates the transparent word
+`property` in forms like `set property span of map "mapper" to 0.005`, but do
+not generate that form unless preserving a user's existing script.
 
 **Part properties:** name, id, left, top, width, height, right, bottom, loc (x,y), rect (l,t,r,b), visible, enabled, hilite, style, textFont, textSize, textAlign, textStyle, fillColor, strokeColor, strokeWidth, cornerRadius, script, showName, autoHilite, lockText
 
