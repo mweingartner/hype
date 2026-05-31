@@ -2348,7 +2348,8 @@ This keeps long-running import probes from tripping macOS document autosave
 conflicts while still allowing manual inspection when needed. Stackimport
 package summaries include optional diagnostics for source manifests, script
 indexes, external call counts, font fallback resolution, and ignored package
-files; these are optional legacy-import report metadata and do not require a
+files, plus generated `.hype` package byte counts for live import profiling;
+these are optional legacy-import report metadata and do not require a
 document-version migration.
 
 Tool schemas use OpenAI-style JSON: `{type: "function", function: {name,
