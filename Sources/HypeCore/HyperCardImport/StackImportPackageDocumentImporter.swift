@@ -428,6 +428,7 @@ public struct StackImportPackageProjectImportResult: Sendable {
         let byteCounts = packageSummaries.compactMap(\.outputPackageByteCount)
         return StackImportPackageProjectImportSummary(
             stackCount: packageResults.count,
+            sourcePackagePaths: packageResults.compactMap { $0.sourcePackageURL?.path },
             outputPackagePaths: packageResults.map(\.outputPackageURL.path),
             totalOutputPackageByteCount: byteCounts.count == packageSummaries.count ? byteCounts.reduce(0, +) : nil,
             totalImportDurationMilliseconds: importDurationMilliseconds,
@@ -480,6 +481,7 @@ public struct StackImportPackageProjectImportResult: Sendable {
 
 public struct StackImportPackageProjectImportSummary: Codable, Equatable, Sendable {
     public var stackCount: Int
+    public var sourcePackagePaths: [String]
     public var outputPackagePaths: [String]
     public var totalOutputPackageByteCount: Int64?
     public var totalImportDurationMilliseconds: Double?
@@ -490,6 +492,7 @@ public struct StackImportPackageProjectImportSummary: Codable, Equatable, Sendab
 
     public init(
         stackCount: Int,
+        sourcePackagePaths: [String] = [],
         outputPackagePaths: [String],
         totalOutputPackageByteCount: Int64? = nil,
         totalImportDurationMilliseconds: Double? = nil,
@@ -499,6 +502,7 @@ public struct StackImportPackageProjectImportSummary: Codable, Equatable, Sendab
         packages: [StackImportPackageDocumentImportSummary]
     ) {
         self.stackCount = stackCount
+        self.sourcePackagePaths = sourcePackagePaths
         self.outputPackagePaths = outputPackagePaths
         self.totalOutputPackageByteCount = totalOutputPackageByteCount
         self.totalImportDurationMilliseconds = totalImportDurationMilliseconds

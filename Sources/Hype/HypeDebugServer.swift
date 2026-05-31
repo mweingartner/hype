@@ -1639,6 +1639,7 @@ final class HypeDebugServer: @unchecked Sendable {
     private func stackImportProjectDebugResult(from summary: StackImportPackageProjectImportSummary) -> [String: Any] {
         [
             "stackCount": summary.stackCount,
+            "sourcePackagePaths": summary.sourcePackagePaths,
             "outputPackagePaths": summary.outputPackagePaths,
             "totalOutputPackageByteCount": stackImportValueOrNull(summary.totalOutputPackageByteCount),
             "totalImportDurationMilliseconds": stackImportValueOrNull(summary.totalImportDurationMilliseconds),
