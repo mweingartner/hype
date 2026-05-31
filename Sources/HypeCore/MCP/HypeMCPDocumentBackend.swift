@@ -144,10 +144,9 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
 
     public func resetTestStack(
         name: String = "MCP Test Stack",
-        deploymentTargets: StackDeploymentTargets = .macOSDefault(selectionPromptAcknowledged: true)
+        deploymentTargets: StackDeploymentTargets = .automationDefault()
     ) {
-        document = HypeDocument.newDocument(name: name)
-        document.stack.deploymentTargets = deploymentTargets
+        document = HypeDocument.newDocument(name: name, deploymentTargets: deploymentTargets)
         currentCardId = document.sortedCards.first?.id ?? UUID()
         selectedPartIds = []
         currentTool = "browse"
@@ -214,47 +213,14 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
             return rollbackTransaction(idText: arguments["transaction_id"]?.flattenedString ?? "")
         case "hype_create_test_stack":
             guard allowMutations else { return error("MCP mutations are disabled.") }
-            guard let deploymentTargets = parseDeploymentTargets(arguments: arguments) else {
-                return error("Invalid target_platforms. Expected macOS, iPhone, iPad, or tvOS.")
-            }
             resetTestStack(
                 name: arguments["name"]?.flattenedString.nilIfEmpty ?? "MCP Test Stack",
-                deploymentTargets: deploymentTargets
+                deploymentTargets: automationDeploymentTargets(from: arguments)
             )
             return appState()
         default:
             return error("Unknown MCP control tool \(name)")
         }
-    }
-
-    private func parseDeploymentTargets(arguments: [String: HypeMCPJSONValue]) -> StackDeploymentTargets? {
-        let targetText = arguments["target_platforms"]?.flattenedString
-            ?? arguments["targetPlatforms"]?.flattenedString
-            ?? arguments["target_platform"]?.flattenedString
-            ?? arguments["targetPlatform"]?.flattenedString
-        let selected: [HypeTargetPlatform]
-        if let targetText, !targetText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            guard let parsed = HypeTargetPlatform.parseList(targetText), !parsed.isEmpty else { return nil }
-            selected = parsed
-        } else {
-            selected = [.macOS]
-        }
-
-        let primaryText = arguments["primary_target_platform"]?.flattenedString
-            ?? arguments["primaryTargetPlatform"]?.flattenedString
-        let primary: HypeTargetPlatform
-        if let primaryText, !primaryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            guard let parsed = HypeTargetPlatform.parse(primaryText), selected.contains(parsed) else { return nil }
-            primary = parsed
-        } else {
-            primary = selected.first ?? .macOS
-        }
-
-        return StackDeploymentTargets(
-            selectedPlatforms: selected,
-            primaryPlatform: primary,
-            selectionPromptAcknowledged: true
-        )
     }
 
     private func runExistingTool(name: String, arguments: [String: String]) async -> String {
@@ -268,6 +234,24 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
         document = draft
         updateNavigation(from: result)
         return result
+    }
+
+    private func automationDeploymentTargets(from arguments: [String: HypeMCPJSONValue]) -> StackDeploymentTargets {
+        let selected = automationTargetPlatforms(from: arguments["target_platforms"] ?? arguments["targetPlatforms"])
+        let primary = (arguments["primary_target_platform"] ?? arguments["primaryTargetPlatform"])
+            .flatMap { $0.flattenedString }
+            .flatMap(HypeTargetPlatform.parse)
+        return .automationDefault(selectedPlatforms: selected.isEmpty ? [.macOS] : selected, primaryPlatform: primary)
+    }
+
+    private func automationTargetPlatforms(from value: HypeMCPJSONValue?) -> [HypeTargetPlatform] {
+        guard let value else { return [] }
+        if let array = value.arrayValue {
+            return array.compactMap { $0.flattenedString }.compactMap(HypeTargetPlatform.parse)
+        }
+        return value.flattenedString
+            .split(separator: ",")
+            .compactMap { HypeTargetPlatform.parse(String($0)) }
     }
 
     private func previewTransaction(arguments: [String: HypeMCPJSONValue]) async -> HypeMCPJSONValue {
@@ -362,9 +346,7 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
             "partCount": .number(Double(document.parts.count)),
             "currentCardId": .string(currentCardId.uuidString),
             "runtimeModeEnabled": .bool(document.stack.runtimeModeEnabled),
-            "targetPlatforms": .array(document.stack.deploymentTargets.selectedPlatforms.map { .string($0.rawValue) }),
-            "primaryTargetPlatform": .string(document.stack.deploymentTargets.primaryPlatform.rawValue),
-            "targetSelectionPromptAcknowledged": .bool(document.stack.deploymentTargets.selectionPromptAcknowledged)
+            "targetPlatforms": .array(document.stack.deploymentTargets.selectedPlatforms.map { .string($0.rawValue) })
         ]
         if !compact {
             object["cards"] = .array(document.sortedCards.map(cardSummary))

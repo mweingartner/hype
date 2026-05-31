@@ -137,11 +137,11 @@ public enum HypeMCPToolBridge {
             ),
             tool(
                 "hype_create_test_stack",
-                "Create or reset the automation backend to a deterministic test stack. Defaults to an acknowledged macOS target unless target_platforms is supplied.",
+                "Create or reset the automation backend to a deterministic test stack. Defaults to an acknowledged macOS target unless target_platforms is provided. In the live app this creates a new in-memory stack in the active session.",
                 [
                     "name": ("string", "Stack name", false),
                     "target_platforms": ("string", "Optional comma-separated target platforms: macOS, iPhone, iPad, tvOS. Defaults to macOS.", false),
-                    "primary_target_platform": ("string", "Optional primary target platform. Defaults to the first target_platforms value.", false)
+                    "primary_target_platform": ("string", "Optional primary target platform. Defaults to the first selected target.", false)
                 ]
             )
         ]

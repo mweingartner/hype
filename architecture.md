@@ -2318,6 +2318,19 @@ with `debug/keepalive`, and proxies MCP tool calls into the debug bridge. This
 lets Hype.app instances come and go independently while MCP clients keep a
 stable stdio server process.
 
+Automation-created stacks and imports use acknowledged macOS deployment targets
+by default, with explicit `target_platforms` / `primary_target_platform`
+overrides available through CLI, MCP, and debug JSON-RPC entry points. Debug
+HyperCard and stackimport imports can load the generated `.hype` package into an
+in-memory debug document by default instead of opening a visible autosaved
+document window; callers opt into visible AppKit windows with `display: true`.
+This keeps long-running import probes from tripping macOS document autosave
+conflicts while still allowing manual inspection when needed. Stackimport
+package summaries include optional diagnostics for source manifests, script
+indexes, external call counts, font fallback resolution, and ignored package
+files; these are optional legacy-import report metadata and do not require a
+document-version migration.
+
 Tool schemas use OpenAI-style JSON: `{type: "function", function: {name,
 description, parameters: { … JSON Schema … }}}`. The client encodes those
 schemas in the request body alongside the conversation messages. When

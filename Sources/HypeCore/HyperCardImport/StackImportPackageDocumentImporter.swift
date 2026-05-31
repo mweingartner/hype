@@ -10,6 +10,7 @@ public struct StackImportPackageDocumentImportOptions: Sendable {
     public var looseMediaNames: Set<String>?
     public var stackLibraryEntries: [HypeStackLibraryEntry]
     public var usedStackAliases: [String]
+    public var deploymentTargets: StackDeploymentTargets
 
     public init(
         packageURL: URL,
@@ -20,7 +21,8 @@ public struct StackImportPackageDocumentImportOptions: Sendable {
         looseMediaReplacementRootURL: URL? = nil,
         looseMediaNames: Set<String>? = nil,
         stackLibraryEntries: [HypeStackLibraryEntry] = [],
-        usedStackAliases: [String] = []
+        usedStackAliases: [String] = [],
+        deploymentTargets: StackDeploymentTargets = .automationDefault()
     ) {
         self.packageURL = packageURL
         self.outputDirectoryURL = outputDirectoryURL
@@ -31,6 +33,7 @@ public struct StackImportPackageDocumentImportOptions: Sendable {
         self.looseMediaNames = looseMediaNames
         self.stackLibraryEntries = stackLibraryEntries
         self.usedStackAliases = usedStackAliases
+        self.deploymentTargets = deploymentTargets
     }
 }
 
@@ -62,6 +65,7 @@ public struct StackImportPackageDocumentImportResult: Sendable {
             sharedContentAssetCount: document.assetRepository.assets.filter(\.isSharedContentStackAsset).count,
             outputPackagePath: outputPackageURL.path,
             warnings: report.warnings,
+            stackImportDiagnostics: report.stackImportDiagnostics,
             looseMedia: looseMediaResult.map { result in
                 StackImportLooseMediaImportSummary(
                     importedAssetCount: result.importedAssets.count,
@@ -102,6 +106,7 @@ public struct StackImportPackageDocumentImportSummary: Codable, Equatable, Senda
     public var sharedContentAssetCount: Int
     public var outputPackagePath: String
     public var warnings: [String]
+    public var stackImportDiagnostics: StackImportPackageDiagnostics?
     public var looseMedia: StackImportLooseMediaImportSummary?
     public var stackLibrary: StackImportPackageStackLibrarySummary?
 
@@ -114,6 +119,7 @@ public struct StackImportPackageDocumentImportSummary: Codable, Equatable, Senda
         sharedContentAssetCount: Int = 0,
         outputPackagePath: String,
         warnings: [String],
+        stackImportDiagnostics: StackImportPackageDiagnostics?,
         looseMedia: StackImportLooseMediaImportSummary? = nil,
         stackLibrary: StackImportPackageStackLibrarySummary? = nil
     ) {
@@ -125,6 +131,7 @@ public struct StackImportPackageDocumentImportSummary: Codable, Equatable, Senda
         self.sharedContentAssetCount = sharedContentAssetCount
         self.outputPackagePath = outputPackagePath
         self.warnings = warnings
+        self.stackImportDiagnostics = stackImportDiagnostics
         self.looseMedia = looseMedia
         self.stackLibrary = stackLibrary
     }
@@ -181,6 +188,12 @@ public struct StackImportLooseMediaImportedAssetSummary: Codable, Equatable, Sen
     }
 }
 
+private extension Asset {
+    func metadataValue(for key: String) -> String {
+        metadata.first { $0.key == key }?.value ?? ""
+    }
+}
+
 public struct StackImportPackageStackLibrarySummary: Codable, Equatable, Sendable {
     public var entryCount: Int
     public var usedStackAliases: [String]
@@ -199,7 +212,9 @@ public struct StackImportPackageDocumentImporter: Sendable {
     public func importPackage(
         options: StackImportPackageDocumentImportOptions
     ) throws -> StackImportPackageDocumentImportResult {
-        var result = try StackImportPackageConverter().convert(packageURL: options.packageURL)
+        var result = try StackImportPackageConverter(
+            options: HyperCardImportOptions(deploymentTargets: options.deploymentTargets)
+        ).convert(packageURL: options.packageURL)
         let looseMediaResult = try importLooseMediaIfRequested(options: options, into: &result.document)
         let outputURL = outputPackageURL(for: options, stackName: result.document.stack.name)
         applyStackLibraryIfRequested(options: options, outputPackageURL: outputURL, to: &result.document)
@@ -326,6 +341,7 @@ public struct StackImportPackageProjectImportOptions: Sendable {
     public var looseMediaNames: Set<String>?
     public var stackLibraryEntries: [HypeStackLibraryEntry]
     public var usedStackAliases: [String]
+    public var deploymentTargets: StackDeploymentTargets
 
     public init(
         packageURLs: [URL],
@@ -335,7 +351,8 @@ public struct StackImportPackageProjectImportOptions: Sendable {
         looseMediaReplacementRootURL: URL? = nil,
         looseMediaNames: Set<String>? = nil,
         stackLibraryEntries: [HypeStackLibraryEntry] = [],
-        usedStackAliases: [String] = []
+        usedStackAliases: [String] = [],
+        deploymentTargets: StackDeploymentTargets = .automationDefault()
     ) {
         self.packageURLs = packageURLs
         self.outputDirectoryURL = outputDirectoryURL
@@ -345,6 +362,7 @@ public struct StackImportPackageProjectImportOptions: Sendable {
         self.looseMediaNames = looseMediaNames
         self.stackLibraryEntries = stackLibraryEntries
         self.usedStackAliases = usedStackAliases
+        self.deploymentTargets = deploymentTargets
     }
 }
 
@@ -487,7 +505,8 @@ public struct StackImportPackageProjectImporter: Sendable {
                     looseMediaReplacementRootURL: options.looseMediaReplacementRootURL,
                     looseMediaNames: options.looseMediaNames,
                     stackLibraryEntries: options.stackLibraryEntries,
-                    usedStackAliases: options.usedStackAliases
+                    usedStackAliases: options.usedStackAliases,
+                    deploymentTargets: options.deploymentTargets
                 )
             )
             packageResults.append(result)
@@ -615,7 +634,7 @@ public struct StackImportPackageProjectImporter: Sendable {
         into repository: AssetRepository
     ) -> Bool {
         if let classicName = asset.classicMediaName,
-           repository.asset(byName: classicName, kind: asset.kind) != nil {
+           repository.asset(byClassicMediaName: classicName, kind: asset.kind) != nil {
             return false
         }
         if repository.assets.contains(where: { candidate in
@@ -649,12 +668,6 @@ public struct StackImportPackageProjectImporter: Sendable {
 private extension String {
     var nonEmpty: String? {
         isEmpty ? nil : self
-    }
-}
-
-private extension Asset {
-    func metadataValue(for key: String) -> String {
-        metadata.first { $0.key == key }?.value ?? ""
     }
 }
 

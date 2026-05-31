@@ -4,7 +4,7 @@ import Foundation
 import HypeCore
 
 private let hypeDebugMaxRequestBytes = 1_048_576
-private let hypeDebugSocketTimeoutSeconds = 30
+private let hypeDebugSocketTimeoutSeconds = 300
 
 private final class HypeDebugResponseBox: @unchecked Sendable {
     var response: [String: Any]
@@ -16,6 +16,49 @@ private final class HypeDebugResponseBox: @unchecked Sendable {
 
 extension Notification.Name {
     static let hypeDebugConnectionStatusDidChange = Notification.Name("hypeDebugConnectionStatusDidChange")
+}
+
+enum HypeDebugScriptGlobalSeedParser {
+    static func globals(from params: [String: Any]) -> [String: String]? {
+        let raw = params["scriptGlobals"] ?? params["globals"] ?? params["hypercardGlobals"]
+        guard let raw else { return nil }
+        if let object = raw as? [String: Any] {
+            return stringify(object)
+        }
+        if let object = raw as? NSDictionary {
+            var result: [String: Any] = [:]
+            for (key, value) in object {
+                guard let key = key as? String else { continue }
+                result[key] = value
+            }
+            return stringify(result)
+        }
+        if let json = raw as? String,
+           let data = json.data(using: .utf8),
+           let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return stringify(decoded)
+        }
+        return nil
+    }
+
+    static func stringify(_ object: [String: Any]) -> [String: String] {
+        var result: [String: String] = [:]
+        for (key, value) in object {
+            let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedKey.isEmpty, !(value is NSNull) else { continue }
+            switch value {
+            case let bool as Bool:
+                result[trimmedKey] = bool ? "true" : "false"
+            case let string as String:
+                result[trimmedKey] = string
+            case let number as NSNumber:
+                result[trimmedKey] = number.stringValue
+            default:
+                result[trimmedKey] = String(describing: value)
+            }
+        }
+        return result
+    }
 }
 
 struct HypeDebugServerStatus: Equatable {
@@ -41,6 +84,7 @@ final class HypeDebugServer: @unchecked Sendable {
     private let startedAt = Date()
     private let startedAtString: String
     private var transactions: [UUID: AIEditTransaction] = [:]
+    @MainActor private var debugLoadedDocument: HypeDocument?
     private var listenSocket: Int32 = -1
     private var acceptSource: DispatchSourceRead?
     private var socketPath = ""
@@ -164,7 +208,7 @@ final class HypeDebugServer: @unchecked Sendable {
 
     @MainActor
     private func descriptor() -> [String: Any] {
-        let document = HypeDocumentMutationCoordinator.shared.activeDocumentBinding?.wrappedValue.document
+        let document = debugLoadedDocument ?? HypeDocumentMutationCoordinator.shared.activeDocumentBinding?.wrappedValue.document
         let bundle = Bundle.main
         return [
             "protocolVersion": 1,
@@ -217,6 +261,12 @@ final class HypeDebugServer: @unchecked Sendable {
         withUnsafePointer(to: &timeout) { pointer in
             pointer.withMemoryRebound(to: UInt8.self, capacity: MemoryLayout<timeval>.size) {
                 _ = Darwin.setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, $0, socklen_t(MemoryLayout<timeval>.size))
+            }
+        }
+        var noSigPipe: Int32 = 1
+        withUnsafePointer(to: &noSigPipe) { pointer in
+            pointer.withMemoryRebound(to: UInt8.self, capacity: MemoryLayout<Int32>.size) {
+                _ = Darwin.setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, $0, socklen_t(MemoryLayout<Int32>.size))
             }
         }
         let flags = Darwin.fcntl(client, F_GETFL, 0)
@@ -362,13 +412,39 @@ final class HypeDebugServer: @unchecked Sendable {
                 guard let path = params["path"] as? String, !path.isEmpty else {
                     return jsonRPCError(id: id, code: -32602, message: "debug/importHyperCardStack requires params.path")
                 }
-                return await importHyperCardStack(path: path, params: params, id: id)
+                return await importHyperCardStack(params: params, path: path, id: id)
+            case "debug/importStackImportPackage":
+                guard let path = params["path"] as? String, !path.isEmpty else {
+                    return jsonRPCError(id: id, code: -32602, message: "debug/importStackImportPackage requires params.path")
+                }
+                return await importStackImportPackage(params: params, id: id)
+            case "debug/importStackImportProject":
+                let packageURLs = stackImportPackageURLs(from: params)
+                guard !packageURLs.isEmpty else {
+                    return jsonRPCError(id: id, code: -32602, message: "debug/importStackImportProject requires params.paths or params.packages[].path")
+                }
+                return await importStackImportProject(packageURLs: packageURLs, params: params, id: id)
+            case "debug/openDocument":
+                guard let path = params["path"] as? String, !path.isEmpty else {
+                    return jsonRPCError(id: id, code: -32602, message: "debug/openDocument requires params.path")
+                }
+                return await openDocument(params: params, path: path, id: id)
+            case "debug/routeProjectNavigationTarget":
+                guard let target = projectNavigationTarget(from: params["target"] as? [String: Any] ?? params) else {
+                    return jsonRPCError(id: id, code: -32602, message: "debug/routeProjectNavigationTarget requires a projectNavigationTarget object")
+                }
+                return await routeProjectNavigationTarget(target, id: id)
             case "debug/clickButton":
                 let cardReference = params["card"] as? String
                 guard let buttonName = params["button"] as? String, !buttonName.isEmpty else {
                     return jsonRPCError(id: id, code: -32602, message: "debug/clickButton requires params.button")
                 }
-                return await clickButton(named: buttonName, onCard: cardReference, id: id)
+                return await clickButton(named: buttonName, onCard: cardReference, params: params, id: id)
+            case "debug/runScript":
+                guard let script = params["script"] as? String, !script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    return jsonRPCError(id: id, code: -32602, message: "debug/runScript requires params.script")
+                }
+                return await runScript(script, params: params, id: id)
             case "debug/getScriptState":
                 return jsonRPCResult(id: id, result: scriptState(params: params))
             case "debug/hello", "debug/getState":
@@ -412,17 +488,24 @@ final class HypeDebugServer: @unchecked Sendable {
     }
 
     @MainActor
-    private func importHyperCardStack(path: String, params: [String: Any], id: Any?) async -> [String: Any] {
+    private func importHyperCardStack(params: [String: Any], path: String, id: Any?) async -> [String: Any] {
         do {
             let url = URL(fileURLWithPath: path)
-            let result = try StackImportCImporter(options: importOptions(from: params)).importStack(at: url)
+            let result = try StackImportCImporter(
+                options: HyperCardImportOptions(deploymentTargets: debugDeploymentTargets(from: params))
+            ).importStack(at: url)
             let outputURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent(url.deletingPathExtension().lastPathComponent + "-debug-imported.hype")
             try? FileManager.default.removeItem(at: outputURL)
             try HypeSQLiteStackStore().save(result.document, toPackageAt: outputURL)
-            let openError = await openImportedDocument(at: outputURL)
-            if let openError {
-                return jsonRPCError(id: id, code: -32002, message: openError.localizedDescription)
+            if params["open"] as? Bool != false {
+                let openError = await openImportedDocument(
+                    at: outputURL,
+                    display: params["display"] as? Bool == true
+                )
+                if let openError {
+                    return jsonRPCError(id: id, code: -32002, message: openError.localizedDescription)
+                }
             }
             return jsonRPCResult(id: id, result: [
                 "stackName": result.document.stack.name,
@@ -431,8 +514,6 @@ final class HypeDebugServer: @unchecked Sendable {
                 "partCount": result.document.parts.count,
                 "assetCount": result.document.assetRepository.assets.count,
                 "documentPath": outputURL.path,
-                "targetPlatforms": result.document.stack.deploymentTargets.selectedPlatforms.map(\.rawValue),
-                "primaryTargetPlatform": result.document.stack.deploymentTargets.primaryPlatform.rawValue,
                 "warnings": result.report.warnings,
             ])
         } catch {
@@ -441,21 +522,217 @@ final class HypeDebugServer: @unchecked Sendable {
     }
 
     @MainActor
-    private func openImportedDocument(at url: URL) async -> Error? {
-        await withCheckedContinuation { continuation in
-            NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, error in
+    private func importStackImportPackage(params: [String: Any], id: Any?) async -> [String: Any] {
+        do {
+            let path = params["path"] as? String ?? ""
+            let outputDirectory = (params["outputDirectory"] as? String).flatMap { value in
+                value.isEmpty ? nil : URL(fileURLWithPath: value, isDirectory: true)
+            } ?? FileManager.default.temporaryDirectory
+            let outputFileName = (params["outputFileName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let names = stackImportStringArray(params["looseMediaNames"])
+            let result = try StackImportPackageDocumentImporter().importPackage(
+                options: StackImportPackageDocumentImportOptions(
+                    packageURL: URL(fileURLWithPath: path, isDirectory: true),
+                    outputDirectoryURL: outputDirectory,
+                    outputFileName: outputFileName,
+                    looseMediaManifestURL: stackImportURL(params["looseMediaManifestPath"]),
+                    looseMediaSourceRootURL: stackImportURL(params["looseMediaSourceRootPath"]),
+                    looseMediaReplacementRootURL: stackImportURL(params["looseMediaReplacementRootPath"]),
+                    looseMediaNames: names.isEmpty ? nil : Set(names),
+                    stackLibraryEntries: stackLibraryEntries(from: params["stackLibraryEntries"]),
+                    usedStackAliases: stackImportStringArray(params["usedStackAliases"]),
+                    deploymentTargets: debugDeploymentTargets(from: params)
+                )
+            )
+            if params["open"] as? Bool != false {
+                let openError = await openImportedDocument(
+                    at: result.outputPackageURL,
+                    display: params["display"] as? Bool == true
+                )
+                if let openError {
+                    return jsonRPCError(id: id, code: -32002, message: openError.localizedDescription)
+                }
+            }
+            return jsonRPCResult(id: id, result: stackImportDebugResult(from: result.summary))
+        } catch {
+            return jsonRPCError(id: id, code: -32001, message: error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    private func importStackImportProject(packageURLs: [URL], params: [String: Any], id: Any?) async -> [String: Any] {
+        do {
+            let outputDirectory = (params["outputDirectory"] as? String).flatMap { value in
+                value.isEmpty ? nil : URL(fileURLWithPath: value, isDirectory: true)
+            } ?? FileManager.default.temporaryDirectory
+            let names = stackImportStringArray(params["looseMediaNames"])
+            let result = try StackImportPackageProjectImporter().importProject(
+                options: StackImportPackageProjectImportOptions(
+                    packageURLs: packageURLs,
+                    outputDirectoryURL: outputDirectory,
+                    looseMediaManifestURL: stackImportURL(params["looseMediaManifestPath"]),
+                    looseMediaSourceRootURL: stackImportURL(params["looseMediaSourceRootPath"]),
+                    looseMediaReplacementRootURL: stackImportURL(params["looseMediaReplacementRootPath"]),
+                    looseMediaNames: names.isEmpty ? nil : Set(names),
+                    stackLibraryEntries: stackLibraryEntries(from: params["stackLibraryEntries"]),
+                    usedStackAliases: stackImportStringArray(params["usedStackAliases"]),
+                    deploymentTargets: debugDeploymentTargets(from: params)
+                )
+            )
+            if params["open"] as? Bool == true,
+               let firstURL = result.packageResults.first?.outputPackageURL {
+                let openError = await openImportedDocument(
+                    at: firstURL,
+                    display: params["display"] as? Bool == true
+                )
+                if let openError {
+                    return jsonRPCError(id: id, code: -32002, message: openError.localizedDescription)
+                }
+            }
+            return jsonRPCResult(id: id, result: stackImportProjectDebugResult(from: result.summary))
+        } catch {
+            return jsonRPCError(id: id, code: -32001, message: error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    private func openImportedDocument(at url: URL, display: Bool = false) async -> Error? {
+        guard display else {
+            do {
+                let document = try HypeSQLiteStackStore().load(fromPackageAt: url)
+                debugLoadedDocument = document
+                HypeDocumentMutationCoordinator.shared.activeCardId = document.sortedCards.first?.id
+                try? writeDescriptor()
+                return nil
+            } catch {
+                return error
+            }
+        }
+        return await withCheckedContinuation { continuation in
+            NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { document, _, error in
+                document?.showWindows()
+                document?.windowControllers.forEach { controller in
+                    controller.window?.makeKeyAndOrderFront(nil)
+                }
+                NSApp.activate(ignoringOtherApps: true)
                 continuation.resume(returning: error)
             }
         }
     }
 
     @MainActor
-    private func clickButton(named buttonName: String, onCard cardReference: String?, id: Any?) async -> [String: Any] {
-        guard let binding = HypeDocumentMutationCoordinator.shared.activeDocumentBinding else {
+    private func openDocument(params: [String: Any], path: String, id: Any?) async -> [String: Any] {
+        let url = URL(fileURLWithPath: path)
+        if params["display"] as? Bool != true {
+            do {
+                let document = try HypeSQLiteStackStore().load(fromPackageAt: url)
+                debugLoadedDocument = document
+                HypeDocumentMutationCoordinator.shared.activeCardId = document.sortedCards.first?.id
+                try? writeDescriptor()
+                return jsonRPCResult(id: id, result: descriptor())
+            } catch {
+                return jsonRPCError(id: id, code: -32003, message: "Debug document load failed: \(error.localizedDescription)")
+            }
+        }
+
+        let openError = await openImportedDocument(at: url)
+        if let openError {
+            return jsonRPCError(id: id, code: -32002, message: openError.localizedDescription)
+        }
+        let expectedName = expectedStackName(forOpenedDocumentAt: url)
+        await waitForActiveDocument(named: expectedName)
+        if let expectedName,
+           HypeDocumentMutationCoordinator.shared.activeDocumentBinding?.wrappedValue.document.stack.name != expectedName {
+            do {
+                let document = try HypeSQLiteStackStore().load(fromPackageAt: url)
+                debugLoadedDocument = document
+                HypeDocumentMutationCoordinator.shared.activeCardId = document.sortedCards.first?.id
+            } catch {
+                return jsonRPCError(id: id, code: -32003, message: "Opened document did not become active and fallback load failed: \(error.localizedDescription)")
+            }
+        } else {
+            debugLoadedDocument = nil
+        }
+        if let document = debugLoadedDocument ?? HypeDocumentMutationCoordinator.shared.activeDocumentBinding?.wrappedValue.document {
+            HypeDocumentMutationCoordinator.shared.activeCardId = document.sortedCards.first?.id
+        }
+        try? writeDescriptor()
+        return jsonRPCResult(id: id, result: descriptor())
+    }
+
+    @MainActor
+    private func waitForActiveDocument(named expectedName: String?) async {
+        guard let expectedName, !expectedName.isEmpty else { return }
+        for _ in 0..<50 {
+            let activeName = HypeDocumentMutationCoordinator.shared.activeDocumentBinding?.wrappedValue.document.stack.name
+            if activeName == expectedName {
+                return
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+    }
+
+    private func expectedStackName(forOpenedDocumentAt url: URL) -> String? {
+        let name = url.deletingPathExtension().lastPathComponent
+        if name.hasSuffix("-debug-imported") {
+            return String(name.dropLast("-debug-imported".count))
+        }
+        if name.hasSuffix("-imported") {
+            return String(name.dropLast("-imported".count))
+        }
+        return name.isEmpty ? nil : name
+    }
+
+    @MainActor
+    private func routeProjectNavigationTarget(_ target: ProjectNavigationTarget, id: Any?) async -> [String: Any] {
+        guard let documentURL = projectNavigationDocumentURL(for: target) else {
+            return jsonRPCError(id: id, code: -32004, message: "Project navigation target has no openable .hype document path.")
+        }
+        do {
+            let document = try HypeSQLiteStackStore().load(fromPackageAt: documentURL)
+            guard let cardId = ProjectNavigationTargetResolver.resolveCardId(for: target, in: document),
+                  let card = document.cards.first(where: { $0.id == cardId }) else {
+                return jsonRPCError(id: id, code: -32005, message: "Project navigation target card could not be resolved in \(documentURL.path).")
+            }
+            debugLoadedDocument = document
+            HypeDocumentMutationCoordinator.shared.activeCardId = cardId
+            try? writeDescriptor()
+            return jsonRPCResult(id: id, result: [
+                "status": "routed",
+                "target": projectNavigationTargetJSON(target),
+                "documentPath": documentURL.path,
+                "activeStackName": document.stack.name,
+                "activeStackId": document.stack.id.uuidString,
+                "activeCardName": card.name,
+                "activeCardId": card.id.uuidString,
+                "activeCardNumber": cardNumber(card.id, in: document) ?? NSNull(),
+                "activeCardLegacyId": target.legacyCardId ?? NSNull(),
+                "activeCardRuntime": debugRuntimeSummary(document: document, cardId: card.id),
+            ])
+        } catch {
+            return jsonRPCError(id: id, code: -32006, message: "Project navigation target document could not be loaded: \(error.localizedDescription)")
+        }
+    }
+
+    private func projectNavigationDocumentURL(for target: ProjectNavigationTarget) -> URL? {
+        if let documentPath = target.documentPath, !documentPath.isEmpty {
+            return URL(fileURLWithPath: documentPath, isDirectory: true)
+        }
+        if let packagePath = target.packagePath,
+           URL(fileURLWithPath: packagePath).pathExtension.lowercased() == "hype" {
+            return URL(fileURLWithPath: packagePath, isDirectory: true)
+        }
+        return nil
+    }
+
+    @MainActor
+    private func clickButton(named buttonName: String, onCard cardReference: String?, params: [String: Any], id: Any?) async -> [String: Any] {
+        guard debugLoadedDocument != nil || HypeDocumentMutationCoordinator.shared.activeDocumentBinding != nil else {
             return jsonRPCError(id: id, code: -32000, message: "No active Hype document.")
         }
 
-        let document = binding.wrappedValue.document
+        var document = debugLoadedDocument ?? HypeDocumentMutationCoordinator.shared.activeDocumentBinding!.wrappedValue.document
+        let seededGlobals = applyDebugScriptGlobals(from: params, to: &document)
         guard let card = resolveCard(reference: cardReference, in: document) else {
             return jsonRPCError(id: id, code: -32002, message: "Card not found.")
         }
@@ -486,14 +763,18 @@ final class HypeDebugServer: @unchecked Sendable {
         } else {
             HypeDocumentMutationCoordinator.shared.activeCardId = card.id
         }
-        HypeDocumentMutationCoordinator.shared.applyDocument(
-            updated,
-            to: binding,
-            undoManager: nil,
-            actionName: "Debug Click Button"
-        )
+        if debugLoadedDocument != nil {
+            debugLoadedDocument = updated
+        } else if let binding = HypeDocumentMutationCoordinator.shared.activeDocumentBinding {
+            HypeDocumentMutationCoordinator.shared.applyDocument(
+                updated,
+                to: binding,
+                undoManager: nil,
+                actionName: "Debug Click Button"
+            )
+        }
         if let navTarget = navigatedTo, !updated.cards.contains(where: { $0.id == navTarget }) {
-            updated = binding.wrappedValue.document
+            updated = debugLoadedDocument ?? HypeDocumentMutationCoordinator.shared.activeDocumentBinding?.wrappedValue.document ?? updated
         }
         let activeId = HypeDocumentMutationCoordinator.shared.activeCardId ?? card.id
         let activeCard = updated.cards.first(where: { $0.id == activeId })
@@ -505,20 +786,112 @@ final class HypeDebugServer: @unchecked Sendable {
             "buttonScriptChars": button.script.count,
             "sourceCardName": card.name,
             "sourceCardNumber": cardNumber(card.id, in: document) ?? NSNull(),
+            "sourceCardRuntime": debugRuntimeSummary(document: updated, cardId: card.id),
             "navigationTarget": navigatedTo?.uuidString ?? NSNull(),
+            "projectNavigationTarget": projectNavigationTargetJSON(result.projectNavigationTarget),
             "activeCardName": activeCard?.name ?? NSNull(),
             "activeCardNumber": cardNumber(activeId, in: updated) ?? NSNull(),
+            "activeCardRuntime": debugRuntimeSummary(document: updated, cardId: activeId),
+            "seededScriptGlobals": seededGlobals,
+            "scriptGlobals": updated.scriptGlobals,
             "error": result.error?.message ?? NSNull(),
         ])
     }
 
     @MainActor
+    private func runScript(_ script: String, params: [String: Any], id: Any?) async -> [String: Any] {
+        guard debugLoadedDocument != nil || HypeDocumentMutationCoordinator.shared.activeDocumentBinding != nil else {
+            return jsonRPCError(id: id, code: -32000, message: "No active Hype document.")
+        }
+
+        var document = debugLoadedDocument ?? HypeDocumentMutationCoordinator.shared.activeDocumentBinding!.wrappedValue.document
+        let seededGlobals = applyDebugScriptGlobals(from: params, to: &document)
+        guard let card = resolveCard(reference: params["card"] as? String, in: document) else {
+            return jsonRPCError(id: id, code: -32002, message: "Card not found.")
+        }
+        let message = (params["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? "mouseUp"
+        let targetId = UUID()
+        let started = Date()
+        let result = await MessageDispatcher().dispatchAsync(
+            message: message,
+            params: [],
+            targetId: targetId,
+            document: document,
+            currentCardId: card.id,
+            mouseX: (params["mouseX"] as? NSNumber)?.doubleValue ?? 0,
+            mouseY: (params["mouseY"] as? NSNumber)?.doubleValue ?? 0,
+            scriptContext: ScriptDispatchContext(
+                hierarchyPrefix: [targetId],
+                objectScripts: [targetId: script],
+                objectDescriptions: [targetId: "debug script"]
+            )
+        )
+        let elapsedMS = Int(Date().timeIntervalSince(started) * 1000)
+        var updated = result.modifiedDocument ?? document
+        var navigatedTo: UUID?
+        if let navTarget = result.navigationTarget {
+            navigatedTo = navTarget
+            HypeDocumentMutationCoordinator.shared.activeCardId = navTarget
+        } else {
+            HypeDocumentMutationCoordinator.shared.activeCardId = card.id
+        }
+        if debugLoadedDocument != nil {
+            debugLoadedDocument = updated
+        } else if let binding = HypeDocumentMutationCoordinator.shared.activeDocumentBinding {
+            HypeDocumentMutationCoordinator.shared.applyDocument(
+                updated,
+                to: binding,
+                undoManager: nil,
+                actionName: "Debug Run Script"
+            )
+        }
+        if let navTarget = navigatedTo, !updated.cards.contains(where: { $0.id == navTarget }) {
+            updated = debugLoadedDocument ?? HypeDocumentMutationCoordinator.shared.activeDocumentBinding?.wrappedValue.document ?? updated
+        }
+        let activeId = HypeDocumentMutationCoordinator.shared.activeCardId ?? card.id
+        let activeCard = updated.cards.first(where: { $0.id == activeId })
+
+        return jsonRPCResult(id: id, result: [
+            "status": String(describing: result.status),
+            "elapsedMS": elapsedMS,
+            "message": message,
+            "scriptChars": script.count,
+            "returnValue": result.returnValue ?? NSNull(),
+            "visualEffect": result.visualEffect ?? NSNull(),
+            "visualEffectDuration": result.visualEffectDuration ?? NSNull(),
+            "sourceCardName": card.name,
+            "sourceCardNumber": cardNumber(card.id, in: document) ?? NSNull(),
+            "sourceCardRuntime": debugRuntimeSummary(document: updated, cardId: card.id),
+            "navigationTarget": navigatedTo?.uuidString ?? NSNull(),
+            "projectNavigationTarget": projectNavigationTargetJSON(result.projectNavigationTarget),
+            "activeCardName": activeCard?.name ?? NSNull(),
+            "activeCardNumber": cardNumber(activeId, in: updated) ?? NSNull(),
+            "activeCardRuntime": debugRuntimeSummary(document: updated, cardId: activeId),
+            "seededScriptGlobals": seededGlobals,
+            "scriptGlobals": updated.scriptGlobals,
+            "error": result.error?.message ?? NSNull(),
+        ])
+    }
+
+    @discardableResult
+    private func applyDebugScriptGlobals(from params: [String: Any], to document: inout HypeDocument) -> [String] {
+        guard let globals = HypeDebugScriptGlobalSeedParser.globals(from: params), !globals.isEmpty else { return [] }
+        if (params["clearScriptGlobals"] as? Bool) == true || (params["replaceScriptGlobals"] as? Bool) == true {
+            document.scriptGlobals.removeAll()
+        }
+        for (key, value) in globals {
+            document.scriptGlobals[key] = value
+        }
+        return globals.keys.sorted()
+    }
+
+    @MainActor
     private func scriptState(params: [String: Any]) -> [String: Any] {
-        guard let binding = HypeDocumentMutationCoordinator.shared.activeDocumentBinding else {
+        guard debugLoadedDocument != nil || HypeDocumentMutationCoordinator.shared.activeDocumentBinding != nil else {
             return ["error": "No active Hype document."]
         }
 
-        let document = binding.wrappedValue.document
+        let document = debugLoadedDocument ?? HypeDocumentMutationCoordinator.shared.activeDocumentBinding!.wrappedValue.document
         let card = resolveCard(reference: params["card"] as? String, in: document)
             ?? HypeDocumentMutationCoordinator.shared.activeCardId.flatMap { id in
                 document.cards.first(where: { $0.id == id })
@@ -548,6 +921,7 @@ final class HypeDebugServer: @unchecked Sendable {
             "buttonId": button?.id.uuidString ?? NSNull(),
             "buttonScriptChars": button?.script.count ?? 0,
             "buttonScript": button?.script ?? "",
+            "runtime": debugRuntimeSummary(document: document, cardId: card.id),
         ]
     }
 
@@ -601,6 +975,39 @@ final class HypeDebugServer: @unchecked Sendable {
 
     private func cardNumber(_ cardId: UUID, in document: HypeDocument) -> Int? {
         document.sortedCards.firstIndex(where: { $0.id == cardId }).map { $0 + 1 }
+    }
+
+    private func debugRuntimeSummary(document: HypeDocument, cardId: UUID) -> [String: Any] {
+        let cardParts = document.parts.filter { $0.cardId == cardId }
+        let videos = cardParts.filter { $0.partType == .video }
+        let images = cardParts.filter { $0.partType == .image }
+        let hypercardGlobals = document.scriptGlobals
+            .filter { key, _ in key.hasPrefix("hypercard.") }
+            .sorted { $0.key < $1.key }
+        return [
+            "videoPartCount": videos.count,
+            "videoParts": videos.map(debugVideoPartJSON),
+            "imagePartCount": images.count,
+            "compatibilityImagePartCount": images.filter { !$0.helpText.isEmpty }.count,
+            "hypercardGlobals": Dictionary(uniqueKeysWithValues: hypercardGlobals),
+        ]
+    }
+
+    private func debugVideoPartJSON(_ part: Part) -> [String: Any] {
+        [
+            "id": part.id.uuidString,
+            "name": part.name,
+            "left": part.left,
+            "top": part.top,
+            "width": part.width,
+            "height": part.height,
+            "autoplay": part.videoAutoplay,
+            "loop": part.videoLoop,
+            "volume": part.videoVolume,
+            "assetRef": part.videoAssetRef?.id.uuidString ?? NSNull(),
+            "marker": part.helpText,
+            "audioOnly": part.helpText.contains("audioOnly=true"),
+        ]
     }
 
     @MainActor
@@ -777,7 +1184,10 @@ final class HypeDebugServer: @unchecked Sendable {
             return rollbackTransaction(idText: arguments["transaction_id"]?.flattenedString ?? "")
         case "hype_create_test_stack":
             guard allowMCPMutations() else { return ("MCP mutations are disabled.", true) }
-            return createTestStack(arguments: arguments)
+            return createTestStack(
+                name: arguments["name"]?.flattenedString.nonEmpty ?? "MCP Test Stack",
+                deploymentTargets: automationDeploymentTargets(from: arguments)
+            )
         default:
             return ("Unknown MCP control tool \(name)", true)
         }
@@ -855,26 +1265,14 @@ final class HypeDebugServer: @unchecked Sendable {
     }
 
     @MainActor
-    private func createTestStack(arguments: [String: HypeMCPJSONValue]) -> (text: String, isError: Bool) {
+    private func createTestStack(
+        name: String,
+        deploymentTargets: StackDeploymentTargets = .automationDefault()
+    ) -> (text: String, isError: Bool) {
         guard let binding = HypeDocumentMutationCoordinator.shared.activeDocumentBinding else {
             return ("No active Hype document. Open or focus a stack window before creating a test stack.", true)
         }
-        let name = arguments["name"]?.flattenedString.nonEmpty ?? "MCP Test Stack"
-        let document: HypeDocument
-        do {
-            var draft = HypeDocument.newDocument(name: name)
-            draft.stack.deploymentTargets = try deploymentTargets(
-                targetPlatforms: arguments["target_platforms"]?.flattenedString
-                    ?? arguments["targetPlatforms"]?.flattenedString
-                    ?? arguments["target_platform"]?.flattenedString
-                    ?? arguments["targetPlatform"]?.flattenedString,
-                primaryTargetPlatform: arguments["primary_target_platform"]?.flattenedString
-                    ?? arguments["primaryTargetPlatform"]?.flattenedString
-            )
-            document = draft
-        } catch {
-            return (error.localizedDescription, true)
-        }
+        let document = HypeDocument.newDocument(name: name, deploymentTargets: deploymentTargets)
         HypeDocumentMutationCoordinator.shared.activeCardId = document.sortedCards.first?.id
         HypeDocumentMutationCoordinator.shared.applyDocument(
             document,
@@ -883,65 +1281,54 @@ final class HypeDebugServer: @unchecked Sendable {
             actionName: "Debug MCP Test Stack"
         )
         transactions.removeAll()
-        return (debugJSONText([
-            "result": "Created test stack",
-            "state": [
-                "activeStackId": document.stack.id.uuidString,
-                "targetPlatforms": document.stack.deploymentTargets.selectedPlatforms.map(\.rawValue),
-                "primaryTargetPlatform": document.stack.deploymentTargets.primaryPlatform.rawValue,
-            ],
-        ]), false)
+        return (debugJSONText(["result": "Created test stack", "state": ["activeStackId": document.stack.id.uuidString]]), false)
     }
 
-    private func importOptions(from params: [String: Any]) throws -> HyperCardImportOptions {
-        let targets = try deploymentTargets(
-            targetPlatforms: params["targetPlatforms"] as? String
-                ?? params["target_platforms"] as? String
-                ?? params["targetPlatform"] as? String
-                ?? params["target_platform"] as? String,
-            primaryTargetPlatform: params["primaryTargetPlatform"] as? String
-                ?? params["primary_target_platform"] as? String
-        )
-        return HyperCardImportOptions(deploymentTargets: targets)
+    private func automationDeploymentTargets(from arguments: [String: HypeMCPJSONValue]) -> StackDeploymentTargets {
+        let selected = automationTargetPlatforms(from: arguments["target_platforms"] ?? arguments["targetPlatforms"])
+        let primary = (arguments["primary_target_platform"] ?? arguments["primaryTargetPlatform"])
+            .flatMap { $0.flattenedString }
+            .flatMap(HypeTargetPlatform.parse)
+        return .automationDefault(selectedPlatforms: selected.isEmpty ? [.macOS] : selected, primaryPlatform: primary)
     }
 
-    private func deploymentTargets(
-        targetPlatforms: String?,
-        primaryTargetPlatform: String?
-    ) throws -> StackDeploymentTargets {
-        let selected = try parseTargetPlatforms(targetPlatforms)
-        let primary = try parsePrimaryTargetPlatform(primaryTargetPlatform, selectedPlatforms: selected)
-        return StackDeploymentTargets(
-            selectedPlatforms: selected,
-            primaryPlatform: primary,
-            selectionPromptAcknowledged: true
-        )
+    private func debugDeploymentTargets(from params: [String: Any]) -> StackDeploymentTargets {
+        let selected = debugTargetPlatforms(from: params["target_platforms"] ?? params["targetPlatforms"])
+        let primary = debugString(from: params["primary_target_platform"] ?? params["primaryTargetPlatform"])
+            .flatMap(HypeTargetPlatform.parse)
+        return .automationDefault(selectedPlatforms: selected.isEmpty ? [.macOS] : selected, primaryPlatform: primary)
     }
 
-    private func parseTargetPlatforms(_ raw: String?) throws -> [HypeTargetPlatform] {
-        guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return [.macOS]
+    private func debugTargetPlatforms(from value: Any?) -> [HypeTargetPlatform] {
+        if let values = value as? [Any] {
+            return values.compactMap { debugString(from: $0) }.compactMap(HypeTargetPlatform.parse)
         }
-        guard let platforms = HypeTargetPlatform.parseList(raw), !platforms.isEmpty else {
-            throw DebugServerError.message("Invalid target platform '\(raw)' (expected macOS, iPhone, iPad, or tvOS)")
-        }
-        return platforms
+        guard let text = debugString(from: value) else { return [] }
+        return text
+            .split(separator: ",")
+            .compactMap { HypeTargetPlatform.parse(String($0)) }
     }
 
-    private func parsePrimaryTargetPlatform(
-        _ raw: String?,
-        selectedPlatforms: [HypeTargetPlatform]
-    ) throws -> HypeTargetPlatform {
-        guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return selectedPlatforms.first ?? .macOS
+    private func debugString(from value: Any?) -> String? {
+        switch value {
+        case let text as String:
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        case let number as NSNumber:
+            return number.stringValue
+        default:
+            return nil
         }
-        guard let platform = HypeTargetPlatform.parse(raw) else {
-            throw DebugServerError.message("Invalid primary target platform '\(raw)' (expected macOS, iPhone, iPad, or tvOS)")
+    }
+
+    private func automationTargetPlatforms(from value: HypeMCPJSONValue?) -> [HypeTargetPlatform] {
+        guard let value else { return [] }
+        if let array = value.arrayValue {
+            return array.compactMap { $0.flattenedString }.compactMap(HypeTargetPlatform.parse)
         }
-        guard selectedPlatforms.contains(platform) else {
-            throw DebugServerError.message("Primary target platform '\(platform.rawValue)' is not included in target platforms")
-        }
-        return platform
+        return value.flattenedString
+            .split(separator: ",")
+            .compactMap { HypeTargetPlatform.parse(String($0)) }
     }
 
     private func transactionCalls(from arguments: [String: HypeMCPJSONValue]) -> [OllamaToolCall] {
@@ -1110,6 +1497,227 @@ final class HypeDebugServer: @unchecked Sendable {
 
     private func jsonRPCResult(id: Any?, result: [String: Any]) -> [String: Any] {
         ["jsonrpc": "2.0", "id": id ?? NSNull(), "result": result]
+    }
+
+    private func stackImportURL(_ value: Any?) -> URL? {
+        guard let path = value as? String, !path.isEmpty else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+
+    private func stackImportPackageURLs(from params: [String: Any]) -> [URL] {
+        if let paths = params["paths"] as? [String] {
+            return paths.filter { !$0.isEmpty }.map { URL(fileURLWithPath: $0, isDirectory: true) }
+        }
+        if let rawPackages = params["packages"] as? [[String: Any]] {
+            return rawPackages.compactMap { raw in
+                guard let path = raw["path"] as? String, !path.isEmpty else { return nil }
+                return URL(fileURLWithPath: path, isDirectory: true)
+            }
+        }
+        return []
+    }
+
+    private func stackImportStringArray(_ value: Any?) -> [String] {
+        switch value {
+        case let strings as [String]:
+            return strings.filter { !$0.isEmpty }
+        case let string as String where !string.isEmpty:
+            return string
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        default:
+            return []
+        }
+    }
+
+    private func stackImportDebugResult(from summary: StackImportPackageDocumentImportSummary) -> [String: Any] {
+        [
+            "stackName": summary.stackName,
+            "cardCount": summary.cardCount,
+            "backgroundCount": summary.backgroundCount,
+            "partCount": summary.partCount,
+            "assetCount": summary.assetCount,
+            "sharedContentAssetCount": summary.sharedContentAssetCount,
+            "documentPath": summary.outputPackagePath,
+            "warnings": summary.warnings,
+            "stackImportDiagnostics": stackImportDiagnosticsJSON(summary.stackImportDiagnostics),
+            "looseMedia": stackImportLooseMediaJSON(summary.looseMedia),
+            "stackLibrary": stackImportStackLibraryJSON(summary.stackLibrary),
+        ]
+    }
+
+    private func stackImportProjectDebugResult(from summary: StackImportPackageProjectImportSummary) -> [String: Any] {
+        [
+            "stackCount": summary.stackCount,
+            "outputPackagePaths": summary.outputPackagePaths,
+            "stackLibraryEntryCount": summary.stackLibraryEntryCount,
+            "sharedContentAssetCopyCount": summary.sharedContentAssetCopyCount,
+            "stacks": summary.stacks.map(stackImportProjectStackJSON),
+            "packages": summary.packages.map(stackImportDebugResult),
+        ]
+    }
+
+    private func stackImportProjectStackJSON(_ summary: StackImportPackageProjectStackSummary) -> [String: Any] {
+        [
+            "stackName": summary.stackName,
+            "documentPath": summary.documentPath,
+            "cardCount": summary.cardCount,
+            "firstCardId": stackImportValueOrNull(summary.firstCardId),
+            "firstCardName": stackImportValueOrNull(summary.firstCardName),
+            "legacyFirstCardId": stackImportValueOrNull(summary.legacyFirstCardId),
+            "stackLibraryEntryId": stackImportValueOrNull(summary.stackLibraryEntryId),
+            "stackLibraryAliasCount": summary.stackLibraryAliasCount,
+        ]
+    }
+
+    private func stackImportDiagnosticsJSON(_ diagnostics: StackImportPackageDiagnostics?) -> Any {
+        guard let diagnostics else { return NSNull() }
+        return [
+            "sourcePath": stackImportValueOrNull(diagnostics.sourcePath),
+            "outputPackage": stackImportValueOrNull(diagnostics.outputPackage),
+            "dataForkBytes": stackImportValueOrNull(diagnostics.dataForkBytes),
+            "resourceForkBytes": stackImportValueOrNull(diagnostics.resourceForkBytes),
+            "scriptEntries": diagnostics.scriptEntries,
+            "handlerCount": diagnostics.handlerCount,
+            "callCount": diagnostics.callCount,
+            "externalCallSummary": diagnostics.externalCallSummary.map { ["name": $0.name, "count": $0.count] },
+            "ignoredPackageFiles": diagnostics.ignoredPackageFiles,
+        ]
+    }
+
+    private func stackImportLooseMediaJSON(_ summary: StackImportLooseMediaImportSummary?) -> Any {
+        guard let summary else { return NSNull() }
+        return [
+            "importedAssetCount": summary.importedAssetCount,
+            "imported": summary.imported.map(stackImportLooseMediaImportedJSON),
+            "missing": summary.missing.map(stackImportLooseMediaDiagnosticJSON),
+            "skipped": summary.skipped.map(stackImportLooseMediaDiagnosticJSON),
+        ]
+    }
+
+    private func stackImportLooseMediaImportedJSON(_ imported: StackImportLooseMediaImportedAssetSummary) -> [String: Any] {
+        [
+            "relPath": imported.relPath,
+            "name": imported.name,
+            "assetName": imported.assetName,
+            "kind": imported.kind,
+            "resolvedPath": imported.resolvedPath,
+        ]
+    }
+
+    private func stackImportLooseMediaDiagnosticJSON(_ diagnostic: LooseMediaImportDiagnostic) -> [String: Any] {
+        [
+            "relPath": diagnostic.relPath,
+            "name": diagnostic.name,
+            "reason": diagnostic.reason,
+        ]
+    }
+
+    private func stackImportStackLibraryJSON(_ summary: StackImportPackageStackLibrarySummary?) -> Any {
+        guard let summary else { return NSNull() }
+        return [
+            "entryCount": summary.entryCount,
+            "usedStackAliases": summary.usedStackAliases,
+            "ambiguousAliases": summary.ambiguousAliases,
+        ]
+    }
+
+    private func stackLibraryEntries(from value: Any?) -> [HypeStackLibraryEntry] {
+        guard let rawEntries = value as? [[String: Any]] else { return [] }
+        return rawEntries.compactMap { raw in
+            guard let stackName = raw["stackName"] as? String, !stackName.isEmpty else { return nil }
+            let source = (raw["source"] as? String)
+                .flatMap(HypeStackLibrarySource.init(rawValue:))
+                ?? .importedStackPackage
+            return HypeStackLibraryEntry(
+                stackName: stackName,
+                aliases: stackImportStringArray(raw["aliases"]),
+                source: source,
+                packagePath: raw["packagePath"] as? String,
+                documentPath: raw["documentPath"] as? String,
+                legacyFirstCardId: stackImportInt(raw["legacyFirstCardId"]),
+                cardCount: stackImportInt(raw["cardCount"]),
+                stackScript: raw["stackScript"] as? String,
+                cardReferences: stackLibraryCardReferences(from: raw["cardReferences"]),
+                metadata: stackLibraryMetadata(from: raw["metadata"])
+            )
+        }
+    }
+
+    private func stackLibraryCardReferences(from value: Any?) -> [HypeStackLibraryCardReference] {
+        guard let rawCards = value as? [[String: Any]] else { return [] }
+        return rawCards.compactMap { raw in
+            HypeStackLibraryCardReference(
+                legacyCardId: stackImportInt(raw["legacyCardId"]),
+                name: raw["name"] as? String ?? "",
+                sortIndex: stackImportInt(raw["sortIndex"]),
+                hypeCardId: stackImportUUID(raw["hypeCardId"])
+            )
+        }
+    }
+
+    private func stackLibraryMetadata(from value: Any?) -> [HypeStackLibraryMetadataEntry] {
+        guard let rawEntries = value as? [[String: Any]] else { return [] }
+        return rawEntries.compactMap { raw in
+            guard let key = raw["key"] as? String,
+                  let value = raw["value"] as? String else { return nil }
+            return HypeStackLibraryMetadataEntry(key: key, value: value)
+        }
+    }
+
+    private func stackImportUUID(_ value: Any?) -> UUID? {
+        guard let text = value as? String else { return nil }
+        return UUID(uuidString: text)
+    }
+
+    private func projectNavigationTarget(from raw: [String: Any]) -> ProjectNavigationTarget? {
+        guard let stackEntryId = stackImportUUID(raw["stackEntryId"]),
+              let stackName = raw["stackName"] as? String,
+              !stackName.isEmpty else {
+            return nil
+        }
+        return ProjectNavigationTarget(
+            stackEntryId: stackEntryId,
+            stackName: stackName,
+            stackAlias: raw["stackAlias"] as? String ?? stackName,
+            packagePath: raw["packagePath"] as? String,
+            documentPath: raw["documentPath"] as? String,
+            legacyCardId: stackImportInt(raw["legacyCardId"]),
+            cardName: raw["cardName"] as? String ?? "",
+            sortIndex: stackImportInt(raw["sortIndex"]),
+            hypeCardId: stackImportUUID(raw["hypeCardId"])
+        )
+    }
+
+    private func stackImportInt(_ value: Any?) -> Int? {
+        switch value {
+        case let number as NSNumber:
+            return number.intValue
+        case let text as String:
+            return Int(text)
+        default:
+            return nil
+        }
+    }
+
+    private func stackImportValueOrNull(_ value: Any?) -> Any {
+        value ?? NSNull()
+    }
+
+    private func projectNavigationTargetJSON(_ target: ProjectNavigationTarget?) -> Any {
+        guard let target else { return NSNull() }
+        return [
+            "stackEntryId": target.stackEntryId.uuidString,
+            "stackName": target.stackName,
+            "stackAlias": target.stackAlias,
+            "packagePath": stackImportValueOrNull(target.packagePath),
+            "documentPath": stackImportValueOrNull(target.documentPath),
+            "legacyCardId": stackImportValueOrNull(target.legacyCardId),
+            "cardName": target.cardName,
+            "sortIndex": stackImportValueOrNull(target.sortIndex),
+            "hypeCardId": stackImportValueOrNull(target.hypeCardId?.uuidString),
+        ]
     }
 
     private nonisolated func jsonRPCError(id: Any?, code: Int, message: String) -> [String: Any] {

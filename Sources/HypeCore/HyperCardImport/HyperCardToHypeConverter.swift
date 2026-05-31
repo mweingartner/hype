@@ -50,8 +50,10 @@ public struct HyperCardToHypeConverter: Sendable {
         let cards = blocks.filter { $0.type == "CARD" }.map { parseCard(block: $0, fontTable: fontTable) }
         let defaultBackgroundLegacyID = backgrounds.first?.legacyID
 
-        var document = HypeDocument.newDocument(name: stackInfo.name)
-        document.stack.deploymentTargets = options.deploymentTargets
+        var document = HypeDocument.newDocument(
+            name: stackInfo.name,
+            deploymentTargets: options.deploymentTargets ?? .automationDefault()
+        )
         document.stack.width = stackInfo.width
         document.stack.height = stackInfo.height
         document.stack.script = disabledLegacyScript(stackInfo.script)
