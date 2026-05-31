@@ -286,6 +286,73 @@ struct ParserTests {
         #expect(ref.objectType == "stack")
     }
 
+    @Test func parsesClassicCrossStackGoStatement() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          go card "Dock" of stack "Myst"
+        end mouseUp
+        """)
+        var parser = Parser(tokens: lexer.tokenize())
+        let script = try parser.parse()
+        guard case .goInStack(let card, let stack) = script.handlers[0].body[0] else {
+            Issue.record("Expected goInStack statement")
+            return
+        }
+        guard case .literal(let cardName) = card,
+              case .literal(let stackName) = stack else {
+            Issue.record("Expected literal card and stack names")
+            return
+        }
+        #expect(cardName == "Dock")
+        #expect(stackName == "Myst")
+    }
+
+    @Test func parsesClassicDialogAndSendForms() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          ask "Where?" with "dock"
+          answer "Go?" with "OK"
+          send "openCard"
+        end mouseUp
+        """)
+        var parser = Parser(tokens: lexer.tokenize())
+        let script = try parser.parse()
+        #expect(script.handlers[0].body.count == 3)
+        guard case .ask(_, let defaultResponse) = script.handlers[0].body[0],
+              case .literal(let defaultValue) = defaultResponse else {
+            Issue.record("Expected ask default response")
+            return
+        }
+        #expect(defaultValue == "dock")
+        guard case .answer(_, let buttons) = script.handlers[0].body[1] else {
+            Issue.record("Expected answer buttons")
+            return
+        }
+        #expect(buttons.count == 1)
+        guard case .send(_, let target) = script.handlers[0].body[2] else {
+            Issue.record("Expected bare send")
+            return
+        }
+        #expect(target == nil)
+    }
+
+    @Test func parsesClassicFieldOfCardReference() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          put "open" into field "state" of card "Dock"
+        end mouseUp
+        """)
+        var parser = Parser(tokens: lexer.tokenize())
+        let script = try parser.parse()
+        guard case .put(_, _, let target) = script.handlers[0].body[0],
+              case .scopedObjectRef(let object, let owner) = target else {
+            Issue.record("Expected scoped field reference")
+            return
+        }
+        #expect(object.objectType == "field")
+        #expect(owner.objectType == "card")
+    }
+
     @Test func parsesExplicitSendToConnectionAsNetworkDispatch() throws {
         var lexer = Lexer(source: """
         on sendPing
@@ -330,6 +397,16 @@ struct InterpreterTests {
         return interpreter.execute(handler: handler, params: params, context: context)
     }
 
+    private func executeScript(_ source: String, document: HypeDocument, cardId: UUID) -> ExecutionResult {
+        var lexer = Lexer(source: source)
+        var parser = Parser(tokens: lexer.tokenize())
+        guard let script = try? parser.parse(), let handler = script.handlers.first else {
+            return ExecutionResult(status: .error, error: ScriptError(message: "Parse failed", line: 0, handler: ""))
+        }
+        let context = ExecutionContext(targetId: cardId, currentCardId: cardId, document: document)
+        return Interpreter().execute(handler: handler, params: [], context: context)
+    }
+
     @Test func evaluatesArithmetic() async {
         let result = executeScript("""
         on test
@@ -362,6 +439,72 @@ struct InterpreterTests {
 
         #expect(result.status == .completed)
         #expect(result.returnValue == "2:Ada:Lovelace:Ada\rLovelace")
+    }
+
+    @Test func goToCardInStackResolvesProjectNavigationTargetByName() {
+        var doc = HypeDocument.newDocument(name: "Myst")
+        let cardId = doc.cards[0].id
+        let entry = HypeStackLibraryEntry(
+            stackName: "Myst",
+            source: .importedStackPackage,
+            packagePath: "Myst.xstk",
+            cardReferences: [
+                HypeStackLibraryCardReference(legacyCardId: 44018, name: "Dock", sortIndex: 0, hypeCardId: cardId)
+            ]
+        )
+        doc.stackLibrary = HypeStackLibrary(entries: [entry])
+
+        let result = executeScript("""
+        on mouseUp
+          go card "Dock" of stack "Myst"
+        end mouseUp
+        """, document: doc, cardId: cardId)
+
+        #expect(result.status == .completed)
+        #expect(result.projectNavigationTarget?.stackEntryId == entry.id)
+        #expect(result.projectNavigationTarget?.cardName == "Dock")
+        #expect(result.projectNavigationTarget?.legacyCardId == 44018)
+    }
+
+    @Test func doBlockExecutesGeneratedCrossStackGo() {
+        var doc = HypeDocument.newDocument(name: "Myst")
+        let cardId = doc.cards[0].id
+        let entry = HypeStackLibraryEntry(
+            stackName: "Myst",
+            source: .importedStackPackage,
+            cardReferences: [
+                HypeStackLibraryCardReference(legacyCardId: 46439, name: "Black", sortIndex: 1, hypeCardId: cardId)
+            ]
+        )
+        doc.stackLibrary = HypeStackLibrary(entries: [entry])
+
+        let result = executeScript("""
+        on mouseUp
+          do "go card id 46439 of stack Myst"
+        end mouseUp
+        """, document: doc, cardId: cardId)
+
+        #expect(result.status == .completed)
+        #expect(result.projectNavigationTarget?.cardName == "Black")
+        #expect(result.projectNavigationTarget?.legacyCardId == 46439)
+    }
+
+    @Test func scopedFieldOfCardReferenceWritesTargetCardField() {
+        var doc = HypeDocument.newDocument(name: "Myst")
+        let firstCard = doc.cards[0]
+        let secondCard = Card(stackId: doc.stack.id, backgroundId: firstCard.backgroundId, name: "Dock", sortKey: "a1")
+        doc.cards.append(secondCard)
+        let field = Part(partType: .field, cardId: secondCard.id, name: "state")
+        doc.addPart(field)
+
+        let result = executeScript("""
+        on mouseUp
+          put "open" into field "state" of card "Dock"
+        end mouseUp
+        """, document: doc, cardId: firstCard.id)
+
+        #expect(result.status == .completed)
+        #expect(result.modifiedDocument?.parts.first(where: { $0.id == field.id })?.textContent == "open")
     }
 
     @Test func handlesIfThen() {

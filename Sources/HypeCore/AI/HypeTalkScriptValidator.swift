@@ -352,6 +352,9 @@ public struct HypeTalkScriptValidator: Sendable {
             failures += checkExpression(to, context: context)
         case .go(let dest):
             failures += checkExpression(dest, context: context)
+        case .goInStack(let card, let stack):
+            failures += checkExpression(card, context: context)
+            failures += checkExpression(stack, context: context)
         case .ifThenElse(let cond, let thenBlock, let elseBlock):
             failures += checkExpression(cond, context: context)
             failures += checkStatements(thenBlock, context: context)
@@ -370,7 +373,9 @@ public struct HypeTalkScriptValidator: Sendable {
             failures += checkExpression(expr, context: context)
         case .send(let message, let target):
             failures += checkExpression(message, context: context)
-            failures += checkExpression(target, context: context)
+            if let target {
+                failures += checkExpression(target, context: context)
+            }
         case .say(let expr), .activateListener(let expr):
             failures += checkExpression(expr, context: context)
         case .animateProperty(_, let target, let toValue, let duration):
@@ -398,6 +403,9 @@ public struct HypeTalkScriptValidator: Sendable {
         switch expr {
         case .objectRef(let ref):
             failures += checkObjectRef(ref, context: context)
+        case .scopedObjectRef(let object, let owner):
+            failures += checkExpression(object.identifier, context: context)
+            failures += checkExpression(owner.identifier, context: context)
         case .binary(let lhs, _, let rhs):
             failures += checkExpression(lhs, context: context)
             failures += checkExpression(rhs, context: context)

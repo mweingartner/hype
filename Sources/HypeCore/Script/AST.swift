@@ -17,6 +17,7 @@ public indirect enum Expression: Sendable {
     case headerAccess(Expression, Expression)    // the header "X" of request id
     case chunk(ChunkType, ChunkRange, Expression) // "word 3 of field 1"
     case objectRef(ObjectRefExpr)
+    case scopedObjectRef(object: ObjectRefExpr, owner: ObjectRefExpr) // field "X" of card "Y"
     /// A nested reference to a single data point inside a chart's series.
     ///
     /// Produced by the grammar `data point <ref> [of series <ref>] of chart <ref>`
@@ -127,6 +128,7 @@ public indirect enum Statement: Sendable {
     case get(Expression)
     case set(property: String, of: Expression?, to: Expression)
     case go(destination: Expression)
+    case goInStack(card: Expression, stack: Expression)
     case ifThenElse(condition: Expression, thenBlock: [Statement], elseBlock: [Statement]?)
     case repeatCount(count: Expression, body: [Statement])
     case repeatWhile(condition: Expression, body: [Statement])
@@ -137,7 +139,7 @@ public indirect enum Statement: Sendable {
     case exitHandler(String)
     case returnValue(Expression)
     case globalDecl([String])
-    case ask(prompt: Expression)
+    case ask(prompt: Expression, defaultResponse: Expression?)
     case askAI(prompt: Expression, model: Expression?, callback: Expression?)
     /// `ask meshy "<prompt>" [with style <s>] [with model <m>] [with message <msg>]`
     ///
@@ -171,11 +173,11 @@ public indirect enum Statement: Sendable {
         callback: Expression?
     )
 
-    case answer(prompt: Expression)
+    case answer(prompt: Expression, buttons: [Expression])
     case say(Expression)
     case activateListener(Expression)
     case visual(effectName: Expression, duration: Expression?)
-    case send(message: Expression, target: Expression)
+    case send(message: Expression, target: Expression?)
     case expressionStatement(Expression)
     case doBlock(Expression)
     // Animation
