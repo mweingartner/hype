@@ -914,7 +914,16 @@ public struct Interpreter: Sendable {
                 // `it` since there is no sensible concatenation semantic for a model ref.
                 if prep == .into, case .objectRef(let ref) = targetExpr {
                     let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
-                    if let partIndex = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
+                    if ref.objectType == "window" {
+                        applyHyperCardWindowPropertySet(
+                            windowName: ident,
+                            property: property,
+                            value: value,
+                            env: &env,
+                            document: &document,
+                            currentCardId: context.currentCardId
+                        )
+                    } else if let partIndex = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
                         applyPartPropertySet(
                             partIndex: partIndex,
                             property: property,
@@ -1020,6 +1029,16 @@ public struct Interpreter: Sendable {
                                 }
                             }
                         }
+                    } else if !handledAsNode && ref.objectType == "window" {
+                    let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+                    applyHyperCardWindowPropertySet(
+                        windowName: ident,
+                        property: property,
+                        value: value,
+                        env: &env,
+                        document: &document,
+                        currentCardId: context.currentCardId
+                    )
                     } else if !handledAsNode && ref.objectType == "card" {
                     // Card-level property set:
                     //   `set the background of card "X" to "bgName"`
@@ -1733,7 +1752,15 @@ public struct Interpreter: Sendable {
         case .hideObject(let expr):
             if case .objectRef(let ref) = expr {
                 let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
-                if let idx = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
+                if ref.objectType == "window" {
+                    setHyperCardWindowVisibility(
+                        windowName: ident,
+                        visible: false,
+                        env: &env,
+                        document: &document,
+                        currentCardId: context.currentCardId
+                    )
+                } else if let idx = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
                     document.parts[idx].visible = false
                 }
             }
@@ -1741,7 +1768,15 @@ public struct Interpreter: Sendable {
         case .showObject(let expr):
             if case .objectRef(let ref) = expr {
                 let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
-                if let idx = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
+                if ref.objectType == "window" {
+                    setHyperCardWindowVisibility(
+                        windowName: ident,
+                        visible: true,
+                        env: &env,
+                        document: &document,
+                        currentCardId: context.currentCardId
+                    )
+                } else if let idx = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
                     document.parts[idx].visible = true
                 }
             }
@@ -2269,16 +2304,23 @@ public struct Interpreter: Sendable {
         case .saveStack:
             await context.hostProvider.saveStack()
 
-        case .closeWindow:
-            await context.hostProvider.closeWindow()
+        case .closeWindow(let expr):
+            if let expr {
+                let windowName = try await evaluate(expr, env: &env, document: document, context: context)
+                closeHyperCardWindow(
+                    windowName: windowName,
+                    env: &env,
+                    document: &document,
+                    currentCardId: context.currentCardId
+                )
+            } else {
+                await context.hostProvider.closeWindow()
+            }
 
         case .quitApp:
             await context.hostProvider.quitApp()
 
         case .editScriptOf(let targetExpr):
-            // Resolve the expression to an object UUID if possible.
-            // We attempt to interpret it as an objectRef (part/card/background/stack);
-            // if resolution fails we pass nil so the host opens the current card's editor.
             let objectId: UUID?
             if case .objectRef(let ref) = targetExpr {
                 let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
@@ -3571,14 +3613,24 @@ public struct Interpreter: Sendable {
             default: return "true"
             }
 
-        case .thereIsA(_, let nameExpr):
+        case .thereIsA(let objectType, let nameExpr):
             let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
-            let found = document.parts.contains { $0.name.lowercased() == name.lowercased() }
+            let found: Bool
+            if objectType.lowercased() == "window" {
+                found = hyperCardWindowExists(name, env: env, document: document, currentCardId: context.currentCardId)
+            } else {
+                found = document.parts.contains { $0.name.lowercased() == name.lowercased() }
+            }
             return found ? "true" : "false"
 
-        case .thereIsNo(_, let nameExpr):
+        case .thereIsNo(let objectType, let nameExpr):
             let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
-            let found = document.parts.contains { $0.name.lowercased() == name.lowercased() }
+            let found: Bool
+            if objectType.lowercased() == "window" {
+                found = hyperCardWindowExists(name, env: env, document: document, currentCardId: context.currentCardId)
+            } else {
+                found = document.parts.contains { $0.name.lowercased() == name.lowercased() }
+            }
             return found ? "false" : "true"
 
         case .askMeshy(let promptExpr, let styleExpr):
@@ -4321,6 +4373,17 @@ public struct Interpreter: Sendable {
                 default: return ""
                 }
             }
+        }
+
+        if case .objectRef(let ref) = targetExpr, ref.objectType == "window" {
+            let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+            return hyperCardWindowPropertyValue(
+                windowName: ident,
+                property: property,
+                env: env,
+                document: document,
+                currentCardId: context.currentCardId
+            )
         }
 
         // Card-level property access via object reference.
@@ -6478,6 +6541,197 @@ public struct Interpreter: Sendable {
         default:
             env.setVariable(property, value)
         }
+    }
+
+    private func applyHyperCardWindowPropertySet(
+        windowName: String,
+        property: String,
+        value: Value,
+        env: inout Environment,
+        document: inout HypeDocument,
+        currentCardId: UUID
+    ) {
+        let normalizedWindow = AssetRepository.classicMediaLookupKey(windowName)
+        let normalizedProperty = property.lowercased()
+        env.globals["hypercard.window.\(normalizedWindow).\(normalizedProperty)"] = value
+
+        guard let partIndex = hyperCardWindowPartIndex(
+            windowName: windowName,
+            document: document,
+            currentCardId: currentCardId
+        ) else {
+            return
+        }
+
+        switch normalizedProperty {
+        case "loop":
+            if document.parts[partIndex].partType == .video {
+                document.parts[partIndex].videoLoop = isTruthy(value)
+            }
+        case "rate":
+            if document.parts[partIndex].partType == .video {
+                document.parts[partIndex].videoAutoplay = (Double(value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0) != 0
+            }
+        case "audiolevel":
+            if document.parts[partIndex].partType == .video {
+                document.parts[partIndex].videoVolume = normalizedClassicSoundVolume(value)
+            }
+        case "mute":
+            if document.parts[partIndex].partType == .video {
+                document.parts[partIndex].videoVolume = isTruthy(value) ? 0 : normalizedClassicSoundVolume(
+                    env.globals["hypercard.sound.volume"] ?? "255"
+                )
+            }
+        case "windowname":
+            document.parts[partIndex].name = value
+            env.invalidatePartLookupCache()
+        case "movie":
+            if let asset = document.assetRepository.asset(byClassicMediaName: value, kind: .videoClip) {
+                document.parts[partIndex].videoAssetRef = document.assetRepository.assetRef(for: asset)
+                document.parts[partIndex].videoURL = "asset://\(asset.id.uuidString)"
+                document.parts[partIndex].name = value
+                if asset.width > 0 {
+                    document.parts[partIndex].width = Double(asset.width)
+                }
+                if asset.height > 0 {
+                    document.parts[partIndex].height = Double(asset.height)
+                }
+                env.invalidatePartLookupCache()
+            }
+        case "windowrect", "rect":
+            let values = classicNumberList(value)
+            if values.count >= 4 {
+                document.parts[partIndex].left = values[0]
+                document.parts[partIndex].top = values[1]
+                document.parts[partIndex].width = max(1, values[2] - values[0])
+                document.parts[partIndex].height = max(1, values[3] - values[1])
+            }
+        case "windowloc", "loc":
+            let values = classicNumberList(value)
+            if values.count >= 2 {
+                document.parts[partIndex].left = values[0]
+                document.parts[partIndex].top = values[1]
+            }
+        default:
+            break
+        }
+    }
+
+    private func setHyperCardWindowVisibility(
+        windowName: Value,
+        visible: Bool,
+        env: inout Environment,
+        document: inout HypeDocument,
+        currentCardId: UUID
+    ) {
+        let normalizedWindow = AssetRepository.classicMediaLookupKey(windowName)
+        env.globals["hypercard.window.\(normalizedWindow).visible"] = visible ? "true" : "false"
+        guard let partIndex = hyperCardWindowPartIndex(
+            windowName: windowName,
+            document: document,
+            currentCardId: currentCardId
+        ) else {
+            return
+        }
+        document.parts[partIndex].visible = visible
+    }
+
+    private func closeHyperCardWindow(
+        windowName: Value,
+        env: inout Environment,
+        document: inout HypeDocument,
+        currentCardId: UUID
+    ) {
+        let normalizedWindow = AssetRepository.classicMediaLookupKey(windowName)
+        env.globals["hypercard.window.\(normalizedWindow).exists"] = "false"
+        env.globals["hypercard.window.\(normalizedWindow).visible"] = "false"
+        document.parts.removeAll { part in
+            part.cardId == currentCardId &&
+                isHyperCardCompatibilityWindowPart(part) &&
+                AssetRepository.classicMediaLookupKey(part.name) == normalizedWindow
+        }
+        env.invalidatePartLookupCache()
+    }
+
+    private func hyperCardWindowPropertyValue(
+        windowName: Value,
+        property: Value,
+        env: Environment,
+        document: HypeDocument,
+        currentCardId: UUID
+    ) -> Value {
+        let normalizedWindow = AssetRepository.classicMediaLookupKey(windowName)
+        let normalizedProperty = property.lowercased()
+        if let value = env.globals["hypercard.window.\(normalizedWindow).\(normalizedProperty)"] {
+            return value
+        }
+        guard let partIndex = hyperCardWindowPartIndex(
+            windowName: windowName,
+            document: document,
+            currentCardId: currentCardId
+        ) else {
+            return ""
+        }
+        let part = document.parts[partIndex]
+        switch normalizedProperty {
+        case "rect", "windowrect":
+            return [
+                part.left,
+                part.top,
+                part.left + part.width,
+                part.top + part.height
+            ].map(formatNumber).joined(separator: ",")
+        case "loc", "windowloc":
+            return "\(formatNumber(part.left)),\(formatNumber(part.top))"
+        case "scroll", "scrollpos":
+            return "0,0"
+        case "visible":
+            return part.visible ? "true" : "false"
+        default:
+            return ""
+        }
+    }
+
+    private func hyperCardWindowExists(
+        _ windowName: Value,
+        env: Environment,
+        document: HypeDocument,
+        currentCardId: UUID
+    ) -> Bool {
+        let normalizedWindow = AssetRepository.classicMediaLookupKey(windowName)
+        if isTruthy(env.globals["hypercard.window.\(normalizedWindow).exists"] ?? "") {
+            return true
+        }
+        return hyperCardWindowPartIndex(windowName: windowName, document: document, currentCardId: currentCardId) != nil
+    }
+
+    private func hyperCardWindowPartIndex(
+        windowName: Value,
+        document: HypeDocument,
+        currentCardId: UUID
+    ) -> Int? {
+        let normalizedWindow = AssetRepository.classicMediaLookupKey(windowName)
+        return document.parts.lastIndex { part in
+            part.cardId == currentCardId &&
+                isHyperCardCompatibilityWindowPart(part) &&
+                AssetRepository.classicMediaLookupKey(part.name) == normalizedWindow
+        }
+    }
+
+    private func isHyperCardCompatibilityWindowPart(_ part: Part) -> Bool {
+        part.helpText == "hypercard-playqt" ||
+            part.helpText.hasPrefix("hypercard-playqt\n")
+    }
+
+    private func normalizedClassicSoundVolume(_ rawValue: Value) -> Double {
+        let parsed = Double(rawValue.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 255
+        return min(255, max(0, parsed.rounded())) / 255
+    }
+
+    private func classicNumberList(_ rawValue: Value) -> [Double] {
+        rawValue
+            .split(separator: ",")
+            .compactMap { Double($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
     }
 
     /// Resolve a raw 3D model path for storage in `Part.scene3DURL`.

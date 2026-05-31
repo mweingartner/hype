@@ -225,7 +225,7 @@ public indirect enum Statement: Sendable {
 
     // Phase 2: HypeTalk compliance commands
     case convert(Expression, Expression)                         // convert X to Y
-    case closeWindow                                             // close window
+    case closeWindow(Expression?)                                // close window [name]
     case saveStack                                               // save this stack
     case quitApp                                                 // quit
     case editScriptOf(Expression)                                // edit script of button 1

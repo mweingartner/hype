@@ -138,6 +138,24 @@ struct ParserTests {
         #expect(script.handlers[0].body.count == 2)
     }
 
+    @Test func parsesMovieWindowPropertySet() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          set the loop of window TheMovieName to true
+        end mouseUp
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        guard case .set(let property, let target, _) = script.handlers[0].body[0],
+              case .objectRef(let ref) = target else {
+            Issue.record("Expected movie window property set")
+            return
+        }
+        #expect(property == "loop")
+        #expect(ref.objectType == "window")
+    }
+
     @Test func topLevelGlobalPreludeAppliesToEveryHandler() throws {
         var lexer = Lexer(source: """
         global moveDir, score
@@ -405,6 +423,132 @@ struct InterpreterTests {
         }
         let context = ExecutionContext(targetId: cardId, currentCardId: cardId, document: document)
         return Interpreter().execute(handler: handler, params: [], context: context)
+    }
+
+    @Test func movieInfoReturnsRepositoryBackedMovieMetadata() async {
+        let movie = Asset(
+            name: "Intro Wind Mov-modern.mov",
+            kind: .videoClip,
+            mimeType: "video/quicktime",
+            data: Data("movie".utf8),
+            width: 160,
+            height: 90,
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "Intro Wind Mov"),
+                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("Intro Wind Mov")),
+                AssetMetadataEntry(key: "size", value: "2048")
+            ]
+        )
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        doc.assetRepository = AssetRepository(assets: [movie])
+
+        let result = executeScript("""
+        on test
+          return movieInfo("Myst:Myst Graphics:Myst:Intro Wind Mov")
+        end test
+        """, document: doc, cardId: cardId)
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue?.contains("name:\tIntro Wind Mov") == true)
+        #expect(result.returnValue?.contains("asset:\tIntro Wind Mov-modern.mov") == true)
+        #expect(result.returnValue?.contains("bytes:\t2048") == true)
+        #expect(result.returnValue?.contains("bounds:\t0,0,160,90") == true)
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.movieinfo.found"] == "true")
+    }
+
+    @Test func playQTCreatesRepositoryBackedVideoPartByClassicName() async {
+        let movie = Asset(
+            name: "AtrusWrite-modern.mov",
+            kind: .videoClip,
+            mimeType: "video/quicktime",
+            data: Data("movie".utf8),
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "AtrusWrite"),
+                AssetMetadataEntry(key: "lookup_key", value: "atruswrite")
+            ]
+        )
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        doc.assetRepository = AssetRepository(assets: [movie])
+
+        let result = executeScript("""
+        on test
+          xSetSoundVol 128
+          playQT "AtrusWrite", "loop"
+        end test
+        """, document: doc, cardId: cardId)
+
+        #expect(result.status == .completed)
+        let videoPart = result.modifiedDocument?.parts.first { $0.partType == .video }
+        #expect(videoPart?.cardId == cardId)
+        #expect(videoPart?.name == "AtrusWrite")
+        #expect(videoPart?.videoAssetRef?.id == movie.id)
+        #expect(videoPart?.videoURL == "asset://\(movie.id.uuidString)")
+        #expect(videoPart?.videoAutoplay == true)
+        #expect(videoPart?.videoLoop == true)
+        #expect(videoPart?.videoVolume == 128.0 / 255.0)
+    }
+
+    @Test func movieWindowPropertySetsUpdateCompatibilityVideoPart() async {
+        let movie = Asset(
+            name: "MystLib-modern.mov",
+            kind: .videoClip,
+            mimeType: "video/quicktime",
+            data: Data("movie".utf8),
+            width: 160,
+            height: 90,
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "MystLib.MooV"),
+                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("MystLib.MooV"))
+            ]
+        )
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        doc.assetRepository = AssetRepository(assets: [movie])
+
+        let result = executeScript("""
+        on test
+          put "MystLib.MooV" into TheMovieName
+          Movie TheMovieName,"borderless","230,173","invisible","Floating"
+          set the loop of window TheMovieName to true
+          set the rate of window TheMovieName to "0.0"
+          set the audioLevel of window TheMovieName to "64"
+          set the mute of window TheMovieName to true
+          set the windowRect of window TheMovieName to "10,20,170,110"
+          set the windowName of window TheMovieName to "MystLibWindow"
+        end test
+        """, document: doc, cardId: cardId)
+
+        #expect(result.status == .completed)
+        let videoPart = result.modifiedDocument?.parts.first { $0.partType == .video }
+        #expect(videoPart?.name == "MystLibWindow")
+        #expect(videoPart?.videoLoop == true)
+        #expect(videoPart?.videoAutoplay == false)
+        #expect(videoPart?.videoVolume == 0)
+        #expect(videoPart?.left == 10)
+        #expect(videoPart?.top == 20)
+        #expect(videoPart?.width == 160)
+        #expect(videoPart?.height == 90)
+        let windowKey = AssetRepository.classicMediaLookupKey("MystLib.MooV")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.window.\(windowKey).loop"] == "true")
+    }
+
+    @Test func closeMoovsRemovesCompatibilityVideoParts() async {
+        let movie = Asset(name: "Intro Wind Mov", kind: .videoClip, mimeType: "video/quicktime", data: Data("movie".utf8))
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        doc.assetRepository = AssetRepository(assets: [movie])
+
+        let result = executeScript("""
+        on test
+          playQT "Intro Wind Mov"
+          closemoovs
+        end test
+        """, document: doc, cardId: cardId)
+
+        #expect(result.status == .completed)
+        #expect(result.modifiedDocument?.parts.contains { $0.partType == .video } == false)
     }
 
     @Test func evaluatesArithmetic() async {
