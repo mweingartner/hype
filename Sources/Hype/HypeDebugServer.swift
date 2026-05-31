@@ -362,7 +362,7 @@ final class HypeDebugServer: @unchecked Sendable {
                 guard let path = params["path"] as? String, !path.isEmpty else {
                     return jsonRPCError(id: id, code: -32602, message: "debug/importHyperCardStack requires params.path")
                 }
-                return await importHyperCardStack(path: path, id: id)
+                return await importHyperCardStack(path: path, params: params, id: id)
             case "debug/clickButton":
                 let cardReference = params["card"] as? String
                 guard let buttonName = params["button"] as? String, !buttonName.isEmpty else {
@@ -412,10 +412,10 @@ final class HypeDebugServer: @unchecked Sendable {
     }
 
     @MainActor
-    private func importHyperCardStack(path: String, id: Any?) async -> [String: Any] {
+    private func importHyperCardStack(path: String, params: [String: Any], id: Any?) async -> [String: Any] {
         do {
             let url = URL(fileURLWithPath: path)
-            let result = try StackImportCImporter().importStack(at: url)
+            let result = try StackImportCImporter(options: importOptions(from: params)).importStack(at: url)
             let outputURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent(url.deletingPathExtension().lastPathComponent + "-debug-imported.hype")
             try? FileManager.default.removeItem(at: outputURL)
@@ -431,6 +431,8 @@ final class HypeDebugServer: @unchecked Sendable {
                 "partCount": result.document.parts.count,
                 "assetCount": result.document.assetRepository.assets.count,
                 "documentPath": outputURL.path,
+                "targetPlatforms": result.document.stack.deploymentTargets.selectedPlatforms.map(\.rawValue),
+                "primaryTargetPlatform": result.document.stack.deploymentTargets.primaryPlatform.rawValue,
                 "warnings": result.report.warnings,
             ])
         } catch {
@@ -785,7 +787,7 @@ final class HypeDebugServer: @unchecked Sendable {
             return rollbackTransaction(idText: arguments["transaction_id"]?.flattenedString ?? "")
         case "hype_create_test_stack":
             guard allowMCPMutations() else { return ("MCP mutations are disabled.", true) }
-            return createTestStack(name: arguments["name"]?.flattenedString.nonEmpty ?? "MCP Test Stack")
+            return createTestStack(arguments: arguments)
         default:
             return ("Unknown MCP control tool \(name)", true)
         }
@@ -863,11 +865,26 @@ final class HypeDebugServer: @unchecked Sendable {
     }
 
     @MainActor
-    private func createTestStack(name: String) -> (text: String, isError: Bool) {
+    private func createTestStack(arguments: [String: HypeMCPJSONValue]) -> (text: String, isError: Bool) {
         guard let binding = HypeDocumentMutationCoordinator.shared.activeDocumentBinding else {
             return ("No active Hype document. Open or focus a stack window before creating a test stack.", true)
         }
-        let document = HypeDocument.newDocument(name: name)
+        let name = arguments["name"]?.flattenedString.nonEmpty ?? "MCP Test Stack"
+        let document: HypeDocument
+        do {
+            var draft = HypeDocument.newDocument(name: name)
+            draft.stack.deploymentTargets = try deploymentTargets(
+                targetPlatforms: arguments["target_platforms"]?.flattenedString
+                    ?? arguments["targetPlatforms"]?.flattenedString
+                    ?? arguments["target_platform"]?.flattenedString
+                    ?? arguments["targetPlatform"]?.flattenedString,
+                primaryTargetPlatform: arguments["primary_target_platform"]?.flattenedString
+                    ?? arguments["primaryTargetPlatform"]?.flattenedString
+            )
+            document = draft
+        } catch {
+            return (error.localizedDescription, true)
+        }
         HypeDocumentMutationCoordinator.shared.activeCardId = document.sortedCards.first?.id
         HypeDocumentMutationCoordinator.shared.applyDocument(
             document,
@@ -876,7 +893,65 @@ final class HypeDebugServer: @unchecked Sendable {
             actionName: "Debug MCP Test Stack"
         )
         transactions.removeAll()
-        return (debugJSONText(["result": "Created test stack", "state": ["activeStackId": document.stack.id.uuidString]]), false)
+        return (debugJSONText([
+            "result": "Created test stack",
+            "state": [
+                "activeStackId": document.stack.id.uuidString,
+                "targetPlatforms": document.stack.deploymentTargets.selectedPlatforms.map(\.rawValue),
+                "primaryTargetPlatform": document.stack.deploymentTargets.primaryPlatform.rawValue,
+            ],
+        ]), false)
+    }
+
+    private func importOptions(from params: [String: Any]) throws -> HyperCardImportOptions {
+        let targets = try deploymentTargets(
+            targetPlatforms: params["targetPlatforms"] as? String
+                ?? params["target_platforms"] as? String
+                ?? params["targetPlatform"] as? String
+                ?? params["target_platform"] as? String,
+            primaryTargetPlatform: params["primaryTargetPlatform"] as? String
+                ?? params["primary_target_platform"] as? String
+        )
+        return HyperCardImportOptions(deploymentTargets: targets)
+    }
+
+    private func deploymentTargets(
+        targetPlatforms: String?,
+        primaryTargetPlatform: String?
+    ) throws -> StackDeploymentTargets {
+        let selected = try parseTargetPlatforms(targetPlatforms)
+        let primary = try parsePrimaryTargetPlatform(primaryTargetPlatform, selectedPlatforms: selected)
+        return StackDeploymentTargets(
+            selectedPlatforms: selected,
+            primaryPlatform: primary,
+            selectionPromptAcknowledged: true
+        )
+    }
+
+    private func parseTargetPlatforms(_ raw: String?) throws -> [HypeTargetPlatform] {
+        guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return [.macOS]
+        }
+        guard let platforms = HypeTargetPlatform.parseList(raw), !platforms.isEmpty else {
+            throw DebugServerError.message("Invalid target platform '\(raw)' (expected macOS, iPhone, iPad, or tvOS)")
+        }
+        return platforms
+    }
+
+    private func parsePrimaryTargetPlatform(
+        _ raw: String?,
+        selectedPlatforms: [HypeTargetPlatform]
+    ) throws -> HypeTargetPlatform {
+        guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return selectedPlatforms.first ?? .macOS
+        }
+        guard let platform = HypeTargetPlatform.parse(raw) else {
+            throw DebugServerError.message("Invalid primary target platform '\(raw)' (expected macOS, iPhone, iPad, or tvOS)")
+        }
+        guard selectedPlatforms.contains(platform) else {
+            throw DebugServerError.message("Primary target platform '\(platform.rawValue)' is not included in target platforms")
+        }
+        return platform
     }
 
     private func transactionCalls(from arguments: [String: HypeMCPJSONValue]) -> [OllamaToolCall] {

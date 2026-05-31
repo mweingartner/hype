@@ -77,6 +77,12 @@ struct HypeCLI: AsyncParsableCommand {
     @Option(help: "Write --import-corpus successful imports as .hype packages in this directory")
     var outputDir: String?
 
+    @Option(help: "Target platforms for imported stacks, comma-separated. Defaults to macOS for automation imports.")
+    var targetPlatforms = "macOS"
+
+    @Option(help: "Primary target platform for imported stacks. Defaults to the first --target-platforms value.")
+    var primaryTargetPlatform: String?
+
     @Option(help: "Maximum source files to scan with --import-corpus")
     var importLimit: Int?
 
@@ -398,8 +404,45 @@ struct HypeCLI: AsyncParsableCommand {
     }
 
     private func importOneHyperCardStack(_ url: URL) throws -> ImportSummary {
-        let result = try StackImportCImporter().importStack(at: url)
+        let result = try StackImportCImporter(options: importOptions).importStack(at: url)
         return ImportSummary(sourceURL: url, document: result.document)
+    }
+
+    private var importOptions: HyperCardImportOptions {
+        get throws {
+            let platforms = try parseTargetPlatforms(targetPlatforms)
+            let primary = try parsePrimaryTargetPlatform(from: primaryTargetPlatform, selectedPlatforms: platforms)
+            return HyperCardImportOptions(
+                deploymentTargets: StackDeploymentTargets(
+                    selectedPlatforms: platforms,
+                    primaryPlatform: primary,
+                    selectionPromptAcknowledged: true
+                )
+            )
+        }
+    }
+
+    private func parseTargetPlatforms(_ raw: String) throws -> [HypeTargetPlatform] {
+        guard let platforms = HypeTargetPlatform.parseList(raw), !platforms.isEmpty else {
+            throw ValidationError("Invalid --target-platforms '\(raw)' (expected macOS, iPhone, iPad, or tvOS)")
+        }
+        return platforms
+    }
+
+    private func parsePrimaryTargetPlatform(
+        from raw: String?,
+        selectedPlatforms: [HypeTargetPlatform]
+    ) throws -> HypeTargetPlatform {
+        guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return selectedPlatforms.first ?? .macOS
+        }
+        guard let platform = HypeTargetPlatform.parse(raw) else {
+            throw ValidationError("Invalid --primary-target-platform '\(raw)' (expected macOS, iPhone, iPad, or tvOS)")
+        }
+        guard selectedPlatforms.contains(platform) else {
+            throw ValidationError("--primary-target-platform '\(platform.rawValue)' is not included in --target-platforms")
+        }
+        return platform
     }
 
     private func runImportCorpus(_ rootURL: URL) throws {
