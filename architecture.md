@@ -1868,6 +1868,15 @@ single anonymous `SceneSpec`. `SceneBridge` diffing and cache invalidation are
 recursive, so nested node edits, scene switching, and repository-driven texture
 changes can be applied without always tearing down the full `SKView`.
 
+Video overlays resolve either a direct `Part.videoURL` or an embedded
+`Part.videoAssetRef`. Repository-backed QuickTime/video/audio assets are
+materialized into a temporary file before being handed to `AVPlayer`, keeping
+the persisted stack self-contained while satisfying AVFoundation's file/URL
+playback model. `videoLoop` uses `AVQueuePlayer`/`AVPlayerLooper`,
+`videoAutoplay` starts playback in browse mode, `videoVolume` is applied to the
+player, and imported audio-only QuickTime metadata hides visible video chrome
+behind a transparent 1x1 overlay.
+
 ### 6.4 Accessibility and UI automation
 
 Hype exposes a stable macOS Accessibility API contract for both assistive
