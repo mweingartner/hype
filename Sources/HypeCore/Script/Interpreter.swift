@@ -1794,12 +1794,9 @@ public struct Interpreter: Sendable {
         case .externalCommand(let name, let argumentExprs):
             var args: [Value] = []
             for expr in argumentExprs {
-                args.append(try await evaluate(expr, env: &env, document: document, context: context))
+                args.append(try await evaluateExternalArgumentExpression(expr, env: &env, document: document, context: context))
             }
 
-            // Intercept HypeTalk application-shell commands that the parser routes
-            // through externalCommand because they have no dedicated keyword token.
-            // `doMenu` and `print` (when passed an argument string) land here.
             let normalizedName = name.lowercased()
             if normalizedName == "domenu" {
                 let item = args.first ?? ""
@@ -1807,6 +1804,7 @@ public struct Interpreter: Sendable {
                 break
             }
 
+            document.scriptGlobals = env.globals
             let result = await context.externalRegistry.invoke(
                 HyperCardExternalCall(name: name, kind: .xcmd, arguments: args),
                 context: HyperCardExternalCallContext(
@@ -1819,8 +1817,16 @@ public struct Interpreter: Sendable {
                 document = modified
             }
             for (key, value) in result.runtimeGlobals {
+                env.globals[key] = value
                 env.globals[key.lowercased()] = value
             }
+            if let visualEffect = result.visualEffect {
+                env.locals["_visualEffect"] = visualEffect
+            }
+            if let visualEffectDuration = result.visualEffectDuration {
+                env.locals["_visualEffectDuration"] = String(visualEffectDuration)
+            }
+            document.scriptGlobals = env.globals
             env.it = result.value
             env.result = result.result
             if result.passMessage {
@@ -2981,12 +2987,9 @@ public struct Interpreter: Sendable {
             }
 
         case .push(let cardExpr):
-            // HyperCard `push [card]` — save the specified (or current) card ID
-            // onto the session card-history stack so `pop card` can return to it.
             let cardId: UUID
             if let expr = cardExpr {
                 let refValue = try await evaluate(expr, env: &env, document: document, context: context)
-                // Accept a UUID string directly, or a navigation keyword / card name.
                 if let uuid = UUID(uuidString: refValue) {
                     cardId = uuid
                 } else if let resolved = resolveNavigation(refValue, document: document, currentCardId: context.currentCardId) {
@@ -3000,18 +3003,12 @@ public struct Interpreter: Sendable {
             await context.runtimeProvider?.pushCardToHistory(cardId)
 
         case .pop:
-            // HyperCard `pop [card]` — navigate to the most-recently-pushed card.
-            // Empty stack is a documented no-op.
             if let poppedId = await context.runtimeProvider?.popCardFromHistory() {
                 navigationTarget = poppedId
                 await context.runtimeProvider?.navigateToCard(poppedId)
             }
 
         case .printCmd(let expr):
-            // `print` (no argument) prints the current card.
-            // `print field "Name"` or `print <expr>` prints the field's text.
-            // For objectRef expressions (e.g. field "Name"), we resolve to text
-            // content directly so the provider receives meaningful content.
             let target: HostPrintTarget
             if let expr = expr {
                 if case .objectRef(let ref) = expr {
@@ -3037,13 +3034,48 @@ public struct Interpreter: Sendable {
             let item = try await evaluate(expr, env: &env, document: document, context: context)
             _ = await context.hostProvider.doMenu(item: item)
 
-        // Phase 2 / A″: Legacy HyperCard commands — recognised so scripts don't
-        // produce "unknown command" errors, but intentionally no-op in Hype.
-        // See Stubs&CompletionPlan §Cluster A″ for rationale.
+        case .startUsing(let stackExpr):
+            let alias = try await evaluate(stackExpr, env: &env, document: document, context: context)
+            switch document.stackLibrary.startUsing(alias) {
+            case .started(let entry):
+                env.it = entry.primaryAlias
+                env.result = entry.primaryAlias
+            case .missing(let missingAlias):
+                throw ScriptError(message: "Stack not found: \(missingAlias)", line: handler.line, handler: handler.name)
+            case .ambiguous(let ambiguousAlias, let candidates):
+                let names = stackLibraryCandidateSummary(candidates)
+                throw ScriptError(
+                    message: "Ambiguous stack name '\(ambiguousAlias)': \(names)",
+                    line: handler.line,
+                    handler: handler.name
+                )
+            case .stopped:
+                break
+            }
+
+        case .stopUsing(let stackExpr):
+            let alias = try await evaluate(stackExpr, env: &env, document: document, context: context)
+            switch document.stackLibrary.stopUsing(alias) {
+            case .stopped(let entry):
+                env.it = entry.primaryAlias
+                env.result = entry.primaryAlias
+            case .missing(let missingAlias):
+                throw ScriptError(message: "Stack not found: \(missingAlias)", line: handler.line, handler: handler.name)
+            case .ambiguous(let ambiguousAlias, let candidates):
+                let names = stackLibraryCandidateSummary(candidates)
+                throw ScriptError(
+                    message: "Ambiguous stack name '\(ambiguousAlias)': \(names)",
+                    line: handler.line,
+                    handler: handler.name
+                )
+            case .started:
+                break
+            }
+
         case .clickAt, .disableCmd, .enableCmd,
-             .helpCmd, .debugCmd, .dialCmd,
-             .runCmd, .startUsing, .stopUsing,
-             .copyTemplate:
+              .helpCmd, .debugCmd, .dialCmd,
+              .readCmd, .writeCmd,
+              .runCmd, .copyTemplate:
             break
 
         case .exportPaint(let nameExpr):
@@ -3271,6 +3303,26 @@ public struct Interpreter: Sendable {
             // Unrecognised keyword — fall back to long date format.
             return formatHyperCardDate(date, formatKeyword: "long date")
         }
+    }
+
+    private func evaluateExternalArgumentExpression(
+        _ expr: Expression,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async throws -> Value {
+        let evaluated = try await evaluate(expr, env: &env, document: document, context: context)
+        if evaluated.isEmpty, case .variable(let name) = expr {
+            return name
+        }
+        return evaluated
+    }
+
+    private func stackLibraryCandidateSummary(_ candidates: [HypeStackLibraryEntry]) -> String {
+        candidates
+            .map { $0.stackName.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
     }
 
     // MARK: - GIF animation helpers
@@ -3509,6 +3561,10 @@ public struct Interpreter: Sendable {
 
         case .objectRef(let ref):
             let identVal = try await evaluateObjectRefIdentifier(ref.identifier, env: &env, document: document, context: context)
+            if let partIndex = findPartIndex(ref.objectType, identifier: identVal, env: &env, document: document, currentCardId: context.currentCardId),
+               document.parts[partIndex].partType == .field || document.parts[partIndex].partType == .button {
+                return document.parts[partIndex].textContent
+            }
             return resolveObjectRef(ref.objectType, identifier: identVal, document: document, context: context)
 
         case .scopedObjectRef(let object, let owner):
@@ -3519,6 +3575,9 @@ public struct Interpreter: Sendable {
                 document: document,
                 context: context
             ) {
+                if document.parts[partIndex].partType == .field || document.parts[partIndex].partType == .button {
+                    return document.parts[partIndex].textContent
+                }
                 return document.parts[partIndex].id.uuidString
             }
             return ""
@@ -4272,7 +4331,10 @@ public struct Interpreter: Sendable {
         }
         if targetVal.lowercased() == "stack" || isStackObjectReference {
             switch lower {
-            case "name":        return document.stack.name
+            case "name", "shortname", "short name", "abbrevname", "abbrev name",
+                 "abbreviatedname", "abbreviated name", "abbrname", "abbr name",
+                 "longname", "long name":
+                return document.stack.name
             case "defaultfont", "default_font", "textfont", "font":
                 return document.stack.defaultFont
             case "width":       return String(document.stack.width)
@@ -5369,7 +5431,6 @@ public struct Interpreter: Sendable {
         context: ExecutionContext
     ) async throws -> Value {
         let value = try await evaluate(expr, env: &env, document: document, context: context)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
         if value.isEmpty, case .variable(let name) = expr {
             return name
         }
@@ -5383,7 +5444,6 @@ public struct Interpreter: Sendable {
         context: ExecutionContext
     ) async throws -> Value {
         let value = try await evaluate(expr, env: &env, document: document, context: context)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
         if value.isEmpty, case .variable(let name) = expr {
             return name
         }
@@ -6720,7 +6780,8 @@ public struct Interpreter: Sendable {
 
     private func isHyperCardCompatibilityWindowPart(_ part: Part) -> Bool {
         part.helpText == "hypercard-playqt" ||
-            part.helpText.hasPrefix("hypercard-playqt\n")
+            part.helpText.hasPrefix("hypercard-playqt\n") ||
+            part.helpText == "hypercard-picture"
     }
 
     private func normalizedClassicSoundVolume(_ rawValue: Value) -> Double {
