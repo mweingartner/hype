@@ -13,6 +13,16 @@ struct TargetPlatformTests {
         #expect(document.stack.deploymentTargets.primaryProfile.id == "macos-default")
     }
 
+    @Test("target platform parser accepts automation-friendly aliases")
+    func targetPlatformParserAcceptsAutomationAliases() {
+        #expect(HypeTargetPlatform.parse("macos") == .macOS)
+        #expect(HypeTargetPlatform.parse("i-phone") == .iPhone)
+        #expect(HypeTargetPlatform.parse("iPad") == .iPad)
+        #expect(HypeTargetPlatform.parse("tv os") == .tvOS)
+        #expect(HypeTargetPlatform.parseList("macOS,iPad,tvOS") == [.macOS, .iPad, .tvOS])
+        #expect(HypeTargetPlatform.parseList("macOS,unknown") == nil)
+    }
+
     @Test("decoded legacy stacks default to acknowledged macOS target")
     func decodedLegacyStackDefaultsToAcknowledgedMacOSTarget() throws {
         let encoded = try JSONEncoder().encode(Stack(name: "Legacy"))

@@ -23,6 +23,7 @@ public struct StackImportPackageConverter: Sendable {
         let stack = try decode(XSTKStack.self, from: stackFile, reader: reader, decoder: decoder)
 
         var document = HypeDocument.newDocument(name: nonEmpty(stack.name, fallback: project.sourceFileName ?? "Imported HyperCard Stack"))
+        document.stack.deploymentTargets = options.deploymentTargets
         document.stack.width = stack.cardWidth
         document.stack.height = stack.cardHeight
         document.stack.script = disabledLegacyScript(stack.script)

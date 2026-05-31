@@ -148,19 +148,22 @@ public struct HyperCardImportOptions: Sendable {
     public var maxInputBytes: Int
     public var maxBlockBytes: Int
     public var maxBlocks: Int
+    public var deploymentTargets: StackDeploymentTargets
 
     public init(
         preserveOriginalForks: Bool = true,
         maxEmbeddedOriginalBytes: Int = 64 * 1024 * 1024,
         maxInputBytes: Int = 512 * 1024 * 1024,
         maxBlockBytes: Int = 128 * 1024 * 1024,
-        maxBlocks: Int = 200_000
+        maxBlocks: Int = 200_000,
+        deploymentTargets: StackDeploymentTargets = .macOSDefault(selectionPromptAcknowledged: true)
     ) {
         self.preserveOriginalForks = preserveOriginalForks
         self.maxEmbeddedOriginalBytes = maxEmbeddedOriginalBytes
         self.maxInputBytes = maxInputBytes
         self.maxBlockBytes = maxBlockBytes
         self.maxBlocks = maxBlocks
+        self.deploymentTargets = deploymentTargets
     }
 }
 
