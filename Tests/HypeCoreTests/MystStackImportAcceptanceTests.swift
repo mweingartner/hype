@@ -150,6 +150,59 @@ struct MystStackImportAcceptanceTests {
         #expect(seagulls.metadata.contains { $0.key == "resolved_path" && $0.value.contains("modern-quicktime") })
     }
 
+    @Test("seeded Myst launcher marker click returns dock project navigation target")
+    func seededMystLauncherMarkerClickReturnsDockProjectNavigationTarget() throws {
+        let root = try mystExportRoot()
+        let stacksRoot = root.appendingPathComponent("exports/stacks", isDirectory: true)
+        let packageURLs = [
+            stacksRoot.appendingPathComponent("Myst-Application.xstk", isDirectory: true),
+            stacksRoot.appendingPathComponent("ALLRes.xstk", isDirectory: true),
+            stacksRoot.appendingPathComponent("INRes1.xstk", isDirectory: true),
+            stacksRoot.appendingPathComponent("Myst.xstk", isDirectory: true),
+        ]
+        let outputURL = makeTemporaryDirectory(prefix: "hype-myst-launcher")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let result = try StackImportPackageProjectImporter().importProject(
+            options: StackImportPackageProjectImportOptions(
+                packageURLs: packageURLs,
+                outputDirectoryURL: outputURL,
+                stackLibraryEntries: packageURLs.map(stackLibraryEntry),
+                usedStackAliases: ["ALLRes", "INRes1"]
+            )
+        )
+
+        let appResult = try #require(result.packageResults.first { $0.outputPackageURL.lastPathComponent == "Myst-Application-debug-imported.hype" })
+        var appDocument = try HypeSQLiteStackStore().load(fromPackageAt: appResult.outputPackageURL)
+        appDocument.scriptGlobals = seededLauncherGlobals()
+
+        let appCardMap = try legacyCardMap(
+            packageURL: stacksRoot.appendingPathComponent("Myst-Application.xstk", isDirectory: true),
+            document: appDocument
+        )
+        let launcherCardId = try #require(appCardMap[4981])
+        let marker = try #require(appDocument.partsForCard(launcherCardId).first { $0.name == "marker2" })
+        #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(marker.script), "Imported marker2 script should run: \(marker.script)")
+
+        let dispatch = MessageDispatcher().dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: marker.id,
+            document: appDocument,
+            currentCardId: launcherCardId
+        )
+
+        #expect(dispatch.status == .completed)
+        #expect(dispatch.navigationTarget == nil)
+        #expect(dispatch.projectNavigationTarget?.stackName == "Myst")
+        #expect(dispatch.projectNavigationTarget?.legacyCardId == 8336)
+        #expect(dispatch.projectNavigationTarget?.cardName.caseInsensitiveCompare("dock") == .orderedSame)
+
+        let mystResult = try #require(result.packageResults.first { $0.outputPackageURL.lastPathComponent == "Myst-debug-imported.hype" })
+        let mystDocument = try HypeSQLiteStackStore().load(fromPackageAt: mystResult.outputPackageURL)
+        #expect(ProjectNavigationTargetResolver.resolveCardId(for: try #require(dispatch.projectNavigationTarget), in: mystDocument) != nil)
+    }
+
     #if canImport(AppKit)
     @Test("imports Myst font layout audit candidates for rendered metric probes")
     func importsMystFontLayoutAuditCandidatesForRenderedMetricProbes() throws {
@@ -257,6 +310,21 @@ struct MystStackImportAcceptanceTests {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func seededLauncherGlobals() -> [String: String] {
+        [
+            "ALL_CurrStack": "Myst",
+            "ALL_Page": "",
+            "DU_End": "",
+            "MY_BlueBook": "000000",
+            "MY_RedBook": "000000",
+            "Quick": "false",
+            "RestoreData": "card field Defaults of card Defaults",
+            "Start_Game": "new",
+            "Trans": "2",
+            "playsounds": "true",
+        ]
     }
 
     private func legacyCardMap(packageURL: URL, document: HypeDocument) throws -> [Int: UUID] {
