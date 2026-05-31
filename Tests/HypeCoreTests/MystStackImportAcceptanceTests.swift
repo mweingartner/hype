@@ -196,6 +196,62 @@ struct MystStackImportAcceptanceTests {
         #expect(stoneForest.metadata.contains { $0.key == "resolved_path" && $0.value.hasSuffix("EV StoneForest Mov-modern-audio.m4a") })
     }
 
+    @Test("imports full Myst project with shared content and broader loose media")
+    func importsFullMystProjectWithSharedContentAndBroaderLooseMedia() throws {
+        let root = try mystExportRoot()
+        let stacksRoot = root.appendingPathComponent("exports/stacks", isDirectory: true)
+        let packageNames = [
+            "Myst-Application.xstk",
+            "ALLRes.xstk",
+            "INRes1.xstk",
+            "Myst.xstk",
+            "Mechanical-Age.xstk",
+            "Stoneship-Age.xstk",
+            "Channelwood-Age.xstk",
+            "Selenitic-Age.xstk",
+            "Dunny-Age.xstk",
+        ]
+        let packageURLs = packageNames.map { stacksRoot.appendingPathComponent($0, isDirectory: true) }
+        let outputURL = makeTemporaryDirectory(prefix: "hype-myst-full-media")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+        let mediaNames: Set<String> = [
+            "Intro",
+            "Holo-SMessage",
+            "Fountain",
+            "Caldera South",
+            "EV StoneForest Mov",
+        ]
+
+        let result = try StackImportPackageProjectImporter().importProject(
+            options: StackImportPackageProjectImportOptions(
+                packageURLs: packageURLs,
+                outputDirectoryURL: outputURL,
+                looseMediaManifestURL: root.appendingPathComponent("manifests/loose-media.tsv"),
+                looseMediaReplacementRootURL: root.appendingPathComponent("exports/modern-quicktime", isDirectory: true),
+                looseMediaNames: mediaNames,
+                stackLibraryEntries: packageURLs.map(stackLibraryEntry),
+                usedStackAliases: ["ALLRes", "INRes1"]
+            )
+        )
+
+        #expect(result.summary.stackCount == packageNames.count)
+        #expect(result.summary.sourcePackagePaths.count == packageNames.count)
+        #expect(result.summary.outputPackagePaths.count == packageNames.count)
+        #expect(result.summary.outputPackagePaths.allSatisfy { FileManager.default.fileExists(atPath: $0) })
+        #expect((result.summary.totalOutputPackageByteCount ?? 0) > 0)
+        #expect(result.summary.sharedContentAssetCopyCount > 0)
+        #expect(result.summary.packages.count == packageNames.count)
+        #expect(result.summary.packages.allSatisfy { $0.sourcePackagePath?.hasSuffix(".xstk") == true })
+        #expect(result.summary.packages.allSatisfy { ($0.outputPackageByteCount ?? 0) > 0 })
+        #expect(result.summary.packages.allSatisfy { $0.sharedContentAssetCount > 0 })
+        #expect(result.summary.packages.allSatisfy { $0.looseMedia?.missing.isEmpty == true })
+        #expect(result.summary.packages.allSatisfy { $0.looseMedia?.importedAssetCount == mediaNames.count })
+        #expect(result.summary.packages.allSatisfy { package in
+            let importedNames = Set(package.looseMedia?.imported.map(\.name) ?? [])
+            return mediaNames.isSubset(of: importedNames)
+        })
+    }
+
     @Test("seeded Myst launcher marker click returns dock project navigation target")
     func seededMystLauncherMarkerClickReturnsDockProjectNavigationTarget() throws {
         let root = try mystExportRoot()
