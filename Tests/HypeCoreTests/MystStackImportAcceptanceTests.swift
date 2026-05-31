@@ -290,6 +290,172 @@ struct MystStackImportAcceptanceTests {
         }
     }
 
+    @Test("imported Myst age transition card scripts return routable final project navigation targets")
+    func importedMystAgeTransitionCardScriptsReturnRoutableFinalProjectNavigationTargets() throws {
+        let root = try mystExportRoot()
+        let stacksRoot = root.appendingPathComponent("exports/stacks", isDirectory: true)
+        let packageNames = [
+            "ALLRes.xstk",
+            "INRes1.xstk",
+            "Myst.xstk",
+            "Mechanical-Age.xstk",
+            "Stoneship-Age.xstk",
+            "Channelwood-Age.xstk",
+            "Selenitic-Age.xstk",
+            "Dunny-Age.xstk",
+        ]
+        let packageURLs = packageNames.map { stacksRoot.appendingPathComponent($0, isDirectory: true) }
+        let outputURL = makeTemporaryDirectory(prefix: "hype-myst-age-dispatch")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let result = try StackImportPackageProjectImporter().importProject(
+            options: StackImportPackageProjectImportOptions(
+                packageURLs: packageURLs,
+                outputDirectoryURL: outputURL,
+                stackLibraryEntries: packageURLs.map(stackLibraryEntry),
+                usedStackAliases: ["ALLRes", "INRes1"]
+            )
+        )
+        let packageResults = Dictionary(
+            uniqueKeysWithValues: result.packageResults.map { ($0.outputPackageURL.lastPathComponent, $0.outputPackageURL) }
+        )
+
+        let cases = [
+            AgeCardDispatchCase(
+                sourcePackageName: "Channelwood-Age.xstk",
+                sourceOutputPackageName: "Channelwood-Age-debug-imported.hype",
+                sourceLegacyCardId: 100894,
+                expectedScriptFragment: "go to card id 44018 of stack \"Myst\"",
+                expectedStackName: "Myst",
+                expectedTargetPackageName: "Myst-debug-imported.hype",
+                expectedTargetLegacyCardId: 44018,
+                expectedTargetCardName: "restart"
+            ),
+            AgeCardDispatchCase(
+                sourcePackageName: "Dunny-Age.xstk",
+                sourceOutputPackageName: "Dunny-Age-debug-imported.hype",
+                sourceLegacyCardId: 11088,
+                expectedScriptFragment: "go to card id 44018 of stack \"Myst\"",
+                expectedStackName: "Myst",
+                expectedTargetPackageName: "Myst-debug-imported.hype",
+                expectedTargetLegacyCardId: 44018,
+                expectedTargetCardName: "restart",
+                scriptGlobals: ["DU_End": "win"]
+            ),
+            AgeCardDispatchCase(
+                sourcePackageName: "Mechanical-Age.xstk",
+                sourceOutputPackageName: "Mechanical-Age-debug-imported.hype",
+                sourceLegacyCardId: 46649,
+                expectedScriptFragment: "go to card id 44018 of stack \"Myst\"",
+                expectedStackName: "Myst",
+                expectedTargetPackageName: "Myst-debug-imported.hype",
+                expectedTargetLegacyCardId: 44018,
+                expectedTargetCardName: "restart"
+            ),
+            AgeCardDispatchCase(
+                sourcePackageName: "Selenitic-Age.xstk",
+                sourceOutputPackageName: "Selenitic-Age-debug-imported.hype",
+                sourceLegacyCardId: 59926,
+                expectedScriptFragment: "go to card id 44018 of stack \"Myst\"",
+                expectedStackName: "Myst",
+                expectedTargetPackageName: "Myst-debug-imported.hype",
+                expectedTargetLegacyCardId: 44018,
+                expectedTargetCardName: "restart"
+            ),
+            AgeCardDispatchCase(
+                sourcePackageName: "Stoneship-Age.xstk",
+                sourceOutputPackageName: "Stoneship-Age-debug-imported.hype",
+                sourceLegacyCardId: 53570,
+                expectedScriptFragment: "go to card id 44018 of stack \"Myst\"",
+                expectedStackName: "Myst",
+                expectedTargetPackageName: "Myst-debug-imported.hype",
+                expectedTargetLegacyCardId: 44018,
+                expectedTargetCardName: "restart"
+            ),
+            AgeCardDispatchCase(
+                sourcePackageName: "Myst.xstk",
+                sourceOutputPackageName: "Myst-debug-imported.hype",
+                sourceLegacyCardId: 28552,
+                expectedScriptFragment: "go to card \"restart\" of stack \"Dunny Age\"",
+                expectedStackName: "Dunny Age",
+                expectedTargetPackageName: "Dunny-Age-debug-imported.hype",
+                expectedTargetLegacyCardId: 6532,
+                expectedTargetCardName: "Restart"
+            ),
+            AgeCardDispatchCase(
+                sourcePackageName: "Myst.xstk",
+                sourceOutputPackageName: "Myst-debug-imported.hype",
+                sourceLegacyCardId: 55938,
+                expectedScriptFragment: "go to card id 45136 of stack \"Selenitic Age\"",
+                expectedStackName: "Selenitic Age",
+                expectedTargetPackageName: "Selenitic-Age-debug-imported.hype",
+                expectedTargetLegacyCardId: 45136,
+                expectedTargetCardName: "Restart",
+                scriptGlobals: ["MY_Selenitic": "true"],
+                params: ["SeleniticBook.MooV"]
+            ),
+            AgeCardDispatchCase(
+                sourcePackageName: "Myst.xstk",
+                sourceOutputPackageName: "Myst-debug-imported.hype",
+                sourceLegacyCardId: 72560,
+                expectedScriptFragment: "go to card \"Restart\" of stack \"Mechanical Age\"",
+                expectedStackName: "Mechanical Age",
+                expectedTargetPackageName: "Mechanical-Age-debug-imported.hype",
+                expectedTargetLegacyCardId: 17290,
+                expectedTargetCardName: "restart"
+            ),
+            AgeCardDispatchCase(
+                sourcePackageName: "Myst.xstk",
+                sourceOutputPackageName: "Myst-debug-imported.hype",
+                sourceLegacyCardId: 77008,
+                expectedScriptFragment: "go to card \"Restart\" of stack \"StoneShip Age\"",
+                expectedStackName: "StoneShip Age",
+                expectedTargetPackageName: "Stoneship-Age-debug-imported.hype",
+                expectedTargetLegacyCardId: 3004,
+                expectedTargetCardName: "restart"
+            ),
+            AgeCardDispatchCase(
+                sourcePackageName: "Myst.xstk",
+                sourceOutputPackageName: "Myst-debug-imported.hype",
+                sourceLegacyCardId: 77588,
+                expectedScriptFragment: "go to card \"Restart\" of stack \"Channelwood Age\"",
+                expectedStackName: "Channelwood Age",
+                expectedTargetPackageName: "Channelwood-Age-debug-imported.hype",
+                expectedTargetLegacyCardId: 28497,
+                expectedTargetCardName: "restart"
+            ),
+        ]
+
+        for ageCase in cases {
+            let sourcePackageURL = stacksRoot.appendingPathComponent(ageCase.sourcePackageName, isDirectory: true)
+            let sourceOutputPackageURL = try #require(packageResults[ageCase.sourceOutputPackageName])
+            var sourceDocument = try HypeSQLiteStackStore().load(fromPackageAt: sourceOutputPackageURL)
+            sourceDocument.scriptGlobals = ageCase.scriptGlobals
+            let sourceCardMap = try legacyCardMap(packageURL: sourcePackageURL, document: sourceDocument)
+            let sourceCardId = try #require(sourceCardMap[ageCase.sourceLegacyCardId])
+            let sourceCard = try #require(sourceDocument.cards.first { $0.id == sourceCardId })
+            #expect(sourceCard.script.localizedCaseInsensitiveContains(ageCase.expectedScriptFragment))
+            #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(sourceCard.script), "Imported age transition card script should run: \(sourceCard.script)")
+
+            let dispatch = MessageDispatcher().dispatch(
+                message: "mouseDownInMovie",
+                params: ageCase.params,
+                targetId: sourceCardId,
+                document: sourceDocument,
+                currentCardId: sourceCardId
+            )
+
+            #expect(dispatch.status == .completed)
+            #expect(dispatch.projectNavigationTarget?.stackName.caseInsensitiveCompare(ageCase.expectedStackName) == .orderedSame)
+            #expect(dispatch.projectNavigationTarget?.legacyCardId == ageCase.expectedTargetLegacyCardId)
+            #expect(dispatch.projectNavigationTarget?.cardName.caseInsensitiveCompare(ageCase.expectedTargetCardName) == .orderedSame)
+
+            let targetOutputPackageURL = try #require(packageResults[ageCase.expectedTargetPackageName])
+            let targetDocument = try HypeSQLiteStackStore().load(fromPackageAt: targetOutputPackageURL)
+            #expect(ProjectNavigationTargetResolver.resolveCardId(for: try #require(dispatch.projectNavigationTarget), in: targetDocument) != nil)
+        }
+    }
+
     #if canImport(AppKit)
     @Test("imports Myst font layout audit candidates for rendered metric probes")
     func importsMystFontLayoutAuditCandidatesForRenderedMetricProbes() throws {
@@ -406,6 +572,19 @@ struct MystStackImportAcceptanceTests {
         var expectedTargetPackageName: String
         var expectedTargetLegacyCardId: Int
         var expectedTargetCardName: String
+    }
+
+    private struct AgeCardDispatchCase {
+        var sourcePackageName: String
+        var sourceOutputPackageName: String
+        var sourceLegacyCardId: Int
+        var expectedScriptFragment: String
+        var expectedStackName: String
+        var expectedTargetPackageName: String
+        var expectedTargetLegacyCardId: Int
+        var expectedTargetCardName: String
+        var scriptGlobals: [String: String] = [:]
+        var params: [Value] = []
     }
 
     private func seededLauncherGlobals() -> [String: String] {

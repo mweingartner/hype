@@ -652,6 +652,13 @@ designed around untrusted binary input:
   structure into `HypeDocument`, preserves scripts as HypeTalk text, records
   unsupported bitmap/resource features in `HyperCardImportReport`, and stores
   `LegacyStackImportMetadata` on the document.
+- Legacy scripts must parse as native HypeTalk before they are enabled. When a
+  StackImport-era movie-click card script cannot be fully translated but contains
+  resolved cross-stack `go ... of stack ...` commands, Hype may synthesize a
+  route-only compatibility handler that preserves project navigation while
+  leaving the unsupported movie/window choreography inert and documented in
+  comments. Scripts without a safe route-only translation remain disabled as
+  commented reference text.
 
 The Hype app exposes this through **File > Import HyperCard Stack...**. The menu
 opens an untyped file picker because original stacks often have no extension or

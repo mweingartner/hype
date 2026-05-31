@@ -72,6 +72,12 @@ Implemented:
 - Safe resource fork parsing.
 - Structural conversion for stack size, backgrounds, cards, button records,
   field records, part text, and scripts.
+- Route-only script translation for StackImport-era movie-click card scripts
+  that fail full HypeTalk parsing but contain explicit cross-stack
+  `go ... of stack ...` commands. The generated handler is parser-validated
+  HypeTalk, preserves the final project-navigation behavior needed by Myst
+  age-link/return movies, and keeps unsupported movie/window choreography inert
+  in comments.
 - Original data/resource fork preservation when under the configured size limit.
 - Import report with block summary, resource summary, unsupported feature notes,
   and XCMD/XFCN inventory.
