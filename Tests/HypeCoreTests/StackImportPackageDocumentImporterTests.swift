@@ -196,6 +196,7 @@ struct StackImportPackageDocumentImporterTests {
 
         #expect(result.summary.stackCount == 2)
         #expect(result.summary.stackLibraryEntryCount == 2)
+        #expect(result.summary.sourcePackagePaths == [samplePackageURL.path, otherPackageURL.path])
         #expect(result.summary.outputPackagePaths.count == 2)
         #expect(result.summary.totalOutputPackageByteCount == result.packageResults
             .compactMap(\.summary.outputPackageByteCount)

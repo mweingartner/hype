@@ -149,9 +149,10 @@ Implemented:
   shared content-stack assets by name or resource ID.
 - StackImport package, project-stack, and project import summaries report
   source package paths, generated `.hype` package byte counts, and import
-  durations so debug/live probes can disambiguate same-named stacks and profile
-  self-contained package growth/import cost as Myst content-stack resources and
-  loose media are imported.
+  durations. Project summaries also expose top-level source/output path arrays
+  in import order. Debug/live probes use these fields to disambiguate same-named
+  stacks and profile self-contained package growth/import cost as Myst
+  content-stack resources and loose media are imported.
 
 Not yet implemented:
 
