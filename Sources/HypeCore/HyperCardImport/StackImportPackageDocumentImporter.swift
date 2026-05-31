@@ -64,6 +64,7 @@ public struct StackImportPackageDocumentImportResult: Sendable {
             assetCount: document.assetRepository.assets.count,
             sharedContentAssetCount: document.assetRepository.assets.filter(\.isSharedContentStackAsset).count,
             outputPackagePath: outputPackageURL.path,
+            outputPackageByteCount: Self.packageByteCount(at: outputPackageURL),
             warnings: report.warnings,
             stackImportDiagnostics: report.stackImportDiagnostics,
             looseMedia: looseMediaResult.map { result in
@@ -80,6 +81,27 @@ public struct StackImportPackageDocumentImportResult: Sendable {
                 ambiguousAliases: ambiguousAliases(in: document.stackLibrary)
             )
         )
+    }
+
+    private static func packageByteCount(at url: URL) -> Int64? {
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+
+        var total: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                  values.isRegularFile == true,
+                  let fileSize = values.fileSize else {
+                continue
+            }
+            total += Int64(fileSize)
+        }
+        return total
     }
 
     private func ambiguousAliases(in library: HypeStackLibrary) -> [String] {
@@ -105,6 +127,7 @@ public struct StackImportPackageDocumentImportSummary: Codable, Equatable, Senda
     public var assetCount: Int
     public var sharedContentAssetCount: Int
     public var outputPackagePath: String
+    public var outputPackageByteCount: Int64?
     public var warnings: [String]
     public var stackImportDiagnostics: StackImportPackageDiagnostics?
     public var looseMedia: StackImportLooseMediaImportSummary?
@@ -118,6 +141,7 @@ public struct StackImportPackageDocumentImportSummary: Codable, Equatable, Senda
         assetCount: Int,
         sharedContentAssetCount: Int = 0,
         outputPackagePath: String,
+        outputPackageByteCount: Int64? = nil,
         warnings: [String],
         stackImportDiagnostics: StackImportPackageDiagnostics?,
         looseMedia: StackImportLooseMediaImportSummary? = nil,
@@ -130,6 +154,7 @@ public struct StackImportPackageDocumentImportSummary: Codable, Equatable, Senda
         self.assetCount = assetCount
         self.sharedContentAssetCount = sharedContentAssetCount
         self.outputPackagePath = outputPackagePath
+        self.outputPackageByteCount = outputPackageByteCount
         self.warnings = warnings
         self.stackImportDiagnostics = stackImportDiagnostics
         self.looseMedia = looseMedia
@@ -379,15 +404,18 @@ public struct StackImportPackageProjectImportResult: Sendable {
     }
 
     public var summary: StackImportPackageProjectImportSummary {
-        StackImportPackageProjectImportSummary(
+        let packageSummaries = packageResults.map(\.summary)
+        let byteCounts = packageSummaries.compactMap(\.outputPackageByteCount)
+        return StackImportPackageProjectImportSummary(
             stackCount: packageResults.count,
             outputPackagePaths: packageResults.map(\.outputPackageURL.path),
+            totalOutputPackageByteCount: byteCounts.count == packageSummaries.count ? byteCounts.reduce(0, +) : nil,
             stackLibraryEntryCount: stackLibraryEntries.count,
             sharedContentAssetCopyCount: packageResults
                 .map { $0.document.assetRepository.assets.filter(\.isSharedContentStackAsset).count }
                 .reduce(0, +),
             stacks: packageResults.map(projectStackSummary),
-            packages: packageResults.map(\.summary)
+            packages: packageSummaries
         )
     }
 
@@ -431,6 +459,7 @@ public struct StackImportPackageProjectImportResult: Sendable {
 public struct StackImportPackageProjectImportSummary: Codable, Equatable, Sendable {
     public var stackCount: Int
     public var outputPackagePaths: [String]
+    public var totalOutputPackageByteCount: Int64?
     public var stackLibraryEntryCount: Int
     public var sharedContentAssetCopyCount: Int
     public var stacks: [StackImportPackageProjectStackSummary]
@@ -439,6 +468,7 @@ public struct StackImportPackageProjectImportSummary: Codable, Equatable, Sendab
     public init(
         stackCount: Int,
         outputPackagePaths: [String],
+        totalOutputPackageByteCount: Int64? = nil,
         stackLibraryEntryCount: Int,
         sharedContentAssetCopyCount: Int = 0,
         stacks: [StackImportPackageProjectStackSummary] = [],
@@ -446,6 +476,7 @@ public struct StackImportPackageProjectImportSummary: Codable, Equatable, Sendab
     ) {
         self.stackCount = stackCount
         self.outputPackagePaths = outputPackagePaths
+        self.totalOutputPackageByteCount = totalOutputPackageByteCount
         self.stackLibraryEntryCount = stackLibraryEntryCount
         self.sharedContentAssetCopyCount = sharedContentAssetCopyCount
         self.stacks = stacks
