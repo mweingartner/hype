@@ -28,6 +28,12 @@ public struct HypeDocument: Codable, Sendable {
     /// for future importer passes and auditability.
     public var legacyImport: LegacyStackImportMetadata?
 
+    /// Imported multi-stack project metadata. This is the durable bridge from
+    /// HyperCard's `start using stack` / `stop using stack` model to Hype's
+    /// eventual multi-stack runtime: entries record related stack packages and
+    /// aliases, while `usedStackAliases` tracks the current library set.
+    public var stackLibrary: HypeStackLibrary
+
     /// User-defined themes that travel with this `.hype` document.
     /// Built-in themes (in `BuiltInThemes.all`) are NOT stored here —
     /// they're application-wide, baked into the binary, and always
@@ -72,6 +78,7 @@ public struct HypeDocument: Codable, Sendable {
         scriptGlobals: [String: String] = [:],
         defaultBackgroundId: UUID? = nil,
         legacyImport: LegacyStackImportMetadata? = nil,
+        stackLibrary: HypeStackLibrary = HypeStackLibrary(),
         themes: [HypeTheme] = []
     ) {
         self.documentVersion = documentVersion
@@ -88,6 +95,7 @@ public struct HypeDocument: Codable, Sendable {
         self.scriptGlobals = scriptGlobals
         self.defaultBackgroundId = defaultBackgroundId
         self.legacyImport = legacyImport
+        self.stackLibrary = stackLibrary
         self.themes = themes
     }
 
@@ -96,6 +104,7 @@ public struct HypeDocument: Codable, Sendable {
         case documentVersion
         case stack, backgrounds, cards, parts, paintLayers, constraints, assetRepository, musicLibrary, aiContextLibrary, aiPromptHistory, defaultBackgroundId
         case legacyImport
+        case stackLibrary
         case themes
         // `scriptGlobals` is NOT in the coding keys — session-only.
     }
@@ -125,6 +134,7 @@ public struct HypeDocument: Codable, Sendable {
         aiPromptHistory = try container.decodeIfPresent([String].self, forKey: .aiPromptHistory) ?? []
         defaultBackgroundId = try container.decodeIfPresent(UUID.self, forKey: .defaultBackgroundId)
         legacyImport = try container.decodeIfPresent(LegacyStackImportMetadata.self, forKey: .legacyImport)
+        stackLibrary = try container.decodeIfPresent(HypeStackLibrary.self, forKey: .stackLibrary) ?? HypeStackLibrary()
         themes = try container.decodeIfPresent([HypeTheme].self, forKey: .themes) ?? []
         scriptGlobals = [:]  // session-only, always starts empty on load
     }

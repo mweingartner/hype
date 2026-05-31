@@ -402,7 +402,32 @@ public struct StackImportPackageConverter: Sendable {
         if kind == .placeholderAsset {
             appendArtifact(artifact, data: data, to: &asset)
         }
+        appendResourceLookupMetadata(resource: resource, artifact: artifact, path: path, to: &asset)
         return asset
+    }
+
+    private func appendResourceLookupMetadata(
+        resource: XSTKResourceSummary,
+        artifact: XSTKResourceArtifact,
+        path: String,
+        to asset: inout Asset
+    ) {
+        let type = resource.type.trimmingCharacters(in: .whitespacesAndNewlines)
+        let decodedName = decodedResourceName(resource.name)
+        let stem = decodedResourceName(URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent)
+        let classicNames = stableUnique([
+            decodedName,
+            stem,
+            "\(type)_\(resource.id)",
+            "\(type) \(resource.id)",
+        ])
+        asset.metadata.append(AssetMetadataEntry(key: "resource_type", value: type))
+        asset.metadata.append(AssetMetadataEntry(key: "resource_id", value: String(resource.id)))
+        asset.metadata.append(AssetMetadataEntry(key: "resource_path", value: path))
+        asset.metadata.append(AssetMetadataEntry(key: "resource_artifact_format", value: artifact.format))
+        for name in classicNames {
+            asset.metadata.append(AssetMetadataEntry(key: "classic_name", value: name))
+        }
     }
 
     private func appendArtifact(_ artifact: XSTKResourceArtifact, data: Data, to asset: inout Asset) {
