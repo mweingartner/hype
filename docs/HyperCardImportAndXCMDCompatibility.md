@@ -147,11 +147,11 @@ Implemented:
   `shared_from_content_stack` provenance metadata. This keeps each generated
   document self-contained while allowing classic media/resource lookup to find
   shared content-stack assets by name or resource ID.
-- StackImport package and project import summaries report source package paths,
-  generated `.hype` package byte counts, and import durations so debug/live
-  probes can disambiguate same-named stacks and profile self-contained package
-  growth/import cost as Myst content-stack resources and loose media are
-  imported.
+- StackImport package, project-stack, and project import summaries report
+  source package paths, generated `.hype` package byte counts, and import
+  durations so debug/live probes can disambiguate same-named stacks and profile
+  self-contained package growth/import cost as Myst content-stack resources and
+  loose media are imported.
 
 Not yet implemented:
 

@@ -453,6 +453,7 @@ public struct StackImportPackageProjectImportResult: Sendable {
         }
         return StackImportPackageProjectStackSummary(
             stackName: result.document.stack.name,
+            sourcePackagePath: result.sourcePackageURL?.path,
             documentPath: result.outputPackageURL.path,
             cardCount: result.document.cards.count,
             firstCardId: firstCard?.id.uuidString,
@@ -510,6 +511,7 @@ public struct StackImportPackageProjectImportSummary: Codable, Equatable, Sendab
 
 public struct StackImportPackageProjectStackSummary: Codable, Equatable, Sendable {
     public var stackName: String
+    public var sourcePackagePath: String?
     public var documentPath: String
     public var cardCount: Int
     public var firstCardId: String?
@@ -520,6 +522,7 @@ public struct StackImportPackageProjectStackSummary: Codable, Equatable, Sendabl
 
     public init(
         stackName: String,
+        sourcePackagePath: String? = nil,
         documentPath: String,
         cardCount: Int,
         firstCardId: String? = nil,
@@ -529,6 +532,7 @@ public struct StackImportPackageProjectStackSummary: Codable, Equatable, Sendabl
         stackLibraryAliasCount: Int = 0
     ) {
         self.stackName = stackName
+        self.sourcePackagePath = sourcePackagePath
         self.documentPath = documentPath
         self.cardCount = cardCount
         self.firstCardId = firstCardId
