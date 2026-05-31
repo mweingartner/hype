@@ -42,17 +42,20 @@ public struct StackImportPackageDocumentImportResult: Sendable {
     public var report: HyperCardImportReport
     public var outputPackageURL: URL
     public var looseMediaResult: LooseMediaImportResult?
+    public var importDurationMilliseconds: Double?
 
     public init(
         document: HypeDocument,
         report: HyperCardImportReport,
         outputPackageURL: URL,
-        looseMediaResult: LooseMediaImportResult? = nil
+        looseMediaResult: LooseMediaImportResult? = nil,
+        importDurationMilliseconds: Double? = nil
     ) {
         self.document = document
         self.report = report
         self.outputPackageURL = outputPackageURL
         self.looseMediaResult = looseMediaResult
+        self.importDurationMilliseconds = importDurationMilliseconds
     }
 
     public var summary: StackImportPackageDocumentImportSummary {
@@ -65,6 +68,7 @@ public struct StackImportPackageDocumentImportResult: Sendable {
             sharedContentAssetCount: document.assetRepository.assets.filter(\.isSharedContentStackAsset).count,
             outputPackagePath: outputPackageURL.path,
             outputPackageByteCount: Self.packageByteCount(at: outputPackageURL),
+            importDurationMilliseconds: importDurationMilliseconds,
             warnings: report.warnings,
             stackImportDiagnostics: report.stackImportDiagnostics,
             looseMedia: looseMediaResult.map { result in
@@ -128,6 +132,7 @@ public struct StackImportPackageDocumentImportSummary: Codable, Equatable, Senda
     public var sharedContentAssetCount: Int
     public var outputPackagePath: String
     public var outputPackageByteCount: Int64?
+    public var importDurationMilliseconds: Double?
     public var warnings: [String]
     public var stackImportDiagnostics: StackImportPackageDiagnostics?
     public var looseMedia: StackImportLooseMediaImportSummary?
@@ -142,6 +147,7 @@ public struct StackImportPackageDocumentImportSummary: Codable, Equatable, Senda
         sharedContentAssetCount: Int = 0,
         outputPackagePath: String,
         outputPackageByteCount: Int64? = nil,
+        importDurationMilliseconds: Double? = nil,
         warnings: [String],
         stackImportDiagnostics: StackImportPackageDiagnostics?,
         looseMedia: StackImportLooseMediaImportSummary? = nil,
@@ -155,6 +161,7 @@ public struct StackImportPackageDocumentImportSummary: Codable, Equatable, Senda
         self.sharedContentAssetCount = sharedContentAssetCount
         self.outputPackagePath = outputPackagePath
         self.outputPackageByteCount = outputPackageByteCount
+        self.importDurationMilliseconds = importDurationMilliseconds
         self.warnings = warnings
         self.stackImportDiagnostics = stackImportDiagnostics
         self.looseMedia = looseMedia
@@ -237,6 +244,7 @@ public struct StackImportPackageDocumentImporter: Sendable {
     public func importPackage(
         options: StackImportPackageDocumentImportOptions
     ) throws -> StackImportPackageDocumentImportResult {
+        let startedAt = Date()
         var result = try StackImportPackageConverter(
             options: HyperCardImportOptions(deploymentTargets: options.deploymentTargets)
         ).convert(packageURL: options.packageURL)
@@ -254,7 +262,8 @@ public struct StackImportPackageDocumentImporter: Sendable {
             document: result.document,
             report: result.report,
             outputPackageURL: outputURL,
-            looseMediaResult: looseMediaResult
+            looseMediaResult: looseMediaResult,
+            importDurationMilliseconds: Date().timeIntervalSince(startedAt) * 1000
         )
     }
 
@@ -394,13 +403,16 @@ public struct StackImportPackageProjectImportOptions: Sendable {
 public struct StackImportPackageProjectImportResult: Sendable {
     public var packageResults: [StackImportPackageDocumentImportResult]
     public var stackLibraryEntries: [HypeStackLibraryEntry]
+    public var importDurationMilliseconds: Double?
 
     public init(
         packageResults: [StackImportPackageDocumentImportResult],
-        stackLibraryEntries: [HypeStackLibraryEntry]
+        stackLibraryEntries: [HypeStackLibraryEntry],
+        importDurationMilliseconds: Double? = nil
     ) {
         self.packageResults = packageResults
         self.stackLibraryEntries = stackLibraryEntries
+        self.importDurationMilliseconds = importDurationMilliseconds
     }
 
     public var summary: StackImportPackageProjectImportSummary {
@@ -410,6 +422,7 @@ public struct StackImportPackageProjectImportResult: Sendable {
             stackCount: packageResults.count,
             outputPackagePaths: packageResults.map(\.outputPackageURL.path),
             totalOutputPackageByteCount: byteCounts.count == packageSummaries.count ? byteCounts.reduce(0, +) : nil,
+            totalImportDurationMilliseconds: importDurationMilliseconds,
             stackLibraryEntryCount: stackLibraryEntries.count,
             sharedContentAssetCopyCount: packageResults
                 .map { $0.document.assetRepository.assets.filter(\.isSharedContentStackAsset).count }
@@ -460,6 +473,7 @@ public struct StackImportPackageProjectImportSummary: Codable, Equatable, Sendab
     public var stackCount: Int
     public var outputPackagePaths: [String]
     public var totalOutputPackageByteCount: Int64?
+    public var totalImportDurationMilliseconds: Double?
     public var stackLibraryEntryCount: Int
     public var sharedContentAssetCopyCount: Int
     public var stacks: [StackImportPackageProjectStackSummary]
@@ -469,6 +483,7 @@ public struct StackImportPackageProjectImportSummary: Codable, Equatable, Sendab
         stackCount: Int,
         outputPackagePaths: [String],
         totalOutputPackageByteCount: Int64? = nil,
+        totalImportDurationMilliseconds: Double? = nil,
         stackLibraryEntryCount: Int,
         sharedContentAssetCopyCount: Int = 0,
         stacks: [StackImportPackageProjectStackSummary] = [],
@@ -477,6 +492,7 @@ public struct StackImportPackageProjectImportSummary: Codable, Equatable, Sendab
         self.stackCount = stackCount
         self.outputPackagePaths = outputPackagePaths
         self.totalOutputPackageByteCount = totalOutputPackageByteCount
+        self.totalImportDurationMilliseconds = totalImportDurationMilliseconds
         self.stackLibraryEntryCount = stackLibraryEntryCount
         self.sharedContentAssetCopyCount = sharedContentAssetCopyCount
         self.stacks = stacks
@@ -521,6 +537,7 @@ public struct StackImportPackageProjectImporter: Sendable {
     public func importProject(
         options: StackImportPackageProjectImportOptions
     ) throws -> StackImportPackageProjectImportResult {
+        let startedAt = Date()
         let documentImporter = StackImportPackageDocumentImporter()
         var packageResults: [StackImportPackageDocumentImportResult] = []
 
@@ -565,7 +582,8 @@ public struct StackImportPackageProjectImporter: Sendable {
 
         return StackImportPackageProjectImportResult(
             packageResults: rewrittenResults,
-            stackLibraryEntries: enrichedEntries
+            stackLibraryEntries: enrichedEntries,
+            importDurationMilliseconds: Date().timeIntervalSince(startedAt) * 1000
         )
     }
 
