@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 
 public struct StackImportPackageConverter: Sendable {
@@ -379,7 +378,7 @@ public struct StackImportPackageConverter: Sendable {
         existingNames: Set<String>
     ) -> Asset {
         let kind = assetKind(for: mediaType, path: path)
-        let image = kind == .imageTexture ? NSImage(data: data) : nil
+        let dimensions = kind == .imageTexture ? PNGEncoding.imageDimensions(data: data) : nil
         let baseName = resourceAssetName(resource: resource, artifact: artifact, path: path)
         let name = uniqueName(baseName, existingNames: existingNames)
         var asset = Asset(
@@ -387,8 +386,8 @@ public struct StackImportPackageConverter: Sendable {
             kind: kind,
             mimeType: mediaType.isEmpty ? mediaTypeForPath(path) : mediaType,
             data: data,
-            width: Int(image?.size.width ?? 0),
-            height: Int(image?.size.height ?? 0),
+            width: dimensions?.width ?? 0,
+            height: dimensions?.height ?? 0,
             tags: resourceTags(resource: resource, artifact: artifact),
             provenance: AssetProvenance(
                 origin: .userImport,
@@ -898,38 +897,28 @@ private enum PBMImageConverter {
             throw HyperCardImportError.generatedPackageInvalid("Truncated PBM bitmap \(path)")
         }
 
-        guard let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: width,
-            pixelsHigh: height,
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: width * 4,
-            bitsPerPixel: 32
-        ), let bitmapData = rep.bitmapData else {
-            throw HyperCardImportError.generatedPackageInvalid("Could not allocate bitmap \(path)")
-        }
+        var rgba = Data(count: width * height * 4)
 
         data.withUnsafeBytes { rawBuffer in
             let source = rawBuffer.bindMemory(to: UInt8.self)
-            for y in 0..<height {
-                for x in 0..<width {
-                    let byte = source[scanner.offset + y * bytesPerRow + x / 8]
-                    let isBlack = ((byte >> UInt8(7 - (x % 8))) & 1) == 1
-                    let dest = y * width * 4 + x * 4
-                    let value: UInt8 = isBlack ? 0 : 255
-                    bitmapData[dest] = value
-                    bitmapData[dest + 1] = value
-                    bitmapData[dest + 2] = value
-                    bitmapData[dest + 3] = 255
+            rgba.withUnsafeMutableBytes { rawRGBA in
+                guard let bitmapData = rawRGBA.bindMemory(to: UInt8.self).baseAddress else { return }
+                for y in 0..<height {
+                    for x in 0..<width {
+                        let byte = source[scanner.offset + y * bytesPerRow + x / 8]
+                        let isBlack = ((byte >> UInt8(7 - (x % 8))) & 1) == 1
+                        let dest = y * width * 4 + x * 4
+                        let value: UInt8 = isBlack ? 0 : 255
+                        bitmapData[dest] = value
+                        bitmapData[dest + 1] = value
+                        bitmapData[dest + 2] = value
+                        bitmapData[dest + 3] = 255
+                    }
                 }
             }
         }
 
-        guard let png = rep.representation(using: .png, properties: [:]) else {
+        guard let png = PNGEncoding.rgbaDataToPNG(rgba, width: width, height: height) else {
             throw HyperCardImportError.generatedPackageInvalid("Could not encode bitmap \(path)")
         }
         return png

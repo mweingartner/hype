@@ -590,13 +590,21 @@ factors, safe areas, and input models differ.
 - Deployment planning produces runtime-only macOS, iPhone, iPad, and tvOS plans.
   `TargetRuntimePackageBuilder` can generate self-contained runtime package
   artifacts containing an embedded SQLite `.hype` stack plus runtime shell
-  manifest/source metadata. The generated shell applies target profiles through
-  `LayoutResolver`, so runtime packages use the same fixed, scale-to-fit, or
-  stretch-to-fill projection as AI layout previews. Deployed apps do not include
-  edit mode, authoring panels, AI/debug panels, or script-editor UI. Export
-  validates the actual parts in the stack for each target and fails early with
-  unsupported part names and reasons instead of producing a broken runtime
-  package.
+  manifest/source metadata. iPhone, iPad, and tvOS exports now include a generated
+  `HypeRuntimeApp.xcodeproj`, a local `HypeSource` package with the HypeCore
+  runtime source, and `xcodebuild`/`devicectl` scripts for simulator builds,
+  signed device builds, and device installation. The generated shell applies
+  target profiles through `LayoutResolver` and renders supported parts through
+  `TargetRuntimePartView`, so packages use the same fixed, scale-to-fit, or
+  stretch-to-fill projection and HypeTalk message path as authoring previews.
+  Deployed apps do not include edit mode, authoring panels, AI/debug panels, or
+  script-editor UI. Export validates the actual parts in the stack for each
+  target and fails early with unsupported part names and reasons instead of
+  producing a broken runtime package.
+- Target control availability is intentionally strict. iPhone/iPad expose the
+  full shipped SwiftUI runtime adapter set; tvOS exposes only the focus-safe
+  runtime set. Sprite areas, audio recorders, and legacy music queues remain
+  macOS-authoring controls until standalone target adapters exist.
 - Non-macOS runtime AI is target-aware: iPhone and iPad plans default runtime
   script AI to Apple Foundation Models, tvOS marks runtime AI unavailable until
   Apple provides a supported on-device model there, and macOS keeps the

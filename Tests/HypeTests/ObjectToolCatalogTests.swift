@@ -55,9 +55,11 @@ struct ObjectToolCatalogTests {
 
         let tvTools = ObjectToolCatalog.creationTools(for: [.macOS, .tvOS])
         #expect(tvTools.contains(.button))
-        #expect(tvTools.contains(.spriteArea))
+        #expect(tvTools.contains(.chart))
         #expect(tvTools.contains(.scene3D))
+        #expect(tvTools.contains(.gauge))
         #expect(!tvTools.contains(.field))
+        #expect(!tvTools.contains(.spriteArea))
         #expect(!tvTools.contains(.audioRecorder))
         #expect(!tvTools.contains(.pianoKeyboard))
 

@@ -5351,6 +5351,7 @@ public struct HypeToolExecutor: Sendable {
 
         // MARK: - Visual capture
         case "capture_card_image":
+#if canImport(AppKit)
             let cardName = arguments["card_name"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let purpose = (arguments["purpose"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let remainingHint = Int(arguments["__captures_remaining_hint"] ?? "0") ?? 0
@@ -5389,6 +5390,9 @@ public struct HypeToolExecutor: Sendable {
             } catch {
                 return "Capture failed: \(error.localizedDescription)"
             }
+#else
+            return "Card visual capture is available only in the macOS authoring runtime."
+#endif
 
         // MARK: - Meshy 3D generation tools (Phase 2)
 

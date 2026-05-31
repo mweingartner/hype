@@ -10,9 +10,17 @@ public struct SyncPeer: Sendable, Codable, Equatable, Identifiable {
     public var id: String
     public var displayName: String
 
-    public init(id: String = UUID().uuidString, displayName: String = Host.current().localizedName ?? "Hype") {
+    public init(id: String = UUID().uuidString, displayName: String = SyncPeer.defaultDisplayName()) {
         self.id = id
         self.displayName = displayName
+    }
+
+    public static func defaultDisplayName() -> String {
+        #if os(macOS)
+        return Host.current().localizedName ?? "Hype"
+        #else
+        return "Hype"
+        #endif
     }
 }
 

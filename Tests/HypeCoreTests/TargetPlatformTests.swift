@@ -28,10 +28,25 @@ struct TargetPlatformTests {
     @Test("part availability uses strict selected-target intersection")
     func partAvailabilityUsesStrictIntersection() {
         #expect(PartAvailabilityCatalog.supports(.button, across: [.macOS, .iPhone, .iPad, .tvOS]))
-        #expect(PartAvailabilityCatalog.supports(.spriteArea, across: [.macOS, .iPhone, .iPad, .tvOS]))
+        #expect(!PartAvailabilityCatalog.supports(.spriteArea, across: [.macOS, .iPhone, .iPad, .tvOS]))
+        #expect(!PartAvailabilityCatalog.supports(.spriteArea, across: [.iPhone]))
         #expect(!PartAvailabilityCatalog.supports(.field, across: [.macOS, .tvOS]))
         #expect(!PartAvailabilityCatalog.supports(.audioRecorder, across: [.iPhone, .tvOS]))
         #expect(PartAvailabilityCatalog.supports(.pdf, across: [.macOS, .iPhone, .iPad]))
+        #expect(PartAvailabilityCatalog.unsupportedReasons(for: .spriteArea, across: [.iPhone]).first?.contains("SpriteKit runtime bridge") == true)
+    }
+
+    @Test("target availability does not overpromise standalone runtime adapters")
+    func targetAvailabilityDoesNotOverpromiseRuntimeAdapters() {
+        for partType in PartType.allCases {
+            #expect(PartAvailabilityCatalog.support(for: partType, on: .iPhone).availability == TargetRuntimeAdapterCatalog.availability(for: partType, on: .iPhone))
+            #expect(PartAvailabilityCatalog.support(for: partType, on: .iPad).availability == TargetRuntimeAdapterCatalog.availability(for: partType, on: .iPad))
+            #expect(PartAvailabilityCatalog.support(for: partType, on: .tvOS).availability == TargetRuntimeAdapterCatalog.availability(for: partType, on: .tvOS))
+        }
+        #expect(TargetRuntimeAdapterCatalog.supportedPartTypes(on: .iPad).contains(.map))
+        #expect(TargetRuntimeAdapterCatalog.supportedPartTypes(on: .iPad).contains(.pianoKeyboard))
+        #expect(!TargetRuntimeAdapterCatalog.supportedPartTypes(on: .iPad).contains(.spriteArea))
+        #expect(!TargetRuntimeAdapterCatalog.supportedPartTypes(on: .iPad).contains(.audioRecorder))
     }
 
     @Test("layout resolver projects constraints into target safe content area")
@@ -142,7 +157,7 @@ struct TargetPlatformTests {
         #expect(report.issues.first?.partId == field.id)
         #expect(report.issues.first?.partType == .field)
         #expect(report.issues.first?.platform == .tvOS)
-        #expect(report.issues.first?.reason.contains("tvOS text-entry adapter") == true)
+        #expect(report.issues.first?.reason.contains("text-entry") == true)
     }
 
     @Test("runtime package builder rejects unsupported target parts")
@@ -178,6 +193,17 @@ struct TargetPlatformTests {
         document.scriptGlobals["draft"] = "not persisted"
         let button = Part(partType: .button, cardId: document.cards[0].id, name: "Start")
         document.addPart(button)
+        var map = Part(partType: .map, cardId: document.cards[0].id, name: "City Map", left: 20, top: 80, width: 320, height: 220)
+        map.mapCenterLat = 37.7749
+        map.mapCenterLon = -122.4194
+        map.mapSpan = 0.05
+        map.mapType = "standard"
+        map.mapAnnotationsJSON = #"[{"lat":37.7749,"lon":-122.4194,"title":"San Francisco"}]"#
+        document.addPart(map)
+        var piano = Part(partType: .pianoKeyboard, cardId: document.cards[0].id, name: "Runtime Keys", left: 20, top: 320, width: 320, height: 150)
+        piano.musicInstrumentName = "Electric Guitar Clean"
+        piano.musicKeyCount = 49
+        document.addPart(piano)
 
         let output = FileManager.default.temporaryDirectory
             .appendingPathComponent("HypeRuntimePackageTests-\(UUID().uuidString)", isDirectory: true)
@@ -197,6 +223,30 @@ struct TargetPlatformTests {
                 .appendingPathComponent("HypeRuntimeApp.swift"),
             encoding: .utf8
         )
+        let shellDir = package.packageURL
+            .appendingPathComponent(TargetRuntimePackageBuilder.shellDirectoryName, isDirectory: true)
+        let projectFile = try String(
+            contentsOf: shellDir
+                .appendingPathComponent("HypeRuntimeApp.xcodeproj", isDirectory: true)
+                .appendingPathComponent("project.pbxproj"),
+            encoding: .utf8
+        )
+        let runtimeCorePackage = try String(
+            contentsOf: shellDir
+                .appendingPathComponent("HypeSource", isDirectory: true)
+                .appendingPathComponent("Package.swift"),
+            encoding: .utf8
+        )
+        let infoPlist = try String(
+            contentsOf: shellDir.appendingPathComponent("Info.plist"),
+            encoding: .utf8
+        )
+        let simulatorBuildScript = shellDir.appendingPathComponent("build-ios-simulator.sh")
+        let deviceBuildScript = shellDir.appendingPathComponent("build-ios-device.sh")
+        let deviceDeployScript = try String(
+            contentsOf: shellDir.appendingPathComponent("deploy-ios-device.sh"),
+            encoding: .utf8
+        )
 
         #expect(manifest.platform == .iPhone)
         #expect(manifest.runtimeOnly)
@@ -205,14 +255,196 @@ struct TargetPlatformTests {
         #expect(manifest.runtimeAIProviderPolicy == .appleFoundationModels)
         #expect(manifest.appIntentKinds.contains(.askStackAI))
         #expect(manifest.embeddedStackPath == "Stack/Stack.hype")
+        #expect(manifest.xcodeProjectPath == "RuntimeShell/HypeRuntimeApp.xcodeproj")
+        #expect(manifest.simulatorBuildScriptPath == "RuntimeShell/build-ios-simulator.sh")
+        #expect(manifest.deviceDeployScriptPath == "RuntimeShell/deploy-ios-device.sh")
+        #expect(manifest.minimumOSVersion == "17.0")
+        #expect(manifest.deviceFamilies == ["iPhone"])
         #expect(runtimeDocument.stack.runtimeModeEnabled)
         #expect(runtimeDocument.scriptGlobals.isEmpty)
         #expect(shellSource.contains("HypeSQLiteStackStore().load"))
         #expect(shellSource.contains("HypeRuntimeCardView"))
         #expect(shellSource.contains("LayoutResolver().resolve"))
         #expect(shellSource.contains("profileId: \"iphone-portrait\""))
+        #expect(shellSource.contains("StackRuntimeRegistry.shared.runtime"))
+        #expect(shellSource.contains("StackRuntimeConfiguration(systemProvider: systemProvider)"))
+        #expect(shellSource.contains("dispatchAndWait("))
+        #expect(shellSource.contains("HypeRuntimeMapView"))
+        #expect(shellSource.contains("MKMapView"))
+        #expect(shellSource.contains("HypeRuntimePianoKeyboardView"))
+        #expect(shellSource.contains("MusicControlInteraction.keyboardLayout"))
+        #expect(shellSource.contains("HypeRuntimeSystemProvider"))
+        #expect(shellSource.contains("AVAudioPlayer"))
+        #expect(shellSource.contains("case .map:"))
+        #expect(shellSource.contains("case .pianoKeyboard:"))
         #expect(!shellSource.contains("PropertyInspector"))
         #expect(!shellSource.contains("ScriptEditor"))
+        #expect(projectFile.contains("productType = \"com.apple.product-type.application\""))
+        #expect(projectFile.contains("relativePath = HypeSource"))
+        #expect(projectFile.contains("TARGETED_DEVICE_FAMILY = \"1\""))
+        #expect(!projectFile.contains("/Users/"))
+        #expect(runtimeCorePackage.contains("name: \"HypeRuntimeCore\""))
+        #expect(runtimeCorePackage.contains(".library(name: \"HypeCore\""))
+        #expect(FileManager.default.fileExists(atPath: shellDir.appendingPathComponent("HypeSource/Sources/HypeCore").path))
+        #expect(infoPlist.contains("<key>UIDeviceFamily</key>"))
+        #expect(infoPlist.contains("<integer>1</integer>"))
+        #expect(FileManager.default.isExecutableFile(atPath: simulatorBuildScript.path))
+        #expect(FileManager.default.isExecutableFile(atPath: deviceBuildScript.path))
+        #expect(deviceDeployScript.contains("devicectl device install app"))
+    }
+
+    @Test("runtime package builder emits iPad-specific app device family")
+    func runtimePackageBuilderEmitsIPadDeviceFamily() throws {
+        var document = HypeDocument.newDocument(name: "Tablet Runtime")
+        document.stack.deploymentTargets = StackDeploymentTargets(
+            selectedPlatforms: [.iPad],
+            primaryPlatform: .iPad,
+            selectionPromptAcknowledged: true,
+            layoutPolicy: .scaleToFit
+        )
+        document.addPart(Part(partType: .button, cardId: document.cards[0].id, name: "Start"))
+
+        let output = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HypeRuntimePackageiPadTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: output) }
+
+        let package = try #require(TargetRuntimePackageBuilder().buildPackages(for: document, at: output).first)
+        let shellDir = package.packageURL
+            .appendingPathComponent(TargetRuntimePackageBuilder.shellDirectoryName, isDirectory: true)
+        let projectFile = try String(
+            contentsOf: shellDir
+                .appendingPathComponent("HypeRuntimeApp.xcodeproj", isDirectory: true)
+                .appendingPathComponent("project.pbxproj"),
+            encoding: .utf8
+        )
+        let infoPlist = try String(
+            contentsOf: shellDir.appendingPathComponent("Info.plist"),
+            encoding: .utf8
+        )
+
+        #expect(package.manifest.platform == .iPad)
+        #expect(package.manifest.profileId == "ipad-portrait")
+        #expect(package.manifest.deviceFamilies == ["iPad"])
+        #expect(projectFile.contains("TARGETED_DEVICE_FAMILY = \"2\""))
+        #expect(infoPlist.contains("<integer>2</integer>"))
+    }
+
+    @Test("runtime package builder exports every advertised iPad runtime control")
+    func runtimePackageBuilderExportsEveryAdvertisedIPadRuntimeControl() throws {
+        let package = try buildAllAdvertisedRuntimeControlPackage(platform: .iPad, stackName: "All iPad Controls")
+
+        #expect(package.manifest.platform == .iPad)
+        #expect(package.manifest.unsupportedPartTypes.contains(PartType.spriteArea.rawValue))
+        #expect(package.manifest.unsupportedPartTypes.contains(PartType.audioRecorder.rawValue))
+        #expect(package.shellSource.contains("TargetRuntimePartView"))
+        #expect(package.shellSource.contains("onPartChanged"))
+        #expect(package.shellSource.contains("updatePart("))
+        #expect(package.shellSource.contains("syncDocument(document)"))
+    }
+
+    @Test("runtime package builder exports every advertised iPhone runtime control")
+    func runtimePackageBuilderExportsEveryAdvertisedIPhoneRuntimeControl() throws {
+        let package = try buildAllAdvertisedRuntimeControlPackage(platform: .iPhone, stackName: "All iPhone Controls")
+
+        #expect(package.manifest.platform == .iPhone)
+        #expect(package.projectFile.contains("TARGETED_DEVICE_FAMILY = \"1\""))
+        #expect(package.projectFile.contains("SDKROOT = iphoneos"))
+        #expect(package.shellSource.contains("TargetRuntimePartView"))
+    }
+
+    @Test("runtime package builder exports every advertised tvOS runtime control")
+    func runtimePackageBuilderExportsEveryAdvertisedTVOSRuntimeControl() throws {
+        let package = try buildAllAdvertisedRuntimeControlPackage(platform: .tvOS, stackName: "All tvOS Controls")
+
+        #expect(package.manifest.platform == .tvOS)
+        #expect(package.manifest.deviceFamilies == ["Apple TV"])
+        #expect(package.projectFile.contains("TARGETED_DEVICE_FAMILY = \"3\""))
+        #expect(package.projectFile.contains("SDKROOT = appletvos"))
+        #expect(package.projectFile.contains("SUPPORTED_PLATFORMS = \"appletvos appletvsimulator\""))
+        #expect(package.simulatorBuildScript.contains("generic/platform=tvOS Simulator"))
+        #expect(!package.manifest.supportedPartTypes.contains(PartType.field.rawValue))
+        #expect(package.shellSource.contains("TargetRuntimePartView"))
+    }
+
+    private func buildAllAdvertisedRuntimeControlPackage(
+        platform: HypeTargetPlatform,
+        stackName: String
+    ) throws -> (
+        manifest: HypeRuntimePackageManifest,
+        shellSource: String,
+        projectFile: String,
+        simulatorBuildScript: String
+    ) {
+        var document = HypeDocument.newDocument(name: stackName)
+        document.stack.appleMusicAllowed = true
+        document.stack.deploymentTargets = StackDeploymentTargets(
+            selectedPlatforms: [platform],
+            primaryPlatform: platform,
+            selectionPromptAcknowledged: true,
+            layoutPolicy: .scaleToFit
+        )
+        let cardId = document.cards[0].id
+        let supported = TargetRuntimeAdapterCatalog.supportedPartTypes(on: platform)
+            .filter { $0 != .toggle && $0 != .link && $0 != .menu && $0 != .searchField }
+            .sorted { $0.rawValue < $1.rawValue }
+
+        for (index, type) in supported.enumerated() {
+            var part = Part(
+                partType: type,
+                cardId: cardId,
+                name: "\(type.rawValue) \(index)",
+                left: Double(12 + (index % 3) * 180),
+                top: Double(12 + (index / 3) * 80),
+                width: 160,
+                height: 56
+            )
+            part.url = "https://example.com"
+            part.videoURL = ""
+            part.pdfURL = ""
+            part.chartData = ChartConfig(
+                chartType: .bar,
+                title: "Runtime Chart",
+                series: [ChartSeries(name: "Series", data: [ChartDataPoint(name: "A", value: 1), ChartDataPoint(name: "B", value: 2)])]
+            ).toJSON()
+            part.musicPatternName = ""
+            part.musicInstrumentName = "Acoustic Grand Piano"
+            document.addPart(part)
+        }
+
+        let output = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HypeAllControlsRuntimePackageTests-\(UUID().uuidString)", isDirectory: true)
+        let keepPackage = ProcessInfo.processInfo.environment["HYPE_KEEP_RUNTIME_TEST_PACKAGES"] == "1"
+        defer {
+            if !keepPackage {
+                try? FileManager.default.removeItem(at: output)
+            }
+        }
+
+        let package = try #require(TargetRuntimePackageBuilder().buildPackages(for: document, at: output).first)
+        let shellSource = try String(
+            contentsOf: package.packageURL
+                .appendingPathComponent(TargetRuntimePackageBuilder.shellDirectoryName, isDirectory: true)
+                .appendingPathComponent("Sources", isDirectory: true)
+                .appendingPathComponent("HypeRuntimeApp.swift"),
+            encoding: .utf8
+        )
+        let shellDir = package.packageURL
+            .appendingPathComponent(TargetRuntimePackageBuilder.shellDirectoryName, isDirectory: true)
+        let projectFile = try String(
+            contentsOf: shellDir
+                .appendingPathComponent("HypeRuntimeApp.xcodeproj", isDirectory: true)
+                .appendingPathComponent("project.pbxproj"),
+            encoding: .utf8
+        )
+        let simulatorBuildScript = try String(
+            contentsOf: shellDir.appendingPathComponent("build-ios-simulator.sh"),
+            encoding: .utf8
+        )
+
+        #expect(Set(supported.map(\.rawValue)).isSubset(of: Set(package.manifest.supportedPartTypes)))
+        #expect(package.manifest.unsupportedPartTypes.contains(PartType.spriteArea.rawValue))
+        #expect(package.manifest.unsupportedPartTypes.contains(PartType.audioRecorder.rawValue))
+        return (package.manifest, shellSource, projectFile, simulatorBuildScript)
     }
 
     @Test("AI tools expose target profile and availability queries")

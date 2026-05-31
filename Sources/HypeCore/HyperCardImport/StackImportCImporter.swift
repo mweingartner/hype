@@ -1,5 +1,4 @@
 import CStackImport
-import AppKit
 import Foundation
 
 public protocol StackImportProgressHandler: Sendable {
@@ -229,24 +228,18 @@ private final class StackImportResourceCollector {
         guard width > 0, height > 0 else { return nil }
         let rowBytes = Int(payload.row_bytes == 0 ? UInt32(width * 4) : payload.row_bytes)
         guard rowBytes >= width * 4, size >= rowBytes * height else { return nil }
-        guard let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: width,
-            pixelsHigh: height,
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: width * 4,
-            bitsPerPixel: 32
-        ), let bitmapData = rep.bitmapData else { return nil }
-
+        var compact = Data(count: width * height * 4)
         let source = bytes.assumingMemoryBound(to: UInt8.self)
-        for y in 0..<height {
-            bitmapData.advanced(by: y * width * 4).update(from: source.advanced(by: y * rowBytes), count: width * 4)
+        compact.withUnsafeMutableBytes { rawBuffer in
+            guard let dest = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+            for y in 0..<height {
+                dest.advanced(by: y * width * 4).update(
+                    from: source.advanced(by: y * rowBytes),
+                    count: width * 4
+                )
+            }
         }
-        return rep.representation(using: .png, properties: [:])
+        return PNGEncoding.rgbaDataToPNG(compact, width: width, height: height)
     }
 
     private func fileExtension(for payload: stackimport_resource_payload) -> String {

@@ -5,6 +5,9 @@ import SwiftUI
 #if canImport(AppKit)
 import AppKit
 #endif
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// SwiftUI environment plumbing for the active theme.
 ///
@@ -122,7 +125,7 @@ private struct LiquidGlassPanelMaterial: ViewModifier {
     let theme: HypeTheme
 
     func body(content: Content) -> some View {
-        if #available(macOS 26, *) {
+        if #available(macOS 26, iOS 26, tvOS 26, *) {
             // Native Liquid Glass — refraction + specular highlight,
             // adapts to surrounding content + system tint. The
             // Increase Contrast setting is handled by the system
@@ -149,7 +152,7 @@ private struct LiquidGlassPopoverMaterial: ViewModifier {
     let theme: HypeTheme
 
     func body(content: Content) -> some View {
-        if #available(macOS 26, *) {
+        if #available(macOS 26, iOS 26, tvOS 26, *) {
             content.background {
                 Rectangle().glassEffect(in: Rectangle())
             }
@@ -229,6 +232,7 @@ private func SwiftUIColorFromHex(_ raw: String) -> Color {
         // back into a SwiftUI semantic color where one exists. Falls
         // back to `.primary` so we don't leak through as transparent.
         let key = String(s.dropFirst("system:".count))
+        #if canImport(AppKit)
         switch key {
         case "controlBackgroundColor": return Color(NSColor.controlBackgroundColor)
         case "windowBackgroundColor":  return Color(NSColor.windowBackgroundColor)
@@ -238,6 +242,24 @@ private func SwiftUIColorFromHex(_ raw: String) -> Color {
         case "controlAccentColor":     return Color(NSColor.controlAccentColor)
         default:                       return Color.primary
         }
+        #else
+        switch key {
+        case "controlBackgroundColor", "windowBackgroundColor", "textBackgroundColor":
+            #if os(tvOS)
+            return Color(UIColor.black)
+            #else
+            return Color(.systemBackground)
+            #endif
+        case "labelColor":
+            return Color.primary
+        case "separatorColor":
+            return Color.secondary.opacity(0.35)
+        case "controlAccentColor":
+            return Color.accentColor
+        default:
+            return Color.primary
+        }
+        #endif
     }
     if s.hasPrefix("#") { s.removeFirst() }
     guard s.count == 6 || s.count == 8,

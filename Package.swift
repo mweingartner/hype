@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "Hype",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS(.v15), .iOS(.v17)],
     products: [
         .executable(name: "Hype", targets: ["Hype"]),
         .executable(name: "HypePacmanTestbedBuilder", targets: ["HypePacmanTestbedBuilder"]),

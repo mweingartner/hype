@@ -22,6 +22,13 @@ public struct HypeRuntimePackageManifest: Codable, Sendable, Equatable {
     public var unsupportedPartTypes: [String]
     public var requiredEntitlements: [String]
     public var bundleIdentifier: String
+    public var appTargetName: String?
+    public var xcodeProjectPath: String?
+    public var simulatorBuildScriptPath: String?
+    public var deviceBuildScriptPath: String?
+    public var deviceDeployScriptPath: String?
+    public var minimumOSVersion: String?
+    public var deviceFamilies: [String]?
     public var generatedAt: Date
 
     public init(
@@ -46,6 +53,13 @@ public struct HypeRuntimePackageManifest: Codable, Sendable, Equatable {
         unsupportedPartTypes: [String],
         requiredEntitlements: [String],
         bundleIdentifier: String,
+        appTargetName: String? = nil,
+        xcodeProjectPath: String? = nil,
+        simulatorBuildScriptPath: String? = nil,
+        deviceBuildScriptPath: String? = nil,
+        deviceDeployScriptPath: String? = nil,
+        minimumOSVersion: String? = nil,
+        deviceFamilies: [String]? = nil,
         generatedAt: Date = Date()
     ) {
         self.format = format
@@ -69,6 +83,13 @@ public struct HypeRuntimePackageManifest: Codable, Sendable, Equatable {
         self.unsupportedPartTypes = unsupportedPartTypes
         self.requiredEntitlements = requiredEntitlements
         self.bundleIdentifier = bundleIdentifier
+        self.appTargetName = appTargetName
+        self.xcodeProjectPath = xcodeProjectPath
+        self.simulatorBuildScriptPath = simulatorBuildScriptPath
+        self.deviceBuildScriptPath = deviceBuildScriptPath
+        self.deviceDeployScriptPath = deviceDeployScriptPath
+        self.minimumOSVersion = minimumOSVersion
+        self.deviceFamilies = deviceFamilies
         self.generatedAt = generatedAt
     }
 }
@@ -88,12 +109,15 @@ public struct HypeRuntimePackageResult: Sendable, Equatable {
 public enum TargetRuntimePackageBuilderError: Error, LocalizedError, Equatable {
     case invalidPackageName
     case packageValidationFailed(String)
+    case runtimeSourceUnavailable(String)
 
     public var errorDescription: String? {
         switch self {
         case .invalidPackageName:
             return "The stack name cannot be converted to a safe runtime package name."
         case .packageValidationFailed(let message):
+            return message
+        case .runtimeSourceUnavailable(let message):
             return message
         }
     }
@@ -206,7 +230,14 @@ public struct TargetRuntimePackageBuilder {
             supportedPartTypes: supported,
             unsupportedPartTypes: unsupported,
             requiredEntitlements: requiredEntitlements(for: document, plan: plan),
-            bundleIdentifier: bundleIdentifier(stackName: document.stack.name, platform: plan.platform)
+            bundleIdentifier: bundleIdentifier(stackName: document.stack.name, platform: plan.platform),
+            appTargetName: appTargetName(stackName: document.stack.name, platform: plan.platform),
+            xcodeProjectPath: isGeneratedAppleRuntimePlatform(plan.platform) ? "\(Self.shellDirectoryName)/HypeRuntimeApp.xcodeproj" : nil,
+            simulatorBuildScriptPath: isGeneratedAppleRuntimePlatform(plan.platform) ? "\(Self.shellDirectoryName)/build-ios-simulator.sh" : nil,
+            deviceBuildScriptPath: isGeneratedAppleRuntimePlatform(plan.platform) ? "\(Self.shellDirectoryName)/build-ios-device.sh" : nil,
+            deviceDeployScriptPath: isGeneratedAppleRuntimePlatform(plan.platform) ? "\(Self.shellDirectoryName)/deploy-ios-device.sh" : nil,
+            minimumOSVersion: isGeneratedAppleRuntimePlatform(plan.platform) ? "17.0" : nil,
+            deviceFamilies: deviceFamilies(for: plan.platform)
         )
     }
 
@@ -224,7 +255,7 @@ public struct TargetRuntimePackageBuilder {
         try infoPlist.write(to: shellDir.appendingPathComponent("Info.plist"), atomically: true, encoding: .utf8)
         generatedFiles.append("\(Self.shellDirectoryName)/Info.plist")
 
-        let entitlements = entitlementsPlist(for: manifest.requiredEntitlements)
+        let entitlements = entitlementsPlist(for: codeSigningEntitlementKeys(for: manifest))
         try entitlements.write(to: shellDir.appendingPathComponent("Entitlements.plist"), atomically: true, encoding: .utf8)
         generatedFiles.append("\(Self.shellDirectoryName)/Entitlements.plist")
 
@@ -240,6 +271,10 @@ public struct TargetRuntimePackageBuilder {
         let readme = runtimeReadme(for: manifest)
         try readme.write(to: shellDir.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
         generatedFiles.append("\(Self.shellDirectoryName)/README.md")
+
+        if isGeneratedAppleRuntimePlatform(plan.platform) {
+            try writeIOSAppProject(for: document, manifest: manifest, shellDir: shellDir, generatedFiles: &generatedFiles)
+        }
     }
 
     private func validatePackage(at packageURL: URL, manifest: HypeRuntimePackageManifest) throws {
@@ -260,6 +295,23 @@ public struct TargetRuntimePackageBuilder {
         let shellSource = (try? String(contentsOf: shellSourceURL, encoding: .utf8)) ?? ""
         for term in forbiddenShellTerms where shellSource.contains(term) {
             throw TargetRuntimePackageBuilderError.packageValidationFailed("Runtime shell source contains authoring-only symbol \(term).")
+        }
+        if isGeneratedAppleRuntimePlatform(manifest.platform) {
+            let shellDir = packageURL.appendingPathComponent(Self.shellDirectoryName, isDirectory: true)
+            let projectURL = shellDir.appendingPathComponent("HypeRuntimeApp.xcodeproj", isDirectory: true)
+            let sourcePackageURL = shellDir.appendingPathComponent("HypeSource", isDirectory: true)
+            guard FileManager.default.fileExists(atPath: projectURL.appendingPathComponent("project.pbxproj").path) else {
+                throw TargetRuntimePackageBuilderError.packageValidationFailed("\(manifest.platform.displayName) runtime package is missing its generated Xcode project.")
+            }
+            guard FileManager.default.fileExists(atPath: sourcePackageURL.appendingPathComponent("Package.swift").path),
+                  FileManager.default.fileExists(atPath: sourcePackageURL.appendingPathComponent("Sources/HypeCore").path) else {
+                throw TargetRuntimePackageBuilderError.packageValidationFailed("\(manifest.platform.displayName) runtime package is missing its embedded HypeCore runtime source package.")
+            }
+            for script in ["build-ios-simulator.sh", "build-ios-device.sh", "deploy-ios-device.sh"] {
+                guard FileManager.default.fileExists(atPath: shellDir.appendingPathComponent(script).path) else {
+                    throw TargetRuntimePackageBuilderError.packageValidationFailed("\(manifest.platform.displayName) runtime package is missing \(script).")
+                }
+            }
         }
     }
 
@@ -305,6 +357,40 @@ public struct TargetRuntimePackageBuilder {
         return "com.hype.runtime.\(safeComponent).\(platform.rawValue.lowercased())"
     }
 
+    private func appTargetName(stackName: String, platform: HypeTargetPlatform) -> String {
+        let base = sanitizeIdentifier(stackName, lowercase: false)
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+        let safeBase = base.isEmpty ? "HypeStack" : base
+        return "\(safeBase)\(platform.rawValue)Runtime"
+    }
+
+    private func isIOSRuntimePlatform(_ platform: HypeTargetPlatform) -> Bool {
+        platform == .iPhone || platform == .iPad
+    }
+
+    private func isGeneratedAppleRuntimePlatform(_ platform: HypeTargetPlatform) -> Bool {
+        platform == .iPhone || platform == .iPad || platform == .tvOS
+    }
+
+    private func deviceFamilies(for platform: HypeTargetPlatform) -> [String]? {
+        switch platform {
+        case .iPhone: return ["iPhone"]
+        case .iPad: return ["iPad"]
+        case .tvOS: return ["Apple TV"]
+        default: return nil
+        }
+    }
+
+    private func targetDeviceFamilyValue(for platform: HypeTargetPlatform) -> String {
+        switch platform {
+        case .iPhone: return "1"
+        case .iPad: return "2"
+        case .tvOS: return "3"
+        case .macOS: return ""
+        }
+    }
+
     private func sanitizeIdentifier(_ value: String, lowercase: Bool) -> String {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
         let scalars = value.unicodeScalars.map { scalar -> String in
@@ -318,15 +404,28 @@ public struct TargetRuntimePackageBuilder {
     }
 
     private func infoPlist(for manifest: HypeRuntimePackageManifest) -> String {
-        """
+        let platformEntries = platformInfoPlistEntries(for: manifest)
+        return """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
         <plist version="1.0">
         <dict>
+            <key>CFBundleDevelopmentRegion</key>
+            <string>$(DEVELOPMENT_LANGUAGE)</string>
+            <key>CFBundleExecutable</key>
+            <string>$(EXECUTABLE_NAME)</string>
             <key>CFBundleIdentifier</key>
-            <string>\(manifest.bundleIdentifier)</string>
+            <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+            <key>CFBundleInfoDictionaryVersion</key>
+            <string>6.0</string>
             <key>CFBundleName</key>
             <string>\(escapePlist(manifest.stackName))</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>1.0</string>
+            <key>CFBundleVersion</key>
+            <string>1</string>
             <key>HypeRuntimeOnly</key>
             <true/>
             <key>HypeRuntimeManifest</key>
@@ -335,9 +434,101 @@ public struct TargetRuntimePackageBuilder {
             <string>\(manifest.embeddedStackPath)</string>
             <key>HypeTargetPlatform</key>
             <string>\(manifest.platform.rawValue)</string>
+        \(platformEntries)
         </dict>
         </plist>
         """
+    }
+
+    private func platformInfoPlistEntries(for manifest: HypeRuntimePackageManifest) -> String {
+        let deviceFamilyEntries = uidDeviceFamilyEntries(for: manifest.platform)
+        let privacyEntries = privacyUsageDescriptionEntries(for: manifest.requiredEntitlements)
+        switch manifest.platform {
+        case .iPhone, .iPad:
+            return """
+                <key>LSRequiresIPhoneOS</key>
+                <true/>
+            \(deviceFamilyEntries)
+                <key>UIApplicationSupportsIndirectInputEvents</key>
+                <true/>
+                <key>UISupportedInterfaceOrientations</key>
+                <array>
+                    <string>UIInterfaceOrientationPortrait</string>
+                    <string>UIInterfaceOrientationLandscapeLeft</string>
+                    <string>UIInterfaceOrientationLandscapeRight</string>
+                </array>
+            \(privacyEntries)
+            """
+        case .tvOS:
+            return """
+            \(deviceFamilyEntries)
+            \(privacyEntries)
+            """
+        case .macOS:
+            return ""
+        }
+    }
+
+    private func uidDeviceFamilyEntries(for platform: HypeTargetPlatform) -> String {
+        switch platform {
+        case .iPhone:
+            return """
+                <key>UIDeviceFamily</key>
+                <array>
+                    <integer>1</integer>
+                </array>
+            """
+        case .iPad:
+            return """
+                <key>UIDeviceFamily</key>
+                <array>
+                    <integer>2</integer>
+                </array>
+            """
+        case .tvOS:
+            return """
+                <key>UIDeviceFamily</key>
+                <array>
+                    <integer>3</integer>
+                </array>
+            """
+        default:
+            return ""
+        }
+    }
+
+    private func privacyUsageDescriptionEntries(for requiredEntitlements: [String]) -> String {
+        var entries: [String] = []
+        if requiredEntitlements.contains("microphone") {
+            entries.append("""
+                <key>NSMicrophoneUsageDescription</key>
+                <string>This Hype stack uses microphone input for its runtime audio features.</string>
+            """)
+        }
+        if requiredEntitlements.contains("location-when-in-use") {
+            entries.append("""
+                <key>NSLocationWhenInUseUsageDescription</key>
+                <string>This Hype stack uses location only while the stack is running.</string>
+            """)
+        }
+        if requiredEntitlements.contains("music-user-token") {
+            entries.append("""
+                <key>NSAppleMusicUsageDescription</key>
+                <string>This Hype stack can browse and play music selected from your Apple Music library.</string>
+            """)
+        }
+        return entries.joined(separator: "\n")
+    }
+
+    private func codeSigningEntitlementKeys(for manifest: HypeRuntimePackageManifest) -> [String] {
+        var keys: [String] = []
+        if manifest.platform == .macOS, manifest.requiredEntitlements.contains("com.apple.security.network.client") {
+            keys.append("com.apple.security.network.client")
+        }
+        if isGeneratedAppleRuntimePlatform(manifest.platform), manifest.requiredEntitlements.contains("music-user-token") {
+            keys.append("com.apple.developer.music-user-token")
+        }
+        return keys
     }
 
     private func entitlementsPlist(for entitlements: [String]) -> String {
@@ -356,12 +547,17 @@ public struct TargetRuntimePackageBuilder {
     }
 
     private func runtimeShellSource(for document: HypeDocument, manifest: HypeRuntimePackageManifest) -> String {
-        let appName = sanitizeIdentifier(document.stack.name, lowercase: false).replacingOccurrences(of: "-", with: "")
-        let safeAppName = appName.isEmpty ? "HypeStack" : appName
+        let safeAppName = manifest.appTargetName ?? appTargetName(stackName: document.stack.name, platform: manifest.platform)
         return """
         import Foundation
         import SwiftUI
         import HypeCore
+        #if canImport(MapKit)
+        import MapKit
+        #endif
+        #if canImport(AVFoundation)
+        import AVFoundation
+        #endif
         #if os(macOS)
         import AppKit
         #else
@@ -408,7 +604,18 @@ public struct TargetRuntimePackageBuilder {
             var body: some View {
                 Group {
                     if let document = model.document {
-                        HypeRuntimeCardView(document: document, profileId: profileId)
+                        HypeRuntimeCardView(
+                            document: document,
+                            currentCardId: model.currentCardId,
+                            profileId: profileId,
+                            systemProvider: model.systemProvider,
+                            onPartChanged: { part, message in
+                                await model.updatePart(part, dispatchMessage: message)
+                            },
+                            onMouseUp: { part in
+                                await model.dispatchMouseUp(to: part)
+                            }
+                        )
                     } else if let loadError = model.loadError {
                         Text(loadError)
                             .foregroundStyle(.red)
@@ -418,7 +625,7 @@ public struct TargetRuntimePackageBuilder {
                 }
                 .accessibilityLabel("Hype runtime stack \\(stackName) for \\(targetPlatform)")
                 .task {
-                    model.load(embeddedStackPath: embeddedStackPath)
+                    await model.load(embeddedStackPath: embeddedStackPath)
                 }
             }
         }
@@ -426,9 +633,12 @@ public struct TargetRuntimePackageBuilder {
         @MainActor
         final class HypeRuntimeDocumentModel: ObservableObject {
             @Published var document: HypeDocument?
+            @Published var currentCardId: UUID?
             @Published var loadError: String?
+            let systemProvider = HypeRuntimeSystemProvider()
+            private var runtime: StackRuntime?
 
-            func load(embeddedStackPath: String) {
+            func load(embeddedStackPath: String) async {
                 guard document == nil else { return }
                 guard let resourceURL = Bundle.main.resourceURL else {
                     loadError = "Runtime resources are unavailable."
@@ -439,26 +649,93 @@ public struct TargetRuntimePackageBuilder {
                     var loaded = try HypeSQLiteStackStore().load(fromPackageAt: packageURL)
                     loaded.stack.runtimeModeEnabled = true
                     loaded.scriptGlobals = [:]
+                    let initialCardId = loaded.sortedCards.first?.id
+                    let runtime = await StackRuntimeRegistry.shared.runtime(
+                        for: loaded,
+                        configuration: StackRuntimeConfiguration(systemProvider: systemProvider)
+                    )
+                    self.runtime = runtime
+                    self.currentCardId = initialCardId
                     document = loaded
                 } catch {
                     loadError = "Could not load embedded Hype stack: \\(error.localizedDescription)"
                 }
             }
+
+            func dispatchMouseUp(to part: Part) async {
+                guard let document, let cardId = currentCardId ?? document.sortedCards.first?.id else { return }
+                let runtime = await runtimeFor(document)
+                let result = await runtime.dispatchAndWait(
+                    "mouseUp",
+                    params: [],
+                    targetId: part.id,
+                    currentCardId: cardId
+                )
+                let updated = await runtime.currentDocument()
+                self.document = updated
+                if let navigationTarget = result.navigationTarget {
+                    self.currentCardId = navigationTarget
+                }
+            }
+
+            func updatePart(_ updatedPart: Part, dispatchMessage message: String?) async {
+                guard var document else { return }
+                guard let index = document.parts.firstIndex(where: { $0.id == updatedPart.id }) else { return }
+                document.parts[index] = updatedPart
+                self.document = document
+                let runtime = await runtimeFor(document)
+                await runtime.syncDocument(document)
+                guard let message, let cardId = currentCardId ?? document.sortedCards.first?.id else { return }
+                let result = await runtime.dispatchAndWait(
+                    message,
+                    params: [],
+                    targetId: updatedPart.id,
+                    currentCardId: cardId
+                )
+                let current = await runtime.currentDocument()
+                self.document = current
+                if let navigationTarget = result.navigationTarget {
+                    self.currentCardId = navigationTarget
+                }
+            }
+
+            private func runtimeFor(_ document: HypeDocument) async -> StackRuntime {
+                if let existing = self.runtime {
+                    return existing
+                }
+                let runtime = await StackRuntimeRegistry.shared.runtime(
+                    for: document,
+                    configuration: StackRuntimeConfiguration(systemProvider: systemProvider)
+                )
+                self.runtime = runtime
+                return runtime
+            }
         }
 
         struct HypeRuntimeCardView: View {
             let document: HypeDocument
+            let currentCardId: UUID?
             let profileId: String
+            let systemProvider: HypeRuntimeSystemProvider
+            let onPartChanged: @Sendable (Part, String?) async -> Void
+            let onMouseUp: @Sendable (Part) async -> Void
 
             var body: some View {
-                let card = document.sortedCards.first
+                let card = currentCardId.flatMap { id in document.cards.first { $0.id == id } } ?? document.sortedCards.first
                 let profile = HypeDeviceProfileCatalog.profile(id: profileId) ?? document.stack.deploymentTargets.primaryProfile
                 let resolution = card.map { LayoutResolver().resolve(document: document, profile: profile, cardId: $0.id) }
                 ZStack(alignment: .topLeading) {
                     Color.white
                     if let card {
                         ForEach(document.effectivePartsForCard(card.id)) { part in
-                            HypeRuntimePartView(part: part, geometry: resolution?.geometries[part.id])
+                            TargetRuntimePartView(
+                                part: part,
+                                geometry: resolution?.geometries[part.id],
+                                document: document,
+                                systemProvider: systemProvider,
+                                onPartChanged: onPartChanged,
+                                onMouseUp: onMouseUp
+                            )
                         }
                     }
                 }
@@ -466,9 +743,13 @@ public struct TargetRuntimePackageBuilder {
             }
         }
 
+        #if !os(tvOS)
         struct HypeRuntimePartView: View {
             let part: Part
             let geometry: PartResolvedGeometry?
+            let document: HypeDocument
+            let systemProvider: HypeRuntimeSystemProvider
+            let onMouseUp: (Part) async -> Void
 
             private var left: Double { geometry?.left ?? part.left }
             private var top: Double { geometry?.top ?? part.top }
@@ -479,7 +760,9 @@ public struct TargetRuntimePackageBuilder {
                 Group {
                     switch part.partType {
                     case .button:
-                        Button(part.showName ? part.name : part.textContent) {}
+                        Button(part.showName ? part.name : part.textContent) {
+                            Task { await onMouseUp(part) }
+                        }
                     case .field:
                         Text(part.textContent)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -492,6 +775,14 @@ public struct TargetRuntimePackageBuilder {
                         } else {
                             Rectangle().fill(Color.gray.opacity(0.2))
                         }
+                    case .map:
+                        HypeRuntimeMapView(part: part)
+                    case .pianoKeyboard:
+                        HypeRuntimePianoKeyboardView(
+                            part: part,
+                            document: document,
+                            systemProvider: systemProvider
+                        )
                     default:
                         Text(part.name)
                     }
@@ -501,6 +792,490 @@ public struct TargetRuntimePackageBuilder {
                 .opacity(part.visible ? 1 : 0)
                 .accessibilityLabel(part.name)
             }
+        }
+
+        #if canImport(MapKit)
+        private struct HypeRuntimeMapAnnotationPayload: Decodable {
+            var lat: Double?
+            var latitude: Double?
+            var lon: Double?
+            var lng: Double?
+            var longitude: Double?
+            var title: String?
+        }
+
+        private enum HypeRuntimeMapSupport {
+            static func apply(_ part: Part, to mapView: MKMapView) {
+                mapView.mapType = mapType(for: part.mapType)
+                if part.mapCenterLat.isFinite, part.mapCenterLon.isFinite {
+                    let span = CLLocationDegrees(max(0.0001, abs(part.mapSpan)))
+                    let region = MKCoordinateRegion(
+                        center: CLLocationCoordinate2D(
+                            latitude: CLLocationDegrees(part.mapCenterLat),
+                            longitude: CLLocationDegrees(part.mapCenterLon)
+                        ),
+                        span: MKCoordinateSpan(latitudeDelta: span, longitudeDelta: span)
+                    )
+                    mapView.setRegion(region, animated: false)
+                }
+
+                mapView.removeAnnotations(mapView.annotations)
+                guard let data = part.mapAnnotationsJSON.data(using: .utf8),
+                      let payloads = try? JSONDecoder().decode([HypeRuntimeMapAnnotationPayload].self, from: data) else {
+                    return
+                }
+                let annotations = payloads.compactMap { payload -> MKPointAnnotation? in
+                    guard let lat = payload.lat ?? payload.latitude,
+                          let lon = payload.lon ?? payload.lng ?? payload.longitude,
+                          lat.isFinite,
+                          lon.isFinite else {
+                        return nil
+                    }
+                    let annotation = MKPointAnnotation()
+                    annotation.coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                    annotation.title = payload.title
+                    return annotation
+                }
+                mapView.addAnnotations(annotations)
+            }
+
+            private static func mapType(for value: String) -> MKMapType {
+                switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+                case "satellite":
+                    return .satellite
+                case "hybrid":
+                    return .hybrid
+                case "mutedstandard", "muted_standard", "muted-standard":
+                    if #available(iOS 11.0, macOS 10.13, tvOS 11.0, *) {
+                        return .mutedStandard
+                    }
+                    return .standard
+                default:
+                    return .standard
+                }
+            }
+        }
+        #endif
+
+        #if canImport(MapKit) && canImport(UIKit)
+        struct HypeRuntimeMapView: UIViewRepresentable {
+            let part: Part
+
+            func makeUIView(context: Context) -> MKMapView {
+                let view = MKMapView(frame: .zero)
+                view.isRotateEnabled = false
+                view.isPitchEnabled = false
+                HypeRuntimeMapSupport.apply(part, to: view)
+                return view
+            }
+
+            func updateUIView(_ uiView: MKMapView, context: Context) {
+                HypeRuntimeMapSupport.apply(part, to: uiView)
+            }
+        }
+        #elseif canImport(MapKit) && canImport(AppKit)
+        struct HypeRuntimeMapView: NSViewRepresentable {
+            let part: Part
+
+            func makeNSView(context: Context) -> MKMapView {
+                let view = MKMapView(frame: .zero)
+                view.isRotateEnabled = false
+                view.isPitchEnabled = false
+                HypeRuntimeMapSupport.apply(part, to: view)
+                return view
+            }
+
+            func updateNSView(_ nsView: MKMapView, context: Context) {
+                HypeRuntimeMapSupport.apply(part, to: nsView)
+            }
+        }
+        #else
+        struct HypeRuntimeMapView: View {
+            let part: Part
+
+            var body: some View {
+                ZStack {
+                    Rectangle().fill(Color.gray.opacity(0.12))
+                    Text("Map unavailable")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        #endif
+
+        struct HypeRuntimePianoKeyboardView: View {
+            let part: Part
+            let document: HypeDocument
+            let systemProvider: HypeRuntimeSystemProvider
+            @State private var activeNote: String?
+
+            var body: some View {
+                GeometryReader { proxy in
+                    let runtimePart = runtimePart(for: proxy.size)
+                    let layout = MusicControlInteraction.keyboardLayout(for: runtimePart)
+
+                    ZStack(alignment: .topLeading) {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color(hex: part.fillColor).opacity(0.12))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(Color.black.opacity(0.18), lineWidth: 1)
+                            )
+
+                        if MusicControlInteraction.pianoKeyboardShowsMetadata(part) {
+                            HStack(spacing: 8) {
+                                if part.musicShowControlType {
+                                    Text("Piano Keyboard")
+                                }
+                                if part.musicShowPattern, !part.musicPatternName.isEmpty {
+                                    Text(part.musicPatternName)
+                                }
+                                if part.musicShowInstrument {
+                                    Text(part.musicInstrumentName)
+                                }
+                                if part.musicShowTempo {
+                                    Text(String(MusicTempo.clamp(part.musicTempo)) + " BPM")
+                                }
+                            }
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .padding(.horizontal, 10)
+                            .padding(.top, 6)
+                        }
+
+                        ForEach(layout.whiteKeys, id: \\.note) { key in
+                            HypeRuntimePianoKeyView(
+                                key: key,
+                                isActive: activeNote == key.note
+                            )
+                        }
+                        ForEach(layout.blackKeys, id: \\.note) { key in
+                            HypeRuntimePianoKeyView(
+                                key: key,
+                                isActive: activeNote == key.note
+                            )
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                            .onChanged { value in
+                                playKeyboardNote(at: value.location, size: proxy.size)
+                            }
+                            .onEnded { _ in
+                                activeNote = nil
+                                Task {
+                                    await systemProvider.stopSustainedMusicNotes(forPart: part.id)
+                                }
+                            }
+                    )
+                }
+            }
+
+            private func runtimePart(for size: CGSize) -> Part {
+                var copy = part
+                copy.left = 0
+                copy.top = 0
+                copy.width = max(1, Double(size.width))
+                copy.height = max(1, Double(size.height))
+                return copy
+            }
+
+            private func playKeyboardNote(at point: CGPoint, size: CGSize) {
+                let runtimePart = runtimePart(for: size)
+                guard let note = MusicControlInteraction.keyboardNote(at: point, for: runtimePart) else {
+                    if activeNote != nil {
+                        activeNote = nil
+                        Task {
+                            await systemProvider.stopSustainedMusicNotes(forPart: part.id)
+                        }
+                    }
+                    return
+                }
+                guard activeNote != note else { return }
+                activeNote = note
+                guard let request = MusicControlInteraction.playbackRequest(
+                    for: runtimePart,
+                    document: document,
+                    clickPoint: point
+                ) else {
+                    return
+                }
+                Task {
+                    await systemProvider.stopSustainedMusicNotes(forPart: part.id)
+                    if let sustainedNote = request.sustainedNote {
+                        await systemProvider.playSustainedMusicNote(sustainedNote, document: document)
+                    } else {
+                        await systemProvider.playMusicPattern(request.pattern, loop: request.loop, document: document)
+                    }
+                }
+            }
+        }
+
+        private struct HypeRuntimePianoKeyView: View {
+            let key: MusicKeyboardKeyLayout
+            let isActive: Bool
+
+            var body: some View {
+                RoundedRectangle(cornerRadius: key.isBlack ? 3 : 4)
+                    .fill(fill)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: key.isBlack ? 3 : 4)
+                            .stroke(stroke, lineWidth: key.isBlack ? 0.7 : 0.8)
+                    )
+                    .shadow(
+                        color: isActive ? Color.yellow.opacity(key.isBlack ? 0.7 : 0.45) : Color.clear,
+                        radius: isActive ? 6 : 0
+                    )
+                    .frame(width: key.frame.width, height: key.frame.height)
+                    .position(x: key.frame.midX, y: key.frame.midY)
+                    .zIndex(key.isBlack ? 2 : 1)
+            }
+
+            private var fill: Color {
+                if key.isBlack {
+                    return isActive ? Color.yellow.opacity(0.75) : Color.black
+                }
+                return isActive ? Color.yellow.opacity(0.28) : Color.white
+            }
+
+            private var stroke: Color {
+                key.isBlack ? Color.black.opacity(0.85) : Color.black.opacity(0.28)
+            }
+        }
+        #endif
+
+        actor HypeRuntimeSystemProvider: SystemProvider {
+            private let appleMusicProvider = AppleMusicProviderFactory.makeDefault()
+
+        #if canImport(AVFoundation)
+            private var activePlayers: [UUID: AVAudioPlayer] = [:]
+            private var sustainedPlayersByPart: [UUID: Set<UUID>] = [:]
+            private var latestSoundName = "done"
+            private var musicState = "stopped"
+        #endif
+
+            func beep(count: Int) async {
+                let noteCount = max(1, count)
+                let notes = Array(repeating: "c5s", count: noteCount).joined(separator: " ")
+                let pattern = MusicPatternSpec.singleTrack(
+                    name: "Runtime Beep",
+                    instrument: "Square Lead",
+                    tempo: 180,
+                    notes: notes
+                )
+                await playMusicPattern(pattern, loop: false, document: HypeDocument.newDocument(name: "Runtime"))
+            }
+
+            func playSound(name: String, document: HypeDocument) async {
+                await playNotes(instrument: name, noteString: "c4q", tempo: MusicTempo.defaultBPM, document: document)
+            }
+
+            func playNotes(instrument: String, noteString: String, tempo: Int, document: HypeDocument) async {
+                let pattern = MusicPatternSpec.singleTrack(
+                    name: "Runtime Notes",
+                    instrument: instrument,
+                    tempo: MusicTempo.clamp(tempo),
+                    notes: noteString
+                )
+                await playMusicPattern(pattern, loop: false, document: document)
+            }
+
+            func stopSound() async {
+                await stopMusic()
+            }
+
+            func currentSoundName() async -> String {
+        #if canImport(AVFoundation)
+                return activePlayers.values.contains { $0.isPlaying } ? latestSoundName : "done"
+        #else
+                return "done"
+        #endif
+            }
+
+            func playMusicPattern(_ pattern: MusicPatternSpec, loop: Bool, document: HypeDocument) async {
+        #if canImport(AVFoundation)
+                configureAudioSessionIfNeeded()
+                let data = MusicPatternRenderer.wavData(for: pattern)
+                do {
+                    let player = try AVAudioPlayer(data: data)
+                    player.numberOfLoops = loop ? -1 : 0
+                    player.prepareToPlay()
+                    player.play()
+                    activePlayers = activePlayers.filter { $0.value.isPlaying }
+                    activePlayers[pattern.id] = player
+                    latestSoundName = pattern.name
+                    musicState = "playing"
+                } catch {
+                    latestSoundName = "done"
+                    musicState = "stopped"
+                }
+        #endif
+            }
+
+            func playSustainedMusicNote(_ note: MusicSustainedNoteSpec, document: HypeDocument) async {
+        #if canImport(AVFoundation)
+                configureAudioSessionIfNeeded()
+                let noteString = note.note + "h"
+                let pattern = MusicPatternSpec(
+                    id: note.id,
+                    name: "Runtime Note " + note.note,
+                    tempo: 120,
+                    loop: true,
+                    tracks: [
+                        MusicTrackSpec(
+                            name: "key",
+                            instrument: note.instrument,
+                            noteString: noteString,
+                            volume: note.volume
+                        ),
+                    ],
+                    notes: noteString
+                )
+                let data = MusicPatternRenderer.wavData(for: pattern)
+                do {
+                    let player = try AVAudioPlayer(data: data)
+                    player.numberOfLoops = -1
+                    player.prepareToPlay()
+                    player.play()
+                    activePlayers[note.id] = player
+                    sustainedPlayersByPart[note.partId, default: []].insert(note.id)
+                    latestSoundName = pattern.name
+                    musicState = "playing"
+                } catch {
+                    latestSoundName = "done"
+                }
+        #endif
+            }
+
+            func stopSustainedMusicNote(id: UUID) async {
+        #if canImport(AVFoundation)
+                activePlayers[id]?.stop()
+                activePlayers.removeValue(forKey: id)
+                for partId in sustainedPlayersByPart.keys {
+                    sustainedPlayersByPart[partId]?.remove(id)
+                }
+        #endif
+            }
+
+            func stopSustainedMusicNotes(forPart partId: UUID?) async {
+        #if canImport(AVFoundation)
+                guard let partId else {
+                    for ids in sustainedPlayersByPart.values {
+                        for id in ids {
+                            activePlayers[id]?.stop()
+                            activePlayers.removeValue(forKey: id)
+                        }
+                    }
+                    sustainedPlayersByPart.removeAll()
+                    return
+                }
+                let ids = sustainedPlayersByPart[partId] ?? []
+                for id in ids {
+                    activePlayers[id]?.stop()
+                    activePlayers.removeValue(forKey: id)
+                }
+                sustainedPlayersByPart.removeValue(forKey: partId)
+        #endif
+            }
+
+            func stopMusic() async {
+        #if canImport(AVFoundation)
+                for player in activePlayers.values {
+                    player.stop()
+                }
+                activePlayers.removeAll()
+                sustainedPlayersByPart.removeAll()
+                latestSoundName = "done"
+                musicState = "stopped"
+        #endif
+            }
+
+            func pauseMusic() async {
+        #if canImport(AVFoundation)
+                for player in activePlayers.values {
+                    player.pause()
+                }
+                musicState = "paused"
+        #endif
+            }
+
+            func resumeMusic() async {
+        #if canImport(AVFoundation)
+                for player in activePlayers.values {
+                    player.play()
+                }
+                if !activePlayers.isEmpty {
+                    musicState = "playing"
+                }
+        #endif
+            }
+
+            func currentMusicState() async -> String {
+        #if canImport(AVFoundation)
+                if activePlayers.values.contains(where: { $0.isPlaying }) {
+                    return musicState == "paused" ? "paused" : "playing"
+                }
+                return "stopped"
+        #else
+                return "stopped"
+        #endif
+            }
+
+            func appleMusicAuthorizationStatus() async -> AppleMusicAuthorizationState {
+                await appleMusicProvider.authorizationStatus()
+            }
+
+            func authorizeAppleMusic() async -> AppleMusicAuthorizationState {
+                await appleMusicProvider.requestAuthorization()
+            }
+
+            func appleMusicCapabilities() async -> AppleMusicCapabilities {
+                await appleMusicProvider.capabilities()
+            }
+
+            func searchAppleMusic(_ request: AppleMusicSearchRequest) async throws -> [AppleMusicItemRef] {
+                try await appleMusicProvider.search(request)
+            }
+
+            func playAppleMusic(_ item: AppleMusicItemRef, engine: AppleMusicPlaybackEngine) async throws {
+                try await appleMusicProvider.play(item, engine: engine)
+            }
+
+            func pauseAppleMusic(engine: AppleMusicPlaybackEngine) async {
+                await appleMusicProvider.pause(engine: engine)
+            }
+
+            func resumeAppleMusic(engine: AppleMusicPlaybackEngine) async throws {
+                try await appleMusicProvider.resume(engine: engine)
+            }
+
+            func stopAppleMusic(engine: AppleMusicPlaybackEngine) async {
+                await appleMusicProvider.stop(engine: engine)
+            }
+
+            func currentAppleMusicState(engine: AppleMusicPlaybackEngine) async -> String {
+                await appleMusicProvider.currentPlaybackState(engine: engine)
+            }
+
+            func seekAppleMusic(to position: Double, engine: AppleMusicPlaybackEngine) async throws {
+                try await appleMusicProvider.seek(to: position, engine: engine)
+            }
+
+            func currentAppleMusicPosition(engine: AppleMusicPlaybackEngine) async -> Double {
+                await appleMusicProvider.currentPlaybackPosition(engine: engine)
+            }
+
+        #if canImport(AVFoundation)
+            private func configureAudioSessionIfNeeded() {
+        #if os(iOS) || os(tvOS)
+                try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
+                try? AVAudioSession.sharedInstance().setActive(true)
+        #endif
+            }
+        #endif
         }
 
         #if os(macOS)
@@ -532,8 +1307,578 @@ public struct TargetRuntimePackageBuilder {
         """
     }
 
-    private func runtimeReadme(for manifest: HypeRuntimePackageManifest) -> String {
+    private func writeIOSAppProject(
+        for document: HypeDocument,
+        manifest: HypeRuntimePackageManifest,
+        shellDir: URL,
+        generatedFiles: inout [String]
+    ) throws {
+        let projectDir = shellDir.appendingPathComponent("HypeRuntimeApp.xcodeproj", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+        let pbxproj = xcodeProjectFile(for: document, manifest: manifest)
+        try pbxproj.write(to: projectDir.appendingPathComponent("project.pbxproj"), atomically: true, encoding: .utf8)
+        generatedFiles.append("\(Self.shellDirectoryName)/HypeRuntimeApp.xcodeproj/project.pbxproj")
+
+        try writeRuntimeCoreSourcePackage(to: shellDir.appendingPathComponent("HypeSource", isDirectory: true), generatedFiles: &generatedFiles)
+
+        let simulatorBuild = iosSimulatorBuildScript(for: manifest)
+        let simulatorBuildURL = shellDir.appendingPathComponent("build-ios-simulator.sh")
+        try simulatorBuild.write(to: simulatorBuildURL, atomically: true, encoding: .utf8)
+        try makeExecutable(simulatorBuildURL)
+        generatedFiles.append("\(Self.shellDirectoryName)/build-ios-simulator.sh")
+
+        let deviceBuild = iosDeviceBuildScript(for: manifest)
+        let deviceBuildURL = shellDir.appendingPathComponent("build-ios-device.sh")
+        try deviceBuild.write(to: deviceBuildURL, atomically: true, encoding: .utf8)
+        try makeExecutable(deviceBuildURL)
+        generatedFiles.append("\(Self.shellDirectoryName)/build-ios-device.sh")
+
+        let deviceDeploy = iosDeviceDeployScript(for: manifest)
+        let deviceDeployURL = shellDir.appendingPathComponent("deploy-ios-device.sh")
+        try deviceDeploy.write(to: deviceDeployURL, atomically: true, encoding: .utf8)
+        try makeExecutable(deviceDeployURL)
+        generatedFiles.append("\(Self.shellDirectoryName)/deploy-ios-device.sh")
+    }
+
+    private func writeRuntimeCoreSourcePackage(to sourcePackageDir: URL, generatedFiles: inout [String]) throws {
+        guard let sourceRoot = inferredSourceRoot() else {
+            throw TargetRuntimePackageBuilderError.runtimeSourceUnavailable(
+                "Could not locate HypeCore source files to embed in the iOS runtime package."
+            )
+        }
+        let fm = FileManager.default
+        try fm.createDirectory(at: sourcePackageDir.appendingPathComponent("Sources", isDirectory: true), withIntermediateDirectories: true)
+        try copyDirectory(
+            from: sourceRoot.appendingPathComponent("Sources/HypeCore", isDirectory: true),
+            to: sourcePackageDir.appendingPathComponent("Sources/HypeCore", isDirectory: true)
+        )
+        try copyDirectory(
+            from: sourceRoot.appendingPathComponent("Sources/CStackImport", isDirectory: true),
+            to: sourcePackageDir.appendingPathComponent("Sources/CStackImport", isDirectory: true)
+        )
+        try runtimeCorePackageSwift().write(to: sourcePackageDir.appendingPathComponent("Package.swift"), atomically: true, encoding: .utf8)
+        generatedFiles.append("\(Self.shellDirectoryName)/HypeSource/Package.swift")
+        generatedFiles.append("\(Self.shellDirectoryName)/HypeSource/Sources/HypeCore")
+        generatedFiles.append("\(Self.shellDirectoryName)/HypeSource/Sources/CStackImport")
+        let resolved = sourceRoot.appendingPathComponent("Package.resolved")
+        if fm.fileExists(atPath: resolved.path) {
+            try fm.copyItem(at: resolved, to: sourcePackageDir.appendingPathComponent("Package.resolved"))
+            generatedFiles.append("\(Self.shellDirectoryName)/HypeSource/Package.resolved")
+        }
+    }
+
+    private func inferredSourceRoot() -> URL? {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<8 {
+            url.deleteLastPathComponent()
+            let package = url.appendingPathComponent("Package.swift")
+            let core = url.appendingPathComponent("Sources/HypeCore", isDirectory: true)
+            if FileManager.default.fileExists(atPath: package.path),
+               FileManager.default.fileExists(atPath: core.path) {
+                return url
+            }
+        }
+        return nil
+    }
+
+    private func copyDirectory(from source: URL, to destination: URL) throws {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: source.path) else {
+            throw TargetRuntimePackageBuilderError.runtimeSourceUnavailable(
+                "Missing runtime source directory \(source.path)."
+            )
+        }
+        if fm.fileExists(atPath: destination.path) {
+            try fm.removeItem(at: destination)
+        }
+        try fm.copyItem(at: source, to: destination)
+    }
+
+    private func makeExecutable(_ url: URL) throws {
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    private func runtimeCorePackageSwift() -> String {
         """
+        // swift-tools-version: 6.0
+        import PackageDescription
+
+        let package = Package(
+            name: "HypeRuntimeCore",
+            platforms: [.macOS(.v15), .iOS(.v17), .tvOS(.v17)],
+            products: [
+                .library(name: "HypeCore", targets: ["HypeCore"]),
+            ],
+            dependencies: [
+                .package(url: "https://github.com/AudioKit/AudioKit.git", exact: "5.2.3"),
+            ],
+            targets: [
+                .target(
+                    name: "HypeCore",
+                    dependencies: [
+                        "CStackImport",
+                        .product(name: "AudioKit", package: "AudioKit"),
+                    ],
+                    path: "Sources/HypeCore",
+                    resources: [
+                        .process("Resources/MeshyAnimationCatalog.json"),
+                    ],
+                    linkerSettings: [
+                        .linkedLibrary("sqlite3"),
+                        .linkedLibrary("c++"),
+                    ]
+                ),
+                .systemLibrary(
+                    name: "CStackImport",
+                    path: "Sources/CStackImport"
+                ),
+            ]
+        )
+        """
+    }
+
+    private func iosSimulatorBuildScript(for manifest: HypeRuntimePackageManifest) -> String {
+        let target = manifest.appTargetName ?? appTargetName(stackName: manifest.stackName, platform: manifest.platform)
+        let destination = simulatorDestination(for: manifest.platform)
+        return """
+        #!/bin/sh
+        set -eu
+        SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+        DERIVED_DATA="${DERIVED_DATA:-"$SCRIPT_DIR/Build/DerivedData"}"
+        /usr/bin/xcrun xcodebuild \\
+          -project "$SCRIPT_DIR/HypeRuntimeApp.xcodeproj" \\
+          -scheme "\(target)" \\
+          -configuration Debug \\
+          -destination '\(destination)' \\
+          -derivedDataPath "$DERIVED_DATA" \\
+          CODE_SIGNING_ALLOWED=NO \\
+          build
+        """
+    }
+
+    private func iosDeviceBuildScript(for manifest: HypeRuntimePackageManifest) -> String {
+        let target = manifest.appTargetName ?? appTargetName(stackName: manifest.stackName, platform: manifest.platform)
+        let destination = deviceDestination(for: manifest.platform)
+        return """
+        #!/bin/sh
+        set -eu
+        : "${HYPE_DEVELOPMENT_TEAM:?Set HYPE_DEVELOPMENT_TEAM to your Apple Developer Team ID before building for device.}"
+        SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+        DERIVED_DATA="${DERIVED_DATA:-"$SCRIPT_DIR/Build/DerivedData"}"
+        /usr/bin/xcrun xcodebuild \\
+          -project "$SCRIPT_DIR/HypeRuntimeApp.xcodeproj" \\
+          -scheme "\(target)" \\
+          -configuration Debug \\
+          -destination '\(destination)' \\
+          -derivedDataPath "$DERIVED_DATA" \\
+          -allowProvisioningUpdates \\
+          DEVELOPMENT_TEAM="$HYPE_DEVELOPMENT_TEAM" \\
+          build
+        """
+    }
+
+    private func iosDeviceDeployScript(for manifest: HypeRuntimePackageManifest) -> String {
+        let target = manifest.appTargetName ?? appTargetName(stackName: manifest.stackName, platform: manifest.platform)
+        let productDirectory = deviceProductDirectory(for: manifest.platform)
+        return """
+        #!/bin/sh
+        set -eu
+        : "${HYPE_DEVICE_ID:?Set HYPE_DEVICE_ID to the target device UDID, serial number, or device name.}"
+        SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+        DERIVED_DATA="${DERIVED_DATA:-"$SCRIPT_DIR/Build/DerivedData"}"
+        "$SCRIPT_DIR/build-ios-device.sh"
+        APP_PATH="$DERIVED_DATA/Build/Products/\(productDirectory)/\(target).app"
+        if [ ! -d "$APP_PATH" ]; then
+          echo "Built app not found at $APP_PATH" >&2
+          exit 1
+        fi
+        /usr/bin/xcrun devicectl device install app --device "$HYPE_DEVICE_ID" "$APP_PATH"
+        """
+    }
+
+    private func simulatorDestination(for platform: HypeTargetPlatform) -> String {
+        switch platform {
+        case .tvOS: return "generic/platform=tvOS Simulator"
+        default: return "generic/platform=iOS Simulator"
+        }
+    }
+
+    private func deviceDestination(for platform: HypeTargetPlatform) -> String {
+        switch platform {
+        case .tvOS: return "generic/platform=tvOS"
+        default: return "generic/platform=iOS"
+        }
+    }
+
+    private func deviceProductDirectory(for platform: HypeTargetPlatform) -> String {
+        switch platform {
+        case .tvOS: return "Debug-appletvos"
+        default: return "Debug-iphoneos"
+        }
+    }
+
+    private func xcodeProjectFile(for document: HypeDocument, manifest: HypeRuntimePackageManifest) -> String {
+        let target = manifest.appTargetName ?? appTargetName(stackName: document.stack.name, platform: manifest.platform)
+        let bundleID = manifest.bundleIdentifier
+        let family = targetDeviceFamilyValue(for: manifest.platform)
+        let deploymentTargetSetting = deploymentTargetSetting(for: manifest.platform)
+        let sdkRoot = sdkRoot(for: manifest.platform)
+        let supportedPlatforms = supportedPlatforms(for: manifest.platform)
+        let entitlementsSetting = codeSigningEntitlementKeys(for: manifest).isEmpty
+            ? ""
+            : "CODE_SIGN_ENTITLEMENTS = Entitlements.plist;"
+        return """
+        // !$*UTF8*$!
+        {
+            archiveVersion = 1;
+            classes = {
+            };
+            objectVersion = 77;
+            objects = {
+
+        /* Begin PBXBuildFile section */
+                A00000000000000000000001 /* HypeRuntimeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000101 /* HypeRuntimeApp.swift */; };
+                A00000000000000000000002 /* RuntimeManifest.json in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000102 /* RuntimeManifest.json */; };
+                A00000000000000000000003 /* Stack in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000103 /* Stack */; };
+                A00000000000000000000004 /* AppIntents.json in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000104 /* AppIntents.json */; };
+                A00000000000000000000005 /* HypeCore in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000301 /* HypeCore */; };
+        /* End PBXBuildFile section */
+
+        /* Begin PBXFileReference section */
+                A00000000000000000000101 /* HypeRuntimeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/HypeRuntimeApp.swift; sourceTree = "<group>"; };
+                A00000000000000000000102 /* RuntimeManifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = RuntimeManifest.json; path = ../RuntimeManifest.json; sourceTree = "<group>"; };
+                A00000000000000000000103 /* Stack */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Stack; path = ../Stack; sourceTree = "<group>"; };
+                A00000000000000000000104 /* AppIntents.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = AppIntents.json; sourceTree = "<group>"; };
+                A00000000000000000000105 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+                A00000000000000000000106 /* Entitlements.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Entitlements.plist; sourceTree = "<group>"; };
+                A00000000000000000000107 /* \(target).app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "\(target).app"; sourceTree = BUILT_PRODUCTS_DIR; };
+        /* End PBXFileReference section */
+
+        /* Begin PBXFrameworksBuildPhase section */
+                A00000000000000000000201 /* Frameworks */ = {
+                    isa = PBXFrameworksBuildPhase;
+                    buildActionMask = 2147483647;
+                    files = (
+                        A00000000000000000000005 /* HypeCore in Frameworks */,
+                    );
+                    runOnlyForDeploymentPostprocessing = 0;
+                };
+        /* End PBXFrameworksBuildPhase section */
+
+        /* Begin PBXGroup section */
+                A00000000000000000000401 = {
+                    isa = PBXGroup;
+                    children = (
+                        A00000000000000000000101 /* HypeRuntimeApp.swift */,
+                        A00000000000000000000102 /* RuntimeManifest.json */,
+                        A00000000000000000000103 /* Stack */,
+                        A00000000000000000000104 /* AppIntents.json */,
+                        A00000000000000000000105 /* Info.plist */,
+                        A00000000000000000000106 /* Entitlements.plist */,
+                        A00000000000000000000402 /* Products */,
+                    );
+                    sourceTree = "<group>";
+                };
+                A00000000000000000000402 /* Products */ = {
+                    isa = PBXGroup;
+                    children = (
+                        A00000000000000000000107 /* \(target).app */,
+                    );
+                    name = Products;
+                    sourceTree = "<group>";
+                };
+        /* End PBXGroup section */
+
+        /* Begin PBXNativeTarget section */
+                A00000000000000000000501 /* \(target) */ = {
+                    isa = PBXNativeTarget;
+                    buildConfigurationList = A00000000000000000000801 /* Build configuration list for PBXNativeTarget "\(target)" */;
+                    buildPhases = (
+                        A00000000000000000000203 /* Sources */,
+                        A00000000000000000000201 /* Frameworks */,
+                        A00000000000000000000202 /* Resources */,
+                    );
+                    buildRules = (
+                    );
+                    dependencies = (
+                    );
+                    name = "\(target)";
+                    packageProductDependencies = (
+                        A00000000000000000000301 /* HypeCore */,
+                    );
+                    productName = "\(target)";
+                    productReference = A00000000000000000000107 /* \(target).app */;
+                    productType = "com.apple.product-type.application";
+                };
+        /* End PBXNativeTarget section */
+
+        /* Begin PBXProject section */
+                A00000000000000000000601 /* Project object */ = {
+                    isa = PBXProject;
+                    attributes = {
+                        LastSwiftUpdateCheck = 1700;
+                        LastUpgradeCheck = 1700;
+                        TargetAttributes = {
+                            A00000000000000000000501 = {
+                                CreatedOnToolsVersion = 17.0;
+                            };
+                        };
+                    };
+                    buildConfigurationList = A00000000000000000000802 /* Build configuration list for PBXProject "HypeRuntimeApp" */;
+                    compatibilityVersion = "Xcode 16.0";
+                    developmentRegion = en;
+                    hasScannedForEncodings = 0;
+                    knownRegions = (
+                        en,
+                        Base,
+                    );
+                    mainGroup = A00000000000000000000401;
+                    minimizedProjectReferenceProxies = 1;
+                    packageReferences = (
+                        A00000000000000000000302 /* XCLocalSwiftPackageReference "HypeSource" */,
+                    );
+                    preferredProjectObjectVersion = 77;
+                    productRefGroup = A00000000000000000000402 /* Products */;
+                    projectDirPath = "";
+                    projectRoot = "";
+                    targets = (
+                        A00000000000000000000501 /* \(target) */,
+                    );
+                };
+        /* End PBXProject section */
+
+        /* Begin PBXResourcesBuildPhase section */
+                A00000000000000000000202 /* Resources */ = {
+                    isa = PBXResourcesBuildPhase;
+                    buildActionMask = 2147483647;
+                    files = (
+                        A00000000000000000000002 /* RuntimeManifest.json in Resources */,
+                        A00000000000000000000003 /* Stack in Resources */,
+                        A00000000000000000000004 /* AppIntents.json in Resources */,
+                    );
+                    runOnlyForDeploymentPostprocessing = 0;
+                };
+        /* End PBXResourcesBuildPhase section */
+
+        /* Begin PBXSourcesBuildPhase section */
+                A00000000000000000000203 /* Sources */ = {
+                    isa = PBXSourcesBuildPhase;
+                    buildActionMask = 2147483647;
+                    files = (
+                        A00000000000000000000001 /* HypeRuntimeApp.swift in Sources */,
+                    );
+                    runOnlyForDeploymentPostprocessing = 0;
+                };
+        /* End PBXSourcesBuildPhase section */
+
+        /* Begin XCBuildConfiguration section */
+                A00000000000000000000701 /* Debug */ = {
+                    isa = XCBuildConfiguration;
+                    buildSettings = {
+                        ALWAYS_SEARCH_USER_PATHS = NO;
+                        CLANG_ANALYZER_NONNULL = YES;
+                        CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+                        CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+                        CLANG_ENABLE_MODULES = YES;
+                        CLANG_ENABLE_OBJC_ARC = YES;
+                        CLANG_ENABLE_OBJC_WEAK = YES;
+                        CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+                        CLANG_WARN_BOOL_CONVERSION = YES;
+                        CLANG_WARN_COMMA = YES;
+                        CLANG_WARN_CONSTANT_CONVERSION = YES;
+                        CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+                        CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+                        CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+                        CLANG_WARN_EMPTY_BODY = YES;
+                        CLANG_WARN_ENUM_CONVERSION = YES;
+                        CLANG_WARN_INFINITE_RECURSION = YES;
+                        CLANG_WARN_INT_CONVERSION = YES;
+                        CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+                        CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+                        CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+                        CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+                        CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+                        CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+                        CLANG_WARN_STRICT_PROTOTYPES = YES;
+                        CLANG_WARN_SUSPICIOUS_MOVE = YES;
+                        CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+                        CLANG_WARN_UNREACHABLE_CODE = YES;
+                        CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+                        COPY_PHASE_STRIP = NO;
+                        DEBUG_INFORMATION_FORMAT = dwarf;
+                        ENABLE_STRICT_OBJC_MSGSEND = YES;
+                        ENABLE_TESTABILITY = YES;
+                        GCC_C_LANGUAGE_STANDARD = gnu17;
+                        GCC_DYNAMIC_NO_PIC = NO;
+                        GCC_NO_COMMON_BLOCKS = YES;
+                        GCC_OPTIMIZATION_LEVEL = 0;
+                        GCC_PREPROCESSOR_DEFINITIONS = (
+                            "DEBUG=1",
+                            "$(inherited)",
+                        );
+                        GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+                        GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+                        GCC_WARN_UNDECLARED_SELECTOR = YES;
+                        GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+                        GCC_WARN_UNUSED_FUNCTION = YES;
+                        GCC_WARN_UNUSED_VARIABLE = YES;
+                        \(deploymentTargetSetting) = 17.0;
+                        SDKROOT = \(sdkRoot);
+                        SUPPORTED_PLATFORMS = "\(supportedPlatforms)";
+                        SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+                        SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+                    };
+                    name = Debug;
+                };
+                A00000000000000000000702 /* Release */ = {
+                    isa = XCBuildConfiguration;
+                    buildSettings = {
+                        ALWAYS_SEARCH_USER_PATHS = NO;
+                        CLANG_ANALYZER_NONNULL = YES;
+                        CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+                        CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+                        CLANG_ENABLE_MODULES = YES;
+                        CLANG_ENABLE_OBJC_ARC = YES;
+                        CLANG_ENABLE_OBJC_WEAK = YES;
+                        COPY_PHASE_STRIP = NO;
+                        DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+                        ENABLE_NS_ASSERTIONS = NO;
+                        ENABLE_STRICT_OBJC_MSGSEND = YES;
+                        GCC_C_LANGUAGE_STANDARD = gnu17;
+                        GCC_NO_COMMON_BLOCKS = YES;
+                        GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+                        GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+                        GCC_WARN_UNDECLARED_SELECTOR = YES;
+                        GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+                        GCC_WARN_UNUSED_FUNCTION = YES;
+                        GCC_WARN_UNUSED_VARIABLE = YES;
+                        \(deploymentTargetSetting) = 17.0;
+                        SDKROOT = \(sdkRoot);
+                        SUPPORTED_PLATFORMS = "\(supportedPlatforms)";
+                        SWIFT_COMPILATION_MODE = wholemodule;
+                        VALIDATE_PRODUCT = YES;
+                    };
+                    name = Release;
+                };
+                A00000000000000000000703 /* Debug */ = {
+                    isa = XCBuildConfiguration;
+                    buildSettings = {
+                        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+                        CODE_SIGN_STYLE = Automatic;
+                        CURRENT_PROJECT_VERSION = 1;
+                        \(entitlementsSetting)
+                        GENERATE_INFOPLIST_FILE = NO;
+                        INFOPLIST_FILE = Info.plist;
+                        MARKETING_VERSION = 1.0;
+                        PRODUCT_BUNDLE_IDENTIFIER = \(bundleID);
+                        PRODUCT_NAME = "$(TARGET_NAME)";
+                        SWIFT_EMIT_LOC_STRINGS = YES;
+                        SWIFT_VERSION = 6.0;
+                        TARGETED_DEVICE_FAMILY = "\(family)";
+                    };
+                    name = Debug;
+                };
+                A00000000000000000000704 /* Release */ = {
+                    isa = XCBuildConfiguration;
+                    buildSettings = {
+                        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+                        CODE_SIGN_STYLE = Automatic;
+                        CURRENT_PROJECT_VERSION = 1;
+                        \(entitlementsSetting)
+                        GENERATE_INFOPLIST_FILE = NO;
+                        INFOPLIST_FILE = Info.plist;
+                        MARKETING_VERSION = 1.0;
+                        PRODUCT_BUNDLE_IDENTIFIER = \(bundleID);
+                        PRODUCT_NAME = "$(TARGET_NAME)";
+                        SWIFT_EMIT_LOC_STRINGS = YES;
+                        SWIFT_VERSION = 6.0;
+                        TARGETED_DEVICE_FAMILY = "\(family)";
+                    };
+                    name = Release;
+                };
+        /* End XCBuildConfiguration section */
+
+        /* Begin XCConfigurationList section */
+                A00000000000000000000801 /* Build configuration list for PBXNativeTarget "\(target)" */ = {
+                    isa = XCConfigurationList;
+                    buildConfigurations = (
+                        A00000000000000000000703 /* Debug */,
+                        A00000000000000000000704 /* Release */,
+                    );
+                    defaultConfigurationIsVisible = 0;
+                    defaultConfigurationName = Release;
+                };
+                A00000000000000000000802 /* Build configuration list for PBXProject "HypeRuntimeApp" */ = {
+                    isa = XCConfigurationList;
+                    buildConfigurations = (
+                        A00000000000000000000701 /* Debug */,
+                        A00000000000000000000702 /* Release */,
+                    );
+                    defaultConfigurationIsVisible = 0;
+                    defaultConfigurationName = Release;
+                };
+        /* End XCConfigurationList section */
+
+        /* Begin XCLocalSwiftPackageReference section */
+                A00000000000000000000302 /* XCLocalSwiftPackageReference "HypeSource" */ = {
+                    isa = XCLocalSwiftPackageReference;
+                    relativePath = HypeSource;
+                };
+        /* End XCLocalSwiftPackageReference section */
+
+        /* Begin XCSwiftPackageProductDependency section */
+                A00000000000000000000301 /* HypeCore */ = {
+                    isa = XCSwiftPackageProductDependency;
+                    package = A00000000000000000000302 /* XCLocalSwiftPackageReference "HypeSource" */;
+                    productName = HypeCore;
+                };
+        /* End XCSwiftPackageProductDependency section */
+            };
+            rootObject = A00000000000000000000601 /* Project object */;
+        }
+        """
+    }
+
+    private func deploymentTargetSetting(for platform: HypeTargetPlatform) -> String {
+        switch platform {
+        case .tvOS: return "TVOS_DEPLOYMENT_TARGET"
+        default: return "IPHONEOS_DEPLOYMENT_TARGET"
+        }
+    }
+
+    private func sdkRoot(for platform: HypeTargetPlatform) -> String {
+        switch platform {
+        case .tvOS: return "appletvos"
+        default: return "iphoneos"
+        }
+    }
+
+    private func supportedPlatforms(for platform: HypeTargetPlatform) -> String {
+        switch platform {
+        case .tvOS: return "appletvos appletvsimulator"
+        default: return "iphoneos iphonesimulator"
+        }
+    }
+
+    private func runtimeReadme(for manifest: HypeRuntimePackageManifest) -> String {
+        let iosInstructions: String
+        if isIOSRuntimePlatform(manifest.platform) {
+            iosInstructions = """
+
+            ## Build and Deploy
+
+            This package includes a generated Xcode project at `RuntimeShell/HypeRuntimeApp.xcodeproj` and a local `RuntimeShell/HypeSource` package containing the HypeCore runtime source needed to compile the app.
+
+            - Build for Simulator: `RuntimeShell/build-ios-simulator.sh`
+            - Build for device: `HYPE_DEVELOPMENT_TEAM=YOURTEAMID RuntimeShell/build-ios-device.sh`
+            - Install to device: `HYPE_DEVELOPMENT_TEAM=YOURTEAMID HYPE_DEVICE_ID=DEVICE_UDID RuntimeShell/deploy-ios-device.sh`
+
+            Device signing uses Apple's standard Xcode provisioning flow. The deployed app is runtime-only; edit mode and authoring panels are not present.
+            """
+        } else {
+            iosInstructions = ""
+        }
+        return """
         # \(manifest.stackName) Runtime Package
 
         Target: \(manifest.platform.displayName)
@@ -542,6 +1887,7 @@ public struct TargetRuntimePackageBuilder {
         Embedded stack: \(manifest.embeddedStackPath)
 
         This package intentionally contains runtime shell files and an embedded, self-contained `.hype` stack package. It must not include Hype authoring surfaces, API keys, local model endpoints, or user preferences.
+        \(iosInstructions)
         """
     }
 

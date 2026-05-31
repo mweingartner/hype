@@ -60,6 +60,7 @@ public enum SVGSanitizer {
     /// - Returns: Sanitized UTF-8 bytes and a change report.
     /// - Throws: `WebAssetSearchError.svgRejected` on XML parse failure.
     public static func sanitize(_ input: Data) throws -> (bytes: Data, report: Report) {
+        #if os(macOS)
         // Step 1: Parse with XMLDocument for a proper DOM.
         let options: XMLNode.Options = [.documentTidyXML, .nodePreserveWhitespace]
         let doc: XMLDocument
@@ -183,11 +184,15 @@ public enum SVGSanitizer {
         // Step 4: Serialize back to XML.
         let xmlData = doc.xmlData(options: .nodeCompactEmptyElement)
         return (bytes: xmlData, report: report)
+        #else
+        throw WebAssetSearchError.svgRejected("SVG sanitization is available only in the macOS authoring runtime.")
+        #endif
     }
 
     // MARK: - Helpers
 
     /// Walk every XML element in the subtree rooted at `element`, calling `visitor` on each.
+    #if os(macOS)
     private static func walkElements(_ element: XMLElement?, visitor: (XMLElement) -> Void) {
         guard let element else { return }
         visitor(element)
@@ -197,6 +202,7 @@ public enum SVGSanitizer {
             }
         }
     }
+    #endif
 
     /// Returns `true` if an href/src value should be preserved:
     /// - Fragment references (`#something`)

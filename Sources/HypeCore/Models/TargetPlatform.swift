@@ -310,7 +310,12 @@ public enum PartAvailabilityCatalog {
         case .macOS:
             return PartTargetSupport(partType: partType, platform: platform, availability: macOSAvailability(partType))
         case .iPhone, .iPad:
-            return PartTargetSupport(partType: partType, platform: platform, availability: iOSFamilyAvailability(partType))
+            return PartTargetSupport(
+                partType: partType,
+                platform: platform,
+                availability: iOSFamilyAvailability(partType),
+                reason: TargetRuntimeAdapterCatalog.supportReason(for: partType, on: platform)
+            )
         case .tvOS:
             return tvOSSupport(partType)
         }
@@ -330,49 +335,19 @@ public enum PartAvailabilityCatalog {
     }
 
     private static func macOSAvailability(_ partType: PartType) -> PartTargetAvailability {
-        switch partType {
-        case .unknown:
-            return .unsupported
-        default:
-            return .native
-        }
+        TargetRuntimeAdapterCatalog.availability(for: partType, on: .macOS)
     }
 
     private static func iOSFamilyAvailability(_ partType: PartType) -> PartTargetAvailability {
-        switch partType {
-        case .button, .field, .shape, .webpage, .image, .video, .chart, .spriteArea,
-             .calendar, .pdf, .map, .colorWell, .stepper, .slider, .segmented,
-             .audioRecorder, .scene3D, .musicPlayer, .pianoKeyboard, .stepSequencer,
-             .musicMixer, .appleMusicBrowser, .progressView, .gauge, .divider:
-            return .native
-        case .toggle, .link, .menu, .searchField:
-            return .emulated
-        case .musicQueue, .unknown:
-            return .unsupported
-        }
+        TargetRuntimeAdapterCatalog.availability(for: partType, on: .iPhone)
     }
 
     private static func tvOSSupport(_ partType: PartType) -> PartTargetSupport {
-        switch partType {
-        case .button, .shape, .image, .video, .chart, .spriteArea, .scene3D,
-             .musicPlayer, .progressView, .gauge, .divider:
-            return PartTargetSupport(partType: partType, platform: .tvOS, availability: .native)
-        case .field:
-            return PartTargetSupport(
-                partType: partType,
-                platform: .tvOS,
-                availability: .unsupported,
-                reason: "freeform text fields need a focus-safe tvOS text-entry adapter"
-            )
-        case .webpage, .calendar, .pdf, .map, .colorWell, .stepper, .slider, .segmented,
-             .audioRecorder, .pianoKeyboard, .stepSequencer, .musicMixer, .appleMusicBrowser,
-             .toggle, .link, .menu, .searchField, .musicQueue, .unknown:
-            return PartTargetSupport(
-                partType: partType,
-                platform: .tvOS,
-                availability: .unsupported,
-                reason: "the current control requires pointer, keyboard, touch, recording, or framework behavior not yet available in the tvOS runtime shell"
-            )
-        }
+        PartTargetSupport(
+            partType: partType,
+            platform: .tvOS,
+            availability: TargetRuntimeAdapterCatalog.availability(for: partType, on: .tvOS),
+            reason: TargetRuntimeAdapterCatalog.supportReason(for: partType, on: .tvOS)
+        )
     }
 }

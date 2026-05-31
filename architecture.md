@@ -2020,9 +2020,51 @@ session-only script globals without mutating the source stack. Runtime packages
 embed a self-contained SQLite `.hype` package under `Stack/Stack.hype`, write a
 `RuntimeManifest.json`, and generate shell `Info.plist`, entitlements metadata,
 App Intent descriptor JSON, and runtime-only Swift shell source.
+Apple mobile/runtime packages for iPhone, iPad, and tvOS also generate `HypeRuntimeApp.xcodeproj`, copy
+the HypeCore runtime sources into a local `RuntimeShell/HypeSource` package, and
+write build/deploy helper scripts:
+
+- `RuntimeShell/build-ios-simulator.sh` builds an unsigned iOS Simulator app
+  or tvOS Simulator app with `xcodebuild`, depending on the target manifest.
+- `RuntimeShell/build-ios-device.sh` builds a signed device app using
+  `HYPE_DEVELOPMENT_TEAM`.
+- `RuntimeShell/deploy-ios-device.sh` installs the built app with
+  `xcrun devicectl device install app` using `HYPE_DEVICE_ID`.
+
+The generated target shell is a normal SwiftUI app target that embeds `RuntimeManifest.json`
+and the `Stack/Stack.hype` folder as app resources. The app loads the embedded
+SQLite stack through `HypeSQLiteStackStore`, forces runtime mode, keeps the
+current card in runtime state, and dispatches supported control events through
+`StackRuntime.dispatchAndWait` so HypeTalk changes and card navigation flow
+through the same interpreter and message hierarchy used by the authoring app.
 The generated shell uses the manifest profile id and `LayoutResolver` so the
 runtime view applies the same fixed / scale-to-fit / stretch-to-fill projection
 used by AI previews and deployment validation.
+The shell renders target-supported controls with native runtime adapters rather
+than placeholder labels. `TargetRuntimeAdapterCatalog` is the source of truth
+for standalone runtime control availability; `PartAvailabilityCatalog`, the
+object palette, deployment validation, and runtime manifests all derive from it
+so Hype does not advertise controls a target app cannot actually render. The
+shared `TargetRuntimePartView` adapter projects persisted `Part` values into
+SwiftUI/AppKit/UIKit runtime controls and writes supported runtime mutations
+back into `HypeRuntimeDocumentModel`, which refreshes `StackRuntime` before
+dispatching lifecycle messages such as `mouseUp`, `valueChanged`,
+`dateChanged`, `colorChanged`, `selectionChanged`, `positionChanged`, and
+`chartChange`.
+The iPhone/iPad runtime adapter set currently includes buttons, fields, shapes,
+web/image/video/PDF/map, charts, calendars, color wells, steppers, sliders,
+segmented controls, Scene3D, AudioKit music controls, MusicKit search/player
+controls, progress views, gauges, and dividers. tvOS intentionally exposes a
+smaller focus-safe set: buttons, shapes, images, video, charts, Scene3D,
+music playback, progress views, gauges, and dividers. Sprite areas, audio
+recorders, and legacy music queues are hidden/blocked for non-macOS export
+until those targets have real standalone runtime adapters.
+Map parts are projected into MapKit map views using the persisted
+center/span/type/annotation properties. Piano keyboard parts are rendered as
+touch/drag-playable SwiftUI keyboards on iPhone/iPad and route music playback
+through a runtime `SystemProvider` backed by AVFoundation-generated WAV data
+from persisted music patterns, keeping deployed apps self-contained and avoiding
+live AudioKit/AppKit object persistence.
 Before export, `StackDeploymentPlanner` validates the actual parts present in
 the stack against each selected target. `TargetRuntimePackageBuilder` refuses to
 produce a runtime package when the document still contains controls unsupported

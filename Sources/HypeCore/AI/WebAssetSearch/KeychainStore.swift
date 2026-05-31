@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(LocalAuthentication) && !os(tvOS)
 import LocalAuthentication
+#endif
 import Security
 
 // MARK: - KeychainStore
@@ -71,15 +73,14 @@ public enum KeychainStore {
     ///   given account, or `KeychainStoreError.unhandledStatus` for unexpected
     ///   Keychain errors.
     public static func getSecret(account: String) throws -> String {
-        let context = nonInteractiveAuthenticationContext()
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String:            kSecClassGenericPassword,
             kSecAttrService as String:      service,
             kSecAttrAccount as String:      account,
             kSecReturnData as String:       true,
             kSecMatchLimit as String:       kSecMatchLimitOne,
-            kSecUseAuthenticationContext as String: context,
         ]
+        addNonInteractiveAuthenticationContext(to: &query)
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
 
@@ -119,22 +120,29 @@ public enum KeychainStore {
     /// Returns `true` when a secret exists in the Keychain for the given account.
     /// Performs a silent check — no throws; errors map to `false`.
     public static func hasSecret(account: String) -> Bool {
-        let context = nonInteractiveAuthenticationContext()
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String:       kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecMatchLimit as String:  kSecMatchLimitOne,
-            kSecUseAuthenticationContext as String: context,
         ]
+        addNonInteractiveAuthenticationContext(to: &query)
         return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
     }
 
+    private static func addNonInteractiveAuthenticationContext(to query: inout [String: Any]) {
+        #if canImport(LocalAuthentication) && !os(tvOS)
+        query[kSecUseAuthenticationContext as String] = nonInteractiveAuthenticationContext()
+        #endif
+    }
+
+    #if canImport(LocalAuthentication) && !os(tvOS)
     private static func nonInteractiveAuthenticationContext() -> LAContext {
         let context = LAContext()
         context.interactionNotAllowed = true
         return context
     }
+    #endif
 }
 
 // MARK: - Well-known accounts
