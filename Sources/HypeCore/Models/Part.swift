@@ -98,6 +98,11 @@ public struct Part: Identifiable, Codable, Sendable {
 
     // Video-specific
     public var videoURL: String
+    public var videoAssetRef: AssetRef?
+    public var videoAutoplay: Bool
+    public var videoLoop: Bool
+    /// Normalized video playback volume, 0...1. Defaults to full volume.
+    public var videoVolume: Double
 
     // Chart-specific
     public var chartData: String  // JSON-encoded ChartConfig
@@ -476,6 +481,10 @@ public struct Part: Identifiable, Codable, Sendable {
         self.url = partType == .webpage ? "http://" : ""
         self.urlSourceFieldId = nil
         self.videoURL = ""
+        self.videoAssetRef = nil
+        self.videoAutoplay = false
+        self.videoLoop = false
+        self.videoVolume = 1
         self.chartData = ""
         self.imageData = nil
         self.invertOnClick = false
@@ -629,6 +638,10 @@ public struct Part: Identifiable, Codable, Sendable {
         url = try container.decode(String.self, forKey: .url)
         urlSourceFieldId = try container.decodeIfPresent(UUID.self, forKey: .urlSourceFieldId)
         videoURL = try container.decodeIfPresent(String.self, forKey: .videoURL) ?? ""
+        videoAssetRef = try container.decodeIfPresent(AssetRef.self, forKey: .videoAssetRef)
+        videoAutoplay = try container.decodeIfPresent(Bool.self, forKey: .videoAutoplay) ?? false
+        videoLoop = try container.decodeIfPresent(Bool.self, forKey: .videoLoop) ?? false
+        videoVolume = try container.decodeIfPresent(Double.self, forKey: .videoVolume) ?? 1
         chartData = try container.decodeIfPresent(String.self, forKey: .chartData) ?? ""
         imageData = try container.decodeIfPresent(Data.self, forKey: .imageData)
         invertOnClick = try container.decodeIfPresent(Bool.self, forKey: .invertOnClick) ?? false

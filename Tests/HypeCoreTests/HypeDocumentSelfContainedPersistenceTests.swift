@@ -167,6 +167,36 @@ struct HypeDocumentSelfContainedPersistenceTests {
         #expect(try documentValue("stackLibrary", in: packageURL)?.contains("5907") == true)
     }
 
+    @Test("repository-backed video part state persists")
+    func repositoryBackedVideoPartStatePersists() throws {
+        let store = HypeSQLiteStackStore()
+        let packageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VideoAssetRefSQLite-\(UUID().uuidString).hype", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: packageURL) }
+
+        var document = HypeDocument.newDocument(name: "Video Test")
+        let cardId = try #require(document.cards.first?.id)
+        let movie = Asset(name: "Intro Wind Mov-modern.mov", kind: .videoClip, mimeType: "video/quicktime", data: Data("movie".utf8))
+        document.assetRepository.addAsset(movie)
+        var part = Part(partType: .video, cardId: cardId, name: "Intro Wind Mov")
+        part.videoAssetRef = document.assetRepository.assetRef(for: movie)
+        part.videoURL = "asset://\(movie.id.uuidString)"
+        part.videoAutoplay = true
+        part.videoLoop = true
+        part.videoVolume = 0.5
+        document.addPart(part)
+
+        try store.save(document, toPackageAt: packageURL)
+        let loaded = try store.load(fromPackageAt: packageURL)
+
+        let loadedPart = try #require(loaded.parts.first { $0.partType == .video })
+        #expect(loadedPart.videoAssetRef?.id == movie.id)
+        #expect(loadedPart.videoURL == "asset://\(movie.id.uuidString)")
+        #expect(loadedPart.videoAutoplay)
+        #expect(loadedPart.videoLoop)
+        #expect(loadedPart.videoVolume == 0.5)
+    }
+
     @Test("FileWrapper package is self-contained")
     func fileWrapperPackageIsSelfContained() throws {
         let store = HypeSQLiteStackStore()

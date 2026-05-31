@@ -84,6 +84,12 @@ Implemented:
   `SetMode`, and `GetMode`. These record script-visible compatibility state in
   runtime globals and return deterministic values, without loading native
   68k/PowerPC external code or changing durable document schema.
+- Myst-facing QuickTime runtime compatibility for imported media assets:
+  `playQT`, `PlayMovie`, `Movie`, `closemoovs`, `closemovies`, and `movieInfo`
+  resolve repository-backed loose-media replacements by classic media metadata.
+  `playQT`/`Movie` create compatibility video parts with asset references,
+  autoplay/loop/volume intent, audio-only hidden playback parts, and classic
+  window-property state for common `set the ... of window ...` forms.
 - `snd ` resource conversion to `audioClip` assets in `AssetRepository` via
   `stackimport_snd_to_wav()` (pure Swift path) and streaming resource
   payload callbacks (C importer path).
