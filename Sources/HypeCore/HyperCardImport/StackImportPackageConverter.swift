@@ -20,13 +20,20 @@ public struct StackImportPackageConverter: Sendable {
         let project = try decode(XSTKProject.self, from: "project.json", reader: reader, decoder: decoder)
         let stackFile = project.stackFile ?? "stack_-1.json"
         let stack = try decode(XSTKStack.self, from: stackFile, reader: reader, decoder: decoder)
+        var consumedPaths: Set<String> = ["project.json", stackFile]
+        let fontSummary = fontSummary(from: project.fonts ?? [])
+        let resolvedFontsByName = fontSummary.reduce(into: [String: String]()) { partial, font in
+            partial[font.name.lowercased()] = font.resolvedFontName
+        }
 
-        var document = HypeDocument.newDocument(name: nonEmpty(stack.name, fallback: project.sourceFileName ?? "Imported HyperCard Stack"))
-        document.stack.deploymentTargets = options.deploymentTargets
+        var document = HypeDocument.newDocument(
+            name: nonEmpty(stack.name, fallback: project.sourceFileName ?? "Imported HyperCard Stack"),
+            deploymentTargets: options.deploymentTargets ?? .automationDefault()
+        )
         document.stack.width = stack.cardWidth
         document.stack.height = stack.cardHeight
         document.stack.script = disabledLegacyScript(stack.script)
-        if let firstFont = project.fonts?.first?.name, !firstFont.isEmpty {
+        if let firstFont = fontSummary.first?.resolvedFontName, !firstFont.isEmpty {
             document.stack.defaultFont = firstFont
         }
         document.backgrounds = []
@@ -50,6 +57,7 @@ public struct StackImportPackageConverter: Sendable {
             backgroundIdMap[layer.id] = bg.id
             if let file = layer.file {
                 backgroundFiles.append((layer.id, file, layer))
+                consumedPaths.insert(file)
             }
         }
 
@@ -81,6 +89,7 @@ public struct StackImportPackageConverter: Sendable {
             cardIdMap[layer.id] = card.id
             if let file = layer.file {
                 cardFiles.append((layer.id, file, layer))
+                consumedPaths.insert(file)
             }
         }
 
@@ -90,14 +99,20 @@ public struct StackImportPackageConverter: Sendable {
         }
 
         var importedPartCount = 0
+        var legacyPartIdsByPartId: [UUID: Int] = [:]
         for file in backgroundFiles {
             guard let backgroundId = backgroundIdMap[file.legacyId],
                   let bgIndex = document.backgrounds.firstIndex(where: { $0.id == backgroundId }) else { continue }
             let background = try decode(XSTKLayerDetail.self, from: file.path, reader: reader, decoder: decoder)
             document.backgrounds[bgIndex].script = disabledLegacyScript(background.script)
+            if let bitmap = background.bitmap {
+                consumedPaths.insert(bitmap)
+            }
             appendBitmapPart(from: background, reader: reader, owner: .background(backgroundId), to: &document)
             for (partIndex, sourcePart) in background.parts.enumerated() {
-                document.parts.append(makePart(sourcePart, owner: .background(backgroundId), index: partIndex + 1))
+                let part = makePart(sourcePart, owner: .background(backgroundId), index: partIndex + 1, resolvedFontsByName: resolvedFontsByName)
+                legacyPartIdsByPartId[part.id] = sourcePart.id
+                document.parts.append(part)
                 importedPartCount += 1
             }
         }
@@ -107,20 +122,51 @@ public struct StackImportPackageConverter: Sendable {
                   let cardIndex = document.cards.firstIndex(where: { $0.id == cardId }) else { continue }
             let card = try decode(XSTKLayerDetail.self, from: file.path, reader: reader, decoder: decoder)
             document.cards[cardIndex].script = disabledLegacyScript(card.script)
+            if let bitmap = card.bitmap {
+                consumedPaths.insert(bitmap)
+            }
             appendBitmapPart(from: card, reader: reader, owner: .card(cardId), to: &document)
             for (partIndex, sourcePart) in card.parts.enumerated() {
-                document.parts.append(makePart(sourcePart, owner: .card(cardId), index: partIndex + 1))
+                let part = makePart(sourcePart, owner: .card(cardId), index: partIndex + 1, resolvedFontsByName: resolvedFontsByName)
+                legacyPartIdsByPartId[part.id] = sourcePart.id
+                document.parts.append(part)
                 importedPartCount += 1
             }
         }
 
-        applyCardFieldContents(from: cardFiles, reader: reader, decoder: decoder, cardIdMap: cardIdMap, to: &document)
+        applyFieldContents(
+            from: backgroundFiles,
+            reader: reader,
+            decoder: decoder,
+            ownerIdMap: backgroundIdMap,
+            ownerKeyPath: \.backgroundId,
+            expectedLayer: "background",
+            legacyPartIdsByPartId: legacyPartIdsByPartId,
+            to: &document
+        )
+        applyFieldContents(
+            from: cardFiles,
+            reader: reader,
+            decoder: decoder,
+            ownerIdMap: cardIdMap,
+            ownerKeyPath: \.cardId,
+            expectedLayer: "card",
+            legacyPartIdsByPartId: legacyPartIdsByPartId,
+            to: &document
+        )
         let sourceManifest = try? decode(XSTKSourceManifest.self, from: "source-manifest.json", reader: reader, decoder: decoder)
+        if sourceManifest != nil {
+            consumedPaths.insert("source-manifest.json")
+        }
+        let scriptIndex = try? decode(XSTKScriptIndex.self, from: "script-index.json", reader: reader, decoder: decoder)
+        if scriptIndex != nil {
+            consumedPaths.insert("script-index.json")
+        }
+        consumedPaths.formUnion(resourceArtifactPaths(from: sourceManifest))
+        consumedPaths.formUnion(reader.allPaths.filter(isLooseResourceAssetPath))
         appendResourceAssets(from: sourceManifest, reader: reader, to: &document)
 
-        let blockSummary = project.blocks.map {
-            HyperCardBlockSummary(type: $0.type, count: 1, totalBytes: $0.size ?? 0)
-        }
+        let blockSummary = blockSummary(from: project.blocks)
         let resourceSummary = sourceManifest?.resourceFork.resources.reduce(into: [String: (count: Int, bytes: Int)]()) { partial, resource in
             let current = partial[resource.type, default: (0, 0)]
             partial[resource.type] = (current.count + 1, current.bytes + resource.bytes)
@@ -132,12 +178,20 @@ public struct StackImportPackageConverter: Sendable {
             .filter { $0.understood == false }
             .map { "Block \($0.type) \($0.id) was emitted by stackimport as not fully understood." }
         let scriptWarning = "Imported HyperCard scripts that are not valid HypeTalk are preserved as comments and disabled until translated."
+        let diagnostics = makePackageDiagnostics(
+            sourceManifest: sourceManifest,
+            scriptIndex: scriptIndex,
+            fontSummary: fontSummary,
+            reader: reader,
+            consumedPaths: consumedPaths
+        )
 
         let report = HyperCardImportReport(
             stackName: document.stack.name,
             cardSize: HyperCardSize(width: document.stack.width, height: document.stack.height),
             blockSummary: blockSummary,
             resourceSummary: resourceSummary,
+            stackImportDiagnostics: diagnostics,
             importedBackgrounds: document.backgrounds.count,
             importedCards: document.cards.count,
             importedParts: importedPartCount,
@@ -173,7 +227,7 @@ public struct StackImportPackageConverter: Sendable {
         case card(UUID)
     }
 
-    private func makePart(_ source: XSTKPart, owner: Owner, index: Int) -> Part {
+    private func makePart(_ source: XSTKPart, owner: Owner, index: Int, resolvedFontsByName: [String: String]) -> Part {
         let rect = source.rect ?? XSTKRect(left: 100, top: 100, right: 220, bottom: 140)
         let partType: PartType = source.type == "field" ? .field : .button
         let originalName = source.name ?? ""
@@ -198,10 +252,11 @@ public struct StackImportPackageConverter: Sendable {
         part.enabled = source.enabled ?? true
         part.hilite = source.highlight ?? false
         part.autoHilite = source.autoHighlight ?? true
-        part.textFont = nonEmpty(source.font, fallback: part.textFont)
+        part.textFont = resolvedFontName(for: source.font, fallback: part.textFont, resolvedFontsByName: resolvedFontsByName)
         part.textSize = Double(source.textSize ?? Int(part.textSize))
         part.textStyle = textStyle(source.textStyles)
         part.textAlign = TextAlignment(rawValue: source.textAlign ?? "") ?? (partType == .field ? .left : .center)
+        part.textContent = normalizeText(source.text)
         part.script = disabledLegacyScript(source.script)
 
         if partType == .button {
@@ -428,6 +483,7 @@ public struct StackImportPackageConverter: Sendable {
         asset.metadata.append(AssetMetadataEntry(key: "resource_artifact_format", value: artifact.format))
         for name in classicNames {
             asset.metadata.append(AssetMetadataEntry(key: "classic_name", value: name))
+            asset.metadata.append(AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey(name)))
         }
     }
 
@@ -587,25 +643,26 @@ public struct StackImportPackageConverter: Sendable {
         HypeLogger.shared.warn(message, source: "HyperCardImport")
     }
 
-    private func applyCardFieldContents(
-        from cardFiles: [(legacyId: Int, path: String, model: XSTKLayer)],
+    private func applyFieldContents(
+        from layerFiles: [(legacyId: Int, path: String, model: XSTKLayer)],
         reader: XSTKPackageReader,
         decoder: JSONDecoder,
-        cardIdMap: [Int: UUID],
+        ownerIdMap: [Int: UUID],
+        ownerKeyPath: KeyPath<Part, UUID?>,
+        expectedLayer: String,
+        legacyPartIdsByPartId: [UUID: Int],
         to document: inout HypeDocument
     ) {
-        for file in cardFiles {
-            guard let cardId = cardIdMap[file.legacyId],
+        for file in layerFiles {
+            guard let ownerId = ownerIdMap[file.legacyId],
                   let detail = try? decode(XSTKLayerDetail.self, from: file.path, reader: reader, decoder: decoder) else { continue }
-            for content in detail.contents where content.layer == "card" {
-                guard let index = document.parts.firstIndex(where: { $0.cardId == cardId && legacyNameMatches($0, content.id) }) else { continue }
+            for content in detail.contents where content.layer == expectedLayer {
+                guard let index = document.parts.firstIndex(where: { part in
+                    part[keyPath: ownerKeyPath] == ownerId && legacyPartIdsByPartId[part.id] == content.id
+                }) else { continue }
                 document.parts[index].textContent = normalizeText(content.text)
             }
         }
-    }
-
-    private func legacyNameMatches(_ part: Part, _ legacyId: Int) -> Bool {
-        part.name.hasSuffix(" \(abs(legacyId))")
     }
 
     private func decode<T: Decodable>(_ type: T.Type, from path: String, reader: XSTKPackageReader, decoder: JSONDecoder) throws -> T {
@@ -662,6 +719,49 @@ public struct StackImportPackageConverter: Sendable {
         return value
     }
 
+    private func fontSummary(from fonts: [XSTKFont]) -> [StackImportFontSummary] {
+        fonts.compactMap { font in
+            let name = font.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { return nil }
+            let available = NSFont(name: name, size: 12) != nil
+            return StackImportFontSummary(
+                id: font.id,
+                name: name,
+                resolvedFontName: available ? name : classicFontFallback(for: name),
+                available: available
+            )
+        }
+    }
+
+    private func resolvedFontName(for fontName: String?, fallback: String, resolvedFontsByName: [String: String]) -> String {
+        let name = fontName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !name.isEmpty else { return fallback }
+        if let resolved = resolvedFontsByName[name.lowercased()] {
+            return resolved
+        }
+        if NSFont(name: name, size: 12) != nil {
+            return name
+        }
+        return classicFontFallback(for: name)
+    }
+
+    private func classicFontFallback(for fontName: String) -> String {
+        let preferred: String
+        switch fontName.lowercased() {
+        case "monaco":
+            preferred = "Menlo"
+        default:
+            preferred = "Helvetica"
+        }
+        if NSFont(name: preferred, size: 12) != nil {
+            return preferred
+        }
+        if NSFont(name: "Helvetica", size: 12) != nil {
+            return "Helvetica"
+        }
+        return NSFont.systemFont(ofSize: 12).fontName
+    }
+
     private func sortKey(_ index: Int) -> String {
         String(format: "a%06d", index)
     }
@@ -677,6 +777,73 @@ public struct StackImportPackageConverter: Sendable {
         ([document.stack.script] + document.backgrounds.map(\.script) + document.cards.map(\.script) + document.parts.map(\.script))
             .filter(LegacyHyperTalkScript.isDisabledForHypeTalkRuntime)
             .count
+    }
+
+    private func blockSummary(from blocks: [XSTKBlock]) -> [HyperCardBlockSummary] {
+        blocks.reduce(into: [String: (count: Int, bytes: Int)]()) { partial, block in
+            let current = partial[block.type, default: (0, 0)]
+            partial[block.type] = (current.count + 1, current.bytes + (block.size ?? 0))
+        }
+        .map { HyperCardBlockSummary(type: $0.key, count: $0.value.count, totalBytes: $0.value.bytes) }
+        .sorted { lhs, rhs in
+            if lhs.type != rhs.type { return lhs.type < rhs.type }
+            return lhs.count < rhs.count
+        }
+    }
+
+    private func makePackageDiagnostics(
+        sourceManifest: XSTKSourceManifest?,
+        scriptIndex: XSTKScriptIndex?,
+        fontSummary: [StackImportFontSummary],
+        reader: XSTKPackageReader,
+        consumedPaths: Set<String>
+    ) -> StackImportPackageDiagnostics {
+        var callCounts: [String: Int] = [:]
+        var handlerCount = 0
+        var callCount = 0
+        for script in scriptIndex?.scripts ?? [] {
+            handlerCount += script.handlers.count
+            callCount += script.calls.count
+            for call in script.calls {
+                let name = call.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { continue }
+                callCounts[name, default: 0] += 1
+            }
+        }
+
+        let callSummary = callCounts
+            .map { StackImportCallSummary(name: $0.key, count: $0.value) }
+            .sorted { lhs, rhs in
+                if lhs.count != rhs.count { return lhs.count > rhs.count }
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+
+        let ignored = reader.allPaths
+            .filter { path in
+                guard isSafePackagePath(path) else { return false }
+                return !consumedPaths.contains(path)
+            }
+            .sorted()
+
+        return StackImportPackageDiagnostics(
+            sourcePath: sourceManifest?.sourcePath,
+            outputPackage: sourceManifest?.outputPackage,
+            dataForkBytes: sourceManifest?.dataFork.bytes,
+            resourceForkBytes: sourceManifest?.sourceFile.resourceForkBytes,
+            scriptEntries: scriptIndex?.scripts.count ?? 0,
+            handlerCount: handlerCount,
+            callCount: callCount,
+            externalCallSummary: callSummary,
+            fontSummary: fontSummary,
+            ignoredPackageFiles: ignored
+        )
+    }
+
+    private func resourceArtifactPaths(from manifest: XSTKSourceManifest?) -> Set<String> {
+        guard let manifest else { return [] }
+        return Set(manifest.resourceFork.resources.flatMap { resource in
+            resource.outputArtifacts.map(\.path).filter(isSafePackagePath)
+        })
     }
 
     private func stableUnique(_ values: [String]) -> [String] {
@@ -747,7 +914,84 @@ private struct XSTKProject: Decodable {
 }
 
 private struct XSTKSourceManifest: Decodable {
+    var sourcePath: String?
+    var outputPackage: String?
+    var sourceFile: XSTKSourceFileManifest
+    var dataFork: XSTKDataForkManifest
     var resourceFork: XSTKResourceForkManifest
+
+    private enum CodingKeys: String, CodingKey {
+        case sourcePath, outputPackage, sourceFile, dataFork, resourceFork
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sourcePath = try container.decodeIfPresent(String.self, forKey: .sourcePath)
+        outputPackage = try container.decodeIfPresent(String.self, forKey: .outputPackage)
+        sourceFile = try container.decodeIfPresent(XSTKSourceFileManifest.self, forKey: .sourceFile) ?? XSTKSourceFileManifest()
+        dataFork = try container.decodeIfPresent(XSTKDataForkManifest.self, forKey: .dataFork) ?? XSTKDataForkManifest()
+        resourceFork = try container.decodeIfPresent(XSTKResourceForkManifest.self, forKey: .resourceFork) ?? XSTKResourceForkManifest()
+    }
+}
+
+private struct XSTKSourceFileManifest: Decodable {
+    var resourceForkBytes: Int?
+
+    init(resourceForkBytes: Int? = nil) {
+        self.resourceForkBytes = resourceForkBytes
+    }
+}
+
+private struct XSTKDataForkManifest: Decodable {
+    var bytes: Int?
+
+    init(bytes: Int? = nil) {
+        self.bytes = bytes
+    }
+}
+
+private struct XSTKScriptIndex: Decodable {
+    var scripts: [XSTKScriptSummary]
+
+    private enum CodingKeys: String, CodingKey {
+        case scripts
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        scripts = try container.decodeIfPresent([XSTKScriptSummary].self, forKey: .scripts) ?? []
+    }
+}
+
+private struct XSTKScriptSummary: Decodable {
+    var handlers: [XSTKScriptHandlerSummary]
+    var calls: [XSTKScriptCallSummary]
+
+    private enum CodingKeys: String, CodingKey {
+        case handlers, calls
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        handlers = try container.decodeIfPresent([XSTKScriptHandlerSummary].self, forKey: .handlers) ?? []
+        calls = try container.decodeIfPresent([XSTKScriptCallSummary].self, forKey: .calls) ?? []
+    }
+}
+
+private struct XSTKScriptHandlerSummary: Decodable {
+}
+
+private struct XSTKScriptCallSummary: Decodable {
+    var name: String
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+    }
 }
 
 private struct XSTKResourceForkManifest: Decodable {
