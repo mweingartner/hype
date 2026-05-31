@@ -196,6 +196,78 @@ struct MystStackImportAcceptanceTests {
         #expect(stoneForest.metadata.contains { $0.key == "resolved_path" && $0.value.hasSuffix("EV StoneForest Mov-modern-audio.m4a") })
     }
 
+    @Test("runs broader converted Myst QuickTime assets through runtime")
+    func runsBroaderConvertedMystQuickTimeAssetsThroughRuntime() throws {
+        let root = try mystExportRoot()
+        var document = HypeDocument.newDocument(name: "Myst Broader QuickTime Runtime")
+        let mediaNames: Set<String> = [
+            "Intro",
+            "Holo-SMessage",
+            "Fountain",
+            "EV StoneForest Mov",
+        ]
+        let importResult = try LooseMediaManifestImporter().importManifest(
+            options: LooseMediaImportOptions(
+                manifestURL: root.appendingPathComponent("manifests/loose-media.tsv"),
+                replacementRootURL: root.appendingPathComponent("exports/modern-quicktime", isDirectory: true),
+                requestedNames: mediaNames
+            ),
+            into: &document
+        )
+        #expect(importResult.missing.isEmpty)
+
+        let currentCardId = try #require(document.sortedCards.first?.id)
+        let script = try parseScript("""
+        on test
+          xSetSoundVol 128
+          playQT "Intro", "loop"
+          playQT "EV StoneForest Mov"
+          Movie "Fountain","borderless","12,34","visible","FountainWindow"
+          playQT "Holo-SMessage"
+          return the result
+        end test
+        """)
+        let handler = try #require(script.handlers.first { $0.name.caseInsensitiveCompare("test") == .orderedSame })
+        let result = Interpreter().execute(
+            handler: handler,
+            params: [],
+            context: ExecutionContext(targetId: document.stack.id, currentCardId: currentCardId, document: document)
+        )
+
+        #expect(result.status == .completed)
+        let runtimeDocument = try #require(result.modifiedDocument)
+        let videoParts = runtimeDocument.partsForCard(currentCardId).filter { $0.partType == .video }
+        #expect(videoParts.count == mediaNames.count)
+
+        let intro = try #require(videoParts.first { $0.name == "Intro" })
+        let introAsset = try #require(runtimeDocument.assetRepository.asset(byClassicMediaName: "Intro", kind: .videoClip))
+        #expect(intro.videoAssetRef?.id == introAsset.id)
+        #expect(intro.videoLoop == true)
+        #expect(intro.videoAutoplay == true)
+        #expect(intro.videoVolume == 128.0 / 255.0)
+        #expect(intro.width == Double(runtimeDocument.stack.width))
+        #expect(intro.height == Double(runtimeDocument.stack.height))
+
+        let stoneForest = try #require(videoParts.first { $0.name == "EV StoneForest Mov" })
+        let stoneForestAsset = try #require(runtimeDocument.assetRepository.asset(byClassicMediaName: "EV StoneForest Mov", kind: .videoClip))
+        #expect(stoneForest.videoAssetRef?.id == stoneForestAsset.id)
+        #expect(stoneForest.width == 1)
+        #expect(stoneForest.height == 1)
+        #expect(stoneForest.helpText.contains("audioOnly=true"))
+
+        let fountain = try #require(videoParts.first { $0.name == "Fountain" })
+        let fountainAsset = try #require(runtimeDocument.assetRepository.asset(byClassicMediaName: "Fountain", kind: .videoClip))
+        #expect(fountain.videoAssetRef?.id == fountainAsset.id)
+        #expect(fountain.left == 12)
+        #expect(fountain.top == 34)
+        #expect(fountain.videoAutoplay == true)
+
+        let holo = try #require(videoParts.first { $0.name == "Holo-SMessage" })
+        let holoAsset = try #require(runtimeDocument.assetRepository.asset(byClassicMediaName: "Holo-SMessage", kind: .videoClip))
+        #expect(holo.videoAssetRef?.id == holoAsset.id)
+        #expect(holo.videoAutoplay == true)
+    }
+
     @Test("imports full Myst project with shared content and broader loose media")
     func importsFullMystProjectWithSharedContentAndBroaderLooseMedia() throws {
         let root = try mystExportRoot()
