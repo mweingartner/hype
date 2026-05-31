@@ -409,11 +409,14 @@ public struct Parser: Sendable {
 
     private func shouldParseExternalCommandStatement() -> Bool {
         guard current.type == .identifier, let next = peek(1) else { return false }
-        if next.type == .newline || next.type == .eof || next.type == .lparen {
+        if next.type == .newline || next.type == .eof {
+            return Self.isKnownZeroArgumentExternalCommand(current.value)
+        }
+        if next.type == .lparen {
             return false
         }
         switch next.type {
-        case .string, .integer, .float, .identifier, .comma,
+        case .string, .integer, .float, .identifier, .true, .false, .comma,
              .the, .it, .me, .this, .empty, .await,
              .word, .char, .character, .item, .line, .number,
              .first, .second, .third, .last, .middle, .any,
@@ -421,6 +424,18 @@ public struct Parser: Sendable {
              .card, .background, .field, .button, .stack, .webpage,
              .image, .video, .sprite, .scene, .spritearea, .request,
              .connection, .listener:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isKnownZeroArgumentExternalCommand(_ rawName: String) -> Bool {
+        switch rawName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .filter({ $0.isLetter || $0.isNumber }) {
+        case "xwindowframe", "xabout", "closemoovs", "closemovies", "closeqt":
             return true
         default:
             return false

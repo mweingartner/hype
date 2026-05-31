@@ -119,6 +119,27 @@ struct HyperCardImportTests {
         #expect(result.report.unsupportedFeatures.contains { $0.contains("XCMD/XFCN") })
     }
 
+    @Test("Myst environment externals are registered as emulated")
+    func mystEnvironmentExternalsAreRegisteredAsEmulated() {
+        let registry = HyperCardExternalRegistry.default
+        #expect(registry.status(for: "HTLock", kind: .xcmd) == .emulated)
+        #expect(registry.status(for: "HTVisual", kind: .xcmd) == .emulated)
+        #expect(registry.status(for: "DeCurse", kind: .xcmd) == .emulated)
+        #expect(registry.status(for: "moveCursor", kind: .xcmd) == .emulated)
+        #expect(registry.status(for: "xWindowFrame", kind: .xcmd) == .emulated)
+        #expect(registry.status(for: "xAbout", kind: .xcmd) == .emulated)
+        #expect(registry.status(for: "xMemory", kind: .xcmd) == .emulated)
+        #expect(registry.status(for: "xMemory", kind: .xfcn) == .emulated)
+        #expect(registry.status(for: "xVirtual", kind: .xfcn) == .emulated)
+        #expect(registry.status(for: "xDepth", kind: .xfcn) == .emulated)
+        #expect(registry.status(for: "variant", kind: .xfcn) == .emulated)
+        #expect(registry.status(for: "xSetSoundVol", kind: .xcmd) == .emulated)
+        #expect(registry.status(for: "xSetSoundVol", kind: .xfcn) == .emulated)
+        #expect(registry.status(for: "xGetSoundVol", kind: .xfcn) == .emulated)
+        #expect(registry.status(for: "SetMode", kind: .xcmd) == .emulated)
+        #expect(registry.status(for: "GetMode", kind: .xfcn) == .emulated)
+    }
+
     @Test("stackimport C importer converts a real stackimport fixture")
     func stackimportCImporterConvertsFixture() throws {
         let fixture = URL(fileURLWithPath: "../stackimport/Resources.stak").standardizedFileURL
@@ -356,17 +377,26 @@ struct HyperCardImportTests {
         on mouseUp
           SetCursor "watch"
           AddColor "card", "indexed"
+          xWindowFrame
+          xAbout
+          xSetSoundVol true
         end mouseUp
         """)
 
         #expect(script.handlers.count == 1)
-        #expect(script.handlers[0].body.count == 2)
+        #expect(script.handlers[0].body.count == 5)
         guard case .externalCommand(let name, let arguments) = script.handlers[0].body[0] else {
             Issue.record("Expected external command statement")
             return
         }
         #expect(name == "SetCursor")
         #expect(arguments.count == 1)
+        guard case .externalCommand(let bareName, let bareArguments) = script.handlers[0].body[2] else {
+            Issue.record("Expected bare external command statement")
+            return
+        }
+        #expect(bareName == "xWindowFrame")
+        #expect(bareArguments.isEmpty)
     }
 
     @Test("interpreter routes emulated XFCN function calls through registry")
@@ -415,6 +445,45 @@ struct HyperCardImportTests {
         let out = try #require(modified.parts.first(where: { $0.name == "out" }))
         #expect(out.textContent.contains("Can't Load External"))
         #expect(out.textContent.contains("MissingClassicExternal"))
+    }
+
+    @Test("Myst environment externals update runtime globals")
+    func mystEnvironmentExternalsUpdateRuntimeGlobals() async throws {
+        var document = HypeDocument.newDocument(name: "External Test")
+        let cardId = try #require(document.cards.first?.id)
+        document.addPart(Part(partType: .field, cardId: cardId, name: "out"))
+        let handler = try parse("""
+        on mouseUp
+          HTLock "unlock"
+          HTVisual "dissolve", 30
+          DeCurse "remove", 128, "CURS"
+          moveCursor 11, 22
+          xWindowFrame
+          xAbout
+          xMemory 1
+          SetMode c,8
+          put xDepth() & return & GetMode() & return & xSetSoundVol(128) & return & xGetSoundVol() & return & variant() into field "out"
+        end mouseUp
+        """).handlers[0]
+
+        let result = await Interpreter().executeAsync(
+            handler: handler,
+            params: [],
+            context: ExecutionContext(targetId: cardId, currentCardId: cardId, document: document)
+        )
+
+        #expect(result.status == .completed)
+        let modified = try #require(result.modifiedDocument)
+        let out = try #require(modified.parts.first(where: { $0.name == "out" }))
+        #expect(out.textContent == "8\rc,8\r128\r128\r2.1")
+        #expect(modified.scriptGlobals["hypercard.htlock.mode"] == "unlock")
+        #expect(modified.scriptGlobals["hypercard.htvisual.effect"] == "dissolve")
+        #expect(modified.scriptGlobals["hypercard.decurse.mode"] == "remove")
+        #expect(modified.scriptGlobals["hypercard.movecursor.loc"] == "11,22")
+        #expect(modified.scriptGlobals["hypercard.window.frame.exists"] == "true")
+        #expect(modified.scriptGlobals["hypercard.xabout.invoked"] == "true")
+        #expect(modified.scriptGlobals["hypercard.display.value"] == "c,8")
+        #expect(modified.scriptGlobals["hypercard.sound.volume"] == "128")
     }
 
     private func parse(_ source: String) throws -> Script {

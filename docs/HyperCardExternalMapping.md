@@ -39,6 +39,15 @@ at runtime by setting `the result` to a `Can't Load External...` diagnostic.
 | --- | --- | --- | --- |
 | `SetCursor` | Emulated | Returns the requested cursor name in `the result`; does not currently change AppKit cursor state. | Planned: map common HyperCard cursor names to Hype cursor/UI state if scripts depend on visible cursor changes. |
 | `Cursor` | Emulated | Alias of `SetCursor`; returns the requested cursor name in `the result`. | Same as `SetCursor`. |
+| `HTLock` | Emulated | Records lock/unlock-style arguments in runtime-only compatibility globals, returns the normalized mode, and does not block drawing. | Refine only if Myst requires specific VBL or screen-buffer locking behavior. |
+| `HTVisual` | Emulated | Records transition arguments and duration intent in runtime-only compatibility globals, and returns the transition name. | Later visual-effect slices can map classic transition names to Hype transition metadata. |
+| `DeCurse` | Emulated | Records cursor override/remove resource/type arguments as runtime-only compatibility globals. | Connect imported cursor resources to visible cursor state only if a gameplay path needs it. |
+| `moveCursor` | Emulated | Parses classic coordinates, records runtime-only cursor location intent, and returns `x,y`. | Intentionally does not move the macOS pointer. |
+| `xWindowFrame` | Emulated | Creates script-visible runtime state for a compatibility window named `frame` and returns `frame`. | Replace with visible palette/window chrome only if Myst frame handling needs UI. |
+| `xAbout` | Emulated | Records invocation and returns empty without showing a modal. | No visible UI unless imported scripts require one. |
+| `xMemory` | Emulated | Returns deterministic positive memory text and records query arguments. | Also registered as an XFCN for Myst function-style calls. |
+| `xSetSoundVol` | Emulated | Parses and clamps a classic 0...255 sound volume into runtime-only compatibility globals and returns the stored value. | Later media playback slices can bind this state to imported audio/movie providers. |
+| `SetMode` | Emulated | Records classic display mode/depth state, defaulting empty mode tokens to color mode `c`, depth `8`. | Palette/display-depth rendering remains later work. |
 | `AddColor` | Known unsupported | Sets `the result` to `XCMD 'AddColor' is known but is not emulated yet.` | Planned/research: inspect common AddColor resource formats and map color overlays to Hype parts, paint layers, or theme metadata. Depends on AddColor rendering decisions. |
 | `ColorizeCard` | Known unsupported | Same unsupported diagnostic. | Research with AddColor family; likely card/background color overlay conversion. |
 | `ColorizeHC` | Known unsupported | Same unsupported diagnostic. | Research with AddColor family; determine whether global HyperCard UI behavior has a useful Hype equivalent. |
@@ -63,6 +72,13 @@ at runtime by setting `the result` to a `Can't Load External...` diagnostic.
 | `ExternalVersion` | Emulated | Returns `Hype HyperCard compatibility layer`; leaves `the result` empty. | Planned: consider returning a structured/versioned compatibility string when the layer has formal versions. |
 | `XCMDVersion` | Emulated | Alias of `ExternalVersion`; returns `Hype HyperCard compatibility layer`. | Same as `ExternalVersion`. |
 | `HypeVersion` | Emulated | Hype-native compatibility function; returns `Hype HyperCard compatibility layer`. | Planned: align with app/build version once runtime version APIs are stable. |
+| `xMemory` | Emulated | Function-style alias for Myst scripts that call `xMemory(1)`; returns the same deterministic positive value as the XCMD path. | Same as XCMD `xMemory`. |
+| `xVirtual` | Emulated | Returns deterministic `0` environment information and records arguments in runtime-only compatibility globals. | Refine only if imported conditionals require virtual-memory-specific behavior. |
+| `xDepth` | Emulated | Returns the current compatibility display depth, defaulting to `8`. | Shares state with `SetMode`/`GetMode`. |
+| `variant` | Emulated | Returns deterministic `2.1` compatibility text for HyperCard version checks. | Bind to a formal compatibility-layer version later if needed. |
+| `xSetSoundVol` | Emulated | Function-style alias for Myst scripts that call `xSetSoundVol(origVol)`. | Same as XCMD `xSetSoundVol`. |
+| `xGetSoundVol` | Emulated | Returns the current runtime compatibility sound volume, defaulting to `255`. | Later media playback slices can consume this state. |
+| `GetMode` | Emulated | Returns the current runtime compatibility display mode/depth, defaulting to `c,8`. | Refine return shape only if imported probes need it. |
 | `AddColorVersion` | Known unsupported | Sets `the result` to `XFCN 'AddColorVersion' is known but is not emulated yet.` | Planned/research: implement once AddColor import/rendering support has a compatibility version story. |
 | `ReadFile` | Known unsupported | Same unsupported diagnostic. | Research needed. Candidate for scoped, user-consented file reads, possibly using Hype's existing file tool model. |
 | `WriteFile` | Known unsupported | Same unsupported diagnostic. | Research needed. Candidate for scoped, user-consented file writes or export flows. |
