@@ -12,6 +12,8 @@ public protocol DialogProvider: Sendable {
     func showAnswer(prompt: String) -> String
     /// Show an input dialog with a prompt. Returns the user's input, or empty if cancelled.
     func showAsk(prompt: String) -> String
+    /// Show an input dialog with a prompt and prefilled default value.
+    func showAsk(prompt: String, defaultValue: String) -> String
 }
 
 public extension DialogProvider {
@@ -26,6 +28,16 @@ public extension DialogProvider {
             showAsk(prompt: prompt)
         }
     }
+
+    func showAsk(prompt: String, defaultValue: String) -> String {
+        showAsk(prompt: prompt)
+    }
+
+    func showAskAsync(prompt: String, defaultValue: String) async -> String {
+        await MainActor.run {
+            showAsk(prompt: prompt, defaultValue: defaultValue)
+        }
+    }
 }
 
 /// Default dialog provider that just returns the prompt (used when no UI is available).
@@ -33,6 +45,7 @@ public struct StubDialogProvider: DialogProvider, Sendable {
     public init() {}
     public func showAnswer(prompt: String) -> String { return "OK" }
     public func showAsk(prompt: String) -> String { return "" }
+    public func showAsk(prompt: String, defaultValue: String) -> String { return defaultValue }
 }
 
 /// Protocol for bitmap drawing from scripts (e.g. `drag from x,y to x,y`).
@@ -263,6 +276,7 @@ public struct ExecutionResult: Sendable {
     public var modifiedDocument: HypeDocument?
     public var error: ScriptError?
     public var navigationTarget: UUID?
+    public var projectNavigationTarget: ProjectNavigationTarget?
     public var showAllCards: Bool
     /// The visual effect name requested by a `visual effect` statement, if any.
     public var visualEffect: String?
@@ -276,6 +290,7 @@ public struct ExecutionResult: Sendable {
         modifiedDocument: HypeDocument? = nil,
         error: ScriptError? = nil,
         navigationTarget: UUID? = nil,
+        projectNavigationTarget: ProjectNavigationTarget? = nil,
         showAllCards: Bool = false,
         visualEffect: String? = nil,
         visualEffectDuration: Double? = nil
@@ -285,6 +300,7 @@ public struct ExecutionResult: Sendable {
         self.modifiedDocument = modifiedDocument
         self.error = error
         self.navigationTarget = navigationTarget
+        self.projectNavigationTarget = projectNavigationTarget
         self.showAllCards = showAllCards
         self.visualEffect = visualEffect
         self.visualEffectDuration = visualEffectDuration
@@ -344,6 +360,13 @@ private struct Environment {
     /// a timer-loop idiom. Defer exactly that next self-send through
     /// StackRuntime so it does not grow nested synchronous send depth.
     var deferNextSelfSend = false
+
+    init(globals: [String: Value], handlerParams: [Value] = []) {
+        self.globals = globals.reduce(into: [String: Value]()) { result, entry in
+            result[entry.key.lowercased()] = entry.value
+        }
+        self.handlerParams = handlerParams
+    }
 
     mutating func getVariable(_ name: String) -> Value {
         let key = name.lowercased()
@@ -557,6 +580,7 @@ public struct Interpreter: Sendable {
         var env = Environment(globals: document.scriptGlobals, handlerParams: params)
         var instructionCount = 0
         var navigationTarget: UUID? = nil
+        var projectNavigationTarget: ProjectNavigationTarget? = nil
         var visualEffect: String? = nil
 
         // Bind parameters.
@@ -630,6 +654,7 @@ public struct Interpreter: Sendable {
                     context: context,
                     instructionCount: &instructionCount,
                     navigationTarget: &navigationTarget,
+                    projectNavigationTarget: &projectNavigationTarget,
                     handler: handler
                 )
             }
@@ -645,6 +670,7 @@ public struct Interpreter: Sendable {
             let veDuration = Double(env.locals["_visualEffectDuration"] ?? "")
             return ExecutionResult(status: .passed, modifiedDocument: document,
                                    navigationTarget: navigationTarget,
+                                   projectNavigationTarget: projectNavigationTarget,
                                    visualEffect: visualEffect, visualEffectDuration: veDuration)
         } catch ControlSignal.exitHandler(let returnVal) {
             spriteAreaMutationBatch.flush(to: &document)
@@ -653,6 +679,7 @@ public struct Interpreter: Sendable {
             let veDuration = Double(env.locals["_visualEffectDuration"] ?? "")
             return ExecutionResult(status: .completed, returnValue: returnVal,
                                    modifiedDocument: document, navigationTarget: navigationTarget,
+                                   projectNavigationTarget: projectNavigationTarget,
                                    visualEffect: visualEffect, visualEffectDuration: veDuration)
         } catch ControlSignal.showAllCards {
             spriteAreaMutationBatch.flush(to: &document)
@@ -679,6 +706,7 @@ public struct Interpreter: Sendable {
         let veDuration = Double(env.locals["_visualEffectDuration"] ?? "")
         return ExecutionResult(status: .completed, returnValue: env.it,
                                modifiedDocument: document, navigationTarget: navigationTarget,
+                               projectNavigationTarget: projectNavigationTarget,
                                visualEffect: visualEffect, visualEffectDuration: veDuration)
     }
 
@@ -689,6 +717,7 @@ public struct Interpreter: Sendable {
         context: ExecutionContext,
         instructionCount: inout Int,
         navigationTarget: inout UUID?,
+        projectNavigationTarget: inout ProjectNavigationTarget?,
         handler: Handler
     ) async throws {
         try await executeStatement(
@@ -698,6 +727,7 @@ public struct Interpreter: Sendable {
             context: context,
             instructionCount: &instructionCount,
             navigationTarget: &navigationTarget,
+            projectNavigationTarget: &projectNavigationTarget,
             handler: handler
         )
         document.scriptGlobals = env.globals
@@ -808,6 +838,7 @@ public struct Interpreter: Sendable {
         context: ExecutionContext,
         instructionCount: inout Int,
         navigationTarget: inout UUID?,
+        projectNavigationTarget: inout ProjectNavigationTarget?,
         handler: Handler
     ) async throws {
         try Task.checkCancellation()
@@ -842,6 +873,25 @@ public struct Interpreter: Sendable {
                 // Put into a field or button by name/number
                 let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
                 if let partIndex = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
+                    switch prep {
+                    case .into:
+                        document.parts[partIndex].textContent = value
+                    case .after:
+                        document.parts[partIndex].textContent += value
+                    case .before:
+                        document.parts[partIndex].textContent = value + document.parts[partIndex].textContent
+                    }
+                }
+                env.it = value
+
+            case .scopedObjectRef(let object, let owner):
+                if let partIndex = try await findScopedPartIndex(
+                    object: object,
+                    owner: owner,
+                    env: &env,
+                    document: document,
+                    context: context
+                ) {
                     switch prep {
                     case .into:
                         document.parts[partIndex].textContent = value
@@ -1149,6 +1199,14 @@ public struct Interpreter: Sendable {
 
         case .go(let dest):
             let destValue = try await evaluate(dest, env: &env, document: document, context: context)
+            let projectFallbackValue: Value
+            if destValue.isEmpty,
+               case .objectRef(let ref) = dest,
+               ref.objectType == "card" {
+                projectFallbackValue = try await evaluateObjectRefIdentifier(ref.identifier, env: &env, document: document, context: context)
+            } else {
+                projectFallbackValue = destValue
+            }
             let sourceCardId = navigationTarget ?? context.currentCardId
             // Try to resolve destination to a card UUID.
             if let uuid = UUID(uuidString: destValue) {
@@ -1165,6 +1223,16 @@ public struct Interpreter: Sendable {
                 // Try to find by name or navigation keyword.
                 let resolved = resolveNavigation(destValue, document: document, currentCardId: sourceCardId)
                 navigationTarget = resolved
+                if resolved == nil,
+                   let target = implicitProjectNavigationTarget(
+                    cardValue: projectFallbackValue,
+                    preferredStackName: projectNavigationTarget?.stackName ?? env.getVariable("ALL_CurrStack"),
+                    document: document
+                   ) {
+                    projectNavigationTarget = target
+                    env.it = target.cardName
+                    env.result = env.it
+                }
                 let targetLabel = resolved.map { cardLogLabel($0, document: document) } ?? "no card"
                 HypeLogger.shared.log(
                     .info,
@@ -1178,19 +1246,35 @@ public struct Interpreter: Sendable {
                 }
             }
 
+        case .goInStack(let cardExpr, let stackExpr):
+            let cardValue = try await evaluateNavigationExpression(cardExpr, env: &env, document: document, context: context)
+            let stackValue = try await evaluateNavigationExpression(stackExpr, env: &env, document: document, context: context)
+            projectNavigationTarget = try resolveProjectNavigationTarget(
+                cardValue: cardValue,
+                stackValue: stackValue,
+                document: document,
+                handler: handler
+            )
+            env.it = projectNavigationTarget?.cardName ?? ""
+            env.result = env.it
+
         case .ifThenElse(let cond, let thenBlock, let elseBlock):
             let condValue = try await evaluate(cond, env: &env, document: document, context: context)
             if isTruthy(condValue) {
                 for s in thenBlock {
                     try await executeStatementAndPublish(s, env: &env, document: &document, context: context,
                                                          instructionCount: &instructionCount,
-                                                         navigationTarget: &navigationTarget, handler: handler)
+                                                         navigationTarget: &navigationTarget,
+                                                         projectNavigationTarget: &projectNavigationTarget,
+                                                         handler: handler)
                 }
             } else if let elseStmts = elseBlock {
                 for s in elseStmts {
                     try await executeStatementAndPublish(s, env: &env, document: &document, context: context,
                                                          instructionCount: &instructionCount,
-                                                         navigationTarget: &navigationTarget, handler: handler)
+                                                         navigationTarget: &navigationTarget,
+                                                         projectNavigationTarget: &projectNavigationTarget,
+                                                         handler: handler)
                 }
             }
 
@@ -1203,7 +1287,9 @@ public struct Interpreter: Sendable {
                     for s in body {
                         try await executeStatementAndPublish(s, env: &env, document: &document, context: context,
                                                              instructionCount: &instructionCount,
-                                                             navigationTarget: &navigationTarget, handler: handler)
+                                                             navigationTarget: &navigationTarget,
+                                                             projectNavigationTarget: &projectNavigationTarget,
+                                                             handler: handler)
                     }
                 } catch ControlSignal.exitRepeat {
                     break
@@ -1221,7 +1307,9 @@ public struct Interpreter: Sendable {
                     for s in body {
                         try await executeStatementAndPublish(s, env: &env, document: &document, context: context,
                                                              instructionCount: &instructionCount,
-                                                             navigationTarget: &navigationTarget, handler: handler)
+                                                             navigationTarget: &navigationTarget,
+                                                             projectNavigationTarget: &projectNavigationTarget,
+                                                             handler: handler)
                     }
                 } catch ControlSignal.exitRepeat {
                     break
@@ -1243,7 +1331,9 @@ public struct Interpreter: Sendable {
                     for s in body {
                         try await executeStatementAndPublish(s, env: &env, document: &document, context: context,
                                                              instructionCount: &instructionCount,
-                                                             navigationTarget: &navigationTarget, handler: handler)
+                                                             navigationTarget: &navigationTarget,
+                                                             projectNavigationTarget: &projectNavigationTarget,
+                                                             handler: handler)
                     }
                 } catch ControlSignal.exitRepeat {
                     break
@@ -1274,9 +1364,15 @@ public struct Interpreter: Sendable {
                 env.globalNames.insert(name.lowercased())
             }
 
-        case .ask(let prompt):
+        case .ask(let prompt, let defaultResponse):
             let promptText = try await evaluate(prompt, env: &env, document: document, context: context)
-            let userInput = await context.dialogProvider.showAskAsync(prompt: promptText)
+            let defaultValue = try await evaluateOptional(defaultResponse, env: &env, document: document, context: context)
+            let userInput: String
+            if let defaultValue {
+                userInput = await context.dialogProvider.showAskAsync(prompt: promptText, defaultValue: defaultValue)
+            } else {
+                userInput = await context.dialogProvider.showAskAsync(prompt: promptText)
+            }
             env.it = userInput
 
         case .askAI(let prompt, let modelExpr, let callbackExpr):
@@ -1415,7 +1511,7 @@ public struct Interpreter: Sendable {
                 env.result = ""
             }
 
-        case .answer(let prompt):
+        case .answer(let prompt, _):
             let promptText = try await evaluate(prompt, env: &env, document: document, context: context)
             let response = await context.dialogProvider.showAnswerAsync(prompt: promptText)
             env.it = response
@@ -1452,9 +1548,6 @@ public struct Interpreter: Sendable {
                 throw ScriptError(message: "do-eval nesting too deep", line: handler.line, handler: handler.name)
             }
             let scriptText = try await evaluate(expr, env: &env, document: document, context: context)
-            // SECURITY (Finding 3): cap parse-time work — lex/parse runs
-            // OUTSIDE the instruction budget so an oversize string must be
-            // rejected before we hand it to the lexer.
             guard scriptText.utf8.count <= Self.maxDoEvalBytes else {
                 throw ScriptError(message: "do: script too large", line: handler.line, handler: handler.name)
             }
@@ -1470,7 +1563,16 @@ public struct Interpreter: Sendable {
             var childContext = context
             childContext.nestedEvalDepth = context.nestedEvalDepth + 1
             for s in stmts {
-                try await executeStatement(s, env: &env, document: &document, context: childContext, instructionCount: &instructionCount, navigationTarget: &navigationTarget, handler: handler)
+                try await executeStatementAndPublish(
+                    s,
+                    env: &env,
+                    document: &document,
+                    context: childContext,
+                    instructionCount: &instructionCount,
+                    navigationTarget: &navigationTarget,
+                    projectNavigationTarget: &projectNavigationTarget,
+                    handler: handler
+                )
             }
 
         case .createCard(let bgNameExpr):
@@ -1749,6 +1851,9 @@ public struct Interpreter: Sendable {
             }
             if let resultNavigationTarget = result.navigationTarget {
                 navigationTarget = resultNavigationTarget
+            }
+            if let resultProjectNavigationTarget = result.projectNavigationTarget {
+                projectNavigationTarget = resultProjectNavigationTarget
             }
             if let visualEffect = result.visualEffect {
                 env.locals["_visualEffect"] = visualEffect
@@ -3358,8 +3463,20 @@ public struct Interpreter: Sendable {
             return await evaluateChunk(chunkType, range: range, source: sourceVal, env: &env, document: document, context: context)
 
         case .objectRef(let ref):
-            let identVal = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+            let identVal = try await evaluateObjectRefIdentifier(ref.identifier, env: &env, document: document, context: context)
             return resolveObjectRef(ref.objectType, identifier: identVal, document: document, context: context)
+
+        case .scopedObjectRef(let object, let owner):
+            if let partIndex = try await findScopedPartIndex(
+                object: object,
+                owner: owner,
+                env: &env,
+                document: document,
+                context: context
+            ) {
+                return document.parts[partIndex].id.uuidString
+            }
+            return ""
 
         case .chartDataPointRef:
             // A data-point reference is not a standalone value — it's
@@ -5134,11 +5251,14 @@ public struct Interpreter: Sendable {
     }
 
     private func resolveSendTarget(
-        _ target: Expression,
+        _ target: Expression?,
         env: inout Environment,
         document: HypeDocument,
         context: ExecutionContext
     ) async throws -> UUID? {
+        guard let target else {
+            return context.targetId
+        }
         switch target {
         case .me:
             return context.targetId
@@ -5170,25 +5290,261 @@ public struct Interpreter: Sendable {
         }
     }
 
+    private func evaluateNavigationExpression(
+        _ expr: Expression,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async throws -> Value {
+        let value = try await evaluate(expr, env: &env, document: document, context: context)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.isEmpty, case .variable(let name) = expr {
+            return name
+        }
+        return value
+    }
+
+    private func evaluateObjectRefIdentifier(
+        _ expr: Expression,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async throws -> Value {
+        let value = try await evaluate(expr, env: &env, document: document, context: context)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.isEmpty, case .variable(let name) = expr {
+            return name
+        }
+        return value
+    }
+
+    private func parseInlineDoHandler(_ scriptText: String, parent: Handler) throws -> Handler {
+        let source = "on __hypeInlineDo\n\(scriptText)\nend __hypeInlineDo\n"
+        var lexer = Lexer(source: source)
+        var parser = Parser(tokens: lexer.tokenize())
+        let script = try parser.parse()
+        guard let handler = script.handlers.first else {
+            throw ScriptError(message: "Could not parse do script", line: parent.line, handler: parent.name)
+        }
+        return handler
+    }
+
     // MARK: - Navigation resolution
 
     private func resolveNavigation(_ dest: String, document: HypeDocument, currentCardId: UUID) -> UUID? {
-        let lower = dest.lowercased()
+        let trimmed = dest.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
         switch lower {
         case "next":
             return CardNavigator.navigate(direction: .next, currentCardId: currentCardId, document: document)
+        case "next marked card":
+            return navigateToNextMarkedCard(currentCardId: currentCardId, document: document)
         case "previous", "prev", "back":
             return CardNavigator.navigate(direction: .previous, currentCardId: currentCardId, document: document)
         case "first":
             return CardNavigator.navigate(direction: .first, currentCardId: currentCardId, document: document)
         case "last":
             return CardNavigator.navigate(direction: .last, currentCardId: currentCardId, document: document)
+        case "card", "this", "this card", "current card":
+            return currentCardId
         default:
+            if let legacyCardId = legacyCardId(fromNavigationDestination: trimmed),
+               let cardId = resolveLocalLegacyCardId(legacyCardId, document: document) {
+                return cardId
+            }
             // Try by card name.
             if let card = document.cards.first(where: { $0.name.lowercased() == lower }) {
                 return card.id
             }
             return nil
+        }
+    }
+
+    private func navigateToNextMarkedCard(currentCardId: UUID, document: HypeDocument) -> UUID? {
+        let cards = document.sortedCards
+        guard let currentIndex = cards.firstIndex(where: { $0.id == currentCardId }) else {
+            return cards.first(where: \.marked)?.id
+        }
+        let laterCards = cards.dropFirst(currentIndex + 1)
+        if let marked = laterCards.first(where: \.marked) {
+            return marked.id
+        }
+        return cards.prefix(currentIndex + 1).first(where: \.marked)?.id
+    }
+
+    private func legacyCardId(fromNavigationDestination destination: String) -> Int? {
+        let lower = destination.lowercased()
+        for prefix in ["card id ", "id "] where lower.hasPrefix(prefix) {
+            let rawId = destination.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+            return Int(rawId)
+        }
+        return nil
+    }
+
+    private func resolveLocalLegacyCardId(_ legacyCardId: Int, document: HypeDocument) -> UUID? {
+        guard let entry = currentStackLibraryEntry(in: document),
+              let cardReference = entry.cardReferences.first(where: { $0.legacyCardId == legacyCardId }),
+              let cardId = cardReference.hypeCardId,
+              document.cards.contains(where: { $0.id == cardId }) else {
+            return nil
+        }
+        return cardId
+    }
+
+    private func currentStackLibraryEntry(in document: HypeDocument) -> HypeStackLibraryEntry? {
+        switch document.stackLibrary.resolution(for: document.stack.name) {
+        case .resolved(let entry):
+            return entry
+        case .ambiguous(_, let candidates):
+            if let currentEntry = stackLibraryEntryContainingCurrentDocumentCards(candidates, document: document) {
+                return currentEntry
+            }
+            let stackKey = HypeStackLibrary.lookupKey(document.stack.name)
+            return document.stackLibrary.entries.first { $0.lookupKeys.contains(stackKey) }
+        case .missing:
+            return stackLibraryEntryContainingCurrentDocumentCards(document.stackLibrary.entries, document: document)
+        }
+    }
+
+    private func stackLibraryEntryContainingCurrentDocumentCards(
+        _ entries: [HypeStackLibraryEntry],
+        document: HypeDocument
+    ) -> HypeStackLibraryEntry? {
+        let cardIds = Set(document.cards.map(\.id))
+        return entries.first { entry in
+            entry.cardReferences.contains { reference in
+                reference.hypeCardId.map { cardIds.contains($0) } ?? false
+            }
+        }
+    }
+
+    private func implicitProjectNavigationTarget(
+        cardValue: String,
+        preferredStackName: String,
+        document: HypeDocument
+    ) -> ProjectNavigationTarget? {
+        let trimmed = cardValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              legacyCardId(fromNavigationDestination: trimmed) == nil,
+              UUID(uuidString: trimmed) == nil else {
+            return nil
+        }
+
+        if let currentEntry = currentStackLibraryEntry(in: document),
+           let card = resolveStackLibraryCardReference(trimmed, in: currentEntry) {
+            return projectNavigationTarget(card: card, entry: currentEntry)
+        }
+
+        let preferredStackName = preferredStackName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !preferredStackName.isEmpty,
+           let preferredEntry = exactOrUniqueStackLibraryEntry(preferredStackName, document: document),
+           let card = resolveStackLibraryCardReference(trimmed, in: preferredEntry) {
+            return projectNavigationTarget(card: card, entry: preferredEntry)
+        }
+
+        let matches = document.stackLibrary.entries.flatMap { entry in
+            entry.cardReferences.compactMap { card -> (HypeStackLibraryEntry, HypeStackLibraryCardReference)? in
+                HypeStackLibrary.lookupKey(card.name) == HypeStackLibrary.lookupKey(trimmed) ? (entry, card) : nil
+            }
+        }
+        guard matches.count == 1, let match = matches.first else {
+            return nil
+        }
+        return projectNavigationTarget(card: match.1, entry: match.0)
+    }
+
+    private func exactOrUniqueStackLibraryEntry(
+        _ stackName: String,
+        document: HypeDocument
+    ) -> HypeStackLibraryEntry? {
+        switch document.stackLibrary.resolution(for: stackName) {
+        case .resolved(let entry):
+            return entry
+        case .ambiguous(_, let candidates):
+            return exactStackNameMatch(stackName, in: candidates)
+        case .missing:
+            return nil
+        }
+    }
+
+    private func resolveProjectNavigationTarget(
+        cardValue: String,
+        stackValue: String,
+        document: HypeDocument,
+        handler: Handler
+    ) throws -> ProjectNavigationTarget {
+        let stackName = stackValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let entry: HypeStackLibraryEntry
+        switch document.stackLibrary.resolution(for: stackName) {
+        case .resolved(let resolved):
+            entry = resolved
+        case .ambiguous(let alias, let candidates):
+            if let exact = exactStackNameMatch(stackValue, in: candidates) {
+                entry = exact
+                break
+            }
+            let names = candidates.map(\.stackName).joined(separator: ", ")
+            throw ScriptError(message: "Ambiguous stack name '\(alias)': \(names)", line: handler.line, handler: handler.name)
+        case .missing(let alias):
+            throw ScriptError(message: "Stack not found: \(alias)", line: handler.line, handler: handler.name)
+        }
+
+        guard let card = resolveStackLibraryCardReference(cardValue, in: entry) else {
+            throw ScriptError(
+                message: "Card not found in stack '\(entry.stackName)': \(cardValue)",
+                line: handler.line,
+                handler: handler.name
+            )
+        }
+        return projectNavigationTarget(card: card, entry: entry)
+    }
+
+    private func projectNavigationTarget(
+        card: HypeStackLibraryCardReference,
+        entry: HypeStackLibraryEntry
+    ) -> ProjectNavigationTarget {
+        ProjectNavigationTarget(
+            stackEntryId: entry.id,
+            stackName: entry.stackName,
+            stackAlias: entry.primaryAlias,
+            packagePath: entry.packagePath,
+            documentPath: entry.documentPath,
+            legacyCardId: card.legacyCardId,
+            cardName: card.name,
+            sortIndex: card.sortIndex,
+            hypeCardId: card.hypeCardId
+        )
+    }
+
+    private func exactStackNameMatch(
+        _ stackValue: String,
+        in candidates: [HypeStackLibraryEntry]
+    ) -> HypeStackLibraryEntry? {
+        candidates.first { entry in entry.stackName == stackValue }
+    }
+
+    private func resolveStackLibraryCardReference(
+        _ cardValue: String,
+        in entry: HypeStackLibraryEntry
+    ) -> HypeStackLibraryCardReference? {
+        let trimmed = cardValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        if lower.hasPrefix("id ") {
+            let rawId = trimmed.dropFirst(3).trimmingCharacters(in: .whitespacesAndNewlines)
+            if let legacyId = Int(rawId) {
+                return entry.cardReferences.first { $0.legacyCardId == legacyId }
+            }
+        }
+        if let legacyId = Int(trimmed),
+           let byIndex = entry.cardReferences.first(where: { ($0.sortIndex ?? -1) == legacyId - 1 }) {
+            return byIndex
+        }
+        if let uuid = UUID(uuidString: trimmed),
+           let byUUID = entry.cardReferences.first(where: { $0.hypeCardId == uuid }) {
+            return byUUID
+        }
+        return entry.cardReferences.first {
+            $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == lower
         }
     }
 
@@ -5228,6 +5584,51 @@ public struct Interpreter: Sendable {
             return document.parts[idx]
         }
         return nil
+    }
+
+    private func findScopedPartIndex(
+        object: ObjectRefExpr,
+        owner: ObjectRefExpr,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async throws -> Int? {
+        let objectIdent = try await evaluateObjectRefIdentifier(object.identifier, env: &env, document: document, context: context)
+        let parts: [Part]
+        switch owner.objectType.lowercased() {
+        case "card":
+            let ownerIdent = try await evaluateObjectRefIdentifier(owner.identifier, env: &env, document: document, context: context)
+            guard let cardIndex = cardIndex(forIdentifier: ownerIdent, document: document, currentCardId: context.currentCardId) else {
+                return nil
+            }
+            parts = document.partsForCard(document.cards[cardIndex].id)
+        case "background", "bg":
+            let ownerIdent = try await evaluateObjectRefIdentifier(owner.identifier, env: &env, document: document, context: context)
+            guard let backgroundIndex = backgroundIndex(forIdentifier: ownerIdent, document: document, currentCardId: context.currentCardId) else {
+                return nil
+            }
+            parts = document.partsForBackground(document.backgrounds[backgroundIndex].id)
+        default:
+            return nil
+        }
+        let targetType: PartType?
+        switch object.objectType.lowercased() {
+        case "field", "fld": targetType = .field
+        case "button", "btn": targetType = .button
+        default: targetType = nil
+        }
+        let matched: Part?
+        if let number = Int(objectIdent), number > 0 {
+            let typed = parts.filter { targetType == nil || $0.partType == targetType }
+            matched = number <= typed.count ? typed[number - 1] : nil
+        } else {
+            matched = parts.first {
+                (targetType == nil || $0.partType == targetType) &&
+                $0.name.lowercased() == objectIdent.lowercased()
+            }
+        }
+        guard let matched else { return nil }
+        return document.parts.firstIndex(where: { $0.id == matched.id })
     }
 
     /// Find a part's index by object type and identifier, scoped to the current card.
@@ -6817,6 +7218,7 @@ public struct Interpreter: Sendable {
         case .get: return "get"
         case .set: return "set"
         case .go: return "go"
+        case .goInStack: return "goInStack"
         case .ifThenElse: return "ifThenElse"
         case .repeatCount: return "repeatCount"
         case .repeatWhile: return "repeatWhile"
@@ -6909,6 +7311,7 @@ public struct Interpreter: Sendable {
         case .headerAccess: return "headerAccess"
         case .chunk: return "chunk"
         case .objectRef: return "objectRef"
+        case .scopedObjectRef: return "scopedObjectRef"
         case .chartDataPointRef: return "chartDataPointRef"
         case .tileAt: return "tileAt"
         case .not: return "not"

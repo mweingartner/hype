@@ -193,6 +193,7 @@ public struct MessageDispatcher: Sendable {
         var currentDocument = document
         var latestModifiedDocument: HypeDocument? = nil
         var carriedNavigationTarget: UUID? = nil
+        var carriedProjectNavigationTarget: ProjectNavigationTarget? = nil
         var carriedShowAllCards = false
         var carriedVisualEffect: String? = nil
         var carriedVisualEffectDuration: Double? = nil
@@ -319,6 +320,9 @@ public struct MessageDispatcher: Sendable {
             if let navigationTarget = result.navigationTarget {
                 carriedNavigationTarget = navigationTarget
             }
+            if let projectNavigationTarget = result.projectNavigationTarget {
+                carriedProjectNavigationTarget = projectNavigationTarget
+            }
             if result.showAllCards {
                 carriedShowAllCards = true
             }
@@ -374,6 +378,9 @@ public struct MessageDispatcher: Sendable {
                 if result.navigationTarget == nil {
                     result.navigationTarget = carriedNavigationTarget
                 }
+                if result.projectNavigationTarget == nil {
+                    result.projectNavigationTarget = carriedProjectNavigationTarget
+                }
                 if !result.showAllCards {
                     result.showAllCards = carriedShowAllCards
                 }
@@ -402,13 +409,14 @@ public struct MessageDispatcher: Sendable {
             // Without this, the dispatcher drops everything when
             // it continues to the next handler.
             if result.status == .passed {
-                if result.navigationTarget != nil || result.showAllCards {
+                if result.navigationTarget != nil || result.projectNavigationTarget != nil || result.showAllCards {
                     // Force status to .completed so applyDispatchResult
                     // processes the navigation and visual effect.
                     var finalResult = result
                     finalResult.status = .completed
                     finalResult.modifiedDocument = latestModifiedDocument
                     finalResult.navigationTarget = carriedNavigationTarget
+                    finalResult.projectNavigationTarget = carriedProjectNavigationTarget
                     finalResult.showAllCards = carriedShowAllCards
                     finalResult.visualEffect = carriedVisualEffect
                     finalResult.visualEffectDuration = carriedVisualEffectDuration
@@ -421,6 +429,9 @@ public struct MessageDispatcher: Sendable {
             }
             if result.navigationTarget == nil {
                 result.navigationTarget = carriedNavigationTarget
+            }
+            if result.projectNavigationTarget == nil {
+                result.projectNavigationTarget = carriedProjectNavigationTarget
             }
             if !result.showAllCards {
                 result.showAllCards = carriedShowAllCards
@@ -445,6 +456,7 @@ public struct MessageDispatcher: Sendable {
                 modifiedDocument: latestModifiedDocument,
                 error: parseErr,
                 navigationTarget: carriedNavigationTarget,
+                projectNavigationTarget: carriedProjectNavigationTarget,
                 showAllCards: carriedShowAllCards,
                 visualEffect: carriedVisualEffect,
                 visualEffectDuration: carriedVisualEffectDuration
@@ -455,6 +467,7 @@ public struct MessageDispatcher: Sendable {
             returnValue: nil,
             modifiedDocument: latestModifiedDocument,
             navigationTarget: carriedNavigationTarget,
+            projectNavigationTarget: carriedProjectNavigationTarget,
             showAllCards: carriedShowAllCards,
             visualEffect: carriedVisualEffect,
             visualEffectDuration: carriedVisualEffectDuration
@@ -511,6 +524,9 @@ public struct MessageDispatcher: Sendable {
         }
         if document.stack.id == objectId {
             return "stack \"\(document.stack.name)\""
+        }
+        if let entry = document.stackLibrary.entries.first(where: { $0.id == objectId }) {
+            return "used stack \"\(entry.stackName)\""
         }
         if objectId == Self.hypeScriptSentinel {
             return "Hype (app-level script)"
@@ -572,7 +588,8 @@ public struct MessageDispatcher: Sendable {
         return components.url
     }
 
-    /// Build the message-passing hierarchy chain from the target up to the stack.
+    /// Build the message-passing hierarchy chain from the target up to
+    /// the stack, then through currently used imported stack scripts.
     private func buildHierarchy(
         targetId: UUID,
         document: HypeDocument,
@@ -605,11 +622,23 @@ public struct MessageDispatcher: Sendable {
         }
 
         chain.append(document.stack.id)
+        chain.append(contentsOf: usedStackEntries(in: document).map(\.id))
         chain.append(Self.hypeScriptSentinel)
 
         // Deduplicate while preserving order.
         var seen = Set<UUID>()
         return chain.filter { seen.insert($0).inserted }
+    }
+
+    private func usedStackEntries(in document: HypeDocument) -> [HypeStackLibraryEntry] {
+        var seen = Set<UUID>()
+        var entries: [HypeStackLibraryEntry] = []
+        for alias in document.stackLibrary.usedStackAliases {
+            guard case .resolved(let entry) = document.stackLibrary.resolution(for: alias),
+                  seen.insert(entry.id).inserted else { continue }
+            entries.append(entry)
+        }
+        return entries
     }
 
     /// Find the script associated with an object ID (part, card, background, stack, or app).
@@ -637,6 +666,9 @@ public struct MessageDispatcher: Sendable {
         // Check stack.
         if document.stack.id == objectId {
             return document.stack.script.isEmpty ? nil : document.stack.script
+        }
+        if let entry = document.stackLibrary.entries.first(where: { $0.id == objectId }) {
+            return entry.stackScript?.isEmpty == false ? entry.stackScript : nil
         }
         // Check app-level (Hype) script — sentinel UUID.
         if objectId == Self.hypeScriptSentinel {

@@ -977,11 +977,14 @@ private struct ScriptSemanticValidator {
             issues += expressionIssues(expression, owner: owner, functionNames: functionNames)
         case .send(let message, let target):
             issues += expressionIssues(message, owner: owner, functionNames: functionNames)
-            issues += expressionIssues(target, owner: owner, functionNames: functionNames)
+            if let target {
+                issues += expressionIssues(target, owner: owner, functionNames: functionNames)
+            }
             if case .literal(let name) = message,
-               isMeLike(target),
+               target.map(isMeLike) ?? true,
                !handlerNames.contains(name.lowercased()) {
-                issues.append(issue("send-handler", "`send \"\(name)\" to me` has no matching handler in this script."))
+                let targetDescription = target == nil ? "" : " to me"
+                issues.append(issue("send-handler", "`send \"\(name)\"\(targetDescription)` has no matching handler in this script."))
             }
         case .visual(let effect, let duration):
             issues += expressionIssues(effect, owner: owner, functionNames: functionNames)
