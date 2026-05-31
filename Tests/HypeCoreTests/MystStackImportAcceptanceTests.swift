@@ -203,6 +203,93 @@ struct MystStackImportAcceptanceTests {
         #expect(ProjectNavigationTargetResolver.resolveCardId(for: try #require(dispatch.projectNavigationTarget), in: mystDocument) != nil)
     }
 
+    @Test("imported Myst age book markers return routable project navigation targets")
+    func importedMystAgeBookMarkersReturnRoutableProjectNavigationTargets() throws {
+        let root = try mystExportRoot()
+        let stacksRoot = root.appendingPathComponent("exports/stacks", isDirectory: true)
+        let packageNames = [
+            "ALLRes.xstk",
+            "INRes1.xstk",
+            "Myst.xstk",
+            "Mechanical-Age.xstk",
+            "Stoneship-Age.xstk",
+            "Channelwood-Age.xstk",
+        ]
+        let packageURLs = packageNames.map { stacksRoot.appendingPathComponent($0, isDirectory: true) }
+        let outputURL = makeTemporaryDirectory(prefix: "hype-myst-age-clicks")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let result = try StackImportPackageProjectImporter().importProject(
+            options: StackImportPackageProjectImportOptions(
+                packageURLs: packageURLs,
+                outputDirectoryURL: outputURL,
+                stackLibraryEntries: packageURLs.map(stackLibraryEntry),
+                usedStackAliases: ["ALLRes", "INRes1"]
+            )
+        )
+
+        let mystResult = try #require(result.packageResults.first { $0.outputPackageURL.lastPathComponent == "Myst-debug-imported.hype" })
+        let mystDocument = try HypeSQLiteStackStore().load(fromPackageAt: mystResult.outputPackageURL)
+        let mystCardMap = try legacyCardMap(
+            packageURL: stacksRoot.appendingPathComponent("Myst.xstk", isDirectory: true),
+            document: mystDocument
+        )
+
+        let cases = [
+            AgeBookClickCase(
+                sourceLegacyCardId: 72560,
+                expectedScriptFragment: "go to card \"Restart\" of stack \"Mechanical Age\"",
+                expectedStackName: "Mechanical Age",
+                expectedTargetPackageName: "Mechanical-Age-debug-imported.hype",
+                expectedTargetLegacyCardId: 17290,
+                expectedTargetCardName: "restart"
+            ),
+            AgeBookClickCase(
+                sourceLegacyCardId: 77008,
+                expectedScriptFragment: "go to card \"Restart\" of stack \"StoneShip Age\"",
+                expectedStackName: "StoneShip Age",
+                expectedTargetPackageName: "Stoneship-Age-debug-imported.hype",
+                expectedTargetLegacyCardId: 3004,
+                expectedTargetCardName: "restart"
+            ),
+            AgeBookClickCase(
+                sourceLegacyCardId: 77588,
+                expectedScriptFragment: "go to card \"Restart\" of stack \"Channelwood Age\"",
+                expectedStackName: "Channelwood Age",
+                expectedTargetPackageName: "Channelwood-Age-debug-imported.hype",
+                expectedTargetLegacyCardId: 28497,
+                expectedTargetCardName: "restart"
+            ),
+        ]
+
+        for ageCase in cases {
+            let sourceCardId = try #require(mystCardMap[ageCase.sourceLegacyCardId])
+            let marker = try #require(mystDocument.partsForCard(sourceCardId).first { part in
+                part.name == "marker" && part.script.localizedCaseInsensitiveContains(ageCase.expectedScriptFragment)
+            })
+            #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(marker.script), "Imported age-book marker script should run: \(marker.script)")
+
+            let dispatch = MessageDispatcher().dispatch(
+                message: "mouseUp",
+                params: [],
+                targetId: marker.id,
+                document: mystDocument,
+                currentCardId: sourceCardId
+            )
+
+            #expect(dispatch.status == .completed)
+            #expect(dispatch.projectNavigationTarget?.stackName.caseInsensitiveCompare(ageCase.expectedStackName) == .orderedSame)
+            #expect(dispatch.projectNavigationTarget?.legacyCardId == ageCase.expectedTargetLegacyCardId)
+            #expect(dispatch.projectNavigationTarget?.cardName.caseInsensitiveCompare(ageCase.expectedTargetCardName) == .orderedSame)
+
+            let targetResult = try #require(result.packageResults.first {
+                $0.outputPackageURL.lastPathComponent == ageCase.expectedTargetPackageName
+            })
+            let targetDocument = try HypeSQLiteStackStore().load(fromPackageAt: targetResult.outputPackageURL)
+            #expect(ProjectNavigationTargetResolver.resolveCardId(for: try #require(dispatch.projectNavigationTarget), in: targetDocument) != nil)
+        }
+    }
+
     #if canImport(AppKit)
     @Test("imports Myst font layout audit candidates for rendered metric probes")
     func importsMystFontLayoutAuditCandidatesForRenderedMetricProbes() throws {
@@ -310,6 +397,15 @@ struct MystStackImportAcceptanceTests {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private struct AgeBookClickCase {
+        var sourceLegacyCardId: Int
+        var expectedScriptFragment: String
+        var expectedStackName: String
+        var expectedTargetPackageName: String
+        var expectedTargetLegacyCardId: Int
+        var expectedTargetCardName: String
     }
 
     private func seededLauncherGlobals() -> [String: String] {
