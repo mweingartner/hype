@@ -40,6 +40,7 @@ public struct StackImportPackageDocumentImportOptions: Sendable {
 public struct StackImportPackageDocumentImportResult: Sendable {
     public var document: HypeDocument
     public var report: HyperCardImportReport
+    public var sourcePackageURL: URL?
     public var outputPackageURL: URL
     public var looseMediaResult: LooseMediaImportResult?
     public var importDurationMilliseconds: Double?
@@ -47,12 +48,14 @@ public struct StackImportPackageDocumentImportResult: Sendable {
     public init(
         document: HypeDocument,
         report: HyperCardImportReport,
+        sourcePackageURL: URL? = nil,
         outputPackageURL: URL,
         looseMediaResult: LooseMediaImportResult? = nil,
         importDurationMilliseconds: Double? = nil
     ) {
         self.document = document
         self.report = report
+        self.sourcePackageURL = sourcePackageURL
         self.outputPackageURL = outputPackageURL
         self.looseMediaResult = looseMediaResult
         self.importDurationMilliseconds = importDurationMilliseconds
@@ -66,6 +69,7 @@ public struct StackImportPackageDocumentImportResult: Sendable {
             partCount: document.parts.count,
             assetCount: document.assetRepository.assets.count,
             sharedContentAssetCount: document.assetRepository.assets.filter(\.isSharedContentStackAsset).count,
+            sourcePackagePath: sourcePackageURL?.path,
             outputPackagePath: outputPackageURL.path,
             outputPackageByteCount: Self.packageByteCount(at: outputPackageURL),
             importDurationMilliseconds: importDurationMilliseconds,
@@ -130,6 +134,7 @@ public struct StackImportPackageDocumentImportSummary: Codable, Equatable, Senda
     public var partCount: Int
     public var assetCount: Int
     public var sharedContentAssetCount: Int
+    public var sourcePackagePath: String?
     public var outputPackagePath: String
     public var outputPackageByteCount: Int64?
     public var importDurationMilliseconds: Double?
@@ -145,6 +150,7 @@ public struct StackImportPackageDocumentImportSummary: Codable, Equatable, Senda
         partCount: Int,
         assetCount: Int,
         sharedContentAssetCount: Int = 0,
+        sourcePackagePath: String? = nil,
         outputPackagePath: String,
         outputPackageByteCount: Int64? = nil,
         importDurationMilliseconds: Double? = nil,
@@ -159,6 +165,7 @@ public struct StackImportPackageDocumentImportSummary: Codable, Equatable, Senda
         self.partCount = partCount
         self.assetCount = assetCount
         self.sharedContentAssetCount = sharedContentAssetCount
+        self.sourcePackagePath = sourcePackagePath
         self.outputPackagePath = outputPackagePath
         self.outputPackageByteCount = outputPackageByteCount
         self.importDurationMilliseconds = importDurationMilliseconds
@@ -261,6 +268,7 @@ public struct StackImportPackageDocumentImporter: Sendable {
         return StackImportPackageDocumentImportResult(
             document: result.document,
             report: result.report,
+            sourcePackageURL: options.packageURL,
             outputPackageURL: outputURL,
             looseMediaResult: looseMediaResult,
             importDurationMilliseconds: Date().timeIntervalSince(startedAt) * 1000

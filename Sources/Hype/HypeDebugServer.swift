@@ -1551,6 +1551,7 @@ final class HypeDebugServer: @unchecked Sendable {
             "partCount": summary.partCount,
             "assetCount": summary.assetCount,
             "sharedContentAssetCount": summary.sharedContentAssetCount,
+            "sourcePackagePath": stackImportValueOrNull(summary.sourcePackagePath),
             "documentPath": summary.outputPackagePath,
             "outputPackageByteCount": stackImportValueOrNull(summary.outputPackageByteCount),
             "importDurationMilliseconds": stackImportValueOrNull(summary.importDurationMilliseconds),
