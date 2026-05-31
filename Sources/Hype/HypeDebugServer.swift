@@ -61,6 +61,20 @@ enum HypeDebugScriptGlobalSeedParser {
     }
 }
 
+enum HypeDebugImportOutputResolver {
+    static let isolatedRootName = "HypeDebugImports"
+
+    static func outputDirectory(from params: [String: Any]) throws -> URL {
+        if let explicit = params["outputDirectory"] as? String,
+           !explicit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return URL(fileURLWithPath: explicit, isDirectory: true)
+        }
+        return FileManager.default.temporaryDirectory
+            .appendingPathComponent(isolatedRootName, isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
+}
+
 struct HypeDebugServerStatus: Equatable {
     var isRunning: Bool
     var instanceId: String
@@ -494,8 +508,10 @@ final class HypeDebugServer: @unchecked Sendable {
             let result = try StackImportCImporter(
                 options: HyperCardImportOptions(deploymentTargets: debugDeploymentTargets(from: params))
             ).importStack(at: url)
-            let outputURL = FileManager.default.temporaryDirectory
+            let outputDirectory = try HypeDebugImportOutputResolver.outputDirectory(from: params)
+            let outputURL = outputDirectory
                 .appendingPathComponent(url.deletingPathExtension().lastPathComponent + "-debug-imported.hype")
+            try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
             try? FileManager.default.removeItem(at: outputURL)
             try HypeSQLiteStackStore().save(result.document, toPackageAt: outputURL)
             if params["open"] as? Bool != false {
@@ -525,9 +541,7 @@ final class HypeDebugServer: @unchecked Sendable {
     private func importStackImportPackage(params: [String: Any], id: Any?) async -> [String: Any] {
         do {
             let path = params["path"] as? String ?? ""
-            let outputDirectory = (params["outputDirectory"] as? String).flatMap { value in
-                value.isEmpty ? nil : URL(fileURLWithPath: value, isDirectory: true)
-            } ?? FileManager.default.temporaryDirectory
+            let outputDirectory = try HypeDebugImportOutputResolver.outputDirectory(from: params)
             let outputFileName = (params["outputFileName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             let names = stackImportStringArray(params["looseMediaNames"])
             let result = try StackImportPackageDocumentImporter().importPackage(
@@ -562,9 +576,7 @@ final class HypeDebugServer: @unchecked Sendable {
     @MainActor
     private func importStackImportProject(packageURLs: [URL], params: [String: Any], id: Any?) async -> [String: Any] {
         do {
-            let outputDirectory = (params["outputDirectory"] as? String).flatMap { value in
-                value.isEmpty ? nil : URL(fileURLWithPath: value, isDirectory: true)
-            } ?? FileManager.default.temporaryDirectory
+            let outputDirectory = try HypeDebugImportOutputResolver.outputDirectory(from: params)
             let names = stackImportStringArray(params["looseMediaNames"])
             let result = try StackImportPackageProjectImporter().importProject(
                 options: StackImportPackageProjectImportOptions(
