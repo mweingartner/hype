@@ -1594,6 +1594,9 @@ public struct Interpreter: Sendable {
             if let modified = result.modifiedDocument {
                 document = modified
             }
+            for (key, value) in result.runtimeGlobals {
+                env.globals[key.lowercased()] = value
+            }
             env.it = result.value
             env.result = result.result
             if result.passMessage {
@@ -2911,7 +2914,7 @@ public struct Interpreter: Sendable {
             for arg in args {
                 evaluatedArgs.append(try await evaluate(arg, env: &env, document: document, context: context))
             }
-            return try await evaluateBuiltIn(name, args: evaluatedArgs, env: &env, context: context)
+            return try await evaluateBuiltIn(name, args: evaluatedArgs, env: &env, document: document, context: context)
 
         case .propertyAccess(let property, let target):
             return try await evaluateProperty(property, target: target, env: &env, document: document, context: context)
@@ -3126,6 +3129,7 @@ public struct Interpreter: Sendable {
         _ name: String,
         args: [Value],
         env: inout Environment,
+        document: HypeDocument,
         context: ExecutionContext
     ) async throws -> Value {
         switch name.lowercased() {
@@ -3341,14 +3345,19 @@ public struct Interpreter: Sendable {
             return MeshyWebhookPayload.parse(jsonBody: body)?.toCSV() ?? ""
 
         default:
+            var callDocument = document
+            callDocument.scriptGlobals = env.globals
             let result = await context.externalRegistry.invoke(
                 HyperCardExternalCall(name: name, kind: .xfcn, arguments: args),
                 context: HyperCardExternalCallContext(
                     targetId: context.targetId,
                     currentCardId: context.currentCardId,
-                    document: context.document
+                    document: callDocument
                 )
             )
+            for (key, value) in result.runtimeGlobals {
+                env.globals[key.lowercased()] = value
+            }
             env.result = result.result
             return result.value
         }

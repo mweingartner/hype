@@ -48,7 +48,8 @@ The registry models the behavior that matters to scripts:
   `put HypeVersion() into field "status"`.
 - Parameters are passed as evaluated HypeTalk strings.
 - The emulated external returns a value, a `the result` diagnostic, an optional
-  modified document, and an optional pass-message flag.
+  modified document, optional runtime-only compatibility globals, and an
+  optional pass-message flag.
 - Unknown externals set `the result` to `Can't Load External...` and continue
   without crashing the stack.
 
@@ -77,6 +78,12 @@ Implemented:
 - XCMD command parser path.
 - XFCN fallback through the built-in function dispatcher.
 - Runtime degradation for unknown externals.
+- Myst-facing runtime-state externals for the first compatibility slice:
+  `HTLock`, `HTVisual`, `DeCurse`, `moveCursor`, `xWindowFrame`, `xAbout`,
+  `xMemory`, `xVirtual`, `xDepth`, `variant`, `xSetSoundVol`, `xGetSoundVol`,
+  `SetMode`, and `GetMode`. These record script-visible compatibility state in
+  runtime globals and return deterministic values, without loading native
+  68k/PowerPC external code or changing durable document schema.
 - `snd ` resource conversion to `audioClip` assets in `AssetRepository` via
   `stackimport_snd_to_wav()` (pure Swift path) and streaming resource
   payload callbacks (C importer path).
