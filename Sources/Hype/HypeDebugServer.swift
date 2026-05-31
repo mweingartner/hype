@@ -1578,6 +1578,7 @@ final class HypeDebugServer: @unchecked Sendable {
     private func stackImportProjectStackJSON(_ summary: StackImportPackageProjectStackSummary) -> [String: Any] {
         [
             "stackName": summary.stackName,
+            "sourcePackagePath": stackImportValueOrNull(summary.sourcePackagePath),
             "documentPath": summary.documentPath,
             "cardCount": summary.cardCount,
             "firstCardId": stackImportValueOrNull(summary.firstCardId),

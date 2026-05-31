@@ -208,6 +208,7 @@ struct StackImportPackageDocumentImporterTests {
         #expect(result.summary.packages.allSatisfy { ($0.importDurationMilliseconds ?? -1) >= 0 })
         #expect(result.summary.packages.map(\.sourcePackagePath) == [samplePackageURL.path, otherPackageURL.path])
         #expect(result.summary.stacks.map(\.stackName) == ["Sample", "Other"])
+        #expect(result.summary.stacks.map(\.sourcePackagePath) == [samplePackageURL.path, otherPackageURL.path])
         #expect(result.summary.stacks.map(\.firstCardName) == ["Sample Card", "Other Card"])
         #expect(result.summary.stacks.map(\.legacyFirstCardId) == [100, 200])
         #expect(result.summary.stacks.map(\.documentPath) == result.summary.outputPackagePaths)
