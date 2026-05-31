@@ -2424,7 +2424,10 @@ stable stdio server process.
 Automation-created stacks and imports use acknowledged macOS deployment targets
 by default, with explicit `target_platforms` / `primary_target_platform`
 overrides available through CLI, MCP, and debug JSON-RPC entry points. Debug
-HyperCard and stackimport imports can load the generated `.hype` package into an
+HyperCard and stackimport imports write to a fresh per-request temporary
+directory unless callers provide an explicit `outputDirectory`, so repeated
+automation does not rewrite a package that AppKit may still have open in a
+document window. Imports can load the generated `.hype` package into an
 in-memory debug document by default instead of opening a visible autosaved
 document window; callers opt into visible AppKit windows with `display: true`.
 This keeps long-running import probes from tripping macOS document autosave

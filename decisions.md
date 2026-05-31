@@ -38,6 +38,7 @@ document semantics.
 - Preserve HyperCard-style semantics where they exist in Hype: message dispatch, pass-up behavior, container ownership, and stack/card/background/object introspection.
 - For legacy HyperCard compatibility, emulate behavior in Swift; never execute classic native XCMD/XFCN code.
 - Import may enable a route-only compatibility translation for otherwise unsupported legacy movie-click scripts only when it can emit parser-validated HypeTalk that preserves explicit cross-stack navigation. Unsupported movie/window side effects stay inert and documented; scripts that cannot be safely reduced this way remain disabled as commented reference text.
+- Debug HyperCard/stackimport automation must not overwrite default generated `.hype` packages that may already be open in AppKit document windows. Use isolated per-request temp output directories unless the caller explicitly requests an `outputDirectory`.
 
 ## AI And Tooling Guardrails
 
