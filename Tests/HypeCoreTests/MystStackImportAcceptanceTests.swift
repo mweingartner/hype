@@ -523,6 +523,48 @@ struct MystStackImportAcceptanceTests {
     }
     #endif
 
+    @Test("imported Myst palette drives runtime QuickDraw color indexes")
+    func importedMystPaletteDrivesRuntimeQuickDrawColorIndexes() throws {
+        let stacksRoot = try mystExportRoot().appendingPathComponent("exports/stacks", isDirectory: true)
+        let myst = try importPackage(stacksRoot.appendingPathComponent("Myst.xstk", isDirectory: true))
+        let currentCardId = try #require(myst.document.sortedCards.first?.id)
+
+        let paletteScript = try parseScript("""
+        on test
+          HTUDefPal 9001
+          xLine "2,2","2,2",1,1
+          return the result
+        end test
+        """)
+        let paletteHandler = try #require(paletteScript.handlers.first { $0.name.caseInsensitiveCompare("test") == .orderedSame })
+        let paletteResult = Interpreter().execute(
+            handler: paletteHandler,
+            params: [],
+            context: ExecutionContext(targetId: myst.document.stack.id, currentCardId: currentCardId, document: myst.document)
+        )
+
+        #expect(paletteResult.status == .completed)
+        #expect(paletteResult.returnValue == "2,2,2,2,1,1")
+        let paletteDocument = try #require(paletteResult.modifiedDocument)
+        #expect(paletteDocument.scriptGlobals["hypercard.htudefpal.palette"] == "9001")
+        #expect(paletteDocument.scriptGlobals["hypercard.htudefpal.status"] == "resolved")
+        #expect(paletteDocument.scriptGlobals["hypercard.htudefpal.resourceType"] == "pltt")
+        #expect(paletteDocument.scriptGlobals["hypercard.htudefpal.colorCount"] == "256")
+        let paletteColors = (paletteDocument.scriptGlobals["hypercard.htudefpal.colors"] ?? "")
+            .split(separator: "\t")
+            .map(String.init)
+        #expect(paletteColors.count == 256)
+        let paletteColor = try #require(paletteColors.dropFirst().first)
+        let expectedColor = try #require(rgb(fromHex: paletteColor))
+
+        let layer = try #require(paletteDocument.paintLayer(forCardId: currentCardId))
+        let pixel = try #require(rgba(atX: 2, y: 2, in: layer))
+        #expect(pixel.red == expectedColor.red)
+        #expect(pixel.green == expectedColor.green)
+        #expect(pixel.blue == expectedColor.blue)
+        #expect(pixel.alpha == 255)
+    }
+
     private func mystExportRoot() throws -> URL {
         let rootPath = try #require(ProcessInfo.processInfo.environment["MYST_EXPORT_ROOT"])
         return URL(fileURLWithPath: rootPath, isDirectory: true)
@@ -718,6 +760,30 @@ struct MystStackImportAcceptanceTests {
         let tokens = lexer.tokenize()
         var parser = Parser(tokens: tokens)
         return try parser.parse()
+    }
+
+    private func rgb(fromHex hex: String) -> (red: UInt8, green: UInt8, blue: UInt8)? {
+        guard hex.hasPrefix("#"), hex.count == 7 else { return nil }
+        let body = String(hex.dropFirst())
+        guard let value = Int(body, radix: 16) else { return nil }
+        return (
+            red: UInt8((value >> 16) & 0xFF),
+            green: UInt8((value >> 8) & 0xFF),
+            blue: UInt8(value & 0xFF)
+        )
+    }
+
+    private func rgba(atX x: Int, y: Int, in layer: CardPaintLayer) -> (red: UInt8, green: UInt8, blue: UInt8, alpha: UInt8)? {
+        guard x >= 0, y >= 0, x < layer.width, y < layer.height else { return nil }
+        let data = layer.normalizedRGBAData
+        let offset = (y * layer.width + x) * 4
+        guard data.indices.contains(offset + 3) else { return nil }
+        return (
+            red: data[offset],
+            green: data[offset + 1],
+            blue: data[offset + 2],
+            alpha: data[offset + 3]
+        )
     }
 
     private func storedScripts(in document: HypeDocument) -> [(ownerPath: String, source: String)] {
