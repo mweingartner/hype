@@ -62,6 +62,63 @@ struct AssetRepositoryTests {
         #expect(repository.searchAssets(named: "stone audio", category: .image).isEmpty)
     }
 
+    @Test("classic media lookup matches imported QuickTime metadata")
+    func classicMediaLookupMatchesImportedQuickTimeMetadata() {
+        let classic = Asset(
+            name: "AtrusWrite-modern.mov",
+            kind: .videoClip,
+            mimeType: "video/quicktime",
+            data: Data([1]),
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "AtrusWrite"),
+                AssetMetadataEntry(key: "lookup_key", value: "atruswrite")
+            ]
+        )
+        let other = Asset(name: "AtrusWrite", kind: .audioClip, mimeType: "audio/wav", data: Data([2]))
+        let repository = AssetRepository(assets: [other, classic])
+
+        #expect(repository.asset(byClassicMediaName: "AtrusWrite.MooV", kind: .videoClip)?.id == classic.id)
+        #expect(repository.asset(byClassicMediaName: "AtrusWrite-modern-av.mov", kind: .videoClip)?.id == classic.id)
+        #expect(repository.asset(byClassicMediaName: "AtrusWrite", kind: .audioClip)?.id == other.id)
+    }
+
+    @Test("classic media lookup treats slash and colon movie names as equivalent")
+    func classicMediaLookupTreatsSlashAndColonMovieNamesAsEquivalent() {
+        let movie = Asset(
+            name: "BR Seagulls:Water Slosh Mx Mov",
+            kind: .videoClip,
+            mimeType: "video/quicktime",
+            data: Data([1]),
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "BR Seagulls:Water Slosh Mx Mov"),
+                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("BR Seagulls:Water Slosh Mx Mov"))
+            ]
+        )
+        let repository = AssetRepository(assets: [movie])
+
+        #expect(AssetRepository.classicMediaLookupKey("BR Seagulls/Water Slosh Mx MoV") == "br seagulls water slosh mx mov")
+        #expect(repository.asset(byClassicMediaName: "BR Seagulls/Water Slosh Mx MoV", kind: .videoClip)?.id == movie.id)
+    }
+
+    @Test("classic media lookup strips audio-only modern suffix")
+    func classicMediaLookupStripsAudioOnlyModernSuffix() {
+        let movie = Asset(
+            name: "Intro Wind Mov-modern-audio.m4a",
+            kind: .videoClip,
+            mimeType: "video/quicktime",
+            data: Data("audio".utf8),
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "Intro Wind Mov"),
+                AssetMetadataEntry(key: "lookup_key", value: "intro wind mov"),
+                AssetMetadataEntry(key: "quicktime_audio_only", value: "true")
+            ]
+        )
+        let repository = AssetRepository(assets: [movie])
+
+        #expect(AssetRepository.classicMediaLookupKey("Intro Wind Mov-modern-audio.m4a") == "intro wind mov")
+        #expect(repository.asset(byClassicMediaName: "Intro Wind Mov", kind: .videoClip)?.id == movie.id)
+    }
+
     @Test("HypeDocument exposes assetRepository while preserving assetRepository storage")
     func documentAssetRepositoryAliasMutatesStoredRepository() {
         var document = HypeDocument.newDocument()

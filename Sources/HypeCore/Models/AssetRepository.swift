@@ -692,6 +692,27 @@ public struct AssetRepository: Codable, Sendable {
         return assets.reversed().first { $0.name.lowercased() == needle && $0.kind == kind }
     }
 
+    /// Find the newest asset by classic HyperCard media name.
+    ///
+    /// Loose-media imports preserve a normalized `lookup_key` and
+    /// `classic_name` in asset metadata. Compatibility commands such as
+    /// `playQT "Intro Wind Mov"` use those classic names rather than modern
+    /// filenames, so repository lookup needs to match both direct asset names
+    /// and imported metadata.
+    public func asset(byClassicMediaName name: String, kind: AssetKind? = nil) -> Asset? {
+        let key = Self.classicMediaLookupKey(name)
+        guard !key.isEmpty else { return nil }
+        return assets.reversed().first { asset in
+            if let kind, asset.kind != kind { return false }
+            if Self.classicMediaLookupKey(asset.name) == key { return true }
+            return asset.metadata.contains { entry in
+                let metadataKey = entry.key.lowercased()
+                guard metadataKey == "lookup_key" || metadataKey == "classic_name" else { return false }
+                return Self.classicMediaLookupKey(entry.value) == key
+            }
+        }
+    }
+
     /// Return all assets of one exact kind in document order.
     public func assets(ofKind kind: AssetKind) -> [Asset] {
         assets.filter { $0.kind == kind }
@@ -728,6 +749,34 @@ public struct AssetRepository: Codable, Sendable {
     /// Create an AssetRef pointing to the given asset.
     public func assetRef(for asset: Asset) -> AssetRef {
         AssetRef(id: asset.id, name: asset.name, mimeType: asset.mimeType)
+    }
+
+    public static func classicMediaLookupKey(_ name: String) -> String {
+        var stem = classicMediaLookupStem(name)
+        for suffix in ["-modern-audio", "-modern-av", "-modern"] where stem.lowercased().hasSuffix(suffix) {
+            stem.removeLast(suffix.count)
+        }
+        return stem
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .replacingOccurrences(of: #"[:/\\\s_\-\.]+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func classicMediaLookupStem(_ name: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let separatorCount = trimmed.filter { $0 == ":" || $0 == "/" }.count
+        let candidate: String
+        if separatorCount >= 2 {
+            candidate = trimmed
+                .split(whereSeparator: { $0 == ":" || $0 == "/" })
+                .last
+                .map(String.init) ?? trimmed
+        } else {
+            candidate = trimmed
+        }
+        let nsName = candidate as NSString
+        let stem = nsName.deletingPathExtension
+        return stem.isEmpty ? candidate : stem
     }
 
     /// Runtime assets compiled from the given source asset.

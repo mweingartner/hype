@@ -93,6 +93,66 @@ struct StackImportPackageDocumentImporterTests {
         ) == reloaded.cards.first?.id)
     }
 
+    @Test("imports requested loose media and reports missing classic media")
+    func importsRequestedLooseMediaAndReportsMissingClassicMedia() throws {
+        let root = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let packageURL = root.appendingPathComponent("Sample.xstk", isDirectory: true)
+        let outputURL = root.appendingPathComponent("out", isDirectory: true)
+        let mediaRoot = root.appendingPathComponent("Myst Source", isDirectory: true)
+        let moviesURL = mediaRoot.appendingPathComponent("Movies", isDirectory: true)
+        let movieURL = moviesURL.appendingPathComponent("Intro Wind Mov", isDirectory: false)
+        let manifestURL = root.appendingPathComponent("loose-media.tsv", isDirectory: false)
+        let movieData = Data("classic movie bytes".utf8)
+
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: moviesURL, withIntermediateDirectories: true)
+        try writeSyntheticPackage(at: packageURL)
+        try movieData.write(to: movieURL)
+        try Data("""
+        rel_path\tsource_path\toutput_path\tsize\tsha256\tfinder_type\tcreator\tsuffix\tkind
+        Movies/Intro Wind Mov\t<myst-source-root>/Movies/Intro Wind Mov\t\t19\tmoviehash\tMYqt\tMYST\t\tunknown_binary
+        Movies/Missing Mov\t<myst-source-root>/Movies/Missing Mov\t\t10\tmissinghash\tMYqt\tMYST\t\tquicktime_movie
+        """.utf8).write(to: manifestURL)
+
+        let result = try StackImportPackageDocumentImporter().importPackage(
+            options: StackImportPackageDocumentImportOptions(
+                packageURL: packageURL,
+                outputDirectoryURL: outputURL,
+                outputFileName: "Sample-debug.hype",
+                looseMediaManifestURL: manifestURL,
+                looseMediaSourceRootURL: mediaRoot,
+                looseMediaNames: ["Intro Wind Mov", "Missing Mov"]
+            )
+        )
+
+        #expect(result.summary.looseMedia?.importedAssetCount == 1)
+        #expect(result.summary.looseMedia?.imported == [
+            StackImportLooseMediaImportedAssetSummary(
+                relPath: "Movies/Intro Wind Mov",
+                name: "Intro Wind Mov",
+                assetName: "Intro Wind Mov",
+                kind: AssetKind.videoClip.rawValue,
+                resolvedPath: movieURL.path
+            )
+        ])
+        #expect(result.summary.looseMedia?.missing == [
+            LooseMediaImportDiagnostic(
+                relPath: "Movies/Missing Mov",
+                name: "Missing Mov",
+                reason: "file not found"
+            )
+        ])
+
+        let imported = try #require(result.document.assetRepository.asset(byClassicMediaName: "Intro Wind Mov", kind: .videoClip))
+        #expect(imported.data == movieData)
+        #expect(imported.metadata.contains { $0.key == "rel_path" && $0.value == "Movies/Intro Wind Mov" })
+
+        let reloaded = try HypeSQLiteStackStore().load(fromPackageAt: result.outputPackageURL)
+        let reloadedMovie = try #require(reloaded.assetRepository.asset(byClassicMediaName: "Intro Wind Mov", kind: .videoClip))
+        #expect(reloadedMovie.data == movieData)
+    }
+
     @Test("project importer writes related document paths into every stack library")
     func projectImporterWritesRelatedDocumentPathsIntoEveryStackLibrary() throws {
         let root = makeTemporaryDirectory()
