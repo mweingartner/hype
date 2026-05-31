@@ -311,8 +311,11 @@ public enum HypeAIConfiguration {
 
     public static func makeImageGenerationClient(defaults: UserDefaults = .standard) throws -> any HypeImageGenerating {
         let apiKey = try KeychainStore.getSecret(account: KeychainStore.openAIAPIKeyAccount)
+        guard let token = normalized(apiKey) else {
+            throw OpenAIClientError.noAPIKey
+        }
         return OpenAIImageGenerationClient(
-            apiKey: apiKey,
+            apiKey: token,
             model: openAIImageModel(defaults: defaults)
         )
     }

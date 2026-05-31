@@ -33,7 +33,7 @@ public actor OpenAIImageGenerationClient: HypeImageGenerating {
         }
     }
 
-    private let apiKey: String
+    private let apiKey: String?
     private let model: String
     private let baseURL: URL
     private let session: URLSession
@@ -47,7 +47,7 @@ public actor OpenAIImageGenerationClient: HypeImageGenerating {
         timeouts: Timeouts = Timeouts(),
         logger: HypeLogger = .shared
     ) {
-        self.apiKey = apiKey
+        self.apiKey = HypeAIConfiguration.normalized(apiKey)
         self.model = model
         self.baseURL = baseURL
         self.timeouts = timeouts
@@ -68,7 +68,7 @@ public actor OpenAIImageGenerationClient: HypeImageGenerating {
         session: URLSession,
         logger: HypeLogger = .shared
     ) {
-        self.apiKey = apiKey
+        self.apiKey = HypeAIConfiguration.normalized(apiKey)
         self.model = model
         self.baseURL = baseURL
         self.timeouts = timeouts
@@ -83,7 +83,7 @@ public actor OpenAIImageGenerationClient: HypeImageGenerating {
         quality: String? = nil,
         background: String? = nil
     ) async throws -> HypeGeneratedImage {
-        guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let apiKey else {
             throw OpenAIClientError.noAPIKey
         }
 

@@ -46,7 +46,7 @@ struct OpenAIImageGenerationClientTests {
         #expect(decoded.revisedPrompt == "A clean blue ball sprite.")
     }
 
-    @Test("generateImage posts to Images API without exposing image bytes in logs")
+    @Test("generateImage posts to Images API with normalized bearer auth and without exposing image bytes in logs")
     func generateImagePostsToImagesEndpoint() async throws {
         let testLogger = HypeLogger(setupFileLogging: false)
         defer { MockURLProtocol.requestHandler = nil }
@@ -83,7 +83,7 @@ struct OpenAIImageGenerationClientTests {
         }
 
         let client = OpenAIImageGenerationClient(
-            apiKey: "sk-test",
+            apiKey: "  sk-test \n",
             model: "gpt-image-1.5",
             baseURL: URL(string: "https://api.openai.test")!,
             session: session,
@@ -101,6 +101,50 @@ struct OpenAIImageGenerationClientTests {
         #expect(image.data == Data(base64Encoded: onePixelPNGBase64))
         #expect(testLogger.entries.contains { $0.message.contains("bytes=") })
         #expect(testLogger.entries.allSatisfy { !$0.message.contains(onePixelPNGBase64) })
+    }
+
+    @Test("generateImage rejects blank API key before network request")
+    func generateImageRejectsBlankAPIKeyBeforeNetworkRequest() async throws {
+        defer { MockURLProtocol.requestHandler = nil }
+
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: config)
+        var didSendRequest = false
+
+        MockURLProtocol.requestHandler = { request in
+            didSendRequest = true
+            Issue.record("OpenAI image request should not be sent without a usable API key: \(request)")
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 500,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data())
+        }
+
+        let client = OpenAIImageGenerationClient(
+            apiKey: "  \n\t  ",
+            baseURL: URL(string: "https://api.openai.test")!,
+            session: session,
+            logger: HypeLogger(setupFileLogging: false)
+        )
+
+        do {
+            _ = try await client.generateImage(
+                prompt: "a tiny red ship",
+                model: nil,
+                size: nil,
+                quality: nil,
+                background: nil
+            )
+            Issue.record("Expected OpenAI image generation to reject a blank API key")
+        } catch OpenAIClientError.noAPIKey {
+            #expect(!didSendRequest)
+        } catch {
+            Issue.record("Expected noAPIKey, got \(error)")
+        }
     }
 
     private static func bodyData(from request: URLRequest) -> Data? {
