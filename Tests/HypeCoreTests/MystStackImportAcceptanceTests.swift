@@ -484,6 +484,43 @@ struct MystStackImportAcceptanceTests {
         #expect(heading.textFont == "Helvetica")
         #expect(heading.textSize == 32)
     }
+
+    @Test("captures imported Myst cards as nonblank visual evidence")
+    @MainActor
+    func capturesImportedMystCardsAsNonblankVisualEvidence() throws {
+        let stacksRoot = try mystExportRoot().appendingPathComponent("exports/stacks", isDirectory: true)
+        let capturer = CardImageCapturer()
+
+        let app = try importPackage(stacksRoot.appendingPathComponent("Myst-Application.xstk", isDirectory: true))
+        let defaults = try #require(app.document.parts.first { $0.name == "defaults" })
+        let defaultsCardId = try #require(defaults.cardId)
+        let defaultsCapture = try capturer.capture(
+            cardName: nil,
+            document: app.document,
+            currentCardId: defaultsCardId,
+            maxLongEdge: 512
+        )
+        let defaultsStats = try visualStats(fromBase64PNG: defaultsCapture.imageBase64)
+        #expect(defaultsCapture.pixelWidth > 0)
+        #expect(defaultsCapture.pixelHeight > 0)
+        #expect(defaultsStats.darkOpaquePixelCount > 100)
+        #expect(defaultsStats.sampledColorCount > 1)
+
+        let mystPackageURL = stacksRoot.appendingPathComponent("Myst.xstk", isDirectory: true)
+        let myst = try importPackage(mystPackageURL)
+        let legacyMystCards = try legacyCardMap(packageURL: mystPackageURL, document: myst.document)
+        let blackCardId = try #require(legacyMystCards[23444])
+        let blackCapture = try capturer.capture(
+            cardName: nil,
+            document: myst.document,
+            currentCardId: blackCardId,
+            maxLongEdge: 512
+        )
+        let blackStats = try visualStats(fromBase64PNG: blackCapture.imageBase64)
+        #expect(blackCapture.pixelWidth > 0)
+        #expect(blackCapture.pixelHeight > 0)
+        #expect(blackStats.nonWhiteOpaquePixelCount > blackStats.pixelCount / 3)
+    }
     #endif
 
     private func mystExportRoot() throws -> URL {
@@ -714,6 +751,48 @@ struct MystStackImportAcceptanceTests {
             options: [.usesLineFragmentOrigin, .usesFontLeading]
         )
         return (contentRect, ceil(bounds.width), ceil(bounds.height))
+    }
+
+    private func visualStats(fromBase64PNG base64: String) throws -> VisualStats {
+        let data = try #require(Data(base64Encoded: base64))
+        let bitmap = try #require(NSBitmapImageRep(data: data))
+        var darkOpaquePixelCount = 0
+        var nonWhiteOpaquePixelCount = 0
+        var sampledColors = Set<Int>()
+        let width = bitmap.pixelsWide
+        let height = bitmap.pixelsHigh
+        for y in 0..<height {
+            for x in 0..<width {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                      color.alphaComponent > 0.8 else { continue }
+                let red = Int((color.redComponent * 255).rounded())
+                let green = Int((color.greenComponent * 255).rounded())
+                let blue = Int((color.blueComponent * 255).rounded())
+                let luminance = (0.2126 * Double(red)) + (0.7152 * Double(green)) + (0.0722 * Double(blue))
+                if luminance < 96 {
+                    darkOpaquePixelCount += 1
+                }
+                if red < 245 || green < 245 || blue < 245 {
+                    nonWhiteOpaquePixelCount += 1
+                }
+                if x.isMultiple(of: 16), y.isMultiple(of: 16) {
+                    sampledColors.insert((red << 16) | (green << 8) | blue)
+                }
+            }
+        }
+        return VisualStats(
+            pixelCount: width * height,
+            darkOpaquePixelCount: darkOpaquePixelCount,
+            nonWhiteOpaquePixelCount: nonWhiteOpaquePixelCount,
+            sampledColorCount: sampledColors.count
+        )
+    }
+
+    private struct VisualStats {
+        var pixelCount: Int
+        var darkOpaquePixelCount: Int
+        var nonWhiteOpaquePixelCount: Int
+        var sampledColorCount: Int
     }
     #endif
 }
