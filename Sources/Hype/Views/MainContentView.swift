@@ -1309,6 +1309,10 @@ private struct NavigationHandlers: ViewModifier {
                 guard let cardId = notification.object as? UUID else { return }
                 navigateToCard(cardId)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .navigateToProjectTarget)) { notification in
+                guard let target = notification.object as? ProjectNavigationTarget else { return }
+                ProjectNavigationRouter.route(target)
+            }
             .onReceive(NotificationCenter.default.publisher(for: .addNewCard)) { _ in
                 addNewCard()
             }
