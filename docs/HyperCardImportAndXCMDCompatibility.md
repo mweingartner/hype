@@ -148,8 +148,9 @@ Implemented:
   document self-contained while allowing classic media/resource lookup to find
   shared content-stack assets by name or resource ID.
 - StackImport package and project import summaries report generated `.hype`
-  package byte counts so debug/live probes can profile self-contained package
-  growth as Myst content-stack resources and loose media are imported.
+  package byte counts and import durations so debug/live probes can profile
+  self-contained package growth and import cost as Myst content-stack resources
+  and loose media are imported.
 
 Not yet implemented:
 
