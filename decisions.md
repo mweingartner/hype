@@ -41,6 +41,7 @@ document semantics.
 
 - Keep AI authoring deterministic where tools exist. Prefer validated tools and templates over freehand raw script or node edits.
 - Specific user intent outranks AI template defaults. Deterministic game templates may provide a baseline only when they match the requested game; explicit target names, existing-scene requirements, requested art generation, mechanics, and script behavior must be preserved through tool arguments and follow-up customization.
+- SpriteKit authoring tools must fail closed when user intent names or implies an existing target. Do not create a default template area, run a narrow direct-edit shortcut, or claim success if the requested existing sprite area/scene was not actually mutated.
 - Keep model prompts concise and source-grounded. Large catalogs should be discoverable through tools rather than always injected into the system prompt.
 - Expand AI context through explicit, auditable tools rather than by adding large dynamic catalogs, private libraries, or broad project data directly to the prompt window.
 - External scripting references should be curated into source-attributed, Hype-specific tool guides and parser-tested patterns. Do not paste large raw reference material into every model prompt or treat classic HyperTalk behavior as implemented until Hype compatibility is verified.

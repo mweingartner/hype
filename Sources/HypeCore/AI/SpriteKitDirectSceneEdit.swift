@@ -46,6 +46,10 @@ public enum SpriteKitDirectSceneEdit {
     private static func isBoundaryWallRequest(_ prompt: String) -> Bool {
         let lower = normalized(prompt)
 
+        if isCompleteGameScaffoldRequest(prompt, normalizedPrompt: lower) {
+            return false
+        }
+
         let scriptTerms = [
             "script",
             "hypetalk",
@@ -113,6 +117,33 @@ public enum SpriteKitDirectSceneEdit {
             shapeTerms.contains(where: { lower.contains($0) }) &&
             actionTerms.contains(where: { lower.contains($0) }) &&
             spriteContextTerms.contains(where: { lower.contains($0) })
+    }
+
+    private static func isCompleteGameScaffoldRequest(_ prompt: String, normalizedPrompt lower: String) -> Bool {
+        if lower.contains("all game logic") ||
+            lower.contains("complete game") ||
+            lower.contains("playable game") {
+            return true
+        }
+
+        let creationTerms = [
+            "create",
+            "build",
+            "make",
+            "generate",
+            "implement",
+            "develop",
+            "scaffold"
+        ]
+        let asksToCreate = creationTerms.contains { lower.contains($0) }
+        guard asksToCreate else { return false }
+
+        if lower.contains(" game") || lower.contains("game ") {
+            return true
+        }
+
+        let inference = SpriteGameTemplateBuilder.inferTemplate(forPrompt: prompt)
+        return inference.templateID != nil && inference.confidence >= 0.8
     }
 
     private static func targetSpriteArea(

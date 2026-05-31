@@ -334,9 +334,13 @@ public enum SpriteGameTemplateCatalog {
         let explicitArea = quotedName(after: [
             "sprite area", "spritearea", "sprite-area", "play area"
         ], in: trimmed)
+            ?? quotedName(before: ["sprite area", "spritearea", "sprite-area", "play area"], in: trimmed)
+            ?? unquotedName(after: ["sprite area", "spritearea", "sprite-area", "play area"], in: trimmed)
         let explicitScene = quotedName(after: [
             "sprite scene", "scene"
         ], in: trimmed)
+            ?? quotedName(before: ["sprite scene", "scene"], in: trimmed)
+            ?? unquotedName(after: ["sprite scene", "scene"], in: trimmed)
         let lower = trimmed.lowercased()
         let requiresExisting = [
             "already exists",
@@ -642,6 +646,42 @@ public enum SpriteGameTemplateCatalog {
         for prefix in prefixes {
             let escaped = NSRegularExpression.escapedPattern(for: prefix)
             let pattern = #"\b"# + escaped + #"\s+(?:named\s+|called\s+)?["'“”]([^"'“”]+)["'“”]"#
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+                continue
+            }
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
+            guard let match = regex.firstMatch(in: text, options: [], range: range),
+                  let nameRange = Range(match.range(at: 1), in: text) else {
+                continue
+            }
+            let name = String(text[nameRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty { return name }
+        }
+        return nil
+    }
+
+    private static func quotedName(before suffixes: [String], in text: String) -> String? {
+        for suffix in suffixes {
+            let escaped = NSRegularExpression.escapedPattern(for: suffix)
+            let pattern = #"["'“”]([^"'“”]+)["'“”]\s+(?:"# + escaped + #")\b"#
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+                continue
+            }
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
+            guard let match = regex.firstMatch(in: text, options: [], range: range),
+                  let nameRange = Range(match.range(at: 1), in: text) else {
+                continue
+            }
+            let name = String(text[nameRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty { return name }
+        }
+        return nil
+    }
+
+    private static func unquotedName(after prefixes: [String], in text: String) -> String? {
+        for prefix in prefixes {
+            let escaped = NSRegularExpression.escapedPattern(for: prefix)
+            let pattern = #"\b"# + escaped + #"\s+(?:named\s+|called\s+)([A-Za-z0-9][A-Za-z0-9_. -]{0,127}?)(?=\s*(?:[.,;:]|$)|\s+(?:on|in|with|that|which|and|already|to|for)\b)"#
             guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
                 continue
             }

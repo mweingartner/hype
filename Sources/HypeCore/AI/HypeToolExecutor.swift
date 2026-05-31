@@ -2929,7 +2929,7 @@ public struct HypeToolExecutor: Sendable {
 
             let rawExplicitAreaName = arguments["sprite_area_name"]?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            let explicitAreaName: String?
+            var explicitAreaName: String?
             if let rawExplicitAreaName, !rawExplicitAreaName.isEmpty {
                 guard let cleaned = sanitizeAssetName(rawExplicitAreaName) else {
                     return "sprite_area_name '\(rawExplicitAreaName)' is invalid — use 1-128 characters, letters / digits / _ / - / . / space only"
@@ -2941,7 +2941,7 @@ public struct HypeToolExecutor: Sendable {
 
             let rawSceneName = (arguments["scene_name"] ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            let requestedSceneName: String?
+            var requestedSceneName: String?
             if rawSceneName.isEmpty {
                 requestedSceneName = nil
             } else {
@@ -2951,15 +2951,47 @@ public struct HypeToolExecutor: Sendable {
                 requestedSceneName = cleaned
             }
 
+            let userIntent = HypeAIConfiguration.normalized(arguments["user_intent"])
+            let intentInference = userIntent.map { SpriteGameTemplateBuilder.inferTemplate(forPrompt: $0) }
+            if explicitAreaName == nil,
+               let inferredArea = HypeAIConfiguration.normalized(intentInference?.explicitSpriteAreaName) {
+                guard let cleaned = sanitizeAssetName(inferredArea) else {
+                    return "sprite_area_name '\(inferredArea)' inferred from user_intent is invalid — use 1-128 characters, letters / digits / _ / - / . / space only"
+                }
+                explicitAreaName = cleaned
+            }
+            if requestedSceneName == nil,
+               let inferredScene = HypeAIConfiguration.normalized(intentInference?.explicitSceneName) {
+                guard let cleaned = sanitizeAssetName(inferredScene) else {
+                    return "scene_name '\(inferredScene)' inferred from user_intent is invalid — use 1-128 characters, letters / digits / _ / - / . / space only"
+                }
+                requestedSceneName = cleaned
+            }
+
+            var requireExistingTarget = boolArgument(arguments["require_existing_scene"])
+                ?? boolArgument(arguments["require_existing_target"])
+                ?? false
+            if intentInference?.requiresExistingTarget == true {
+                requireExistingTarget = true
+            }
+            if requireExistingTarget,
+               explicitAreaName == nil,
+               requestedSceneName == nil {
+                let candidates = document.effectivePartsForCard(currentCardId).filter { $0.partType == .spriteArea }
+                if candidates.count == 1,
+                   let targetName = HypeAIConfiguration.normalized(candidates[0].name) {
+                    explicitAreaName = targetName
+                } else {
+                    return "The request says to use an existing sprite area/scene, but create_sprite_game_template did not receive a target. No template was applied; pass sprite_area_name or scene_name."
+                }
+            }
+
             let partIdx: Int
             let createdArea: Bool
             var targetSceneName = requestedSceneName
             let resolvedAreaNameForCreation = explicitAreaName
                 ?? (requestedSceneName == nil ? SpriteGameTemplateBuilder.defaultSpriteAreaName(for: gameType) : requestedSceneName)
                 ?? SpriteGameTemplateBuilder.defaultSpriteAreaName(for: gameType)
-            let requireExistingTarget = boolArgument(arguments["require_existing_scene"])
-                ?? boolArgument(arguments["require_existing_target"])
-                ?? false
 
             if let explicitAreaName,
                let existing = spriteAreaIndex(named: explicitAreaName, currentCardId: currentCardId, in: document) {

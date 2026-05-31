@@ -2456,7 +2456,12 @@ Specific user intent outranks template defaults. If the user names an existing
 sprite area or scene, the mutating call must pass `sprite_area_name` and/or
 `scene_name`; if the user says the target already exists,
 `require_existing_scene=true` makes the tool fail safely instead of creating a
-default template area. If the request has unusual mechanics, generated-art
+default template area. `create_sprite_game_template` also re-analyzes the
+optional `user_intent` payload so a model omission does not silently redirect a
+named-target request to the template's default area. Narrow direct-edit
+shortcuts such as boundary-wall creation must not consume complete-game
+requests; those prompts route through inference/template tooling first and then
+through explicit follow-up edits. If the request has unusual mechanics, generated-art
 requirements, or other customization, the model calls
 `get_sprite_game_template_guide` for focused guidance and treats the template
 as a baseline followed by targeted `list_scene_nodes`, `set_node_property`,

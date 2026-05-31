@@ -1037,7 +1037,9 @@ public enum HypeTalkGuide {
         pass that target to `create_sprite_game_template`; if they say it already
         exists, pass `require_existing_scene=true`; if inference reports
         `template_use=create_then_customize`, apply the requested mechanics,
-        generated assets, names, and scripts after the baseline scaffold.
+        generated assets, names, and scripts after the baseline scaffold. Do not
+        satisfy complete-game requests with narrow shortcuts such as boundary
+        walls; use the template tool first, then customize the requested target.
 
         **React when a field loses focus — use `on exitField` (always fires) or `on closeField` (only when text changed):**
             on exitField

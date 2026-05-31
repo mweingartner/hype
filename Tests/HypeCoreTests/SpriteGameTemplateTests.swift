@@ -641,6 +641,59 @@ struct SpriteGameTemplateTests {
         #expect(spec.activeScene?.name == "missile")
     }
 
+    @Test("create_sprite_game_template infers existing sprite area from user_intent instead of creating default area")
+    func createSpriteGameTemplateInfersExistingAreaFromUserIntent() async throws {
+        var document = HypeDocument.newDocument()
+        let cardId = document.sortedCards[0].id
+        var area = Part(partType: .spriteArea, cardId: cardId, name: "missile", left: 20, top: 20, width: 640, height: 480)
+        area.setSpriteAreaSpec(SpriteAreaSpec(defaultSceneNamed: "main", fallbackSize: SizeSpec(width: 640, height: 480)))
+        document.addPart(area)
+
+        let result = await HypeToolExecutor().execute(
+            toolName: "create_sprite_game_template",
+            arguments: [
+                "game_type": "missile_command",
+                "user_intent": #"create a missile command style game in the current card within the existing sprite area called "missile". Implement all game logic and use the image generation API to create all needed assets for sprites, walls, etc."#
+            ],
+            document: &document,
+            currentCardId: cardId
+        )
+
+        #expect(result.contains("sprite area 'missile'"))
+        #expect(document.parts.first { $0.name == "missileCommandArea" } == nil)
+        let rebuiltArea = try #require(document.parts.first { $0.name == "missile" })
+        let scene = try #require(rebuiltArea.activeSceneSpec)
+        #expect(scene.node(named: "launcher") != nil)
+        #expect(scene.node(named: "city_1") != nil)
+        #expect(!scene.script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    @Test("create_sprite_game_template honors quoted sprite area before suffix in user_intent")
+    func createSpriteGameTemplateHonorsQuotedAreaBeforeSuffix() async throws {
+        var document = HypeDocument.newDocument()
+        let cardId = document.sortedCards[0].id
+        var area = Part(partType: .spriteArea, cardId: cardId, name: "missile", left: 20, top: 20, width: 640, height: 480)
+        area.setSpriteAreaSpec(SpriteAreaSpec(defaultSceneNamed: "main", fallbackSize: SizeSpec(width: 640, height: 480)))
+        document.addPart(area)
+
+        let result = await HypeToolExecutor().execute(
+            toolName: "create_sprite_game_template",
+            arguments: [
+                "game_type": "missile_command",
+                "user_intent": #"there is zero game logic in the missile command game in the "missile" sprite area. Why didn't you create it?"#
+            ],
+            document: &document,
+            currentCardId: cardId
+        )
+
+        #expect(result.contains("sprite area 'missile'"))
+        #expect(document.parts.first { $0.name == "missileCommandArea" } == nil)
+        let rebuiltArea = try #require(document.parts.first { $0.name == "missile" })
+        let scene = try #require(rebuiltArea.activeSceneSpec)
+        #expect(scene.node(named: "launcher") != nil)
+        #expect(scene.node(named: "city_1") != nil)
+    }
+
     @Test("create_sprite_game_template fails safely when required existing scene is missing")
     func createSpriteGameTemplateFailsWhenRequiredSceneMissing() async throws {
         var document = HypeDocument.newDocument()

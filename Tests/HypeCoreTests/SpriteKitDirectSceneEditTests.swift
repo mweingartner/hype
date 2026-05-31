@@ -64,6 +64,21 @@ struct SpriteKitDirectSceneEditTests {
         #expect(Set(secondWalls.map(\.id)) == firstIds)
     }
 
+    @Test("complete game prompt mentioning walls does not shortcut to boundary-only edit")
+    func completeGamePromptDoesNotShortcutToBoundaryWalls() {
+        var document = documentWithSpriteArea(name: "missile")
+        let cardId = document.cards[0].id
+
+        let result = SpriteKitDirectSceneEdit.addBoundaryWallsIfRequested(
+            prompt: #"create a missile command style game in the current card within the existing sprite area called "missile". Implement all game logic and use the image generation API to create all needed assets for sprites, walls, etc."#,
+            document: &document,
+            currentCardId: cardId
+        )
+
+        #expect(result == nil)
+        #expect(wallNodes(in: activeScene(named: "missile", in: document)).isEmpty)
+    }
+
     @Test("generic card border prompts do not mutate SpriteKit scenes")
     func genericCardBorderPromptDoesNotMutate() {
         var document = documentWithSpriteArea()
@@ -100,10 +115,10 @@ struct SpriteKitDirectSceneEditTests {
         #expect(wallNodes(in: activeScene(named: "arena", in: document)).isEmpty)
     }
 
-    private func documentWithSpriteArea() -> HypeDocument {
+    private func documentWithSpriteArea(name: String = "bounder") -> HypeDocument {
         var document = HypeDocument.newDocument(name: "Test")
         let cardId = document.cards[0].id
-        document.addPart(makeSpriteArea(name: "bounder", cardId: cardId, size: SizeSpec(width: 820, height: 612)))
+        document.addPart(makeSpriteArea(name: name, cardId: cardId, size: SizeSpec(width: 820, height: 612)))
         return document
     }
 
