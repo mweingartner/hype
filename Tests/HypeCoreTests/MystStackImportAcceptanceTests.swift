@@ -324,6 +324,72 @@ struct MystStackImportAcceptanceTests {
         })
     }
 
+    @Test("full Myst project packages survive SQLite save reload validation")
+    func fullMystProjectPackagesSurviveSQLiteSaveReloadValidation() throws {
+        let root = try mystExportRoot()
+        let stacksRoot = root.appendingPathComponent("exports/stacks", isDirectory: true)
+        let packageNames = [
+            "Myst-Application.xstk",
+            "ALLRes.xstk",
+            "INRes1.xstk",
+            "Myst.xstk",
+            "Mechanical-Age.xstk",
+            "Stoneship-Age.xstk",
+            "Channelwood-Age.xstk",
+            "Selenitic-Age.xstk",
+            "Dunny-Age.xstk",
+        ]
+        let packageURLs = packageNames.map { stacksRoot.appendingPathComponent($0, isDirectory: true) }
+        let outputURL = makeTemporaryDirectory(prefix: "hype-myst-persistence-source")
+        let roundTripRootURL = makeTemporaryDirectory(prefix: "hype-myst-persistence-roundtrip")
+        defer {
+            try? FileManager.default.removeItem(at: outputURL)
+            try? FileManager.default.removeItem(at: roundTripRootURL)
+        }
+        let mediaNames: Set<String> = [
+            "Intro",
+            "Holo-SMessage",
+            "Fountain",
+            "Caldera South",
+            "EV StoneForest Mov",
+        ]
+
+        let result = try StackImportPackageProjectImporter().importProject(
+            options: StackImportPackageProjectImportOptions(
+                packageURLs: packageURLs,
+                outputDirectoryURL: outputURL,
+                looseMediaManifestURL: root.appendingPathComponent("manifests/loose-media.tsv"),
+                looseMediaReplacementRootURL: root.appendingPathComponent("exports/modern-quicktime", isDirectory: true),
+                looseMediaNames: mediaNames,
+                stackLibraryEntries: packageURLs.map(stackLibraryEntry),
+                usedStackAliases: ["ALLRes", "INRes1"]
+            )
+        )
+
+        #expect(result.packageResults.count == packageNames.count)
+        let store = HypeSQLiteStackStore()
+        for packageResult in result.packageResults {
+            let original = try store.load(fromPackageAt: packageResult.outputPackageURL)
+            let roundTripURL = roundTripRootURL.appendingPathComponent(packageResult.outputPackageURL.lastPathComponent, isDirectory: true)
+            try store.save(original, toPackageAt: roundTripURL)
+            let diagnostics = try store.validate(packageURL: roundTripURL)
+            #expect(diagnostics.isHealthy, "\(roundTripURL.lastPathComponent) failed SQLite validation: \(diagnostics)")
+
+            let reloaded = try store.load(fromPackageAt: roundTripURL)
+            #expect(reloaded.stack.id == original.stack.id)
+            #expect(reloaded.stack.name == original.stack.name)
+            #expect(reloaded.cards.count == original.cards.count)
+            #expect(reloaded.backgrounds.count == original.backgrounds.count)
+            #expect(reloaded.parts.count == original.parts.count)
+            #expect(reloaded.stackLibrary.entries.count == packageNames.count)
+            #expect(reloaded.assetRepository.assets.count == original.assetRepository.assets.count)
+            #expect(reloaded.assetRepository.assets.filter(isSharedContentAsset).count == original.assetRepository.assets.filter(isSharedContentAsset).count)
+            #expect(reloaded.assetRepository.assets.filter { $0.kind == .videoClip }.count == original.assetRepository.assets.filter { $0.kind == .videoClip }.count)
+            #expect(reloaded.paintLayers.count == original.paintLayers.count)
+            #expect(storedScriptParseFailures(in: reloaded).isEmpty)
+        }
+    }
+
     @Test("seeded Myst launcher marker click returns dock project navigation target")
     func seededMystLauncherMarkerClickReturnsDockProjectNavigationTarget() throws {
         let root = try mystExportRoot()
@@ -1046,6 +1112,10 @@ struct MystStackImportAcceptanceTests {
         if paintLayerCardIds.contains(card.id) { return 0 }
         if partCardIds.contains(card.id) { return 1 }
         return 2
+    }
+
+    private func isSharedContentAsset(_ asset: Asset) -> Bool {
+        asset.metadata.contains { $0.key == "shared_from_content_stack" }
     }
 
     private func storedScripts(in document: HypeDocument) -> [(ownerPath: String, source: String)] {
