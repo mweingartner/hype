@@ -1616,8 +1616,9 @@ public struct Interpreter: Sendable {
         case .externalCommand(let name, let argumentExprs):
             var args: [Value] = []
             for expr in argumentExprs {
-                args.append(try await evaluate(expr, env: &env, document: document, context: context))
+                args.append(try await evaluateExternalArgumentExpression(expr, env: &env, document: document, context: context))
             }
+            document.scriptGlobals = env.globals
             let result = await context.externalRegistry.invoke(
                 HyperCardExternalCall(name: name, kind: .xcmd, arguments: args),
                 context: HyperCardExternalCallContext(
@@ -1630,8 +1631,16 @@ public struct Interpreter: Sendable {
                 document = modified
             }
             for (key, value) in result.runtimeGlobals {
+                env.globals[key] = value
                 env.globals[key.lowercased()] = value
             }
+            if let visualEffect = result.visualEffect {
+                env.locals["_visualEffect"] = visualEffect
+            }
+            if let visualEffectDuration = result.visualEffectDuration {
+                env.locals["_visualEffectDuration"] = String(visualEffectDuration)
+            }
+            document.scriptGlobals = env.globals
             env.it = result.value
             env.result = result.result
             if result.passMessage {
@@ -2736,13 +2745,71 @@ public struct Interpreter: Sendable {
                 }
             }
 
+        case .startUsing(let stackExpr):
+            let alias = try await evaluate(stackExpr, env: &env, document: document, context: context)
+            switch document.stackLibrary.startUsing(alias) {
+            case .started(let entry):
+                env.it = entry.primaryAlias
+                env.result = entry.primaryAlias
+            case .missing(let missingAlias):
+                throw ScriptError(message: "Stack not found: \(missingAlias)", line: handler.line, handler: handler.name)
+            case .ambiguous(let ambiguousAlias, let candidates):
+                let names = stackLibraryCandidateSummary(candidates)
+                throw ScriptError(
+                    message: "Ambiguous stack name '\(ambiguousAlias)': \(names)",
+                    line: handler.line,
+                    handler: handler.name
+                )
+            case .stopped:
+                break
+            }
+
+        case .stopUsing(let stackExpr):
+            let alias = try await evaluate(stackExpr, env: &env, document: document, context: context)
+            switch document.stackLibrary.stopUsing(alias) {
+            case .stopped(let entry):
+                env.it = entry.primaryAlias
+                env.result = entry.primaryAlias
+            case .missing(let missingAlias):
+                throw ScriptError(message: "Stack not found: \(missingAlias)", line: handler.line, handler: handler.name)
+            case .ambiguous(let ambiguousAlias, let candidates):
+                let names = stackLibraryCandidateSummary(candidates)
+                throw ScriptError(
+                    message: "Ambiguous stack name '\(ambiguousAlias)': \(names)",
+                    line: handler.line,
+                    handler: handler.name
+                )
+            case .started:
+                break
+            }
+
         // Phase 2: Stub commands (recognized but no-op)
         case .push, .pop, .clickAt, .doMenuCmd, .disableCmd, .enableCmd,
              .helpCmd, .debugCmd, .dialCmd, .printCmd, .readCmd, .writeCmd,
-             .runCmd, .startUsing, .stopUsing,
-             .copyTemplate, .exportPaint, .importPaint:
+             .runCmd,
+            .copyTemplate, .exportPaint, .importPaint:
             break
         }
+    }
+
+    private func evaluateExternalArgumentExpression(
+        _ expr: Expression,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async throws -> Value {
+        let evaluated = try await evaluate(expr, env: &env, document: document, context: context)
+        if evaluated.isEmpty, case .variable(let name) = expr {
+            return name
+        }
+        return evaluated
+    }
+
+    private func stackLibraryCandidateSummary(_ candidates: [HypeStackLibraryEntry]) -> String {
+        candidates
+            .map { $0.stackName.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
     }
 
     // MARK: - GIF animation helpers
@@ -2981,6 +3048,10 @@ public struct Interpreter: Sendable {
 
         case .objectRef(let ref):
             let identVal = try await evaluateObjectRefIdentifier(ref.identifier, env: &env, document: document, context: context)
+            if let partIndex = findPartIndex(ref.objectType, identifier: identVal, env: &env, document: document, currentCardId: context.currentCardId),
+               document.parts[partIndex].partType == .field || document.parts[partIndex].partType == .button {
+                return document.parts[partIndex].textContent
+            }
             return resolveObjectRef(ref.objectType, identifier: identVal, document: document, context: context)
 
         case .scopedObjectRef(let object, let owner):
@@ -2991,6 +3062,9 @@ public struct Interpreter: Sendable {
                 document: document,
                 context: context
             ) {
+                if document.parts[partIndex].partType == .field || document.parts[partIndex].partType == .button {
+                    return document.parts[partIndex].textContent
+                }
                 return document.parts[partIndex].id.uuidString
             }
             return ""
@@ -3657,7 +3731,10 @@ public struct Interpreter: Sendable {
         }
         if targetVal.lowercased() == "stack" || isStackObjectReference {
             switch lower {
-            case "name":        return document.stack.name
+            case "name", "shortname", "short name", "abbrevname", "abbrev name",
+                 "abbreviatedname", "abbreviated name", "abbrname", "abbr name",
+                 "longname", "long name":
+                return document.stack.name
             case "defaultfont", "default_font", "textfont", "font":
                 return document.stack.defaultFont
             case "width":       return String(document.stack.width)
@@ -4589,7 +4666,6 @@ public struct Interpreter: Sendable {
         context: ExecutionContext
     ) async throws -> Value {
         let value = try await evaluate(expr, env: &env, document: document, context: context)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
         if value.isEmpty, case .variable(let name) = expr {
             return name
         }
@@ -4603,7 +4679,6 @@ public struct Interpreter: Sendable {
         context: ExecutionContext
     ) async throws -> Value {
         let value = try await evaluate(expr, env: &env, document: document, context: context)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
         if value.isEmpty, case .variable(let name) = expr {
             return name
         }
@@ -5926,7 +6001,8 @@ public struct Interpreter: Sendable {
 
     private func isHyperCardCompatibilityWindowPart(_ part: Part) -> Bool {
         part.helpText == "hypercard-playqt" ||
-            part.helpText.hasPrefix("hypercard-playqt\n")
+            part.helpText.hasPrefix("hypercard-playqt\n") ||
+            part.helpText == "hypercard-picture"
     }
 
     private func normalizedClassicSoundVolume(_ rawValue: Value) -> Double {
