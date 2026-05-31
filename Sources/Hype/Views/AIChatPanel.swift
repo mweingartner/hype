@@ -957,27 +957,30 @@ struct AIChatPanel: View {
 
     @MainActor
     private func applySpriteGameTemplateIfRequested(_ userMessage: String) async -> Bool {
-        guard let gameType = SpriteGameTemplateBuilder.inferredGameType(forPrompt: userMessage) else {
+        let inference = SpriteGameTemplateBuilder.inferTemplate(forPrompt: userMessage)
+        guard inference.shouldAutoApplyTemplate,
+              let gameType = inference.templateID else {
             return false
         }
 
         let size = requestedSpriteGameSize(in: userMessage)
             ?? SpriteGameTemplateBuilder.defaultSceneSize(for: gameType)
-        let areaName = SpriteGameTemplateBuilder.defaultSpriteAreaName(for: gameType)
+        var arguments = inference.recommendedCreateArguments
+        arguments["game_type"] = gameType
+        if arguments["sprite_area_name"] == nil {
+            arguments["sprite_area_name"] = SpriteGameTemplateBuilder.defaultSpriteAreaName(for: gameType)
+        }
+        arguments["left"] = "0"
+        arguments["top"] = "0"
+        arguments["width"] = String(Int(size.width.rounded()))
+        arguments["height"] = String(Int(size.height.rounded()))
+        arguments["scene_width"] = String(Int(size.width.rounded()))
+        arguments["scene_height"] = String(Int(size.height.rounded()))
         var updatedDocument = document.document
         let cardId = currentCardId ?? updatedDocument.sortedCards.first?.id ?? UUID()
         let result = await HypeToolExecutor().execute(
             toolName: "create_sprite_game_template",
-            arguments: [
-                "game_type": gameType,
-                "sprite_area_name": areaName,
-                "left": "0",
-                "top": "0",
-                "width": String(Int(size.width.rounded())),
-                "height": String(Int(size.height.rounded())),
-                "scene_width": String(Int(size.width.rounded())),
-                "scene_height": String(Int(size.height.rounded())),
-            ],
+            arguments: arguments,
             document: &updatedDocument,
             currentCardId: cardId
         )
@@ -1533,7 +1536,7 @@ struct AIChatPanel: View {
                 - For data-entry forms, input forms, customer/contact/login forms, headers, labels, and text fields: use ordinary card/background controls. Use create_label for labels/headers and create_field(style=rectangle, stroke_color=#000000, stroke_width=1) for user input fields. Do NOT create a Sprite Area or scene labels unless the user explicitly asks for SpriteKit, sprites, physics, a game, or a scene.
                 - To add a generated picture/illustration/image to the current card or background, use generate_image. Use create_image only for an existing file path or existing repository asset.
                 - To create a generated sprite/library/repository asset, use generate_sprite_asset. If the user did not provide the desired sprite asset name, ask for the name before calling the tool.
-                - For complete SpriteKit game requests, call infer_sprite_game_template with the user's prompt first unless Hype already routed the request directly. If confidence is low or the request has unusual mechanics, call get_sprite_game_template_guide for the selected game_type, then call create_sprite_game_template. Deterministic templates create local placeholder assets, scene nodes, physics, reset logic, and parser-tested HypeTalk before optional customization. Do NOT ask the user to provide basic tile sheets or manually stitch a full game from low-level calls when a template exists.
+                - For complete SpriteKit game requests, call infer_sprite_game_template with the user's prompt first unless Hype already routed the request directly. Specific user intent outranks template defaults: if the user names an existing sprite area/scene, pass sprite_area_name and/or scene_name to create_sprite_game_template; if they say it already exists, pass require_existing_scene=true; if the inference says template_use=create_then_customize, create the baseline only if it matches the requested game, then inspect and apply the requested art/mechanics/scripts as a second pass. Deterministic templates create local placeholder assets, scene nodes, physics, reset logic, and parser-tested HypeTalk before optional customization. Do NOT ask the user to provide basic tile sheets or manually stitch a full game from low-level calls when a template exists.
                 \(aiContextPromptRules)
                 - When the user says "background", set on_background to "true" in create tools.
                 - If the user asks to create, set, attach, install, replace, or update a script on the stack, card, background, button, field, sprite area, scene, or node, use the appropriate setter tool. Do not answer with bare HypeTalk unless the user explicitly asks only to write or explain code.
@@ -1570,7 +1573,7 @@ struct AIChatPanel: View {
                 - For data-entry forms, input forms, customer/contact/login forms, headers, labels, and text fields: use ordinary card/background controls. Use create_label for labels/headers and create_field(style=rectangle, stroke_color=#000000, stroke_width=1) for user input fields. Do NOT create a Sprite Area or scene labels unless the user explicitly asks for SpriteKit, sprites, physics, a game, or a scene.
                 - To add a generated picture/illustration/image to the current card or background, use generate_image. Use create_image only for an existing file path or existing repository asset.
                 - To create a generated sprite/library/repository asset, use generate_sprite_asset. If the user did not provide the desired sprite asset name, ask for the name before calling the tool.
-                - For complete SpriteKit game requests, call infer_sprite_game_template with the user's prompt first unless Hype already routed the request directly. If confidence is low or the request has unusual mechanics, call get_sprite_game_template_guide for the selected game_type, then call create_sprite_game_template. Deterministic templates create local placeholder assets, scene nodes, physics, reset logic, and parser-tested HypeTalk before optional customization. Do NOT ask the user to provide basic tile sheets or manually stitch a full game from low-level calls when a template exists.
+                - For complete SpriteKit game requests, call infer_sprite_game_template with the user's prompt first unless Hype already routed the request directly. Specific user intent outranks template defaults: if the user names an existing sprite area/scene, pass sprite_area_name and/or scene_name to create_sprite_game_template; if they say it already exists, pass require_existing_scene=true; if the inference says template_use=create_then_customize, create the baseline only if it matches the requested game, then inspect and apply the requested art/mechanics/scripts as a second pass. Deterministic templates create local placeholder assets, scene nodes, physics, reset logic, and parser-tested HypeTalk before optional customization. Do NOT ask the user to provide basic tile sheets or manually stitch a full game from low-level calls when a template exists.
                 \(aiContextPromptRules)
                 - For SpriteKit requests involving bouncing, gravity, collisions, or objects staying inside a sprite area, prefer native scene nodes, physics bodies, restitution, and velocity. Do NOT solve those with `on idle` or `on frameUpdate` scripts unless the user explicitly asks for custom scripting.
                 \(spriteKitPromptRules)

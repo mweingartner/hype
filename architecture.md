@@ -2449,27 +2449,40 @@ model prompt. `SpriteGameTemplateCatalog` owns the supported template IDs,
 aliases, default scene sizes, controls, mechanics, generated-node contracts,
 and test expectations. The model first uses the non-mutating
 `infer_sprite_game_template` tool to map a natural-language request to a
-template ID. If the request has unusual mechanics or needs richer details, it
-can then call `get_sprite_game_template_guide` for focused guidance about that
-one template. `list_sprite_game_templates` remains a compact discovery tool
-with optional query/full-detail arguments. `create_sprite_game_template` is
-the bounded mutating tool that builds the selected local scaffold instead of
-asking the model to freehand dozens of image, tile, node, physics, and script
-calls. The high-fidelity templates remain Pac-Man / `maze_chase` and Donkey
-Kong-style / `barrel_climber`: the maze scaffold creates local embedded PNG
-assets, a classified maze tileset, tile map, static wall colliders,
-player/ghost sprites, pellets, power pellets, and parser-tested scene
-HypeTalk; the barrel-climber scaffold creates an 800×600 Sprite Area with
-generated hero, barrel, platform, ladder, rival, trophy, and hammer assets,
-platform physics, A/D/W/S plus Space controls, top-origin barrel spawns from
-the rival/gorilla platform, three-life barrel-hit reset/loss handling,
-ladder-safe contact rules, timed hammer pickup/swing/smash behavior, and a New
-Game button that re-dispatches `sceneDidLoad`.
+template ID plus an intent analysis: explicit sprite area names, explicit
+scene names, existing-target requirements, image-generation requests,
+customization requirements, and whether the template is safe to auto-apply.
+Specific user intent outranks template defaults. If the user names an existing
+sprite area or scene, the mutating call must pass `sprite_area_name` and/or
+`scene_name`; if the user says the target already exists,
+`require_existing_scene=true` makes the tool fail safely instead of creating a
+default template area. If the request has unusual mechanics, generated-art
+requirements, or other customization, the model calls
+`get_sprite_game_template_guide` for focused guidance and treats the template
+as a baseline followed by targeted `list_scene_nodes`, `set_node_property`,
+`set_scene_script`, `set_physics_body`, image-generation, or asset-import
+edits. `list_sprite_game_templates` remains a compact discovery tool with
+optional query/full-detail arguments. `create_sprite_game_template` is the
+bounded mutating tool that builds the selected local scaffold instead of asking
+the model to freehand dozens of image, tile, node, physics, and script calls.
+The high-fidelity templates remain Pac-Man / `maze_chase`, Donkey Kong-style /
+`barrel_climber`, and Missile Command-style / `missile_command`: the maze
+scaffold creates local embedded PNG assets, a classified maze tileset, tile
+map, static wall colliders, player/ghost sprites, pellets, power pellets, and
+parser-tested scene HypeTalk; the barrel-climber scaffold creates an 800×600
+Sprite Area with generated hero, barrel, platform, ladder, rival, trophy, and
+hammer assets, platform physics, A/D/W/S plus Space controls, top-origin barrel
+spawns from the rival/gorilla platform, three-life barrel-hit reset/loss
+handling, ladder-safe contact rules, timed hammer pickup/swing/smash behavior,
+and a New Game button that re-dispatches `sceneDidLoad`; the missile-command
+scaffold creates a city-defense scene with launcher, cities, incoming
+missiles, interceptor, explosion placeholder, score/city labels, keyboard and
+mouse fire hooks, contact scoring, loss state, and reset script.
 
 The catalog also provides deterministic baseline scaffolds for
 `side_scroller_platformer`, `top_down_adventure`, `twin_stick_shooter`,
 `space_shooter`, `physics_puzzle`, `breakout`, `pinball_pachinko`,
-`endless_runner`, `tower_defense`, `match3_grid_puzzle`,
+`endless_runner`, `tower_defense`, `missile_command`, `match3_grid_puzzle`,
 `sokoban_block_puzzle`, `racing_lane`, `pong_sports_arena`, `rhythm_timing`,
 `board_card_game`, `boss_wave_arena`, `sandbox_physics_toy`, and
 `educational_sim`. These baseline templates create self-contained placeholder

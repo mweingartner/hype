@@ -628,16 +628,22 @@ public struct HypeToolDefinitions {
             scripts. The tool creates deterministic embedded PNG assets, a Sprite Area \
             scene, physics bodies, visible terrain/goal objects, player/enemy sprites, and \
             parser-tested scene-level HypeTalk for keyboard movement, reset, scoring, and \
-            collisions. Use infer_sprite_game_template, get_sprite_game_template_guide, or \
+            collisions. User intent outranks template defaults: when the user names an \
+            existing sprite area or scene, pass that target instead of the default area; \
+            when the user says it already exists, set require_existing_scene=true. Use \
+            infer_sprite_game_template, get_sprite_game_template_guide, or \
             list_sprite_game_templates when you need to discover the game_type first.
             """, params: [
-            "sprite_area_name": ("string", "Sprite area name to create or rebuild. Defaults to pacmanArea for maze games or barrelClimberArea for platformers.", false),
+            "sprite_area_name": ("string", "Sprite area name to create or rebuild. Omit only when scene_name identifies an existing scene. Defaults to the template's area only when no explicit target was requested.", false),
+            "scene_name": ("string", "Optional named scene inside the sprite area to rebuild. Use this when the user says sprite scene \"name\".", false),
             "game_type": ("string", "Template ID or alias. Use infer_sprite_game_template or list_sprite_game_templates to discover supported values. Defaults to maze_chase.", false),
             "theme": ("string", "Optional visual theme hint for later customization. Core template creation remains deterministic and local.", false),
             "difficulty": ("string", "Optional difficulty hint for later customization: easy, normal, hard.", false),
             "controls": ("string", "Optional control hint. Baseline templates support WASD/arrows and Space where useful.", false),
             "asset_style": ("string", "Optional placeholder asset style hint. Core templates use local deterministic placeholder assets.", false),
             "include_new_game_button": ("string", "true to add/update a New Game button where supported; templates include a sceneDidLoad reset path either way.", false),
+            "require_existing_scene": ("string", "true when the user explicitly said the target sprite area/scene already exists; fail safely instead of creating a default area if the target cannot be resolved.", false),
+            "user_intent": ("string", "Optional full user request. Pass this when a template is only the baseline and follow-up customization is required.", false),
             "template_options": ("string", "Optional JSON string for future template-specific options. Unknown options are ignored by current deterministic builders.", false),
             "left": ("string", "X position if a new sprite area must be created", false),
             "top": ("string", "Y position if a new sprite area must be created", false),

@@ -1032,7 +1032,12 @@ public enum HypeTalkGuide {
 
         **SpriteKit scaffolds:** use `infer_sprite_game_template`, maybe
         `get_sprite_game_template_guide`, then `create_sprite_game_template`.
-        Use `list_sprite_game_templates` for discovery.
+        Use `list_sprite_game_templates` for discovery. User intent outranks
+        template defaults: if the user names an existing sprite area or scene,
+        pass that target to `create_sprite_game_template`; if they say it already
+        exists, pass `require_existing_scene=true`; if inference reports
+        `template_use=create_then_customize`, apply the requested mechanics,
+        generated assets, names, and scripts after the baseline scaffold.
 
         **React when a field loses focus — use `on exitField` (always fires) or `on closeField` (only when text changed):**
             on exitField

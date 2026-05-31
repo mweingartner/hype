@@ -349,7 +349,7 @@ public struct HypeToolExecutor: Sendable {
             || combined.contains("missile command")
             || combined.contains("city defense")
             || combined.contains("base defense") {
-            return "missile command"
+            return "missile_command"
         }
         return raw
     }
@@ -1007,6 +1007,44 @@ public struct HypeToolExecutor: Sendable {
             in: document,
             partType: .spriteArea
         )
+    }
+
+    func spriteAreaIndex(
+        containingSceneNamed sceneName: String,
+        currentCardId: UUID,
+        in document: HypeDocument
+    ) -> Int? {
+        let trimmed = sceneName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let lower = trimmed.lowercased()
+
+        func hasScene(_ part: Part) -> Bool {
+            guard part.partType == .spriteArea,
+                  let spec = part.spriteAreaSpecModel else { return false }
+            return spec.scenes.contains { $0.scene.name.lowercased() == lower }
+        }
+
+        let cardParts = document.partsForCard(currentCardId)
+        for part in cardParts where hasScene(part) {
+            if let idx = document.parts.firstIndex(where: { $0.id == part.id }) {
+                return idx
+            }
+        }
+
+        if let card = document.cards.first(where: { $0.id == currentCardId }) {
+            let backgroundParts = document.partsForBackground(card.backgroundId)
+            for part in backgroundParts where hasScene(part) {
+                if let idx = document.parts.firstIndex(where: { $0.id == part.id }) {
+                    return idx
+                }
+            }
+        }
+
+        let globalMatches = document.parts.indices.filter { hasScene(document.parts[$0]) }
+        if globalMatches.count == 1 {
+            return globalMatches[0]
+        }
+        return nil
     }
 
     @discardableResult
@@ -2889,14 +2927,89 @@ public struct HypeToolExecutor: Sendable {
                 return error.localizedDescription
             }
 
-            let rawAreaName = arguments["sprite_area_name"] ?? SpriteGameTemplateBuilder.defaultSpriteAreaName(for: gameType)
-            guard let areaName = sanitizeAssetName(rawAreaName) else {
-                return "sprite_area_name '\(rawAreaName)' is invalid — use 1-128 characters, letters / digits / _ / - / . / space only"
+            let rawExplicitAreaName = arguments["sprite_area_name"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let explicitAreaName: String?
+            if let rawExplicitAreaName, !rawExplicitAreaName.isEmpty {
+                guard let cleaned = sanitizeAssetName(rawExplicitAreaName) else {
+                    return "sprite_area_name '\(rawExplicitAreaName)' is invalid — use 1-128 characters, letters / digits / _ / - / . / space only"
+                }
+                explicitAreaName = cleaned
+            } else {
+                explicitAreaName = nil
+            }
+
+            let rawSceneName = (arguments["scene_name"] ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let requestedSceneName: String?
+            if rawSceneName.isEmpty {
+                requestedSceneName = nil
+            } else {
+                guard let cleaned = sanitizeAssetName(rawSceneName) else {
+                    return "scene_name '\(rawSceneName)' is invalid — use 1-128 characters, letters / digits / _ / - / . / space only"
+                }
+                requestedSceneName = cleaned
             }
 
             let partIdx: Int
             let createdArea: Bool
-            if let existing = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) {
+            var targetSceneName = requestedSceneName
+            let resolvedAreaNameForCreation = explicitAreaName
+                ?? (requestedSceneName == nil ? SpriteGameTemplateBuilder.defaultSpriteAreaName(for: gameType) : requestedSceneName)
+                ?? SpriteGameTemplateBuilder.defaultSpriteAreaName(for: gameType)
+            let requireExistingTarget = boolArgument(arguments["require_existing_scene"])
+                ?? boolArgument(arguments["require_existing_target"])
+                ?? false
+
+            if let explicitAreaName,
+               let existing = spriteAreaIndex(named: explicitAreaName, currentCardId: currentCardId, in: document) {
+                partIdx = existing
+                createdArea = false
+                if let requestedSceneName,
+                   requireExistingTarget,
+                   document.parts[partIdx].spriteAreaSpecModel?.scene(named: requestedSceneName) == nil {
+                    return "Scene '\(requestedSceneName)' not found in existing sprite area '\(document.parts[partIdx].name)'. No template was applied because require_existing_scene=true."
+                }
+                if let width = Double(arguments["scene_width"] ?? arguments["width"] ?? ""), width > 0 {
+                    document.parts[partIdx].width = width
+                }
+                if let height = Double(arguments["scene_height"] ?? arguments["height"] ?? ""), height > 0 {
+                    document.parts[partIdx].height = height
+                }
+            } else if explicitAreaName != nil, requireExistingTarget {
+                return "Sprite area '\(explicitAreaName ?? "")' not found on the current card. No template was applied because require_existing_scene=true."
+            } else if explicitAreaName == nil,
+                      let requestedSceneName,
+                      let existing = spriteAreaIndex(containingSceneNamed: requestedSceneName, currentCardId: currentCardId, in: document) {
+                partIdx = existing
+                createdArea = false
+                if let width = Double(arguments["scene_width"] ?? arguments["width"] ?? ""), width > 0 {
+                    document.parts[partIdx].width = width
+                }
+                if let height = Double(arguments["scene_height"] ?? arguments["height"] ?? ""), height > 0 {
+                    document.parts[partIdx].height = height
+                }
+            } else if explicitAreaName == nil,
+                      let requestedSceneName,
+                      let existing = spriteAreaIndex(named: requestedSceneName, currentCardId: currentCardId, in: document) {
+                partIdx = existing
+                createdArea = false
+                // Authors often say "sprite scene" when they mean the sprite area part.
+                // If the named part exists but no same-named scene exists, rebuild its active scene.
+                if document.parts[partIdx].spriteAreaSpecModel?.scene(named: requestedSceneName) == nil {
+                    targetSceneName = nil
+                }
+                if let width = Double(arguments["scene_width"] ?? arguments["width"] ?? ""), width > 0 {
+                    document.parts[partIdx].width = width
+                }
+                if let height = Double(arguments["scene_height"] ?? arguments["height"] ?? ""), height > 0 {
+                    document.parts[partIdx].height = height
+                }
+            } else if explicitAreaName == nil,
+                      requestedSceneName != nil,
+                      requireExistingTarget {
+                return "Sprite scene '\(requestedSceneName ?? "")' was not found on the current card. No template was applied because require_existing_scene=true."
+            } else if let existing = spriteAreaIndex(named: resolvedAreaNameForCreation, currentCardId: currentCardId, in: document) {
                 partIdx = existing
                 createdArea = false
                 if let width = Double(arguments["scene_width"] ?? arguments["width"] ?? ""), width > 0 {
@@ -2918,14 +3031,14 @@ public struct HypeToolExecutor: Sendable {
                     partType: .spriteArea,
                     cardId: place.cardId,
                     backgroundId: place.backgroundId,
-                    name: areaName,
+                    name: resolvedAreaNameForCreation,
                     left: left,
                     top: top,
                     width: width,
                     height: height
                 )
                 part.setSpriteAreaSpec(
-                    SpriteAreaSpec(defaultSceneNamed: "main", fallbackSize: sceneSize)
+                    SpriteAreaSpec(defaultSceneNamed: requestedSceneName ?? "main", fallbackSize: sceneSize)
                 )
                 document.addPart(part)
                 partIdx = document.parts.count - 1
@@ -2937,10 +3050,12 @@ public struct HypeToolExecutor: Sendable {
                     to: &document,
                     partIndex: partIdx,
                     spriteAreaName: document.parts[partIdx].name,
-                    gameType: gameType
+                    gameType: gameType,
+                    sceneName: targetSceneName
                 )
                 let action = createdArea ? "Created" : "Rebuilt"
-                return "\(action) \(result.gameTypeDisplayName) in sprite area '\(result.spriteAreaName)': \(result.assetNames.count) embedded assets, \(result.wallColliderCount) colliders, \(result.pelletCount) collectible/hazard nodes, \(result.powerPelletCount) support nodes, and scene-level keyboard / collision / reset logic."
+                let scenePhrase = targetSceneName.map { " scene '\($0)' in" } ?? ""
+                return "\(action) \(result.gameTypeDisplayName) in\(scenePhrase) sprite area '\(result.spriteAreaName)': \(result.assetNames.count) embedded assets, \(result.wallColliderCount) colliders, \(result.pelletCount) collectible/hazard nodes, \(result.powerPelletCount) support nodes, and scene-level keyboard / collision / reset logic."
             } catch {
                 return "create_sprite_game_template failed: \(error.localizedDescription)"
             }

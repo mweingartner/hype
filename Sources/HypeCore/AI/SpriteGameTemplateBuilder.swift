@@ -110,7 +110,8 @@ public enum SpriteGameTemplateBuilder {
         to document: inout HypeDocument,
         partIndex: Int,
         spriteAreaName: String,
-        gameType: String
+        gameType: String,
+        sceneName: String? = nil
     ) throws -> SpriteGameTemplateResult {
         guard let descriptor = SpriteGameTemplateCatalog.descriptor(for: gameType)
             ?? SpriteGameTemplateCatalog.descriptor(matching: gameType) else {
@@ -118,15 +119,18 @@ public enum SpriteGameTemplateBuilder {
         }
         switch descriptor.id {
         case "barrel_climber":
-            return try applyPlatformerTemplate(to: &document, partIndex: partIndex, spriteAreaName: spriteAreaName)
+            return try applyPlatformerTemplate(to: &document, partIndex: partIndex, spriteAreaName: spriteAreaName, sceneName: sceneName)
         case "maze_chase":
-            return try applyPacmanTemplate(to: &document, partIndex: partIndex, spriteAreaName: spriteAreaName)
+            return try applyPacmanTemplate(to: &document, partIndex: partIndex, spriteAreaName: spriteAreaName, sceneName: sceneName)
+        case "missile_command":
+            return try applyMissileCommandTemplate(to: &document, partIndex: partIndex, spriteAreaName: spriteAreaName, sceneName: sceneName)
         default:
             return try applyCatalogTemplate(
                 descriptor,
                 to: &document,
                 partIndex: partIndex,
-                spriteAreaName: spriteAreaName
+                spriteAreaName: spriteAreaName,
+                sceneName: sceneName
             )
         }
     }
@@ -186,10 +190,48 @@ public enum SpriteGameTemplateBuilder {
         return asset
     }
 
+    private static func resolvedTemplateSceneName(_ sceneName: String?) -> String {
+        let trimmed = sceneName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? "main" : trimmed
+    }
+
+    private static func installTemplateScene(
+        _ scene: SceneSpec,
+        in document: inout HypeDocument,
+        partIndex: Int,
+        explicitSceneName: String?
+    ) {
+        guard document.parts.indices.contains(partIndex) else { return }
+        var part = document.parts[partIndex]
+        let hasExplicitScene = !(explicitSceneName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+
+        if hasExplicitScene {
+            var spec = part.spriteAreaSpecModel ?? SpriteAreaSpec(scene: scene, fallbackSize: scene.size)
+            if let existingIndex = spec.scenes.firstIndex(where: { $0.scene.name.lowercased() == scene.name.lowercased() }) {
+                spec.scenes[existingIndex].scene = scene
+                spec.activeSceneID = spec.scenes[existingIndex].id
+                spec.setActiveScene(scene)
+            } else {
+                let entry = SpriteAreaScene(scene: scene)
+                spec.scenes.append(entry)
+                spec.activeSceneID = entry.id
+                spec.setActiveScene(scene)
+            }
+            part.setSpriteAreaSpec(spec)
+        } else {
+            part.setSpriteAreaSpec(SpriteAreaSpec(scene: scene, fallbackSize: scene.size))
+        }
+
+        if part.width <= 0 { part.width = scene.size.width }
+        if part.height <= 0 { part.height = scene.size.height }
+        document.parts[partIndex] = part
+    }
+
     public static func applyPacmanTemplate(
         to document: inout HypeDocument,
         partIndex: Int,
-        spriteAreaName: String
+        spriteAreaName: String,
+        sceneName: String? = nil
     ) throws -> SpriteGameTemplateResult {
         guard document.parts.indices.contains(partIndex),
               document.parts[partIndex].partType == .spriteArea else {
@@ -346,7 +388,7 @@ public enum SpriteGameTemplateBuilder {
         }
 
         let scene = SceneSpec(
-            name: "main",
+            name: resolvedTemplateSceneName(sceneName),
             size: SizeSpec(width: Double(maze.columns) * tileSize, height: Double(maze.rows) * tileSize),
             backgroundColor: "#050510",
             gravity: VectorSpec(dx: 0, dy: 0),
@@ -358,11 +400,7 @@ public enum SpriteGameTemplateBuilder {
             scaleMode: .aspectFit
         )
 
-        var part = document.parts[partIndex]
-        part.setSpriteAreaSpec(SpriteAreaSpec(scene: scene, fallbackSize: scene.size))
-        if part.width <= 0 { part.width = scene.size.width }
-        if part.height <= 0 { part.height = scene.size.height }
-        document.parts[partIndex] = part
+        installTemplateScene(scene, in: &document, partIndex: partIndex, explicitSceneName: sceneName)
 
         return SpriteGameTemplateResult(
             gameType: "maze_chase",
@@ -378,7 +416,8 @@ public enum SpriteGameTemplateBuilder {
     public static func applyPlatformerTemplate(
         to document: inout HypeDocument,
         partIndex: Int,
-        spriteAreaName: String
+        spriteAreaName: String,
+        sceneName: String? = nil
     ) throws -> SpriteGameTemplateResult {
         guard document.parts.indices.contains(partIndex),
               document.parts[partIndex].partType == .spriteArea else {
@@ -569,7 +608,7 @@ public enum SpriteGameTemplateBuilder {
         }
 
         let scene = SceneSpec(
-            name: "main",
+            name: resolvedTemplateSceneName(sceneName),
             size: sceneSize,
             backgroundColor: "#120A18",
             gravity: VectorSpec(dx: 0, dy: -9.8),
@@ -581,11 +620,7 @@ public enum SpriteGameTemplateBuilder {
             scaleMode: .aspectFit
         )
 
-        var part = document.parts[partIndex]
-        part.setSpriteAreaSpec(SpriteAreaSpec(scene: scene, fallbackSize: scene.size))
-        if part.width <= 0 { part.width = scene.size.width }
-        if part.height <= 0 { part.height = scene.size.height }
-        document.parts[partIndex] = part
+        installTemplateScene(scene, in: &document, partIndex: partIndex, explicitSceneName: sceneName)
         upsertPlatformerNewGameButton(in: &document, spriteAreaPartIndex: partIndex, spriteAreaName: spriteAreaName)
 
         return SpriteGameTemplateResult(
@@ -661,7 +696,8 @@ public enum SpriteGameTemplateBuilder {
         _ descriptor: GameTemplateDescriptor,
         to document: inout HypeDocument,
         partIndex: Int,
-        spriteAreaName: String
+        spriteAreaName: String,
+        sceneName: String? = nil
     ) throws -> SpriteGameTemplateResult {
         guard document.parts.indices.contains(partIndex),
               document.parts[partIndex].partType == .spriteArea else {
@@ -769,7 +805,7 @@ public enum SpriteGameTemplateBuilder {
         }
 
         let scene = SceneSpec(
-            name: "main",
+            name: resolvedTemplateSceneName(sceneName),
             size: size,
             backgroundColor: templateBackgroundColor(for: descriptor.id),
             gravity: templateGravity(for: descriptor.id),
@@ -782,11 +818,7 @@ public enum SpriteGameTemplateBuilder {
             scaleMode: .aspectFit
         )
 
-        var part = document.parts[partIndex]
-        part.setSpriteAreaSpec(SpriteAreaSpec(scene: scene, fallbackSize: scene.size))
-        if part.width <= 0 { part.width = scene.size.width }
-        if part.height <= 0 { part.height = scene.size.height }
-        document.parts[partIndex] = part
+        installTemplateScene(scene, in: &document, partIndex: partIndex, explicitSceneName: sceneName)
         upsertTemplateNewGameButton(in: &document, spriteAreaPartIndex: partIndex, spriteAreaName: spriteAreaName)
 
         return SpriteGameTemplateResult(
@@ -797,6 +829,123 @@ public enum SpriteGameTemplateBuilder {
             wallColliderCount: nodes.filter { $0.name.hasPrefix("wall_") || $0.name.hasPrefix("platform_") }.count,
             pelletCount: nodes.filter { $0.name.hasPrefix("pickup_") || $0.name.hasPrefix("enemy_") }.count,
             powerPelletCount: nodes.filter { ["goal", "projectile_1", "tower_1"].contains($0.name) }.count
+        )
+    }
+
+    private static func applyMissileCommandTemplate(
+        to document: inout HypeDocument,
+        partIndex: Int,
+        spriteAreaName: String,
+        sceneName: String? = nil
+    ) throws -> SpriteGameTemplateResult {
+        guard document.parts.indices.contains(partIndex),
+              document.parts[partIndex].partType == .spriteArea else {
+            throw SpriteGameTemplateError.invalidSpriteAreaIndex
+        }
+
+        let launcher = upsertAsset(try makeTemplateAsset(templateID: "missile_command", role: "player", colorHex: "#5FFBFF"), in: &document.assetRepository)
+        let incoming = upsertAsset(try makeTemplateAsset(templateID: "missile_command", role: "enemy", colorHex: "#FF4D6D"), in: &document.assetRepository)
+        let city = upsertAsset(try makeTemplateAsset(templateID: "missile_command", role: "goal", colorHex: "#8AF64E"), in: &document.assetRepository)
+        let interceptor = upsertAsset(try makeTemplateAsset(templateID: "missile_command", role: "projectile", colorHex: "#FFFFFF"), in: &document.assetRepository)
+        let explosion = upsertAsset(try makeTemplateAsset(templateID: "missile_command", role: "pickup", colorHex: "#FFD166"), in: &document.assetRepository)
+        let assets = [launcher, incoming, city, interceptor, explosion]
+        let size = SizeSpec(width: 800, height: 600)
+
+        var nodes: [HypeNodeSpec] = []
+        nodes.append(platformerLabel(name: "titleLabel", text: "Missile Command", x: 400, y: 34, fontSize: 26, color: "#FFFFFF"))
+        nodes.append(platformerLabel(name: "scoreLabel", text: "Score: 0", x: 92, y: 64, fontSize: 18, color: "#FFE66D"))
+        nodes.append(platformerLabel(name: "livesLabel", text: "Cities: 3", x: 92, y: 90, fontSize: 16, color: "#8AF64E"))
+        nodes.append(platformerLabel(name: "statusLabel", text: "Space or mouse fires an interceptor. Protect the cities.", x: 400, y: 570, fontSize: 14, color: "#D4E7FF"))
+        nodes.append(templateShape(name: "skyline", x: 400, y: 560, width: 760, height: 28, fill: "#1F2937", stroke: "#334155", physics: nil))
+        nodes.append(contentsOf: templateBounds(size: size))
+        nodes.append(spriteNode(
+            name: "launcher",
+            asset: launcher,
+            repository: document.assetRepository,
+            position: PointSpec(x: 400, y: 528),
+            size: SizeSpec(width: 42, height: 42),
+            z: 40,
+            physics: templatePlayerPhysics(gravity: false)
+        ))
+
+        let citySpecs: [(String, Double)] = [("city_1", 170), ("city_2", 400), ("city_3", 630)]
+        for (name, x) in citySpecs {
+            nodes.append(spriteNode(
+                name: name,
+                asset: city,
+                repository: document.assetRepository,
+                position: PointSpec(x: x, y: 546),
+                size: SizeSpec(width: 72, height: 44),
+                z: 34,
+                physics: templateTriggerPhysics(category: goalCategory)
+            ))
+        }
+
+        let missileSpecs: [(String, Double, Double, Double, Double)] = [
+            ("incoming_missile_1", 140, 96, 44, 92),
+            ("incoming_missile_2", 400, 74, -28, 108),
+            ("incoming_missile_3", 660, 112, -54, 88),
+        ]
+        for (name, x, y, vx, vy) in missileSpecs {
+            nodes.append(spriteNode(
+                name: name,
+                asset: incoming,
+                repository: document.assetRepository,
+                position: PointSpec(x: x, y: y),
+                size: SizeSpec(width: 26, height: 46),
+                z: 36,
+                physics: templateEnemyPhysics(velocityX: vx, velocityY: vy)
+            ))
+        }
+
+        var interceptorNode = spriteNode(
+            name: "interceptor_1",
+            asset: interceptor,
+            repository: document.assetRepository,
+            position: PointSpec(x: -120, y: -120),
+            size: SizeSpec(width: 18, height: 18),
+            z: 50,
+            physics: templateProjectilePhysics()
+        )
+        interceptorNode.isHidden = true
+        nodes.append(interceptorNode)
+
+        var explosionNode = spriteNode(
+            name: "explosion_1",
+            asset: explosion,
+            repository: document.assetRepository,
+            position: PointSpec(x: -120, y: -120),
+            size: SizeSpec(width: 54, height: 54),
+            z: 49,
+            physics: nil
+        )
+        explosionNode.isHidden = true
+        nodes.append(explosionNode)
+
+        let scene = SceneSpec(
+            name: resolvedTemplateSceneName(sceneName),
+            size: size,
+            backgroundColor: "#050914",
+            gravity: VectorSpec(dx: 0, dy: 0),
+            nodes: nodes,
+            script: missileCommandSceneScript(),
+            showsPhysics: false,
+            showsFPS: false,
+            showsNodeCount: false,
+            scaleMode: .aspectFit
+        )
+
+        installTemplateScene(scene, in: &document, partIndex: partIndex, explicitSceneName: sceneName)
+        upsertTemplateNewGameButton(in: &document, spriteAreaPartIndex: partIndex, spriteAreaName: spriteAreaName)
+
+        return SpriteGameTemplateResult(
+            gameType: "missile_command",
+            spriteAreaName: spriteAreaName,
+            assetNames: assets.map(\.name),
+            nodeNames: nodes.map(\.name),
+            wallColliderCount: nodes.filter { $0.name.hasPrefix("wall_") }.count,
+            pelletCount: nodes.filter { $0.name.hasPrefix("incoming_missile_") }.count,
+            powerPelletCount: nodes.filter { $0.name.hasPrefix("city_") || $0.name == "interceptor_1" }.count
         )
     }
 
@@ -1182,6 +1331,118 @@ public enum SpriteGameTemplateBuilder {
               put "false" into shotActive
               set the hidden of sprite "projectile_1" to true
               set the velocity of sprite "projectile_1" to "0,0"
+            end if
+          end if
+        end frameUpdate
+        """
+    }
+
+    private static func missileCommandSceneScript() -> String {
+        """
+        on sceneDidLoad
+          global score
+          global cities
+          global interceptorActive
+          put 0 into score
+          put 3 into cities
+          put "false" into interceptorActive
+          set the text of label "scoreLabel" to "Score: 0"
+          set the text of label "livesLabel" to "Cities: 3"
+          set the text of label "statusLabel" to "Space or mouse fires an interceptor. Protect the cities."
+          set the loc of sprite "launcher" to "400,528"
+          set the velocity of sprite "launcher" to "0,0"
+          set the loc of sprite "city_1" to "170,546"
+          set the loc of sprite "city_2" to "400,546"
+          set the loc of sprite "city_3" to "630,546"
+          set the hidden of sprite "city_1" to false
+          set the hidden of sprite "city_2" to false
+          set the hidden of sprite "city_3" to false
+          set the loc of sprite "incoming_missile_1" to "140,96"
+          set the velocity of sprite "incoming_missile_1" to "44,92"
+          set the loc of sprite "incoming_missile_2" to "400,74"
+          set the velocity of sprite "incoming_missile_2" to "-28,108"
+          set the loc of sprite "incoming_missile_3" to "660,112"
+          set the velocity of sprite "incoming_missile_3" to "-54,88"
+          set the loc of sprite "interceptor_1" to "-120,-120"
+          set the velocity of sprite "interceptor_1" to "0,0"
+          set the hidden of sprite "interceptor_1" to true
+          set the hidden of sprite "explosion_1" to true
+        end sceneDidLoad
+
+        on keyDown
+          global interceptorActive
+          if the key is "a" then set the velocityX of sprite "launcher" to -240
+          if the key is "left" then set the velocityX of sprite "launcher" to -240
+          if the key is "d" then set the velocityX of sprite "launcher" to 240
+          if the key is "right" then set the velocityX of sprite "launcher" to 240
+          if the key is "space" then
+            put the loc of sprite "launcher" into launcherLoc
+            set the loc of sprite "interceptor_1" to launcherLoc
+            set the hidden of sprite "interceptor_1" to false
+            set the velocity of sprite "interceptor_1" to "0,-420"
+            put "true" into interceptorActive
+            set the text of label "statusLabel" to "Interceptor fired."
+          end if
+        end keyDown
+
+        on keyUp
+          if the key is "a" then set the velocityX of sprite "launcher" to 0
+          if the key is "left" then set the velocityX of sprite "launcher" to 0
+          if the key is "d" then set the velocityX of sprite "launcher" to 0
+          if the key is "right" then set the velocityX of sprite "launcher" to 0
+        end keyUp
+
+        on mouseDown
+          global interceptorActive
+          put the mouseLoc into targetLoc
+          put the loc of sprite "launcher" into launcherLoc
+          set the loc of sprite "interceptor_1" to launcherLoc
+          set the hidden of sprite "interceptor_1" to false
+          set the velocity of sprite "interceptor_1" to "0,-420"
+          put "true" into interceptorActive
+          set the text of label "statusLabel" to "Interceptor fired toward " & targetLoc & "."
+        end mouseDown
+
+        on beginContact otherName
+          global score
+          global cities
+          global interceptorActive
+          if otherName contains "incoming_missile_" then
+            if interceptorActive is "true" then
+              set the loc of sprite "explosion_1" to the loc of sprite otherName
+              set the hidden of sprite "explosion_1" to false
+              remove sprite otherName
+              add 25 to score
+              put "false" into interceptorActive
+              set the hidden of sprite "interceptor_1" to true
+              set the velocity of sprite "interceptor_1" to "0,0"
+              set the text of label "scoreLabel" to "Score: " & score
+              set the text of label "statusLabel" to "Incoming missile destroyed."
+            end if
+          end if
+          if otherName contains "city_" then
+            set the hidden of sprite otherName to true
+            subtract 1 from cities
+            set the text of label "livesLabel" to "Cities: " & cities
+            set the text of label "statusLabel" to "City hit."
+            if cities < 1 then
+              set the text of label "statusLabel" to "All cities lost. Press New Game to reset."
+              set the velocity of sprite "incoming_missile_1" to "0,0"
+              set the velocity of sprite "incoming_missile_2" to "0,0"
+              set the velocity of sprite "incoming_missile_3" to "0,0"
+            end if
+          end if
+        end beginContact
+
+        on frameUpdate
+          global interceptorActive
+          if interceptorActive is "true" then
+            put the loc of sprite "interceptor_1" into interceptorLoc
+            put item 2 of interceptorLoc into interceptorY
+            if interceptorY < -40 then
+              put "false" into interceptorActive
+              set the hidden of sprite "interceptor_1" to true
+              set the velocity of sprite "interceptor_1" to "0,0"
             end if
           end if
         end frameUpdate

@@ -40,6 +40,33 @@ public struct GameTemplateDescriptor: Identifiable, Sendable, Equatable {
     }
 }
 
+public enum SpriteGameTemplateUse: String, Codable, Sendable, Equatable {
+    case none = "none"
+    case directCreate = "direct_create"
+    case createThenCustomize = "create_then_customize"
+    case clarifyOrManual = "clarify_or_manual"
+}
+
+public struct SpriteGameIntentAnalysis: Sendable, Equatable {
+    public var query: String
+    public var templateID: String?
+    public var displayName: String?
+    public var confidence: Double
+    public var matchedTerms: [String]
+    public var ambiguousTemplateIDs: [String]
+    public var explicitSpriteAreaName: String?
+    public var explicitSceneName: String?
+    public var requiresExistingTarget: Bool
+    public var requestsImageGeneration: Bool
+    public var hasCustomizationRequirements: Bool
+    public var templateUse: SpriteGameTemplateUse
+    public var rationale: String
+
+    public var shouldAutoApplyTemplate: Bool {
+        templateUse == .directCreate
+    }
+}
+
 public struct GameTemplateInferenceResult: Codable, Sendable, Equatable {
     public var query: String
     public var templateID: String?
@@ -47,6 +74,13 @@ public struct GameTemplateInferenceResult: Codable, Sendable, Equatable {
     public var confidence: Double
     public var matchedTerms: [String]
     public var ambiguousTemplateIDs: [String]
+    public var explicitSpriteAreaName: String?
+    public var explicitSceneName: String?
+    public var requiresExistingTarget: Bool
+    public var requestsImageGeneration: Bool
+    public var hasCustomizationRequirements: Bool
+    public var templateUse: SpriteGameTemplateUse
+    public var shouldAutoApplyTemplate: Bool
     public var recommendedSpriteAreaName: String?
     public var defaultSceneWidth: Double?
     public var defaultSceneHeight: Double?
@@ -60,6 +94,13 @@ public struct GameTemplateInferenceResult: Codable, Sendable, Equatable {
         case confidence
         case matchedTerms = "matched_terms"
         case ambiguousTemplateIDs = "ambiguous_template_ids"
+        case explicitSpriteAreaName = "explicit_sprite_area_name"
+        case explicitSceneName = "explicit_scene_name"
+        case requiresExistingTarget = "requires_existing_target"
+        case requestsImageGeneration = "requests_image_generation"
+        case hasCustomizationRequirements = "has_customization_requirements"
+        case templateUse = "template_use"
+        case shouldAutoApplyTemplate = "should_auto_apply_template"
         case recommendedSpriteAreaName = "recommended_sprite_area_name"
         case defaultSceneWidth = "default_scene_width"
         case defaultSceneHeight = "default_scene_height"
@@ -166,12 +207,22 @@ public enum SpriteGameTemplateCatalog {
         descriptor(
             "tower_defense",
             "tower defense game",
-            aliases: ["tower defense", "tower-defence", "path defense", "defense game", "base defense", "city defense", "missile command", "missile-command", "missile command style"],
+            aliases: ["tower defense", "tower-defence", "path defense", "defense game", "base defense"],
             description: "Path/city-defense map, base/goal, enemies, tower/turret nodes, projectile placeholder, and score.",
             areaName: "towerDefenseArea",
             assets: commonAssets + ["tiles"],
             nodes: commonNodes + ["tower_1", "pathTileMap"],
             mechanics: ["path", "tower/turret", "enemy waves", "projectile", "base defense"]
+        ),
+        descriptor(
+            "missile_command",
+            "Missile Command-style city defense game",
+            aliases: ["missile command", "missile-command", "missile command style", "city defense", "city missile defense", "missile defense"],
+            description: "City-defense scaffold with a launcher, protected cities, incoming missiles, interceptor projectile, explosions, score, lives, and reset logic.",
+            areaName: "missileCommandArea",
+            assets: ["launcher", "incoming missile", "interceptor", "city", "explosion"],
+            nodes: ["launcher", "city_1", "city_2", "city_3", "incoming_missile_1", "interceptor_1", "scoreLabel", "livesLabel"],
+            mechanics: ["city defense", "incoming missiles", "interceptor fire", "protected cities", "score/lives"]
         ),
         descriptor(
             "match3_grid_puzzle",
@@ -274,50 +325,105 @@ public enum SpriteGameTemplateCatalog {
     }
 
     public static func inferDescriptor(forPrompt prompt: String) -> GameTemplateDescriptor? {
-        let lower = prompt.lowercased()
-        let compactPrompt = normalize(prompt)
-        return descriptors.first { descriptor in
-            ([descriptor.id, descriptor.displayName] + descriptor.aliases).contains { token in
-                let compactToken = normalize(token)
-                return lower.contains(token.lowercased()) || (!compactToken.isEmpty && compactPrompt.contains(compactToken))
-            }
+        templateMatches(forPrompt: prompt).first?.descriptor
+    }
+
+    public static func analyzeIntent(forPrompt prompt: String) -> SpriteGameIntentAnalysis {
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matches = templateMatches(forPrompt: trimmed)
+        let explicitArea = quotedName(after: [
+            "sprite area", "spritearea", "sprite-area", "play area"
+        ], in: trimmed)
+        let explicitScene = quotedName(after: [
+            "sprite scene", "scene"
+        ], in: trimmed)
+        let lower = trimmed.lowercased()
+        let requiresExisting = [
+            "already exists",
+            "existing sprite scene",
+            "existing sprite area",
+            "existing scene",
+            "existing area",
+            "this existing",
+            "current sprite scene",
+            "current sprite area"
+        ].contains { lower.contains($0) }
+        let requestsImages = [
+            "image generation",
+            "image api",
+            "generated image",
+            "generated images",
+            "generate images",
+            "generate sprite",
+            "create all needed sprite",
+            "create all needed background"
+        ].contains { lower.contains($0) }
+        let hasCustomization = requiresExisting
+            || requestsImages
+            || explicitArea != nil
+            || explicitScene != nil
+            || lower.contains(" with ")
+            || lower.contains(" must ")
+            || lower.contains(" should ")
+            || lower.contains(" add all needed logic")
+            || lower.contains(" emp ")
+
+        guard let best = matches.first else {
+            return SpriteGameIntentAnalysis(
+                query: trimmed,
+                templateID: nil,
+                displayName: nil,
+                confidence: 0,
+                matchedTerms: [],
+                ambiguousTemplateIDs: [],
+                explicitSpriteAreaName: explicitArea,
+                explicitSceneName: explicitScene,
+                requiresExistingTarget: requiresExisting,
+                requestsImageGeneration: requestsImages,
+                hasCustomizationRequirements: hasCustomization,
+                templateUse: .none,
+                rationale: "No deterministic game template matched the user's request."
+            )
         }
+
+        let ambiguous = ambiguousTemplateIDs(for: matches, bestScore: best.score)
+        let confidence = confidenceScore(bestScore: best.score, ambiguous: ambiguous)
+        let templateUse: SpriteGameTemplateUse
+        let rationale: String
+        if !ambiguous.isEmpty || confidence < 0.8 {
+            templateUse = .clarifyOrManual
+            rationale = "Template match is ambiguous or low confidence; ask one clarification or inspect the current scene before mutating."
+        } else if hasCustomization {
+            templateUse = .createThenCustomize
+            rationale = "A template can provide the baseline, but explicit user requirements must be applied after creation."
+        } else {
+            templateUse = .directCreate
+            rationale = "High-confidence simple game request with no explicit target or custom requirements."
+        }
+
+        return SpriteGameIntentAnalysis(
+            query: trimmed,
+            templateID: best.descriptor.id,
+            displayName: best.descriptor.displayName,
+            confidence: confidence,
+            matchedTerms: best.matchedTerms,
+            ambiguousTemplateIDs: ambiguous,
+            explicitSpriteAreaName: explicitArea,
+            explicitSceneName: explicitScene,
+            requiresExistingTarget: requiresExisting,
+            requestsImageGeneration: requestsImages,
+            hasCustomizationRequirements: hasCustomization,
+            templateUse: templateUse,
+            rationale: rationale
+        )
     }
 
     public static func inferTemplate(forPrompt prompt: String) -> GameTemplateInferenceResult {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lower = trimmed.lowercased()
-        let compactPrompt = normalize(trimmed)
+        let analysis = analyzeIntent(forPrompt: trimmed)
 
-        let matches: [(descriptor: GameTemplateDescriptor, matchedTerms: [String], score: Int)] = descriptors.compactMap { descriptor in
-            var matchedTerms: [String] = []
-            var score = 0
-            let strongTerms = [descriptor.id, descriptor.displayName] + descriptor.aliases
-            for term in strongTerms {
-                let compactTerm = normalize(term)
-                guard !compactTerm.isEmpty else { continue }
-                if lower.contains(term.lowercased()) || compactPrompt.contains(compactTerm) {
-                    matchedTerms.append(term)
-                    score += max(8, compactTerm.count)
-                }
-            }
-            for mechanic in descriptor.coreMechanics {
-                let compactTerm = normalize(mechanic)
-                guard !compactTerm.isEmpty else { continue }
-                if lower.contains(mechanic.lowercased()) || compactPrompt.contains(compactTerm) {
-                    matchedTerms.append(mechanic)
-                    score += 3
-                }
-            }
-            guard score > 0 else { return nil }
-            return (descriptor, Array(Set(matchedTerms)).sorted(), score)
-        }
-        .sorted { lhs, rhs in
-            if lhs.score == rhs.score { return lhs.descriptor.id < rhs.descriptor.id }
-            return lhs.score > rhs.score
-        }
-
-        guard let best = matches.first else {
+        guard let templateID = analysis.templateID,
+              let descriptor = descriptor(for: templateID) else {
             return GameTemplateInferenceResult(
                 query: trimmed,
                 templateID: nil,
@@ -325,6 +431,13 @@ public enum SpriteGameTemplateCatalog {
                 confidence: 0,
                 matchedTerms: [],
                 ambiguousTemplateIDs: [],
+                explicitSpriteAreaName: analysis.explicitSpriteAreaName,
+                explicitSceneName: analysis.explicitSceneName,
+                requiresExistingTarget: analysis.requiresExistingTarget,
+                requestsImageGeneration: analysis.requestsImageGeneration,
+                hasCustomizationRequirements: analysis.hasCustomizationRequirements,
+                templateUse: .none,
+                shouldAutoApplyTemplate: false,
                 recommendedSpriteAreaName: nil,
                 defaultSceneWidth: nil,
                 defaultSceneHeight: nil,
@@ -333,36 +446,58 @@ public enum SpriteGameTemplateCatalog {
             )
         }
 
-        let ambiguous = matches
-            .dropFirst()
-            .filter { Double($0.score) >= Double(best.score) * 0.72 }
-            .map(\.descriptor.id)
-        let confidence: Double = {
-            if !ambiguous.isEmpty { return 0.62 }
-            if best.score >= 24 { return 0.94 }
-            if best.score >= 12 { return 0.84 }
-            return 0.72
-        }()
-        let size = best.descriptor.defaultSceneSize
+        let size = descriptor.defaultSceneSize
+        let recommendedArea = analysis.explicitSpriteAreaName
+            ?? (analysis.explicitSceneName == nil ? descriptor.defaultSpriteAreaName : nil)
+        var createArguments: [String: String] = [
+            "game_type": descriptor.id,
+            "scene_width": String(Int(size.width.rounded())),
+            "scene_height": String(Int(size.height.rounded())),
+        ]
+        if let recommendedArea {
+            createArguments["sprite_area_name"] = recommendedArea
+        }
+        if let sceneName = analysis.explicitSceneName {
+            createArguments["scene_name"] = sceneName
+        }
+        if analysis.requiresExistingTarget {
+            createArguments["require_existing_scene"] = "true"
+        }
+        if analysis.templateUse != .directCreate || analysis.hasCustomizationRequirements {
+            createArguments["user_intent"] = trimmed
+        }
+
+        let guidance: String
+        switch analysis.templateUse {
+        case .directCreate:
+            guidance = "Use create_sprite_game_template with the recommended arguments first."
+        case .createThenCustomize:
+            guidance = "Specific user intent overrides template defaults. Use create_sprite_game_template only as the baseline with the explicit area/scene arguments, then inspect the created scene and apply requested art, mechanics, scripts, or assets as a second pass."
+        case .clarifyOrManual:
+            guidance = "The request matched multiple templates or a low-confidence template. Ask one clarification or call get_sprite_game_template_guide for the top candidate before mutating the stack."
+        case .none:
+            guidance = "No deterministic template matched this prompt. Use ordinary SpriteKit scene tools only if the user is not asking for a complete game scaffold."
+        }
+
         return GameTemplateInferenceResult(
             query: trimmed,
-            templateID: best.descriptor.id,
-            displayName: best.descriptor.displayName,
-            confidence: confidence,
-            matchedTerms: best.matchedTerms,
-            ambiguousTemplateIDs: ambiguous,
-            recommendedSpriteAreaName: best.descriptor.defaultSpriteAreaName,
+            templateID: descriptor.id,
+            displayName: descriptor.displayName,
+            confidence: analysis.confidence,
+            matchedTerms: analysis.matchedTerms,
+            ambiguousTemplateIDs: analysis.ambiguousTemplateIDs,
+            explicitSpriteAreaName: analysis.explicitSpriteAreaName,
+            explicitSceneName: analysis.explicitSceneName,
+            requiresExistingTarget: analysis.requiresExistingTarget,
+            requestsImageGeneration: analysis.requestsImageGeneration,
+            hasCustomizationRequirements: analysis.hasCustomizationRequirements,
+            templateUse: analysis.templateUse,
+            shouldAutoApplyTemplate: analysis.shouldAutoApplyTemplate,
+            recommendedSpriteAreaName: recommendedArea,
             defaultSceneWidth: size.width,
             defaultSceneHeight: size.height,
-            recommendedCreateArguments: [
-                "game_type": best.descriptor.id,
-                "sprite_area_name": best.descriptor.defaultSpriteAreaName,
-                "scene_width": String(Int(size.width.rounded())),
-                "scene_height": String(Int(size.height.rounded())),
-            ],
-            guidance: ambiguous.isEmpty
-                ? "Use create_sprite_game_template with the recommended arguments first. If the user asked for extra mechanics or art direction, call get_sprite_game_template_guide for this template before additional edits."
-                : "The request matched multiple templates. Ask one clarification or call get_sprite_game_template_guide for the top candidate before creating the scaffold."
+            recommendedCreateArguments: createArguments,
+            guidance: guidance
         )
     }
 
@@ -403,9 +538,10 @@ public enum SpriteGameTemplateCatalog {
         let creation = """
 
         Creation workflow:
-        1. Call create_sprite_game_template first. It creates deterministic placeholder assets, the Sprite Area, SceneSpec nodes, physics, reset path, and parser-tested scene-level HypeTalk.
-        2. Do not manually recreate the baseline terrain, player, hazards, score labels, or reset script with low-level tools.
-        3. After the scaffold exists, use list_scene_nodes and targeted set_node_property / set_scene_script / set_physics_body calls only for requested customization.
+        1. User intent outranks template defaults. If the user named an existing sprite area or scene, pass sprite_area_name and/or scene_name to create_sprite_game_template; when they say it already exists, pass require_existing_scene=true instead of creating the default area.
+        2. Call create_sprite_game_template first only when the selected template matches the requested game. It creates deterministic placeholder assets, the Sprite Area/SceneSpec nodes, physics, reset path, and parser-tested scene-level HypeTalk.
+        3. Do not manually recreate the baseline terrain, player, hazards, score labels, or reset script with low-level tools when the template is a good fit.
+        4. After the scaffold exists, use list_scene_nodes and targeted set_node_property / set_scene_script / set_physics_body calls for requested customization, generated art, or mechanics that are not in the baseline.
         """
 
         let customization = """
@@ -448,6 +584,76 @@ public enum SpriteGameTemplateCatalog {
         default:
             return base + creation + intentNote
         }
+    }
+
+    private static func templateMatches(
+        forPrompt prompt: String
+    ) -> [(descriptor: GameTemplateDescriptor, matchedTerms: [String], score: Int)] {
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        let compactPrompt = normalize(trimmed)
+        return descriptors.compactMap { descriptor in
+            var matchedTerms: [String] = []
+            var score = 0
+            let strongTerms = [descriptor.id, descriptor.displayName] + descriptor.aliases
+            for term in strongTerms {
+                let compactTerm = normalize(term)
+                guard !compactTerm.isEmpty else { continue }
+                if lower.contains(term.lowercased()) || compactPrompt.contains(compactTerm) {
+                    matchedTerms.append(term)
+                    score += max(8, compactTerm.count)
+                }
+            }
+            for mechanic in descriptor.coreMechanics {
+                let compactTerm = normalize(mechanic)
+                guard !compactTerm.isEmpty else { continue }
+                if lower.contains(mechanic.lowercased()) || compactPrompt.contains(compactTerm) {
+                    matchedTerms.append(mechanic)
+                    score += 3
+                }
+            }
+            guard score > 0 else { return nil }
+            return (descriptor, Array(Set(matchedTerms)).sorted(), score)
+        }
+        .sorted { lhs, rhs in
+            if lhs.score == rhs.score { return lhs.descriptor.id < rhs.descriptor.id }
+            return lhs.score > rhs.score
+        }
+    }
+
+    private static func ambiguousTemplateIDs(
+        for matches: [(descriptor: GameTemplateDescriptor, matchedTerms: [String], score: Int)],
+        bestScore: Int
+    ) -> [String] {
+        matches
+            .dropFirst()
+            .filter { Double($0.score) >= Double(bestScore) * 0.72 }
+            .map(\.descriptor.id)
+    }
+
+    private static func confidenceScore(bestScore: Int, ambiguous: [String]) -> Double {
+        if !ambiguous.isEmpty { return 0.62 }
+        if bestScore >= 24 { return 0.94 }
+        if bestScore >= 12 { return 0.84 }
+        return 0.72
+    }
+
+    private static func quotedName(after prefixes: [String], in text: String) -> String? {
+        for prefix in prefixes {
+            let escaped = NSRegularExpression.escapedPattern(for: prefix)
+            let pattern = #"\b"# + escaped + #"\s+(?:named\s+|called\s+)?["'“”]([^"'“”]+)["'“”]"#
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+                continue
+            }
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
+            guard let match = regex.firstMatch(in: text, options: [], range: range),
+                  let nameRange = Range(match.range(at: 1), in: text) else {
+                continue
+            }
+            let name = String(text[nameRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty { return name }
+        }
+        return nil
     }
 
     private static func filteredDescriptors(query: String) -> [GameTemplateDescriptor] {

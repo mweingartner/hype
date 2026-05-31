@@ -19,6 +19,7 @@ struct SpriteGameTemplateTests {
             "pinball_pachinko",
             "endless_runner",
             "tower_defense",
+            "missile_command",
             "match3_grid_puzzle",
             "sokoban_block_puzzle",
             "racing_lane",
@@ -34,7 +35,7 @@ struct SpriteGameTemplateTests {
         #expect(try SpriteGameTemplateBuilder.normalizedGameType("shmup") == "space_shooter")
         #expect(try SpriteGameTemplateBuilder.normalizedGameType("zelda-like") == "top_down_adventure")
         #expect(try SpriteGameTemplateBuilder.normalizedGameType("angry birds") == "physics_puzzle")
-        #expect(try SpriteGameTemplateBuilder.normalizedGameType("missile command") == "tower_defense")
+        #expect(try SpriteGameTemplateBuilder.normalizedGameType("missile command") == "missile_command")
     }
 
     @Test("repository name lookup prefers newest duplicate asset")
@@ -545,11 +546,11 @@ struct SpriteGameTemplateTests {
         #expect(SpriteGameTemplateBuilder.inferredGameType(forPrompt: "build an angry birds physics puzzle") == "physics_puzzle")
         #expect(SpriteGameTemplateBuilder.inferredGameType(forPrompt: "make a match-3 puzzle") == "match3_grid_puzzle")
         #expect(SpriteGameTemplateBuilder.inferredGameType(forPrompt: "create a zelda-like dungeon") == "top_down_adventure")
-        #expect(SpriteGameTemplateBuilder.inferredGameType(forPrompt: "build a Missile Command-style city defense game") == "tower_defense")
+        #expect(SpriteGameTemplateBuilder.inferredGameType(forPrompt: "build a Missile Command-style city defense game") == "missile_command")
     }
 
-    @Test("missile command template options route to deterministic defense template")
-    func missileCommandTemplateOptionsRouteToDefenseTemplate() async throws {
+    @Test("missile command template options route to deterministic missile template")
+    func missileCommandTemplateOptionsRouteToMissileTemplate() async throws {
         var document = HypeDocument.newDocument()
         let cardId = try #require(document.sortedCards.first?.id)
 
@@ -566,9 +567,99 @@ struct SpriteGameTemplateTests {
 
         let area = try #require(document.parts.first { $0.name == "missileCommandArea" })
         let scene = try #require(area.activeSceneSpec)
-        #expect(result.contains("tower defense game"))
-        #expect(scene.node(named: "tower_1") != nil)
-        #expect(scene.node(named: "templateTileMap")?.nodeType == .tileMap)
+        #expect(result.contains("Missile Command-style city defense game"))
+        #expect(scene.node(named: "launcher") != nil)
+        #expect(scene.node(named: "city_1") != nil)
+        #expect(scene.node(named: "incoming_missile_1") != nil)
+    }
+
+    @Test("sprite game inference preserves explicit existing scene intent")
+    func spriteGameInferencePreservesExplicitSceneIntent() async throws {
+        var document = HypeDocument.newDocument()
+        let cardId = document.sortedCards[0].id
+        let result = await HypeToolExecutor().execute(
+            toolName: "infer_sprite_game_template",
+            arguments: [
+                "user_prompt": """
+                create a missile command style game in the sprite scene "missile" on the current card. The sprite scene already exists so add the needed assets to this existing sprite scene. Create all needed sprite and background images with the image generation api. add all needed logic for the game to fully work.
+                """
+            ],
+            document: &document,
+            currentCardId: cardId
+        )
+
+        let data = try #require(result.data(using: .utf8))
+        let inference = try JSONDecoder().decode(GameTemplateInferenceResult.self, from: data)
+        #expect(inference.templateID == "missile_command")
+        #expect(inference.templateUse == .createThenCustomize)
+        #expect(inference.shouldAutoApplyTemplate == false)
+        #expect(inference.explicitSceneName == "missile")
+        #expect(inference.requiresExistingTarget == true)
+        #expect(inference.requestsImageGeneration == true)
+        #expect(inference.recommendedCreateArguments["scene_name"] == "missile")
+        #expect(inference.recommendedCreateArguments["require_existing_scene"] == "true")
+        #expect(inference.recommendedCreateArguments["sprite_area_name"] == nil)
+    }
+
+    @Test("create_sprite_game_template targets an existing named scene without creating template default area")
+    func createSpriteGameTemplateTargetsExistingNamedScene() async throws {
+        var document = HypeDocument.newDocument()
+        let cardId = document.sortedCards[0].id
+        let size = SizeSpec(width: 640, height: 480)
+        var area = Part(partType: .spriteArea, cardId: cardId, name: "game_area", left: 20, top: 20, width: 640, height: 480)
+        let mainEntry = SpriteAreaScene(scene: SceneSpec(name: "main", size: size, backgroundColor: "#111111"))
+        let missileEntry = SpriteAreaScene(scene: SceneSpec(name: "missile", size: size, backgroundColor: "#222222"))
+        area.setSpriteAreaSpec(SpriteAreaSpec(
+            activeSceneID: mainEntry.id,
+            scenes: [mainEntry, missileEntry],
+            designSize: size
+        ))
+        document.addPart(area)
+
+        let result = await HypeToolExecutor().execute(
+            toolName: "create_sprite_game_template",
+            arguments: [
+                "game_type": "missile_command",
+                "scene_name": "missile",
+                "require_existing_scene": "true"
+            ],
+            document: &document,
+            currentCardId: cardId
+        )
+
+        #expect(result.contains("scene 'missile' in sprite area 'game_area'"))
+        #expect(document.parts.first { $0.name == "missileCommandArea" } == nil)
+        let rebuiltArea = try #require(document.parts.first { $0.name == "game_area" })
+        let spec = try #require(rebuiltArea.spriteAreaSpecModel)
+        #expect(spec.sceneNames.contains("main"))
+        #expect(spec.sceneNames.contains("missile"))
+        let main = try #require(spec.scene(named: "main"))
+        #expect(main.allNodes.isEmpty)
+        let missile = try #require(spec.scene(named: "missile"))
+        #expect(missile.node(named: "launcher") != nil)
+        #expect(missile.node(named: "city_1") != nil)
+        #expect(spec.activeScene?.name == "missile")
+    }
+
+    @Test("create_sprite_game_template fails safely when required existing scene is missing")
+    func createSpriteGameTemplateFailsWhenRequiredSceneMissing() async throws {
+        var document = HypeDocument.newDocument()
+        let cardId = document.sortedCards[0].id
+
+        let result = await HypeToolExecutor().execute(
+            toolName: "create_sprite_game_template",
+            arguments: [
+                "game_type": "missile_command",
+                "scene_name": "missile",
+                "require_existing_scene": "true"
+            ],
+            document: &document,
+            currentCardId: cardId
+        )
+
+        #expect(result.contains("Sprite scene 'missile' was not found"))
+        #expect(document.parts.first { $0.name == "missileCommandArea" } == nil)
+        #expect(document.parts.filter { $0.partType == .spriteArea }.isEmpty)
     }
 
     @Test("generic template keyboard and contact handlers mutate scene state")
@@ -677,7 +768,7 @@ struct SpriteGameTemplateTests {
             currentCardId: cardId
         )
 
-        #expect(detailedResult.contains("tower_defense"))
+        #expect(detailedResult.contains("missile_command"))
         #expect(detailedResult.contains("aliases:"))
         #expect(detailedResult.localizedCaseInsensitiveContains("missile command"))
     }
@@ -698,9 +789,11 @@ struct SpriteGameTemplateTests {
 
         let data = try #require(result.data(using: .utf8))
         let inference = try JSONDecoder().decode(GameTemplateInferenceResult.self, from: data)
-        #expect(inference.templateID == "tower_defense")
-        #expect(inference.recommendedCreateArguments["game_type"] == "tower_defense")
+        #expect(inference.templateID == "missile_command")
+        #expect(inference.recommendedCreateArguments["game_type"] == "missile_command")
         #expect(inference.matchedTerms.contains { $0.localizedCaseInsensitiveContains("missile") })
+        #expect(inference.templateUse == .createThenCustomize)
+        #expect(inference.shouldAutoApplyTemplate == false)
         #expect(inference.guidance.contains("create_sprite_game_template"))
     }
 
