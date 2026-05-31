@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 let nextDebugId = 1;
 let attached = null;
 let stdinBuffer = Buffer.alloc(0);
+let stdoutFraming = "content-length";
 const debugConnections = new Map();
 let discoveryPollInFlight = false;
 const discoveryPollIntervalMs = 2_000;
@@ -86,41 +87,50 @@ function discoveryDirectory() {
     if (configured && configured.length > 0) {
         return configured.replace(/^~/, os.homedir());
     }
+    return appSupportDiscoveryDirectory();
+}
+function appSupportDiscoveryDirectory() {
+    return path.join(os.homedir(), "Library", "Application Support", "Hype", "debug");
+}
+function discoveryDirectories() {
+    const configured = process.env.HYPE_DEBUG_SOCKET_DIR?.trim();
+    if (configured && configured.length > 0) {
+        return [configured.replace(/^~/, os.homedir())];
+    }
+    const directories = [appSupportDiscoveryDirectory()];
     const repoLocal = path.join(repoRoot, ".hype", "debug");
-    try {
-        fsSync.mkdirSync(repoLocal, { recursive: true, mode: 0o700 });
-        return repoLocal;
+    if (fsSync.existsSync(repoLocal)) {
+        directories.push(repoLocal);
     }
-    catch {
-        return path.join(os.homedir(), "Library", "Application Support", "Hype", "debug");
-    }
+    return directories;
 }
 async function discoverSessions() {
-    const dir = discoveryDirectory();
-    let entries = [];
-    try {
-        entries = await fs.readdir(dir);
-    }
-    catch {
-        return [];
-    }
     const sessions = [];
-    for (const entry of entries) {
-        if (!entry.endsWith(".json"))
-            continue;
-        const descriptorPath = path.join(dir, entry);
+    for (const dir of discoveryDirectories()) {
+        let entries = [];
         try {
-            const descriptor = JSON.parse(await fs.readFile(descriptorPath, "utf8"));
-            if (!descriptor.instanceId || !descriptor.socketPath || !descriptor.pid)
-                continue;
-            if (!isPidLive(descriptor.pid)) {
-                await pruneOrphanedSocket(descriptor);
-                continue;
-            }
-            sessions.push(descriptor);
+            entries = await fs.readdir(dir);
         }
         catch {
             continue;
+        }
+        for (const entry of entries) {
+            if (!entry.endsWith(".json"))
+                continue;
+            const descriptorPath = path.join(dir, entry);
+            try {
+                const descriptor = JSON.parse(await fs.readFile(descriptorPath, "utf8"));
+                if (!descriptor.instanceId || !descriptor.socketPath || !descriptor.pid)
+                    continue;
+                if (!isPidLive(descriptor.pid)) {
+                    await pruneOrphanedSocket(descriptor, descriptorPath);
+                    continue;
+                }
+                sessions.push(descriptor);
+            }
+            catch {
+                continue;
+            }
         }
     }
     return sessions.sort((a, b) => (b.startedAt ?? "").localeCompare(a.startedAt ?? ""));
@@ -134,11 +144,17 @@ function isPidLive(pid) {
         return false;
     }
 }
-async function pruneOrphanedSocket(session) {
+async function pruneOrphanedSocket(session, descriptorPath) {
     try {
         await fs.rm(session.socketPath, { force: true });
     }
     catch { }
+    if (descriptorPath) {
+        try {
+            await fs.rm(descriptorPath, { force: true });
+        }
+        catch { }
+    }
 }
 async function enrichSession(session) {
     try {
@@ -373,31 +389,56 @@ process.stdin.on("data", (chunk) => {
 });
 async function processMessages() {
     while (true) {
-        const headerEnd = stdinBuffer.indexOf("\r\n\r\n");
-        if (headerEnd < 0)
-            return;
-        const header = stdinBuffer.slice(0, headerEnd).toString("utf8");
-        const match = /^content-length:\s*(\d+)$/im.exec(header);
-        if (!match) {
-            stdinBuffer = Buffer.alloc(0);
-            return;
-        }
-        const length = Number(match[1]);
-        const bodyStart = headerEnd + 4;
-        if (stdinBuffer.length < bodyStart + length)
-            return;
-        const body = stdinBuffer.slice(bodyStart, bodyStart + length).toString("utf8");
-        stdinBuffer = stdinBuffer.slice(bodyStart + length);
-        let message;
-        try {
-            message = JSON.parse(body);
-        }
-        catch {
-            send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } });
+        const headerBoundary = findHeaderBoundary(stdinBuffer);
+        if (headerBoundary) {
+            stdoutFraming = "content-length";
+            const { headerEnd, bodyOffset } = headerBoundary;
+            const header = stdinBuffer.slice(0, headerEnd).toString("utf8");
+            const match = /^content-length:\s*(\d+)$/im.exec(header);
+            if (!match) {
+                stdinBuffer = Buffer.alloc(0);
+                return;
+            }
+            const length = Number(match[1]);
+            const bodyStart = bodyOffset;
+            if (stdinBuffer.length < bodyStart + length)
+                return;
+            const body = stdinBuffer.slice(bodyStart, bodyStart + length).toString("utf8");
+            stdinBuffer = stdinBuffer.slice(bodyStart + length);
+            await processMessageBody(body);
             continue;
         }
-        await handleMCPMessage(message);
+        const lineEnd = stdinBuffer.indexOf("\n");
+        if (lineEnd < 0)
+            return;
+        stdoutFraming = "json-line";
+        const body = stdinBuffer.slice(0, lineEnd).toString("utf8").trim();
+        stdinBuffer = stdinBuffer.slice(lineEnd + 1);
+        if (!body)
+            continue;
+        await processMessageBody(body);
     }
+}
+async function processMessageBody(body) {
+    let message;
+    try {
+        message = JSON.parse(body);
+    }
+    catch {
+        send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } });
+        return;
+    }
+    await handleMCPMessage(message);
+}
+function findHeaderBoundary(buffer) {
+    const crlf = buffer.indexOf("\r\n\r\n");
+    const lf = buffer.indexOf("\n\n");
+    if (crlf < 0 && lf < 0)
+        return null;
+    if (crlf >= 0 && (lf < 0 || crlf <= lf)) {
+        return { headerEnd: crlf, bodyOffset: crlf + 4 };
+    }
+    return { headerEnd: lf, bodyOffset: lf + 2 };
 }
 async function handleMCPMessage(message) {
     const method = typeof message.method === "string" ? message.method : "";
@@ -447,8 +488,10 @@ async function handleMCPMessage(message) {
     }
 }
 async function listTools() {
-    const session = await ensureAttached();
+    const session = attached;
     if (!session)
+        return connectionTools;
+    if (discoveryPollInFlight)
         return connectionTools;
     try {
         const result = (await debugRPC(session.socketPath, "debug/listTools", {}));
@@ -460,8 +503,16 @@ async function listTools() {
     }
 }
 async function listResources() {
-    const session = await ensureAttached();
+    const session = attached;
     if (!session) {
+        return [{
+                uri: "hype://app/state",
+                name: "App State",
+                description: "Current Hype app and debug-session state.",
+                mimeType: "application/json",
+            }];
+    }
+    if (discoveryPollInFlight) {
         return [{
                 uri: "hype://app/state",
                 name: "App State",
@@ -502,8 +553,10 @@ async function readResource(params) {
     };
 }
 async function listPrompts() {
-    const session = await ensureAttached();
+    const session = attached;
     if (!session)
+        return [];
+    if (discoveryPollInFlight)
         return [];
     try {
         const result = (await debugRPC(session.socketPath, "debug/listPrompts", {}));
@@ -608,6 +661,23 @@ function sendError(id, code, message) {
 }
 function send(message) {
     const json = JSON.stringify(message);
+    if (stdoutFraming === "json-line") {
+        process.stdout.write(`${json}\n`);
+        return;
+    }
     process.stdout.write(`Content-Length: ${Buffer.byteLength(json, "utf8")}\r\n\r\n${json}`);
 }
-startBackgroundDiscovery();
+function ensureSocketDirectory() {
+    const socketDir = discoveryDirectory();
+    try {
+        fsSync.mkdirSync(socketDir, { recursive: true, mode: 0o700 });
+    }
+    catch {
+        // Directory may already exist
+    }
+}
+function bootstrap() {
+    ensureSocketDirectory();
+    startBackgroundDiscovery();
+}
+bootstrap();

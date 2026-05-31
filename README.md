@@ -383,25 +383,27 @@ debug sockets and translates MCP requests into debug JSON-RPC:
 
 - Debug transport: per-process Unix-domain socket under the Hype debug discovery directory
 - MCP server: `node Tools/hype-mcp-server/bin/hype-mcp.js`
-- Codex bridge wrapper: `scripts/hype-mcp-stdio.sh`
 
 Use `hype://app/preferences` or `hype_get_preferences` to see redacted `isSet`
 status for provider secrets. Provider secret values are never returned by any
 MCP resource or tool.
 
-For Codex, configure the wrapper as a stdio MCP server:
+For Codex, configure the Node server as a stdio MCP server:
 
 ```toml
 [mcp_servers.hype]
-command = "/path/to/hype/scripts/hype-mcp-stdio.sh"
-args = []
+command = "node"
+args = ["/path/to/hype/Tools/hype-mcp-server/bin/hype-mcp.js"]
 startup_timeout_sec = 120
 ```
 
-The wrapper builds the TypeScript server if needed, launches
-`/Applications/Hype.app`, and then execs the stdio MCP server without writing
-non-JSON output to stdout. The MCP server can start detached and will attach
-automatically when exactly one live Hype debug session is discoverable.
+The checked-in `.envrc` sets `HYPE_DEBUG_SOCKET_DIR` to the app-support debug
+socket directory shared by `/Applications/Hype.app`. Run `direnv allow` once in
+the repo, or set that environment variable manually in clients that do not load
+direnv. Without an explicit environment variable, the server scans the
+app-support directory and any repo-local debug sockets left by development runs.
+The MCP server can start detached and will attach automatically when exactly one
+live Hype debug session is discoverable.
 
 The MCP tool catalog contains every in-app authoring tool plus control tools:
 `hype_get_app_state`, `hype_get_preferences`, `hype_set_preference`,
@@ -785,16 +787,11 @@ Recent milestones:
 ## Contributing
 
 The repository is open-source under the MIT license. Issues and
-pull requests are welcome. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md)
-for contributor workflow and PR documentation expectations, then read
-[`architecture.md`](architecture.md) and [`decisions.md`](decisions.md)
-before opening a substantive PR — many design choices have load-bearing
-rationale documented there.
+pull requests are welcome. See `AGENTS.md` for the repo workflow and
+`architecture.md` before opening a substantive PR — many design choices
+have load-bearing rationale documented there.
 
-For PRs, GitHub automatically uses
-[`.github/pull_request_template.md`](.github/pull_request_template.md)
-to standardize Summary, Context, Changes Made, Testing & Verification,
-Screenshots / GIFs, and Checklist sections.
+For PRs:
 
 - Run `scripts/test.sh` and confirm green.
 - Match the existing commit-message style (`area: imperative

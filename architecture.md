@@ -2305,8 +2305,9 @@ Hype.app exposes local automation to external agents through a split debug/MCP
 bridge. The app itself owns only `HypeDebugServer`, a preference-gated
 per-process Unix-domain socket under `<discovery>/<pid>.sock` plus a JSON
 descriptor for discovery. Discovery uses `HYPE_DEBUG_SOCKET_DIR` env var, then
-`.hype/debug/` relative to the repo, then
-`~/Library/Application Support/Hype/debug/`. That debug bridge speaks
+`~/Library/Application Support/Hype/debug/`. The stdio MCP server scans that
+app-support directory by default and also reads an existing repo-local
+`.hype/debug/` directory left by development runs. That debug bridge speaks
 newline-delimited JSON-RPC methods such as `debug/keepalive`, `debug/hello`,
 `debug/listTools`, and `debug/callTool`; it does not speak MCP and it does not
 bind a TCP port. Socket accept/read handling runs on a dedicated dispatch queue

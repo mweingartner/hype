@@ -19,10 +19,14 @@ port.
 
 ## Discovery
 
-Discovery path (in order of preference):
+Debug bridge writers choose one discovery directory, in order of preference:
 1. `HYPE_DEBUG_SOCKET_DIR` env var (if set and non-empty)
-2. `.hype/debug/` relative to the repo root (cwd)
-3. `~/Library/Application Support/Hype/debug/`
+2. `~/Library/Application Support/Hype/debug/`
+
+The MCP stdio server scans the configured `HYPE_DEBUG_SOCKET_DIR` when set.
+Without it, the server scans the app-support debug directory and any existing
+repo-local `.hype/debug/` directory left by development runs. It creates only
+the app-support directory on startup.
 
 Each Hype process writes a socket `<discovery>/<pid>.sock` and a descriptor
 `<discovery>/<instanceId>.json` where `<pid>` is the process ID of the Hype instance.
@@ -116,3 +120,11 @@ command = "node"
 args = ["Tools/hype-mcp-server/bin/hype-mcp.js"]
 enabled = true
 ```
+
+The Node server is the only stdio entrypoint. By default it scans the
+app-support debug directory used by launched Hype.app instances and any
+repo-local `.hype/debug` directory left by development runs.
+
+The repo `.envrc` sets `HYPE_DEBUG_SOCKET_DIR` to the app-support debug
+directory so direnv-aware shells and MCP clients use the same default as
+`/Applications/Hype.app`.
