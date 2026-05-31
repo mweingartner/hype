@@ -695,6 +695,75 @@ struct MystStackImportAcceptanceTests {
         #expect(blackCapture.pixelHeight > 0)
         #expect(blackStats.nonWhiteOpaquePixelCount > blackStats.pixelCount / 3)
     }
+
+    @Test("captures representative cards from full Myst project import")
+    @MainActor
+    func capturesRepresentativeCardsFromFullMystProjectImport() throws {
+        let root = try mystExportRoot()
+        let stacksRoot = root.appendingPathComponent("exports/stacks", isDirectory: true)
+        let packageNames = [
+            "Myst-Application.xstk",
+            "ALLRes.xstk",
+            "INRes1.xstk",
+            "Myst.xstk",
+            "Mechanical-Age.xstk",
+            "Stoneship-Age.xstk",
+            "Channelwood-Age.xstk",
+            "Selenitic-Age.xstk",
+            "Dunny-Age.xstk",
+        ]
+        let packageURLs = packageNames.map { stacksRoot.appendingPathComponent($0, isDirectory: true) }
+        let outputURL = makeTemporaryDirectory(prefix: "hype-myst-full-visual")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let result = try StackImportPackageProjectImporter().importProject(
+            options: StackImportPackageProjectImportOptions(
+                packageURLs: packageURLs,
+                outputDirectoryURL: outputURL,
+                stackLibraryEntries: packageURLs.map(stackLibraryEntry),
+                usedStackAliases: ["ALLRes", "INRes1"]
+            )
+        )
+
+        #expect(result.packageResults.count == packageNames.count)
+
+        let capturer = CardImageCapturer()
+        for packageResult in result.packageResults {
+            let document = try HypeSQLiteStackStore().load(fromPackageAt: packageResult.outputPackageURL)
+            let captureCandidates = visualCaptureCandidates(in: document)
+            #expect(!captureCandidates.isEmpty)
+
+            var bestStats: VisualStats?
+            var bestCardName = ""
+            for card in captureCandidates {
+                let capture = try capturer.capture(
+                    cardName: nil,
+                    document: document,
+                    currentCardId: card.id,
+                    maxLongEdge: 512
+                )
+                let stats = try visualStats(fromBase64PNG: capture.imageBase64)
+                if bestStats == nil || stats.nonWhiteOpaquePixelCount > (bestStats?.nonWhiteOpaquePixelCount ?? 0) {
+                    bestStats = stats
+                    bestCardName = card.name
+                }
+                if stats.nonWhiteOpaquePixelCount > max(64, stats.pixelCount / 100),
+                   stats.sampledColorCount > 1 || stats.darkOpaquePixelCount > 64 {
+                    break
+                }
+            }
+
+            let stats = try #require(bestStats, "\(packageResult.outputPackageURL.lastPathComponent) produced no card captures")
+            #expect(
+                stats.nonWhiteOpaquePixelCount > max(64, stats.pixelCount / 100),
+                "\(packageResult.outputPackageURL.lastPathComponent) representative captures were effectively blank; best card: \(bestCardName)"
+            )
+            #expect(
+                stats.sampledColorCount > 1 || stats.darkOpaquePixelCount > 64,
+                "\(packageResult.outputPackageURL.lastPathComponent) representative captures had no meaningful visual variation; best card: \(bestCardName)"
+            )
+        }
+    }
     #endif
 
     @Test("imported Myst palette drives runtime QuickDraw color indexes")
@@ -958,6 +1027,25 @@ struct MystStackImportAcceptanceTests {
             blue: data[offset + 2],
             alpha: data[offset + 3]
         )
+    }
+
+    private func visualCaptureCandidates(in document: HypeDocument) -> [Card] {
+        let cards = document.sortedCards
+        let paintLayerCardIds = Set(document.paintLayers.map(\.cardId))
+        let partCardIds = Set(document.parts.compactMap(\.cardId))
+        let cardOrder = Dictionary(uniqueKeysWithValues: cards.enumerated().map { ($0.element.id, $0.offset) })
+        return cards.sorted(by: { lhs, rhs in
+            let lhsRank = visualCaptureRank(card: lhs, paintLayerCardIds: paintLayerCardIds, partCardIds: partCardIds)
+            let rhsRank = visualCaptureRank(card: rhs, paintLayerCardIds: paintLayerCardIds, partCardIds: partCardIds)
+            if lhsRank != rhsRank { return lhsRank < rhsRank }
+            return (cardOrder[lhs.id] ?? Int.max) < (cardOrder[rhs.id] ?? Int.max)
+        })
+    }
+
+    private func visualCaptureRank(card: Card, paintLayerCardIds: Set<UUID>, partCardIds: Set<UUID>) -> Int {
+        if paintLayerCardIds.contains(card.id) { return 0 }
+        if partCardIds.contains(card.id) { return 1 }
+        return 2
     }
 
     private func storedScripts(in document: HypeDocument) -> [(ownerPath: String, source: String)] {
