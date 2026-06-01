@@ -71,6 +71,13 @@ struct HypeCLI: AsyncParsableCommand {
     @Option(name: .customLong("import-hypercard"), help: "Import one classic HyperCard stack and print a tab-separated summary")
     var importHyperCard: String?
 
+    @Option(
+        name: .customLong("import-stackimport-project"),
+        parsing: .upToNextOption,
+        help: "Import one or more stackimport .xstk packages as a linked project and print a JSON summary"
+    )
+    var importStackImportProject: [String] = []
+
     @Option(help: "Scan a directory of classic stacks/archives and print tab-separated import summaries")
     var importCorpus: String?
 
@@ -79,6 +86,30 @@ struct HypeCLI: AsyncParsableCommand {
 
     @Option(help: "Write --import-corpus successful imports as .hype packages in this directory")
     var outputDir: String?
+
+    @Option(help: "Path to JSON array of HypeStackLibraryEntry objects for --import-stackimport-project")
+    var stackLibraryJson: String?
+
+    @Option(help: "Comma-separated stack aliases to mark as started/used in --import-stackimport-project")
+    var usedStackAliases: String?
+
+    @Option(help: "Loose media manifest TSV for --import-stackimport-project")
+    var looseMediaManifest: String?
+
+    @Option(help: "Loose media source root for --import-stackimport-project")
+    var looseMediaSourceRoot: String?
+
+    @Option(help: "Loose media replacement root for --import-stackimport-project")
+    var looseMediaReplacementRoot: String?
+
+    @Option(help: "Comma-separated loose media names to import with --import-stackimport-project")
+    var looseMediaNames: String?
+
+    @Option(help: "Path to JSON object mapping loose media aliases to source names for --import-stackimport-project")
+    var looseMediaAliasesJson: String?
+
+    @Flag(help: "Refuse to replace existing output .hype packages during --import-stackimport-project")
+    var noReplaceExistingProjectOutput = false
 
     @Option(help: "Automation import target platforms, comma-separated: macOS, iPhone, iPad, tvOS. Defaults to macOS.")
     var targetPlatforms: String?
@@ -111,14 +142,23 @@ struct HypeCLI: AsyncParsableCommand {
         if output != nil && importHyperCard == nil {
             throw ValidationError("--output requires --import-hypercard")
         }
-        if outputDir != nil && importCorpus == nil {
-            throw ValidationError("--output-dir requires --import-corpus")
+        if outputDir != nil && importCorpus == nil && importStackImportProject.isEmpty {
+            throw ValidationError("--output-dir requires --import-corpus or --import-stackimport-project")
         }
         if outputDir != nil && importHyperCard != nil {
-            throw ValidationError("--output-dir requires --import-corpus")
+            throw ValidationError("--output-dir cannot be combined with --import-hypercard; use --output")
         }
         if output != nil && importCorpus != nil {
             throw ValidationError("--output requires --import-hypercard")
+        }
+        if importCorpus != nil && !importStackImportProject.isEmpty {
+            throw ValidationError("--import-corpus cannot be combined with --import-stackimport-project")
+        }
+        if output != nil && !importStackImportProject.isEmpty {
+            throw ValidationError("--output cannot be combined with --import-stackimport-project; use --output-dir")
+        }
+        if !importStackImportProject.isEmpty && outputDir == nil {
+            throw ValidationError("--import-stackimport-project requires --output-dir")
         }
         if exportScripts != nil && validateScripts == nil {
             throw ValidationError("--export-scripts requires --validate-scripts")
@@ -158,6 +198,11 @@ struct HypeCLI: AsyncParsableCommand {
             }
             print(summary.tsvHeader)
             print(summary.tsvLine)
+            return
+        }
+
+        if !importStackImportProject.isEmpty {
+            try runImportStackImportProject()
             return
         }
 
@@ -432,6 +477,140 @@ struct HypeCLI: AsyncParsableCommand {
             options: HyperCardImportOptions(deploymentTargets: try automationDeploymentTargets())
         ).importStack(at: url)
         return ImportSummary(sourceURL: url, document: result.document)
+    }
+
+    private func runImportStackImportProject() throws {
+        let packageURLs = importStackImportProject.map { URL(fileURLWithPath: $0, isDirectory: true) }
+        let outputURL = URL(fileURLWithPath: try requiredOutputDir(), isDirectory: true)
+        let names = csvValues(looseMediaNames)
+        let result = try StackImportPackageProjectImporter().importProject(
+            options: StackImportPackageProjectImportOptions(
+                packageURLs: packageURLs,
+                outputDirectoryURL: outputURL,
+                replaceExistingOutputPackages: !noReplaceExistingProjectOutput,
+                looseMediaManifestURL: pathURL(looseMediaManifest),
+                looseMediaSourceRootURL: pathURL(looseMediaSourceRoot),
+                looseMediaReplacementRootURL: pathURL(looseMediaReplacementRoot),
+                looseMediaNames: names.isEmpty ? nil : Set(names),
+                looseMediaAliases: try stringMapJSON(from: looseMediaAliasesJson),
+                stackLibraryEntries: try stackLibraryEntriesJSON(from: stackLibraryJson),
+                usedStackAliases: csvValues(usedStackAliases),
+                deploymentTargets: try automationDeploymentTargets()
+            )
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let output = ProjectImportOutput(result: result.summary)
+        let data = try encoder.encode(output)
+        print(String(data: data, encoding: .utf8) ?? "{}")
+    }
+
+    private func requiredOutputDir() throws -> String {
+        guard let outputDir else {
+            throw ValidationError("--import-stackimport-project requires --output-dir")
+        }
+        return outputDir
+    }
+
+    private func pathURL(_ path: String?) -> URL? {
+        normalized(path).map { URL(fileURLWithPath: $0) }
+    }
+
+    private func csvValues(_ value: String?) -> [String] {
+        guard let value = normalized(value) else { return [] }
+        return value
+            .split(separator: ",")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func stringMapJSON(from path: String?) throws -> [String: String] {
+        guard let url = pathURL(path) else { return [:] }
+        let data = try Data(contentsOf: url)
+        let object = try JSONSerialization.jsonObject(with: data)
+        guard let raw = object as? [String: Any] else {
+            throw ValidationError("--loose-media-aliases-json must contain a JSON object")
+        }
+        var result: [String: String] = [:]
+        for (key, value) in raw {
+            if let value = value as? String, !key.isEmpty, !value.isEmpty {
+                result[key] = value
+            }
+        }
+        return result
+    }
+
+    private func stackLibraryEntriesJSON(from path: String?) throws -> [HypeStackLibraryEntry] {
+        guard let url = pathURL(path) else { return [] }
+        let data = try Data(contentsOf: url)
+        let object = try JSONSerialization.jsonObject(with: data)
+        guard let rows = object as? [[String: Any]] else {
+            throw ValidationError("--stack-library-json must contain a JSON array")
+        }
+        return rows.compactMap(stackLibraryEntry(from:))
+    }
+
+    private func stackLibraryEntry(from row: [String: Any]) -> HypeStackLibraryEntry? {
+        guard let stackName = row["stackName"] as? String,
+              !stackName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        let sourceName = (row["source"] as? String) ?? HypeStackLibrarySource.importedStackPackage.rawValue
+        let source = HypeStackLibrarySource(rawValue: sourceName) ?? .importedStackPackage
+        return HypeStackLibraryEntry(
+            stackName: stackName,
+            aliases: stringArray(row["aliases"]),
+            source: source,
+            packagePath: row["packagePath"] as? String,
+            documentPath: row["documentPath"] as? String,
+            legacyFirstCardId: intValue(row["legacyFirstCardId"]),
+            cardCount: intValue(row["cardCount"]),
+            stackScript: row["stackScript"] as? String,
+            cardReferences: stackLibraryCardReferences(row["cardReferences"]),
+            metadata: stackLibraryMetadata(row["metadata"])
+        )
+    }
+
+    private func stackLibraryCardReferences(_ value: Any?) -> [HypeStackLibraryCardReference] {
+        guard let rows = value as? [[String: Any]] else { return [] }
+        return rows.map { row in
+            HypeStackLibraryCardReference(
+                legacyCardId: intValue(row["legacyCardId"]),
+                name: (row["name"] as? String) ?? "",
+                sortIndex: intValue(row["sortIndex"]),
+                hypeCardId: uuidValue(row["hypeCardId"])
+            )
+        }
+    }
+
+    private func stackLibraryMetadata(_ value: Any?) -> [HypeStackLibraryMetadataEntry] {
+        guard let rows = value as? [[String: Any]] else { return [] }
+        return rows.compactMap { row in
+            guard let key = row["key"] as? String, !key.isEmpty,
+                  let rawValue = row["value"] else {
+                return nil
+            }
+            return HypeStackLibraryMetadataEntry(key: key, value: String(describing: rawValue))
+        }
+    }
+
+    private func stringArray(_ value: Any?) -> [String] {
+        (value as? [Any] ?? []).compactMap { item in
+            guard let text = item as? String else { return nil }
+            return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+        }
+    }
+
+    private func intValue(_ value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? Double { return Int(value) }
+        if let value = value as? String { return Int(value) }
+        return nil
+    }
+
+    private func uuidValue(_ value: Any?) -> UUID? {
+        guard let value = value as? String else { return nil }
+        return UUID(uuidString: value)
     }
 
     private func automationDeploymentTargets() throws -> StackDeploymentTargets {
@@ -1732,6 +1911,10 @@ private struct ImportSummary {
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\r", with: " ")
     }
+}
+
+private struct ProjectImportOutput: Codable {
+    var result: StackImportPackageProjectImportSummary
 }
 
 private struct PackageValidationReport {
