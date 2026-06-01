@@ -12,7 +12,7 @@ public struct Lexer: Sendable {
     private static let keywords: [String: TokenType] = [
         "on": .on, "end": .end, "if": .if, "then": .then, "else": .else,
         "repeat": .repeat, "put": .put, "get": .get, "set": .set,
-        "go": .go, "ask": .ask, "answer": .answer, "say": .say, "visual": .visual, "do": .do,
+        "go": .go, "ask": .ask, "answer": .answer, "say": .say, "visual": .visual,
         "effect": .effect, "pass": .pass, "exit": .exit, "next": .next,
         "return": .return, "global": .global, "function": .function,
         "true": .true, "false": .false, "not": .not, "and": .and, "or": .or,

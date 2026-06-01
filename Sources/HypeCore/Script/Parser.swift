@@ -223,7 +223,6 @@ public struct Parser: Sendable {
         case .get:      return try parseGetStatement()
         case .set:      return try parseSetStatement()
         case .go:       return try parseGoStatement()
-        case .do:       return try parseDoStatement()
         case .if:       return try parseIfStatement()
         case .repeat:   return try parseRepeatStatement()
         case .exit:     return try parseExitStatement()
@@ -584,13 +583,6 @@ public struct Parser: Sendable {
         let value = try parseExpression()
         skipNewlines()
         return .set(property: property, of: target, to: value)
-    }
-
-    private mutating func parseDoStatement() throws -> Statement {
-        _ = try expect(.do)
-        let scriptExpr = try parseExpression()
-        skipNewlines()
-        return .doBlock(scriptExpr)
     }
 
     /// Swallow `physicsBody of` (and similar natural-language

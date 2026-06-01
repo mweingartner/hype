@@ -7,7 +7,7 @@ public enum TokenType: String, Sendable {
 
     // Keywords — handlers & control flow
     case on, end, `if`, then, `else`, `repeat`, put, get, set
-    case go, ask, answer, say, visual, effect, pass, exit, next, `return`, `do`
+    case go, ask, answer, say, visual, effect, pass, exit, next, `return`
     case global, function, `true`, `false`, not, and, or
 
     // Comparison & containment
