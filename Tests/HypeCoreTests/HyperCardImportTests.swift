@@ -199,6 +199,27 @@ struct HyperCardImportTests {
         #expect(try parsedHandlerCount(translated) == 2)
     }
 
+    @Test("legacy translator keeps classic comparison glyph handlers live")
+    func legacyTranslatorKeepsClassicComparisonGlyphHandlersLive() throws {
+        let script = """
+        on mouseDown
+        get 9
+        if it \u{2265} 9 then
+        play "SW breakerclose"
+        end if
+        if it \u{2264} 10 then
+        put "ok" into result
+        end if
+        end mouseDown
+        """
+
+        let translated = LegacyHyperTalkScript.preparedForHypeTalkRuntime(script)
+
+        #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(translated))
+        #expect(translated.contains("if it \u{2265} 9 then"))
+        #expect(try parsedHandlerCount(translated) == 1)
+    }
+
     @Test("legacy translator comments disabled handler tails without disabling earlier handlers")
     func legacyTranslatorCommentsDisabledHandlerTails() throws {
         let script = """
