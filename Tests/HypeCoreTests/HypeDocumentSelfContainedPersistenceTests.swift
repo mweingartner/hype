@@ -126,6 +126,47 @@ struct HypeDocumentSelfContainedPersistenceTests {
         #expect(loaded.cards[0].script == document.cards[0].script)
     }
 
+    @Test("imported stack library persists as document metadata")
+    func importedStackLibraryPersistsAsDocumentMetadata() throws {
+        let store = HypeSQLiteStackStore()
+        let packageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("StackLibrarySQLite-\(UUID().uuidString).hype", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: packageURL) }
+
+        var document = HypeDocument.newDocument(name: "Myst Project")
+        let allRes = HypeStackLibraryEntry(
+            stackName: "ALLRes",
+            aliases: ["ALLRes", "ALL Res"],
+            source: .importedStackPackage,
+            packagePath: "exports/stacks/ALLRes.xstk",
+            legacyFirstCardId: 5907,
+            cardCount: 1,
+            stackScript: "on sharedHandler\nreturn \"allres\"\nend sharedHandler",
+            cardReferences: [
+                HypeStackLibraryCardReference(legacyCardId: 5907, name: "Resources", sortIndex: 0)
+            ]
+        )
+        let myst = HypeStackLibraryEntry(
+            stackName: "Myst",
+            aliases: ["Myst"],
+            source: .importedStackPackage,
+            packagePath: "exports/stacks/Myst.xstk",
+            legacyFirstCardId: 21776,
+            cardCount: 330
+        )
+        document.stackLibrary = HypeStackLibrary(entries: [allRes, myst], usedStackAliases: ["ALLRes"])
+
+        try store.save(document, toPackageAt: packageURL)
+        let loaded = try store.load(fromPackageAt: packageURL)
+
+        #expect(loaded.stackLibrary == document.stackLibrary)
+        #expect(loaded.stackLibrary.resolution(for: "all res") == .resolved(allRes))
+        #expect(loaded.stackLibrary.usedStackAliases == ["ALLRes"])
+        #expect(try documentValue("stackLibrary", in: packageURL)?.contains("ALLRes") == true)
+        #expect(try documentValue("stackLibrary", in: packageURL)?.contains("sharedHandler") == true)
+        #expect(try documentValue("stackLibrary", in: packageURL)?.contains("5907") == true)
+    }
+
     @Test("FileWrapper package is self-contained")
     func fileWrapperPackageIsSelfContained() throws {
         let store = HypeSQLiteStackStore()

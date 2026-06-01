@@ -349,6 +349,7 @@ public final class HypeSQLiteStackStore {
         let aiPromptHistory: [String] = try loadDocumentValue([String].self, key: "aiPromptHistory", db: db) ?? []
         let defaultBackgroundId: UUID? = try loadDocumentValue(UUID.self, key: "defaultBackgroundId", db: db)
         let legacyImport: LegacyStackImportMetadata? = try loadDocumentValue(LegacyStackImportMetadata.self, key: "legacyImport", db: db)
+        let stackLibrary: HypeStackLibrary = try loadDocumentValue(HypeStackLibrary.self, key: "stackLibrary", db: db) ?? HypeStackLibrary()
 
         var document = HypeDocument(
             documentVersion: documentVersion,
@@ -365,6 +366,7 @@ public final class HypeSQLiteStackStore {
             scriptGlobals: [:],
             defaultBackgroundId: defaultBackgroundId,
             legacyImport: legacyImport,
+            stackLibrary: stackLibrary,
             themes: themes
         )
         disableUntranslatedLegacyScriptsIfNeeded(&document)
@@ -814,6 +816,9 @@ public final class HypeSQLiteStackStore {
         }
         if let legacyImport = document.legacyImport {
             try storeDocumentValue(legacyImport, key: "legacyImport", db: db)
+        }
+        if !document.stackLibrary.isEmpty {
+            try storeDocumentValue(document.stackLibrary, key: "stackLibrary", db: db)
         }
 
         for (index, background) in document.backgrounds.enumerated() {
