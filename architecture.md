@@ -1435,7 +1435,10 @@ script source string
   HyperCard scripts, command-style handler calls are preserved through the same
   dispatcher, including parameterless single-identifier lines such as
   `resetDrawers`, and function-call syntax such as `theAdjust()` can invoke
-  matching handler functions in the same pass-up path. Unknown command-style
+  matching handler functions in the same pass-up path. After a local `go`
+  resolves to another card, subsequent function calls in that handler use the
+  destination card as the effective lookup context, matching Myst-era scripts
+  that navigate before calling a card-local helper. Unknown command-style
   identifiers with arguments parse as `.externalCommand(name:arguments:)` so
   XCMD calls like `SetCursor "watch"` can flow into the emulation registry
   rather than causing a parse error.
