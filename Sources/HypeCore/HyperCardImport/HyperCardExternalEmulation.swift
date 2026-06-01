@@ -158,6 +158,15 @@ public struct HyperCardExternalRegistry: Sendable {
         put(.xcmd, ["dplay"], Entry(status: .emulated) { call, context in
             delayedPlayCompatibility(call: call, context: context)
         })
+        put(.xcmd, ["soundIdle"], Entry(status: .emulated) { call, context in
+            mystSoundIdleCompatibility(call: call, context: context)
+        })
+        put(.xcmd, ["soundStop"], Entry(status: .emulated) { call, context in
+            mystSoundStopCompatibility(call: call, context: context)
+        })
+        put(.xcmd, ["soundTime"], Entry(status: .emulated) { call, context in
+            mystSoundTimeCompatibility(call: call, context: context)
+        })
         put(.xcmd, ["closemoovs", "closemovies", "closeQT"], Entry(status: .emulated) { _, context in
             closeQuickTimeMovies(context: context)
         })
@@ -375,7 +384,8 @@ public struct HyperCardExternalRegistry: Sendable {
 
         var runtimeGlobals = [
             "hypercard.playqt.asset": asset.name,
-            "hypercard.playqt.audioOnly": audioOnly ? "true" : "false"
+            "hypercard.playqt.audioOnly": audioOnly ? "true" : "false",
+            "soundMooV": rawName
         ]
         if let windowName {
             let windowKey = AssetRepository.classicMediaLookupKey(windowName)
@@ -620,6 +630,129 @@ public struct HyperCardExternalRegistry: Sendable {
                 "hypercard.dplay.lastSound": soundName,
                 "hypercard.dplay.queueDepth": String(queued.split(separator: "\r", omittingEmptySubsequences: true).count)
             ]
+        )
+    }
+
+    private static func mystSoundIdleCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        let prior = classicInteger(
+            hyperCardGlobal("hypercard.soundidle.count", in: context.document),
+            fallback: 0
+        )
+        return HyperCardExternalResult(
+            value: "done",
+            result: "",
+            runtimeGlobals: [
+                "hypercard.soundidle.count": String(prior + 1),
+                "hypercard.soundidle.arguments": call.arguments.joined(separator: "\t"),
+                "hypercard.sound.state": "done"
+            ]
+        )
+    }
+
+    private static func mystSoundStopCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        let windowName = activeSoundMovieName(in: context.document)
+        var document = context.document
+        let indices = quickTimeCompatibilityPartIndices(
+            windowName: windowName,
+            document: document,
+            currentCardId: context.currentCardId
+        )
+        for index in indices {
+            document.parts[index].videoAutoplay = false
+            document.parts[index].videoPlayRate = 0
+        }
+        var globals = [
+            "hypercard.soundstop.count": String(indices.count),
+            "hypercard.soundstop.arguments": call.arguments.joined(separator: "\t"),
+            "hypercard.sound.state": "done"
+        ]
+        if let windowName {
+            let windowKey = AssetRepository.classicMediaLookupKey(windowName)
+            globals["soundMooV"] = windowName
+            globals["hypercard.window.\(windowKey).rate"] = "0"
+        }
+        return HyperCardExternalResult(
+            value: String(indices.count),
+            result: "",
+            modifiedDocument: document,
+            runtimeGlobals: globals
+        )
+    }
+
+    private static func mystSoundTimeCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        guard let windowName = activeSoundMovieName(in: context.document), !windowName.isEmpty else {
+            return HyperCardExternalResult(
+                result: "soundTime requires an active sound movie",
+                diagnostic: "soundTime requires an active sound movie",
+                runtimeGlobals: [
+                    "hypercard.soundtime.arguments": call.arguments.joined(separator: "\t"),
+                    "hypercard.soundtime.found": "false"
+                ]
+            )
+        }
+
+        var document = context.document
+        let startTime = classicMovieTime(call.arguments.dropFirst(0).first)
+        let currTime = classicMovieTime(call.arguments.dropFirst(1).first) ?? startTime
+        let loopStartTime = classicMovieTime(call.arguments.dropFirst(2).first)
+        let endTime = classicMovieTime(call.arguments.dropFirst(3).first)
+        let windowKey = AssetRepository.classicMediaLookupKey(windowName)
+
+        let indices = quickTimeCompatibilityPartIndices(
+            windowName: windowName,
+            document: document,
+            currentCardId: context.currentCardId
+        )
+        for index in indices {
+            if let currTime {
+                document.parts[index].videoCurrentTime = currTime
+            }
+            if let endTime {
+                document.parts[index].videoDuration = max(document.parts[index].videoDuration, endTime)
+            }
+            document.parts[index].videoAutoplay = true
+            document.parts[index].videoPlayRate = 1
+            document.parts[index].visible = true
+        }
+
+        var globals = [
+            "soundMooV": windowName,
+            "hypercard.soundtime.window": windowName,
+            "hypercard.soundtime.arguments": call.arguments.joined(separator: "\t"),
+            "hypercard.soundtime.found": indices.isEmpty ? "false" : "true",
+            "hypercard.window.\(windowKey).exists": "true",
+            "hypercard.window.\(windowKey).visible": "true",
+            "hypercard.window.\(windowKey).rate": "1"
+        ]
+        if let startTime {
+            globals["hypercard.window.\(windowKey).starttime"] = formatClassicNumber(startTime)
+        }
+        if let currTime {
+            globals["hypercard.window.\(windowKey).currtime"] = formatClassicNumber(currTime)
+        }
+        if let loopStartTime {
+            globals["hypercard.window.\(windowKey).loopstarttime"] = formatClassicNumber(loopStartTime)
+        }
+        if let endTime {
+            globals["hypercard.window.\(windowKey).endtime"] = formatClassicNumber(endTime)
+        } else if call.arguments.dropFirst(3).first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "end" {
+            globals["hypercard.window.\(windowKey).endtime"] = "end"
+        }
+
+        return HyperCardExternalResult(
+            value: windowName,
+            result: windowName,
+            modifiedDocument: document,
+            runtimeGlobals: globals
         )
     }
 
@@ -2417,6 +2550,31 @@ public struct HyperCardExternalRegistry: Sendable {
     private static func classicDouble(_ rawValue: Value?, fallback: Double) -> Double {
         let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return Double(trimmed) ?? fallback
+    }
+
+    private static func classicMovieTime(_ rawValue: Value?) -> Double? {
+        let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty, trimmed.lowercased() != "end" else { return nil }
+        let normalized = trimmed.replacingOccurrences(of: ":", with: ",")
+        let parts = normalized.split(separator: ",", omittingEmptySubsequences: false)
+        if parts.count >= 2,
+           let seconds = Double(parts[0].trimmingCharacters(in: .whitespacesAndNewlines)),
+           let frames = Double(parts[1].trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return seconds + frames / 60.0
+        }
+        return Double(trimmed)
+    }
+
+    private static func activeSoundMovieName(in document: HypeDocument) -> String? {
+        let candidates = [
+            hyperCardGlobal("soundMooV", in: document),
+            hyperCardGlobal("soundmoov", in: document),
+            hyperCardGlobal("hypercard.playqt.window", in: document),
+            hyperCardGlobal("hypercard.playqt.movie", in: document)
+        ]
+        return candidates
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
     }
 
     private static func positiveModulo(_ value: Double, modulus: Double) -> Double {
