@@ -1146,7 +1146,28 @@ private struct ScriptSemanticValidator {
         let name = handler.name.lowercased()
         guard Self.knownRuntimeHooks.contains(name) else { return [] }
         guard !allowedHooks(for: owner.ownerType).contains(name) else { return [] }
+        if isInertImportedPassThroughHook(handler: handler, owner: owner) {
+            return []
+        }
         return [issue("hook-context", "`on \(handler.name)` is a known runtime hook, but it is not normally dispatched for \(owner.ownerType) scripts.")]
+    }
+
+    private func isInertImportedPassThroughHook(handler: Handler, owner: StoredScript) -> Bool {
+        guard owner.ownerType == "button" || owner.ownerType == "field" else { return false }
+        guard !handler.body.isEmpty else { return false }
+        var sawPass = false
+        for statement in handler.body {
+            switch statement {
+            case .passMessage(let message):
+                guard message.caseInsensitiveCompare(handler.name) == .orderedSame else { return false }
+                sawPass = true
+            case .externalCommand(let name, _):
+                guard name.caseInsensitiveCompare("HTLock") == .orderedSame else { return false }
+            default:
+                return false
+            }
+        }
+        return sawPass
     }
 
     private func statementIssues(
