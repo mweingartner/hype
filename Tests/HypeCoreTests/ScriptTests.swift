@@ -607,6 +607,35 @@ struct ParserTests {
         #expect(rhsValue == "open")
     }
 
+    @Test func parsesClassicCameraHandlerCommand() throws {
+        var lexer = Lexer(source: """
+        on mouseDown
+          camera 3
+        end mouseDown
+
+        on camera which
+          put which into currentCamera
+        end camera
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 2)
+        guard case .externalCommand(let name, let arguments) = script.handlers[0].body[0] else {
+            Issue.record("Expected camera command-style handler call")
+            return
+        }
+        #expect(name == "camera")
+        #expect(arguments.count == 1)
+        guard case .literal(let value) = arguments.first else {
+            Issue.record("Expected camera argument literal")
+            return
+        }
+        #expect(value == "3")
+        #expect(script.handlers[1].name == "camera")
+        #expect(script.handlers[1].params == ["which"])
+    }
+
     @Test func topLevelGlobalPreludeAppliesToEveryHandler() throws {
         var lexer = Lexer(source: """
         global moveDir, score

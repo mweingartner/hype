@@ -284,6 +284,7 @@ public struct Parser: Sendable {
         case .beep:     return try parseBeepStatement()
         case .wait:     return try parseWaitStatement()
         case .animate:   return try parseAnimateStatement()
+        case .camera:    return try parseExternalCommandStatement()
         case .remesh:    return try parseRemeshAssetStatement()
         case .retexture: return try parseRetextureAssetStatement()
         case .doKeyword:    return try parseDoStatement()
