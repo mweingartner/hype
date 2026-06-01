@@ -3506,7 +3506,7 @@ public struct Parser: Sendable {
                     _ = advance()
                     if current.type == .card || current.type == .background {
                         let explicitOwnerType = advance().value.lowercased()
-                        let ownerIdent = try parseClassicOwnerIdentifier()
+                        let ownerIdent = try parseClassicObjectIdentifier()
                         return .scopedObjectRef(
                             object: object,
                             owner: ObjectRefExpr(objectType: explicitOwnerType, identifier: ownerIdent)
@@ -3535,7 +3535,7 @@ public struct Parser: Sendable {
             _ = advance()
             if current.type == .card || current.type == .background {
                 let ownerType = advance().value.lowercased()
-                let ownerIdent = try parseClassicOwnerIdentifier()
+                let ownerIdent = try parseClassicObjectIdentifier()
                 return .scopedObjectRef(
                     object: object,
                     owner: ObjectRefExpr(objectType: ownerType, identifier: ownerIdent)
@@ -3544,6 +3544,25 @@ public struct Parser: Sendable {
             pos = checkpoint
         }
         return .objectRef(object)
+    }
+
+    private mutating func parseClassicObjectIdentifier() throws -> Expression {
+        if current.type == .identifier,
+           current.value.lowercased() == "id",
+           let next = peek(1),
+           Self.canStartPrimaryExpression(next.type) {
+            _ = advance()
+            let value = try parsePrimary()
+            switch value {
+            case .literal(let literal):
+                return .literal("id \(literal)")
+            case .variable(let name):
+                return .literal("id \(name)")
+            default:
+                return .spacedConcat(.literal("id"), value)
+            }
+        }
+        return try parsePrimary()
     }
 
     private mutating func parseObjectIdentifier() throws -> Expression {
@@ -3571,6 +3590,13 @@ public struct Parser: Sendable {
 
     private static let objectIdentifierTerminators: Set<TokenType> = [
         .newline, .eof, .comma, .then, .else, .end, .to, .into, .after, .before, .of
+    ]
+
+    private static let classicBarePropertyNames: Set<String> = [
+        "visible", "enabled", "hilite", "highlight", "showname",
+        "loc", "location", "rect", "rectangle", "left", "right",
+        "top", "bottom", "topleft", "bottomright", "width", "height", "name", "id", "number",
+        "text", "style", "script"
     ]
 
     private mutating func parseCurrentScopeReference(scopeWord: String) -> Expression? {
