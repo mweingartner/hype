@@ -98,6 +98,9 @@ struct HypeCLI: AsyncParsableCommand {
     @Option(help: "Validate every stored script in a .hype package or JSON HypeDocument without executing handlers")
     var validateScripts: String?
 
+    @Option(help: "Validate one .hype package's SQLite storage and print a tab-separated diagnostic row")
+    var validatePackage: String?
+
     @Option(help: "With --validate-scripts, export each stored script as a standalone .hypetalk file in this directory")
     var exportScripts: String?
 
@@ -116,6 +119,19 @@ struct HypeCLI: AsyncParsableCommand {
         }
         if exportScripts != nil && validateScripts == nil {
             throw ValidationError("--export-scripts requires --validate-scripts")
+        }
+        if validatePackage != nil && validateScripts != nil {
+            throw ValidationError("--validate-package cannot be combined with --validate-scripts")
+        }
+
+        if let validatePackage {
+            let report = try validatePackageFile(at: URL(fileURLWithPath: validatePackage))
+            print(report.tsvHeader)
+            print(report.tsvLine)
+            if !report.isHealthy {
+                throw HypeCLIError.validationFailed(1)
+            }
+            return
         }
 
         if let validateScripts {
@@ -563,6 +579,26 @@ struct HypeCLI: AsyncParsableCommand {
         }
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(HypeDocument.self, from: data)
+    }
+
+    private func validatePackageFile(at packageURL: URL) throws -> PackageValidationReport {
+        let store = HypeSQLiteStackStore()
+        let diagnostics = try store.validate(packageURL: packageURL)
+        let document = try store.load(fromPackageAt: packageURL)
+        return PackageValidationReport(
+            path: packageURL.path,
+            stackName: document.stack.name,
+            documentVersion: document.documentVersion,
+            cardCount: document.cards.count,
+            backgroundCount: document.backgrounds.count,
+            partCount: document.parts.count,
+            assetCount: document.assetRepository.assets.count,
+            integrityCheck: diagnostics.integrityCheck,
+            foreignKeyViolationCount: diagnostics.foreignKeyViolationCount,
+            missingAssetReferenceCount: diagnostics.missingAssetReferenceCount,
+            searchEntryCount: diagnostics.searchEntryCount,
+            isHealthy: diagnostics.isHealthy
+        )
     }
 
     private func validateStoredScripts(in document: HypeDocument, exportDirectory: URL?) throws -> ScriptValidationReport {
@@ -1343,6 +1379,49 @@ private struct ImportSummary {
 
     private var sourceBytes: Int {
         (try? sourceURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+    }
+
+    private func sanitize(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\t", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+    }
+}
+
+private struct PackageValidationReport {
+    var path: String
+    var stackName: String
+    var documentVersion: Int
+    var cardCount: Int
+    var backgroundCount: Int
+    var partCount: Int
+    var assetCount: Int
+    var integrityCheck: String
+    var foreignKeyViolationCount: Int
+    var missingAssetReferenceCount: Int
+    var searchEntryCount: Int
+    var isHealthy: Bool
+
+    var tsvHeader: String {
+        "status\tstackName\tdocumentVersion\tcards\tbackgrounds\tparts\tassets\tintegrityCheck\tforeignKeyViolations\tmissingAssetReferences\tsearchEntries\tpath"
+    }
+
+    var tsvLine: String {
+        [
+            isHealthy ? "ok" : "error",
+            sanitize(stackName),
+            "\(documentVersion)",
+            "\(cardCount)",
+            "\(backgroundCount)",
+            "\(partCount)",
+            "\(assetCount)",
+            sanitize(integrityCheck),
+            "\(foreignKeyViolationCount)",
+            "\(missingAssetReferenceCount)",
+            "\(searchEntryCount)",
+            sanitize(path),
+        ].joined(separator: "\t")
     }
 
     private func sanitize(_ value: String) -> String {

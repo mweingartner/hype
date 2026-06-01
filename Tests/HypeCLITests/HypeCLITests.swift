@@ -361,6 +361,24 @@ struct HypeCLITests {
         #expect(!stackSource.contains("\r"))
     }
 
+    @Test func testValidatePackageReportsSQLiteHealth() throws {
+        var document = HypeDocument.newDocument(name: "Package Validation Fixture")
+        let cardId = try #require(document.cards.first?.id)
+        document.parts.append(Part(partType: .button, cardId: cardId, name: "Run"))
+        let packageURL = scriptDir.appendingPathComponent("PackageValidationFixture.hype", isDirectory: true)
+        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
+
+        let result = runBinary(arguments: [
+            "--validate-package", packageURL.path,
+        ])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("status\tstackName\tdocumentVersion"))
+        #expect(result.stdout.contains("ok\tPackage Validation Fixture"))
+        #expect(result.stdout.contains("\t1\t1\t1\t"))
+        #expect(result.stdout.contains("\tok\t0\t0\t"))
+    }
+
     @Test func testValidateScriptsReportsSemanticImportIssues() throws {
         var document = HypeDocument.newDocument(name: "Semantic Validation Fixture")
         let cardId = try #require(document.cards.first?.id)
