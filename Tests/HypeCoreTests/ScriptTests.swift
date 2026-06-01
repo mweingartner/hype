@@ -2908,6 +2908,45 @@ struct MessageDispatcherTests {
         #expect(result.modifiedDocument?.scriptGlobals["resultname"] == "Page1")
     }
 
+    @Test func localHandlerCommandAfterLocalGoUsesDestinationCardContext() async {
+        var doc = HypeDocument.newDocument()
+        let firstCard = doc.cards[0]
+        let bookCard = Card(
+            stackId: doc.stack.id,
+            backgroundId: firstCard.backgroundId,
+            name: "Book",
+            sortKey: "a1"
+        )
+        doc.cards.append(bookCard)
+        doc.addPart(Part(partType: .field, cardId: bookCard.id, name: "output"))
+        var btn = Part(partType: .button, cardId: firstCard.id, name: "OpenBook")
+        btn.script = """
+        on mouseUp
+          go to card "Book"
+          UpdateBook
+        end mouseUp
+
+        on UpdateBook
+          put "arrived" into field "output"
+        end UpdateBook
+        """
+        doc.addPart(btn)
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, firstCard, btn] in dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: btn.id,
+            document: doc,
+            currentCardId: firstCard.id
+        ) }
+
+        #expect(result.status == .completed)
+        #expect(result.navigationTarget == bookCard.id)
+        let output = result.modifiedDocument?.parts.first { $0.name == "output" }
+        #expect(output?.textContent == "arrived")
+    }
+
     @Test func mystPillarClickTogglesStateAndRefreshesMarkerIcon() async {
         let offIcon = Asset(
             name: "cicn_2012",
