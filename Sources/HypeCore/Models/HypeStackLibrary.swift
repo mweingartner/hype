@@ -58,6 +58,7 @@ public struct HypeStackLibrary: Codable, Equatable, Sendable {
     public static func lookupKey(_ value: String) -> String {
         value
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .lowercased()
             .replacingOccurrences(of: #"[\s_\-\.]+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
