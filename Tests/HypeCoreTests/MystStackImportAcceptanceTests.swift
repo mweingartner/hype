@@ -422,7 +422,15 @@ struct MystStackImportAcceptanceTests {
 
         let appResult = try #require(result.packageResults.first { $0.outputPackageURL.lastPathComponent == "Myst-Application-debug-imported.hype" })
         var appDocument = try HypeSQLiteStackStore().load(fromPackageAt: appResult.outputPackageURL)
-        appDocument.scriptGlobals = seededLauncherGlobals()
+        let allResResult = try #require(result.packageResults.first { $0.outputPackageURL.lastPathComponent == "ALLRes-debug-imported.hype" })
+        let allResDocument = try HypeSQLiteStackStore().load(fromPackageAt: allResResult.outputPackageURL)
+        appDocument.scriptGlobals = try #require(HyperCardImportedGlobalSeeder.newGameGlobals(
+            from: appDocument,
+            resourceDocuments: [allResDocument]
+        ))
+        #expect(appDocument.scriptGlobals["ALL_CurrStack"] == "Myst")
+        #expect(appDocument.scriptGlobals["Start_Game"] == "new")
+        #expect(appDocument.scriptGlobals["MY_RedBook"] == "000000")
 
         let appCardMap = try legacyCardMap(
             packageURL: stacksRoot.appendingPathComponent("Myst-Application.xstk", isDirectory: true),
@@ -981,21 +989,6 @@ struct MystStackImportAcceptanceTests {
         var expectedTargetCardName: String
         var scriptGlobals: [String: String] = [:]
         var params: [Value] = []
-    }
-
-    private func seededLauncherGlobals() -> [String: String] {
-        [
-            "ALL_CurrStack": "Myst",
-            "ALL_Page": "",
-            "DU_End": "",
-            "MY_BlueBook": "000000",
-            "MY_RedBook": "000000",
-            "Quick": "false",
-            "RestoreData": "card field Defaults of card Defaults",
-            "Start_Game": "new",
-            "Trans": "2",
-            "playsounds": "true",
-        ]
     }
 
     private func legacyCardMap(packageURL: URL, document: HypeDocument) throws -> [Int: UUID] {
