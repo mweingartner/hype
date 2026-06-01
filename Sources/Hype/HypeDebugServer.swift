@@ -75,6 +75,49 @@ enum HypeDebugImportOutputResolver {
     }
 }
 
+enum HypeDebugImportOutputSafety {
+    static func replaceExistingOutput(from params: [String: Any]) -> Bool {
+        debugBool(from: params["replaceExistingOutputPackage"] ?? params["replaceExisting"] ?? params["overwriteExisting"] ?? params["overwrite"])
+    }
+
+    static func prepareOutputPackage(at url: URL, params: [String: Any]) throws {
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        guard replaceExistingOutput(from: params) else {
+            throw HypeDebugImportOutputSafetyError.outputPackageAlreadyExists(url)
+        }
+        try FileManager.default.removeItem(at: url)
+    }
+
+    private static func debugBool(from value: Any?) -> Bool {
+        switch value {
+        case let bool as Bool:
+            return bool
+        case let number as NSNumber:
+            return number.boolValue
+        case let text as String:
+            switch text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "1", "true", "yes", "y", "on":
+                return true
+            default:
+                return false
+            }
+        default:
+            return false
+        }
+    }
+}
+
+enum HypeDebugImportOutputSafetyError: LocalizedError, Equatable {
+    case outputPackageAlreadyExists(URL)
+
+    var errorDescription: String? {
+        switch self {
+        case .outputPackageAlreadyExists(let url):
+            return "Refusing to overwrite existing debug import output package at \(url.path). Pass replaceExistingOutputPackage to replace it intentionally."
+        }
+    }
+}
+
 struct HypeDebugServerStatus: Equatable {
     var isRunning: Bool
     var instanceId: String
@@ -512,7 +555,7 @@ final class HypeDebugServer: @unchecked Sendable {
             let outputURL = outputDirectory
                 .appendingPathComponent(url.deletingPathExtension().lastPathComponent + "-debug-imported.hype")
             try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
-            try? FileManager.default.removeItem(at: outputURL)
+            try HypeDebugImportOutputSafety.prepareOutputPackage(at: outputURL, params: params)
             try HypeSQLiteStackStore().save(result.document, toPackageAt: outputURL)
             if params["open"] as? Bool != false {
                 let openError = await openImportedDocument(
@@ -549,6 +592,7 @@ final class HypeDebugServer: @unchecked Sendable {
                     packageURL: URL(fileURLWithPath: path, isDirectory: true),
                     outputDirectoryURL: outputDirectory,
                     outputFileName: outputFileName,
+                    replaceExistingOutputPackage: HypeDebugImportOutputSafety.replaceExistingOutput(from: params),
                     looseMediaManifestURL: stackImportURL(params["looseMediaManifestPath"]),
                     looseMediaSourceRootURL: stackImportURL(params["looseMediaSourceRootPath"]),
                     looseMediaReplacementRootURL: stackImportURL(params["looseMediaReplacementRootPath"]),
@@ -582,6 +626,7 @@ final class HypeDebugServer: @unchecked Sendable {
                 options: StackImportPackageProjectImportOptions(
                     packageURLs: packageURLs,
                     outputDirectoryURL: outputDirectory,
+                    replaceExistingOutputPackages: HypeDebugImportOutputSafety.replaceExistingOutput(from: params),
                     looseMediaManifestURL: stackImportURL(params["looseMediaManifestPath"]),
                     looseMediaSourceRootURL: stackImportURL(params["looseMediaSourceRootPath"]),
                     looseMediaReplacementRootURL: stackImportURL(params["looseMediaReplacementRootPath"]),

@@ -4,6 +4,7 @@ public struct StackImportPackageDocumentImportOptions: Sendable {
     public var packageURL: URL
     public var outputDirectoryURL: URL
     public var outputFileName: String?
+    public var replaceExistingOutputPackage: Bool
     public var looseMediaManifestURL: URL?
     public var looseMediaSourceRootURL: URL?
     public var looseMediaReplacementRootURL: URL?
@@ -16,6 +17,7 @@ public struct StackImportPackageDocumentImportOptions: Sendable {
         packageURL: URL,
         outputDirectoryURL: URL = FileManager.default.temporaryDirectory,
         outputFileName: String? = nil,
+        replaceExistingOutputPackage: Bool = true,
         looseMediaManifestURL: URL? = nil,
         looseMediaSourceRootURL: URL? = nil,
         looseMediaReplacementRootURL: URL? = nil,
@@ -27,6 +29,7 @@ public struct StackImportPackageDocumentImportOptions: Sendable {
         self.packageURL = packageURL
         self.outputDirectoryURL = outputDirectoryURL
         self.outputFileName = outputFileName
+        self.replaceExistingOutputPackage = replaceExistingOutputPackage
         self.looseMediaManifestURL = looseMediaManifestURL
         self.looseMediaSourceRootURL = looseMediaSourceRootURL
         self.looseMediaReplacementRootURL = looseMediaReplacementRootURL
@@ -262,6 +265,9 @@ public struct StackImportPackageDocumentImporter: Sendable {
             at: outputURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+        if FileManager.default.fileExists(atPath: outputURL.path) && !options.replaceExistingOutputPackage {
+            throw StackImportPackageDocumentImporterError.outputPackageAlreadyExists(outputURL)
+        }
         try? FileManager.default.removeItem(at: outputURL)
         try HypeSQLiteStackStore().save(result.document, toPackageAt: outputURL)
 
@@ -374,9 +380,21 @@ public struct StackImportPackageDocumentImporter: Sendable {
     }
 }
 
+public enum StackImportPackageDocumentImporterError: LocalizedError, Equatable {
+    case outputPackageAlreadyExists(URL)
+
+    public var errorDescription: String? {
+        switch self {
+        case .outputPackageAlreadyExists(let url):
+            return "Refusing to overwrite existing debug import output package at \(url.path). Pass replaceExistingOutputPackage to replace it intentionally."
+        }
+    }
+}
+
 public struct StackImportPackageProjectImportOptions: Sendable {
     public var packageURLs: [URL]
     public var outputDirectoryURL: URL
+    public var replaceExistingOutputPackages: Bool
     public var looseMediaManifestURL: URL?
     public var looseMediaSourceRootURL: URL?
     public var looseMediaReplacementRootURL: URL?
@@ -388,6 +406,7 @@ public struct StackImportPackageProjectImportOptions: Sendable {
     public init(
         packageURLs: [URL],
         outputDirectoryURL: URL = FileManager.default.temporaryDirectory,
+        replaceExistingOutputPackages: Bool = true,
         looseMediaManifestURL: URL? = nil,
         looseMediaSourceRootURL: URL? = nil,
         looseMediaReplacementRootURL: URL? = nil,
@@ -398,6 +417,7 @@ public struct StackImportPackageProjectImportOptions: Sendable {
     ) {
         self.packageURLs = packageURLs
         self.outputDirectoryURL = outputDirectoryURL
+        self.replaceExistingOutputPackages = replaceExistingOutputPackages
         self.looseMediaManifestURL = looseMediaManifestURL
         self.looseMediaSourceRootURL = looseMediaSourceRootURL
         self.looseMediaReplacementRootURL = looseMediaReplacementRootURL
@@ -564,6 +584,7 @@ public struct StackImportPackageProjectImporter: Sendable {
                     packageURL: packageURL,
                     outputDirectoryURL: options.outputDirectoryURL,
                     outputFileName: outputFileName,
+                    replaceExistingOutputPackage: options.replaceExistingOutputPackages,
                     looseMediaManifestURL: options.looseMediaManifestURL,
                     looseMediaSourceRootURL: options.looseMediaSourceRootURL,
                     looseMediaReplacementRootURL: options.looseMediaReplacementRootURL,
