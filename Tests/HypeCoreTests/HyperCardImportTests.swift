@@ -251,6 +251,23 @@ struct HyperCardImportTests {
         #expect(try parsedHandlerCount(translated) == 1)
     }
 
+    @Test("legacy translator keeps unquoted open state handlers live")
+    func legacyTranslatorKeepsUnquotedOpenStateHandlersLive() throws {
+        let script = """
+        on mouseUp
+        global drawer
+        if drawer is open then put closed into drawer
+        put open into drawer
+        end mouseUp
+        """
+
+        let translated = LegacyHyperTalkScript.preparedForHypeTalkRuntime(script)
+
+        #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(translated))
+        #expect(translated.contains("if drawer is open then"))
+        #expect(try parsedHandlerCount(translated) == 1)
+    }
+
     @Test("legacy translator comments disabled handler tails without disabling earlier handlers")
     func legacyTranslatorCommentsDisabledHandlerTails() throws {
         let script = """
