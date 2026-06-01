@@ -119,6 +119,23 @@ struct AssetRepositoryTests {
         #expect(repository.asset(byClassicMediaName: "Intro Wind Mov", kind: .videoClip)?.id == movie.id)
     }
 
+    @Test("classic media lookup trims and normalizes imported audio names")
+    func classicMediaLookupTrimsAndNormalizesImportedAudioNames() {
+        let audio = Asset(
+            name: "WA Drip",
+            kind: .audioClip,
+            mimeType: "audio/wav",
+            data: Data([1]),
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "WA Drip"),
+                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("WA Drip"))
+            ]
+        )
+        let repository = AssetRepository(assets: [audio])
+
+        #expect(repository.asset(byClassicMediaName: "wa drip ", kind: .audioClip)?.id == audio.id)
+    }
+
     @Test("HypeDocument exposes assetRepository while preserving assetRepository storage")
     func documentAssetRepositoryAliasMutatesStoredRepository() {
         var document = HypeDocument.newDocument()
