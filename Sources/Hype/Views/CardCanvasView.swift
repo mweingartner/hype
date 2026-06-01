@@ -76,6 +76,97 @@ import WebKit
 import AVKit
 import SpriteKit
 
+struct CardCanvasVideoSource: Equatable {
+    var identity: String
+    var url: URL
+    var audioOnly: Bool
+}
+
+enum CardCanvasVideoSourceResolver {
+    static func resolve(
+        for part: Part,
+        repository: AssetRepository,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> CardCanvasVideoSource? {
+        if let assetRef = part.videoAssetRef,
+           let asset = repository.asset(byId: assetRef.id),
+           let url = materializedVideoAssetURL(asset, temporaryDirectory: temporaryDirectory) {
+            let audioOnly = isAudioOnlyQuickTimePart(part, asset: asset)
+            let identity = "asset://\(asset.id.uuidString)/\(videoAssetFingerprint(asset))?loop=\(part.videoLoop)&autoplay=\(part.videoAutoplay)&volume=\(part.videoVolume)&audioOnly=\(audioOnly)"
+            return CardCanvasVideoSource(identity: identity, url: url, audioOnly: audioOnly)
+        }
+
+        let urlString = part.videoURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !urlString.isEmpty else { return nil }
+        let url = urlForVideoString(urlString)
+        let audioOnly = isAudioOnlyQuickTimePart(part, asset: nil)
+        let identity = "\(urlString)?loop=\(part.videoLoop)&autoplay=\(part.videoAutoplay)&volume=\(part.videoVolume)&audioOnly=\(audioOnly)"
+        return CardCanvasVideoSource(identity: identity, url: url, audioOnly: audioOnly)
+    }
+
+    static func urlForVideoString(_ urlString: String) -> URL {
+        if let url = URL(string: urlString), url.scheme != nil {
+            return url
+        }
+        return URL(fileURLWithPath: (urlString as NSString).expandingTildeInPath)
+    }
+
+    static func materializedVideoAssetURL(_ asset: Asset, temporaryDirectory: URL) -> URL? {
+        let directory = temporaryDirectory
+            .appendingPathComponent("hype-video-assets", isDirectory: true)
+            .appendingPathComponent(asset.id.uuidString, isDirectory: true)
+        let ext = videoFileExtension(for: asset)
+        let url = directory.appendingPathComponent("\(asset.id.uuidString).\(ext)", isDirectory: false)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try asset.data.write(to: url, options: [.atomic])
+            return url
+        } catch {
+            HypeLogger.shared.warn("Could not materialize repository video asset '\(asset.name)': \(error.localizedDescription)", source: "CardCanvasView")
+            return nil
+        }
+    }
+
+    static func videoAssetFingerprint(_ asset: Asset) -> String {
+        if let sha = asset.metadata.first(where: { $0.key.lowercased() == "sha256" })?.value,
+           !sha.isEmpty {
+            return sha
+        }
+        var hash: UInt64 = 1469598103934665603
+        for byte in asset.data {
+            hash ^= UInt64(byte)
+            hash &*= 1099511628211
+        }
+        return "\(asset.data.count)-\(String(hash, radix: 16))"
+    }
+
+    static func videoFileExtension(for asset: Asset) -> String {
+        let nameExtension = URL(fileURLWithPath: asset.name).pathExtension
+        if !nameExtension.isEmpty { return nameExtension }
+        switch asset.mimeType.lowercased() {
+        case "video/mp4": return "mp4"
+        case "video/quicktime": return "mov"
+        case "audio/mp4": return "m4a"
+        case "audio/wav": return "wav"
+        case "audio/aiff": return "aiff"
+        case "audio/mpeg": return "mp3"
+        default: return "mov"
+        }
+    }
+
+    static func isAudioOnlyQuickTimePart(_ part: Part, asset: Asset?) -> Bool {
+        if part.helpText.contains("audioOnly=true") { return true }
+        guard let asset else { return false }
+        let ext = URL(fileURLWithPath: asset.name).pathExtension.lowercased()
+        if asset.mimeType.lowercased().hasPrefix("audio/") { return true }
+        if ["m4a", "wav", "aif", "aiff", "mp3"].contains(ext) { return true }
+        return asset.metadata.contains { entry in
+            entry.key.caseInsensitiveCompare("quicktime_audio_only") == .orderedSame &&
+                entry.value.caseInsensitiveCompare("true") == .orderedSame
+        }
+    }
+}
+
 struct CardCanvasView: NSViewRepresentable {
     @Binding var document: HypeDocumentWrapper
     let currentCardId: UUID
@@ -1656,9 +1747,8 @@ class CardCanvasNSView: NSView {
     private var loadedURLs: [UUID: String] = [:]
     private var embeddedSubviewSyncScheduled = false
 
-    // Active AVPlayerViews for video parts (keyed by part ID).
-    // Access level is `internal` so dismantleNSView can reach it.
     var videoPlayers: [UUID: AVPlayerView] = [:]
+    private var videoLoopers: [UUID: AVPlayerLooper] = [:]
     // Track which video URLs are loaded to avoid redundant loads
     private var loadedVideoURLs: [UUID: String] = [:]
     // Last script-set seek position per part — used to detect script-originated
@@ -4231,6 +4321,7 @@ class CardCanvasNSView: NSView {
                 playerView.removeFromSuperview()
             }
             videoPlayers.removeAll()
+            videoLoopers.removeAll()
             loadedVideoURLs.removeAll()
             return
         }
@@ -4240,46 +4331,46 @@ class CardCanvasNSView: NSView {
 
         for part in videoParts {
             activeIds.insert(part.id)
-            let urlString = part.videoURL.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !urlString.isEmpty else { continue }
+            guard let videoSource = resolvedVideoSource(for: part) else { continue }
 
-            let frame = CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
+            let frame = videoSource.audioOnly
+                ? CGRect(x: part.left, y: part.top, width: 1, height: 1)
+                : CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
 
             if let existing = videoPlayers[part.id], let player = existing.player {
                 existing.frame = frame
-                if loadedVideoURLs[part.id] != urlString {
-                    // URL changed — remove the old observer before replacing the player.
+                existing.controlsStyle = videoSource.audioOnly ? .none : .inline
+                existing.alphaValue = videoSource.audioOnly ? 0 : 1
+                if loadedVideoURLs[part.id] != videoSource.identity {
                     if let tok = videoTimeObservers[part.id] {
-                        player.removeTimeObserver(tok)
+                        existing.player?.removeTimeObserver(tok)
                         videoTimeObservers[part.id] = nil
                     }
                     videoSeekEpoch[part.id] = nil
-                    let url = URL(string: urlString) ?? URL(fileURLWithPath: urlString)
-                    existing.player = AVPlayer(url: url)
-                    loadedVideoURLs[part.id] = urlString
+                    existing.player = makeVideoPlayer(for: part, url: videoSource.url)
+                    loadedVideoURLs[part.id] = videoSource.identity
+                    if part.videoAutoplay {
+                        existing.player?.play()
+                    }
                 } else {
-                    // Apply script-set playback rate in browse mode.
-                    if abs(player.rate - Float(part.videoPlayRate)) > 0.001 {
-                        player.rate = Float(part.videoPlayRate)
+                    if let player = existing.player {
+                        if abs(player.rate - Float(part.videoPlayRate)) > 0.001 {
+                            player.rate = Float(part.videoPlayRate)
+                        }
+                        let target = part.videoCurrentTime
+                        let epoch = videoSeekEpoch[part.id] ?? target
+                        if abs(target - epoch) > 0.25 {
+                            player.seek(to: CMTime(seconds: target, preferredTimescale: 600))
+                            videoSeekEpoch[part.id] = target
+                        }
+                        player.volume = Float(max(0, min(1, part.videoVolume)))
                     }
-                    // Apply script-set seek position only when it differs from the
-                    // last reported position (prevents feedback loop, Condition 9).
-                    let target = part.videoCurrentTime
-                    let epoch = videoSeekEpoch[part.id] ?? target
-                    if abs(target - epoch) > 0.25 {
-                        player.seek(to: CMTime(seconds: target, preferredTimescale: 600))
-                        videoSeekEpoch[part.id] = target
-                    }
-                    // Install periodic observer once per player lifetime.
-                    if videoTimeObservers[part.id] == nil {
+                    if videoTimeObservers[part.id] == nil, let player = existing.player {
                         let partId = part.id
                         let tok = player.addPeriodicTimeObserver(
                             forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
                             queue: .main
                         ) { [weak self, weak player] _ in
-                            // The observer is installed with `queue: .main`, so this
-                            // fires on the main actor — assert that isolation to touch
-                            // the main-actor `coordinator` without an async hop.
                             MainActor.assumeIsolated {
                                 guard let self, let player else { return }
                                 self.coordinator?.reportVideo(id: partId, player: player)
@@ -4290,36 +4381,33 @@ class CardCanvasNSView: NSView {
                 }
             } else {
                 let playerView = AVPlayerView(frame: frame)
-                playerView.controlsStyle = .inline
-                playerView.showsFullScreenToggleButton = true
+                playerView.controlsStyle = videoSource.audioOnly ? .none : .inline
+                playerView.showsFullScreenToggleButton = !videoSource.audioOnly
+                playerView.alphaValue = videoSource.audioOnly ? 0 : 1
 
-                let url = URL(string: urlString) ?? URL(fileURLWithPath: urlString)
-                let player = AVPlayer(url: url)
-                playerView.player = player
+                playerView.player = makeVideoPlayer(for: part, url: videoSource.url)
 
                 addSubview(playerView, positioned: .above, relativeTo: nil)
                 videoPlayers[part.id] = playerView
-                loadedVideoURLs[part.id] = urlString
+                loadedVideoURLs[part.id] = videoSource.identity
 
-                // Apply initial rate from document state.
-                if abs(player.rate - Float(part.videoPlayRate)) > 0.001 {
-                    player.rate = Float(part.videoPlayRate)
+                if part.videoAutoplay {
+                    playerView.player?.play()
                 }
-                // Install the periodic time observer for this new player.
-                let partId = part.id
-                let tok = player.addPeriodicTimeObserver(
-                    forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
-                    queue: .main
-                ) { [weak self, weak player] _ in
-                    // The observer is installed with `queue: .main`, so this
-                    // fires on the main actor — assert that isolation to touch
-                    // the main-actor `coordinator` without an async hop.
-                    MainActor.assumeIsolated {
-                        guard let self, let player else { return }
-                        self.coordinator?.reportVideo(id: partId, player: player)
+
+                if let player = playerView.player {
+                    let partId = part.id
+                    let tok = player.addPeriodicTimeObserver(
+                        forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
+                        queue: .main
+                    ) { [weak self, weak player] _ in
+                        MainActor.assumeIsolated {
+                            guard let self, let player else { return }
+                            self.coordinator?.reportVideo(id: partId, player: player)
+                        }
                     }
+                    videoTimeObservers[part.id] = tok
                 }
-                videoTimeObservers[part.id] = tok
             }
         }
 
@@ -4334,8 +4422,28 @@ class CardCanvasNSView: NSView {
             videoPlayers[id]?.player?.pause()
             videoPlayers[id]?.removeFromSuperview()
             videoPlayers.removeValue(forKey: id)
+            videoLoopers.removeValue(forKey: id)
             loadedVideoURLs.removeValue(forKey: id)
         }
+    }
+
+    private func resolvedVideoSource(for part: Part) -> CardCanvasVideoSource? {
+        CardCanvasVideoSourceResolver.resolve(for: part, repository: document.assetRepository)
+    }
+
+    private func makeVideoPlayer(for part: Part, url: URL) -> AVPlayer {
+        let volume = Float(max(0, min(1, part.videoVolume)))
+        if part.videoLoop {
+            let item = AVPlayerItem(url: url)
+            let player = AVQueuePlayer()
+            player.volume = volume
+            videoLoopers[part.id] = AVPlayerLooper(player: player, templateItem: item)
+            return player
+        }
+        videoLoopers.removeValue(forKey: part.id)
+        let player = AVPlayer(url: url)
+        player.volume = volume
+        return player
     }
 
     // MARK: - Chart View Management
