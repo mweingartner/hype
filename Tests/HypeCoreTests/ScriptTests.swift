@@ -1246,6 +1246,57 @@ struct InterpreterTests {
         #expect(result.modifiedDocument?.scriptGlobals["hypercard.vs.direction"] == "right")
     }
 
+    @Test func mystPlanetariumArrowUpdatesDateTimeCompatibilityState() {
+        var document = HypeDocument.newDocument()
+        let cardId = document.cards[0].id
+        var field = Part(partType: .field, cardId: cardId, name: "Month")
+        field.textContent = "11"
+        document.addPart(field)
+
+        let result = executeScript("""
+        on test
+          arrow Month,1,12,1
+        end test
+        """, document: document)
+
+        #expect(result.status == .completed)
+        #expect(result.modifiedDocument?.scriptGlobals["MY_PlaMonth"] == "12")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.arrow.month.value"] == "12")
+        let updatedField = result.modifiedDocument?.parts.first {
+            $0.partType == .field && $0.name == "Month"
+        }
+        #expect(updatedField?.textContent == "12")
+    }
+
+    @Test func mystPlanetariumArrowClampsAndHonorsInitMode() {
+        let result = executeScript("""
+        on test
+          global MY_PlaTime
+          put 1439 into MY_PlaTime
+          arrow Time,0,1439,1,true
+        end test
+        """)
+
+        #expect(result.status == .completed)
+        #expect(result.modifiedDocument?.scriptGlobals["MY_PlaTime"] == "1439")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.arrow.time.init"] == "true")
+    }
+
+    @Test func mystPlanetariumSlideKnobPreservesCurrentValueWithinRange() {
+        let result = executeScript("""
+        on test
+          global MY_PlaDay
+          put 31 into MY_PlaDay
+          slideKnob Day,1,31
+        end test
+        """)
+
+        #expect(result.status == .completed)
+        #expect(result.modifiedDocument?.scriptGlobals["MY_PlaDay"] == "31")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.slideknob.day.value"] == "31")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.slideknob.day.range"] == "1,31")
+    }
+
     @Test func deCurseRecordsCursorCompatibilityState() {
         let result = executeScript("""
         on test
