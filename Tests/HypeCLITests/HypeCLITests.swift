@@ -584,6 +584,43 @@ struct HypeCLITests {
         #expect(!result.stdout.contains("function-unknown"))
     }
 
+    @Test func testValidateScriptsTracksLocalHandlerContextAfterLocalGo() throws {
+        var document = HypeDocument.newDocument(name: "Post Go Handler Validation Fixture")
+        let sourceCard = try #require(document.cards.first)
+        let destinationCard = Card(
+            stackId: document.stack.id,
+            backgroundId: sourceCard.backgroundId,
+            name: "Book",
+            sortKey: "a1"
+        )
+        document.cards.append(destinationCard)
+        document.addPart(Part(partType: .field, cardId: destinationCard.id, name: "stairmark"))
+        var button = Part(partType: .button, cardId: sourceCard.id, name: "Run")
+        button.script = """
+        on mouseUp
+          go to card "Book"
+          StepsDown
+        end mouseUp
+
+        on StepsDown
+          put "ready" into field "stairmark"
+        end StepsDown
+        """
+        document.parts.append(button)
+
+        let packageURL = scriptDir.appendingPathComponent("PostGoHandlerValidationFixture.hype", isDirectory: true)
+        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
+
+        let result = runBinary(arguments: [
+            "--validate-scripts", packageURL.path,
+        ])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("ok\tbutton\tRun"))
+        #expect(!result.stdout.contains("field \"stairmark\""))
+        #expect(!result.stdout.contains("object-reference"))
+    }
+
     @Test func testValidateScriptsTreatsThisCardAsResolvableObjectReference() throws {
         var document = HypeDocument.newDocument(name: "This Card Validation Fixture")
         let cardId = try #require(document.cards.first?.id)

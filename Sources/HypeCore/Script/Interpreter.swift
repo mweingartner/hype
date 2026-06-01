@@ -845,11 +845,12 @@ public struct Interpreter: Sendable {
         handler: Handler
     ) async throws -> Bool {
         let dispatcher = MessageDispatcher()
+        let activeCardId = env.currentCardId(fallback: context.currentCardId)
         guard dispatcher.hasHandler(
             message: name,
             targetId: context.targetId,
             document: document,
-            currentCardId: context.currentCardId,
+            currentCardId: activeCardId,
             appScript: context.appScript,
             scriptContext: context.scriptContext,
             handlerType: .message
@@ -866,7 +867,7 @@ public struct Interpreter: Sendable {
             params: args,
             targetId: context.targetId,
             document: document,
-            currentCardId: context.currentCardId,
+            currentCardId: activeCardId,
             dialogProvider: context.dialogProvider,
             drawingProvider: context.drawingProvider,
             systemProvider: context.systemProvider,
@@ -886,6 +887,7 @@ public struct Interpreter: Sendable {
         }
         if let resultNavigationTarget = result.navigationTarget {
             navigationTarget = resultNavigationTarget
+            env.effectiveCurrentCardId = resultNavigationTarget
         }
         if let resultProjectNavigationTarget = result.projectNavigationTarget {
             projectNavigationTarget = resultProjectNavigationTarget
@@ -1992,11 +1994,12 @@ public struct Interpreter: Sendable {
                 break
             }
             document.scriptGlobals = env.globals
+            let activeCardId = env.currentCardId(fallback: context.currentCardId)
             let result = await context.externalRegistry.invoke(
                 HyperCardExternalCall(name: name, kind: .xcmd, arguments: args),
                 context: HyperCardExternalCallContext(
                     targetId: context.targetId,
-                    currentCardId: context.currentCardId,
+                    currentCardId: activeCardId,
                     document: document
                 )
             )
@@ -2015,6 +2018,7 @@ public struct Interpreter: Sendable {
             }
             if let resultNavigationTarget = result.navigationTarget {
                 navigationTarget = resultNavigationTarget
+                env.effectiveCurrentCardId = resultNavigationTarget
             }
             if let resultProjectNavigationTarget = result.projectNavigationTarget {
                 projectNavigationTarget = resultProjectNavigationTarget
