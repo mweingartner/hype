@@ -5,17 +5,20 @@ public struct LooseMediaImportOptions: Sendable {
     public var sourceRootURL: URL?
     public var replacementRootURL: URL?
     public var requestedNames: Set<String>?
+    public var mediaAliases: [String: String]
 
     public init(
         manifestURL: URL,
         sourceRootURL: URL? = nil,
         replacementRootURL: URL? = nil,
-        requestedNames: Set<String>? = nil
+        requestedNames: Set<String>? = nil,
+        mediaAliases: [String: String] = [:]
     ) {
         self.manifestURL = manifestURL
         self.sourceRootURL = sourceRootURL
         self.replacementRootURL = replacementRootURL
         self.requestedNames = requestedNames
+        self.mediaAliases = mediaAliases
     }
 }
 
@@ -175,7 +178,8 @@ public struct LooseMediaManifestImporter: Sendable {
             }
 
             let existingNames = Set(document.assetRepository.assets.map(\.name))
-            let asset = makeAsset(entry: entry, name: name, resolvedURL: resolvedURL, data: data, existingNames: existingNames)
+            let aliases = aliases(for: name, lookupKey: lookupKey, options: options)
+            let asset = makeAsset(entry: entry, name: name, aliases: aliases, resolvedURL: resolvedURL, data: data, existingNames: existingNames)
             document.assetRepository.addAsset(asset)
             result.importedAssets.append(asset)
             importedRequestedKeys.insert(lookupKey)
@@ -198,6 +202,7 @@ public struct LooseMediaManifestImporter: Sendable {
     private func makeAsset(
         entry: LooseMediaManifestEntry,
         name: String,
+        aliases: [String],
         resolvedURL: URL,
         data: Data,
         existingNames: Set<String>
@@ -224,8 +229,19 @@ public struct LooseMediaManifestImporter: Sendable {
                 )
             )
         )
-        asset.metadata = metadata(for: entry, resolvedURL: resolvedURL, name: name)
+        asset.metadata = metadata(for: entry, resolvedURL: resolvedURL, name: name, aliases: aliases)
         return asset
+    }
+
+    private func aliases(for name: String, lookupKey: String, options: LooseMediaImportOptions) -> [String] {
+        stableUnique(
+            options.mediaAliases.compactMap { alias, source in
+                let sourceKey = Self.lookupKey(source)
+                guard sourceKey == lookupKey || sourceKey == Self.lookupKey(name) else { return nil }
+                let trimmed = alias.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+        )
     }
 
     private func resolvedURL(for entry: LooseMediaManifestEntry, options: LooseMediaImportOptions) -> URL? {
@@ -314,8 +330,8 @@ public struct LooseMediaManifestImporter: Sendable {
         return stableUnique(tags)
     }
 
-    private func metadata(for entry: LooseMediaManifestEntry, resolvedURL: URL, name: String) -> [AssetMetadataEntry] {
-        [
+    private func metadata(for entry: LooseMediaManifestEntry, resolvedURL: URL, name: String, aliases: [String]) -> [AssetMetadataEntry] {
+        var entries = [
             ("classic_name", name),
             ("lookup_key", Self.lookupKey(name)),
             ("rel_path", entry.relPath),
@@ -332,6 +348,11 @@ public struct LooseMediaManifestImporter: Sendable {
         ].map { key, value in
             AssetMetadataEntry(key: key, value: value, tags: ["hypercard-import", "loose-media"])
         }
+        for alias in aliases {
+            entries.append(AssetMetadataEntry(key: "classic_alias", value: alias, tags: ["hypercard-import", "loose-media"]))
+            entries.append(AssetMetadataEntry(key: "lookup_key", value: Self.lookupKey(alias), tags: ["hypercard-import", "loose-media"]))
+        }
+        return entries
     }
 
     private func isAudioOnlyQuickTimeReplacement(entry: LooseMediaManifestEntry, resolvedURL: URL) -> Bool {

@@ -804,6 +804,41 @@ struct HypeCLITests {
         #expect(!result.stdout.contains("sound-asset"))
     }
 
+    @Test func testValidateScriptsAcceptsAudioOnlyQuickTimePlayAliases() throws {
+        var document = HypeDocument.newDocument(name: "Audio Alias Validation Fixture")
+        let generatorAudio = Asset(
+            name: "EL GenAll MoV",
+            kind: .videoClip,
+            mimeType: "video/quicktime",
+            data: Data("audio".utf8),
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "EL GenAll MoV"),
+                AssetMetadataEntry(key: "classic_alias", value: "El GenRun"),
+                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("EL GenAll MoV")),
+                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("El GenRun")),
+                AssetMetadataEntry(key: "quicktime_audio_only", value: "true")
+            ]
+        )
+        document.assetRepository.addAsset(generatorAudio)
+        document.cards[0].script = """
+        on idle
+          play "El GenRun"
+        end idle
+        """
+
+        let packageURL = scriptDir.appendingPathComponent("AudioAliasValidationFixture.hype", isDirectory: true)
+        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
+
+        let result = runBinary(arguments: [
+            "--validate-scripts", packageURL.path,
+        ])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("ok\tcard\tCard 1"))
+        #expect(!result.stdout.contains("El GenRun"))
+        #expect(!result.stdout.contains("sound-asset"))
+    }
+
     @Test func testValidateScriptsTreatsClassicPlayNotesAsNotes() throws {
         var document = HypeDocument.newDocument(name: "Classic Play Notes Fixture")
         let cardId = try #require(document.cards.first?.id)

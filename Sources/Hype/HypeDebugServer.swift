@@ -677,6 +677,7 @@ final class HypeDebugServer: @unchecked Sendable {
                     looseMediaSourceRootURL: stackImportURL(params["looseMediaSourceRootPath"]),
                     looseMediaReplacementRootURL: stackImportURL(params["looseMediaReplacementRootPath"]),
                     looseMediaNames: names.isEmpty ? nil : Set(names),
+                    looseMediaAliases: stackImportMediaAliases(from: params["looseMediaAliases"]),
                     stackLibraryEntries: stackLibraryEntries(from: params["stackLibraryEntries"]),
                     usedStackAliases: stackImportStringArray(params["usedStackAliases"]),
                     deploymentTargets: debugDeploymentTargets(from: params)
@@ -711,6 +712,7 @@ final class HypeDebugServer: @unchecked Sendable {
                     looseMediaSourceRootURL: stackImportURL(params["looseMediaSourceRootPath"]),
                     looseMediaReplacementRootURL: stackImportURL(params["looseMediaReplacementRootPath"]),
                     looseMediaNames: names.isEmpty ? nil : Set(names),
+                    looseMediaAliases: stackImportMediaAliases(from: params["looseMediaAliases"]),
                     stackLibraryEntries: stackLibraryEntries(from: params["stackLibraryEntries"]),
                     usedStackAliases: stackImportStringArray(params["usedStackAliases"]),
                     deploymentTargets: debugDeploymentTargets(from: params)
@@ -1706,6 +1708,30 @@ final class HypeDebugServer: @unchecked Sendable {
         default:
             return []
         }
+    }
+
+    private func stackImportMediaAliases(from value: Any?) -> [String: String] {
+        if let dictionary = value as? [String: String] {
+            return dictionary.reduce(into: [String: String]()) { result, entry in
+                let alias = entry.key.trimmingCharacters(in: .whitespacesAndNewlines)
+                let source = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !alias.isEmpty && !source.isEmpty {
+                    result[alias] = source
+                }
+            }
+        }
+        if let items = value as? [[String: Any]] {
+            return items.reduce(into: [String: String]()) { result, item in
+                let alias = (item["alias"] as? String ?? item["name"] as? String ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let source = (item["source"] as? String ?? item["sourceName"] as? String ?? item["target"] as? String ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !alias.isEmpty && !source.isEmpty {
+                    result[alias] = source
+                }
+            }
+        }
+        return [:]
     }
 
     private func stackImportDebugResult(from summary: StackImportPackageDocumentImportSummary) -> [String: Any] {
