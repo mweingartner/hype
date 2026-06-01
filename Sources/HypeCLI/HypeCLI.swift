@@ -1332,11 +1332,20 @@ private struct ScriptSemanticValidator {
         guard handler.handlerType == .message else { return [] }
         let name = handler.name.lowercased()
         guard Self.knownRuntimeHooks.contains(name) else { return [] }
+        if isImportedBackgroundStackLifecycleHook(name: name, owner: owner) {
+            return []
+        }
         guard !allowedHooks(for: owner.ownerType).contains(name) else { return [] }
         if isInertImportedPassThroughHook(handler: handler, owner: owner) {
             return []
         }
         return [issue("hook-context", "`on \(handler.name)` is a known runtime hook, but it is not normally dispatched for \(owner.ownerType) scripts.")]
+    }
+
+    private func isImportedBackgroundStackLifecycleHook(name: String, owner: StoredScript) -> Bool {
+        guard document.legacyImport != nil else { return false }
+        guard owner.ownerType.lowercased() == "background" else { return false }
+        return name == "openstack" || name == "closestack"
     }
 
     private func isInertImportedPassThroughHook(handler: Handler, owner: StoredScript) -> Bool {
@@ -1373,11 +1382,11 @@ private struct ScriptSemanticValidator {
             // is available in the normal message path.
             break
         case .expressionStatement(let expression):
-            issues += expressionIssues(expression, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(expression, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
         case .send(let message, let target):
-            issues += expressionIssues(message, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(message, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
             if let target {
-                issues += expressionIssues(target, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+                issues += expressionIssues(target, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
             }
             if case .literal(let name) = message,
                target.map(isMeLike) == true,
@@ -1385,8 +1394,8 @@ private struct ScriptSemanticValidator {
                 issues.append(issue("send-handler", "`send \"\(name)\" to me` has no matching handler in this script."))
             }
         case .visual(let effect, let duration):
-            issues += expressionIssues(effect, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
-            if let duration { issues += expressionIssues(duration, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId) }
+            issues += expressionIssues(effect, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
+            if let duration { issues += expressionIssues(duration, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId) }
             if let effectName = staticString(effect) {
                 let resolved = VisualEffect.fromName(effectName)
                 if resolved == .none && !Self.noneEffectNames.contains(effectName.lowercased()) {
@@ -1394,15 +1403,15 @@ private struct ScriptSemanticValidator {
                 }
             }
         case .playSound(let sound, let notes, let tempo):
-            issues += expressionIssues(sound, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
-            if let notes { issues += expressionIssues(notes, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId) }
-            if let tempo { issues += expressionIssues(tempo, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId) }
+            issues += expressionIssues(sound, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
+            if let notes { issues += expressionIssues(notes, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId) }
+            if let tempo { issues += expressionIssues(tempo, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId) }
             if let soundName = staticLiteralString(sound), !soundIsResolvable(soundName) {
                 issues.append(issue("sound-asset", "`play \"\(soundName)\"` has no embedded audio asset and is not a known system/HyperCard sound mapping."))
             }
         case .externalCommand(let name, let arguments):
             for argument in arguments {
-                issues += expressionIssues(argument, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+                issues += expressionIssues(argument, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
             }
             if let currentCardId = owner.currentCardId,
                MessageDispatcher().hasHandler(
@@ -1423,8 +1432,8 @@ private struct ScriptSemanticValidator {
                 issues.append(issue("xcmd-unknown", "XCMD `\(name)` is not available in Hype."))
             }
         case .put(let source, _, let target):
-            issues += expressionIssues(source, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
-            issues += expressionIssues(target, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(source, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(target, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
         case .get(let expression), .go(let expression), .returnValue(let expression),
              .say(let expression), .activateListener(let expression), .waitDuration(let expression, _),
              .waitCondition(let expression, _), .deleteObject(let expression), .findText(let expression),
@@ -1432,12 +1441,12 @@ private struct ScriptSemanticValidator {
              .showObject(let expression), .openStack(let expression), .editScriptOf(let expression),
              .startUsing(let expression), .stopUsing(let expression), .startAnimation(let expression),
              .stopAnimation(let expression), .exportPaint(let expression), .importPaint(let expression):
-            issues += expressionIssues(expression, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(expression, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
         case .set(_, let ofExpression, let toExpression):
-            if let ofExpression { issues += expressionIssues(ofExpression, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId) }
-            issues += expressionIssues(toExpression, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            if let ofExpression { issues += expressionIssues(ofExpression, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId) }
+            issues += expressionIssues(toExpression, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
         case .ifThenElse(let condition, let thenBlock, let elseBlock):
-            issues += expressionIssues(condition, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(condition, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
             issues += statementsIssues(thenBlock, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
             if let elseBlock {
                 issues += statementsIssues(elseBlock, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
@@ -1445,14 +1454,14 @@ private struct ScriptSemanticValidator {
         case .repeatForever(let body):
             issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
         case .repeatCount(let count, let body):
-            issues += expressionIssues(count, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(count, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
             issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
         case .repeatWhile(let condition, let body):
-            issues += expressionIssues(condition, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(condition, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
             issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
         case .repeatWith(_, let from, let to, let body):
-            issues += expressionIssues(from, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
-            issues += expressionIssues(to, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(from, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(to, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
             issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
         default:
             break
@@ -1494,16 +1503,27 @@ private struct ScriptSemanticValidator {
         _ expression: HypeCore.Expression,
         owner: StoredScript,
         functionNames: Set<String>,
+        messageNames: Set<String> = [],
         effectiveCardId: UUID? = nil
     ) -> [ScriptSemanticIssue] {
         var issues: [ScriptSemanticIssue] = []
+        func nested(_ expression: HypeCore.Expression) -> [ScriptSemanticIssue] {
+            expressionIssues(
+                expression,
+                owner: owner,
+                functionNames: functionNames,
+                messageNames: messageNames,
+                effectiveCardId: effectiveCardId
+            )
+        }
         switch expression {
         case .functionCall(let name, let arguments):
             for argument in arguments {
-                issues += expressionIssues(argument, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+                issues += nested(argument)
             }
             let lower = name.lowercased()
             if !functionNames.contains(lower),
+               !messageNames.contains(lower),
                !functionHandlerInMessagePath(name: name, owner: owner, effectiveCardId: effectiveCardId),
                !Self.knownBuiltInFunctions.contains(lower) {
                 let status = HyperCardExternalRegistry.default.status(for: name, kind: .xfcn)
@@ -1518,36 +1538,36 @@ private struct ScriptSemanticValidator {
             }
         case .objectRef(let ref):
             issues += objectReferenceIssues(ref, owner: owner, effectiveCardId: effectiveCardId)
-            issues += expressionIssues(ref.identifier, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += nested(ref.identifier)
         case .scopedObjectRef(let object, let ownerRef):
-            issues += expressionIssues(object.identifier, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
-            issues += expressionIssues(ownerRef.identifier, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += nested(object.identifier)
+            issues += nested(ownerRef.identifier)
         case .propertyAccess(_, let target):
-            if let target { issues += expressionIssues(target, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId) }
+            if let target { issues += nested(target) }
         case .binary(let left, _, let right), .contains(let left, let right), .stringConcat(let left, let right),
              .spacedConcat(let left, let right), .isIn(let left, let right), .isNotIn(let left, let right),
              .isWithin(let left, let right), .isNotWithin(let left, let right):
-            issues += expressionIssues(left, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
-            issues += expressionIssues(right, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += nested(left)
+            issues += nested(right)
         case .unary(_, let inner), .await(let inner), .chunk(_, _, let inner), .not(let inner),
              .isA(let inner, _), .isNotA(let inner, _):
-            issues += expressionIssues(inner, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += nested(inner)
         case .headerAccess(let header, let target):
-            issues += expressionIssues(header, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
-            issues += expressionIssues(target, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += nested(header)
+            issues += nested(target)
         case .chartDataPointRef(let chart, let series, let point):
-            issues += expressionIssues(chart, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
-            issues += expressionIssues(series, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
-            issues += expressionIssues(point, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += nested(chart)
+            issues += nested(series)
+            issues += nested(point)
         case .tileAt(let column, let row, let tilemap):
-            issues += expressionIssues(column, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
-            issues += expressionIssues(row, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
-            issues += expressionIssues(tilemap, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += nested(column)
+            issues += nested(row)
+            issues += nested(tilemap)
         case .thereIsA(_, let target), .thereIsNo(_, let target):
-            issues += expressionIssues(target, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += nested(target)
         case .askMeshy(let prompt, let style):
-            issues += expressionIssues(prompt, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
-            if let style { issues += expressionIssues(style, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId) }
+            issues += nested(prompt)
+            if let style { issues += nested(style) }
         default:
             break
         }
@@ -1853,6 +1873,7 @@ private struct ScriptSemanticValidator {
         "foundchunk", "foundfield", "foundline", "foundtext",
         "selectedbutton", "selectedchunk", "selectedfield", "selectedline", "selectedloc", "selectedtext",
         "sound", "musicstate", "musicpatterns", "musicinstruments", "programs", "menus", "destination", "stacks",
+        "id",
         "meshy_parse_webhook",
     ]
     private static let knownSystemOrHyperCardSounds: Set<String> = [

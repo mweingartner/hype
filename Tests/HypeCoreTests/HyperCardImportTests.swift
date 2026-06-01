@@ -391,6 +391,8 @@ struct HyperCardImportTests {
         #expect(registry.status(for: "Movie", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "Buzzer", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "dplay", kind: .xcmd) == .emulated)
+        #expect(registry.status(for: "createMenu", kind: .xcmd) == .emulated)
+        #expect(registry.status(for: "soundTime", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "closemoovs", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "vd", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "vs", kind: .xcmd) == .emulated)
@@ -772,6 +774,8 @@ struct HyperCardImportTests {
           moveCursor 11, 22
           xWindowFrame
           xAbout
+          create menu "File"
+          soundTime "5,05","0","0","9,30"
           xMemory 1
           SetMode c,8
           put xDepth() & return & GetMode() & return & xSetSoundVol(128) & return & xGetSoundVol() & return & variant() into field "out"
@@ -794,6 +798,11 @@ struct HyperCardImportTests {
         #expect(modified.scriptGlobals["hypercard.movecursor.loc"] == "11,22")
         #expect(modified.scriptGlobals["hypercard.window.frame.exists"] == "true")
         #expect(modified.scriptGlobals["hypercard.xabout.invoked"] == "true")
+        #expect(modified.scriptGlobals["hypercard.menu.file.created"] == "true")
+        #expect(modified.scriptGlobals["hypercard.soundtime.start"] == "5,05")
+        #expect(modified.scriptGlobals["hypercard.soundtime.loopStart"] == "0")
+        #expect(modified.scriptGlobals["hypercard.soundtime.loopEnd"] == "0")
+        #expect(modified.scriptGlobals["hypercard.soundtime.end"] == "9,30")
         #expect(modified.scriptGlobals["hypercard.display.value"] == "c,8")
         #expect(modified.scriptGlobals["hypercard.sound.volume"] == "128")
     }

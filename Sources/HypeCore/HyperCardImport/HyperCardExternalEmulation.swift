@@ -164,8 +164,11 @@ public struct HyperCardExternalRegistry: Sendable {
         put(.xcmd, ["soundStop"], Entry(status: .emulated) { call, context in
             mystSoundStopCompatibility(call: call, context: context)
         })
-        put(.xcmd, ["soundTime"], Entry(status: .emulated) { call, context in
-            mystSoundTimeCompatibility(call: call, context: context)
+        put(.xcmd, ["createMenu"], Entry(status: .emulated) { call, _ in
+            createMenuCompatibility(call: call)
+        })
+        put(.xcmd, ["soundTime"], Entry(status: .emulated) { call, _ in
+            soundTimeCompatibility(call: call)
         })
         put(.xcmd, ["closemoovs", "closemovies", "closeQT"], Entry(status: .emulated) { _, context in
             closeQuickTimeMovies(context: context)
@@ -652,6 +655,20 @@ public struct HyperCardExternalRegistry: Sendable {
         )
     }
 
+    private static func createMenuCompatibility(call: HyperCardExternalCall) -> HyperCardExternalResult {
+        let menuName = call.arguments.first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let key = menuName.isEmpty ? "unnamed" : AssetRepository.classicMediaLookupKey(menuName)
+        return HyperCardExternalResult(
+            value: menuName,
+            result: menuName,
+            runtimeGlobals: [
+                "hypercard.menu.\(key).created": "true",
+                "hypercard.menu.lastCreated": menuName
+            ]
+        )
+    }
+
     private static func mystSoundStopCompatibility(
         call: HyperCardExternalCall,
         context: HyperCardExternalCallContext
@@ -753,6 +770,22 @@ public struct HyperCardExternalRegistry: Sendable {
             result: windowName,
             modifiedDocument: document,
             runtimeGlobals: globals
+        )
+    }
+
+    private static func soundTimeCompatibility(call: HyperCardExternalCall) -> HyperCardExternalResult {
+        let slots = ["start", "loopStart", "loopEnd", "end"]
+        var runtimeGlobals: [String: String] = [
+            "hypercard.soundtime.arguments": call.arguments.joined(separator: "\t")
+        ]
+        for (index, slot) in slots.enumerated() {
+            let value = index < call.arguments.count ? call.arguments[index] : ""
+            runtimeGlobals["hypercard.soundtime.\(slot)"] = value
+        }
+        return HyperCardExternalResult(
+            value: "",
+            result: "",
+            runtimeGlobals: runtimeGlobals
         )
     }
 
