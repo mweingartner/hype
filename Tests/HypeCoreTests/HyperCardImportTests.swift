@@ -510,11 +510,12 @@ struct HyperCardImportTests {
           xWindowFrame
           xAbout
           xSetSoundVol true
+          HTAddPict (field "pict name" & " (open)"), it, "srccopy"
         end mouseUp
         """)
 
         #expect(script.handlers.count == 1)
-        #expect(script.handlers[0].body.count == 5)
+        #expect(script.handlers[0].body.count == 6)
         guard case .externalCommand(let name, let arguments) = script.handlers[0].body[0] else {
             Issue.record("Expected external command statement")
             return
@@ -527,6 +528,12 @@ struct HyperCardImportTests {
         }
         #expect(bareName == "xWindowFrame")
         #expect(bareArguments.isEmpty)
+        guard case .externalCommand(let pictName, let pictArguments) = script.handlers[0].body[5] else {
+            Issue.record("Expected HTAddPict external command statement")
+            return
+        }
+        #expect(pictName == "HTAddPict")
+        #expect(pictArguments.count == 3)
     }
 
     @Test("interpreter routes emulated XFCN function calls through registry")

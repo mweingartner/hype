@@ -415,7 +415,7 @@ public struct Parser: Sendable {
             return Self.isKnownZeroArgumentExternalCommand(current.value)
         }
         if next.type == .lparen {
-            return false
+            return Self.isKnownParenthesizedArgumentExternalCommand(current.value)
         }
         switch next.type {
         case .string, .integer, .float, .identifier, .true, .false, .comma,
@@ -439,6 +439,18 @@ public struct Parser: Sendable {
             .filter({ $0.isLetter || $0.isNumber }) {
         case "xwindowframe", "xabout", "closemoovs", "closemovies", "closeqt",
              "htremove", "vd", "fadeout":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isKnownParenthesizedArgumentExternalCommand(_ rawName: String) -> Bool {
+        switch rawName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .filter({ $0.isLetter || $0.isNumber }) {
+        case "htaddpict", "htchangepict":
             return true
         default:
             return false
