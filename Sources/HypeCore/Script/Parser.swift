@@ -848,7 +848,7 @@ public struct Parser: Sendable {
                 } else {
                     skipNewlines()
                     var elseStmts: [Statement] = []
-                    while current.type != .end && !isImplicitImportedBlockBoundary() {
+                    while current.type != .else && current.type != .end && !isImplicitImportedBlockBoundary() {
                         let stmt = try parseStatement()
                         elseStmts.append(stmt)
                         skipNewlines()
@@ -888,7 +888,7 @@ public struct Parser: Sendable {
             }
             skipNewlines()
             var elseStmts: [Statement] = []
-            while current.type != .end && !isImplicitImportedBlockBoundary() {
+            while current.type != .else && current.type != .end && !isImplicitImportedBlockBoundary() {
                 let stmt = try parseStatement()
                 elseStmts.append(stmt)
                 skipNewlines()

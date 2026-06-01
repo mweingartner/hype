@@ -288,6 +288,31 @@ struct HyperCardImportTests {
         #expect(try parsedHandlerCount(translated) == 1)
     }
 
+    @Test("legacy translator enables commented classic handler head")
+    func legacyTranslatorEnablesCommentedClassicHandlerHead() throws {
+        let script = """
+        --on mouseUp
+        global MY_PlaMarker
+        put field "pict name" into WhichPict
+        if MY_PlaMarker is "on" then
+        HTChangePict WhichPict,"Srccopy"
+        put "off" into MY_PlaMarker
+        else
+        put WhichPict & " (Switch-on)" into WhichPict
+        HTAddPict WhichPict, the rect of me, "Srccopy"
+        put "on" into MY_PlaMarker
+        end if
+        go this card
+        end mouseUp
+        """
+
+        let translated = LegacyHyperTalkScript.preparedForHypeTalkRuntime(script)
+
+        #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(translated))
+        #expect(translated.hasPrefix("on mouseUp"))
+        #expect(try parsedHandlerCount(translated) == 1)
+    }
+
     @Test("legacy translator comments disabled handler tails without disabling earlier handlers")
     func legacyTranslatorCommentsDisabledHandlerTails() throws {
         let script = """

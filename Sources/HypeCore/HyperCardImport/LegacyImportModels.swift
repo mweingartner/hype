@@ -280,9 +280,14 @@ public enum LegacyHyperTalkScript {
 
     private static func normalizeCommonLegacySpellings(_ script: String) -> String {
         let lines = script.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> String in
+            .enumerated()
+            .map { index, line -> String in
                 let text = String(line)
                 let trimmed = text.trimmingCharacters(in: .whitespaces)
+                if index == 0 && isCommentedHandlerStart(trimmed) {
+                    let indent = text.prefix { $0 == " " || $0 == "\t" }
+                    return "\(indent)\(trimmed.dropFirst(2))"
+                }
                 guard trimmed.caseInsensitiveCompare("gonext") == .orderedSame else {
                     return text
                 }
@@ -290,6 +295,11 @@ public enum LegacyHyperTalkScript {
                 return "\(indent)go next"
             }
         return commentOutDisabledHandlerTails(in: lines).joined(separator: "\n")
+    }
+
+    private static func isCommentedHandlerStart(_ line: String) -> Bool {
+        let lowercased = line.lowercased()
+        return lowercased.hasPrefix("--on ") || lowercased.hasPrefix("--function ")
     }
 
     private static func commentOutDisabledHandlerTails(in lines: [String]) -> [String] {
