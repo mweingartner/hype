@@ -2894,6 +2894,10 @@ public struct Parser: Sendable {
             _ = advance()
             return .literal("open")
 
+        case .on:
+            _ = advance()
+            return .literal("on")
+
         case .it:
             _ = advance()
             return .it
@@ -2956,6 +2960,10 @@ public struct Parser: Sendable {
                 return scopedRef
             }
             return .variable("current")
+
+        case .identifier where current.value.lowercased() == "off":
+            _ = advance()
+            return .literal("off")
 
         case .identifier where current.value.lowercased() == "data":
             // Possible compound data-point reference:

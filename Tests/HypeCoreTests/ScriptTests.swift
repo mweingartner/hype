@@ -836,6 +836,23 @@ struct ParserTests {
         }
         #expect(variableName == "connId")
     }
+
+    @Test func parsesClassicOnOffStateLiterals() throws {
+        var lexer = Lexer(source: """
+        on mouseDown
+          put on into light
+          if light is on then put off into light
+        end mouseDown
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers[0].body.count == 2)
+        guard case .put(.literal("on"), _, .variable("light")) = script.handlers[0].body[0] else {
+            Issue.record("Expected classic on literal assignment")
+            return
+        }
+    }
 }
 
 // MARK: - Interpreter Tests
@@ -879,6 +896,18 @@ struct InterpreterTests {
         """)
         #expect(result.status == .completed)
         #expect(result.returnValue == "hello world")
+    }
+
+    @Test func evaluatesClassicOnOffStateLiterals() {
+        let result = executeScript("""
+        on test
+          put on into light
+          if light is on then put off into light
+          return light
+        end test
+        """)
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "off")
     }
 
     @Test func startUsingStackUpdatesImportedStackLibrary() {
