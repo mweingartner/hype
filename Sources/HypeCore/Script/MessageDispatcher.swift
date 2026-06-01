@@ -94,7 +94,8 @@ public struct MessageDispatcher: Sendable {
         document: HypeDocument,
         currentCardId: UUID,
         appScript: String = "",
-        scriptContext: ScriptDispatchContext? = nil
+        scriptContext: ScriptDispatchContext? = nil,
+        handlerType: HandlerType? = nil
     ) -> Bool {
         let chain = buildHierarchy(
             targetId: targetId,
@@ -111,7 +112,10 @@ public struct MessageDispatcher: Sendable {
                 scriptContext: scriptContext
             ) else { continue }
             guard let parsedScript = try? HypeTalkScriptParseCache.shared.parsedScript(for: script) else { continue }
-            if parsedScript.handlers.contains(where: { aliases.contains($0.name.lowercased()) }) {
+            if parsedScript.handlers.contains(where: { handler in
+                aliases.contains(handler.name.lowercased()) &&
+                    handlerType.map { handler.handlerType == $0 } ?? true
+            }) {
                 return true
             }
         }
@@ -152,7 +156,8 @@ public struct MessageDispatcher: Sendable {
         mouseY: Double = 0,
         scriptContext: ScriptDispatchContext? = nil,
         nestedSendDepth: Int = 0,
-        fileProvider: any FileAccessProvider = StubFileAccessProvider()
+        fileProvider: any FileAccessProvider = StubFileAccessProvider(),
+        handlerType: HandlerType? = nil
     ) -> ExecutionResult {
         _DispatchSyncGate.semaphore.wait()
         defer { _DispatchSyncGate.semaphore.signal() }
@@ -177,7 +182,8 @@ public struct MessageDispatcher: Sendable {
                 scriptContext: scriptContext,
                 runtimeProvider: runtimeProvider,
                 nestedSendDepth: nestedSendDepth,
-                fileProvider: fileProvider
+                fileProvider: fileProvider,
+                handlerType: handlerType
             )
             semaphore.signal()
         }
@@ -218,7 +224,8 @@ public struct MessageDispatcher: Sendable {
         scriptContext: ScriptDispatchContext? = nil,
         runtimeProvider: (any ScriptRuntimeProviding)? = nil,
         nestedSendDepth: Int = 0,
-        fileProvider: any FileAccessProvider = StubFileAccessProvider()
+        fileProvider: any FileAccessProvider = StubFileAccessProvider(),
+        handlerType: HandlerType? = nil
     ) async -> ExecutionResult {
         let chain = buildHierarchy(
             targetId: targetId,
@@ -324,8 +331,9 @@ public struct MessageDispatcher: Sendable {
             // natural English form (`on enter` for `enterKey`,
             // `on tab` for `tabInField`, etc.).
             let aliasedNames = Self.handlerAliases(for: message.lowercased())
-            guard let handler = parsedScript.handlers.first(where: {
-                aliasedNames.contains($0.name.lowercased())
+            guard let handler = parsedScript.handlers.first(where: { handler in
+                aliasedNames.contains(handler.name.lowercased()) &&
+                    handlerType.map { handler.handlerType == $0 } ?? true
             }) else { continue }
 
             // Execute the handler.
@@ -345,9 +353,9 @@ public struct MessageDispatcher: Sendable {
                 mouseY: mouseY,
                 appScript: appScript,
                 nestedSendDepth: nestedSendDepth,
-                fileProvider: fileProvider
+                fileProvider: fileProvider,
+                handlerType: handlerType
             )
-            let interpreter = Interpreter()
             var result = await interpreter.executeAsync(handler: handler, params: params, context: context)
             if let modifiedDocument = result.modifiedDocument {
                 currentDocument = modifiedDocument

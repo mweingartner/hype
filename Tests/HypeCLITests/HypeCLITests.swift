@@ -476,6 +476,35 @@ struct HypeCLITests {
         #expect(!result.stdout.contains("bare-handler-call"))
     }
 
+    @Test func testValidateScriptsTreatsMessagePathFunctionsAsLocalFunctions() throws {
+        var document = HypeDocument.newDocument(name: "Function Handler Validation Fixture")
+        let cardId = try #require(document.cards.first?.id)
+        var button = Part(partType: .button, cardId: cardId, name: "Run")
+        button.script = """
+        on mouseUp
+          put doubleIt(5) into it
+        end mouseUp
+        """
+        document.stack.script = """
+        function doubleIt amount
+          return amount * 2
+        end doubleIt
+        """
+        document.parts.append(button)
+
+        let packageURL = scriptDir.appendingPathComponent("FunctionHandlerValidationFixture.hype", isDirectory: true)
+        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
+
+        let result = runBinary(arguments: [
+            "--validate-scripts", packageURL.path,
+        ])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("ok\tbutton\tRun"))
+        #expect(!result.stdout.contains("Function `doubleIt`"))
+        #expect(!result.stdout.contains("function-unknown"))
+    }
+
     @Test func testValidateScriptsTreatsClassicPlayNotesAsNotes() throws {
         var document = HypeDocument.newDocument(name: "Classic Play Notes Fixture")
         let cardId = try #require(document.cards.first?.id)

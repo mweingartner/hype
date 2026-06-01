@@ -1162,7 +1162,9 @@ private struct ScriptSemanticValidator {
                 issues += expressionIssues(argument, owner: owner, functionNames: functionNames)
             }
             let lower = name.lowercased()
-            if !functionNames.contains(lower) && !Self.knownBuiltInFunctions.contains(lower) {
+            if !functionNames.contains(lower),
+               !functionHandlerInMessagePath(name: name, owner: owner),
+               !Self.knownBuiltInFunctions.contains(lower) {
                 let status = HyperCardExternalRegistry.default.status(for: name, kind: .xfcn)
                 switch status {
                 case .emulated:
@@ -1209,6 +1211,60 @@ private struct ScriptSemanticValidator {
             break
         }
         return issues
+    }
+
+    private func functionHandlerInMessagePath(name: String, owner: StoredScript) -> Bool {
+        guard let currentCardId = owner.currentCardId else { return false }
+        let targetId = owner.ownerId
+        let candidateScripts: [String] = messagePathScripts(
+            targetId: targetId,
+            currentCardId: currentCardId
+        )
+        let wanted = name.lowercased()
+        for source in candidateScripts {
+            guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            var lexer = Lexer(source: source)
+            let tokens = lexer.tokenize()
+            var parser = Parser(tokens: tokens)
+            guard let parsed = try? parser.parse() else { continue }
+            if parsed.handlers.contains(where: { $0.handlerType == .function && $0.name.lowercased() == wanted }) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func messagePathScripts(targetId: UUID, currentCardId: UUID) -> [String] {
+        var scripts: [String] = []
+        if let part = document.parts.first(where: { $0.id == targetId }) {
+            scripts.append(part.script)
+            if let cardId = part.cardId ?? document.cards.first(where: { $0.backgroundId == part.backgroundId })?.id,
+               let card = document.cards.first(where: { $0.id == cardId }) {
+                scripts.append(card.script)
+                if let background = document.backgrounds.first(where: { $0.id == card.backgroundId }) {
+                    scripts.append(background.script)
+                }
+            } else if let backgroundId = part.backgroundId,
+                      let background = document.backgrounds.first(where: { $0.id == backgroundId }) {
+                scripts.append(background.script)
+            }
+        } else if let card = document.cards.first(where: { $0.id == targetId }) {
+            scripts.append(card.script)
+            if let background = document.backgrounds.first(where: { $0.id == card.backgroundId }) {
+                scripts.append(background.script)
+            }
+        } else if let background = document.backgrounds.first(where: { $0.id == targetId }) {
+            scripts.append(background.script)
+        } else if targetId == document.stack.id {
+            scripts.append(document.stack.script)
+        } else if let currentCard = document.cards.first(where: { $0.id == currentCardId }) {
+            scripts.append(currentCard.script)
+            if let background = document.backgrounds.first(where: { $0.id == currentCard.backgroundId }) {
+                scripts.append(background.script)
+            }
+        }
+        scripts.append(document.stack.script)
+        return scripts
     }
 
     private func objectReferenceIssues(_ ref: ObjectRefExpr, owner: StoredScript) -> [ScriptSemanticIssue] {
