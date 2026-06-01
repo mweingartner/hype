@@ -1393,6 +1393,9 @@ private struct ScriptSemanticValidator {
                 return [issue("object-reference", "`\(ref.objectType) \"\(name)\"` does not resolve on \(owner.ownerPath)'s card/background context.")]
             }
         case "card":
+            if isCurrentCardReference(lowerName) {
+                return []
+            }
             let found = document.cards.contains { card in
                 card.name.lowercased() == lowerName || String(document.cards.firstIndex(where: { $0.id == card.id }).map { $0 + 1 } ?? -1) == lowerName
             }
@@ -1408,6 +1411,15 @@ private struct ScriptSemanticValidator {
             break
         }
         return []
+    }
+
+    private func isCurrentCardReference(_ value: String) -> Bool {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "card", "this", "this card", "current", "current card":
+            return true
+        default:
+            return false
+        }
     }
 
     private func soundIsResolvable(_ name: String) -> Bool {

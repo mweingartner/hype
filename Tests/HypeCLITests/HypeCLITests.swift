@@ -542,6 +542,32 @@ struct HypeCLITests {
         #expect(!result.stdout.contains("function-unknown"))
     }
 
+    @Test func testValidateScriptsTreatsThisCardAsResolvableObjectReference() throws {
+        var document = HypeDocument.newDocument(name: "This Card Validation Fixture")
+        let cardId = try #require(document.cards.first?.id)
+        var button = Part(partType: .button, cardId: cardId, name: "Rename")
+        button.script = """
+        on mouseUp
+          set the name of this card to "Renamed"
+          set the name of current card to "Renamed Again"
+        end mouseUp
+        """
+        document.parts.append(button)
+
+        let packageURL = scriptDir.appendingPathComponent("ThisCardValidationFixture.hype", isDirectory: true)
+        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
+
+        let result = runBinary(arguments: [
+            "--validate-scripts", packageURL.path,
+        ])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("ok\tbutton\tRename"))
+        #expect(!result.stdout.contains("card \"this\""))
+        #expect(!result.stdout.contains("card \"current\""))
+        #expect(!result.stdout.contains("object-reference"))
+    }
+
     @Test func testValidateScriptsTreatsClassicPlayNotesAsNotes() throws {
         var document = HypeDocument.newDocument(name: "Classic Play Notes Fixture")
         let cardId = try #require(document.cards.first?.id)
