@@ -44,6 +44,9 @@ The registry models the behavior that matters to scripts:
 
 - Command-style XCMD calls parse as `Statement.externalCommand`, for example
   `SetCursor "watch"`.
+- Parameterless single-identifier lines dispatch as classic handler commands
+  when the normal HypeTalk message path contains a matching handler, for example
+  `resetDrawers`.
 - Function-style XFCN calls use ordinary function syntax, for example
   `put HypeVersion() into field "status"`.
 - Parameters are passed as evaluated HypeTalk strings.

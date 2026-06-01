@@ -724,6 +724,86 @@ public struct Interpreter: Sendable {
         )
     }
 
+    private func dispatchHandlerCommandIfAvailable(
+        name: String,
+        args: [Value],
+        env: inout Environment,
+        document: inout HypeDocument,
+        context: ExecutionContext,
+        navigationTarget: inout UUID?,
+        projectNavigationTarget: inout ProjectNavigationTarget?,
+        handler: Handler
+    ) async throws -> Bool {
+        let dispatcher = MessageDispatcher()
+        guard dispatcher.hasHandler(
+            message: name,
+            targetId: context.targetId,
+            document: document,
+            currentCardId: context.currentCardId,
+            appScript: context.appScript,
+            scriptContext: context.scriptContext
+        ) else {
+            return false
+        }
+        guard context.nestedSendDepth < 32 else {
+            throw ScriptError(message: "Nested handler command depth exceeded", line: handler.line, handler: handler.name)
+        }
+
+        document.scriptGlobals = env.globals
+        let result = await dispatcher.dispatchAsync(
+            message: name,
+            params: args,
+            targetId: context.targetId,
+            document: document,
+            currentCardId: context.currentCardId,
+            dialogProvider: context.dialogProvider,
+            drawingProvider: context.drawingProvider,
+            systemProvider: context.systemProvider,
+            aiProvider: context.aiProvider,
+            speechOutputProvider: context.speechOutputProvider,
+            appScript: context.appScript,
+            mouseX: context.mouseX,
+            mouseY: context.mouseY,
+            scriptContext: context.scriptContext,
+            runtimeProvider: context.runtimeProvider,
+            nestedSendDepth: context.nestedSendDepth + 1
+        )
+        if let modifiedDocument = result.modifiedDocument {
+            document = modifiedDocument
+            env.globals = modifiedDocument.scriptGlobals
+        }
+        if let resultNavigationTarget = result.navigationTarget {
+            navigationTarget = resultNavigationTarget
+        }
+        if let resultProjectNavigationTarget = result.projectNavigationTarget {
+            projectNavigationTarget = resultProjectNavigationTarget
+        }
+        if let visualEffect = result.visualEffect {
+            env.locals["_visualEffect"] = visualEffect
+        }
+        if let visualEffectDuration = result.visualEffectDuration {
+            env.locals["_visualEffectDuration"] = String(visualEffectDuration)
+        }
+        if result.showAllCards {
+            throw ControlSignal.showAllCards
+        }
+        if result.status == .error {
+            throw result.error ?? ScriptError(
+                message: "Handler command failed",
+                line: handler.line,
+                handler: handler.name
+            )
+        }
+        if result.status == .cancelled {
+            throw CancellationError()
+        }
+        if let returnValue = result.returnValue {
+            env.it = returnValue
+        }
+        document.scriptGlobals = env.globals
+        return true
+    }
+
     // MARK: - Statement execution
 
     private func executeStatement(
@@ -1452,6 +1532,19 @@ public struct Interpreter: Sendable {
             }
 
         case .expressionStatement(let expr):
+            if case .variable(let name) = expr,
+               try await dispatchHandlerCommandIfAvailable(
+                   name: name,
+                   args: [],
+                   env: &env,
+                   document: &document,
+                   context: context,
+                   navigationTarget: &navigationTarget,
+                   projectNavigationTarget: &projectNavigationTarget,
+                   handler: handler
+               ) {
+                break
+            }
             _ = try await evaluate(expr, env: &env, document: document, context: context)
 
         case .doBlock(let expr):
@@ -1618,70 +1711,16 @@ public struct Interpreter: Sendable {
             for expr in argumentExprs {
                 args.append(try await evaluateExternalArgumentExpression(expr, env: &env, document: document, context: context))
             }
-            let dispatcher = MessageDispatcher()
-            if dispatcher.hasHandler(
-                message: name,
-                targetId: context.targetId,
-                document: document,
-                currentCardId: context.currentCardId,
-                appScript: context.appScript,
-                scriptContext: context.scriptContext
+            if try await dispatchHandlerCommandIfAvailable(
+                name: name,
+                args: args,
+                env: &env,
+                document: &document,
+                context: context,
+                navigationTarget: &navigationTarget,
+                projectNavigationTarget: &projectNavigationTarget,
+                handler: handler
             ) {
-                guard context.nestedSendDepth < 32 else {
-                    throw ScriptError(message: "Nested handler command depth exceeded", line: handler.line, handler: handler.name)
-                }
-                document.scriptGlobals = env.globals
-                let result = await dispatcher.dispatchAsync(
-                    message: name,
-                    params: args,
-                    targetId: context.targetId,
-                    document: document,
-                    currentCardId: context.currentCardId,
-                    dialogProvider: context.dialogProvider,
-                    drawingProvider: context.drawingProvider,
-                    systemProvider: context.systemProvider,
-                    aiProvider: context.aiProvider,
-                    speechOutputProvider: context.speechOutputProvider,
-                    appScript: context.appScript,
-                    mouseX: context.mouseX,
-                    mouseY: context.mouseY,
-                    scriptContext: context.scriptContext,
-                    runtimeProvider: context.runtimeProvider,
-                    nestedSendDepth: context.nestedSendDepth + 1
-                )
-                if let modifiedDocument = result.modifiedDocument {
-                    document = modifiedDocument
-                    env.globals = modifiedDocument.scriptGlobals
-                }
-                if let resultNavigationTarget = result.navigationTarget {
-                    navigationTarget = resultNavigationTarget
-                }
-                if let resultProjectNavigationTarget = result.projectNavigationTarget {
-                    projectNavigationTarget = resultProjectNavigationTarget
-                }
-                if let visualEffect = result.visualEffect {
-                    env.locals["_visualEffect"] = visualEffect
-                }
-                if let visualEffectDuration = result.visualEffectDuration {
-                    env.locals["_visualEffectDuration"] = String(visualEffectDuration)
-                }
-                if result.showAllCards {
-                    throw ControlSignal.showAllCards
-                }
-                if result.status == .error {
-                    throw result.error ?? ScriptError(
-                        message: "Handler command failed",
-                        line: handler.line,
-                        handler: handler.name
-                    )
-                }
-                if result.status == .cancelled {
-                    throw CancellationError()
-                }
-                if let returnValue = result.returnValue {
-                    env.it = returnValue
-                }
-                document.scriptGlobals = env.globals
                 break
             }
             document.scriptGlobals = env.globals
