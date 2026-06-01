@@ -197,6 +197,12 @@ public struct HyperCardExternalRegistry: Sendable {
         put(.xcmd, ["pushKey"], Entry(status: .emulated) { call, context in
             mystPushKeyCompatibility(call: call, context: context)
         })
+        put(.xcmd, ["PreGear"], Entry(status: .emulated) { call, context in
+            mystPreGearCompatibility(call: call, context: context)
+        })
+        put(.xcmd, ["gear"], Entry(status: .emulated) { call, context in
+            mystGearCompatibility(call: call, context: context)
+        })
         put(.xcmd, ["shipMove"], Entry(status: .emulated) { call, context in
             mystSeleniticShipMoveCompatibility(call: call, context: context)
         })
@@ -1086,6 +1092,180 @@ public struct HyperCardExternalRegistry: Sendable {
                 "hypercard.window.\(windowKey).visible": "true"
             ]
         )
+    }
+
+    private static func mystPreGearCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        let which = max(1, classicInteger(call.arguments.first, fallback: 1))
+        let pos = classicInteger(call.arguments.dropFirst().first, fallback: 3)
+        let currTime = pos == 3 ? 0 : Double(pos * 300)
+        let windowName = mystGearWindowName(which)
+        var document = context.document
+        ensureMystGearWindow(
+            windowName: windowName,
+            which: which,
+            currentCardId: context.currentCardId,
+            document: &document
+        )
+        let globals = mystGearWindowGlobals(
+            windowName: windowName,
+            which: which,
+            currTime: currTime,
+            startTime: nil,
+            endTime: nil,
+            rate: 0,
+            pos: pos,
+            action: "pregear"
+        )
+        for (key, value) in globals {
+            document.scriptGlobals[key] = value
+        }
+        setQuickTimeWindowAutoplay(
+            windowName: windowName,
+            autoplay: false,
+            currentCardId: context.currentCardId,
+            document: &document
+        )
+        return HyperCardExternalResult(
+            value: formatClassicNumber(currTime),
+            result: formatClassicNumber(currTime),
+            modifiedDocument: document,
+            runtimeGlobals: globals
+        )
+    }
+
+    private static func mystGearCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        let which = max(1, classicInteger(call.arguments.first, fallback: 1))
+        let windowName = mystGearWindowName(which)
+        let windowKey = AssetRepository.classicMediaLookupKey(windowName)
+        var document = context.document
+        ensureMystGearWindow(
+            windowName: windowName,
+            which: which,
+            currentCardId: context.currentCardId,
+            document: &document
+        )
+        let prior = classicDouble(
+            hyperCardGlobal("hypercard.window.\(windowKey).currtime", in: document),
+            fallback: 0
+        )
+        let base = prior >= 730 ? 0 : prior
+        let endTime = base + 300
+        let globals = mystGearWindowGlobals(
+            windowName: windowName,
+            which: which,
+            currTime: endTime,
+            startTime: prior,
+            endTime: endTime,
+            rate: 0,
+            pos: nil,
+            action: "gear"
+        ).merging([
+            "hypercard.myst.gear.requestedRate": "1.0"
+        ]) { _, new in new }
+        for (key, value) in globals {
+            document.scriptGlobals[key] = value
+        }
+        setQuickTimeWindowAutoplay(
+            windowName: windowName,
+            autoplay: false,
+            currentCardId: context.currentCardId,
+            document: &document
+        )
+        return HyperCardExternalResult(
+            value: formatClassicNumber(endTime),
+            result: formatClassicNumber(endTime),
+            modifiedDocument: document,
+            runtimeGlobals: globals
+        )
+    }
+
+    private static func ensureMystGearWindow(
+        windowName: String,
+        which: Int,
+        currentCardId: UUID,
+        document: inout HypeDocument
+    ) {
+        if let asset = document.assetRepository.asset(byClassicMediaName: windowName, kind: .videoClip) {
+            applyQuickTimeAsset(
+                asset,
+                name: windowName,
+                windowName: windowName,
+                currentCardId: currentCardId,
+                document: &document
+            )
+        }
+        guard let marker = document.parts.first(where: { part in
+            part.cardId == currentCardId &&
+                part.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "gear\(which)"
+        }) else { return }
+        for index in quickTimeCompatibilityPartIndices(
+            windowName: windowName,
+            document: document,
+            currentCardId: currentCardId
+        ) {
+            document.parts[index].left = marker.left
+            document.parts[index].top = marker.top
+            document.parts[index].visible = true
+        }
+    }
+
+    private static func setQuickTimeWindowAutoplay(
+        windowName: String,
+        autoplay: Bool,
+        currentCardId: UUID,
+        document: inout HypeDocument
+    ) {
+        for index in quickTimeCompatibilityPartIndices(
+            windowName: windowName,
+            document: document,
+            currentCardId: currentCardId
+        ) {
+            document.parts[index].videoAutoplay = autoplay
+            document.parts[index].visible = true
+        }
+    }
+
+    private static func mystGearWindowName(_ which: Int) -> String {
+        "Clock1-W Gear\(which).MooV"
+    }
+
+    private static func mystGearWindowGlobals(
+        windowName: String,
+        which: Int,
+        currTime: Double,
+        startTime: Double?,
+        endTime: Double?,
+        rate: Double,
+        pos: Int?,
+        action: String
+    ) -> [String: String] {
+        let windowKey = AssetRepository.classicMediaLookupKey(windowName)
+        var globals = [
+            "hypercard.myst.gear.action": action,
+            "hypercard.myst.gear.which": String(which),
+            "hypercard.myst.gear.window": windowName,
+            "hypercard.window.\(windowKey).exists": "true",
+            "hypercard.window.\(windowKey).visible": "true",
+            "hypercard.window.\(windowKey).movie": windowName,
+            "hypercard.window.\(windowKey).currtime": formatClassicNumber(currTime),
+            "hypercard.window.\(windowKey).rate": formatClassicNumber(rate)
+        ]
+        if let startTime {
+            globals["hypercard.window.\(windowKey).starttime"] = formatClassicNumber(startTime)
+        }
+        if let endTime {
+            globals["hypercard.window.\(windowKey).endtime"] = formatClassicNumber(endTime)
+        }
+        if let pos {
+            globals["hypercard.myst.gear.pos"] = String(pos)
+        }
+        return globals
     }
 
     private static func mystSeleniticMoveItCompatibility(

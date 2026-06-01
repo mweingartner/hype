@@ -2975,6 +2975,60 @@ struct MessageDispatcherTests {
         #expect(overlay?.top == 81)
     }
 
+    @Test func mystClockGearHelpersPrepareAndAdvanceGearWindows() async {
+        let gearMovie = Asset(
+            name: "Clock1-W Gear1-modern.mov",
+            kind: .videoClip,
+            mimeType: "video/quicktime",
+            data: Data("movie".utf8),
+            width: 90,
+            height: 80,
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "Clock1-W Gear1.MooV"),
+                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("Clock1-W Gear1.MooV"))
+            ]
+        )
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        doc.assetRepository = AssetRepository(assets: [gearMovie])
+        var marker = Part(partType: .button, cardId: cardId, name: "gear1", left: 42, top: 73, width: 20, height: 20)
+        marker.visible = false
+        var button = Part(partType: .button, cardId: cardId, name: "Run")
+        button.script = """
+        on mouseDown
+          PreGear 1,2
+          gear 1
+        end mouseDown
+        """
+        doc.addPart(marker)
+        doc.addPart(button)
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, cardId, button] in dispatcher.dispatch(
+            message: "mouseDown",
+            params: [],
+            targetId: button.id,
+            document: doc,
+            currentCardId: cardId
+        ) }
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "900")
+        let windowKey = AssetRepository.classicMediaLookupKey("Clock1-W Gear1.MooV")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.myst.gear.which"] == "1")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.myst.gear.action"] == "gear")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.window.\(windowKey).currtime"] == "900")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.window.\(windowKey).starttime"] == "600")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.window.\(windowKey).endtime"] == "900")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.window.\(windowKey).rate"] == "0")
+        let video = result.modifiedDocument?.parts.first { $0.partType == .video }
+        #expect(video?.name == "Clock1-W Gear1.MooV")
+        #expect(video?.left == 42)
+        #expect(video?.top == 73)
+        #expect(video?.videoAssetRef?.id == gearMovie.id)
+        #expect(video?.videoAutoplay == false)
+    }
+
     @Test func mystSeleniticShipMoveRecordsMovieRouteAndUpdatesWindow() async {
         let shipMovie = Asset(
             name: "*Left11-modern.mov",
