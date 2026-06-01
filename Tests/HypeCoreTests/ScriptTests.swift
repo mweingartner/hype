@@ -1798,6 +1798,38 @@ struct InterpreterTests {
         #expect(result.returnValue == " Myst")
     }
 
+    @Test func shortIdOfThisCardReturnsImportedLegacyCardId() {
+        var doc = HypeDocument.newDocument(name: "Dunny Age")
+        let cardId = doc.cards[0].id
+        doc.stackLibrary = HypeStackLibrary(entries: [
+            HypeStackLibraryEntry(
+                stackName: "Dunny Age",
+                aliases: ["Dunny Age"],
+                source: .importedStackPackage,
+                cardReferences: [
+                    HypeStackLibraryCardReference(
+                        legacyCardId: 4840,
+                        name: "Father-Out",
+                        sortIndex: 0,
+                        hypeCardId: cardId
+                    )
+                ]
+            )
+        ])
+
+        let result = executeScript("""
+        on test
+          if the short id of this card is 4840 then
+            return "legacy"
+          end if
+          return "missing"
+        end test
+        """, document: doc)
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "legacy")
+    }
+
     @Test func classicMenuPutWithMenuMsgParsesAsCompatibilityNoOp() {
         let result = executeScript("""
         on test
