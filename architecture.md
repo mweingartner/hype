@@ -1421,10 +1421,12 @@ script source string
   matching handler functions in the same pass-up path. After a local `go`
   resolves to another card, subsequent function calls in that handler use the
   destination card as the effective lookup context, matching Myst-era scripts
-  that navigate before calling a card-local helper. Unknown command-style
-  identifiers with arguments parse as `.externalCommand(name:arguments:)` so
-  XCMD calls like `SetCursor "watch"` can flow into the emulation registry
-  rather than causing a parse error.
+  that navigate before calling a card-local helper. Semantic validation treats
+  `this card`/`current card` as resolvable self-references, including classic
+  property mutations such as `set the name of this card ...`. Unknown
+  command-style identifiers with arguments parse as
+  `.externalCommand(name:arguments:)` so XCMD calls like `SetCursor "watch"`
+  can flow into the emulation registry rather than causing a parse error.
 
   Property animation is a first-class statement:
   `animate the loc of button "ball" to "400,300" over 0.5`,
