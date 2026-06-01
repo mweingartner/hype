@@ -251,6 +251,8 @@ public struct Lexer: Sendable {
         case "=": return .eq
         case "<": return .lt
         case ">": return .gt
+        case "\u{2264}": return .lte // ≤
+        case "\u{2265}": return .gte // ≥
         case "(": return .lparen
         case ")": return .rparen
         case ",": return .comma

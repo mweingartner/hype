@@ -93,6 +93,14 @@ struct LexerTests {
         #expect(types.contains(.neq))
         #expect(types.contains(.doubleAmpersand))
     }
+
+    @Test func handlesClassicComparisonGlyphs() {
+        var lexer = Lexer(source: "if it ≤ 12 then\nif it ≥ 1 then")
+        let tokens = lexer.tokenize()
+        let types = tokens.map { $0.type }
+        #expect(types.contains(.lte))
+        #expect(types.contains(.gte))
+    }
 }
 
 // MARK: - Parser Tests
