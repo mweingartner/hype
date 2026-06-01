@@ -2967,6 +2967,138 @@ struct MessageDispatcherTests {
         #expect(overlay?.top == 81)
     }
 
+    @Test func mystSeleniticShipMoveRecordsMovieRouteAndUpdatesWindow() async {
+        let shipMovie = Asset(
+            name: "*Left11-modern.mov",
+            kind: .videoClip,
+            mimeType: "video/quicktime",
+            data: Data("movie".utf8),
+            width: 120,
+            height: 80,
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "*Left11"),
+                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("*Left11"))
+            ]
+        )
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        doc.assetRepository = AssetRepository(assets: [shipMovie])
+        var button = Part(partType: .button, cardId: cardId, name: "markerR")
+        button.script = """
+        on mouseDown
+          shipMove "Left11"
+        end mouseDown
+        """
+        doc.addPart(button)
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, cardId, button] in dispatcher.dispatch(
+            message: "mouseDown",
+            params: [],
+            targetId: button.id,
+            document: doc,
+            currentCardId: cardId
+        ) }
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "*Left11")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.selenitic.shipMove.route"] == "Left11")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.selenitic.shipMove.movie"] == "*Left11")
+        let video = result.modifiedDocument?.parts.first { $0.partType == .video }
+        #expect(video?.name == "Ship-Motion.MooV")
+        #expect(video?.videoAssetRef?.id == shipMovie.id)
+        #expect(video?.videoAutoplay == true)
+    }
+
+    @Test func mystSeleniticTowerScrollUpdatesHeadingAndCameraState() async {
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        doc.scriptGlobals["theScroll"] = "10"
+        doc.scriptGlobals["SE_CameraID"] = "2"
+        doc.scriptGlobals["SE_Headings"] = "0\n10\n20"
+        var offsets = Part(partType: .field, cardId: cardId, name: "offsets")
+        offsets.textContent = "100\n200\n300"
+        var heading = Part(partType: .field, cardId: cardId, name: "heading")
+        heading.textContent = "2"
+        var button = Part(partType: .button, cardId: cardId, name: "rght")
+        button.script = """
+        on mouseDown
+          scrollTower 5
+        end mouseDown
+        """
+        doc.addPart(offsets)
+        doc.addPart(heading)
+        doc.addPart(button)
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, cardId, button] in dispatcher.dispatch(
+            message: "mouseDown",
+            params: [],
+            targetId: button.id,
+            document: doc,
+            currentCardId: cardId
+        ) }
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "15")
+        #expect(result.modifiedDocument?.scriptGlobals["theScroll"] == "15")
+        #expect(result.modifiedDocument?.scriptGlobals["SE_Headings"] == "0\n15\n20")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.window.towerscroll.scroll"] == "15,200")
+        let updatedHeading = result.modifiedDocument?.parts.first { $0.name == "heading" }
+        #expect(updatedHeading?.textContent == "3")
+    }
+
+    @Test func mystStoneshipTelescopeScrollWrapsClassicRange() async {
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        doc.scriptGlobals["theScroll"] = "3239"
+        var button = Part(partType: .button, cardId: cardId, name: "left")
+        button.script = """
+        on mouseDown
+          scrollTelescope 1
+        end mouseDown
+        """
+        doc.addPart(button)
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, cardId, button] in dispatcher.dispatch(
+            message: "mouseDown",
+            params: [],
+            targetId: button.id,
+            document: doc,
+            currentCardId: cardId
+        ) }
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "0")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.window.telescope4.scroll"] == "0,0")
+    }
+
+    @Test func updateCursorRecordsAgeCursorMode() async {
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        var button = Part(partType: .button, cardId: cardId, name: "cursor")
+        button.script = """
+        on mouseDown
+          updateCursor ML
+        end mouseDown
+        """
+        doc.addPart(button)
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, cardId, button] in dispatcher.dispatch(
+            message: "mouseDown",
+            params: [],
+            targetId: button.id,
+            document: doc,
+            currentCardId: cardId
+        ) }
+
+        #expect(result.status == .completed)
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.updateCursor.mode"] == "ML")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.cursor.mode"] == "ML")
+    }
+
     @Test func scopedFieldOfCardReferenceReadsAndWritesTargetCardField() async {
         var doc = HypeDocument.newDocument()
         let firstCard = doc.cards[0]
