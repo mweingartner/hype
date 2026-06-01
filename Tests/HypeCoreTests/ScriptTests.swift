@@ -2452,6 +2452,100 @@ struct InterpreterTests {
         #expect(result.modifiedDocument?.scriptGlobals["hypercard.playqt.audioOnly"] == "true")
     }
 
+    @Test func playQTTracksActiveMystSoundMovieGlobal() {
+        let movie = Asset(
+            name: "EL GenAll MoV-modern-audio.m4a",
+            kind: .videoClip,
+            mimeType: "video/quicktime",
+            data: Data("audio".utf8),
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "EL GenAll MoV"),
+                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("EL GenAll MoV")),
+                AssetMetadataEntry(key: "classic_alias", value: "El GenRun"),
+                AssetMetadataEntry(key: "quicktime_audio_only", value: "true")
+            ]
+        )
+        var doc = HypeDocument.newDocument()
+        doc.assetRepository = AssetRepository(assets: [movie])
+
+        let result = executeScript("""
+        on test
+          playQT "El GenRun",,loop,150
+        end test
+        """, document: doc)
+
+        #expect(result.status == .completed)
+        #expect(result.modifiedDocument?.scriptGlobals["soundMooV"] == "El GenRun")
+        #expect(result.modifiedDocument?.scriptGlobals["soundmoov"] == "El GenRun")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.playqt.asset"] == movie.name)
+    }
+
+    @Test func mystSoundTimeRetimesActiveSoundMoviePart() {
+        let movie = Asset(
+            name: "EL GenAll MoV-modern-audio.m4a",
+            kind: .videoClip,
+            mimeType: "video/quicktime",
+            data: Data("audio".utf8),
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "EL GenAll MoV"),
+                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("EL GenAll MoV")),
+                AssetMetadataEntry(key: "quicktime_audio_only", value: "true")
+            ]
+        )
+        var doc = HypeDocument.newDocument()
+        doc.assetRepository = AssetRepository(assets: [movie])
+
+        let result = executeScript("""
+        on test
+          playQT "EL GenAll MoV",,loop,150
+          soundTime "5,05","0","0","9,30"
+        end test
+        """, document: doc)
+
+        #expect(result.status == .completed)
+        let videoPart = result.modifiedDocument?.parts.first { $0.partType == .video }
+        #expect(videoPart?.name == "EL GenAll MoV")
+        #expect(videoPart?.videoCurrentTime == 0)
+        #expect(videoPart?.videoDuration == 9.5)
+        #expect(videoPart?.videoAutoplay == true)
+        #expect(videoPart?.videoPlayRate == 1)
+        let globals = result.modifiedDocument?.scriptGlobals ?? [:]
+        #expect(globals["hypercard.soundtime.window"] == "EL GenAll MoV")
+        #expect(globals["hypercard.window.el genall mov.starttime"] == "5.083333333333333")
+        #expect(globals["hypercard.window.el genall mov.currtime"] == "0")
+        #expect(globals["hypercard.window.el genall mov.endtime"] == "9.5")
+    }
+
+    @Test func mystSoundStopStopsActiveSoundMoviePart() {
+        let movie = Asset(
+            name: "EL GenAll MoV-modern-audio.m4a",
+            kind: .videoClip,
+            mimeType: "video/quicktime",
+            data: Data("audio".utf8),
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "EL GenAll MoV"),
+                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("EL GenAll MoV")),
+                AssetMetadataEntry(key: "quicktime_audio_only", value: "true")
+            ]
+        )
+        var doc = HypeDocument.newDocument()
+        doc.assetRepository = AssetRepository(assets: [movie])
+
+        let result = executeScript("""
+        on test
+          playQT "EL GenAll MoV",,loop,150
+          soundStop
+        end test
+        """, document: doc)
+
+        #expect(result.status == .completed)
+        let videoPart = result.modifiedDocument?.parts.first { $0.partType == .video }
+        #expect(videoPart?.videoAutoplay == false)
+        #expect(videoPart?.videoPlayRate == 0)
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.soundstop.count"] == "1")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.sound.state"] == "done")
+    }
+
     @Test func buzzerCreatesHiddenAudioPlaybackPartByClassicName() {
         let sound = Asset(
             name: "SW Buzzer-modern-audio.m4a",
