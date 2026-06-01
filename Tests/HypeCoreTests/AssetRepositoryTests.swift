@@ -119,6 +119,27 @@ struct AssetRepositoryTests {
         #expect(repository.asset(byClassicMediaName: "Intro Wind Mov", kind: .videoClip)?.id == movie.id)
     }
 
+    @Test("playable audio lookup accepts classic aliases for audio-only QuickTime")
+    func playableAudioLookupAcceptsClassicAliasesForAudioOnlyQuickTime() {
+        let movie = Asset(
+            name: "EL GenAll MoV",
+            kind: .videoClip,
+            mimeType: "video/quicktime",
+            data: Data("audio".utf8),
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "EL GenAll MoV"),
+                AssetMetadataEntry(key: "classic_alias", value: "El GenRun"),
+                AssetMetadataEntry(key: "lookup_key", value: "el genall mov"),
+                AssetMetadataEntry(key: "lookup_key", value: "el genrun"),
+                AssetMetadataEntry(key: "quicktime_audio_only", value: "true")
+            ]
+        )
+        let repository = AssetRepository(assets: [movie])
+
+        #expect(repository.asset(byClassicMediaName: "El GenRun", kind: .videoClip)?.id == movie.id)
+        #expect(repository.playableAudioAsset(byClassicMediaName: "El GenRun")?.id == movie.id)
+    }
+
     @Test("classic media lookup trims and normalizes imported audio names")
     func classicMediaLookupTrimsAndNormalizesImportedAudioNames() {
         let audio = Asset(

@@ -122,6 +122,37 @@ struct LooseMediaManifestImporterTests {
         #expect(document.assetRepository.asset(byClassicMediaName: "Intro Wind Mov-modern-audio.m4a", kind: .videoClip)?.id == asset.id)
     }
 
+    @Test("attaches requested classic aliases to imported loose media")
+    func attachesRequestedClassicAliasesToImportedLooseMedia() throws {
+        let root = makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let replacements = root.appendingPathComponent("modern-quicktime", isDirectory: true)
+        let manifestURL = root.appendingPathComponent("loose-media.tsv")
+        try FileManager.default.createDirectory(at: replacements, withIntermediateDirectories: true)
+        try Data("generator loop audio".utf8).write(to: replacements.appendingPathComponent("EL GenAll MoV-modern-audio.m4a"))
+        try Data("""
+        rel_path\tsource_path\toutput_path\tsize\tsha256\tfinder_type\tcreator\tsuffix\tkind
+        Myst Graphics/Myst/EL GenAll MoV\t<myst-source-root>/Myst Graphics/Myst/EL GenAll MoV\t\t441880\tgenhash\tMYqt\tMYST\t\tquicktime_movie
+        """.utf8).write(to: manifestURL)
+
+        var document = HypeDocument.newDocument(name: "Generator Media")
+        let result = try LooseMediaManifestImporter().importManifest(
+            options: LooseMediaImportOptions(
+                manifestURL: manifestURL,
+                replacementRootURL: replacements,
+                requestedNames: ["EL GenAll MoV"],
+                mediaAliases: ["El GenRun": "EL GenAll MoV"]
+            ),
+            into: &document
+        )
+
+        let asset = try #require(result.importedAssets.first)
+        #expect(asset.name == "EL GenAll MoV")
+        #expect(asset.metadata.contains { $0.key == "classic_alias" && $0.value == "El GenRun" })
+        #expect(asset.metadata.contains { $0.key == "lookup_key" && $0.value == "el genrun" })
+        #expect(document.assetRepository.playableAudioAsset(byClassicMediaName: "El GenRun")?.id == asset.id)
+    }
+
     @Test("imported loose media survives document codable round trip")
     func importedLooseMediaSurvivesDocumentCodableRoundTrip() throws {
         let root = makeTemporaryDirectory()
