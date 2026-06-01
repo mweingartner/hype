@@ -531,6 +531,63 @@ struct ParserTests {
         #expect(locProperty == "loc")
     }
 
+    @Test func parsesClassicCardFieldOfCardIdReference() throws {
+        var lexer = Lexer(source: """
+        on openCard
+          put card field month of card id 41677 into card field month
+        end openCard
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        guard case .put(let source, _, let target) = script.handlers[0].body[0],
+              case .scopedObjectRef(let sourceObject, let sourceOwner) = source,
+              case .scopedObjectRef(let targetObject, let targetOwner) = target else {
+            Issue.record("Expected scoped source and target field references")
+            return
+        }
+        #expect(sourceObject.objectType == "field")
+        #expect(sourceOwner.objectType == "card")
+        #expect(targetObject.objectType == "field")
+        #expect(targetOwner.objectType == "card")
+        guard case .literal(let sourceObjectName) = sourceObject.identifier,
+              case .literal(let sourceOwnerID) = sourceOwner.identifier,
+              case .literal(let targetObjectName) = targetObject.identifier,
+              case .literal(let targetOwnerID) = targetOwner.identifier else {
+            Issue.record("Expected literal card and field identifiers")
+            return
+        }
+        #expect(sourceObjectName == "month")
+        #expect(sourceOwnerID == "id 41677")
+        #expect(targetObjectName == "month")
+        #expect(targetOwnerID == "current")
+    }
+
+    @Test func parsesClassicBareTopLeftPropertyOfCardButton() throws {
+        var lexer = Lexer(source: """
+        on loadmoov
+          get topleft of card button ("marker" & MY_VaultMooV)
+        end loadmoov
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        guard case .get(let expression) = script.handlers[0].body[0],
+              case .propertyAccess(let property, let target?) = expression,
+              case .scopedObjectRef(let object, let owner) = target else {
+            Issue.record("Expected topleft of card button reference")
+            return
+        }
+        #expect(property == "topleft")
+        #expect(object.objectType == "button")
+        #expect(owner.objectType == "card")
+        guard case .literal(let ownerID) = owner.identifier else {
+            Issue.record("Expected current card owner")
+            return
+        }
+        #expect(ownerID == "current")
+    }
+
     @Test func parsesAnswerWithClassicButtonList() throws {
         var lexer = Lexer(source: """
         on mouseUp
