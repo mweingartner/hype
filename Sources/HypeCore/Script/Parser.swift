@@ -885,21 +885,12 @@ public struct Parser: Sendable {
             elseBlock = elseStmts
         }
 
-        if isExplicitIfEndTerminator() {
+        if isEndIfTerminator() {
             _ = advance()
             _ = match(.if) // `end if`
+            skipNewlines()
         }
-        skipNewlines()
         return .ifThenElse(condition: condition, thenBlock: thenBlock, elseBlock: elseBlock)
-    }
-
-    private func isExplicitIfEndTerminator() -> Bool {
-        guard current.type == .end else { return false }
-        guard let next = peek(1) else { return true }
-        if next.type == .if || next.type == .newline || next.type == .eof {
-            return true
-        }
-        return false
     }
 
     private func isImplicitImportedBlockBoundary() -> Bool {
