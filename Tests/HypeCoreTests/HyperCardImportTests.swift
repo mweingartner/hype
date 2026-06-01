@@ -344,7 +344,7 @@ struct HyperCardImportTests {
         #expect(translated.contains("on doValveR which"))
         #expect(translated.contains("on openCard"))
         #expect(translated.contains("on closeStack"))
-        #expect(try parsedHandlerCount(translated) == 2)
+        #expect(try parsedHandlerCount(translated) == 3)
     }
 
     @Test("Myst environment externals are registered as emulated")

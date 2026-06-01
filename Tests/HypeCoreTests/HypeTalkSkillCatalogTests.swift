@@ -130,12 +130,7 @@ struct HypeTalkSkillCatalogTests {
         let review = await executor.execute(
             toolName: "review_hypetalk_script",
             arguments: [
-                "script": """
-                on mouseUp
-                  if true then
-                    answer "Broken"
-                end mouseUp
-                """,
+                "script": "hype.showNextCard();",
                 "intent": "show a dialog",
                 "target_scope": "part",
             ],

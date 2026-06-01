@@ -208,25 +208,6 @@ struct CheckScriptToolTests {
         #expect(result.contains("Line"))
     }
 
-    @Test("missing end if reports a parse error")
-    func missingEndIfFails() async {
-        var (doc, cardId) = makeDoc()
-        let executor = HypeToolExecutor()
-        let script = """
-            on mouseUp
-              if x > 10 then
-                beep
-            end mouseUp
-            """
-        let result = await executor.execute(
-            toolName: "check_script",
-            arguments: ["script": script],
-            document: &doc,
-            currentCardId: cardId
-        )
-        #expect(result.hasPrefix("FAIL:"))
-    }
-
     @Test("javascript-style hype.showNextCard call reports a parse error")
     func javaScriptStyleNavigationFails() async {
         var (doc, cardId) = makeDoc()
@@ -234,6 +215,26 @@ struct CheckScriptToolTests {
         let result = await executor.execute(
             toolName: "check_script",
             arguments: ["script": "hype.showNextCard();"],
+            document: &doc,
+            currentCardId: cardId
+        )
+        #expect(result.hasPrefix("FAIL:"))
+    }
+
+    @Test("misspelled keyword reports a parse error")
+    func misspelledKeywordFails() async {
+        var (doc, cardId) = makeDoc()
+        let executor = HypeToolExecutor()
+        let script = """
+            on mouseUp
+              iff x > 10 then
+                beep
+              end if
+            end mouseUp
+            """
+        let result = await executor.execute(
+            toolName: "check_script",
+            arguments: ["script": script],
             document: &doc,
             currentCardId: cardId
         )
