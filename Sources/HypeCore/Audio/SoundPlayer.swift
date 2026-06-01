@@ -172,9 +172,7 @@ public final class SoundPlayer: NSObject, NSSoundDelegate {
 
         // 4. AssetRepository audio asset
         if let doc = document,
-           let asset = doc.assetRepository.assets.first(where: {
-               $0.name.lowercased() == name.lowercased() && $0.kind == .audioClip
-           }) {
+           let asset = doc.assetRepository.asset(byClassicMediaName: name, kind: .audioClip) {
             let tempDir = FileManager.default.temporaryDirectory
             let ext: String
             switch asset.mimeType {
