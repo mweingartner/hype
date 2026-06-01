@@ -1804,6 +1804,72 @@ public struct Interpreter: Sendable {
                 break
             }
 
+            let dispatcher = MessageDispatcher()
+            if dispatcher.hasHandler(
+                message: name,
+                targetId: context.targetId,
+                document: document,
+                currentCardId: context.currentCardId,
+                appScript: context.appScript,
+                scriptContext: context.scriptContext
+            ) {
+                guard context.nestedSendDepth < 32 else {
+                    throw ScriptError(message: "Nested handler command depth exceeded", line: handler.line, handler: handler.name)
+                }
+                document.scriptGlobals = env.globals
+                let result = await dispatcher.dispatchAsync(
+                    message: name,
+                    params: args,
+                    targetId: context.targetId,
+                    document: document,
+                    currentCardId: context.currentCardId,
+                    dialogProvider: context.dialogProvider,
+                    drawingProvider: context.drawingProvider,
+                    systemProvider: context.systemProvider,
+                    aiProvider: context.aiProvider,
+                    speechOutputProvider: context.speechOutputProvider,
+                    appScript: context.appScript,
+                    mouseX: context.mouseX,
+                    mouseY: context.mouseY,
+                    scriptContext: context.scriptContext,
+                    runtimeProvider: context.runtimeProvider,
+                    nestedSendDepth: context.nestedSendDepth + 1
+                )
+                if let modifiedDocument = result.modifiedDocument {
+                    document = modifiedDocument
+                    env.globals = modifiedDocument.scriptGlobals
+                }
+                if let resultNavigationTarget = result.navigationTarget {
+                    navigationTarget = resultNavigationTarget
+                }
+                if let resultProjectNavigationTarget = result.projectNavigationTarget {
+                    projectNavigationTarget = resultProjectNavigationTarget
+                }
+                if let visualEffect = result.visualEffect {
+                    env.locals["_visualEffect"] = visualEffect
+                }
+                if let visualEffectDuration = result.visualEffectDuration {
+                    env.locals["_visualEffectDuration"] = String(visualEffectDuration)
+                }
+                if result.showAllCards {
+                    throw ControlSignal.showAllCards
+                }
+                if result.status == .error {
+                    throw result.error ?? ScriptError(
+                        message: "Handler command failed",
+                        line: handler.line,
+                        handler: handler.name
+                    )
+                }
+                if result.status == .cancelled {
+                    throw CancellationError()
+                }
+                if let returnValue = result.returnValue {
+                    env.it = returnValue
+                }
+                document.scriptGlobals = env.globals
+                break
+            }
             document.scriptGlobals = env.globals
             let result = await context.externalRegistry.invoke(
                 HyperCardExternalCall(name: name, kind: .xcmd, arguments: args),

@@ -2481,6 +2481,36 @@ struct MessageDispatcherTests {
         #expect(result.returnValue == "clicked")
     }
 
+    @Test func commandStyleHandlerCallDispatchesWithArgumentsBeforeExternalFallback() async {
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        var btn = Part(partType: .button, cardId: cardId, name: "BuzzerButton")
+        btn.script = """
+        on mouseUp
+          Buzzer 4
+        end mouseUp
+        """
+        doc.stack.script = """
+        on Buzzer amount
+          global buzzerAmount
+          put amount into buzzerAmount
+        end Buzzer
+        """
+        doc.addPart(btn)
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, cardId, btn] in dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: btn.id,
+            document: doc,
+            currentCardId: cardId
+        ) }
+
+        #expect(result.status == .completed)
+        #expect(result.modifiedDocument?.scriptGlobals["buzzeramount"] == "4")
+    }
+
     @Test func scopedFieldOfCardReferenceReadsAndWritesTargetCardField() async {
         var doc = HypeDocument.newDocument()
         let firstCard = doc.cards[0]
