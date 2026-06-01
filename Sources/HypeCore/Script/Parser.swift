@@ -892,6 +892,13 @@ public struct Parser: Sendable {
             return .repeatWhile(condition: .not(cond), body: body)
         }
 
+        // Classic HyperTalk accepts bare `repeat` as an unbounded loop.
+        if current.type == .newline || current.type == .end {
+            skipNewlines()
+            let body = try parseRepeatBody()
+            return .repeatForever(body: body)
+        }
+
         // `repeat <count>` or `repeat for <count>`
         if current.value.lowercased() == "for" {
             _ = advance()
