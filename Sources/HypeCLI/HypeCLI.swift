@@ -1009,15 +1009,14 @@ private struct ScriptSemanticValidator {
         issues += sourceCompatibilityIssues(owner.source)
         for handler in parsed.handlers {
             issues += hookIssues(handler: handler, owner: owner)
-            for statement in handler.body {
-                issues += statementIssues(
-                    statement,
-                    owner: owner,
-                    handlerNames: handlerNames,
-                    messageNames: messageNames,
-                    functionNames: functionNames
-                )
-            }
+            issues += statementsIssues(
+                handler.body,
+                owner: owner,
+                handlerNames: handlerNames,
+                messageNames: messageNames,
+                functionNames: functionNames,
+                effectiveCardId: owner.currentCardId
+            )
         }
         return stableUnique(issues)
     }
@@ -1043,7 +1042,8 @@ private struct ScriptSemanticValidator {
         owner: StoredScript,
         handlerNames: Set<String>,
         messageNames: Set<String>,
-        functionNames: Set<String>
+        functionNames: Set<String>,
+        effectiveCardId: UUID? = nil
     ) -> [ScriptSemanticIssue] {
         var issues: [ScriptSemanticIssue] = []
         switch statement {
@@ -1053,11 +1053,11 @@ private struct ScriptSemanticValidator {
             // is available in the normal message path.
             break
         case .expressionStatement(let expression):
-            issues += expressionIssues(expression, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(expression, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
         case .send(let message, let target):
-            issues += expressionIssues(message, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(message, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
             if let target {
-                issues += expressionIssues(target, owner: owner, functionNames: functionNames)
+                issues += expressionIssues(target, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
             }
             if case .literal(let name) = message,
                target.map(isMeLike) == true,
@@ -1065,8 +1065,8 @@ private struct ScriptSemanticValidator {
                 issues.append(issue("send-handler", "`send \"\(name)\" to me` has no matching handler in this script."))
             }
         case .visual(let effect, let duration):
-            issues += expressionIssues(effect, owner: owner, functionNames: functionNames)
-            if let duration { issues += expressionIssues(duration, owner: owner, functionNames: functionNames) }
+            issues += expressionIssues(effect, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            if let duration { issues += expressionIssues(duration, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId) }
             if let effectName = staticString(effect) {
                 let resolved = VisualEffect.fromName(effectName)
                 if resolved == .none && !Self.noneEffectNames.contains(effectName.lowercased()) {
@@ -1074,15 +1074,15 @@ private struct ScriptSemanticValidator {
                 }
             }
         case .playSound(let sound, let notes, let tempo):
-            issues += expressionIssues(sound, owner: owner, functionNames: functionNames)
-            if let notes { issues += expressionIssues(notes, owner: owner, functionNames: functionNames) }
-            if let tempo { issues += expressionIssues(tempo, owner: owner, functionNames: functionNames) }
+            issues += expressionIssues(sound, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            if let notes { issues += expressionIssues(notes, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId) }
+            if let tempo { issues += expressionIssues(tempo, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId) }
             if let soundName = staticString(sound), !soundIsResolvable(soundName) {
                 issues.append(issue("sound-asset", "`play \"\(soundName)\"` has no embedded audio asset and is not a known system/HyperCard sound mapping."))
             }
         case .externalCommand(let name, let arguments):
             for argument in arguments {
-                issues += expressionIssues(argument, owner: owner, functionNames: functionNames)
+                issues += expressionIssues(argument, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
             }
             if let currentCardId = owner.currentCardId,
                MessageDispatcher().hasHandler(
@@ -1103,8 +1103,8 @@ private struct ScriptSemanticValidator {
                 issues.append(issue("xcmd-unknown", "XCMD `\(name)` is not available in Hype."))
             }
         case .put(let source, _, let target):
-            issues += expressionIssues(source, owner: owner, functionNames: functionNames)
-            issues += expressionIssues(target, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(source, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(target, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
         case .get(let expression), .go(let expression), .returnValue(let expression),
              .say(let expression), .activateListener(let expression), .waitDuration(let expression, _),
              .waitCondition(let expression, _), .deleteObject(let expression), .findText(let expression),
@@ -1112,26 +1112,26 @@ private struct ScriptSemanticValidator {
              .showObject(let expression), .openStack(let expression), .editScriptOf(let expression),
              .startUsing(let expression), .stopUsing(let expression), .startAnimation(let expression),
              .stopAnimation(let expression), .exportPaint(let expression), .importPaint(let expression):
-            issues += expressionIssues(expression, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(expression, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
         case .set(_, let ofExpression, let toExpression):
-            if let ofExpression { issues += expressionIssues(ofExpression, owner: owner, functionNames: functionNames) }
-            issues += expressionIssues(toExpression, owner: owner, functionNames: functionNames)
+            if let ofExpression { issues += expressionIssues(ofExpression, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId) }
+            issues += expressionIssues(toExpression, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
         case .ifThenElse(let condition, let thenBlock, let elseBlock):
-            issues += expressionIssues(condition, owner: owner, functionNames: functionNames)
-            issues += statementsIssues(thenBlock, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames)
+            issues += expressionIssues(condition, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += statementsIssues(thenBlock, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
             if let elseBlock {
-                issues += statementsIssues(elseBlock, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames)
+                issues += statementsIssues(elseBlock, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
             }
         case .repeatCount(let count, let body):
-            issues += expressionIssues(count, owner: owner, functionNames: functionNames)
-            issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames)
+            issues += expressionIssues(count, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
         case .repeatWhile(let condition, let body):
-            issues += expressionIssues(condition, owner: owner, functionNames: functionNames)
-            issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames)
+            issues += expressionIssues(condition, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
         case .repeatWith(_, let from, let to, let body):
-            issues += expressionIssues(from, owner: owner, functionNames: functionNames)
-            issues += expressionIssues(to, owner: owner, functionNames: functionNames)
-            issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames)
+            issues += expressionIssues(from, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(to, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
         default:
             break
         }
@@ -1143,27 +1143,46 @@ private struct ScriptSemanticValidator {
         owner: StoredScript,
         handlerNames: Set<String>,
         messageNames: Set<String>,
-        functionNames: Set<String>
+        functionNames: Set<String>,
+        effectiveCardId: UUID? = nil
     ) -> [ScriptSemanticIssue] {
-        statements.flatMap {
-            statementIssues($0, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames)
+        var issues: [ScriptSemanticIssue] = []
+        var currentEffectiveCardId = effectiveCardId
+        for statement in statements {
+            issues += statementIssues(
+                statement,
+                owner: owner,
+                handlerNames: handlerNames,
+                messageNames: messageNames,
+                functionNames: functionNames,
+                effectiveCardId: currentEffectiveCardId
+            )
+            if case .go(let expression) = statement,
+               let resolved = staticNavigationTarget(
+                   expression,
+                   currentCardId: currentEffectiveCardId ?? owner.currentCardId
+               ) {
+                currentEffectiveCardId = resolved
+            }
         }
+        return issues
     }
 
     private func expressionIssues(
         _ expression: HypeCore.Expression,
         owner: StoredScript,
-        functionNames: Set<String>
+        functionNames: Set<String>,
+        effectiveCardId: UUID? = nil
     ) -> [ScriptSemanticIssue] {
         var issues: [ScriptSemanticIssue] = []
         switch expression {
         case .functionCall(let name, let arguments):
             for argument in arguments {
-                issues += expressionIssues(argument, owner: owner, functionNames: functionNames)
+                issues += expressionIssues(argument, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
             }
             let lower = name.lowercased()
             if !functionNames.contains(lower),
-               !functionHandlerInMessagePath(name: name, owner: owner),
+               !functionHandlerInMessagePath(name: name, owner: owner, effectiveCardId: effectiveCardId),
                !Self.knownBuiltInFunctions.contains(lower) {
                 let status = HyperCardExternalRegistry.default.status(for: name, kind: .xfcn)
                 switch status {
@@ -1177,45 +1196,45 @@ private struct ScriptSemanticValidator {
             }
         case .objectRef(let ref):
             issues += objectReferenceIssues(ref, owner: owner)
-            issues += expressionIssues(ref.identifier, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(ref.identifier, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
         case .scopedObjectRef(let object, let ownerRef):
-            issues += expressionIssues(object.identifier, owner: owner, functionNames: functionNames)
-            issues += expressionIssues(ownerRef.identifier, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(object.identifier, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(ownerRef.identifier, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
         case .propertyAccess(_, let target):
-            if let target { issues += expressionIssues(target, owner: owner, functionNames: functionNames) }
+            if let target { issues += expressionIssues(target, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId) }
         case .binary(let left, _, let right), .contains(let left, let right), .stringConcat(let left, let right),
              .spacedConcat(let left, let right), .isIn(let left, let right), .isNotIn(let left, let right),
              .isWithin(let left, let right), .isNotWithin(let left, let right):
-            issues += expressionIssues(left, owner: owner, functionNames: functionNames)
-            issues += expressionIssues(right, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(left, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(right, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
         case .unary(_, let inner), .await(let inner), .chunk(_, _, let inner), .not(let inner),
              .isA(let inner, _), .isNotA(let inner, _):
-            issues += expressionIssues(inner, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(inner, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
         case .headerAccess(let header, let target):
-            issues += expressionIssues(header, owner: owner, functionNames: functionNames)
-            issues += expressionIssues(target, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(header, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(target, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
         case .chartDataPointRef(let chart, let series, let point):
-            issues += expressionIssues(chart, owner: owner, functionNames: functionNames)
-            issues += expressionIssues(series, owner: owner, functionNames: functionNames)
-            issues += expressionIssues(point, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(chart, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(series, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(point, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
         case .tileAt(let column, let row, let tilemap):
-            issues += expressionIssues(column, owner: owner, functionNames: functionNames)
-            issues += expressionIssues(row, owner: owner, functionNames: functionNames)
-            issues += expressionIssues(tilemap, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(column, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(row, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(tilemap, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
         case .thereIsA(_, let target), .thereIsNo(_, let target):
-            issues += expressionIssues(target, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(target, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
         case .askMeshy(let prompt, let style):
-            issues += expressionIssues(prompt, owner: owner, functionNames: functionNames)
-            if let style { issues += expressionIssues(style, owner: owner, functionNames: functionNames) }
+            issues += expressionIssues(prompt, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            if let style { issues += expressionIssues(style, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId) }
         default:
             break
         }
         return issues
     }
 
-    private func functionHandlerInMessagePath(name: String, owner: StoredScript) -> Bool {
-        guard let currentCardId = owner.currentCardId else { return false }
-        let targetId = owner.ownerId
+    private func functionHandlerInMessagePath(name: String, owner: StoredScript, effectiveCardId: UUID?) -> Bool {
+        guard let currentCardId = effectiveCardId ?? owner.currentCardId else { return false }
+        let targetId = effectiveCardId ?? owner.ownerId
         let candidateScripts: [String] = messagePathScripts(
             targetId: targetId,
             currentCardId: currentCardId
@@ -1265,6 +1284,94 @@ private struct ScriptSemanticValidator {
         }
         scripts.append(document.stack.script)
         return scripts
+    }
+
+    private func staticNavigationTarget(_ expression: HypeCore.Expression, currentCardId: UUID?) -> UUID? {
+        if case .objectRef(let ref) = expression,
+           ref.objectType.lowercased() == "card",
+           let value = staticString(ref.identifier) {
+            return resolveStaticNavigationValue(value, currentCardId: currentCardId)
+        }
+        if let value = staticString(expression) {
+            return resolveStaticNavigationValue(value, currentCardId: currentCardId)
+        }
+        return nil
+    }
+
+    private func resolveStaticNavigationValue(_ value: String, currentCardId: UUID?) -> UUID? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let uuid = UUID(uuidString: trimmed),
+           document.cards.contains(where: { $0.id == uuid }) {
+            return uuid
+        }
+        let lower = trimmed.lowercased()
+        switch lower {
+        case "card", "this", "this card", "current card":
+            return currentCardId
+        case "next":
+            if let currentCardId {
+                return CardNavigator.navigate(direction: .next, currentCardId: currentCardId, document: document)
+            }
+            return nil
+        case "previous", "prev", "back":
+            if let currentCardId {
+                return CardNavigator.navigate(direction: .previous, currentCardId: currentCardId, document: document)
+            }
+            return nil
+        case "first":
+            return document.sortedCards.first?.id
+        case "last":
+            return document.sortedCards.last?.id
+        default:
+            if let legacyCardId = legacyCardId(fromNavigationDestination: trimmed),
+               let cardId = resolveLocalLegacyCardId(legacyCardId) {
+                return cardId
+            }
+            if let card = document.cards.first(where: { $0.name.lowercased() == lower }) {
+                return card.id
+            }
+            return nil
+        }
+    }
+
+    private func legacyCardId(fromNavigationDestination destination: String) -> Int? {
+        let lower = destination.lowercased()
+        for prefix in ["card id ", "id "] where lower.hasPrefix(prefix) {
+            let rawId = destination.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+            return Int(rawId)
+        }
+        return nil
+    }
+
+    private func resolveLocalLegacyCardId(_ legacyCardId: Int) -> UUID? {
+        guard let entry = currentStackLibraryEntry(),
+              let cardReference = entry.cardReferences.first(where: { $0.legacyCardId == legacyCardId }),
+              let cardId = cardReference.hypeCardId,
+              document.cards.contains(where: { $0.id == cardId }) else {
+            return nil
+        }
+        return cardId
+    }
+
+    private func currentStackLibraryEntry() -> HypeStackLibraryEntry? {
+        switch document.stackLibrary.resolution(for: document.stack.name) {
+        case .resolved(let entry):
+            return entry
+        case .ambiguous(_, let candidates):
+            return stackLibraryEntryContainingCurrentDocumentCards(candidates)
+        case .missing:
+            return stackLibraryEntryContainingCurrentDocumentCards(document.stackLibrary.entries)
+        }
+    }
+
+    private func stackLibraryEntryContainingCurrentDocumentCards(_ entries: [HypeStackLibraryEntry]) -> HypeStackLibraryEntry? {
+        let cardIds = Set(document.cards.map(\.id))
+        return entries.first { entry in
+            entry.cardReferences.contains { reference in
+                reference.hypeCardId.map { cardIds.contains($0) } ?? false
+            }
+        }
     }
 
     private func objectReferenceIssues(_ ref: ObjectRefExpr, owner: StoredScript) -> [ScriptSemanticIssue] {
