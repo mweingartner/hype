@@ -511,6 +511,54 @@ struct ParserTests {
         }
     }
 
+    @Test func parsesSingleLineIfWithFollowingLineElseIf() async throws {
+        var lexer = Lexer(source: """
+        on test
+          if route is "P" then put "p" into result
+          else if route is "Q" then put "q" into result
+          else put "fallback" into result
+        end test
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        let stmt = script.handlers[0].body[0]
+        guard case .ifThenElse(_, let thenBlock, let elseBlock) = stmt else {
+            Issue.record("Expected if/then/else statement")
+            return
+        }
+        #expect(thenBlock.count == 1)
+        #expect(elseBlock?.count == 1)
+        guard case .ifThenElse(_, let elseIfThenBlock, let elseIfElseBlock) = elseBlock?.first else {
+            Issue.record("Expected nested else-if statement")
+            return
+        }
+        #expect(elseIfThenBlock.count == 1)
+        #expect(elseIfElseBlock?.count == 1)
+    }
+
+    @Test func parsesNestedSingleLineIfFollowingElseIfShape() async throws {
+        var lexer = Lexer(source: """
+        on test
+          if branch is "B" then
+            if bridge is "up" then
+              if route is "P" then put "p" into result
+              else if route is "Q" then put "q" into result
+              else put "fallback" into result
+            else
+              put "bridge down" into result
+            end if
+          else
+            put "branch fallback" into result
+          end if
+        end test
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers[0].body.count == 1)
+    }
+
     @Test func parsesRepeatCount() async throws {
         var lexer = Lexer(source: """
         on test

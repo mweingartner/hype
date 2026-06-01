@@ -794,31 +794,7 @@ public struct Parser: Sendable {
         // Single-line if: `if cond then stmt [else stmt]`
         if current.type != .newline && current.type != .eof {
             let thenStmt = try parseStatement()
-            var elseBlock: [Statement]? = nil
-            if current.type == .else {
-                let elseToken = advance()
-                if current.type == .if && current.line == elseToken.line {
-                    elseBlock = [try parseIfStatement()]
-                } else if current.type != .newline && current.type != .eof && current.line == elseToken.line {
-                    elseBlock = [try parseStatement()]
-                } else {
-                    skipNewlines()
-                    var elseStmts: [Statement] = []
-                    while current.type != .end && current.type != .eof {
-                        let stmt = try parseStatement()
-                        elseStmts.append(stmt)
-                        skipNewlines()
-                    }
-                    elseBlock = elseStmts
-                    if current.type == .end,
-                       let next = peek(1),
-                       next.type == .if {
-                        _ = advance()
-                        _ = advance()
-                        skipNewlines()
-                    }
-                }
-            }
+            let elseBlock = try parseSingleLineIfElseBlock(allowFollowingLineElse: true)
             return .ifThenElse(condition: condition, thenBlock: [thenStmt], elseBlock: elseBlock)
         }
 
@@ -853,6 +829,42 @@ public struct Parser: Sendable {
         _ = match(.if) // `end if`
         skipNewlines()
         return .ifThenElse(condition: condition, thenBlock: thenBlock, elseBlock: elseBlock)
+    }
+
+    private mutating func parseSingleLineIfElseBlock(allowFollowingLineElse: Bool) throws -> [Statement]? {
+        if allowFollowingLineElse && current.type == .newline {
+            let checkpoint = pos
+            skipNewlines()
+            guard current.type == .else else {
+                pos = checkpoint
+                return nil
+            }
+        }
+
+        guard current.type == .else else { return nil }
+        let elseToken = advance()
+        if current.type == .if && current.line == elseToken.line {
+            return [try parseIfStatement()]
+        }
+        if current.type != .newline && current.type != .eof && current.line == elseToken.line {
+            return [try parseStatement()]
+        }
+
+        skipNewlines()
+        var elseStmts: [Statement] = []
+        while current.type != .end && current.type != .eof {
+            let stmt = try parseStatement()
+            elseStmts.append(stmt)
+            skipNewlines()
+        }
+        if current.type == .end,
+           let next = peek(1),
+           next.type == .if {
+            _ = advance()
+            _ = advance()
+            skipNewlines()
+        }
+        return elseStmts
     }
 
     private mutating func parseRepeatStatement() throws -> Statement {
