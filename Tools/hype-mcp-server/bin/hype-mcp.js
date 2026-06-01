@@ -12,6 +12,7 @@ let stdoutFraming = "content-length";
 const debugConnections = new Map();
 let discoveryPollInFlight = false;
 const discoveryPollIntervalMs = 2_000;
+const discoverySocketProbeTimeoutMs = 500;
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const connectionTools = [
     {
@@ -126,6 +127,10 @@ async function discoverSessions() {
                     await pruneOrphanedSocket(descriptor, descriptorPath);
                     continue;
                 }
+                if (!(await isDebugSocketResponsive(descriptor.socketPath))) {
+                    await pruneOrphanedSocket(descriptor, descriptorPath);
+                    continue;
+                }
                 sessions.push(descriptor);
             }
             catch {
@@ -143,6 +148,43 @@ function isPidLive(pid) {
     catch {
         return false;
     }
+}
+function isDebugSocketResponsive(socketPath) {
+    return new Promise((resolve) => {
+        let settled = false;
+        let buffer = "";
+        const socket = net.createConnection(socketPath);
+        const timeout = setTimeout(() => finish(false), discoverySocketProbeTimeoutMs);
+        function finish(result) {
+            if (settled)
+                return;
+            settled = true;
+            clearTimeout(timeout);
+            socket.destroy();
+            resolve(result);
+        }
+        socket.on("connect", () => {
+            socket.write(JSON.stringify({ jsonrpc: "2.0", id: "discover", method: "debug/keepalive", params: {} }) + "\n");
+        });
+        socket.on("data", (chunk) => {
+            buffer += chunk.toString("utf8");
+            const newline = buffer.indexOf("\n");
+            if (newline < 0)
+                return;
+            const line = buffer.slice(0, newline).trim();
+            if (line.length === 0)
+                return;
+            try {
+                const response = JSON.parse(line);
+                finish(response.id === "discover" && response.result !== undefined && response.error === undefined);
+            }
+            catch {
+                finish(false);
+            }
+        });
+        socket.on("error", () => finish(false));
+        socket.on("close", () => finish(false));
+    });
 }
 async function pruneOrphanedSocket(session, descriptorPath) {
     try {

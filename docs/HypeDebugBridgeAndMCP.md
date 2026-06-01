@@ -43,8 +43,9 @@ written with `0600` permissions. Descriptors include:
 - active document identity when available
 
 The TypeScript MCP server prunes stale descriptors when the process no longer
-exists, auto-attaches when exactly one live Hype session exists, and otherwise
-requires an explicit `hype_attach_session` call.
+exists or the socket cannot answer `debug/keepalive`, auto-attaches when
+exactly one live Hype session exists, and otherwise requires an explicit
+`hype_attach_session` call.
 It also starts successfully when no Hype process is running; after startup it
 continues polling the discovery directory and attaches when a single live debug
 socket appears.
