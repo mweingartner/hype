@@ -33,6 +33,8 @@ public struct HyperCardExternalResult: Sendable {
     public var passMessage: Bool
     public var diagnostic: String?
     public var runtimeGlobals: [String: String]
+    public var navigationTarget: UUID?
+    public var projectNavigationTarget: ProjectNavigationTarget?
     public var visualEffect: String?
     public var visualEffectDuration: Double?
 
@@ -43,6 +45,8 @@ public struct HyperCardExternalResult: Sendable {
         passMessage: Bool = false,
         diagnostic: String? = nil,
         runtimeGlobals: [String: String] = [:],
+        navigationTarget: UUID? = nil,
+        projectNavigationTarget: ProjectNavigationTarget? = nil,
         visualEffect: String? = nil,
         visualEffectDuration: Double? = nil
     ) {
@@ -52,6 +56,8 @@ public struct HyperCardExternalResult: Sendable {
         self.passMessage = passMessage
         self.diagnostic = diagnostic
         self.runtimeGlobals = runtimeGlobals
+        self.navigationTarget = navigationTarget
+        self.projectNavigationTarget = projectNavigationTarget
         self.visualEffect = visualEffect
         self.visualEffectDuration = visualEffectDuration
     }
@@ -166,6 +172,15 @@ public struct HyperCardExternalRegistry: Sendable {
         })
         put(.xcmd, ["slideKnob"], Entry(status: .emulated) { call, context in
             mystPlanetariumSlideKnobCompatibility(call: call, context: context)
+        })
+        put(.xcmd, ["doValveI"], Entry(status: .emulated) { call, context in
+            mystChannelwoodValveCompatibility(call: call, context: context, route: "I", legacyCardId: 86839)
+        })
+        put(.xcmd, ["doValveL"], Entry(status: .emulated) { call, context in
+            mystChannelwoodValveCompatibility(call: call, context: context, route: "L", legacyCardId: 87418)
+        })
+        put(.xcmd, ["doValveR"], Entry(status: .emulated) { call, context in
+            mystChannelwoodValveCompatibility(call: call, context: context, route: "R", legacyCardId: 87249)
         })
         put(.xcmd, ["DeCurse"], Entry(status: .emulated) { call, _ in
             cursorCompatibility(call: call)
@@ -610,6 +625,61 @@ public struct HyperCardExternalRegistry: Sendable {
                 "hypercard.slideknob.\(normalizedWhich).value": value,
                 "hypercard.slideknob.\(normalizedWhich).range": "\(start),\(end)"
             ]
+        )
+    }
+
+    private static func mystChannelwoodValveCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext,
+        route: String,
+        legacyCardId: Int
+    ) -> HyperCardExternalResult {
+        let which = call.arguments.first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let target = mystProjectNavigationTarget(
+            legacyCardId: legacyCardId,
+            document: context.document
+        )
+        let navigationTarget = target.flatMap {
+            ProjectNavigationTargetResolver.resolveCardId(for: $0, in: context.document)
+        }
+        return HyperCardExternalResult(
+            value: which,
+            result: which,
+            runtimeGlobals: [
+                "CH_Valve": which,
+                "hypercard.channelwood.valve": which,
+                "hypercard.channelwood.valve.route": route,
+                "hypercard.channelwood.valve.legacyCardId": String(legacyCardId)
+            ],
+            navigationTarget: navigationTarget,
+            projectNavigationTarget: target
+        )
+    }
+
+    private static func mystProjectNavigationTarget(
+        legacyCardId: Int,
+        document: HypeDocument
+    ) -> ProjectNavigationTarget? {
+        let localCardIds = Set(document.cards.map(\.id))
+        let matches = document.stackLibrary.entries.compactMap { entry -> (HypeStackLibraryEntry, HypeStackLibraryCardReference)? in
+            guard let reference = entry.cardReferences.first(where: { reference in
+                reference.legacyCardId == legacyCardId
+                    && reference.hypeCardId.map { localCardIds.contains($0) } != false
+            }) else { return nil }
+            return (entry, reference)
+        }
+        guard matches.count == 1, let match = matches.first else { return nil }
+        return ProjectNavigationTarget(
+            stackEntryId: match.0.id,
+            stackName: match.0.stackName,
+            stackAlias: match.0.primaryAlias,
+            packagePath: match.0.packagePath,
+            documentPath: match.0.documentPath,
+            legacyCardId: legacyCardId,
+            cardName: match.1.name,
+            sortIndex: match.1.sortIndex,
+            hypeCardId: match.1.hypeCardId
         )
     }
 
