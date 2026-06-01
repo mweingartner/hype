@@ -60,6 +60,8 @@ struct StackImportPackageDocumentImporterTests {
         #expect(result.summary.backgroundCount == 1)
         #expect(result.summary.partCount == 1)
         #expect(result.summary.outputPackagePath.hasSuffix("Sample-debug.hype"))
+        #expect(result.summary.outputPackageByteCount == packageByteCount(at: result.outputPackageURL))
+        #expect((result.summary.outputPackageByteCount ?? 0) > 0)
         #expect(result.summary.stackLibrary?.entryCount == 3)
         #expect(result.summary.stackLibrary?.usedStackAliases == ["ALLRes"])
         #expect(result.document.stackLibrary.resolution(for: "all res") == .resolved(allRes))
@@ -193,6 +195,13 @@ struct StackImportPackageDocumentImporterTests {
         #expect(result.summary.stackCount == 2)
         #expect(result.summary.stackLibraryEntryCount == 2)
         #expect(result.summary.outputPackagePaths.count == 2)
+        #expect(result.summary.totalOutputPackageByteCount == result.packageResults
+            .compactMap(\.summary.outputPackageByteCount)
+            .reduce(0, +))
+        #expect(result.summary.totalOutputPackageByteCount == result.packageResults
+            .map { packageByteCount(at: $0.outputPackageURL) }
+            .reduce(0, +))
+        #expect((result.summary.totalOutputPackageByteCount ?? 0) > 0)
         #expect(result.summary.stacks.map(\.stackName) == ["Sample", "Other"])
         #expect(result.summary.stacks.map(\.firstCardName) == ["Sample Card", "Other Card"])
         #expect(result.summary.stacks.map(\.legacyFirstCardId) == [100, 200])
@@ -413,5 +422,26 @@ struct StackImportPackageDocumentImporterTests {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("hype-stackimport-document-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func packageByteCount(at url: URL) -> Int64 {
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return 0
+        }
+
+        var total: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                  values.isRegularFile == true,
+                  let fileSize = values.fileSize else {
+                continue
+            }
+            total += Int64(fileSize)
+        }
+        return total
     }
 }

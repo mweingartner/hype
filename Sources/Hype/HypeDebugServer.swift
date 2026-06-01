@@ -1562,6 +1562,7 @@ final class HypeDebugServer: @unchecked Sendable {
             "assetCount": summary.assetCount,
             "sharedContentAssetCount": summary.sharedContentAssetCount,
             "documentPath": summary.outputPackagePath,
+            "outputPackageByteCount": stackImportValueOrNull(summary.outputPackageByteCount),
             "warnings": summary.warnings,
             "stackImportDiagnostics": stackImportDiagnosticsJSON(summary.stackImportDiagnostics),
             "looseMedia": stackImportLooseMediaJSON(summary.looseMedia),
@@ -1573,6 +1574,7 @@ final class HypeDebugServer: @unchecked Sendable {
         [
             "stackCount": summary.stackCount,
             "outputPackagePaths": summary.outputPackagePaths,
+            "totalOutputPackageByteCount": stackImportValueOrNull(summary.totalOutputPackageByteCount),
             "stackLibraryEntryCount": summary.stackLibraryEntryCount,
             "sharedContentAssetCopyCount": summary.sharedContentAssetCopyCount,
             "stacks": summary.stacks.map(stackImportProjectStackJSON),
