@@ -415,7 +415,7 @@ public struct Parser: Sendable {
             return Self.isKnownZeroArgumentExternalCommand(current.value)
         }
         if next.type == .lparen {
-            return false
+            return Self.isKnownExternalCommand(current.value)
         }
         switch next.type {
         case .string, .integer, .float, .identifier, .true, .false, .comma,
@@ -433,10 +433,7 @@ public struct Parser: Sendable {
     }
 
     private static func isKnownZeroArgumentExternalCommand(_ rawName: String) -> Bool {
-        switch rawName
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .filter({ $0.isLetter || $0.isNumber }) {
+        switch normalizedExternalCommandName(rawName) {
         case "xwindowframe", "xabout", "closemoovs", "closemovies", "closeqt",
              "htremove", "vd", "fadeout":
             return true
@@ -445,17 +442,47 @@ public struct Parser: Sendable {
         }
     }
 
+    private static func isKnownExternalCommand(_ rawName: String) -> Bool {
+        switch normalizedExternalCommandName(rawName) {
+        case "htaddpict", "htchangepict", "playqt", "playmovie", "movie",
+             "htvisual", "xwindowframe", "xabout", "closemoovs", "closemovies",
+             "closeqt", "htremove", "vd", "fadeout":
+            return true
+        default:
+            return isKnownZeroArgumentExternalCommand(rawName)
+        }
+    }
+
+    private static func normalizedExternalCommandName(_ rawName: String) -> String {
+        rawName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber }
+    }
+
     private mutating func parseExternalCommandStatement() throws -> Statement {
         let name = advance().value
+        let arguments = try parseClassicCommandArguments()
+        skipNewlines()
+        return .externalCommand(name: name, arguments: arguments)
+    }
+
+    private mutating func parseClassicCommandArguments() throws -> [Expression] {
         var arguments: [Expression] = []
+        var expectingArgument = true
         while current.type != .newline && current.type != .eof && current.type != .end && current.type != .else {
             if current.type == .comma {
+                if expectingArgument && peek(1)?.type != .newline && peek(1)?.type != .eof {
+                    arguments.append(.literal(""))
+                }
                 _ = advance()
+                expectingArgument = true
                 continue
             }
             arguments.append(try parseExpression())
+            expectingArgument = false
             if current.type == .comma {
-                _ = advance()
+                continue
             } else if current.type != .newline && current.type != .eof && current.type != .end && current.type != .else {
                 // Classic external commands use whitespace-separated
                 // or comma-separated parameters. Continue while the
@@ -464,10 +491,10 @@ public struct Parser: Sendable {
                 if !Self.canStartPrimaryExpression(current.type) {
                     break
                 }
+                expectingArgument = true
             }
         }
-        skipNewlines()
-        return .externalCommand(name: name, arguments: arguments)
+        return arguments
     }
 
     // MARK: - Individual statement parsers
@@ -2272,6 +2299,13 @@ public struct Parser: Sendable {
             _ = advance()
             skipNewlines()
             return .playStop
+        }
+        // Classic imports sometimes spell playQT as `play QT ...`.
+        if current.type == .identifier && current.value.lowercased() == "qt" {
+            _ = advance()
+            let arguments = try parseClassicCommandArguments()
+            skipNewlines()
+            return .externalCommand(name: "playQT", arguments: arguments)
         }
         // play pattern "name" [loop]
         if current.type == .identifier && current.value.lowercased() == "pattern" {

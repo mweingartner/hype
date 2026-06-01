@@ -395,6 +395,8 @@ struct ParserTests {
           htlock"bw"
           HTVisual "wipe right",,,1,32
           deCurse "override",2003,"color","nodelay"
+          HTVisual "pan up",,the rect of card button creditMarker,2,8
+          HTAddPict ("Credits" & x),the rect of card button creditMarker,"srccopy"
         end mouseUp
         """)
         let tokens = lexer.tokenize()
@@ -409,9 +411,55 @@ struct ParserTests {
         #expect(lockName == "htlock")
         #expect(lockArguments.count == 1)
         #expect(visualName == "HTVisual")
-        #expect(visualArguments.count == 3)
+        #expect(visualArguments.count == 5)
+        guard case .literal(let firstEmptyArgument) = visualArguments[1],
+              case .literal(let secondEmptyArgument) = visualArguments[2] else {
+            Issue.record("Expected empty placeholder arguments")
+            return
+        }
+        #expect(firstEmptyArgument == "")
+        #expect(secondEmptyArgument == "")
         #expect(cursorName == "deCurse")
         #expect(cursorArguments.count == 4)
+        guard case .externalCommand(let visualWithRectName, let visualWithRectArguments) = script.handlers[0].body[3] else {
+            Issue.record("Expected HTVisual command with classic empty argument")
+            return
+        }
+        #expect(visualWithRectName == "HTVisual")
+        #expect(visualWithRectArguments.count == 5)
+        guard case .literal(let rectEmptyArgument) = visualWithRectArguments[1] else {
+            Issue.record("Expected empty placeholder argument")
+            return
+        }
+        #expect(rectEmptyArgument == "")
+        guard case .externalCommand(let addPictName, let addPictArguments) = script.handlers[0].body[4] else {
+            Issue.record("Expected HTAddPict command with parenthesized first argument")
+            return
+        }
+        #expect(addPictName == "HTAddPict")
+        #expect(addPictArguments.count == 3)
+    }
+
+    @Test func parsesClassicSpacedPlayQTCommand() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          play QT "EV Wind/Water Mov", , loop, 250
+        end mouseUp
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        guard case .externalCommand(let name, let arguments) = script.handlers[0].body[0] else {
+            Issue.record("Expected play QT to parse as playQT external command")
+            return
+        }
+        #expect(name == "playQT")
+        #expect(arguments.count == 4)
+        guard case .literal(let emptyArgument) = arguments[1] else {
+            Issue.record("Expected empty playQT placeholder argument")
+            return
+        }
+        #expect(emptyArgument == "")
     }
 
     @Test func parsesMovieWindowPropertySet() throws {
