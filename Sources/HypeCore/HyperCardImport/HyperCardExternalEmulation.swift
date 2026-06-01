@@ -269,6 +269,9 @@ public struct HyperCardExternalRegistry: Sendable {
         put(.xcmd, ["HTTB1TS"], Entry(status: .emulated) { call, context in
             hyperTintTempBufferToScreenCompatibility(call: call, context: context)
         })
+        put(.xcmd, ["Drop"], Entry(status: .emulated) { call, context in
+            mystDropPageCompatibility(call: call, context: context)
+        })
         put(.xcmd, ["Picture"], Entry(status: .emulated) { call, context in
             pictureWindowCompatibility(call: call, context: context)
         })
@@ -1360,6 +1363,26 @@ public struct HyperCardExternalRegistry: Sendable {
                 "theScroll": value,
                 "hypercard.stoneship.telescope.delta": formatClassicNumber(delta),
                 "hypercard.window.telescope4.scroll": "\(value),0"
+            ]
+        )
+    }
+
+    private static func mystDropPageCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        let rawPage = call.arguments.first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? ""
+        let page = rawPage.isEmpty ? "Page" : rawPage
+        let priorPage = hyperCardGlobal("ALL_Page", in: context.document)
+        return HyperCardExternalResult(
+            value: page,
+            result: "",
+            runtimeGlobals: [
+                "hypercard.myst.drop.page": page,
+                "hypercard.myst.drop.priorPage": priorPage,
+                "hypercard.myst.drop.cardId": context.currentCardId.uuidString
             ]
         )
     }
