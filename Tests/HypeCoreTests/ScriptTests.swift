@@ -905,6 +905,34 @@ struct ParserTests {
         }
     }
 
+    @Test func interHandlerClassicExecutableStatementAppendsToPreviousHandler() throws {
+        var lexer = Lexer(source: """
+        on openCard
+          pass openCard
+        end openCard
+        put true into soundFlag
+
+        on HoloMove
+          put soundFlag into field "status"
+        end HoloMove
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 2)
+        #expect(script.handlers[0].name == "openCard")
+        #expect(script.handlers[0].body.count == 2)
+        guard case .put(let source, _, let target) = script.handlers[0].body[1],
+              case .literal(let value) = source,
+              case .variable(let name) = target else {
+            Issue.record("Expected recovered classic top-level put in previous handler")
+            return
+        }
+        #expect(value == "true")
+        #expect(name == "soundFlag")
+        #expect(script.handlers[1].name == "HoloMove")
+    }
+
     @Test func parsesPutStatement() throws {
         var lexer = Lexer(source: """
         on test
