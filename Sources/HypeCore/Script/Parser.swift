@@ -825,14 +825,41 @@ public struct Parser: Sendable {
         // Single-line if: `if cond then stmt [else stmt]`
         if current.type != .newline && current.type != .eof {
             let thenStmt = try parseStatement()
-            let elseBlock = try parseSingleLineIfElseBlock(allowFollowingLineElse: true)
+            var elseBlock: [Statement]? = nil
+            if current.type == .else {
+                let elseToken = advance()
+                if current.type == .if && current.line == elseToken.line {
+                    elseBlock = [try parseIfStatement()]
+                } else if current.type != .newline && current.type != .eof && current.line == elseToken.line {
+                    elseBlock = [try parseStatement()]
+                } else {
+                    skipNewlines()
+                    var elseStmts: [Statement] = []
+                    while current.type != .end && !isImplicitImportedBlockBoundary() {
+                        let stmt = try parseStatement()
+                        elseStmts.append(stmt)
+                        skipNewlines()
+                    }
+                    elseBlock = elseStmts
+                    if current.type == .end,
+                       let next = peek(1),
+                       next.type == .if {
+                        _ = advance()
+                        _ = advance()
+                        skipNewlines()
+                    }
+                }
+            } else {
+                let followingElseBlock = try parseSingleLineIfElseBlock(allowFollowingLineElse: true)
+                elseBlock = followingElseBlock
+            }
             return .ifThenElse(condition: condition, thenBlock: [thenStmt], elseBlock: elseBlock)
         }
 
         // Multi-line if block.
         skipNewlines()
         var thenBlock: [Statement] = []
-        while current.type != .else && current.type != .end && current.type != .eof {
+        while current.type != .else && current.type != .end && !isImplicitImportedBlockBoundary() {
             let stmt = try parseStatement()
             thenBlock.append(stmt)
             skipNewlines()
@@ -848,7 +875,7 @@ public struct Parser: Sendable {
             }
             skipNewlines()
             var elseStmts: [Statement] = []
-            while current.type != .end && current.type != .eof {
+            while current.type != .end && !isImplicitImportedBlockBoundary() {
                 let stmt = try parseStatement()
                 elseStmts.append(stmt)
                 skipNewlines()
@@ -856,18 +883,25 @@ public struct Parser: Sendable {
             elseBlock = elseStmts
         }
 
-        _ = try expect(.end)
-        if current.type == .if {
-            _ = advance() // `end if`
-        } else if current.type == .identifier {
-            // Some imported HyperCard handlers omit `end if` for a final
-            // multiline conditional and rely on `end mouseUp`/`end openCard`
-            // to close the surrounding handler. Leave the handler name in
-            // place for parseHandler() to consume.
-            pos -= 1
+        if isExplicitIfEndTerminator() {
+            _ = advance()
+            _ = match(.if) // `end if`
         }
         skipNewlines()
         return .ifThenElse(condition: condition, thenBlock: thenBlock, elseBlock: elseBlock)
+    }
+
+    private func isExplicitIfEndTerminator() -> Bool {
+        guard current.type == .end else { return false }
+        guard let next = peek(1) else { return true }
+        if next.type == .if || next.type == .newline || next.type == .eof {
+            return true
+        }
+        return false
+    }
+
+    private func isImplicitImportedBlockBoundary() -> Bool {
+        current.type == .eof || current.type == .on || current.type == .function
     }
 
     private mutating func parseSingleLineIfElseBlock(allowFollowingLineElse: Bool) throws -> [Statement]? {

@@ -1359,6 +1359,30 @@ struct InterpreterTests {
         #expect(result.projectNavigationTarget?.legacyCardId == 8336)
     }
 
+    @Test func importedIfBlockCanCloseAtNextHandlerBoundary() throws {
+        var lexer = Lexer(source: """
+        on openCard
+          if field "truepath" is not empty then
+            if checkpath() then
+              if word 2 of field "truepath" is "P" then playqt "L1 Slosh/Run/Motor Mov",,loop,100
+              else playqt "L1 slosh Mov",,loop,100
+              end if
+            else playqt "L1 slosh Mov",,loop,100
+            end if
+          hide msg
+          pass openCard
+        end openCard
+
+        on openStack
+          start using stack "CHRes1"
+        end openStack
+        """)
+        var parser = Parser(tokens: lexer.tokenize())
+        let script = try parser.parse()
+
+        #expect(script.handlers.map(\.name) == ["openCard", "openStack"])
+    }
+
     @Test func implicitNamedCardGoResolvesUniqueProjectCard() {
         var doc = HypeDocument.newDocument(name: "ALLRes")
         doc.stackLibrary = HypeStackLibrary(entries: [
