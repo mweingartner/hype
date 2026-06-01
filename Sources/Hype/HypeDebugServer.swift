@@ -61,6 +61,86 @@ enum HypeDebugScriptGlobalSeedParser {
     }
 }
 
+struct HypeDebugScriptGlobalSeedResult {
+    var explicitKeys: [String] = []
+    var importedStartupKeys: [String] = []
+    var errors: [String] = []
+
+    var seededKeys: [String] {
+        Array(Set(explicitKeys + importedStartupKeys)).sorted()
+    }
+}
+
+enum HypeDebugImportedStartupGlobalSeedOptions {
+    static func isEnabled(in params: [String: Any]) -> Bool {
+        debugBool(
+            params["seedImportedStartupGlobals"]
+                ?? params["deriveImportedStartupGlobals"]
+                ?? params["seedImportedNewGameGlobals"]
+        )
+    }
+
+    static func resourceDocumentPaths(from params: [String: Any]) -> [String] {
+        let raw = params["importedStartupResourceDocumentPaths"]
+            ?? params["startupGlobalResourceDocumentPaths"]
+            ?? params["resourceDocumentPaths"]
+            ?? params["resourceDocuments"]
+        return stringArray(from: raw)
+    }
+
+    private static func stringArray(from value: Any?) -> [String] {
+        if let values = value as? [String] {
+            return values.map(\.trimmedForDebugSeed).filter { !$0.isEmpty }
+        }
+        if let values = value as? NSArray {
+            return values.compactMap { entry in
+                if let path = entry as? String {
+                    return path.trimmedForDebugSeed.nonEmpty
+                }
+                if let object = entry as? [String: Any] {
+                    return (object["path"] as? String)?.trimmedForDebugSeed.nonEmpty
+                }
+                if let object = entry as? NSDictionary,
+                   let path = object["path"] as? String {
+                    return path.trimmedForDebugSeed.nonEmpty
+                }
+                return nil
+            }
+        }
+        if let text = value as? String {
+            return text
+                .split(separator: ",", omittingEmptySubsequences: false)
+                .map { String($0).trimmedForDebugSeed }
+                .filter { !$0.isEmpty }
+        }
+        return []
+    }
+
+    private static func debugBool(_ value: Any?) -> Bool {
+        switch value {
+        case let bool as Bool:
+            return bool
+        case let number as NSNumber:
+            return number.boolValue
+        case let text as String:
+            switch text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "1", "true", "yes", "y", "on":
+                return true
+            default:
+                return false
+            }
+        default:
+            return false
+        }
+    }
+}
+
+private extension String {
+    var trimmedForDebugSeed: String {
+        trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 enum HypeDebugImportOutputResolver {
     static let isolatedRootName = "HypeDebugImports"
 
@@ -72,77 +152,6 @@ enum HypeDebugImportOutputResolver {
         return FileManager.default.temporaryDirectory
             .appendingPathComponent(isolatedRootName, isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-    }
-}
-
-struct HypeDebugImportedStartupGlobalSeedResult: Equatable {
-    var seededGlobals: [String: String]
-    var importedStartupGlobalKeys: [String]
-    var errors: [String]
-}
-
-enum HypeDebugImportedStartupGlobalSeeder {
-    static let parameterName = "seedImportedStartupGlobals"
-
-    static func seed(from params: [String: Any], into document: inout HypeDocument) -> HypeDebugImportedStartupGlobalSeedResult {
-        guard (params[parameterName] as? Bool) == true else {
-            return HypeDebugImportedStartupGlobalSeedResult(seededGlobals: [:], importedStartupGlobalKeys: [], errors: [])
-        }
-
-        var errors: [String] = []
-        for path in resourceDocumentPaths(from: params) {
-            let url = URL(fileURLWithPath: path, isDirectory: true)
-            do {
-                _ = try HypeSQLiteStackStore().load(fromPackageAt: url)
-            } catch {
-                errors.append("Imported startup resource could not be loaded at \(path): \(error.localizedDescription)")
-            }
-        }
-
-        let globals = mystLauncherGlobals()
-        for (key, value) in globals {
-            document.scriptGlobals[key] = value
-        }
-        return HypeDebugImportedStartupGlobalSeedResult(
-            seededGlobals: globals,
-            importedStartupGlobalKeys: globals.keys.sorted(),
-            errors: errors
-        )
-    }
-
-    private static func resourceDocumentPaths(from params: [String: Any]) -> [String] {
-        guard let raw = params["importedStartupResourceDocumentPaths"] else { return [] }
-        if let paths = raw as? [String] {
-            return paths
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-        }
-        if let paths = raw as? [Any] {
-            return paths
-                .compactMap { $0 as? String }
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-        }
-        if let path = raw as? String {
-            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? [] : [trimmed]
-        }
-        return []
-    }
-
-    private static func mystLauncherGlobals() -> [String: String] {
-        [
-            "ALL_CurrStack": "Myst",
-            "ALL_Page": "",
-            "DU_End": "",
-            "MY_BlueBook": "000000",
-            "MY_RedBook": "000000",
-            "Quick": "false",
-            "RestoreData": "card field Defaults of card Defaults",
-            "Start_Game": "new",
-            "Trans": "2",
-            "playsounds": "true",
-        ]
     }
 }
 
@@ -861,7 +870,6 @@ final class HypeDebugServer: @unchecked Sendable {
 
         var document = debugLoadedDocument ?? HypeDocumentMutationCoordinator.shared.activeDocumentBinding!.wrappedValue.document
         let seededGlobals = applyDebugScriptGlobals(from: params, to: &document)
-        let importedStartupGlobals = HypeDebugImportedStartupGlobalSeeder.seed(from: params, into: &document)
         guard let card = resolveCard(reference: cardReference, in: document) else {
             return jsonRPCError(id: id, code: -32002, message: "Card not found.")
         }
@@ -921,9 +929,9 @@ final class HypeDebugServer: @unchecked Sendable {
             "activeCardName": activeCard?.name ?? NSNull(),
             "activeCardNumber": cardNumber(activeId, in: updated) ?? NSNull(),
             "activeCardRuntime": debugRuntimeSummary(document: updated, cardId: activeId),
-            "seededScriptGlobals": Array(Set(seededGlobals + importedStartupGlobals.seededGlobals.keys)).sorted(),
-            "importedStartupGlobalKeys": importedStartupGlobals.importedStartupGlobalKeys,
-            "scriptGlobalSeedErrors": importedStartupGlobals.errors,
+            "seededScriptGlobals": seededGlobals.seededKeys,
+            "importedStartupGlobalKeys": seededGlobals.importedStartupKeys,
+            "scriptGlobalSeedErrors": seededGlobals.errors,
             "scriptGlobals": updated.scriptGlobals,
             "error": result.error?.message ?? NSNull(),
         ])
@@ -998,22 +1006,50 @@ final class HypeDebugServer: @unchecked Sendable {
             "activeCardName": activeCard?.name ?? NSNull(),
             "activeCardNumber": cardNumber(activeId, in: updated) ?? NSNull(),
             "activeCardRuntime": debugRuntimeSummary(document: updated, cardId: activeId),
-            "seededScriptGlobals": seededGlobals,
+            "seededScriptGlobals": seededGlobals.seededKeys,
+            "importedStartupGlobalKeys": seededGlobals.importedStartupKeys,
+            "scriptGlobalSeedErrors": seededGlobals.errors,
             "scriptGlobals": updated.scriptGlobals,
             "error": result.error?.message ?? NSNull(),
         ])
     }
 
     @discardableResult
-    private func applyDebugScriptGlobals(from params: [String: Any], to document: inout HypeDocument) -> [String] {
-        guard let globals = HypeDebugScriptGlobalSeedParser.globals(from: params), !globals.isEmpty else { return [] }
+    private func applyDebugScriptGlobals(from params: [String: Any], to document: inout HypeDocument) -> HypeDebugScriptGlobalSeedResult {
+        var result = HypeDebugScriptGlobalSeedResult()
         if (params["clearScriptGlobals"] as? Bool) == true || (params["replaceScriptGlobals"] as? Bool) == true {
             document.scriptGlobals.removeAll()
         }
+        if HypeDebugImportedStartupGlobalSeedOptions.isEnabled(in: params) {
+            let paths = HypeDebugImportedStartupGlobalSeedOptions.resourceDocumentPaths(from: params)
+            if paths.isEmpty {
+                result.errors.append("Imported startup global seeding requested but no resource document paths were provided.")
+            } else {
+                var resourceDocuments: [HypeDocument] = []
+                for path in paths {
+                    do {
+                        let url = URL(fileURLWithPath: path, isDirectory: true)
+                        resourceDocuments.append(try HypeSQLiteStackStore().load(fromPackageAt: url))
+                    } catch {
+                        result.errors.append("Resource document \(path) could not be loaded: \(error.localizedDescription)")
+                    }
+                }
+                if let globals = HyperCardImportedGlobalSeeder.newGameGlobals(from: document, resourceDocuments: resourceDocuments) {
+                    for (key, value) in globals {
+                        document.scriptGlobals[key] = value
+                    }
+                    result.importedStartupKeys = globals.keys.sorted()
+                } else if result.errors.isEmpty {
+                    result.errors.append("Imported startup globals could not be derived from the active document and provided resource documents.")
+                }
+            }
+        }
+        guard let globals = HypeDebugScriptGlobalSeedParser.globals(from: params), !globals.isEmpty else { return result }
         for (key, value) in globals {
             document.scriptGlobals[key] = value
         }
-        return globals.keys.sorted()
+        result.explicitKeys = globals.keys.sorted()
+        return result
     }
 
     @MainActor
