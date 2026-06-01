@@ -199,6 +199,21 @@ struct HyperCardImportTests {
         #expect(try parsedHandlerCount(translated) == 2)
     }
 
+    @Test("legacy translator keeps bare send-to-card handlers live")
+    func legacyTranslatorKeepsBareSendToCardHandlersLive() throws {
+        let script = """
+        on mouseUp
+        send mouseDownInMovie to card
+        end mouseUp
+        """
+
+        let translated = LegacyHyperTalkScript.preparedForHypeTalkRuntime(script)
+
+        #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(translated))
+        #expect(translated.contains("send mouseDownInMovie to card"))
+        #expect(try parsedHandlerCount(translated) == 1)
+    }
+
     @Test("legacy translator comments disabled handler tails without disabling earlier handlers")
     func legacyTranslatorCommentsDisabledHandlerTails() throws {
         let script = """
