@@ -846,7 +846,8 @@ public struct Interpreter: Sendable {
             document: document,
             currentCardId: context.currentCardId,
             appScript: context.appScript,
-            scriptContext: context.scriptContext
+            scriptContext: context.scriptContext,
+            handlerType: .message
         ) else {
             return false
         }
@@ -871,7 +872,8 @@ public struct Interpreter: Sendable {
             mouseY: context.mouseY,
             scriptContext: context.scriptContext,
             runtimeProvider: context.runtimeProvider,
-            nestedSendDepth: context.nestedSendDepth + 1
+            nestedSendDepth: context.nestedSendDepth + 1,
+            handlerType: .message
         )
         if let modifiedDocument = result.modifiedDocument {
             document = modifiedDocument
@@ -907,6 +909,76 @@ public struct Interpreter: Sendable {
         }
         document.scriptGlobals = env.globals
         return true
+    }
+
+    private func evaluateHandlerFunctionIfAvailable(
+        name: String,
+        args: [Value],
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext,
+        handler: Handler
+    ) async throws -> Value? {
+        let dispatcher = MessageDispatcher()
+        guard dispatcher.hasHandler(
+            message: name,
+            targetId: context.targetId,
+            document: document,
+            currentCardId: context.currentCardId,
+            appScript: context.appScript,
+            scriptContext: context.scriptContext,
+            handlerType: .function
+        ) else {
+            return nil
+        }
+        guard context.nestedSendDepth < 32 else {
+            throw ScriptError(message: "Nested function call depth exceeded", line: handler.line, handler: handler.name)
+        }
+
+        var callDocument = document
+        callDocument.scriptGlobals = env.globals
+        let result = await dispatcher.dispatchAsync(
+            message: name,
+            params: args,
+            targetId: context.targetId,
+            document: callDocument,
+            currentCardId: context.currentCardId,
+            dialogProvider: context.dialogProvider,
+            drawingProvider: context.drawingProvider,
+            systemProvider: context.systemProvider,
+            aiProvider: context.aiProvider,
+            speechOutputProvider: context.speechOutputProvider,
+            appScript: context.appScript,
+            mouseX: context.mouseX,
+            mouseY: context.mouseY,
+            scriptContext: context.scriptContext,
+            runtimeProvider: context.runtimeProvider,
+            nestedSendDepth: context.nestedSendDepth + 1,
+            handlerType: .function
+        )
+        if let modifiedDocument = result.modifiedDocument {
+            env.globals = modifiedDocument.scriptGlobals
+        }
+        if let visualEffect = result.visualEffect {
+            env.locals["_visualEffect"] = visualEffect
+        }
+        if let visualEffectDuration = result.visualEffectDuration {
+            env.locals["_visualEffectDuration"] = String(visualEffectDuration)
+        }
+        if result.showAllCards {
+            throw ControlSignal.showAllCards
+        }
+        if result.status == .error {
+            throw result.error ?? ScriptError(
+                message: "Function call failed",
+                line: handler.line,
+                handler: handler.name
+            )
+        }
+        if result.status == .cancelled {
+            throw CancellationError()
+        }
+        return result.returnValue
     }
 
     // MARK: - Statement execution
@@ -3668,6 +3740,16 @@ public struct Interpreter: Sendable {
             var evaluatedArgs: [Value] = []
             for arg in args {
                 evaluatedArgs.append(try await evaluate(arg, env: &env, document: document, context: context))
+            }
+            if let handlerValue = try await evaluateHandlerFunctionIfAvailable(
+                name: name,
+                args: evaluatedArgs,
+                env: &env,
+                document: document,
+                context: context,
+                handler: Handler(name: name, handlerType: .function, params: [], body: [], line: 0)
+            ) {
+                return handlerValue
             }
             return try await evaluateBuiltIn(name, args: evaluatedArgs, env: &env, document: document, context: context)
 

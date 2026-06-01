@@ -47,6 +47,9 @@ The registry models the behavior that matters to scripts:
 - Parameterless single-identifier lines dispatch as classic handler commands
   when the normal HypeTalk message path contains a matching handler, for example
   `resetDrawers`.
+- Function-call syntax dispatches to matching handler functions in the normal
+  message path before falling back to built-ins and emulated XFCNs, for example
+  `theAdjust()`.
 - Function-style XFCN calls use ordinary function syntax, for example
   `put HypeVersion() into field "status"`.
 - Parameters are passed as evaluated HypeTalk strings.
