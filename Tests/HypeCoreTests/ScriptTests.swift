@@ -980,6 +980,33 @@ struct ParserTests {
         #expect(script.handlers[1].name == "HoloMove")
     }
 
+    @Test func parsesOuterElseAfterNestedMultilineElseBlock() throws {
+        var lexer = Lexer(source: """
+        function back
+          if SE_Current = 0 then
+            put "-" into how
+          else
+            if SE_Current = 1 then
+              if NewDirection > SE_Direction then
+                if NewDirection - SE_Direction > 4 then put "L" into delta else put "R" into delta
+              else
+                if SE_Direction - NewDirection > 4 then put "R" into delta else put "L" into delta
+              end if
+              put "-AF" into how
+            else
+              put item 10 of line SE_Current of card field destination into backTrack
+            end if
+          end if
+          return how
+        end back
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        #expect(script.handlers[0].name == "back")
+    }
+
     @Test func parsesPutStatement() throws {
         var lexer = Lexer(source: """
         on test
