@@ -452,7 +452,7 @@ public struct Parser: Sendable {
             .lowercased()
             .filter({ $0.isLetter || $0.isNumber }) {
         case "xwindowframe", "xabout", "closemoovs", "closemovies", "closeqt",
-             "htremove", "vd", "fadeout":
+             "htremove", "vd", "fadeout", "soundidle", "soundstop":
             return true
         default:
             return false
