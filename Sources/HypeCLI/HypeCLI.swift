@@ -1077,7 +1077,7 @@ private struct ScriptSemanticValidator {
             issues += expressionIssues(sound, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
             if let notes { issues += expressionIssues(notes, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId) }
             if let tempo { issues += expressionIssues(tempo, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId) }
-            if let soundName = staticString(sound), !soundIsResolvable(soundName) {
+            if let soundName = staticLiteralString(sound), !soundIsResolvable(soundName) {
                 issues.append(issue("sound-asset", "`play \"\(soundName)\"` has no embedded audio asset and is not a known system/HyperCard sound mapping."))
             }
         case .externalCommand(let name, let arguments):
@@ -1423,11 +1423,9 @@ private struct ScriptSemanticValidator {
     }
 
     private func soundIsResolvable(_ name: String) -> Bool {
-        let lower = name.lowercased()
+        let lower = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if Self.knownSystemOrHyperCardSounds.contains(lower) { return true }
-        return document.assetRepository.assets.contains { asset in
-            asset.kind == .audioClip && asset.name.lowercased() == lower
-        }
+        return document.assetRepository.asset(byClassicMediaName: name, kind: .audioClip) != nil
     }
 
     private func allowedHooks(for ownerType: String) -> Set<String> {

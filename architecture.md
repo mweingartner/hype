@@ -1189,10 +1189,19 @@ public struct AssetRepository: Codable, Sendable {
     public var assets: [Asset]
     public func asset(byId: UUID)   -> Asset?
     public func asset(byName: String) -> Asset?
+    public func asset(byClassicMediaName: String, kind: AssetKind? = nil) -> Asset?
     public func assetRef(for: Asset) -> AssetRef
     public mutating func addAsset/_/removeAsset/_/updateAsset(_:)
 }
 ```
+
+`asset(byClassicMediaName:kind:)` is the shared imported-media resolver for
+classic HyperCard resources. It normalizes StackImport media names and metadata
+before matching, so runtime compatibility calls and HypeTalk audio playback can
+find embedded `audioClip` assets even when source scripts use classic casing or
+trailing-space variants. Script validation uses the same lookup for literal
+`play` sound names and skips non-literal sound expressions that must resolve at
+runtime.
 
 `AssetProvenance` records the import path: `userImport`, `webSearch`,
 `aiGenerated`, or `aiContext`. Web-search imports also persist license + creator + source URL
