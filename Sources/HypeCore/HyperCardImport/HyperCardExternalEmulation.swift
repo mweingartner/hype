@@ -140,6 +140,9 @@ public struct HyperCardExternalRegistry: Sendable {
         put(.xcmd, ["playQT", "PlayMovie", "Movie"], Entry(status: .emulated) { call, context in
             playQuickTime(call: call, context: context)
         })
+        put(.xcmd, ["Buzzer"], Entry(status: .emulated) { call, context in
+            buzzerCompatibility(call: call, context: context)
+        })
         put(.xcmd, ["closemoovs", "closemovies", "closeQT"], Entry(status: .emulated) { _, context in
             closeQuickTimeMovies(context: context)
         })
@@ -329,6 +332,65 @@ public struct HyperCardExternalRegistry: Sendable {
             value: String(removedCount),
             result: String(removedCount),
             modifiedDocument: document
+        )
+    }
+
+    private static func buzzerCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        let classicName = "SW Buzzer"
+        guard let asset = context.document.assetRepository.asset(byClassicMediaName: classicName, kind: .videoClip)
+                ?? context.document.assetRepository.asset(byClassicMediaName: classicName, kind: .audioClip)
+                ?? context.document.assetRepository.asset(byClassicMediaName: classicName) else {
+            return HyperCardExternalResult(
+                result: "Buzzer asset not found: \(classicName)",
+                diagnostic: "Buzzer asset not found: \(classicName)",
+                runtimeGlobals: [
+                    "hypercard.buzzer.asset": classicName,
+                    "hypercard.buzzer.found": "false"
+                ]
+            )
+        }
+
+        let rawVolume = call.arguments.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let fallback = context.document.scriptGlobals["hypercard.sound.volume"] ?? "255"
+        let volume = clampedClassicSoundVolume(rawVolume, fallback: fallback)
+        let lookupKey = AssetRepository.classicMediaLookupKey(classicName)
+        var document = context.document
+        document.parts.removeAll { part in
+            part.cardId == context.currentCardId &&
+                part.partType == .video &&
+                isBuzzerCompatibilityPart(part) &&
+                AssetRepository.classicMediaLookupKey(part.name) == lookupKey
+        }
+
+        var part = Part(
+            partType: .video,
+            cardId: context.currentCardId,
+            name: classicName,
+            left: 0,
+            top: 0,
+            width: 1,
+            height: 1
+        )
+        part.videoAssetRef = document.assetRepository.assetRef(for: asset)
+        part.videoURL = "asset://\(asset.id.uuidString)"
+        part.videoAutoplay = true
+        part.videoLoop = false
+        part.videoVolume = normalizedClassicSoundVolume(volume)
+        part.helpText = [buzzerCompatibilityMarker, "audioOnly=true"].joined(separator: "\n")
+        document.addPart(part)
+
+        return HyperCardExternalResult(
+            value: asset.name,
+            result: asset.name,
+            modifiedDocument: document,
+            runtimeGlobals: [
+                "hypercard.buzzer.asset": asset.name,
+                "hypercard.buzzer.found": "true",
+                "hypercard.buzzer.volume": volume
+            ]
         )
     }
 
@@ -1290,6 +1352,11 @@ public struct HyperCardExternalRegistry: Sendable {
             part.helpText.hasPrefix("\(quickTimeCompatibilityMarker)\n")
     }
 
+    private static func isBuzzerCompatibilityPart(_ part: Part) -> Bool {
+        part.helpText == buzzerCompatibilityMarker ||
+            part.helpText.hasPrefix("\(buzzerCompatibilityMarker)\n")
+    }
+
     private static func normalizedDisplayMode(_ rawValue: Value?) -> Value {
         let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? "c" : trimmed.lowercased()
@@ -1816,6 +1883,7 @@ public struct HyperCardExternalRegistry: Sendable {
     }
 
     private static let quickTimeCompatibilityMarker = "hypercard-playqt"
+    private static let buzzerCompatibilityMarker = "hypercard-buzzer"
     private static let pictureOverlayMarker = "hypercard-htaddpict"
     private static let pictureReplacementMarker = "hypercard-htchangepict"
     private static let pictureWindowMarker = "hypercard-picture"
