@@ -475,6 +475,28 @@ struct HypeCLITests {
         #expect(!result.stdout.contains("XCMD `c6`"))
     }
 
+    @Test func testValidateScriptsTreatsClassicMenuAndSaveAsAsNativeCommands() throws {
+        var document = HypeDocument.newDocument(name: "Classic Menu Save Fixture")
+        document.stack.script = """
+        on mouseUp
+          doMenu "next window"
+          save stack "Myst:Myst Graphics:Template" as charFile
+        end mouseUp
+        """
+
+        let packageURL = scriptDir.appendingPathComponent("ClassicMenuSaveFixture.hype", isDirectory: true)
+        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
+
+        let result = runBinary(arguments: [
+            "--validate-scripts", packageURL.path,
+        ])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("ok\tstack\tClassic Menu Save Fixture"))
+        #expect(!result.stdout.contains("XCMD `doMenu`"))
+        #expect(!result.stdout.contains("XCMD `as`"))
+    }
+
     @Test func testPowerOperator() {
         let result = runHypetalkScript("""
         on main
