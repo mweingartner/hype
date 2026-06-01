@@ -82,6 +82,42 @@ public struct MessageDispatcher: Sendable {
 
     public init() {}
 
+    /// Returns true when the message hierarchy contains a handler for `message`.
+    ///
+    /// Classic HyperTalk lets scripts call local handlers with command-style
+    /// syntax, for example `Buzzer 2`. The parser keeps that syntax as an
+    /// `externalCommand` until runtime can decide whether the name is actually
+    /// an imported XCMD or a normal handler in the current pass-up path.
+    public func hasHandler(
+        message: String,
+        targetId: UUID,
+        document: HypeDocument,
+        currentCardId: UUID,
+        appScript: String = "",
+        scriptContext: ScriptDispatchContext? = nil
+    ) -> Bool {
+        let chain = buildHierarchy(
+            targetId: targetId,
+            document: document,
+            currentCardId: currentCardId,
+            scriptContext: scriptContext
+        )
+        let aliases = Self.handlerAliases(for: message.lowercased())
+        for objectId in chain {
+            guard let script = findScript(
+                objectId: objectId,
+                document: document,
+                appScript: appScript,
+                scriptContext: scriptContext
+            ) else { continue }
+            guard let parsedScript = try? HypeTalkScriptParseCache.shared.parsedScript(for: script) else { continue }
+            if parsedScript.handlers.contains(where: { aliases.contains($0.name.lowercased()) }) {
+                return true
+            }
+        }
+        return false
+    }
+
     /// Dispatch a message through the hierarchy, returning the
     /// result from the first handler that does not pass it.
     ///

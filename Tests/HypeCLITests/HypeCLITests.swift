@@ -419,6 +419,35 @@ struct HypeCLITests {
         #expect(scriptsJSON.contains("sound-asset"))
     }
 
+    @Test func testValidateScriptsTreatsCommandStyleHandlerCallsAsHandlers() throws {
+        var document = HypeDocument.newDocument(name: "Handler Command Validation Fixture")
+        let cardId = try #require(document.cards.first?.id)
+        var button = Part(partType: .button, cardId: cardId, name: "Run")
+        button.script = """
+        on mouseUp
+          Buzzer 4
+        end mouseUp
+        """
+        document.stack.script = """
+        on Buzzer amount
+          global buzzerAmount
+          put amount into buzzerAmount
+        end Buzzer
+        """
+        document.parts.append(button)
+
+        let packageURL = scriptDir.appendingPathComponent("HandlerCommandValidationFixture.hype", isDirectory: true)
+        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
+
+        let result = runBinary(arguments: [
+            "--validate-scripts", packageURL.path,
+        ])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("ok\tbutton\tRun"))
+        #expect(!result.stdout.contains("XCMD `Buzzer`"))
+    }
+
     @Test func testPowerOperator() {
         let result = runHypetalkScript("""
         on main

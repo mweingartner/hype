@@ -1083,6 +1083,15 @@ private struct ScriptSemanticValidator {
             for argument in arguments {
                 issues += expressionIssues(argument, owner: owner, functionNames: functionNames)
             }
+            if let currentCardId = owner.currentCardId,
+               MessageDispatcher().hasHandler(
+                   message: name,
+                   targetId: owner.ownerId,
+                   document: document,
+                   currentCardId: currentCardId
+               ) {
+                break
+            }
             let status = HyperCardExternalRegistry.default.status(for: name, kind: .xcmd)
             switch status {
             case .emulated:
