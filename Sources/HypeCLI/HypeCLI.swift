@@ -23,6 +23,9 @@ struct HypeCLI: AsyncParsableCommand {
     @Flag(help: "Run scripts in benchmark mode and print timing plus execution diagnostics")
     var benchmark = false
 
+    @Flag(help: "Parse a HypeTalk script and exit without invoking a handler")
+    var parseOnly = false
+
     @Option(help: "Benchmark iterations per case")
     var benchmarkIterations = 10
 
@@ -202,6 +205,11 @@ struct HypeCLI: AsyncParsableCommand {
         let tokens = lexer.tokenize()
         var parser = Parser(tokens: tokens)
         let ast = try parser.parse()
+
+        if parseOnly {
+            print("OK")
+            return
+        }
 
         let targetHandler: Handler
         if let h = ast.handlers.first(where: { $0.name.lowercased() == handler.lowercased() }) {
