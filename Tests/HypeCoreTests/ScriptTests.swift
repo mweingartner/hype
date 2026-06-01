@@ -2807,6 +2807,36 @@ struct MessageDispatcherTests {
         #expect(result.modifiedDocument?.scriptGlobals["buzzeramount"] == "4")
     }
 
+    @Test func bareHandlerCommandDispatchesWithoutArguments() async {
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        var btn = Part(partType: .button, cardId: cardId, name: "ResetButton")
+        btn.script = """
+        on mouseUp
+          resetDrawers
+        end mouseUp
+        """
+        doc.stack.script = """
+        on resetDrawers
+          global drawersReset
+          put "true" into drawersReset
+        end resetDrawers
+        """
+        doc.addPart(btn)
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, cardId, btn] in dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: btn.id,
+            document: doc,
+            currentCardId: cardId
+        ) }
+
+        #expect(result.status == .completed)
+        #expect(result.modifiedDocument?.scriptGlobals["drawersreset"] == "true")
+    }
+
     @Test func mystPillarClickTogglesStateAndRefreshesMarkerIcon() async {
         let offIcon = Asset(
             name: "cicn_2012",

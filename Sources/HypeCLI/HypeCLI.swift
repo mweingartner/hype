@@ -1047,10 +1047,11 @@ private struct ScriptSemanticValidator {
     ) -> [ScriptSemanticIssue] {
         var issues: [ScriptSemanticIssue] = []
         switch statement {
-        case .expressionStatement(.variable(let name)):
-            if messageNames.contains(name.lowercased()) {
-                issues.append(issue("bare-handler-call", "`\(name)` is a local handler name, but a bare line is evaluated as a variable in Hype. Use `send \"\(name)\" to me`."))
-            }
+        case .expressionStatement(.variable):
+            // A single identifier line is a parameterless handler command in
+            // classic HyperTalk. The interpreter dispatches it when the name
+            // is available in the normal message path.
+            break
         case .expressionStatement(let expression):
             issues += expressionIssues(expression, owner: owner, functionNames: functionNames)
         case .send(let message, let target):

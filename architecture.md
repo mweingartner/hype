@@ -1432,7 +1432,9 @@ script source string
   `connect to host …`, `send "<message>" to <target>`, `send … to connection …`,
   `close connection …`, and `stop listener …`. The plain `send` form is
   HypeTalk message dispatch; the `to connection` form is TCP I/O. For imported
-  HyperCard scripts, unknown command-style identifiers with arguments parse as
+  HyperCard scripts, command-style handler calls are preserved through the same
+  dispatcher, including parameterless single-identifier lines such as
+  `resetDrawers`. Unknown command-style identifiers with arguments parse as
   `.externalCommand(name:arguments:)` so XCMD calls like `SetCursor "watch"`
   can flow into the emulation registry rather than causing a parse error.
 
