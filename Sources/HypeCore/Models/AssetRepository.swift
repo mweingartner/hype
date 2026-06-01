@@ -709,9 +709,28 @@ public struct AssetRepository: Codable, Sendable {
             if Self.classicMediaLookupKeys(asset.name).contains(where: keys.contains) { return true }
             return asset.metadata.contains { entry in
                 let metadataKey = entry.key.lowercased()
-                guard metadataKey == "lookup_key" || metadataKey == "classic_name" else { return false }
+                guard metadataKey == "lookup_key" ||
+                        metadataKey == "classic_name" ||
+                        metadataKey == "classic_alias" ||
+                        metadataKey == "classic_media_alias" else { return false }
                 return Self.classicMediaLookupKeys(entry.value).contains(where: keys.contains)
             }
+        }
+    }
+
+    public func playableAudioAsset(byClassicMediaName name: String) -> Asset? {
+        if let audio = asset(byClassicMediaName: name, kind: .audioClip) {
+            return audio
+        }
+        return asset(byClassicMediaName: name, kind: .videoClip).flatMap { asset in
+            Self.isAudioOnlyQuickTimeAsset(asset) ? asset : nil
+        }
+    }
+
+    public static func isAudioOnlyQuickTimeAsset(_ asset: Asset) -> Bool {
+        asset.metadata.contains {
+            $0.key.lowercased() == "quicktime_audio_only" &&
+                $0.value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "true"
         }
     }
 

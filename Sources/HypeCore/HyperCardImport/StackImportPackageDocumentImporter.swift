@@ -9,6 +9,7 @@ public struct StackImportPackageDocumentImportOptions: Sendable {
     public var looseMediaSourceRootURL: URL?
     public var looseMediaReplacementRootURL: URL?
     public var looseMediaNames: Set<String>?
+    public var looseMediaAliases: [String: String]
     public var stackLibraryEntries: [HypeStackLibraryEntry]
     public var usedStackAliases: [String]
     public var deploymentTargets: StackDeploymentTargets
@@ -22,6 +23,7 @@ public struct StackImportPackageDocumentImportOptions: Sendable {
         looseMediaSourceRootURL: URL? = nil,
         looseMediaReplacementRootURL: URL? = nil,
         looseMediaNames: Set<String>? = nil,
+        looseMediaAliases: [String: String] = [:],
         stackLibraryEntries: [HypeStackLibraryEntry] = [],
         usedStackAliases: [String] = [],
         deploymentTargets: StackDeploymentTargets = .automationDefault()
@@ -34,6 +36,7 @@ public struct StackImportPackageDocumentImportOptions: Sendable {
         self.looseMediaSourceRootURL = looseMediaSourceRootURL
         self.looseMediaReplacementRootURL = looseMediaReplacementRootURL
         self.looseMediaNames = looseMediaNames
+        self.looseMediaAliases = looseMediaAliases
         self.stackLibraryEntries = stackLibraryEntries
         self.usedStackAliases = usedStackAliases
         self.deploymentTargets = deploymentTargets
@@ -291,7 +294,8 @@ public struct StackImportPackageDocumentImporter: Sendable {
                 manifestURL: manifestURL,
                 sourceRootURL: options.looseMediaSourceRootURL,
                 replacementRootURL: options.looseMediaReplacementRootURL,
-                requestedNames: options.looseMediaNames
+                requestedNames: options.looseMediaNames,
+                mediaAliases: options.looseMediaAliases
             ),
             into: &document
         )
@@ -399,6 +403,7 @@ public struct StackImportPackageProjectImportOptions: Sendable {
     public var looseMediaSourceRootURL: URL?
     public var looseMediaReplacementRootURL: URL?
     public var looseMediaNames: Set<String>?
+    public var looseMediaAliases: [String: String]
     public var stackLibraryEntries: [HypeStackLibraryEntry]
     public var usedStackAliases: [String]
     public var deploymentTargets: StackDeploymentTargets
@@ -411,6 +416,7 @@ public struct StackImportPackageProjectImportOptions: Sendable {
         looseMediaSourceRootURL: URL? = nil,
         looseMediaReplacementRootURL: URL? = nil,
         looseMediaNames: Set<String>? = nil,
+        looseMediaAliases: [String: String] = [:],
         stackLibraryEntries: [HypeStackLibraryEntry] = [],
         usedStackAliases: [String] = [],
         deploymentTargets: StackDeploymentTargets = .automationDefault()
@@ -422,6 +428,7 @@ public struct StackImportPackageProjectImportOptions: Sendable {
         self.looseMediaSourceRootURL = looseMediaSourceRootURL
         self.looseMediaReplacementRootURL = looseMediaReplacementRootURL
         self.looseMediaNames = looseMediaNames
+        self.looseMediaAliases = looseMediaAliases
         self.stackLibraryEntries = stackLibraryEntries
         self.usedStackAliases = usedStackAliases
         self.deploymentTargets = deploymentTargets
@@ -589,6 +596,7 @@ public struct StackImportPackageProjectImporter: Sendable {
                     looseMediaSourceRootURL: options.looseMediaSourceRootURL,
                     looseMediaReplacementRootURL: options.looseMediaReplacementRootURL,
                     looseMediaNames: options.looseMediaNames,
+                    looseMediaAliases: options.looseMediaAliases,
                     stackLibraryEntries: options.stackLibraryEntries,
                     usedStackAliases: options.usedStackAliases,
                     deploymentTargets: options.deploymentTargets

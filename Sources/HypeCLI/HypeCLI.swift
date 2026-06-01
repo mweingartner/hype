@@ -1566,7 +1566,7 @@ private struct ScriptSemanticValidator {
     private func soundIsResolvable(_ name: String) -> Bool {
         let lower = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if Self.knownSystemOrHyperCardSounds.contains(lower) { return true }
-        return document.assetRepository.asset(byClassicMediaName: name, kind: .audioClip) != nil
+        return document.assetRepository.playableAudioAsset(byClassicMediaName: name) != nil
     }
 
     private func allowedHooks(for ownerType: String) -> Set<String> {
