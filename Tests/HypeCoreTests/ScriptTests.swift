@@ -664,6 +664,28 @@ struct ParserTests {
         }
     }
 
+    @Test func parsesTrailingClassicIfClosedByHandlerEnd() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          global st_pump
+          if st_pump is 3 then
+            go to card id 21557
+          else go to card id 13528
+        end mouseUp
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        #expect(script.handlers[0].body.count == 2)
+        guard case .ifThenElse(_, let thenBlock, let elseBlock) = script.handlers[0].body[1] else {
+            Issue.record("Expected trailing if/then/else statement")
+            return
+        }
+        #expect(thenBlock.count == 1)
+        #expect(elseBlock?.count == 1)
+    }
+
     @Test func parsesRepeatCount() async throws {
         var lexer = Lexer(source: """
         on test

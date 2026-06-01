@@ -881,7 +881,15 @@ public struct Parser: Sendable {
         }
 
         _ = try expect(.end)
-        _ = match(.if) // `end if`
+        if current.type == .if {
+            _ = advance() // `end if`
+        } else if current.type == .identifier {
+            // Some imported HyperCard handlers omit `end if` for a final
+            // multiline conditional and rely on `end mouseUp`/`end openCard`
+            // to close the surrounding handler. Leave the handler name in
+            // place for parseHandler() to consume.
+            pos -= 1
+        }
         skipNewlines()
         return .ifThenElse(condition: condition, thenBlock: thenBlock, elseBlock: elseBlock)
     }
