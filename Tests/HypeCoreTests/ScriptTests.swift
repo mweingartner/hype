@@ -607,6 +607,51 @@ struct ParserTests {
         #expect(rhsValue == "open")
     }
 
+    @Test func parsesClassicOnAsStateLiteral() throws {
+        var lexer = Lexer(source: """
+        on mouseDown
+          put on into light
+          if light is on then
+            put "lit" into field "status"
+          end if
+        end mouseDown
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        guard case .put(let source, _, let target) = script.handlers[0].body[0],
+              case .literal(let sourceValue) = source,
+              case .variable(let targetName) = target else {
+            Issue.record("Expected put on into light")
+            return
+        }
+        #expect(sourceValue == "on")
+        #expect(targetName == "light")
+        guard case .ifThenElse(let condition, _, _) = script.handlers[0].body[1],
+              case .binary(let lhs, .equal, let rhs) = condition,
+              case .variable(let lhsName) = lhs,
+              case .literal(let rhsValue) = rhs else {
+            Issue.record("Expected light is on comparison")
+            return
+        }
+        #expect(lhsName == "light")
+        #expect(rhsValue == "on")
+    }
+
+    @Test func rejectsStatementStartOnInsideHandler() throws {
+        var lexer = Lexer(source: """
+        on mouseDown
+          on anotherHandler
+        end mouseDown
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        #expect(throws: ParseError.self) {
+            try parser.parse()
+        }
+    }
+
     @Test func parsesClassicSingleLineElseWithoutEndIfAtHandlerBoundary() throws {
         var lexer = Lexer(source: """
         on ToggleQuick

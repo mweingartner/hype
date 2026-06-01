@@ -224,6 +224,7 @@ public struct Parser: Sendable {
         case .set:      return try parseSetStatement()
         case .go:       return try parseGoStatement()
         case .if:       return try parseIfStatement()
+        case .on:       throw ParseError.unexpected(current, expected: "statement")
         case .repeat:   return try parseRepeatStatement()
         case .exit:     return try parseExitStatement()
         case .next:     return try parseNextStatement()
@@ -3236,7 +3237,7 @@ public struct Parser: Sendable {
             return .variable(tok.value)
 
         case .from, .by, .times,
-             .choose, .close, .open, .save, .quit, .mark, .unmark, .push, .pop,
+             .choose, .close, .open, .on, .save, .quit, .mark, .unmark, .push, .pop,
              .click, .drag, .run, .print, .help, .debug, .reset,
              .export, .import, .copy, .disable, .enable, .edit, .dial,
              .reply, .start, .stop, .using, .template, .paint,
@@ -3659,7 +3660,7 @@ public struct Parser: Sendable {
              .the, .it, .me, .this, .empty, .await,
              .word, .char, .character, .item, .line, .number,
              .first, .second, .third, .last, .middle, .any,
-             .not,
+             .not, .on,
              .card, .background, .field, .button, .stack, .webpage,
              .sprite, .spritearea, .request, .connection, .listener:
             return true
