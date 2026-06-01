@@ -880,6 +880,17 @@ public struct Parser: Sendable {
                 skipNewlines()
                 return .ifThenElse(condition: condition, thenBlock: thenBlock, elseBlock: [elseIfStatement])
             }
+            if current.type != .newline && current.type != .eof && current.line == elseToken.line {
+                elseBlock = [try parseStatement()]
+                if current.type == .end,
+                   let next = peek(1),
+                   next.type == .if {
+                    _ = advance()
+                    _ = advance()
+                    skipNewlines()
+                }
+                return .ifThenElse(condition: condition, thenBlock: thenBlock, elseBlock: elseBlock)
+            }
             skipNewlines()
             var elseStmts: [Statement] = []
             while current.type != .end && current.type != .eof {

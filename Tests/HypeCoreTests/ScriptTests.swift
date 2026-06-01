@@ -607,6 +607,56 @@ struct ParserTests {
         #expect(rhsValue == "open")
     }
 
+    @Test func parsesClassicSingleLineElseWithoutEndIfAtHandlerBoundary() throws {
+        var lexer = Lexer(source: """
+        on ToggleQuick
+          global Quick
+          if Quick is "true" then
+            put "false" into Quick
+          else put "true" into Quick
+          hide menubar
+        end ToggleQuick
+
+        on arrowKey
+          beep
+        end arrowKey
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 2)
+        #expect(script.handlers[0].name == "ToggleQuick")
+        #expect(script.handlers[1].name == "arrowKey")
+        guard case .ifThenElse(_, _, let elseBlock?) = script.handlers[0].body[1] else {
+            Issue.record("Expected if statement with else block")
+            return
+        }
+        #expect(elseBlock.count == 1)
+        #expect(script.handlers[0].body.count == 3)
+    }
+
+    @Test func parsesClassicSingleLineElseWithExplicitEndIf() throws {
+        var lexer = Lexer(source: """
+        on toggle
+          if flag is "true" then
+            put "false" into flag
+          else put "true" into flag
+          end if
+          put flag into field "status"
+        end toggle
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        guard case .ifThenElse(_, _, let elseBlock?) = script.handlers[0].body[0] else {
+            Issue.record("Expected if statement with else block")
+            return
+        }
+        #expect(elseBlock.count == 1)
+        #expect(script.handlers[0].body.count == 2)
+    }
+
     @Test func parsesClassicCameraHandlerCommand() throws {
         var lexer = Lexer(source: """
         on mouseDown
