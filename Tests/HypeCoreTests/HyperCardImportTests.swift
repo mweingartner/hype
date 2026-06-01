@@ -262,6 +262,7 @@ struct HyperCardImportTests {
         #expect(registry.status(for: "scrollTower", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "scrollTelescope", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "updateCursor", kind: .xcmd) == .emulated)
+        #expect(registry.status(for: "Drop", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "xSetSoundVol", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "xSetSoundVol", kind: .xfcn) == .emulated)
         #expect(registry.status(for: "xGetSoundVol", kind: .xfcn) == .emulated)
@@ -574,6 +575,30 @@ struct HyperCardImportTests {
         let out = try #require(modified.parts.first(where: { $0.name == "out" }))
         #expect(out.textContent.contains("Can't Load External"))
         #expect(out.textContent.contains("MissingClassicExternal"))
+    }
+
+    @Test("Myst Drop compatibility records dropped page intent without changing page state")
+    func mystDropCompatibilityRecordsPageIntent() async throws {
+        var document = HypeDocument.newDocument(name: "External Test")
+        let cardId = try #require(document.cards.first?.id)
+        document.scriptGlobals["ALL_Page"] = "4,S,0"
+        let handler = try parse("""
+        on mouseUp
+          Drop RedPage
+        end mouseUp
+        """).handlers[0]
+
+        let result = await Interpreter().executeAsync(
+            handler: handler,
+            params: [],
+            context: ExecutionContext(targetId: cardId, currentCardId: cardId, document: document)
+        )
+
+        #expect(result.status == .completed)
+        let modified = try #require(result.modifiedDocument)
+        #expect(modified.scriptGlobals["hypercard.myst.drop.page"] == "RedPage")
+        #expect(modified.scriptGlobals["hypercard.myst.drop.priorPage"] == "4,S,0")
+        #expect(modified.scriptGlobals["hypercard.myst.drop.cardId"] == cardId.uuidString)
     }
 
     @Test("Myst environment externals update runtime globals")
