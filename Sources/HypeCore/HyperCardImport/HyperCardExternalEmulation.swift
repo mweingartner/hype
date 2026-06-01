@@ -161,6 +161,12 @@ public struct HyperCardExternalRegistry: Sendable {
         put(.xcmd, ["vs"], Entry(status: .emulated) { call, context in
             mystScrollVisualTransitionCompatibility(call: call, context: context)
         })
+        put(.xcmd, ["arrow"], Entry(status: .emulated) { call, context in
+            mystPlanetariumArrowCompatibility(call: call, context: context)
+        })
+        put(.xcmd, ["slideKnob"], Entry(status: .emulated) { call, context in
+            mystPlanetariumSlideKnobCompatibility(call: call, context: context)
+        })
         put(.xcmd, ["DeCurse"], Entry(status: .emulated) { call, _ in
             cursorCompatibility(call: call)
         })
@@ -544,6 +550,66 @@ public struct HyperCardExternalRegistry: Sendable {
             ],
             visualEffect: effect.isEmpty ? nil : effect,
             visualEffectDuration: duration
+        )
+    }
+
+    private static func mystPlanetariumArrowCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        let rawWhich = call.arguments.first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let start = classicInteger(call.arguments.dropFirst().first, fallback: 0)
+        let end = classicInteger(call.arguments.dropFirst(2).first, fallback: start)
+        let which = mystPlanetariumCanonicalName(rawWhich, start: start, end: end)
+        let delta = classicInteger(call.arguments.dropFirst(3).first, fallback: 0)
+        let initMode = classicBoolean(call.arguments.dropFirst(4).first)
+        let current = mystPlanetariumValue(which: which, in: context.document, fallback: start)
+        let next = initMode ? current : min(max(current + delta, min(start, end)), max(start, end))
+        let value = String(next)
+        var document = context.document
+        setMystPlanetariumField(which: which, value: value, cardId: context.currentCardId, in: &document)
+        let globalName = mystPlanetariumGlobalName(which)
+        let normalizedWhich = normalizedMystPlanetariumName(which)
+        return HyperCardExternalResult(
+            value: value,
+            result: value,
+            modifiedDocument: document,
+            runtimeGlobals: [
+                globalName: value,
+                "hypercard.arrow.which": which,
+                "hypercard.arrow.\(normalizedWhich).value": value,
+                "hypercard.arrow.\(normalizedWhich).delta": String(delta),
+                "hypercard.arrow.\(normalizedWhich).init": initMode ? "true" : "false"
+            ]
+        )
+    }
+
+    private static func mystPlanetariumSlideKnobCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        let rawWhich = call.arguments.first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let start = classicInteger(call.arguments.dropFirst().first, fallback: 0)
+        let end = classicInteger(call.arguments.dropFirst(2).first, fallback: start)
+        let which = mystPlanetariumCanonicalName(rawWhich, start: start, end: end)
+        let current = mystPlanetariumValue(which: which, in: context.document, fallback: start)
+        let value = String(min(max(current, min(start, end)), max(start, end)))
+        var document = context.document
+        setMystPlanetariumField(which: which, value: value, cardId: context.currentCardId, in: &document)
+        let globalName = mystPlanetariumGlobalName(which)
+        let normalizedWhich = normalizedMystPlanetariumName(which)
+        return HyperCardExternalResult(
+            value: value,
+            result: value,
+            modifiedDocument: document,
+            runtimeGlobals: [
+                globalName: value,
+                "hypercard.slideknob.which": which,
+                "hypercard.slideknob.\(normalizedWhich).value": value,
+                "hypercard.slideknob.\(normalizedWhich).range": "\(start),\(end)"
+            ]
         )
     }
 
@@ -1395,6 +1461,84 @@ public struct HyperCardExternalRegistry: Sendable {
         return document.scriptGlobals.first { key, _ in
             key.lowercased() == folded
         }?.value ?? ""
+    }
+
+    private static func mystPlanetariumValue(
+        which: Value,
+        in document: HypeDocument,
+        fallback: Int
+    ) -> Int {
+        let global = hyperCardGlobal(mystPlanetariumGlobalName(which), in: document)
+        if let parsed = classicOptionalInteger(global) {
+            return parsed
+        }
+        let fieldName = which.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let field = document.parts.first(where: {
+            $0.partType == .field && $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == fieldName
+        }), let parsed = classicOptionalInteger(field.textContent) {
+            return parsed
+        }
+        return fallback
+    }
+
+    private static func setMystPlanetariumField(
+        which: Value,
+        value: Value,
+        cardId: UUID,
+        in document: inout HypeDocument
+    ) {
+        let fieldName = which.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !fieldName.isEmpty else { return }
+        for index in document.parts.indices where
+            document.parts[index].cardId == cardId &&
+            document.parts[index].partType == .field &&
+            document.parts[index].name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == fieldName {
+            document.parts[index].textContent = value
+        }
+    }
+
+    private static func mystPlanetariumGlobalName(_ which: Value) -> String {
+        "MY_Pla\(which.trimmingCharacters(in: .whitespacesAndNewlines))"
+    }
+
+    private static func normalizedMystPlanetariumName(_ which: Value) -> String {
+        let normalized = which
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber || $0 == "_" }
+        return normalized.isEmpty ? "value" : normalized
+    }
+
+    private static func mystPlanetariumCanonicalName(_ rawWhich: Value, start: Int, end: Int) -> Value {
+        let trimmed = rawWhich.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch trimmed.lowercased() {
+        case "month":
+            return "Month"
+        case "day":
+            return "Day"
+        case "year":
+            return "Year"
+        case "time":
+            return "Time"
+        default:
+            return start == 0 && end == 1439 ? "Time" : trimmed
+        }
+    }
+
+    private static func classicInteger(_ rawValue: Value?, fallback: Int) -> Int {
+        let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return Int((Double(trimmed) ?? Double(fallback)).rounded())
+    }
+
+    private static func classicOptionalInteger(_ rawValue: Value) -> Int? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let parsed = Double(trimmed), parsed.isFinite else { return nil }
+        return Int(parsed.rounded())
+    }
+
+    private static func classicBoolean(_ rawValue: Value?) -> Bool {
+        let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        return ["1", "true", "yes", "on"].contains(trimmed)
     }
 
     private static func normalizedCursorMode(from arguments: [Value]) -> Value {
