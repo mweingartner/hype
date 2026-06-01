@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 public struct StackImportPackageConverter: Sendable {
     public var options: HyperCardImportOptions
