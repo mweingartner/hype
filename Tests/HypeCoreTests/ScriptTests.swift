@@ -617,6 +617,23 @@ struct ParserTests {
         }
     }
 
+    @Test func parsesClassicButtonCommandAsExternalCommand() throws {
+        var lexer = Lexer(source: """
+        on mouseDown
+          button 2,-1
+        end mouseDown
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        guard case .externalCommand(let name, let arguments) = script.handlers[0].body[0] else {
+            Issue.record("Expected button external command")
+            return
+        }
+        #expect(name == "button")
+        #expect(arguments.count == 2)
+    }
+
     @Test func parsesExplicitSendToConnectionAsNetworkDispatch() throws {
         var lexer = Lexer(source: """
         on sendPing
@@ -3193,6 +3210,33 @@ struct MessageDispatcherTests {
         #expect(video?.top == 73)
         #expect(video?.videoAssetRef?.id == gearMovie.id)
         #expect(video?.videoAutoplay == false)
+    }
+
+    @Test func mystClassicButtonCommandRecordsCompatibilityState() async {
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        var button = Part(partType: .button, cardId: cardId, name: "bookPage")
+        button.script = """
+        on mouseDown
+          button 2,-1
+        end mouseDown
+        """
+        doc.addPart(button)
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, cardId, button] in dispatcher.dispatch(
+            message: "mouseDown",
+            params: [],
+            targetId: button.id,
+            document: doc,
+            currentCardId: cardId
+        ) }
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "2,-1")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.button.last"] == "2,-1")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.button.index"] == "2")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.button.direction"] == "-1")
     }
 
     @Test func mystSeleniticShipMoveRecordsMovieRouteAndUpdatesWindow() async {

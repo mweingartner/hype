@@ -255,6 +255,7 @@ struct HyperCardImportTests {
         #expect(registry.status(for: "showPillar", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "pillarClick", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "pushKey", kind: .xcmd) == .emulated)
+        #expect(registry.status(for: "button", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "fadein", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "fadeout", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "shipMove", kind: .xcmd) == .emulated)
