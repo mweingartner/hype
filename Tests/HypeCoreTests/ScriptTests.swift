@@ -30,6 +30,17 @@ struct LexerTests {
         #expect(tokens[3].type == .identifier)
     }
 
+    @Test func straightQuotedStringCanContainSmartQuotes() {
+        var lexer = Lexer(source: "answer \"Drag “Myst” to your hard disk\" with \"Quit\"")
+        let tokens = lexer.tokenize()
+        #expect(tokens[0].type == .answer)
+        #expect(tokens[1].type == .string)
+        #expect(tokens[1].value == "Drag “Myst” to your hard disk")
+        #expect(tokens[2].type == .with)
+        #expect(tokens[3].type == .string)
+        #expect(tokens[3].value == "Quit")
+    }
+
     @Test func handlesNumbers() {
         var lexer = Lexer(source: "42 3.14")
         let tokens = lexer.tokenize()
@@ -80,6 +91,14 @@ struct LexerTests {
         let tokens = lexer.tokenize()
         let c6Tokens = tokens.filter { $0.type == .identifier && $0.value == "c6" }
         #expect(c6Tokens.count == 4)
+        #expect(tokens.filter { $0.type == .newline }.count == 1)
+    }
+
+    @Test func handlesClassicMacLineContinuationBeforeInlineComment() {
+        var lexer = Lexer(source: "put \"a\" & \u{00AC} -- first chunk\n\"b\" into value")
+        let tokens = lexer.tokenize()
+        #expect(tokens.contains(where: { $0.type == .string && $0.value == "a" }))
+        #expect(tokens.contains(where: { $0.type == .string && $0.value == "b" }))
         #expect(tokens.filter { $0.type == .newline }.count == 1)
     }
 

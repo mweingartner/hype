@@ -87,9 +87,12 @@ public struct Lexer: Sendable {
                 continue
             }
 
-            // Line continuation: backslash or classic Mac `¬` immediately before any supported newline.
-            if isLineContinuation(ch) && pos + 1 < source.count && isLineBreak(source[pos + 1]) {
-                pos += 1
+            // Line continuation: backslash or classic Mac `¬` before a newline.
+            // Classic imports may leave spaces and an inline `--` comment after
+            // the continuation marker, so treat those as part of the continued
+            // line rather than ending the expression at the physical newline.
+            if isLineContinuation(ch), let lineBreakPos = continuationLineBreakPosition(after: pos + 1) {
+                pos = lineBreakPos
                 consumeLineBreak()
                 continue
             }
@@ -112,8 +115,8 @@ public struct Lexer: Sendable {
                 continue
             }
 
-            // String literals (handle smart/curly quotes too).
-            if ch == "\"" || ch == "\u{201C}" || ch == "\u{201D}" {
+            // String literals (handle matching smart/curly quotes too).
+            if isQuote(ch) {
                 scanString()
                 continue
             }
@@ -170,6 +173,24 @@ public struct Lexer: Sendable {
         ch == "\\" || ch == "\u{00AC}"
     }
 
+    private func continuationLineBreakPosition(after start: Int) -> Int? {
+        var index = start
+        while index < source.count && (source[index] == " " || source[index] == "\t") {
+            index += 1
+        }
+        if index < source.count,
+           source[index] == "-",
+           index + 1 < source.count,
+           source[index + 1] == "-" {
+            index += 2
+            while index < source.count && !isLineBreak(source[index]) {
+                index += 1
+            }
+        }
+        guard index < source.count && isLineBreak(source[index]) else { return nil }
+        return index
+    }
+
     private mutating func consumeLineBreak() {
         if pos < source.count && source[pos] == "\r" && pos + 1 < source.count && source[pos + 1] == "\n" {
             pos += 2
@@ -184,17 +205,31 @@ public struct Lexer: Sendable {
         ch == "\"" || ch == "\u{201C}" || ch == "\u{201D}"
     }
 
+    private func closesQuote(_ ch: Character, openedBy openingQuote: Character) -> Bool {
+        switch openingQuote {
+        case "\"":
+            return ch == "\""
+        case "\u{201C}":
+            return ch == "\u{201D}"
+        case "\u{201D}":
+            return ch == "\u{201D}"
+        default:
+            return false
+        }
+    }
+
     private mutating func scanString() {
+        let openingQuote = source[pos]
         pos += 1 // skip opening quote (straight or curly)
         var result: [Character] = []
-        while pos < source.count && !isQuote(source[pos]) {
+        while pos < source.count && !closesQuote(source[pos], openedBy: openingQuote) {
             if isLineBreak(source[pos]) {
                 break // unterminated string at newline
             }
             result.append(source[pos])
             pos += 1
         }
-        if pos < source.count && isQuote(source[pos]) {
+        if pos < source.count && closesQuote(source[pos], openedBy: openingQuote) {
             pos += 1 // skip closing quote (straight or curly)
         }
         tokens.append(Token(type: .string, value: String(result), line: currentLine))
