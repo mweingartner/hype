@@ -23,6 +23,7 @@ struct HypeStackLibraryTests {
         let library = HypeStackLibrary(entries: [myst, allRes])
 
         #expect(library.resolution(for: "myst-island") == .resolved(myst))
+        #expect(library.resolution(for: "mYsT.XSTK") == .resolved(myst))
         #expect(library.resolution(for: "ALL_res") == .resolved(allRes))
         #expect(library.resolution(for: "missing") == .missing(alias: "missing"))
     }
