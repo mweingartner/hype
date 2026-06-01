@@ -461,6 +461,31 @@ struct HypeCLITests {
         #expect(result.stdout.contains("not normally dispatched for button scripts"))
     }
 
+    @Test func testValidateScriptsAllowsInertImportedPartLifecyclePassThroughHooks() throws {
+        var document = HypeDocument.newDocument(name: "Imported Part Hook Fixture")
+        let cardId = try #require(document.cards.first?.id)
+        var button = Part(partType: .button, cardId: cardId, name: "ImportedButton")
+        button.script = """
+        on closeCard
+          HTLock noBW
+          pass closeCard
+        end closeCard
+        """
+        document.parts.append(button)
+
+        let packageURL = scriptDir.appendingPathComponent("ImportedPartHookFixture.hype", isDirectory: true)
+        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
+
+        let result = runBinary(arguments: [
+            "--validate-scripts", packageURL.path,
+        ])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("ok\tbutton\tImportedButton"))
+        #expect(!result.stdout.contains("not normally dispatched for button scripts"))
+        #expect(!result.stdout.contains("hook-context"))
+    }
+
     @Test func testValidateScriptsTreatsCommandStyleHandlerCallsAsHandlers() throws {
         var document = HypeDocument.newDocument(name: "Handler Command Validation Fixture")
         let cardId = try #require(document.cards.first?.id)
