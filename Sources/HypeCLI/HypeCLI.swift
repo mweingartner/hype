@@ -1503,7 +1503,11 @@ private struct ScriptSemanticValidator {
     private static let fieldHooks: Set<String> = ["mouseup", "mousedown", "mouseenter", "mouseleave", "mousemove", "openfield", "closefield", "returninfield", "enterkey", "tabinfield", "keydown", "keyup", "idle"]
     private static let cardHooks: Set<String> = ["opencard", "closecard", "openbackground", "closebackground", "idle", "keydown", "keyup", "mouseup", "mousedown", "mouseenter", "mouseleave", "mousemove"]
     private static let backgroundHooks: Set<String> = ["openbackground", "closebackground", "opencard", "closecard", "idle", "keydown", "keyup", "mouseup", "mousedown"]
-    private static let stackHooks: Set<String> = ["openstack", "closestack", "idle", "keydown", "keyup", "mouseup", "mousedown"]
+    private static let stackHooks: Set<String> = [
+        "openstack", "closestack", "opencard", "closecard",
+        "openbackground", "closebackground", "idle", "keydown", "keyup",
+        "mouseup", "mousedown",
+    ]
     private static let knownRuntimeHooks = commonHooks
     private static let noneEffectNames: Set<String> = ["none", "plain", "cut"]
     private static let knownBuiltInFunctions: Set<String> = [
