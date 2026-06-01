@@ -4379,7 +4379,6 @@ class CardCanvasNSView: NSView {
                         videoTimeObservers[part.id] = tok
                     }
                 }
-                }
             } else {
                 let playerView = AVPlayerView(frame: frame)
                 playerView.controlsStyle = videoSource.audioOnly ? .none : .inline
