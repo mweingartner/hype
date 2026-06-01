@@ -448,6 +448,33 @@ struct HypeCLITests {
         #expect(!result.stdout.contains("XCMD `Buzzer`"))
     }
 
+    @Test func testValidateScriptsTreatsClassicPlayNotesAsNotes() throws {
+        var document = HypeDocument.newDocument(name: "Classic Play Notes Fixture")
+        let cardId = try #require(document.cards.first?.id)
+        var button = Part(partType: .button, cardId: cardId, name: "Play")
+        button.script = """
+        on mouseUp
+          play "harpsichord" tempo 200 cw c c g#3
+          play "harpsichord" tempo 0 c6 c6
+        end mouseUp
+        """
+        document.parts.append(button)
+
+        let packageURL = scriptDir.appendingPathComponent("ClassicPlayNotesFixture.hype", isDirectory: true)
+        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
+
+        let result = runBinary(arguments: [
+            "--validate-scripts", packageURL.path,
+        ])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("ok\tbutton\tPlay"))
+        #expect(!result.stdout.contains("XCMD `cw`"))
+        #expect(!result.stdout.contains("XCMD `c`"))
+        #expect(!result.stdout.contains("XCMD `g`"))
+        #expect(!result.stdout.contains("XCMD `c6`"))
+    }
+
     @Test func testPowerOperator() {
         let result = runHypetalkScript("""
         on main

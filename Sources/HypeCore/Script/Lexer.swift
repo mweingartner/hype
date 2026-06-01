@@ -1,7 +1,7 @@
 import Foundation
 
 /// Hand-written tokenizer for HypeTalk source code.
-/// Case-insensitive keyword matching, single-line `--` comments, `\` line continuation.
+/// Case-insensitive keyword matching, single-line `--` comments, classic line continuation.
 public struct Lexer: Sendable {
     private let source: [Character]
     private var pos: Int = 0
@@ -86,8 +86,8 @@ public struct Lexer: Sendable {
                 continue
             }
 
-            // Line continuation: backslash immediately before any supported newline.
-            if ch == "\\" && pos + 1 < source.count && isLineBreak(source[pos + 1]) {
+            // Line continuation: backslash or classic Mac `¬` immediately before any supported newline.
+            if isLineContinuation(ch) && pos + 1 < source.count && isLineBreak(source[pos + 1]) {
                 pos += 1
                 consumeLineBreak()
                 continue
@@ -165,6 +165,10 @@ public struct Lexer: Sendable {
         ch == "\n" || ch == "\r"
     }
 
+    private func isLineContinuation(_ ch: Character) -> Bool {
+        ch == "\\" || ch == "\u{00AC}"
+    }
+
     private mutating func consumeLineBreak() {
         if pos < source.count && source[pos] == "\r" && pos + 1 < source.count && source[pos + 1] == "\n" {
             pos += 2
@@ -211,7 +215,7 @@ public struct Lexer: Sendable {
 
     private mutating func scanIdentifier() {
         let start = pos
-        while pos < source.count && (source[pos].isLetter || source[pos].isNumber || source[pos] == "_") {
+        while pos < source.count && (source[pos].isLetter || source[pos].isNumber || source[pos] == "_" || source[pos] == "#") {
             pos += 1
         }
         let word = String(source[start..<pos])
