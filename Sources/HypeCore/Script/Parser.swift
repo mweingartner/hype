@@ -2140,9 +2140,22 @@ public struct Parser: Sendable {
             skipNewlines()
             return .sendToConnection(data: data, connection: connection)
         }
+        if let scopedTarget = parseBareCurrentScopeSendTarget() {
+            skipNewlines()
+            return .send(message: data, target: scopedTarget)
+        }
         let connection = try parseExpression()
         skipNewlines()
         return .send(message: data, target: connection)
+    }
+
+    private mutating func parseBareCurrentScopeSendTarget() -> Expression? {
+        guard let next = peek(1),
+              Self.objectIdentifierTerminators.contains(next.type),
+              [.card, .background, .stack].contains(current.type) else {
+            return nil
+        }
+        return parseCurrentScopeReference(scopeWord: "current")
     }
 
     private mutating func parseStartStatement() throws -> Statement {
