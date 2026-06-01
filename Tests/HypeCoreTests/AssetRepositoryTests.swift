@@ -136,6 +136,23 @@ struct AssetRepositoryTests {
         #expect(repository.asset(byClassicMediaName: "wa drip ", kind: .audioClip)?.id == audio.id)
     }
 
+    @Test("classic media lookup tolerates collapsed word separators")
+    func classicMediaLookupToleratesCollapsedWordSeparators() {
+        let audio = Asset(
+            name: "DR Drawer Close",
+            kind: .audioClip,
+            mimeType: "audio/wav",
+            data: Data([1]),
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "DR Drawer Close"),
+                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("DR Drawer Close"))
+            ]
+        )
+        let repository = AssetRepository(assets: [audio])
+
+        #expect(repository.asset(byClassicMediaName: "DR drawerClose", kind: .audioClip)?.id == audio.id)
+    }
+
     @Test("HypeDocument exposes assetRepository while preserving assetRepository storage")
     func documentAssetRepositoryAliasMutatesStoredRepository() {
         var document = HypeDocument.newDocument()

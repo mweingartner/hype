@@ -146,8 +146,9 @@ Implemented:
   payload callbacks (C importer path).
 - HypeTalk `play` resolves imported sound names through the same classic media
   lookup used by compatibility QuickTime/XCMD paths, including case and
-  whitespace normalization. CLI validation uses that lookup for literal sound
-  names and leaves variable-driven `play` expressions to runtime.
+  whitespace normalization and collapsed word separators. CLI validation uses
+  that lookup for literal sound names and leaves variable-driven `play`
+  expressions to runtime.
 - StackImport package resource consumption for converted PNG/image, audio,
   video, JSON, and text artifacts. Multi-artifact resources keep related
   metadata with the primary asset; standalone JSON/text resources are inert

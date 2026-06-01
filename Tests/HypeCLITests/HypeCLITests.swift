@@ -609,6 +609,17 @@ struct HypeCLITests {
             ]
         )
         document.assetRepository.addAsset(audio)
+        let collapsedSeparatorAudio = Asset(
+            name: "DR Drawer Close",
+            kind: .audioClip,
+            mimeType: "audio/wav",
+            data: Data([2]),
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "DR Drawer Close"),
+                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("DR Drawer Close"))
+            ]
+        )
+        document.assetRepository.addAsset(collapsedSeparatorAudio)
         let cardId = try #require(document.cards.first?.id)
         var button = Part(partType: .button, cardId: cardId, name: "Play")
         button.script = """
@@ -616,6 +627,7 @@ struct HypeCLITests {
           put "WA Drip" into theSound
           play theSound
           play "wa drip "
+          play "DR drawerClose"
         end mouseUp
         """
         document.parts.append(button)
@@ -631,6 +643,7 @@ struct HypeCLITests {
         #expect(result.stdout.contains("ok\tbutton\tPlay"))
         #expect(!result.stdout.contains("play \"theSound\""))
         #expect(!result.stdout.contains("play \"wa drip \""))
+        #expect(!result.stdout.contains("play \"DR drawerClose\""))
         #expect(!result.stdout.contains("sound-asset"))
     }
 
