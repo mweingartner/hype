@@ -105,6 +105,22 @@ struct HypeCLITests {
         #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "42")
     }
 
+    @Test func testParseOnlyDoesNotExecuteHandler() {
+        let scriptFile = scriptDir.appendingPathComponent("parse-only.hypetalk")
+        try? """
+        on main
+          repeat forever
+            put 1 into x
+          end repeat
+        end main
+        """.write(to: scriptFile, atomically: true, encoding: .utf8)
+
+        let result = runBinary(arguments: ["--parse-only", scriptFile.path])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "OK")
+    }
+
     @Test func testNestedExpression() {
         let result = runHypetalkScript("""
         on main
