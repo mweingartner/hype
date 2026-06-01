@@ -347,6 +347,7 @@ struct HyperCardImportTests {
         #expect(registry.status(for: "fadein", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "fadeout", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "shipMove", kind: .xcmd) == .emulated)
+        #expect(registry.status(for: "camera", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "moveIt", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "scrollTower", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "scrollTelescope", kind: .xcmd) == .emulated)

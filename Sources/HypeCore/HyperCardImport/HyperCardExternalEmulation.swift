@@ -206,6 +206,9 @@ public struct HyperCardExternalRegistry: Sendable {
         put(.xcmd, ["shipMove"], Entry(status: .emulated) { call, context in
             mystSeleniticShipMoveCompatibility(call: call, context: context)
         })
+        put(.xcmd, ["camera"], Entry(status: .emulated) { call, context in
+            mystSeleniticCameraCompatibility(call: call, context: context)
+        })
         put(.xcmd, ["moveIt"], Entry(status: .emulated) { call, context in
             mystSeleniticMoveItCompatibility(call: call, context: context)
         })
@@ -1296,6 +1299,26 @@ public struct HyperCardExternalRegistry: Sendable {
                 "hypercard.window.towerscroll.scroll": scrollValue,
                 "hypercard.selenitic.tower.offset": formatClassicNumber(offset),
                 "hypercard.selenitic.tower.rate": formatClassicNumber(rate)
+            ]
+        )
+    }
+
+    private static func mystSeleniticCameraCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        var document = context.document
+        let prior = classicInteger(hyperCardGlobal("SE_CameraID", in: document), fallback: 1)
+        let cameraId = max(1, classicInteger(call.arguments.first, fallback: prior))
+        document.scriptGlobals["SE_CameraID"] = String(cameraId)
+        document.scriptGlobals["hypercard.selenitic.camera"] = String(cameraId)
+        return HyperCardExternalResult(
+            value: String(cameraId),
+            result: String(cameraId),
+            modifiedDocument: document,
+            runtimeGlobals: [
+                "SE_CameraID": String(cameraId),
+                "hypercard.selenitic.camera": String(cameraId)
             ]
         )
     }
