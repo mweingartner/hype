@@ -55,6 +55,9 @@ The registry models the behavior that matters to scripts:
   `this card` and `current card`.
 - Validator object-reference checks skip variable-driven object references such
   as `go to card x` or `button which`; those remain runtime-resolved.
+- Validator card-reference checks accept card names from imported project
+  stack-library metadata so cross-stack navigation targets are not reported as
+  missing from the current package.
 - Validator hook-context checks treat card/background lifecycle handlers in
   stack scripts as valid because those messages pass up through the normal
   HyperCard-style hierarchy to the stack.
