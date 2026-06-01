@@ -197,6 +197,21 @@ public struct HyperCardExternalRegistry: Sendable {
         put(.xcmd, ["pushKey"], Entry(status: .emulated) { call, context in
             mystPushKeyCompatibility(call: call, context: context)
         })
+        put(.xcmd, ["shipMove"], Entry(status: .emulated) { call, context in
+            mystSeleniticShipMoveCompatibility(call: call, context: context)
+        })
+        put(.xcmd, ["moveIt"], Entry(status: .emulated) { call, context in
+            mystSeleniticMoveItCompatibility(call: call, context: context)
+        })
+        put(.xcmd, ["scrollTower"], Entry(status: .emulated) { call, context in
+            mystSeleniticScrollTowerCompatibility(call: call, context: context)
+        })
+        put(.xcmd, ["scrollTelescope"], Entry(status: .emulated) { call, context in
+            mystStoneshipScrollTelescopeCompatibility(call: call, context: context)
+        })
+        put(.xcmd, ["updateCursor"], Entry(status: .emulated) { call, _ in
+            updateCursorCompatibility(call: call)
+        })
         put(.xcmd, ["DeCurse"], Entry(status: .emulated) { call, _ in
             cursorCompatibility(call: call)
         })
@@ -378,6 +393,60 @@ public struct HyperCardExternalRegistry: Sendable {
             result: String(removedCount),
             modifiedDocument: document
         )
+    }
+
+    private static func applyQuickTimeAsset(
+        _ asset: Asset,
+        name: Value,
+        windowName: Value?,
+        currentCardId: UUID,
+        document: inout HypeDocument
+    ) {
+        let lookupName = windowName ?? name
+        let windowKey = AssetRepository.classicMediaLookupKey(lookupName)
+        if let index = document.parts.lastIndex(where: { part in
+            part.cardId == currentCardId &&
+            part.partType == .video &&
+            isQuickTimeCompatibilityPart(part) &&
+            (AssetRepository.classicMediaLookupKey(part.name) == windowKey ||
+             quickTimeCompatibilityWindowKey(from: part) == windowKey)
+        }) {
+            document.parts[index].name = name
+            document.parts[index].videoAssetRef = document.assetRepository.assetRef(for: asset)
+            document.parts[index].videoURL = "asset://\(asset.id.uuidString)"
+            document.parts[index].videoAutoplay = true
+            document.parts[index].visible = true
+            if asset.width > 0 {
+                document.parts[index].width = Double(asset.width)
+            }
+            if asset.height > 0 {
+                document.parts[index].height = Double(asset.height)
+            }
+            return
+        }
+
+        var part = Part(
+            partType: .video,
+            cardId: currentCardId,
+            name: name,
+            left: 0,
+            top: 0,
+            width: Double(max(asset.width, 1)),
+            height: Double(max(asset.height, 1))
+        )
+        part.videoAssetRef = document.assetRepository.assetRef(for: asset)
+        part.videoURL = "asset://\(asset.id.uuidString)"
+        part.videoAutoplay = true
+        part.videoLoop = false
+        part.videoVolume = normalizedClassicSoundVolume(
+            document.scriptGlobals["hypercard.sound.volume"] ?? "255"
+        )
+        var markers = [quickTimeCompatibilityMarker]
+        if let windowName {
+            markers.append("window=\(windowName)")
+        }
+        part.helpText = markers.joined(separator: "\n")
+        document.addPart(part)
     }
 
     private static func fadeInCompatibility(
@@ -948,6 +1017,173 @@ public struct HyperCardExternalRegistry: Sendable {
         )
     }
 
+    private static func mystSeleniticShipMoveCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        let rawWhere = call.arguments.first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var route = rawWhere
+        var reverse = false
+        if route.first == "-" {
+            reverse = true
+            route.removeFirst()
+        }
+        let lowerRoute = route.lowercased()
+        let movieSegment: String
+        if lowerRoute.contains("left") || lowerRoute.contains("right") {
+            movieSegment = "*\(route)"
+        } else {
+            var compactRoute = route
+            let pathMarker: Character?
+            if compactRoute.count > 1 {
+                let pathIndex = compactRoute.index(after: compactRoute.startIndex)
+                pathMarker = compactRoute[pathIndex]
+                compactRoute.remove(at: pathIndex)
+            } else {
+                pathMarker = nil
+            }
+            var candidate = "*\(compactRoute)1"
+            if reverse {
+                let insertIndex = candidate.index(after: candidate.startIndex)
+                candidate.insert("-", at: insertIndex)
+                if pathMarker == "D" || pathMarker == "d" {
+                    candidate.removeLast()
+                    candidate.append("0")
+                }
+            }
+            movieSegment = candidate
+        }
+
+        var document = context.document
+        let windowName = "Ship-Motion.MooV"
+        let windowKey = AssetRepository.classicMediaLookupKey(windowName)
+        let asset = document.assetRepository.asset(byClassicMediaName: movieSegment, kind: .videoClip)
+            ?? document.assetRepository.asset(byClassicMediaName: windowName, kind: .videoClip)
+        if let asset {
+            applyQuickTimeAsset(
+                asset,
+                name: windowName,
+                windowName: windowName,
+                currentCardId: context.currentCardId,
+                document: &document
+            )
+        }
+        document.scriptGlobals["hypercard.selenitic.shipMove.route"] = rawWhere
+        document.scriptGlobals["hypercard.selenitic.shipMove.movie"] = movieSegment
+        document.scriptGlobals["hypercard.selenitic.shipMove.window"] = windowName
+
+        return HyperCardExternalResult(
+            value: movieSegment,
+            result: movieSegment,
+            modifiedDocument: document,
+            runtimeGlobals: [
+                "hypercard.selenitic.shipMove.route": rawWhere,
+                "hypercard.selenitic.shipMove.movie": movieSegment,
+                "hypercard.selenitic.shipMove.window": windowName,
+                "hypercard.window.\(windowKey).movie": movieSegment,
+                "hypercard.window.\(windowKey).rate": "1.0",
+                "hypercard.window.\(windowKey).visible": "true"
+            ]
+        )
+    }
+
+    private static func mystSeleniticMoveItCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        let rate = classicDouble(call.arguments.first, fallback: 0)
+        let offset = classicDouble(call.arguments.dropFirst().first, fallback: 0)
+        var document = context.document
+        let priorScroll = classicDouble(hyperCardGlobal("theScroll", in: document), fallback: 0)
+        let nextScroll = positiveModulo(priorScroll + rate, modulus: 1800)
+        let heading = nextScroll / 5
+        let scrollValue = "\(formatClassicNumber(nextScroll)),\(formatClassicNumber(offset))"
+        document.scriptGlobals["theScroll"] = formatClassicNumber(nextScroll)
+        document.scriptGlobals["hypercard.selenitic.tower.heading"] = formatClassicNumber(heading)
+        document.scriptGlobals["hypercard.window.towerscroll.scroll"] = scrollValue
+        setFieldText(named: "heading", value: formatClassicNumber(heading), cardId: context.currentCardId, in: &document)
+        return HyperCardExternalResult(
+            value: formatClassicNumber(nextScroll),
+            result: formatClassicNumber(nextScroll),
+            modifiedDocument: document,
+            runtimeGlobals: [
+                "theScroll": formatClassicNumber(nextScroll),
+                "hypercard.selenitic.tower.heading": formatClassicNumber(heading),
+                "hypercard.window.towerscroll.scroll": scrollValue,
+                "hypercard.selenitic.tower.offset": formatClassicNumber(offset),
+                "hypercard.selenitic.tower.rate": formatClassicNumber(rate)
+            ]
+        )
+    }
+
+    private static func mystSeleniticScrollTowerCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        let delta = classicDouble(call.arguments.first, fallback: 0)
+        var document = context.document
+        let cameraId = max(1, classicInteger(hyperCardGlobal("SE_CameraID", in: document), fallback: 1))
+        let offset = lineValue(cameraId, from: fieldText(named: "offsets", cardId: context.currentCardId, in: document))
+            .flatMap { Double($0.trimmingCharacters(in: .whitespacesAndNewlines)) } ?? 0
+        let moveResult = mystSeleniticMoveItCompatibility(
+            call: HyperCardExternalCall(
+                name: "moveIt",
+                kind: .xcmd,
+                arguments: [formatClassicNumber(delta), formatClassicNumber(offset)]
+            ),
+            context: HyperCardExternalCallContext(
+                targetId: context.targetId,
+                currentCardId: context.currentCardId,
+                document: document
+            )
+        )
+        document = moveResult.modifiedDocument ?? document
+        let scroll = document.scriptGlobals["theScroll"] ?? formatClassicNumber(delta)
+        document.scriptGlobals["SE_Headings"] = replacingLine(
+            cameraId,
+            in: hyperCardGlobal("SE_Headings", in: document),
+            with: scroll
+        )
+        document.scriptGlobals["hypercard.selenitic.scrollTower.delta"] = formatClassicNumber(delta)
+        var globals = moveResult.runtimeGlobals
+        globals.merge([
+            "SE_Headings": document.scriptGlobals["SE_Headings"] ?? "",
+            "hypercard.selenitic.scrollTower.delta": formatClassicNumber(delta),
+            "hypercard.selenitic.scrollTower.camera": String(cameraId)
+        ]) { _, new in new }
+        return HyperCardExternalResult(
+            value: scroll,
+            result: scroll,
+            modifiedDocument: document,
+            runtimeGlobals: globals
+        )
+    }
+
+    private static func mystStoneshipScrollTelescopeCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        let delta = classicDouble(call.arguments.first, fallback: 0)
+        var document = context.document
+        let priorScroll = classicDouble(hyperCardGlobal("theScroll", in: document), fallback: 0)
+        let nextScroll = positiveModulo(priorScroll + delta, modulus: 3240)
+        let value = formatClassicNumber(nextScroll)
+        document.scriptGlobals["theScroll"] = value
+        document.scriptGlobals["hypercard.stoneship.telescope.delta"] = formatClassicNumber(delta)
+        document.scriptGlobals["hypercard.window.telescope4.scroll"] = "\(value),0"
+        return HyperCardExternalResult(
+            value: value,
+            result: value,
+            modifiedDocument: document,
+            runtimeGlobals: [
+                "theScroll": value,
+                "hypercard.stoneship.telescope.delta": formatClassicNumber(delta),
+                "hypercard.window.telescope4.scroll": "\(value),0"
+            ]
+        )
+    }
+
     private static func setPartLocation(
         named name: String,
         cardId: UUID,
@@ -1000,6 +1236,19 @@ public struct HyperCardExternalRegistry: Sendable {
                 "hypercard.movecursor.loc": loc,
                 "hypercard.movecursor.arguments": call.arguments.joined(separator: "\t"),
                 "hypercard.cursor.mode": "move"
+            ]
+        )
+    }
+
+    private static func updateCursorCompatibility(call: HyperCardExternalCall) -> HyperCardExternalResult {
+        let mode = call.arguments.first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return HyperCardExternalResult(
+            value: mode,
+            result: mode,
+            runtimeGlobals: [
+                "hypercard.updateCursor.mode": mode,
+                "hypercard.cursor.mode": mode.isEmpty ? "default" : mode
             ]
         )
     }
@@ -1847,6 +2096,47 @@ public struct HyperCardExternalRegistry: Sendable {
         }
     }
 
+    private static func setFieldText(
+        named name: String,
+        value: Value,
+        cardId: UUID,
+        in document: inout HypeDocument
+    ) {
+        let lookupName = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !lookupName.isEmpty else { return }
+        for index in document.parts.indices where
+            document.parts[index].cardId == cardId &&
+            document.parts[index].partType == .field &&
+            document.parts[index].name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == lookupName {
+            document.parts[index].textContent = value
+        }
+    }
+
+    private static func fieldText(named name: String, cardId: UUID, in document: HypeDocument) -> Value {
+        let lookupName = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return document.parts.first { part in
+            part.cardId == cardId &&
+            part.partType == .field &&
+            part.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == lookupName
+        }?.textContent ?? ""
+    }
+
+    private static func lineValue(_ oneBasedIndex: Int, from value: Value) -> Value? {
+        let lines = value.components(separatedBy: .newlines)
+        guard oneBasedIndex > 0, oneBasedIndex <= lines.count else { return nil }
+        return lines[oneBasedIndex - 1]
+    }
+
+    private static func replacingLine(_ oneBasedIndex: Int, in value: Value, with replacement: Value) -> Value {
+        guard oneBasedIndex > 0 else { return value }
+        var lines = value.components(separatedBy: .newlines)
+        while lines.count < oneBasedIndex {
+            lines.append("")
+        }
+        lines[oneBasedIndex - 1] = replacement
+        return lines.joined(separator: "\n")
+    }
+
     private static func mystPlanetariumGlobalName(_ which: Value) -> String {
         "MY_Pla\(which.trimmingCharacters(in: .whitespacesAndNewlines))"
     }
@@ -1878,6 +2168,17 @@ public struct HyperCardExternalRegistry: Sendable {
     private static func classicInteger(_ rawValue: Value?, fallback: Int) -> Int {
         let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return Int((Double(trimmed) ?? Double(fallback)).rounded())
+    }
+
+    private static func classicDouble(_ rawValue: Value?, fallback: Double) -> Double {
+        let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return Double(trimmed) ?? fallback
+    }
+
+    private static func positiveModulo(_ value: Double, modulus: Double) -> Double {
+        guard modulus > 0 else { return value }
+        let remainder = value.truncatingRemainder(dividingBy: modulus)
+        return remainder >= 0 ? remainder : remainder + modulus
     }
 
     private static func classicOptionalInteger(_ rawValue: Value) -> Int? {
