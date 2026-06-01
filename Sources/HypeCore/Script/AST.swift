@@ -130,6 +130,7 @@ public indirect enum Statement: Sendable {
     case go(destination: Expression)
     case goInStack(card: Expression, stack: Expression)
     case ifThenElse(condition: Expression, thenBlock: [Statement], elseBlock: [Statement]?)
+    case repeatForever(body: [Statement])
     case repeatCount(count: Expression, body: [Statement])
     case repeatWhile(condition: Expression, body: [Statement])
     case repeatWith(variable: String, from: Expression, to: Expression, body: [Statement])

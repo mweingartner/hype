@@ -1461,6 +1461,28 @@ public struct Interpreter: Sendable {
                 }
             }
 
+        case .repeatForever(let body):
+            while true {
+                instructionCount += 1
+                if instructionCount > context.instructionLimit {
+                    throw ScriptError(message: "Instruction limit exceeded", line: handler.line, handler: handler.name)
+                }
+                context.profiler?.recordLoopIteration("repeatForever")
+                do {
+                    for s in body {
+                        try await executeStatementAndPublish(s, env: &env, document: &document, context: context,
+                                                             instructionCount: &instructionCount,
+                                                             navigationTarget: &navigationTarget,
+                                                             projectNavigationTarget: &projectNavigationTarget,
+                                                             handler: handler)
+                    }
+                } catch ControlSignal.exitRepeat {
+                    break
+                } catch ControlSignal.nextRepeat {
+                    continue
+                }
+            }
+
         case .repeatCount(let countExpr, let body):
             let countStr = try await evaluate(countExpr, env: &env, document: document, context: context)
             let count = Int(toNumber(countStr))
@@ -7881,6 +7903,7 @@ public struct Interpreter: Sendable {
         case .go: return "go"
         case .goInStack: return "goInStack"
         case .ifThenElse: return "ifThenElse"
+        case .repeatForever: return "repeatForever"
         case .repeatCount: return "repeatCount"
         case .repeatWhile: return "repeatWhile"
         case .repeatWith: return "repeatWith"
