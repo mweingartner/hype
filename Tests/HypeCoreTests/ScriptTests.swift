@@ -781,6 +781,255 @@ struct ParserTests {
         #expect(windowName == "card window")
     }
 
+    @Test func parsesClassicPropertyReferenceWithoutThe() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          if visible of card button openElevator is false then
+            go to card id 41669
+          end if
+        end mouseUp
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        guard case .ifThenElse(let condition, _, _) = script.handlers[0].body[0] else {
+            Issue.record("Expected if statement")
+            return
+        }
+        guard case .binary(let lhs, .equal, let rhs) = condition,
+              case .propertyAccess(let property, let target?) = lhs,
+              property == "visible",
+              case .scopedObjectRef(let object, let owner) = target,
+              case .literal(let value) = rhs else {
+            Issue.record("Expected visible property comparison")
+            return
+        }
+        #expect(object.objectType == "button")
+        #expect(owner.objectType == "card")
+        guard case .literal(let buttonName) = object.identifier else {
+            Issue.record("Expected button literal")
+            return
+        }
+        #expect(buttonName == "openElevator")
+        #expect(value == "false")
+    }
+
+    @Test func parsesClassicOpenAsStateLiteral() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          global drawer
+          put open into drawer
+          if drawer is open then
+            go to card id 4495
+          end if
+        end mouseUp
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        guard case .put(let source, _, let target) = script.handlers[0].body[1],
+              case .literal(let sourceValue) = source,
+              case .variable(let targetName) = target else {
+            Issue.record("Expected put open into drawer")
+            return
+        }
+        #expect(sourceValue == "open")
+        #expect(targetName == "drawer")
+        guard case .ifThenElse(let condition, _, _) = script.handlers[0].body[2],
+              case .binary(let lhs, .equal, let rhs) = condition,
+              case .variable(let lhsName) = lhs,
+              case .literal(let rhsValue) = rhs else {
+            Issue.record("Expected drawer is open comparison")
+            return
+        }
+        #expect(lhsName == "drawer")
+        #expect(rhsValue == "open")
+    }
+
+    @Test func parsesClassicOnAsStateLiteral() throws {
+        var lexer = Lexer(source: """
+        on mouseDown
+          put on into light
+          if light is on then
+            put "lit" into field "status"
+          end if
+        end mouseDown
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        guard case .put(let source, _, let target) = script.handlers[0].body[0],
+              case .literal(let sourceValue) = source,
+              case .variable(let targetName) = target else {
+            Issue.record("Expected put on into light")
+            return
+        }
+        #expect(sourceValue == "on")
+        #expect(targetName == "light")
+        guard case .ifThenElse(let condition, _, _) = script.handlers[0].body[1],
+              case .binary(let lhs, .equal, let rhs) = condition,
+              case .variable(let lhsName) = lhs,
+              case .literal(let rhsValue) = rhs else {
+            Issue.record("Expected light is on comparison")
+            return
+        }
+        #expect(lhsName == "light")
+        #expect(rhsValue == "on")
+    }
+
+    @Test func rejectsStatementStartOnInsideHandler() throws {
+        var lexer = Lexer(source: """
+        on mouseDown
+          on anotherHandler
+        end mouseDown
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        #expect(throws: ParseError.self) {
+            try parser.parse()
+        }
+    }
+
+    @Test func parsesClassicSingleLineElseWithoutEndIfAtHandlerBoundary() throws {
+        var lexer = Lexer(source: """
+        on ToggleQuick
+          global Quick
+          if Quick is "true" then
+            put "false" into Quick
+          else put "true" into Quick
+          hide menubar
+        end ToggleQuick
+
+        on arrowKey
+          beep
+        end arrowKey
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 2)
+        #expect(script.handlers[0].name == "ToggleQuick")
+        #expect(script.handlers[1].name == "arrowKey")
+        guard case .ifThenElse(_, _, let elseBlock?) = script.handlers[0].body[1] else {
+            Issue.record("Expected if statement with else block")
+            return
+        }
+        #expect(elseBlock.count == 1)
+        #expect(script.handlers[0].body.count == 3)
+    }
+
+    @Test func parsesClassicSingleLineElseWithExplicitEndIf() throws {
+        var lexer = Lexer(source: """
+        on toggle
+          if flag is "true" then
+            put "false" into flag
+          else put "true" into flag
+          end if
+          put flag into field "status"
+        end toggle
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        guard case .ifThenElse(_, _, let elseBlock?) = script.handlers[0].body[0] else {
+            Issue.record("Expected if statement with else block")
+            return
+        }
+        #expect(elseBlock.count == 1)
+        #expect(script.handlers[0].body.count == 2)
+    }
+
+    @Test func parsesClassicInlineElseExternalCommandWithExplicitEndIf() throws {
+        var lexer = Lexer(source: """
+        on openCard
+          if field "truepath" is not empty then
+            if checkpath() then
+              if char 8 of field "truepath" is "B" then
+                if CH_PipeBridge is "up" then
+                  if word 2 of field "truepath" is "P" then playqt "L1 Slosh/Run/Motor Mov",,loop,100
+                  else if word 2 of field "truepath" is "Q" then playqt "L1 Slosh/Run/MotorQ Mov",,loop,100
+                  else playqt "L1 Slosh/Run Mov",,loop,100
+                else
+                  playqt "L1 slosh Mov",,loop,100
+                end if
+              else
+                if word 2 of field "truepath" is "P" then playqt "L1 Slosh/Run/Motor Mov",,loop,100
+                else if word 2 of field "truepath" is "Q" then playqt "L1 Slosh/Run/MotorQ Mov",,loop,100
+                else playqt "L1 Slosh/Run Mov",,loop,100
+              end if
+            else playqt "L1 slosh Mov",,loop,100
+            end if
+          end if
+          pass openCard
+        end openCard
+
+        on openStack
+          beep
+        end openStack
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 2)
+        #expect(script.handlers[0].name == "openCard")
+        #expect(script.handlers[1].name == "openStack")
+    }
+
+    @Test func preservesHandlerBoundaryAfterUnclosedImportedIf() throws {
+        var lexer = Lexer(source: """
+        on openCard
+          if field "truepath" is not empty then
+            if checkpath() then
+              playqt "L1 slosh Mov",,loop,100
+            end if
+          pass openCard
+        end openCard
+
+        on openStack
+          beep
+        end openStack
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 2)
+        #expect(script.handlers[0].name == "openCard")
+        #expect(script.handlers[1].name == "openStack")
+    }
+
+    @Test func parsesClassicCameraHandlerCommand() throws {
+        var lexer = Lexer(source: """
+        on mouseDown
+          camera 3
+        end mouseDown
+
+        on camera which
+          put which into currentCamera
+        end camera
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 2)
+        guard case .externalCommand(let name, let arguments) = script.handlers[0].body[0] else {
+            Issue.record("Expected camera command-style handler call")
+            return
+        }
+        #expect(name == "camera")
+        #expect(arguments.count == 1)
+        guard case .literal(let value) = arguments.first else {
+            Issue.record("Expected camera argument literal")
+            return
+        }
+        #expect(value == "3")
+        #expect(script.handlers[1].name == "camera")
+        #expect(script.handlers[1].params == ["which"])
+    }
+
     @Test func topLevelGlobalPreludeAppliesToEveryHandler() throws {
         var lexer = Lexer(source: """
         global moveDir, score
