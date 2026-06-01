@@ -167,8 +167,8 @@ public struct HyperCardExternalRegistry: Sendable {
         put(.xcmd, ["createMenu"], Entry(status: .emulated) { call, _ in
             createMenuCompatibility(call: call)
         })
-        put(.xcmd, ["soundTime"], Entry(status: .emulated) { call, _ in
-            soundTimeCompatibility(call: call)
+        put(.xcmd, ["soundTime"], Entry(status: .emulated) { call, context in
+            mystSoundTimeCompatibility(call: call, context: context)
         })
         put(.xcmd, ["closemoovs", "closemovies", "closeQT"], Entry(status: .emulated) { _, context in
             closeQuickTimeMovies(context: context)
@@ -707,13 +707,19 @@ public struct HyperCardExternalRegistry: Sendable {
         context: HyperCardExternalCallContext
     ) -> HyperCardExternalResult {
         guard let windowName = activeSoundMovieName(in: context.document), !windowName.isEmpty else {
+            let slots = ["start", "loopStart", "loopEnd", "end"]
+            var earlyGlobals: [String: String] = [
+                "hypercard.soundtime.arguments": call.arguments.joined(separator: "\t"),
+                "hypercard.soundtime.found": "false"
+            ]
+            for (index, slot) in slots.enumerated() {
+                let value = index < call.arguments.count ? call.arguments[index] : ""
+                earlyGlobals["hypercard.soundtime.\(slot)"] = value
+            }
             return HyperCardExternalResult(
                 result: "soundTime requires an active sound movie",
                 diagnostic: "soundTime requires an active sound movie",
-                runtimeGlobals: [
-                    "hypercard.soundtime.arguments": call.arguments.joined(separator: "\t"),
-                    "hypercard.soundtime.found": "false"
-                ]
+                runtimeGlobals: earlyGlobals
             )
         }
 
@@ -748,7 +754,11 @@ public struct HyperCardExternalRegistry: Sendable {
             "hypercard.soundtime.found": indices.isEmpty ? "false" : "true",
             "hypercard.window.\(windowKey).exists": "true",
             "hypercard.window.\(windowKey).visible": "true",
-            "hypercard.window.\(windowKey).rate": "1"
+            "hypercard.window.\(windowKey).rate": "1",
+            "hypercard.soundtime.start": call.arguments.dropFirst(0).first ?? "",
+            "hypercard.soundtime.loopStart": call.arguments.dropFirst(1).first ?? "",
+            "hypercard.soundtime.loopEnd": call.arguments.dropFirst(2).first ?? "",
+            "hypercard.soundtime.end": call.arguments.dropFirst(3).first ?? ""
         ]
         if let startTime {
             globals["hypercard.window.\(windowKey).starttime"] = formatClassicNumber(startTime)

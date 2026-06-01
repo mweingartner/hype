@@ -1566,6 +1566,13 @@ public struct Parser: Sendable {
             return .createSpriteArea(name: name, rect: rectExpr)
         }
 
+        if current.type == .identifier && current.value.lowercased() == "menu" {
+            _ = advance()
+            let args = try parseExternalCommandArguments()
+            skipNewlines()
+            return .externalCommand(name: "createMenu", arguments: args)
+        }
+
         // "create a new card [with background "name"]" or "create card [with background "name"]"
         // Skip optional "a" and "new"
         if current.type == .identifier && current.value.lowercased() == "a" { _ = advance() }
