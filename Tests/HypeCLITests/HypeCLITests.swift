@@ -596,6 +596,44 @@ struct HypeCLITests {
         #expect(!result.stdout.contains("object-reference"))
     }
 
+    @Test func testValidateScriptsUsesClassicAudioLookupAndSkipsDynamicSoundWarnings() throws {
+        var document = HypeDocument.newDocument(name: "Classic Audio Validation Fixture")
+        let audio = Asset(
+            name: "WA Drip",
+            kind: .audioClip,
+            mimeType: "audio/wav",
+            data: Data([1]),
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "WA Drip"),
+                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("WA Drip"))
+            ]
+        )
+        document.assetRepository.addAsset(audio)
+        let cardId = try #require(document.cards.first?.id)
+        var button = Part(partType: .button, cardId: cardId, name: "Play")
+        button.script = """
+        on mouseUp
+          put "WA Drip" into theSound
+          play theSound
+          play "wa drip "
+        end mouseUp
+        """
+        document.parts.append(button)
+
+        let packageURL = scriptDir.appendingPathComponent("ClassicAudioValidationFixture.hype", isDirectory: true)
+        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
+
+        let result = runBinary(arguments: [
+            "--validate-scripts", packageURL.path,
+        ])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("ok\tbutton\tPlay"))
+        #expect(!result.stdout.contains("play \"theSound\""))
+        #expect(!result.stdout.contains("play \"wa drip \""))
+        #expect(!result.stdout.contains("sound-asset"))
+    }
+
     @Test func testValidateScriptsTreatsClassicPlayNotesAsNotes() throws {
         var document = HypeDocument.newDocument(name: "Classic Play Notes Fixture")
         let cardId = try #require(document.cards.first?.id)
