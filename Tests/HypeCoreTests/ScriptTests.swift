@@ -923,6 +923,25 @@ struct ParserTests {
             return
         }
     }
+
+    @Test func parsesClassicBareRepeat() throws {
+        var lexer = Lexer(source: """
+        on waitForClick
+          repeat
+            if the mouseClick then exit repeat
+            soundIdle
+          end repeat
+        end waitForClick
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        guard case .repeatForever(let body) = script.handlers[0].body[0] else {
+            Issue.record("Expected repeat forever statement")
+            return
+        }
+        #expect(body.count == 2)
+    }
 }
 
 // MARK: - Interpreter Tests
@@ -3262,6 +3281,22 @@ struct InterpreterTests {
         let result = interpreter.execute(handler: handler, params: [], context: context)
         #expect(result.status == .error)
         #expect(result.error?.message.contains("Instruction limit") == true)
+    }
+
+    @Test func bareRepeatExitsWithExitRepeat() {
+        let result = executeScript("""
+        on test
+          put 0 into x
+          repeat
+            add 1 to x
+            if x is 3 then exit repeat
+          end repeat
+          return x
+        end test
+        """)
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "3")
     }
 }
 

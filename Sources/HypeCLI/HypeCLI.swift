@@ -1120,7 +1120,7 @@ private struct ScriptSemanticValidator {
                         contexts: &contexts
                     )
                 }
-            case .repeatCount(_, let body), .repeatWhile(_, let body):
+            case .repeatForever(let body), .repeatCount(_, let body), .repeatWhile(_, let body):
                 collectLocalHandlerCallCardContexts(
                     in: body,
                     currentCardId: effectiveCardId,
@@ -1255,6 +1255,8 @@ private struct ScriptSemanticValidator {
             if let elseBlock {
                 issues += statementsIssues(elseBlock, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
             }
+        case .repeatForever(let body):
+            issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
         case .repeatCount(let count, let body):
             issues += expressionIssues(count, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
             issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
