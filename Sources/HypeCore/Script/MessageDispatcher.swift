@@ -353,9 +353,9 @@ public struct MessageDispatcher: Sendable {
                 mouseY: mouseY,
                 appScript: appScript,
                 nestedSendDepth: nestedSendDepth,
-                fileProvider: fileProvider,
-                handlerType: handlerType
+                fileProvider: fileProvider
             )
+            let interpreter = Interpreter()
             var result = await interpreter.executeAsync(handler: handler, params: params, context: context)
             if let modifiedDocument = result.modifiedDocument {
                 currentDocument = modifiedDocument
