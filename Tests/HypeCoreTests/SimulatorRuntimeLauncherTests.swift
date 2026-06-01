@@ -149,6 +149,65 @@ struct SimulatorRuntimeLauncherTests {
         #expect(result.manifest.runtimeOnly)
         #expect(FileManager.default.fileExists(atPath: result.appBundleURL.path))
     }
+
+    @Test(
+        "live installed iPhone and iPad simulator matrix builds installs and launches generated runtime apps",
+        .enabled(if: ProcessInfo.processInfo.environment["HYPE_LIVE_IOS_SIMULATOR_MATRIX"] == "1")
+    )
+    func liveInstalledIOSSimulatorMatrix() async throws {
+        let launcher = HypeSimulatorRuntimeLauncher()
+        let devices = try await launcher.availableDevices()
+        let selectedDevices = devices
+            .filter { $0.platform == .iPhone || $0.platform == .iPad }
+            .filter { Self.currentShippingSimulatorNames.contains($0.name) }
+        #expect(!selectedDevices.isEmpty)
+
+        for device in selectedDevices {
+            var document = HypeDocument.newDocument(name: "Simulator Matrix \(device.name)")
+            document.stack.deploymentTargets = StackDeploymentTargets(
+                selectedPlatforms: [device.platform],
+                primaryPlatform: device.platform,
+                selectionPromptAcknowledged: true,
+                layoutPolicy: .scaleToFit
+            )
+            document.addPart(Part(partType: .button, cardId: document.cards[0].id, name: "Launch \(device.name)"))
+
+            let output = FileManager.default.temporaryDirectory
+                .appendingPathComponent("HypeSimulatorMatrix-\(device.udid)-\(UUID().uuidString)", isDirectory: true)
+            let keepPackage = ProcessInfo.processInfo.environment["HYPE_KEEP_RUNTIME_TEST_PACKAGES"] == "1"
+            defer {
+                if !keepPackage {
+                    try? FileManager.default.removeItem(at: output)
+                }
+            }
+
+            let result = try await launcher.launch(
+                document: document,
+                platform: device.platform,
+                device: device,
+                outputDirectory: output
+            )
+            #expect(result.manifest.platform == device.platform)
+            #expect(result.manifest.runtimeOnly)
+            #expect(FileManager.default.fileExists(atPath: result.appBundleURL.path))
+        }
+    }
+
+    private static let currentShippingSimulatorNames: Set<String> = [
+        "iPhone 17 Pro",
+        "iPhone 17 Pro Max",
+        "iPhone Air",
+        "iPhone 17",
+        "iPhone 17e",
+        "iPhone 16",
+        "iPhone 16 Plus",
+        "iPad Pro 13-inch (M5)",
+        "iPad Pro 11-inch (M5)",
+        "iPad Air 13-inch (M4)",
+        "iPad Air 11-inch (M4)",
+        "iPad (A16)",
+        "iPad mini (A17 Pro)",
+    ]
 }
 
 private actor RecordingSimulatorCommandRunner: HypeSimulatorCommandRunning {

@@ -148,14 +148,23 @@ public struct TargetRuntimePackageBuilder {
         plan: HypeDeploymentPlan,
         at outputDirectory: URL
     ) throws -> HypeRuntimePackageResult {
-        let validation = planner.validate(document: document, for: plan)
+        var runtimeDocument = planner.runtimeDocument(forDeployment: document)
+        _ = try StackAssetEmbedder.embedReferencedAssets(in: &runtimeDocument)
+        let selfContainmentIssues = StackAssetEmbedder.selfContainmentIssues(in: runtimeDocument)
+        guard selfContainmentIssues.isEmpty else {
+            throw TargetRuntimePackageBuilderError.packageValidationFailed(
+                selfContainedValidationMessage(selfContainmentIssues)
+            )
+        }
+
+        let validation = planner.validate(document: runtimeDocument, for: plan)
         guard validation.isDeployable else {
             throw TargetRuntimePackageBuilderError.packageValidationFailed(
                 deploymentValidationMessage(validation)
             )
         }
 
-        let packageName = try runtimePackageName(stackName: document.stack.name, platform: plan.platform)
+        let packageName = try runtimePackageName(stackName: runtimeDocument.stack.name, platform: plan.platform)
         let finalURL = outputDirectory.appendingPathComponent(packageName, isDirectory: true)
         let tempURL = outputDirectory.appendingPathComponent(".\(packageName)-\(UUID().uuidString)", isDirectory: true)
         let fm = FileManager.default
@@ -163,13 +172,13 @@ public struct TargetRuntimePackageBuilder {
         try fm.createDirectory(at: tempURL, withIntermediateDirectories: true)
 
         do {
-            let manifest = makeManifest(for: document, plan: plan)
+            let manifest = makeManifest(for: runtimeDocument, plan: plan)
             var generatedFiles: [String] = []
 
             let stackDir = tempURL.appendingPathComponent(Self.stackDirectoryName, isDirectory: true)
             try fm.createDirectory(at: stackDir, withIntermediateDirectories: true)
             let embeddedStackURL = stackDir.appendingPathComponent(Self.embeddedStackName, isDirectory: true)
-            try stackStore.save(planner.runtimeDocument(forDeployment: document), toPackageAt: embeddedStackURL)
+            try stackStore.save(runtimeDocument, toPackageAt: embeddedStackURL)
             generatedFiles.append("\(Self.stackDirectoryName)/\(Self.embeddedStackName)/\(HypeSQLiteStackStore.manifestFileName)")
             generatedFiles.append("\(Self.stackDirectoryName)/\(Self.embeddedStackName)/\(HypeSQLiteStackStore.sqliteFileName)")
 
@@ -180,7 +189,7 @@ public struct TargetRuntimePackageBuilder {
 
             let shellDir = tempURL.appendingPathComponent(Self.shellDirectoryName, isDirectory: true)
             try fm.createDirectory(at: shellDir, withIntermediateDirectories: true)
-            try writeShellFiles(for: document, plan: plan, manifest: manifest, shellDir: shellDir, generatedFiles: &generatedFiles)
+            try writeShellFiles(for: runtimeDocument, plan: plan, manifest: manifest, shellDir: shellDir, generatedFiles: &generatedFiles)
 
             try validatePackage(at: tempURL, manifest: manifest)
             try replaceItem(at: finalURL, with: tempURL)
@@ -349,6 +358,16 @@ public struct TargetRuntimePackageBuilder {
         }.joined(separator: "; ")
         let suffix = report.issues.count > 5 ? "; plus \(report.issues.count - 5) more" : ""
         return "\(report.platform.displayName) runtime package cannot be exported because \(report.issues.count) part(s) are unsupported: \(details)\(suffix)"
+    }
+
+    private func selfContainedValidationMessage(_ issues: [StackAssetSelfContainmentIssue]) -> String {
+        let details = issues.prefix(5).map { issue in
+            let name = issue.partName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let label = name.isEmpty ? issue.partType.rawValue : "\(issue.partType.rawValue) \"\(name)\""
+            return "\(label).\(issue.property): \(issue.reason)"
+        }.joined(separator: "; ")
+        let suffix = issues.count > 5 ? "; plus \(issues.count - 5) more" : ""
+        return "Runtime package cannot be exported because \(issues.count) referenced media item(s) are not embedded in the stack: \(details)\(suffix)"
     }
 
     private func bundleIdentifier(stackName: String, platform: HypeTargetPlatform) -> String {

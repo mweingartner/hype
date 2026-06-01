@@ -197,23 +197,14 @@ struct ViewMenuCommands: Commands {
                     NotificationCenter.default.post(name: .setTargetEmulation, object: nil, userInfo: ["profileId": ""])
                 }
                 Divider()
-                Button("macOS Default Card") {
-                    NotificationCenter.default.post(name: .setTargetEmulation, object: nil, userInfo: ["profileId": "macos-default"])
-                }
-                Button("iPhone Portrait") {
-                    NotificationCenter.default.post(name: .setTargetEmulation, object: nil, userInfo: ["profileId": "iphone-portrait"])
-                }
-                Button("iPhone Landscape") {
-                    NotificationCenter.default.post(name: .setTargetEmulation, object: nil, userInfo: ["profileId": "iphone-landscape"])
-                }
-                Button("iPad Portrait") {
-                    NotificationCenter.default.post(name: .setTargetEmulation, object: nil, userInfo: ["profileId": "ipad-portrait"])
-                }
-                Button("iPad Landscape") {
-                    NotificationCenter.default.post(name: .setTargetEmulation, object: nil, userInfo: ["profileId": "ipad-landscape"])
-                }
-                Button("tvOS 1080p") {
-                    NotificationCenter.default.post(name: .setTargetEmulation, object: nil, userInfo: ["profileId": "tvos-1080p"])
+                ForEach(HypeDeviceProfileCatalog.standardProfiles) { profile in
+                    Button(profile.displayName) {
+                        NotificationCenter.default.post(
+                            name: .setTargetEmulation,
+                            object: nil,
+                            userInfo: ["profileId": profile.id]
+                        )
+                    }
                 }
             }
 

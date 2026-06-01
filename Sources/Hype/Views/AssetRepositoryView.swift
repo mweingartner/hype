@@ -1169,13 +1169,13 @@ struct AssetRepositoryView: View {
     /// Image-kinds eligible for chroma-key processing. We accept
     /// imageTexture, spriteSheet, and tileSet — all of those are
     /// pixel data with a meaningful background to mask. We exclude
-    /// audioClip / videoClip / particlePreset / placeholderAsset
+    /// audioClip / videoClip / document / particlePreset / placeholderAsset
     /// (the chroma-key would either error or produce nonsense).
     private static func isImageKind(_ kind: AssetKind) -> Bool {
         switch kind {
         case .imageTexture, .spriteSheet, .tileSet:
             return true
-        case .audioClip, .videoClip, .particlePreset, .placeholderAsset, .model3D:
+        case .audioClip, .videoClip, .document, .particlePreset, .placeholderAsset, .model3D:
             return false
         }
     }

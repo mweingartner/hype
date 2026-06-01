@@ -581,9 +581,12 @@ factors, safe areas, and input models differ.
 - The Objects panel filters creation controls to the strict intersection of
   the selected targets, so a stack cannot accidentally depend on a control that
   one of its runtime targets cannot provide.
-- View → Emulate Target Device constrains the canvas to a standard target
-  profile such as iPhone Portrait, iPad Landscape, or tvOS 1080p. Edits made
-  while emulating are normal document edits and save immediately.
+- View → Emulate Target Device constrains the canvas to a target profile. The
+  catalog includes generic profiles plus current-shipping iPhone/iPad form
+  factors: iPhone 17 Pro / Pro Max, iPhone Air, iPhone 17, iPhone 17e, iPhone
+  16 / 16 Plus, iPad Pro 11/13-inch (M5), iPad Air 11/13-inch (M4), iPad
+  (A16), and iPad mini (A17 Pro). Edits made while emulating are normal
+  document edits and save immediately.
 - Target Platforms… lets authors choose fixed, scale-to-fit, or stretch-to-fill
   layout projection for target profiles. AI can inspect this with
   `preview_layout_profile`.
@@ -597,6 +600,11 @@ factors, safe areas, and input models differ.
   target profiles through `LayoutResolver` and renders supported parts through
   `TargetRuntimePartView`, so packages use the same fixed, scale-to-fit, or
   stretch-to-fill projection and HypeTalk message path as authoring previews.
+  Local PDF, video, Scene3D model, and recorder-output file references are
+  copied into the stack asset store in the runtime-document copy before
+  `Stack.hype` is written; remote media references are not fetched implicitly
+  and must be imported or replaced before deployment. Webpage controls remain
+  live URL references by design.
   Deployed apps do not include edit mode, authoring panels, AI/debug panels, or
   script-editor UI. Export validates the actual parts in the stack for each
   target and fails early with unsupported part names and reasons instead of
@@ -606,6 +614,9 @@ factors, safe areas, and input models differ.
   builds for the chosen simulator with `xcrun xcodebuild`, boots/opens
   Simulator, installs the generated app, and launches the stack without the user
   opening Xcode first.
+- `scripts/test_runtime_simulators.sh` runs the quick live simulator smoke
+  test. Set `HYPE_FULL_IOS_SIMULATOR_MATRIX=1` to also launch the generated
+  runtime app across every installed current-shipping iPhone/iPad simulator.
 - Target control availability is intentionally strict. iPhone/iPad expose the
   full shipped SwiftUI runtime adapter set; tvOS exposes only the focus-safe
   runtime set. Sprite areas, audio recorders, and legacy music queues remain

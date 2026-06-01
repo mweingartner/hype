@@ -171,6 +171,9 @@ public struct Part: Identifiable, Codable, Sendable {
     /// File path or HTTP URL of the PDF to display. Empty when no
     /// document is loaded — the renderer shows a placeholder.
     public var pdfURL: String
+    /// Optional reference to a stack-embedded PDF asset. When present,
+    /// this wins over `pdfURL` and keeps exported stacks self-contained.
+    public var pdfAssetRef: AssetRef?
     /// 1-based page index currently shown by `PDFView`.
     public var pdfCurrentPage: Int
     /// Display mode: "single" (one page at a time), "continuous"
@@ -504,6 +507,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.imageFilter = ""
         self.imageFilterIntensity = 0.7
         self.pdfURL = ""
+        self.pdfAssetRef = nil
         self.pdfCurrentPage = 1
         self.pdfDisplayMode = "continuous"
         self.pdfAutoScales = true
@@ -673,6 +677,7 @@ public struct Part: Identifiable, Codable, Sendable {
         imageFilterIntensity = try container.decodeIfPresent(Double.self, forKey: .imageFilterIntensity) ?? 0.7
         // PDF fields — backward-compat optional.
         pdfURL = try container.decodeIfPresent(String.self, forKey: .pdfURL) ?? ""
+        pdfAssetRef = try container.decodeIfPresent(AssetRef.self, forKey: .pdfAssetRef)
         pdfCurrentPage = try container.decodeIfPresent(Int.self, forKey: .pdfCurrentPage) ?? 1
         pdfDisplayMode = try container.decodeIfPresent(String.self, forKey: .pdfDisplayMode) ?? "continuous"
         pdfAutoScales = try container.decodeIfPresent(Bool.self, forKey: .pdfAutoScales) ?? true

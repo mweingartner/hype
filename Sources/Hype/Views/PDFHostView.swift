@@ -35,11 +35,18 @@ final class PDFHostNSView: NSView {
     /// Apply the latest `Part` config to the live viewer.
     /// Re-loads only when `pdfURL` actually changed; cheap on
     /// follow-up update passes.
-    func apply(_ part: Part) {
+    func apply(_ part: Part, assetRepository: AssetRepository? = nil) {
         pdfView.autoScales = part.pdfAutoScales
         pdfView.displayMode = Self.displayMode(for: part.pdfDisplayMode)
 
-        if part.pdfURL != loadedURL {
+        if let ref = part.pdfAssetRef,
+           let asset = assetRepository?.asset(byId: ref.id) {
+            let identity = "asset://\(asset.id.uuidString)/\(asset.data.count)"
+            if identity != loadedURL {
+                loadedURL = identity
+                pdfView.document = PDFDocument(data: asset.data)
+            }
+        } else if part.pdfURL != loadedURL {
             loadedURL = part.pdfURL
             loadDocument(from: part.pdfURL)
         }

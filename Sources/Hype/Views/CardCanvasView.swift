@@ -4721,11 +4721,11 @@ class CardCanvasNSView: NSView {
             if let existing = pdfViews[part.id] {
                 existing.isHidden = false
                 existing.frame = frame
-                existing.apply(part)
+                existing.apply(part, assetRepository: document.assetRepository)
                 continue
             }
             let host = PDFHostNSView(frame: frame)
-            host.apply(part)
+            host.apply(part, assetRepository: document.assetRepository)
             addSubview(host, positioned: .above, relativeTo: nil)
             pdfViews[part.id] = host
         }

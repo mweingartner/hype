@@ -1190,7 +1190,21 @@ struct PropertyInspector: View {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {
-            document.document.updatePart(id: partId) { $0.pdfURL = url.path }
+            do {
+                let asset = try StackAssetEmbedder.importLocalFile(
+                    at: url,
+                    as: .document,
+                    preferredName: url.lastPathComponent,
+                    into: &document.document.assetRepository
+                )
+                let ref = document.document.assetRepository.assetRef(for: asset)
+                document.document.updatePart(id: partId) {
+                    $0.pdfAssetRef = ref
+                    $0.pdfURL = StackAssetEmbedder.assetURLString(for: asset)
+                }
+            } catch {
+                showAssetImportError(error)
+            }
         }
     }
 
@@ -1424,7 +1438,7 @@ struct PropertyInspector: View {
         // Include `.usd` (plain ASCII USD) alongside `.usdz`. macOS has
         // built-in UTType registrations for all of these — STL maps to
         // `public.standard-tesselated-geometry-format`.
-        let exts = ["usdz", "usd", "scn", "dae", "obj", "stl"]
+        let exts = ["usdz", "usd", "scn", "dae", "obj", "stl", "glb", "gltf", "fbx"]
         panel.allowedContentTypes = exts.compactMap { UTType(filenameExtension: $0) }
         // Belt-and-suspenders: if a user has a model in a non-standard
         // format we still accept it — the Scene3D loader will reject
@@ -1436,15 +1450,28 @@ struct PropertyInspector: View {
         panel.allowsMultipleSelection = false
         panel.message = "Pick a 3D model — .usdz / .usd / .scn / .dae / .obj / .stl"
         if panel.runModal() == .OK, let url = panel.url {
-            let path = url.path
-            document.document.updatePart(id: partId) {
-                $0.scene3DAssetRef = nil
-                $0.scene3DSourceURL = path
-                if STLConverter.isSTL(path: path) {
-                    $0.scene3DURL = (try? STLConverter.convert(stlPath: path)) ?? ""
+            do {
+                let renderURL: URL
+                if STLConverter.isSTL(path: url.path),
+                   let convertedPath = try? STLConverter.convert(stlPath: url.path) {
+                    renderURL = URL(fileURLWithPath: convertedPath)
                 } else {
-                    $0.scene3DURL = path
+                    renderURL = url
                 }
+                let asset = try StackAssetEmbedder.importLocalFile(
+                    at: renderURL,
+                    as: .model3D,
+                    preferredName: renderURL.lastPathComponent,
+                    into: &document.document.assetRepository
+                )
+                let ref = document.document.assetRepository.assetRef(for: asset)
+                document.document.updatePart(id: partId) {
+                    $0.scene3DAssetRef = ref
+                    $0.scene3DSourceURL = ""
+                    $0.scene3DURL = ""
+                }
+            } catch {
+                showAssetImportError(error)
             }
         }
     }
@@ -1915,8 +1942,31 @@ struct PropertyInspector: View {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         if panel.runModal() == .OK, let url = panel.url {
-            document.document.updatePart(id: partId) { $0.videoURL = url.absoluteString }
+            do {
+                let asset = try StackAssetEmbedder.importLocalFile(
+                    at: url,
+                    as: .videoClip,
+                    preferredName: url.lastPathComponent,
+                    into: &document.document.assetRepository
+                )
+                let ref = document.document.assetRepository.assetRef(for: asset)
+                document.document.updatePart(id: partId) {
+                    $0.videoAssetRef = ref
+                    $0.videoURL = StackAssetEmbedder.assetURLString(for: asset)
+                }
+            } catch {
+                showAssetImportError(error)
+            }
         }
+    }
+
+    private func showAssetImportError(_ error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "Could not import asset into stack"
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     private func chooseImageForPart(partId: UUID) {

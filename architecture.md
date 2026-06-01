@@ -121,6 +121,7 @@ hype-v2/
 │       │   ├── ChartModel.swift           # Chart config / series / data points
 │       │   ├── AssetRef.swift             # Stable reference into the Asset Repository
 │       │   ├── AssetRepository.swift     # Stack-scoped asset store (provenance, slicing, clips)
+│       │   ├── StackAssetEmbedder.swift  # Copies local PDF/video/3D/audio refs into stack assets
 │       │   ├── SpriteAreaSpec.swift       # Named-scene registry for sprite areas
 │       │   ├── SceneSpec.swift            # Persistent SpriteKit scene description
 │       │   ├── NetworkManifest.swift      # Persisted outbound rules + saved listeners
@@ -1928,6 +1929,12 @@ playback model. `videoLoop` uses `AVQueuePlayer`/`AVPlayerLooper`,
 player, and imported audio-only QuickTime metadata hides visible video chrome
 behind a transparent 1x1 overlay.
 
+PDF controls follow the same asset-ref discipline through `Part.pdfAssetRef`.
+The property inspector imports selected PDFs into `AssetRepository` as
+`.document` assets, and both the authoring `PDFHostNSView` and generated target
+runtime materialize the bytes from the repository instead of depending on the
+original file path.
+
 ### 6.4 Accessibility and UI automation
 
 Hype exposes a stable macOS Accessibility API contract for both assistive
@@ -2013,9 +2020,15 @@ commands, mouse handling, and tests all use the same rules.
 
 Target-aware layout begins with `HypeDeviceProfileCatalog`,
 `PartAvailabilityCatalog`, and `LayoutResolver`. A device profile supplies the
-logical target size, safe areas, and input model. The object panel filters
-creation controls using strict selected-target intersection: a control appears
-only when it is usable on every platform selected for the stack.
+logical target size, safe areas, and input model. The catalog includes generic
+authoring profiles plus current-shipping iPhone and iPad form factors: iPhone
+17 Pro / Pro Max, iPhone Air, iPhone 17, iPhone 17e, iPhone 16 / 16 Plus, iPad
+Pro 11/13-inch M5, iPad Air 11/13-inch M4, iPad A16, and iPad mini A17 Pro.
+The model list is based on Apple's current store lineup, and the logical point
+sizes come from installed Xcode CoreSimulator device-profile metadata. The
+object panel filters creation controls using strict selected-target
+intersection: a control appears only when it is usable on every platform
+selected for the stack.
 `StackDeploymentTargets.layoutPolicy` controls target projection: `fixed`
 preserves absolute coordinates, `scaleToFit` uniformly scales and centers the
 authored card inside the target safe area, and `stretchToFill` scales each axis
@@ -2046,6 +2059,13 @@ session-only script globals without mutating the source stack. Runtime packages
 embed a self-contained SQLite `.hype` package under `Stack/Stack.hype`, write a
 `RuntimeManifest.json`, and generate shell `Info.plist`, entitlements metadata,
 App Intent descriptor JSON, and runtime-only Swift shell source.
+Before the embedded stack is written, `StackAssetEmbedder` normalizes local
+media references in a runtime-document copy: PDF, video, Scene3D model paths,
+and recorded-audio output paths are copied into the stack's `AssetRepository`
+or embedded audio data. Webpage controls are intentionally excluded because
+their contract is live web content. Remote PDF/video/model URLs are not fetched
+implicitly during export; they remain explicit authoring references and fail
+deployment validation until the user imports or replaces them.
 Apple mobile/runtime packages for iPhone, iPad, and tvOS also generate `HypeRuntimeApp.xcodeproj`, copy
 the HypeCore runtime sources into a local `RuntimeShell/HypeSource` package, and
 write build/deploy helper scripts:
@@ -2066,6 +2086,9 @@ boot/open Simulator, install the generated `.app`, and launch the runtime bundle
 identifier. The launcher never routes stack names, paths, device UDIDs, or
 bundle IDs through `/bin/sh -c`; every external process uses an executable URL
 plus an argument array. The source stack is not mutated by simulator testing.
+`scripts/test_runtime_simulators.sh` runs the quick live smoke path and can run
+the opt-in `HYPE_FULL_IOS_SIMULATOR_MATRIX=1` matrix across every installed
+current-shipping iPhone/iPad simulator profile.
 
 The generated target shell is a normal SwiftUI app target that embeds `RuntimeManifest.json`
 and the `Stack/Stack.hype` folder as app resources. The app loads the embedded

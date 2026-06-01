@@ -872,13 +872,13 @@ public struct TargetRuntimePartView<SystemProviderType: SystemProvider>: View {
         case .image:
             TargetRuntimeImageView(part: part)
         case .video:
-            TargetRuntimeVideoView(part: part)
+            TargetRuntimeVideoView(part: part, document: document)
         case .chart:
             TargetRuntimeChartView(part: part, onPartChanged: onPartChanged)
         case .calendar:
             TargetRuntimeCalendarView(part: part, onPartChanged: onPartChanged)
         case .pdf:
-            TargetRuntimePDFView(part: part)
+            TargetRuntimePDFView(part: part, document: document)
         case .map:
             TargetRuntimeMapView(part: part)
         case .colorWell:
@@ -1193,10 +1193,11 @@ private struct TargetRuntimeImageView: View {
 
 private struct TargetRuntimeVideoView: View {
     let part: Part
+    let document: HypeDocument
 
     var body: some View {
         #if canImport(AVKit)
-        if let url = targetRuntimeURL(part.videoURL) {
+        if let url = targetRuntimeVideoURL(part: part, document: document) {
             VideoPlayer(player: AVPlayer(url: url))
         } else {
             placeholder("Video")
@@ -1557,10 +1558,11 @@ private struct TargetRuntimeWKWebView: NSViewRepresentable {
 
 private struct TargetRuntimePDFView: View {
     let part: Part
+    let document: HypeDocument
 
     var body: some View {
         #if canImport(PDFKit)
-        if let url = targetRuntimeURL(part.pdfURL) {
+        if let url = targetRuntimePDFURL(part: part, document: document) {
             TargetRuntimePDFKitView(url: url, part: part)
         } else {
             placeholder("PDF")
@@ -1810,6 +1812,53 @@ private func targetRuntimeSceneURL(part: Part, document: HypeDocument) -> URL? {
         return url
     }
     return targetRuntimeURL(part.scene3DURL)
+}
+
+private func targetRuntimeVideoURL(part: Part, document: HypeDocument) -> URL? {
+    if let ref = part.videoAssetRef,
+       let asset = document.assetRepository.asset(byId: ref.id) {
+        return targetRuntimeMaterializedAssetURL(asset, directoryName: "hype-runtime-video")
+    }
+    if let id = StackAssetEmbedder.assetId(fromAssetURLString: part.videoURL),
+       let asset = document.assetRepository.asset(byId: id) {
+        return targetRuntimeMaterializedAssetURL(asset, directoryName: "hype-runtime-video")
+    }
+    return targetRuntimeURL(part.videoURL)
+}
+
+private func targetRuntimePDFURL(part: Part, document: HypeDocument) -> URL? {
+    if let ref = part.pdfAssetRef,
+       let asset = document.assetRepository.asset(byId: ref.id) {
+        return targetRuntimeMaterializedAssetURL(asset, directoryName: "hype-runtime-pdf")
+    }
+    if let id = StackAssetEmbedder.assetId(fromAssetURLString: part.pdfURL),
+       let asset = document.assetRepository.asset(byId: id) {
+        return targetRuntimeMaterializedAssetURL(asset, directoryName: "hype-runtime-pdf")
+    }
+    return targetRuntimeURL(part.pdfURL)
+}
+
+private func targetRuntimeMaterializedAssetURL(_ asset: Asset, directoryName: String) -> URL {
+    let ext = targetRuntimeFileExtension(for: asset)
+    let directory = URL.temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
+    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let url = directory.appendingPathComponent("\(asset.id.uuidString).\(ext)")
+    if !FileManager.default.fileExists(atPath: url.path) {
+        try? asset.data.write(to: url, options: .atomic)
+    }
+    return url
+}
+
+private func targetRuntimeFileExtension(for asset: Asset) -> String {
+    let ext = (asset.name as NSString).pathExtension.lowercased()
+    if !ext.isEmpty { return ext }
+    switch asset.mimeType.lowercased() {
+    case "application/pdf": return "pdf"
+    case "video/mp4": return "mp4"
+    case "video/quicktime": return "mov"
+    case "audio/mp4": return "m4a"
+    default: return "dat"
+    }
 }
 
 private func targetRuntimeSceneExtension(for asset: Asset) -> String {

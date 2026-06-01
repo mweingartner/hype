@@ -59,6 +59,34 @@ struct TargetPlatformTests {
         #expect(!TargetRuntimeAdapterCatalog.supportedPartTypes(on: .iPad).contains(.audioRecorder))
     }
 
+    @Test("device profile catalog includes current shipping iPhone and iPad form factors")
+    func deviceProfileCatalogIncludesCurrentShippingIOSFormFactors() {
+        let ids = Set(HypeDeviceProfileCatalog.standardProfiles.map(\.id))
+        let expectedIds: Set<String> = [
+            "iphone-17-pro-portrait", "iphone-17-pro-landscape",
+            "iphone-17-pro-max-portrait", "iphone-17-pro-max-landscape",
+            "iphone-air-portrait", "iphone-air-landscape",
+            "iphone-17-portrait", "iphone-17-landscape",
+            "iphone-17e-portrait", "iphone-17e-landscape",
+            "iphone-16-portrait", "iphone-16-landscape",
+            "iphone-16-plus-portrait", "iphone-16-plus-landscape",
+            "ipad-pro-13-m5-portrait", "ipad-pro-13-m5-landscape",
+            "ipad-pro-11-m5-portrait", "ipad-pro-11-m5-landscape",
+            "ipad-air-13-m4-portrait", "ipad-air-13-m4-landscape",
+            "ipad-air-11-m4-portrait", "ipad-air-11-m4-landscape",
+            "ipad-a16-portrait", "ipad-a16-landscape",
+            "ipad-mini-a17-pro-portrait", "ipad-mini-a17-pro-landscape",
+        ]
+
+        #expect(expectedIds.isSubset(of: ids))
+        let mobileProfiles = HypeDeviceProfileCatalog.standardProfiles.filter {
+            $0.platform == .iPhone || $0.platform == .iPad
+        }
+        #expect(mobileProfiles.allSatisfy { $0.width > 0 && $0.height > 0 && $0.scale >= 2 })
+        #expect(mobileProfiles.contains { $0.displayName == "iPhone 17 Pro Max Portrait" && $0.width == 440 && $0.height == 956 })
+        #expect(mobileProfiles.contains { $0.displayName == "iPad Pro 13-inch (M5) Portrait" && $0.width == 1032 && $0.height == 1376 })
+    }
+
     @Test("layout resolver projects constraints into target safe content area")
     func layoutResolverProjectsIntoSafeContentArea() throws {
         let cardId = UUID()
