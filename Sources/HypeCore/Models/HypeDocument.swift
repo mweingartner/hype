@@ -140,8 +140,11 @@ public struct HypeDocument: Codable, Sendable {
     }
 
     /// Create a new empty document with one default background and card.
-    public static func newDocument(name: String = "Untitled") -> HypeDocument {
-        let stack = Stack(name: name)
+    public static func newDocument(
+        name: String = "Untitled",
+        deploymentTargets: StackDeploymentTargets = .macOSDefault(selectionPromptAcknowledged: false)
+    ) -> HypeDocument {
+        let stack = Stack(name: name, deploymentTargets: deploymentTargets)
         let bg = Background(stackId: stack.id, name: "Background 1")
         let card = Card(stackId: stack.id, backgroundId: bg.id, name: "Card 1")
         return HypeDocument(stack: stack, backgrounds: [bg], cards: [card], parts: [], defaultBackgroundId: bg.id)

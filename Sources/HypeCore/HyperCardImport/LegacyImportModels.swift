@@ -41,6 +41,7 @@ public struct HyperCardImportReport: Codable, Sendable, Equatable {
     public var blockSummary: [HyperCardBlockSummary]
     public var resourceSummary: [MacResourceSummary]
     public var externalResources: [HyperCardExternalResource]
+    public var stackImportDiagnostics: StackImportPackageDiagnostics?
     public var importedBackgrounds: Int
     public var importedCards: Int
     public var importedParts: Int
@@ -54,6 +55,7 @@ public struct HyperCardImportReport: Codable, Sendable, Equatable {
         blockSummary: [HyperCardBlockSummary] = [],
         resourceSummary: [MacResourceSummary] = [],
         externalResources: [HyperCardExternalResource] = [],
+        stackImportDiagnostics: StackImportPackageDiagnostics? = nil,
         importedBackgrounds: Int = 0,
         importedCards: Int = 0,
         importedParts: Int = 0,
@@ -66,12 +68,74 @@ public struct HyperCardImportReport: Codable, Sendable, Equatable {
         self.blockSummary = blockSummary
         self.resourceSummary = resourceSummary
         self.externalResources = externalResources
+        self.stackImportDiagnostics = stackImportDiagnostics
         self.importedBackgrounds = importedBackgrounds
         self.importedCards = importedCards
         self.importedParts = importedParts
         self.importedScripts = importedScripts
         self.warnings = warnings
         self.unsupportedFeatures = unsupportedFeatures
+    }
+}
+
+public struct StackImportPackageDiagnostics: Codable, Sendable, Equatable {
+    public var sourcePath: String?
+    public var outputPackage: String?
+    public var dataForkBytes: Int?
+    public var resourceForkBytes: Int?
+    public var scriptEntries: Int
+    public var handlerCount: Int
+    public var callCount: Int
+    public var externalCallSummary: [StackImportCallSummary]
+    public var fontSummary: [StackImportFontSummary]?
+    public var ignoredPackageFiles: [String]
+
+    public init(
+        sourcePath: String? = nil,
+        outputPackage: String? = nil,
+        dataForkBytes: Int? = nil,
+        resourceForkBytes: Int? = nil,
+        scriptEntries: Int = 0,
+        handlerCount: Int = 0,
+        callCount: Int = 0,
+        externalCallSummary: [StackImportCallSummary] = [],
+        fontSummary: [StackImportFontSummary]? = nil,
+        ignoredPackageFiles: [String] = []
+    ) {
+        self.sourcePath = sourcePath
+        self.outputPackage = outputPackage
+        self.dataForkBytes = dataForkBytes
+        self.resourceForkBytes = resourceForkBytes
+        self.scriptEntries = scriptEntries
+        self.handlerCount = handlerCount
+        self.callCount = callCount
+        self.externalCallSummary = externalCallSummary
+        self.fontSummary = fontSummary
+        self.ignoredPackageFiles = ignoredPackageFiles
+    }
+}
+
+public struct StackImportFontSummary: Codable, Sendable, Equatable {
+    public var id: Int
+    public var name: String
+    public var resolvedFontName: String
+    public var available: Bool
+
+    public init(id: Int, name: String, resolvedFontName: String, available: Bool) {
+        self.id = id
+        self.name = name
+        self.resolvedFontName = resolvedFontName
+        self.available = available
+    }
+}
+
+public struct StackImportCallSummary: Codable, Sendable, Equatable {
+    public var name: String
+    public var count: Int
+
+    public init(name: String, count: Int) {
+        self.name = name
+        self.count = count
     }
 }
 
@@ -148,7 +212,7 @@ public struct HyperCardImportOptions: Sendable {
     public var maxInputBytes: Int
     public var maxBlockBytes: Int
     public var maxBlocks: Int
-    public var deploymentTargets: StackDeploymentTargets
+    public var deploymentTargets: StackDeploymentTargets?
 
     public init(
         preserveOriginalForks: Bool = true,
@@ -156,7 +220,7 @@ public struct HyperCardImportOptions: Sendable {
         maxInputBytes: Int = 512 * 1024 * 1024,
         maxBlockBytes: Int = 128 * 1024 * 1024,
         maxBlocks: Int = 200_000,
-        deploymentTargets: StackDeploymentTargets = .macOSDefault(selectionPromptAcknowledged: true)
+        deploymentTargets: StackDeploymentTargets? = nil
     ) {
         self.preserveOriginalForks = preserveOriginalForks
         self.maxEmbeddedOriginalBytes = maxEmbeddedOriginalBytes

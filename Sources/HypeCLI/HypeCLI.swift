@@ -77,10 +77,10 @@ struct HypeCLI: AsyncParsableCommand {
     @Option(help: "Write --import-corpus successful imports as .hype packages in this directory")
     var outputDir: String?
 
-    @Option(help: "Target platforms for imported stacks, comma-separated. Defaults to macOS for automation imports.")
-    var targetPlatforms = "macOS"
+    @Option(help: "Automation import target platforms, comma-separated: macOS, iPhone, iPad, tvOS. Defaults to macOS.")
+    var targetPlatforms: String?
 
-    @Option(help: "Primary target platform for imported stacks. Defaults to the first --target-platforms value.")
+    @Option(help: "Automation import primary target platform. Defaults to the first selected target.")
     var primaryTargetPlatform: String?
 
     @Option(help: "Maximum source files to scan with --import-corpus")
@@ -404,43 +404,42 @@ struct HypeCLI: AsyncParsableCommand {
     }
 
     private func importOneHyperCardStack(_ url: URL) throws -> ImportSummary {
-        let result = try StackImportCImporter(options: importOptions).importStack(at: url)
+        let result = try StackImportCImporter(
+            options: HyperCardImportOptions(deploymentTargets: try automationDeploymentTargets())
+        ).importStack(at: url)
         return ImportSummary(sourceURL: url, document: result.document)
     }
 
-    private var importOptions: HyperCardImportOptions {
-        get throws {
-            let platforms = try parseTargetPlatforms(targetPlatforms)
-            let primary = try parsePrimaryTargetPlatform(from: primaryTargetPlatform, selectedPlatforms: platforms)
-            return HyperCardImportOptions(
-                deploymentTargets: StackDeploymentTargets(
-                    selectedPlatforms: platforms,
-                    primaryPlatform: primary,
-                    selectionPromptAcknowledged: true
-                )
-            )
-        }
+    private func automationDeploymentTargets() throws -> StackDeploymentTargets {
+        let selected = try parseTargetPlatforms(targetPlatforms)
+        let primary = try parsePrimaryTargetPlatform(primaryTargetPlatform, selectedPlatforms: selected)
+        return .automationDefault(selectedPlatforms: selected.isEmpty ? [.macOS] : selected, primaryPlatform: primary)
     }
 
-    private func parseTargetPlatforms(_ raw: String) throws -> [HypeTargetPlatform] {
-        guard let platforms = HypeTargetPlatform.parseList(raw), !platforms.isEmpty else {
-            throw ValidationError("Invalid --target-platforms '\(raw)' (expected macOS, iPhone, iPad, or tvOS)")
+    private func parseTargetPlatforms(_ value: String?) throws -> [HypeTargetPlatform] {
+        guard let value = normalized(value) else { return [] }
+        let components = value
+            .split(separator: ",")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let platforms = components.compactMap(HypeTargetPlatform.parse)
+        guard platforms.count == components.count else {
+            throw ValidationError("--target-platforms must contain only: macOS, iPhone, iPad, tvOS")
         }
         return platforms
     }
 
     private func parsePrimaryTargetPlatform(
-        from raw: String?,
+        _ value: String?,
         selectedPlatforms: [HypeTargetPlatform]
-    ) throws -> HypeTargetPlatform {
-        guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return selectedPlatforms.first ?? .macOS
+    ) throws -> HypeTargetPlatform? {
+        guard let value = normalized(value) else { return nil }
+        guard let platform = HypeTargetPlatform.parse(value) else {
+            throw ValidationError("--primary-target-platform must be one of: macOS, iPhone, iPad, tvOS")
         }
-        guard let platform = HypeTargetPlatform.parse(raw) else {
-            throw ValidationError("Invalid --primary-target-platform '\(raw)' (expected macOS, iPhone, iPad, or tvOS)")
-        }
-        guard selectedPlatforms.contains(platform) else {
-            throw ValidationError("--primary-target-platform '\(platform.rawValue)' is not included in --target-platforms")
+        let selected = selectedPlatforms.isEmpty ? [HypeTargetPlatform.macOS] : selectedPlatforms
+        guard selected.contains(platform) else {
+            throw ValidationError("--primary-target-platform must be included in --target-platforms")
         }
         return platform
     }
@@ -1024,10 +1023,9 @@ private struct ScriptSemanticValidator {
                 issues += expressionIssues(target, owner: owner, functionNames: functionNames)
             }
             if case .literal(let name) = message,
-               target.map(isMeLike) ?? true,
+               target.map(isMeLike) == true,
                !handlerNames.contains(name.lowercased()) {
-                let targetDescription = target == nil ? "" : " to me"
-                issues.append(issue("send-handler", "`send \"\(name)\"\(targetDescription)` has no matching handler in this script."))
+                issues.append(issue("send-handler", "`send \"\(name)\" to me` has no matching handler in this script."))
             }
         case .visual(let effect, let duration):
             issues += expressionIssues(effect, owner: owner, functionNames: functionNames)
@@ -1132,6 +1130,9 @@ private struct ScriptSemanticValidator {
         case .objectRef(let ref):
             issues += objectReferenceIssues(ref, owner: owner)
             issues += expressionIssues(ref.identifier, owner: owner, functionNames: functionNames)
+        case .scopedObjectRef(let object, let ownerRef):
+            issues += expressionIssues(object.identifier, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(ownerRef.identifier, owner: owner, functionNames: functionNames)
         case .propertyAccess(_, let target):
             if let target { issues += expressionIssues(target, owner: owner, functionNames: functionNames) }
         case .binary(let left, _, let right), .contains(let left, let right), .stringConcat(let left, let right),

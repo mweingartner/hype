@@ -44,7 +44,7 @@ public enum HypeTargetPlatform: String, Codable, CaseIterable, Sendable, Hashabl
             return .macOS
         case "iphone", "iosphone":
             return .iPhone
-        case "ipad", "iostablet":
+        case "ipad", "iospad":
             return .iPad
         case "tvos", "tv":
             return .tvOS
@@ -274,6 +274,18 @@ public struct StackDeploymentTargets: Codable, Sendable, Equatable {
 
     public static func macOSDefault(selectionPromptAcknowledged: Bool) -> StackDeploymentTargets {
         StackDeploymentTargets(selectionPromptAcknowledged: selectionPromptAcknowledged)
+    }
+
+    public static func automationDefault(
+        selectedPlatforms: [HypeTargetPlatform] = [.macOS],
+        primaryPlatform: HypeTargetPlatform? = nil
+    ) -> StackDeploymentTargets {
+        let normalized = normalized(selectedPlatforms)
+        return StackDeploymentTargets(
+            selectedPlatforms: normalized,
+            primaryPlatform: primaryPlatform.flatMap { normalized.contains($0) ? $0 : nil } ?? normalized[0],
+            selectionPromptAcknowledged: true
+        )
     }
 
     public var primaryProfile: HypeDeviceProfile {
