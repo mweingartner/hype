@@ -1199,9 +1199,9 @@ public struct AssetRepository: Codable, Sendable {
 classic HyperCard resources. It normalizes StackImport media names and metadata
 before matching, so runtime compatibility calls and HypeTalk audio playback can
 find embedded `audioClip` assets even when source scripts use classic casing or
-trailing-space variants. Script validation uses the same lookup for literal
-`play` sound names and skips non-literal sound expressions that must resolve at
-runtime.
+trailing-space variants, or omit word separators present in imported asset
+names. Script validation uses the same lookup for literal `play` sound names
+and skips non-literal sound expressions that must resolve at runtime.
 
 `AssetProvenance` records the import path: `userImport`, `webSearch`,
 `aiGenerated`, or `aiContext`. Web-search imports also persist license + creator + source URL
