@@ -2548,6 +2548,58 @@ struct InterpreterTests {
         #expect(result.modifiedDocument?.scriptGlobals["hypercard.window.\(windowKey).mute"] == "true")
     }
 
+    @Test func quickTimeFadeHelpersUpdateImportedMovieWindowState() {
+        let movie = Asset(
+            name: "MystLib-modern.mov",
+            kind: .videoClip,
+            mimeType: "video/quicktime",
+            data: Data("movie".utf8),
+            width: 160,
+            height: 90,
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "MystLib.MooV"),
+                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("MystLib.MooV"))
+            ]
+        )
+        var doc = HypeDocument.newDocument()
+        doc.assetRepository = AssetRepository(assets: [movie])
+
+        let fadedIn = executeScript("""
+        on test
+          Movie "MystLib.MooV","borderless","230,173","invisible","Floating"
+          set the rate of window "MystLib.MooV" to "0.0"
+          fadein "MystLib.MooV",150
+        end test
+        """, document: doc)
+
+        #expect(fadedIn.status == .completed)
+        #expect(fadedIn.visualEffect == "fade in")
+        let activeVideo = fadedIn.modifiedDocument?.parts.first { $0.partType == .video }
+        #expect(activeVideo?.videoAutoplay == true)
+        #expect(activeVideo?.videoVolume == 150.0 / 255.0)
+        let windowKey = AssetRepository.classicMediaLookupKey("MystLib.MooV")
+        #expect(fadedIn.modifiedDocument?.scriptGlobals["hypercard.fadein.window"] == "MystLib.MooV")
+        #expect(fadedIn.modifiedDocument?.scriptGlobals["hypercard.fadein.volume"] == "150")
+        #expect(fadedIn.modifiedDocument?.scriptGlobals["hypercard.window.\(windowKey).rate"] == "1.0")
+
+        guard let document = fadedIn.modifiedDocument else {
+            Issue.record("fadein did not return a modified document")
+            return
+        }
+        let fadedOut = executeScript("""
+        on test
+          fadeout
+        end test
+        """, document: document)
+
+        #expect(fadedOut.status == .completed)
+        #expect(fadedOut.visualEffect == "fade out")
+        let stoppedVideo = fadedOut.modifiedDocument?.parts.first { $0.partType == .video }
+        #expect(stoppedVideo?.videoAutoplay == false)
+        #expect(stoppedVideo?.videoVolume == 0)
+        #expect(fadedOut.modifiedDocument?.scriptGlobals["hypercard.fadeout.count"] == "1")
+    }
+
     @Test func closeMoovsRemovesCompatibilityVideoParts() {
         let movie = Asset(name: "Intro Wind Mov", kind: .videoClip, mimeType: "video/quicktime", data: Data("movie".utf8))
         var doc = HypeDocument.newDocument()
