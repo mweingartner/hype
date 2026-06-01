@@ -268,6 +268,26 @@ struct HyperCardImportTests {
         #expect(try parsedHandlerCount(translated) == 1)
     }
 
+    @Test("legacy translator keeps bare property-of handlers live")
+    func legacyTranslatorKeepsBarePropertyOfHandlersLive() throws {
+        let script = """
+        on mouseUp
+        if visible of card button openElevator is false then
+        go to card id 41669
+        play "DR wood shut"
+        else
+        go to card id 41669
+        end if
+        end mouseUp
+        """
+
+        let translated = LegacyHyperTalkScript.preparedForHypeTalkRuntime(script)
+
+        #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(translated))
+        #expect(translated.contains("visible of card button openElevator"))
+        #expect(try parsedHandlerCount(translated) == 1)
+    }
+
     @Test("legacy translator comments disabled handler tails without disabling earlier handlers")
     func legacyTranslatorCommentsDisabledHandlerTails() throws {
         let script = """
