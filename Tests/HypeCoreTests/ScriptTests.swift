@@ -303,6 +303,24 @@ struct ParserTests {
         #expect(cameraVariable == "SE_CameraID")
     }
 
+    @Test func parsesClassicPictureExternalCommandsWithParenthesizedArguments() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          HTAddPict (field "pict name" & " (open)"),¬
+            the rect of card button marker, "srccopy"
+        end mouseUp
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        guard case .externalCommand(let name, let arguments) = script.handlers[0].body[0] else {
+            Issue.record("Expected HTAddPict external command")
+            return
+        }
+        #expect(name == "HTAddPict")
+        #expect(arguments.count == 3)
+    }
+
     @Test func parsesClassicDoMenuAndSaveAsCommands() throws {
         var lexer = Lexer(source: """
         on mouseUp
