@@ -24,6 +24,8 @@ struct HyperCardImportTests {
 
         #expect(document.stack.width == 640)
         #expect(document.stack.height == 480)
+        #expect(document.stack.deploymentTargets.selectedPlatforms == [.macOS])
+        #expect(document.stack.deploymentTargets.selectionPromptAcknowledged)
         #expect(document.backgrounds.count == 1)
         #expect(document.cards.count == 1)
         #expect(document.parts.count == 2)
@@ -165,6 +167,8 @@ struct HyperCardImportTests {
         let result = try StackImportPackageConverter().convert(packageFiles: packageFiles)
         let button = try #require(result.document.parts.first { $0.partType == .button })
 
+        #expect(result.document.stack.deploymentTargets.selectedPlatforms == [.macOS])
+        #expect(result.document.stack.deploymentTargets.selectionPromptAcknowledged)
         #expect(button.name == "Button 1")
         #expect(button.showName == false)
         #expect(button.buttonStyle == .transparent)

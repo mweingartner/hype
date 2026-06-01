@@ -31,6 +31,37 @@ public enum HypeTargetPlatform: String, Codable, CaseIterable, Sendable, Hashabl
         case .tvOS: return "tvos-1080p"
         }
     }
+
+    public static func parse(_ raw: String) -> HypeTargetPlatform? {
+        let normalized = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: " ", with: "")
+        switch normalized {
+        case "macos", "mac":
+            return .macOS
+        case "iphone", "iosphone":
+            return .iPhone
+        case "ipad", "iostablet":
+            return .iPad
+        case "tvos", "tv":
+            return .tvOS
+        default:
+            return nil
+        }
+    }
+
+    public static func parseList(_ raw: String) -> [HypeTargetPlatform]? {
+        let platforms = raw
+            .split { $0 == "," || $0 == ";" || $0 == " " || $0 == "\n" || $0 == "\t" }
+            .map(String.init)
+        guard !platforms.isEmpty else { return nil }
+        let parsed = platforms.compactMap(parse)
+        guard parsed.count == platforms.count else { return nil }
+        return parsed
+    }
 }
 
 public enum HypeTargetOrientation: String, Codable, CaseIterable, Sendable, Hashable {

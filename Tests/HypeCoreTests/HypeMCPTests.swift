@@ -39,6 +39,32 @@ struct HypeMCPTests {
         #expect(names.contains("hype_create_test_stack"))
     }
 
+    @Test("create test stack defaults to acknowledged macOS and accepts target override")
+    func createTestStackAcceptsTargetOverride() async {
+        let backend = HypeMCPDocumentBackend(document: HypeDocument.newDocument(name: "MCP"))
+
+        _ = await backend.callTool(
+            name: "hype_create_test_stack",
+            arguments: ["name": .string("Default")]
+        )
+        #expect(backend.document.stack.deploymentTargets.selectedPlatforms == [.macOS])
+        #expect(backend.document.stack.deploymentTargets.primaryPlatform == .macOS)
+        #expect(backend.document.stack.deploymentTargets.selectionPromptAcknowledged)
+
+        _ = await backend.callTool(
+            name: "hype_create_test_stack",
+            arguments: [
+                "name": .string("iPad"),
+                "target_platforms": .string("macOS,iPad"),
+                "primary_target_platform": .string("iPad")
+            ]
+        )
+        #expect(backend.document.stack.name == "iPad")
+        #expect(backend.document.stack.deploymentTargets.selectedPlatforms == [.macOS, .iPad])
+        #expect(backend.document.stack.deploymentTargets.primaryPlatform == .iPad)
+        #expect(backend.document.stack.deploymentTargets.selectionPromptAcknowledged)
+    }
+
     @Test("tools/list and resources/list are JSON-RPC compatible")
     func processorListsToolsAndResources() async throws {
         let backend = HypeMCPDocumentBackend(document: HypeDocument.newDocument(name: "MCP"))

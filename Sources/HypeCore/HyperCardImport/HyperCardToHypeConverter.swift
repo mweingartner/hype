@@ -51,6 +51,7 @@ public struct HyperCardToHypeConverter: Sendable {
         let defaultBackgroundLegacyID = backgrounds.first?.legacyID
 
         var document = HypeDocument.newDocument(name: stackInfo.name)
+        document.stack.deploymentTargets = options.deploymentTargets
         document.stack.width = stackInfo.width
         document.stack.height = stackInfo.height
         document.stack.script = disabledLegacyScript(stackInfo.script)
