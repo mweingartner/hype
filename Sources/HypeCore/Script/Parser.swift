@@ -280,6 +280,13 @@ public struct Parser: Sendable {
         case .import:   return try parseImportStatement()
         case .convert:  return try parseConvertStatement()
         case .constrain: return try parseConstrainStatement()
+        case .button:
+            if shouldParseClassicButtonCommand() {
+                return try parseExternalCommandStatement()
+            }
+            let expr = try parseExpression()
+            skipNewlines()
+            return .expressionStatement(expr)
         case .play:     return try parsePlayStatement()
         case .beep:     return try parseBeepStatement()
         case .wait:     return try parseWaitStatement()
@@ -408,6 +415,12 @@ public struct Parser: Sendable {
             skipNewlines()
             return .expressionStatement(expr)
         }
+    }
+
+    private func shouldParseClassicButtonCommand() -> Bool {
+        guard current.type == .button else { return false }
+        guard let first = peek(1), let separator = peek(2) else { return false }
+        return (first.type == .integer || first.type == .float) && separator.type == .comma
     }
 
     private func shouldParseExternalCommandStatement() -> Bool {

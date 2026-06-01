@@ -197,6 +197,9 @@ public struct HyperCardExternalRegistry: Sendable {
         put(.xcmd, ["pushKey"], Entry(status: .emulated) { call, context in
             mystPushKeyCompatibility(call: call, context: context)
         })
+        put(.xcmd, ["button"], Entry(status: .emulated) { call, _ in
+            classicButtonCompatibility(call: call)
+        })
         put(.xcmd, ["PreGear"], Entry(status: .emulated) { call, context in
             mystPreGearCompatibility(call: call, context: context)
         })
@@ -965,6 +968,21 @@ public struct HyperCardExternalRegistry: Sendable {
         return CGPoint(
             x: part.left + max(part.width, 1) / 2.0,
             y: part.top + max(part.height, 1) / 2.0
+        )
+    }
+
+    private static func classicButtonCompatibility(call: HyperCardExternalCall) -> HyperCardExternalResult {
+        let buttonIndex = classicInteger(call.arguments.first, fallback: 0)
+        let direction = classicInteger(call.arguments.dropFirst().first, fallback: 0)
+        let value = "\(buttonIndex),\(direction)"
+        return HyperCardExternalResult(
+            value: value,
+            result: value,
+            runtimeGlobals: [
+                "hypercard.button.last": value,
+                "hypercard.button.index": String(buttonIndex),
+                "hypercard.button.direction": String(direction)
+            ]
         )
     }
 
