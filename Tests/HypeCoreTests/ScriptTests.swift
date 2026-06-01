@@ -840,6 +840,29 @@ struct ParserTests {
         #expect(script.handlers[1].name == "openStack")
     }
 
+    @Test func parsesClassicOuterElseAfterInnerMultilineElseEndIf() throws {
+        var lexer = Lexer(source: """
+        on GenUp
+          if MY_GenVolts = 0 then
+            if there is not a window "EL GenAll MoV" then playQT "EL GenAll MoV",,loop,150,"5,05","0","0","9,30",true
+            else
+              playQT "EL GenAll MoV",,Loop,150,,,,,true
+              soundTime "5,05","0","0","9,30"
+            end if
+          else soundTime "14,41","9,30","9,30","23,40"
+        end GenUp
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        #expect(script.handlers[0].name == "GenUp")
+        guard case .ifThenElse(_, _, let elseBlock?) = script.handlers[0].body[0] else {
+            Issue.record("Expected outer if with else block")
+            return
+        }
+        #expect(elseBlock.count == 1)
+    }
 
     @Test func topLevelGlobalPreludeAppliesToEveryHandler() throws {
         var lexer = Lexer(source: """

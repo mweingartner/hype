@@ -843,7 +843,7 @@ public struct Parser: Sendable {
                         skipNewlines()
                     }
                     elseBlock = elseStmts
-                    consumeOptionalEndIfUnlessFollowedByElse()
+                    consumeOptionalEndIf()
                 }
             } else {
                 let followingElseBlock = try parseSingleLineIfElseBlock(allowFollowingLineElse: true)
@@ -944,6 +944,13 @@ public struct Parser: Sendable {
             return
         }
 
+        _ = advance()
+        _ = match(.if)
+        skipNewlines()
+    }
+
+    private mutating func consumeOptionalEndIf() {
+        guard isEndIfTerminator() else { return }
         _ = advance()
         _ = match(.if)
         skipNewlines()
