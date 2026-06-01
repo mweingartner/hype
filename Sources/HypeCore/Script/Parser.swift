@@ -804,7 +804,7 @@ public struct Parser: Sendable {
                 } else {
                     skipNewlines()
                     var elseStmts: [Statement] = []
-                    while current.type != .end && current.type != .eof {
+                    while current.type != .end && !isImplicitImportedBlockBoundary() {
                         let stmt = try parseStatement()
                         elseStmts.append(stmt)
                         skipNewlines()
@@ -825,7 +825,7 @@ public struct Parser: Sendable {
         // Multi-line if block.
         skipNewlines()
         var thenBlock: [Statement] = []
-        while current.type != .else && current.type != .end && current.type != .eof {
+        while current.type != .else && current.type != .end && !isImplicitImportedBlockBoundary() {
             let stmt = try parseStatement()
             thenBlock.append(stmt)
             skipNewlines()
@@ -841,7 +841,7 @@ public struct Parser: Sendable {
             }
             skipNewlines()
             var elseStmts: [Statement] = []
-            while current.type != .end && current.type != .eof {
+            while current.type != .end && !isImplicitImportedBlockBoundary() {
                 let stmt = try parseStatement()
                 elseStmts.append(stmt)
                 skipNewlines()
@@ -849,10 +849,25 @@ public struct Parser: Sendable {
             elseBlock = elseStmts
         }
 
-        _ = try expect(.end)
-        _ = match(.if) // `end if`
+        if isExplicitIfEndTerminator() {
+            _ = advance()
+            _ = match(.if) // `end if`
+        }
         skipNewlines()
         return .ifThenElse(condition: condition, thenBlock: thenBlock, elseBlock: elseBlock)
+    }
+
+    private func isExplicitIfEndTerminator() -> Bool {
+        guard current.type == .end else { return false }
+        guard let next = peek(1) else { return true }
+        if next.type == .if || next.type == .newline || next.type == .eof {
+            return true
+        }
+        return false
+    }
+
+    private func isImplicitImportedBlockBoundary() -> Bool {
+        current.type == .eof || current.type == .on || current.type == .function
     }
 
     private mutating func parseRepeatStatement() throws -> Statement {
