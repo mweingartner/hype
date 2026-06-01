@@ -606,6 +606,31 @@ struct ParserTests {
         #expect(target == nil)
     }
 
+    @Test func parsesClassicSendToBareCardAsCurrentCardDispatch() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          send mouseDownInMovie to card
+        end mouseUp
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        guard case .send(_, let target) = script.handlers[0].body[0] else {
+            Issue.record("Expected send message statement")
+            return
+        }
+        guard case .objectRef(let ref)? = target else {
+            Issue.record("Expected current card object reference")
+            return
+        }
+        #expect(ref.objectType == "card")
+        guard case .literal(let identifier) = ref.identifier else {
+            Issue.record("Expected current-card literal identifier")
+            return
+        }
+        #expect(identifier == "current")
+    }
+
     @Test func parsesClassicPushAndPopCard() throws {
         var lexer = Lexer(source: """
         on mouseUp
@@ -3665,6 +3690,42 @@ struct MessageDispatcherTests {
         #expect(result.status == .completed)
         let outputField = result.modifiedDocument?.parts.first(where: { $0.name == "output" })
         #expect(outputField?.textContent == "card handled")
+    }
+
+    @Test func sendToBareCardInvokesCurrentCardHandler() async {
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+
+        var field = Part(partType: .field, cardId: cardId, name: "output")
+        doc.addPart(field)
+
+        var btn = Part(partType: .button, cardId: cardId, name: "Source")
+        btn.script = """
+        on mouseUp
+          send doCard to card
+        end mouseUp
+        """
+        doc.addPart(btn)
+
+        if let idx = doc.cards.firstIndex(where: { $0.id == cardId }) {
+            doc.cards[idx].script = """
+            on doCard
+              put "bare card handled" into field "output"
+            end doCard
+            """
+        }
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, cardId, btn] in dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: btn.id,
+            document: doc,
+            currentCardId: cardId
+        ) }
+        #expect(result.status == .completed)
+        let outputField = result.modifiedDocument?.parts.first(where: { $0.name == "output" })
+        #expect(outputField?.textContent == "bare card handled")
     }
 
     @Test func sendToThisBackgroundInvokesBackgroundHandler() async {
