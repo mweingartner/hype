@@ -2997,6 +2997,12 @@ public struct Parser: Sendable {
             return negated ? .thereIsNo(objectType, nameExpr) : .thereIsA(objectType, nameExpr)
 
         case .identifier:
+            if let property = parseBareClassicPropertyName() {
+                _ = try expect(.of)
+                skipTransparentOfChain()
+                let target = try parsePrimary()
+                return .propertyAccess(property, target)
+            }
             let tok = advance()
             // Check for function call: name(args)
             if current.type == .lparen {
@@ -3225,6 +3231,24 @@ public struct Parser: Sendable {
             throw ParseError.unexpected(current, expected: "expression")
         }
     }
+
+    private mutating func parseBareClassicPropertyName() -> String? {
+        guard current.type == .identifier,
+              peek(1)?.type == .of,
+              Self.bareClassicPropertyNames.contains(current.value.lowercased()) else {
+            return nil
+        }
+        return advance().value
+    }
+
+    private static let bareClassicPropertyNames: Set<String> = [
+        "visible", "enabled", "hilite",
+        "loc", "location",
+        "rect", "rectangle",
+        "topleft", "bottomright",
+        "currtime", "currenttime",
+        "duration"
+    ]
 
     private mutating func parseTheExpression() throws -> Expression {
         _ = try expect(.the)

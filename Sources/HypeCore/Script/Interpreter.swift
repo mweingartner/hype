@@ -4545,6 +4545,17 @@ public struct Interpreter: Sendable {
             }
         }
 
+        if case .scopedObjectRef(let object, let owner) = targetExpr,
+           let idx = try await findScopedPartIndex(
+               object: object,
+               owner: owner,
+               env: &env,
+               document: document,
+               context: context
+           ) {
+            return partPropertyValue(document.parts[idx], property: property, document: document, context: context)
+        }
+
         let targetVal = try await evaluate(targetExpr, env: &env, document: document, context: context)
 
         // Stack-level properties: `the defaultFont of stack`, `the name of stack`, etc.
