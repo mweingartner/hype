@@ -800,6 +800,64 @@ struct ParserTests {
         #expect(script.handlers[0].body.count == 2)
     }
 
+    @Test func parsesClassicInlineElseExternalCommandWithExplicitEndIf() throws {
+        var lexer = Lexer(source: """
+        on openCard
+          if field "truepath" is not empty then
+            if checkpath() then
+              if char 8 of field "truepath" is "B" then
+                if CH_PipeBridge is "up" then
+                  if word 2 of field "truepath" is "P" then playqt "L1 Slosh/Run/Motor Mov",,loop,100
+                  else if word 2 of field "truepath" is "Q" then playqt "L1 Slosh/Run/MotorQ Mov",,loop,100
+                  else playqt "L1 Slosh/Run Mov",,loop,100
+                else
+                  playqt "L1 slosh Mov",,loop,100
+                end if
+              else
+                if word 2 of field "truepath" is "P" then playqt "L1 Slosh/Run/Motor Mov",,loop,100
+                else if word 2 of field "truepath" is "Q" then playqt "L1 Slosh/Run/MotorQ Mov",,loop,100
+                else playqt "L1 Slosh/Run Mov",,loop,100
+              end if
+            else playqt "L1 slosh Mov",,loop,100
+            end if
+          end if
+          pass openCard
+        end openCard
+
+        on openStack
+          beep
+        end openStack
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 2)
+        #expect(script.handlers[0].name == "openCard")
+        #expect(script.handlers[1].name == "openStack")
+    }
+
+    @Test func preservesHandlerBoundaryAfterUnclosedImportedIf() throws {
+        var lexer = Lexer(source: """
+        on openCard
+          if field "truepath" is not empty then
+            if checkpath() then
+              playqt "L1 slosh Mov",,loop,100
+            end if
+          pass openCard
+        end openCard
+
+        on openStack
+          beep
+        end openStack
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 2)
+        #expect(script.handlers[0].name == "openCard")
+        #expect(script.handlers[1].name == "openStack")
+    }
+
     @Test func parsesClassicCameraHandlerCommand() throws {
         var lexer = Lexer(source: """
         on mouseDown

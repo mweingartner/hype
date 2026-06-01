@@ -843,6 +843,8 @@ public struct Parser: Sendable {
                     elseBlock = [try parseIfStatement()]
                 } else if current.type != .newline && current.type != .eof && current.line == elseToken.line {
                     elseBlock = [try parseStatement()]
+                    skipNewlines()
+                    consumeOptionalEndIfUnlessFollowedByElse()
                 } else {
                     skipNewlines()
                     var elseStmts: [Statement] = []
@@ -852,13 +854,7 @@ public struct Parser: Sendable {
                         skipNewlines()
                     }
                     elseBlock = elseStmts
-                    if current.type == .end,
-                       let next = peek(1),
-                       next.type == .if {
-                        _ = advance()
-                        _ = advance()
-                        skipNewlines()
-                    }
+                    consumeOptionalEndIfUnlessFollowedByElse()
                 }
             }
             return .ifThenElse(condition: condition, thenBlock: [thenStmt], elseBlock: elseBlock)
@@ -883,13 +879,8 @@ public struct Parser: Sendable {
             }
             if current.type != .newline && current.type != .eof && current.line == elseToken.line {
                 elseBlock = [try parseStatement()]
-                if current.type == .end,
-                   let next = peek(1),
-                   next.type == .if {
-                    _ = advance()
-                    _ = advance()
-                    skipNewlines()
-                }
+                skipNewlines()
+                consumeOptionalEndIfUnlessFollowedByElse()
                 return .ifThenElse(condition: condition, thenBlock: thenBlock, elseBlock: elseBlock)
             }
             skipNewlines()
@@ -902,10 +893,34 @@ public struct Parser: Sendable {
             elseBlock = elseStmts
         }
 
-        _ = try expect(.end)
-        _ = match(.if) // `end if`
-        skipNewlines()
+        if isEndIfTerminator() {
+            _ = advance()
+            _ = match(.if) // `end if`
+            skipNewlines()
+        }
         return .ifThenElse(condition: condition, thenBlock: thenBlock, elseBlock: elseBlock)
+    }
+
+    private mutating func consumeOptionalEndIfUnlessFollowedByElse() {
+        guard isEndIfTerminator() else { return }
+
+        var lookaheadOffset = 2
+        while let token = peek(lookaheadOffset), token.type == .newline {
+            lookaheadOffset += 1
+        }
+        if peek(lookaheadOffset)?.type == .else {
+            return
+        }
+
+        _ = advance()
+        _ = match(.if)
+        skipNewlines()
+    }
+
+    private func isEndIfTerminator() -> Bool {
+        guard current.type == .end else { return false }
+        guard let next = peek(1) else { return true }
+        return next.type == .if || next.type == .newline || next.type == .eof
     }
 
     private mutating func parseRepeatStatement() throws -> Statement {
