@@ -1651,10 +1651,29 @@ public struct Interpreter: Sendable {
             guard context.nestedSendDepth < 32 else {
                 throw ScriptError(message: "Nested send depth exceeded", line: handler.line, handler: handler.name)
             }
-            let message = try await evaluate(messageExpr, env: &env, document: document, context: context)
+            let message = try await evaluateSendMessageExpression(messageExpr, env: &env, document: document, context: context)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !message.isEmpty else {
                 throw ScriptError(message: "Cannot send an empty message", line: handler.line, handler: handler.name)
+            }
+            if let targetExpr,
+               case .objectRef(let ref) = targetExpr,
+               ref.objectType == "window" {
+                let windowName = try await evaluateObjectRefIdentifier(
+                    ref.identifier,
+                    env: &env,
+                    document: document,
+                    context: context
+                )
+                applyHyperCardWindowMessage(
+                    message: message,
+                    windowName: windowName,
+                    env: &env,
+                    document: &document,
+                    currentCardId: context.currentCardId
+                )
+                document.scriptGlobals = env.globals
+                break
             }
             guard let targetID = try await resolveSendTarget(
                 targetExpr,
@@ -4685,6 +4704,19 @@ public struct Interpreter: Sendable {
         return value
     }
 
+    private func evaluateSendMessageExpression(
+        _ expr: Expression,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async throws -> Value {
+        let value = try await evaluate(expr, env: &env, document: document, context: context)
+        if value.isEmpty, case .variable(let name) = expr {
+            return name
+        }
+        return value
+    }
+
     private func parseInlineDoHandler(_ scriptText: String, parent: Handler) throws -> Handler {
         let source = "on __hypeInlineDo\n\(scriptText)\nend __hypeInlineDo\n"
         var lexer = Lexer(source: source)
@@ -5934,6 +5966,49 @@ public struct Interpreter: Sendable {
         env.invalidatePartLookupCache()
     }
 
+    private func applyHyperCardWindowMessage(
+        message: Value,
+        windowName: Value,
+        env: inout Environment,
+        document: inout HypeDocument,
+        currentCardId: UUID
+    ) {
+        let normalizedWindow = AssetRepository.classicMediaLookupKey(windowName)
+        let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedMessage.isEmpty else { return }
+
+        env.globals["hypercard.window.\(normalizedWindow).lastmessage"] = normalizedMessage
+        let countKey = "hypercard.window.\(normalizedWindow).message.\(normalizedMessage).count"
+        let priorCount = Int(env.globals[countKey] ?? "0") ?? 0
+        env.globals[countKey] = String(priorCount + 1)
+
+        guard let partIndex = hyperCardWindowPartIndex(
+            windowName: windowName,
+            document: document,
+            currentCardId: currentCardId
+        ) else {
+            return
+        }
+
+        switch normalizedMessage {
+        case "play":
+            document.parts[partIndex].visible = true
+            if document.parts[partIndex].partType == .video {
+                document.parts[partIndex].videoAutoplay = true
+                env.globals["hypercard.window.\(normalizedWindow).rate"] = "1.0"
+            }
+        case "pause", "stop":
+            if document.parts[partIndex].partType == .video {
+                document.parts[partIndex].videoAutoplay = false
+                env.globals["hypercard.window.\(normalizedWindow).rate"] = "0.0"
+            }
+        case "movieidle", "idle":
+            break
+        default:
+            break
+        }
+    }
+
     private func hyperCardWindowPropertyValue(
         windowName: Value,
         property: Value,
@@ -5993,9 +6068,11 @@ public struct Interpreter: Sendable {
     ) -> Int? {
         let normalizedWindow = AssetRepository.classicMediaLookupKey(windowName)
         return document.parts.lastIndex { part in
-            part.cardId == currentCardId &&
+            let normalizedPartName = AssetRepository.classicMediaLookupKey(part.name)
+            let normalizedClassicWindowName = classicCompatibilityWindowName(from: part)
+            return part.cardId == currentCardId &&
                 isHyperCardCompatibilityWindowPart(part) &&
-                AssetRepository.classicMediaLookupKey(part.name) == normalizedWindow
+                (normalizedPartName == normalizedWindow || normalizedClassicWindowName == normalizedWindow)
         }
     }
 
@@ -6003,6 +6080,19 @@ public struct Interpreter: Sendable {
         part.helpText == "hypercard-playqt" ||
             part.helpText.hasPrefix("hypercard-playqt\n") ||
             part.helpText == "hypercard-picture"
+    }
+
+    private func classicCompatibilityWindowName(from part: Part) -> String? {
+        for line in part.helpText.split(separator: "\n", omittingEmptySubsequences: true) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.lowercased().hasPrefix("window=") else { continue }
+            let value = String(trimmed.dropFirst("window=".count))
+            let normalized = AssetRepository.classicMediaLookupKey(value)
+            if !normalized.isEmpty {
+                return normalized
+            }
+        }
+        return nil
     }
 
     private func normalizedClassicSoundVolume(_ rawValue: Value) -> Double {

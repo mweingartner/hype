@@ -1253,6 +1253,45 @@ struct InterpreterTests {
         #expect(result.modifiedDocument?.scriptGlobals["hypercard.window.frame.visible"] == "true")
     }
 
+    @Test func quickTimeWindowMessagesAreNoOpSafeAndUpdatePlaybackState() {
+        let asset = Asset(
+            name: "Elevator1.MooV",
+            kind: .videoClip,
+            mimeType: "video/quicktime",
+            data: Data([1]),
+            width: 80,
+            height: 60,
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "Elevator1.MooV")
+            ]
+        )
+        var doc = HypeDocument.newDocument()
+        doc.assetRepository = AssetRepository(assets: [asset])
+
+        let result = executeScript("""
+        on test
+          put "Elevator1.MooV" into TheMovieName
+          Movie TheMovieName,"borderless","10,20","invisible","Floating"
+          send play to window TheMovieName
+          send movieIdle to window TheMovieName
+          send pause to window TheMovieName
+          return the lastMessage of window TheMovieName
+        end test
+        """, document: doc)
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "pause")
+        let modified = result.modifiedDocument
+        #expect(modified?.scriptGlobals["hypercard.window.elevator1.message.play.count"] == "1")
+        #expect(modified?.scriptGlobals["hypercard.window.elevator1.message.movieidle.count"] == "1")
+        #expect(modified?.scriptGlobals["hypercard.window.elevator1.message.pause.count"] == "1")
+        #expect(modified?.scriptGlobals["hypercard.window.elevator1.rate"] == "0.0")
+        let video = modified?.parts.first { $0.partType == .video && $0.name == "Elevator1.MooV" }
+        #expect(video?.videoAutoplay == false)
+        #expect(video?.left == 10)
+        #expect(video?.top == 20)
+    }
+
     @Test func thereIsNotAWindowParsesAsMissingCompatibilityCheck() {
         let result = executeScript("""
         on test
