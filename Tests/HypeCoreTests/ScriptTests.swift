@@ -540,6 +540,40 @@ struct ParserTests {
         #expect(windowName == "card window")
     }
 
+    @Test func parsesClassicPropertyReferenceWithoutThe() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          if visible of card button openElevator is false then
+            go to card id 41669
+          end if
+        end mouseUp
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        guard case .ifThenElse(let condition, _, _) = script.handlers[0].body[0] else {
+            Issue.record("Expected if statement")
+            return
+        }
+        guard case .binary(let lhs, .equal, let rhs) = condition,
+              case .propertyAccess(let property, let target?) = lhs,
+              property == "visible",
+              case .scopedObjectRef(let object, let owner) = target,
+              case .literal(let value) = rhs else {
+            Issue.record("Expected visible property comparison")
+            return
+        }
+        #expect(object.objectType == "button")
+        #expect(owner.objectType == "card")
+        guard case .literal(let buttonName) = object.identifier else {
+            Issue.record("Expected button literal")
+            return
+        }
+        #expect(buttonName == "openElevator")
+        #expect(value == "false")
+    }
+
     @Test func topLevelGlobalPreludeAppliesToEveryHandler() throws {
         var lexer = Lexer(source: """
         global moveDir, score

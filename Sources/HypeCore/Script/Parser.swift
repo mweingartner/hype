@@ -3004,6 +3004,16 @@ public struct Parser: Sendable {
 
         case .identifier:
             let tok = advance()
+            // Classic HyperTalk accepts property reads without the
+            // article in front: `visible of card button marker`.
+            // Preserve the same AST as `the visible of ...`.
+            if current.type == .of,
+               Self.classicBarePropertyNames.contains(tok.value.lowercased()) {
+                _ = advance()
+                skipTransparentOfChain()
+                let target = try parsePrimary()
+                return .propertyAccess(tok.value, target)
+            }
             // Check for function call: name(args)
             if current.type == .lparen {
                 _ = advance()
@@ -3444,7 +3454,15 @@ public struct Parser: Sendable {
     }
 
     private static let objectIdentifierTerminators: Set<TokenType> = [
-        .newline, .eof, .comma, .then, .else, .end, .to, .of
+        .newline, .eof, .comma, .then, .else, .end, .to, .of,
+        .is, .eq, .neq, .lt, .gt, .lte, .gte
+    ]
+
+    private static let classicBarePropertyNames: Set<String> = [
+        "visible", "enabled", "hilite", "highlight", "showname",
+        "loc", "location", "rect", "rectangle", "left", "right",
+        "top", "bottom", "width", "height", "name", "id", "number",
+        "text", "style", "script"
     ]
 
     private mutating func parseCurrentScopeReference(scopeWord: String) -> Expression? {
