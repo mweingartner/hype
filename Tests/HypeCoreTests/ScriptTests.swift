@@ -248,6 +248,38 @@ struct ParserTests {
         #expect(visualArguments.isEmpty)
     }
 
+    @Test func parsesClassicPlayQTAsQuickTimeExternalCommand() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          play QT "EV Wind/Water Mov", , loop, 250
+        end mouseUp
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        guard case .externalCommand(let name, let arguments) = script.handlers[0].body[0] else {
+            Issue.record("Expected playQT external command")
+            return
+        }
+        #expect(name == "playQT")
+        #expect(arguments.count == 3)
+        guard case .literal(let movieName) = arguments[0] else {
+            Issue.record("Expected movie-name literal")
+            return
+        }
+        #expect(movieName == "EV Wind/Water Mov")
+        guard case .variable(let loopFlag) = arguments[1] else {
+            Issue.record("Expected bare loop flag")
+            return
+        }
+        #expect(loopFlag == "loop")
+        guard case .literal(let rate) = arguments[2] else {
+            Issue.record("Expected playback-rate literal")
+            return
+        }
+        #expect(rate == "250")
+    }
+
     @Test func parsesClassicDoMenuAndSaveAsCommands() throws {
         var lexer = Lexer(source: """
         on mouseUp
@@ -2464,6 +2496,34 @@ struct InterpreterTests {
         #expect(result.status == .completed)
         let videoPart = result.modifiedDocument?.parts.first { $0.partType == .video }
         #expect(videoPart?.name == "AtrusWrite")
+        #expect(videoPart?.videoAutoplay == true)
+        #expect(videoPart?.videoLoop == true)
+    }
+
+    @Test func playQTTreatsTwoWordClassicQTCommandAsVideoPlayback() {
+        let movie = Asset(
+            name: "EV Wind Water-modern.mov",
+            kind: .videoClip,
+            mimeType: "video/quicktime",
+            data: Data("movie".utf8),
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "EV Wind/Water Mov"),
+                AssetMetadataEntry(key: "lookup_key", value: "ev wind water mov")
+            ]
+        )
+        var doc = HypeDocument.newDocument()
+        doc.assetRepository = AssetRepository(assets: [movie])
+
+        let result = executeScript("""
+        on test
+          play QT "EV Wind/Water Mov", , loop, 250
+        end test
+        """, document: doc)
+
+        #expect(result.status == .completed)
+        let videoPart = result.modifiedDocument?.parts.first { $0.partType == .video }
+        #expect(videoPart?.name == "EV Wind/Water Mov")
+        #expect(videoPart?.videoAssetRef?.id == movie.id)
         #expect(videoPart?.videoAutoplay == true)
         #expect(videoPart?.videoLoop == true)
     }
