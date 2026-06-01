@@ -39,6 +39,11 @@ at runtime by setting `the result` to a `Can't Load External...` diagnostic.
 | --- | --- | --- | --- |
 | `SetCursor` | Emulated | Returns the requested cursor name in `the result`; does not currently change AppKit cursor state. | Planned: map common HyperCard cursor names to Hype cursor/UI state if scripts depend on visible cursor changes. |
 | `Cursor` | Emulated | Alias of `SetCursor`; returns the requested cursor name in `the result`. | Same as `SetCursor`. |
+| `playQT` | Emulated | Resolves an imported `.videoClip` asset by classic media metadata, creates a repository-backed video part on the current card, sets autoplay/loop/volume intent, and records script-visible window state. Audio-only replacements become hidden 1x1 playback parts. | Planned: exact classic movie controller/chrome and callback timing. |
+| `PlayMovie` | Emulated | Alias of `playQT`. | Same as `playQT`. |
+| `Movie` | Emulated | Resolves an imported `.videoClip` asset by classic media metadata and creates a repository-backed video part. Classic point arguments position the part, and common `set the ... of window ...` forms can update loop, rate, audio level, mute, movie, window rect, location, and name state. | Planned: exact QuickTime window semantics and movie event callbacks. |
+| `closemoovs` | Emulated | Removes active compatibility video parts created by `playQT`/`Movie` on the current card and returns the removed count. | Broaden only if imported scripts reveal other QuickTime lifecycle forms. |
+| `closemovies` | Emulated | Alias of `closemoovs`. | Same as `closemoovs`. |
 | `HTLock` | Emulated | Records lock/unlock-style arguments in runtime-only compatibility globals, returns the normalized mode, and does not block drawing. | Refine only if Myst requires specific VBL or screen-buffer locking behavior. |
 | `HTVisual` | Emulated | Records transition arguments and duration intent in runtime-only compatibility globals, and returns the transition name. | Later visual-effect slices can map classic transition names to Hype transition metadata. |
 | `DeCurse` | Emulated | Records cursor override/remove resource/type arguments as runtime-only compatibility globals. | Connect imported cursor resources to visible cursor state only if a gameplay path needs it. |
@@ -76,6 +81,7 @@ at runtime by setting `the result` to a `Can't Load External...` diagnostic.
 | `xVirtual` | Emulated | Returns deterministic `0` environment information and records arguments in runtime-only compatibility globals. | Refine only if imported conditionals require virtual-memory-specific behavior. |
 | `xDepth` | Emulated | Returns the current compatibility display depth, defaulting to `8`. | Shares state with `SetMode`/`GetMode`. |
 | `variant` | Emulated | Returns deterministic `2.1` compatibility text for HyperCard version checks. | Bind to a formal compatibility-layer version later if needed. |
+| `movieInfo` | Emulated | Resolves an imported QuickTime asset by classic path/name and returns CR-delimited repository-backed metadata including name, asset, path, type, byte count, bounds, duration, and timescale. Missing assets set `the result` to `File not found.` | Fill exact duration/timescale once imported movie parsing exposes track metadata. |
 | `xSetSoundVol` | Emulated | Function-style alias for Myst scripts that call `xSetSoundVol(origVol)`. | Same as XCMD `xSetSoundVol`. |
 | `xGetSoundVol` | Emulated | Returns the current runtime compatibility sound volume, defaulting to `255`. | Later media playback slices can consume this state. |
 | `GetMode` | Emulated | Returns the current runtime compatibility display mode/depth, defaulting to `c,8`. | Refine return shape only if imported probes need it. |

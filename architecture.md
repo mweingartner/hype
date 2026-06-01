@@ -1584,8 +1584,11 @@ function-style calls (`put HypeVersion() into v`). The parser emits
 function-call syntax falls through to the registry after Hype's built-ins.
 
 The registry returns a `HyperCardExternalResult` containing the command value,
-`the result` diagnostic, optional document mutation, and optional pass-message
-flag. Unknown or not-yet-emulated externals set `the result` to a clear
+`the result` diagnostic, optional document mutation, runtime-only compatibility
+globals, and optional pass-message flag. Some compatibility externals, such as
+Myst-facing QuickTime calls, intentionally mutate the document session by
+creating repository-backed video parts while keeping native classic code inert.
+Unknown or not-yet-emulated externals set `the result` to a clear
 `Can't Load External...` diagnostic and continue execution. This matches the
 security posture of the importer: XCMD/XFCN resources are preserved and
 reported, but classic 68K/PPC code is never executed in-process.

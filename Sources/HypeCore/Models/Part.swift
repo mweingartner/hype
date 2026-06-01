@@ -98,17 +98,13 @@ public struct Part: Identifiable, Codable, Sendable {
 
     // Video-specific
     public var videoURL: String
-    /// Current playback position in seconds. Updated by the canvas host as the
-    /// player progresses; settable from HypeTalk to seek the video. Clamped
-    /// to >= 0 on write.
     public var videoCurrentTime: Double
-    /// Duration of the loaded video in seconds. Read-only from HypeTalk;
-    /// written by the canvas host when the AVPlayerItem duration becomes known.
     public var videoDuration: Double
-    /// Playback rate multiplier. 1.0 = normal speed, 0.0 = paused, 2.0 = 2×.
-    /// Settable from HypeTalk; applied to the AVPlayer on the next
-    /// `updateVideoPlayers()` pass.
     public var videoPlayRate: Double
+    public var videoAssetRef: AssetRef?
+    public var videoAutoplay: Bool
+    public var videoLoop: Bool
+    public var videoVolume: Double
 
     // Chart-specific
     public var chartData: String  // JSON-encoded ChartConfig
@@ -490,6 +486,10 @@ public struct Part: Identifiable, Codable, Sendable {
         self.videoCurrentTime = 0
         self.videoDuration = 0
         self.videoPlayRate = 1
+        self.videoAssetRef = nil
+        self.videoAutoplay = false
+        self.videoLoop = false
+        self.videoVolume = 1
         self.chartData = ""
         self.imageData = nil
         self.invertOnClick = false
@@ -643,10 +643,13 @@ public struct Part: Identifiable, Codable, Sendable {
         url = try container.decode(String.self, forKey: .url)
         urlSourceFieldId = try container.decodeIfPresent(UUID.self, forKey: .urlSourceFieldId)
         videoURL = try container.decodeIfPresent(String.self, forKey: .videoURL) ?? ""
-        // Video transport fields — backward-compat optional.
         videoCurrentTime = try container.decodeIfPresent(Double.self, forKey: .videoCurrentTime) ?? 0
         videoDuration = try container.decodeIfPresent(Double.self, forKey: .videoDuration) ?? 0
         videoPlayRate = try container.decodeIfPresent(Double.self, forKey: .videoPlayRate) ?? 1
+        videoAssetRef = try container.decodeIfPresent(AssetRef.self, forKey: .videoAssetRef)
+        videoAutoplay = try container.decodeIfPresent(Bool.self, forKey: .videoAutoplay) ?? false
+        videoLoop = try container.decodeIfPresent(Bool.self, forKey: .videoLoop) ?? false
+        videoVolume = try container.decodeIfPresent(Double.self, forKey: .videoVolume) ?? 1
         chartData = try container.decodeIfPresent(String.self, forKey: .chartData) ?? ""
         imageData = try container.decodeIfPresent(Data.self, forKey: .imageData)
         invertOnClick = try container.decodeIfPresent(Bool.self, forKey: .invertOnClick) ?? false
