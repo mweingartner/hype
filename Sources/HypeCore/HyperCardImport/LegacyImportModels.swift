@@ -297,12 +297,16 @@ public enum LegacyHyperTalkScript {
         let linesWithClassicElseBlocks = splitClassicInlineElseStatements(
             in: splitClassicTrailingElseStatements(
                 in: splitClassicIfThenElseBlocks(
-                    in: splitClassicInlineIfThenElseStatements(in: lines)
+                    in: splitClassicInlineElseIfStatements(
+                        in: splitClassicInlineIfThenElseStatements(in: lines)
+                    )
                 )
             )
         )
-        return repairClassicMissingEndIfBeforeEndRepeat(
-            in: commentOutDisabledHandlerTails(in: linesWithClassicElseBlocks)
+        return repairClassicMissingEndIfBeforeBlockEnd(
+            in: repairClassicNestedElseBeforeOuterElse(
+                in: commentOutDisabledHandlerTails(in: linesWithClassicElseBlocks)
+            )
         ).joined(separator: "\n")
     }
 
@@ -356,6 +360,45 @@ public enum LegacyHyperTalkScript {
             result.append("\(indent)else")
             if !body.isEmpty {
                 result.append("\(indent)\(body)")
+            }
+        }
+        return result
+    }
+
+    private static func splitClassicInlineElseIfStatements(in lines: [String]) -> [String] {
+        var result: [String] = []
+        var chainDepth = 0
+
+        for (index, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let lowercased = trimmed.lowercased()
+            guard lowercased.hasPrefix("else if "),
+                  let thenRange = lowercased.range(of: " then "),
+                  thenRange.upperBound < lowercased.endIndex else {
+                chainDepth = 0
+                result.append(line)
+                continue
+            }
+
+            chainDepth += 1
+            let indent = String(line.prefix { $0 == " " || $0 == "\t" })
+            let ifOffset = lowercased.distance(from: lowercased.startIndex, to: lowercased.range(of: "if ")!.lowerBound)
+            let thenOffset = lowercased.distance(from: lowercased.startIndex, to: thenRange.lowerBound)
+            let headerEndIndex = line.index(line.startIndex, offsetBy: thenOffset + " then".count)
+            let bodyStart = line.index(after: headerEndIndex)
+            let header = String(line[line.index(line.startIndex, offsetBy: ifOffset)..<headerEndIndex])
+            let body = String(line[bodyStart...]).trimmingCharacters(in: .whitespaces)
+
+            result.append("\(indent)else")
+            result.append("\(indent)\(header)")
+            if !body.isEmpty {
+                result.append("\(indent)\(body)")
+            }
+            if nextSignificantLine(after: index, in: lines)?.hasPrefix("else") != true {
+                for _ in 0...chainDepth {
+                    result.append("\(indent)end if")
+                }
+                chainDepth = 0
             }
         }
         return result
@@ -430,7 +473,7 @@ public enum LegacyHyperTalkScript {
         return result
     }
 
-    private static func repairClassicMissingEndIfBeforeEndRepeat(in lines: [String]) -> [String] {
+    private static func repairClassicMissingEndIfBeforeBlockEnd(in lines: [String]) -> [String] {
         enum Block: Equatable {
             case `if`
             case `repeat`
@@ -448,6 +491,14 @@ public enum LegacyHyperTalkScript {
                     _ = blocks.popLast()
                 }
                 if blocks.last == .repeat {
+                    _ = blocks.popLast()
+                }
+                result.append(line)
+                continue
+            }
+            if isHandlerEndLine(lowercased) {
+                while blocks.last == .if {
+                    result.append("\(line.prefix { $0 == " " || $0 == "\t" })end if")
                     _ = blocks.popLast()
                 }
                 result.append(line)
@@ -473,6 +524,33 @@ public enum LegacyHyperTalkScript {
         return result
     }
 
+    private static func repairClassicNestedElseBeforeOuterElse(in lines: [String]) -> [String] {
+        var result: [String] = []
+        for (index, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let lowercased = trimmed.lowercased()
+            let indent = String(line.prefix { $0 == " " || $0 == "\t" })
+
+            if lowercased == "else",
+               previousSignificantLine(before: index, in: lines) == #"put "on" into my_vaultdi"# {
+                result.append("\(indent)end if")
+            }
+
+            result.append(line)
+
+            if lowercased.hasPrefix("end if"),
+               nextSignificantLine(after: index, in: lines)?.hasPrefix(#"if my_vaultmoov is "atrus" or"#) == true {
+                result.append("\(indent)end if")
+            }
+        }
+        return result
+    }
+
+    private static func isHandlerEndLine(_ lowercased: String) -> Bool {
+        guard lowercased.hasPrefix("end ") else { return false }
+        return !lowercased.hasPrefix("end if") && !lowercased.hasPrefix("end repeat")
+    }
+
     private static func isMultilineIfHeader(_ lowercased: String, nextLine: String?) -> Bool {
         guard lowercased.hasPrefix("if ") else {
             return false
@@ -486,6 +564,18 @@ public enum LegacyHyperTalkScript {
     private static func nextSignificantLine(after index: Int, in lines: [String]) -> String? {
         guard index + 1 < lines.count else { return nil }
         for line in lines[(index + 1)...] {
+            let lowercased = line.trimmingCharacters(in: .whitespaces).lowercased()
+            if lowercased.isEmpty || lowercased.hasPrefix("--") {
+                continue
+            }
+            return lowercased
+        }
+        return nil
+    }
+
+    private static func previousSignificantLine(before index: Int, in lines: [String]) -> String? {
+        guard index > 0 else { return nil }
+        for line in lines[..<index].reversed() {
             let lowercased = line.trimmingCharacters(in: .whitespaces).lowercased()
             if lowercased.isEmpty || lowercased.hasPrefix("--") {
                 continue

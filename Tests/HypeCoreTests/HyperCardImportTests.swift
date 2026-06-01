@@ -395,6 +395,103 @@ struct HyperCardImportTests {
         #expect(try parsedHandlerCount(translated) == 1)
     }
 
+    @Test("legacy translator repairs classic missing end if before handler end")
+    func legacyTranslatorRepairsClassicMissingEndIfBeforeHandlerEnd() throws {
+        let script = """
+        on openCard
+        global CH_WaterPath
+        if char 3 of CH_waterpath is "0" then
+        put "100---1 Q" into field "truepath"
+        else
+        put "1010-0- Q" into field "truepath"
+        pass openCard
+        end openCard
+        """
+
+        let translated = LegacyHyperTalkScript.preparedForHypeTalkRuntime(script)
+
+        #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(translated))
+        #expect(translated.contains("pass openCard\nend if\nend openCard"))
+        #expect(try parsedHandlerCount(translated) == 1)
+    }
+
+    @Test("legacy translator repairs compact then else blocks before handler end")
+    func legacyTranslatorRepairsCompactThenElseBlocksBeforeHandlerEnd() throws {
+        let script = """
+        on mouseUp
+        global ST_Drawers
+        hide card button close6
+        show card button open6
+        put 0 into char 6 of ST_drawers
+        if char 5 of ST_Drawers = 0 then
+        HTVisual "wipe up",,,1,32
+        else
+        HTLock "true"
+        play "DR Drawer"
+        closeDrawers
+        resetDrawers
+        end mouseUp
+        """
+
+        let translated = LegacyHyperTalkScript.preparedForHypeTalkRuntime(script)
+
+        #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(translated))
+        #expect(translated.contains("resetDrawers\nend if\nend mouseUp"))
+        #expect(try parsedHandlerCount(translated) == 1)
+    }
+
+    @Test("legacy translator accepts nested classic else before outer else")
+    func legacyTranslatorAcceptsNestedClassicElseBeforeOuterElse() throws {
+        let script = """
+        on mouseDown
+        global MY_VaultMooV,MY_VaultDI
+        if MY_VaultDI is "off" then
+        if there is a window "WaterMooV" then
+        if MY_VaultMooV is "Atrus" then
+        set the mute of window "WaterMooV" to false
+        else
+        set the mute of window "WaterMooV" to true
+        if MY_VaultMooV is "Water" then
+        set the loop of window "WaterMooV" to true
+        end if
+        WaterIdle
+        end if
+        if MY_VaultMooV is "Atrus" or MY_VaultMooV is "Blank" then
+        put "off" into MY_VaultDI
+        else
+        put "on" into MY_VaultDI
+        else
+        put "off" into MY_VaultDI
+        end if
+        end mouseDown
+        """
+
+        let translated = LegacyHyperTalkScript.preparedForHypeTalkRuntime(script)
+
+        #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(translated))
+        #expect(translated.contains("put \"on\" into MY_VaultDI\nend if\nelse\nput \"off\" into MY_VaultDI"))
+        #expect(try parsedHandlerCount(translated) == 1)
+    }
+
+    @Test("legacy translator closes compact else if chains")
+    func legacyTranslatorClosesCompactElseIfChains() throws {
+        let script = """
+        on mouseDown
+        if MY_VaultMooV is "Mountain" then
+        get 11180
+        else if MY_VaultMooV is "Water" then get 4350
+        else if MY_VaultMooV is "Blank" then get 2644
+        htlock true
+        end mouseDown
+        """
+
+        let translated = LegacyHyperTalkScript.preparedForHypeTalkRuntime(script)
+
+        #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(translated))
+        #expect(translated.contains("else\nif MY_VaultMooV is \"Blank\" then\nget 2644\nend if\nend if\nend if\nhtlock true"))
+        #expect(try parsedHandlerCount(translated) == 1)
+    }
+
     @Test("legacy translator splits compact trailing else statements")
     func legacyTranslatorSplitsCompactTrailingElseStatements() throws {
         let script = """
