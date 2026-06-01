@@ -1353,12 +1353,13 @@ public actor StackRuntime: ScriptRuntimeProviding {
                     startedAt: Date()
                 )
                 postStatusChange()
+                let baseDocument = document
                 let task = Task {
                     await dispatcher.dispatchAsync(
                         message: item.message,
                         params: item.params,
                         targetId: item.targetId,
-                        document: document,
+                        document: baseDocument,
                         currentCardId: item.currentCardId,
                         dialogProvider: configuration.dialogProvider,
                         drawingProvider: configuration.drawingProvider,
@@ -1380,11 +1381,13 @@ public actor StackRuntime: ScriptRuntimeProviding {
                 currentScriptTask = nil
                 currentRunningDispatch = nil
                 postStatusChange()
-                batchDocumentChanged = apply(
+                let appliedResult = apply(
                     result: result,
+                    baseDocument: baseDocument,
                     postsDocumentChange: batch.count == 1
-                ) || batchDocumentChanged
-                item.completion?.resume(returning: result)
+                )
+                batchDocumentChanged = appliedResult.documentChanged || batchDocumentChanged
+                item.completion?.resume(returning: appliedResult.result)
             }
             cancellationRequested = false
             if batch.count > 1, batchDocumentChanged {
@@ -1393,11 +1396,21 @@ public actor StackRuntime: ScriptRuntimeProviding {
         }
     }
 
-    @discardableResult
-    private func apply(result: ExecutionResult, postsDocumentChange: Bool = true) -> Bool {
+    private func apply(
+        result: ExecutionResult,
+        baseDocument: HypeDocument,
+        postsDocumentChange: Bool = true
+    ) -> (result: ExecutionResult, documentChanged: Bool) {
+        var returnedResult = result
         var documentChanged = false
         if let modified = result.modifiedDocument {
-            document = modified
+            let merge = RuntimeDocumentMerge.applyingRuntimeChanges(
+                runtimeDocument: modified,
+                baseDocument: baseDocument,
+                currentDocument: document
+            )
+            document = merge.document
+            returnedResult.modifiedDocument = merge.document
             documentChanged = true
             if postsDocumentChange {
                 postDocumentChange()
@@ -1429,7 +1442,7 @@ public actor StackRuntime: ScriptRuntimeProviding {
                 NotificationCenter.default.post(name: Notification.Name("showScriptError"), object: nil, userInfo: userInfo)
             }
         }
-        return documentChanged
+        return (returnedResult, documentChanged)
     }
 
     private func postDocumentChange() {

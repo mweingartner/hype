@@ -286,6 +286,15 @@ struct CardCanvasView: NSViewRepresentable {
         /// edits made via the inspector never re-geocoded.
         var lastMapLocations: [UUID: String] = [:]
 
+        private struct ContinuousControlDispatchState {
+            var isDispatching = false
+            var hasPendingValue = false
+            var lastDispatchedValue: Double?
+        }
+
+        private var continuousControlDispatches: [UUID: ContinuousControlDispatchState] = [:]
+        private var continuousControlEndCompletions: [UUID: [@MainActor () -> Void]] = [:]
+
         private var activeCanvasCoalescingKey: String {
             "canvas-\(parent.currentCardId.uuidString)"
         }
@@ -592,6 +601,82 @@ struct CardCanvasView: NSViewRepresentable {
         func setPartControlValue(id: UUID, value: Double, message: String) {
             parent.document.document.updatePart(id: id) { $0.controlValue = value }
             dispatchMessage(message, to: id)
+        }
+
+        func beginContinuousControlValueChange() {
+            beginCoalescedCanvasMutation(actionName: "Change Control Value")
+        }
+
+        func setPartContinuousControlValue(id: UUID, value: Double, message: String) {
+            performContinuousCanvasMutation {
+                parent.document.document.updatePart(id: id) { $0.controlValue = value }
+            }
+            nsView?.document = parent.document.document
+            scheduleContinuousControlDispatch(id: id, message: message)
+        }
+
+        func endContinuousControlValueChange(
+            id: UUID,
+            message: String,
+            completion: @escaping @MainActor () -> Void
+        ) {
+            endCoalescedCanvasMutation(actionName: "Change Control Value")
+            continuousControlEndCompletions[id, default: []].append(completion)
+            scheduleContinuousControlDispatch(id: id, message: message)
+            if continuousControlDispatches[id]?.isDispatching != true {
+                runContinuousControlEndCompletions(id: id)
+            }
+        }
+
+        private func scheduleContinuousControlDispatch(
+            id: UUID,
+            message: String
+        ) {
+            var state = continuousControlDispatches[id] ?? ContinuousControlDispatchState()
+            if state.isDispatching {
+                state.hasPendingValue = true
+                continuousControlDispatches[id] = state
+                return
+            }
+
+            guard let value = parent.document.document.parts.first(where: { $0.id == id })?.controlValue else {
+                continuousControlDispatches.removeValue(forKey: id)
+                return
+            }
+            if let last = state.lastDispatchedValue, abs(last - value) <= Double.ulpOfOne {
+                continuousControlDispatches[id] = state
+                return
+            }
+
+            state.isDispatching = true
+            state.hasPendingValue = false
+            state.lastDispatchedValue = value
+            continuousControlDispatches[id] = state
+
+            dispatchMessage(message, to: id, params: []) { [weak self] in
+                guard let self else { return }
+                var state = self.continuousControlDispatches[id] ?? ContinuousControlDispatchState()
+                state.isDispatching = false
+                let currentValue = self.parent.document.document.parts.first(where: { $0.id == id })?.controlValue
+                let needsFollowUp = state.hasPendingValue
+                    && currentValue.map { abs($0 - (state.lastDispatchedValue ?? $0)) > Double.ulpOfOne } == true
+
+                if needsFollowUp {
+                    state.hasPendingValue = false
+                    self.continuousControlDispatches[id] = state
+                    self.scheduleContinuousControlDispatch(id: id, message: message)
+                } else {
+                    self.continuousControlDispatches.removeValue(forKey: id)
+                    self.runContinuousControlEndCompletions(id: id)
+                }
+            }
+        }
+
+        private func runContinuousControlEndCompletions(id: UUID) {
+            let completions = continuousControlEndCompletions.removeValue(forKey: id) ?? []
+            for completion in completions {
+                completion()
+            }
         }
 
         /// Writeback for the gauge host's interactive scrub gesture.
@@ -4920,11 +5005,16 @@ class CardCanvasNSView: NSView {
                 } else {
                     let host = SliderHostNSView(frame: frame)
                     host.apply(part)
+                    host.onInteractionBegin = { [weak self] in
+                        self?.coordinator?.beginContinuousControlValueChange()
+                    }
                     host.onValueChange = { [weak self] v in
-                        self?.coordinator?.setPartControlValue(id: partId, value: v, message: "valueChanged")
+                        self?.coordinator?.setPartContinuousControlValue(id: partId, value: v, message: "valueChanged")
                     }
                     host.onInteractionEnd = { [weak self] in
-                        self?.coordinator?.dispatchMessage("mouseUp", to: partId)
+                        self?.coordinator?.endContinuousControlValueChange(id: partId, message: "valueChanged") { [weak self] in
+                            self?.coordinator?.dispatchMessage("mouseUp", to: partId)
+                        }
                     }
                     addSubview(host, positioned: .above, relativeTo: nil)
                     sliderViews[partId] = host

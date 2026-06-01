@@ -439,7 +439,7 @@ given `partType`. The fields fall into bands:
 | pdf              | `pdfURL`, `pdfCurrentPage`, `pdfDisplayMode`, `pdfAutoScales`            |
 | map              | `mapCenterLat`, `mapCenterLon`, `mapSpan`, `mapType`, `mapAnnotationsJSON`, `mapLocation` *(geocoded)* |
 | colorWell        | `colorWellHex`, `colorWellInteractive`                                   |
-| stepper / slider | `controlValue`, `controlMin`, `controlMax`, `controlStep`; sliders derive horizontal/vertical rendering from their bounds, using the longest dimension as the interactive axis; in browse mode, clicking anywhere along the track sets the value immediately, dragging scrubs continuously, and the hosted slider dispatches `valueChanged` during tracking plus `mouseUp` when tracking ends |
+| stepper / slider | `controlValue`, `controlMin`, `controlMax`, `controlStep`; sliders derive horizontal/vertical rendering from their bounds, using the longest dimension as the interactive axis; in browse mode the hosted slider routes all thumb/track hits back through the `NSSlider` subclass, Hype maps non-thumb track clicks directly to values, AppKit owns thumb drag tracking, and Hype coalesces `valueChanged` dispatches during tracking so stale async script results cannot snap the knob back before `mouseUp` fires |
 | segmented        | `segmentItems` *(pipe-separated)*, `controlValue` *(selected index)*     |
 | progressView     | `progressValue`, `progressTotal`, `progressIsCircular`, `progressIsIndeterminate`, `progressLabel`, `progressTint`, `progressDecimals` |
 | gauge            | `gaugeValue`, `gaugeMin`, `gaugeMax`, `gaugeStyle`, `gaugeTint`, `gaugeLabel`, `gaugeMinLabel`, `gaugeMaxLabel`, `gaugeDecimals` |
@@ -1494,6 +1494,13 @@ without freezing the app or violating message order. `wait`, `wait until`,
 `await …`, async AI completions, HTTP replies, listener events, and socket
 events all resume by enqueueing a normal HypeTalk message back onto the runtime
 queue; they never re-enter a running handler directly.
+
+Runtime document updates are applied with a three-way merge against the
+dispatch's starting snapshot. If the user keeps editing or scrubbing a hosted
+control while an earlier script result is still running, Hype applies only the
+entities the script actually changed and preserves newer current values for
+unchanged shared entities. This prevents stale async `valueChanged` results from
+reverting live controls such as sliders.
 
 ### 5.3 Message chain and callback routing
 

@@ -84,6 +84,53 @@ struct FormControlHostViewTests {
         #expect(abs((changes.last ?? -1) - 0.005) < 0.0001)
     }
 
+    @Test("Slider mouse tracking is delegated to AppKit")
+    func sliderMouseTrackingIsDelegatedToAppKit() throws {
+        let host = SliderHostNSView(frame: NSRect(x: 0, y: 0, width: 32, height: 232))
+        var part = Part(partType: .slider, name: "zoom")
+        part.width = 32
+        part.height = 232
+        host.apply(part)
+        host.slider.frame = host.bounds
+
+        #expect(host.slider.hitTest(NSPoint(x: 16, y: 116)) === host.slider)
+
+        let source = try String(
+            contentsOf: packageRoot()
+                .appendingPathComponent("Sources/Hype/Views/FormControlHostViews.swift"),
+            encoding: .utf8
+        )
+
+        #expect(source.contains("override func hitTest(_ point: NSPoint) -> NSView?"))
+        #expect(source.contains("return self"))
+        #expect(source.contains("if !knobHitRect().contains(initialPoint)"))
+        #expect(source.contains("super.mouseDown(with: event)"))
+        #expect(!source.contains("window?.nextEvent("))
+    }
+
+    @Test("Slider host ignores stale model values during active mouse tracking")
+    func sliderHostIgnoresStaleModelValuesDuringTracking() {
+        let host = SliderHostNSView(frame: NSRect(x: 0, y: 0, width: 32, height: 232))
+        var part = Part(partType: .slider, name: "zoom")
+        part.width = 32
+        part.height = 232
+        part.controlMin = 0
+        part.controlMax = 100
+        part.controlValue = 10
+        host.apply(part)
+        host.slider.frame = host.bounds
+
+        host.slider.isMouseTracking = true
+        host.slider.doubleValue = 80
+        host.apply(part)
+        #expect(abs(host.slider.doubleValue - 80) < 0.0001)
+
+        host.slider.isMouseTracking = false
+        part.controlValue = 40
+        host.apply(part)
+        #expect(abs(host.slider.doubleValue - 40) < 0.0001)
+    }
+
     @Test("Slider interaction-end is wired to HypeTalk mouseUp dispatch")
     func sliderInteractionEndDispatchesMouseUp() throws {
         let source = try String(

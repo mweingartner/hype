@@ -78,35 +78,37 @@ final class StepperHostNSView: NSView {
 // MARK: - Slider
 
 final class HypeSliderControl: NSSlider {
+    var isMouseTracking = false
+    var onMouseTrackingBegan: (() -> Void)?
     var onMouseTrackingEnded: (() -> Void)?
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
     }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden, alphaValue > 0, bounds.contains(point) else { return nil }
+        // Modern AppKit sliders render the thumb through private child views.
+        // Route every hit in the control bounds back through NSSlider so our
+        // tracking begin/end hooks and AppKit's native drag handling both run.
+        return self
+    }
+
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        updateValue(from: event)
-
-        let trackingMask: NSEvent.EventTypeMask = [.leftMouseDragged, .leftMouseUp]
-        while let next = window?.nextEvent(
-            matching: trackingMask,
-            until: .distantFuture,
-            inMode: .eventTracking,
-            dequeue: true
-        ) {
-            switch next.type {
-            case .leftMouseDragged:
-                updateValue(from: next)
-            case .leftMouseUp:
+        let initialPoint = convert(event.locationInWindow, from: nil)
+        isMouseTracking = true
+        onMouseTrackingBegan?()
+        defer {
+            if isMouseTracking {
+                isMouseTracking = false
                 notifyMouseTrackingEnded()
-                return
-            default:
-                break
             }
         }
-
-        notifyMouseTrackingEnded()
+        if !knobHitRect().contains(initialPoint) {
+            _ = setValue(fromLocalPoint: initialPoint)
+        }
+        super.mouseDown(with: event)
     }
 
     func notifyMouseTrackingEnded() {
@@ -154,11 +156,6 @@ final class HypeSliderControl: NSSlider {
         return min(max(value, min(minValue, maxValue)), max(minValue, maxValue))
     }
 
-    private func updateValue(from event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        _ = setValue(fromLocalPoint: point)
-    }
-
     private func effectiveTrackRect() -> NSRect {
         let length = isVertical ? bounds.height : bounds.width
         let inset = min(CGFloat(6), max(0, length / 2))
@@ -167,11 +164,27 @@ final class HypeSliderControl: NSSlider {
         }
         return bounds.insetBy(dx: inset, dy: 0)
     }
+
+    private func knobHitRect() -> NSRect {
+        sliderCell().knobRect(flipped: isFlipped).insetBy(dx: -8, dy: -8)
+    }
+
+    private func sliderCell() -> NSSliderCell {
+        if let cell = cell as? NSSliderCell {
+            return cell
+        }
+        let fallback = NSSliderCell()
+        fallback.minValue = minValue
+        fallback.maxValue = maxValue
+        fallback.doubleValue = doubleValue
+        return fallback
+    }
 }
 
 final class SliderHostNSView: NSView {
     let slider = HypeSliderControl()
     var onValueChange: ((Double) -> Void)?
+    var onInteractionBegin: (() -> Void)?
     var onInteractionEnd: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
@@ -180,6 +193,9 @@ final class SliderHostNSView: NSView {
         slider.target = self
         slider.action = #selector(sliderDidChange)
         slider.isContinuous = true
+        slider.onMouseTrackingBegan = { [weak self] in
+            self?.onInteractionBegin?()
+        }
         slider.onMouseTrackingEnded = { [weak self] in
             self?.onInteractionEnd?()
         }
@@ -210,7 +226,7 @@ final class SliderHostNSView: NSView {
             slider.maxValue = part.controlMax
             appliedMax = part.controlMax
         }
-        if part.controlValue != appliedValue {
+        if !slider.isMouseTracking && part.controlValue != appliedValue {
             slider.doubleValue = part.controlValue
             appliedValue = part.controlValue
         }

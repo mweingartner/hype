@@ -20,6 +20,57 @@ public struct RuntimeDocumentMergeResult: Sendable {
 /// newly-created entities. This merge keeps runtime changes for shared IDs
 /// while preserving entities that only exist in the current authoring state.
 public enum RuntimeDocumentMerge {
+    public static func applyingRuntimeChanges(
+        runtimeDocument: HypeDocument,
+        baseDocument: HypeDocument,
+        currentDocument: HypeDocument
+    ) -> RuntimeDocumentMergeResult {
+        guard runtimeDocument.stack.id == baseDocument.stack.id,
+              runtimeDocument.stack.id == currentDocument.stack.id else {
+            return RuntimeDocumentMergeResult(document: runtimeDocument, preservedCurrentOnlyEntities: false)
+        }
+
+        let result = preservingCurrentOnlyEntities(
+            runtimeDocument: runtimeDocument,
+            currentDocument: currentDocument
+        )
+        var merged = result.document
+        var preserved = result.preservedCurrentOnlyEntities
+
+        preserved = preserveCurrentEditsWhenRuntimeUnchanged(
+            merged: &merged.backgrounds,
+            base: baseDocument.backgrounds,
+            runtime: runtimeDocument.backgrounds,
+            current: currentDocument.backgrounds
+        ) || preserved
+        preserved = preserveCurrentEditsWhenRuntimeUnchanged(
+            merged: &merged.cards,
+            base: baseDocument.cards,
+            runtime: runtimeDocument.cards,
+            current: currentDocument.cards
+        ) || preserved
+        preserved = preserveCurrentEditsWhenRuntimeUnchanged(
+            merged: &merged.parts,
+            base: baseDocument.parts,
+            runtime: runtimeDocument.parts,
+            current: currentDocument.parts
+        ) || preserved
+        preserved = preserveCurrentEditsWhenRuntimeUnchanged(
+            merged: &merged.constraints,
+            base: baseDocument.constraints,
+            runtime: runtimeDocument.constraints,
+            current: currentDocument.constraints
+        ) || preserved
+        preserved = preserveCurrentEditsWhenRuntimeUnchanged(
+            merged: &merged.themes,
+            base: baseDocument.themes,
+            runtime: runtimeDocument.themes,
+            current: currentDocument.themes
+        ) || preserved
+
+        return RuntimeDocumentMergeResult(document: merged, preservedCurrentOnlyEntities: preserved)
+    }
+
     public static func preservingCurrentOnlyEntities(
         runtimeDocument: HypeDocument,
         currentDocument: HypeDocument
@@ -121,5 +172,44 @@ public enum RuntimeDocumentMerge {
             preserved = true
         }
         return (merged, preserved)
+    }
+
+    private static func preserveCurrentEditsWhenRuntimeUnchanged<T>(
+        merged: inout [T],
+        base: [T],
+        runtime: [T],
+        current: [T]
+    ) -> Bool where T: Identifiable & Codable, T.ID: Hashable {
+        let baseById = Dictionary(uniqueKeysWithValues: base.map { ($0.id, $0) })
+        let runtimeById = Dictionary(uniqueKeysWithValues: runtime.map { ($0.id, $0) })
+        var didPreserve = false
+
+        for currentEntity in current {
+            guard let baseEntity = baseById[currentEntity.id],
+                  let runtimeEntity = runtimeById[currentEntity.id],
+                  codableEquivalent(runtimeEntity, baseEntity),
+                  !codableEquivalent(currentEntity, baseEntity) else {
+                continue
+            }
+
+            if let index = merged.firstIndex(where: { $0.id == currentEntity.id }) {
+                merged[index] = currentEntity
+            } else {
+                merged.append(currentEntity)
+            }
+            didPreserve = true
+        }
+
+        return didPreserve
+    }
+
+    private static func codableEquivalent<T: Encodable>(_ lhs: T, _ rhs: T) -> Bool {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let left = try? encoder.encode(lhs),
+              let right = try? encoder.encode(rhs) else {
+            return false
+        }
+        return left == right
     }
 }
