@@ -2259,6 +2259,43 @@ struct InterpreterTests {
         #expect(result.modifiedDocument?.scriptGlobals["hypercard.playqt.audioOnly"] == "true")
     }
 
+    @Test func buzzerCreatesHiddenAudioPlaybackPartByClassicName() {
+        let sound = Asset(
+            name: "SW Buzzer-modern-audio.m4a",
+            kind: .audioClip,
+            mimeType: "audio/mp4",
+            data: Data("sound".utf8),
+            metadata: [
+                AssetMetadataEntry(key: "classic_name", value: "SW Buzzer"),
+                AssetMetadataEntry(key: "lookup_key", value: "sw buzzer")
+            ]
+        )
+        var doc = HypeDocument.newDocument()
+        doc.assetRepository = AssetRepository(assets: [sound])
+
+        let result = executeScript("""
+        on test
+          Buzzer 128
+        end test
+        """, document: doc)
+
+        #expect(result.status == .completed)
+        let videoPart = result.modifiedDocument?.parts.first { $0.partType == .video }
+        #expect(videoPart?.cardId == doc.cards[0].id)
+        #expect(videoPart?.name == "SW Buzzer")
+        #expect(videoPart?.width == 1)
+        #expect(videoPart?.height == 1)
+        #expect(videoPart?.videoAssetRef?.id == sound.id)
+        #expect(videoPart?.videoURL == "asset://\(sound.id.uuidString)")
+        #expect(videoPart?.videoAutoplay == true)
+        #expect(videoPart?.videoLoop == false)
+        #expect(videoPart?.videoVolume == 128.0 / 255.0)
+        #expect(videoPart?.helpText.contains("hypercard-buzzer") == true)
+        #expect(videoPart?.helpText.contains("audioOnly=true") == true)
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.buzzer.asset"] == sound.name)
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.buzzer.volume"] == "128")
+    }
+
     @Test func movieCreatesRepositoryBackedVideoPartAtClassicPoint() {
         let movie = Asset(
             name: "MystLib-modern.mov",

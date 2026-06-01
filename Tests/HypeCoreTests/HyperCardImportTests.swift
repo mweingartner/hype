@@ -165,6 +165,7 @@ struct HyperCardImportTests {
         #expect(registry.status(for: "movieInfo", kind: .xfcn) == .emulated)
         #expect(registry.status(for: "playQT", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "Movie", kind: .xcmd) == .emulated)
+        #expect(registry.status(for: "Buzzer", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "closemoovs", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "xSetSoundVol", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "xSetSoundVol", kind: .xfcn) == .emulated)
