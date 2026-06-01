@@ -87,9 +87,10 @@ public struct Lexer: Sendable {
                 continue
             }
 
-            // Line continuation: backslash or classic Mac `¬` immediately before any supported newline.
-            if isLineContinuation(ch) && pos + 1 < source.count && isLineBreak(source[pos + 1]) {
-                pos += 1
+            // Line continuation: backslash or classic Mac `¬` before a supported newline.
+            // Classic imports can leave padding and an inline comment after the marker.
+            if isLineContinuation(ch), let lineBreakIndex = lineContinuationBreakIndex(from: pos) {
+                pos = lineBreakIndex
                 consumeLineBreak()
                 continue
             }
@@ -168,6 +169,25 @@ public struct Lexer: Sendable {
 
     private func isLineContinuation(_ ch: Character) -> Bool {
         ch == "\\" || ch == "\u{00AC}"
+    }
+
+    private func lineContinuationBreakIndex(from continuationIndex: Int) -> Int? {
+        var index = continuationIndex + 1
+        while index < source.count && (source[index] == " " || source[index] == "\t") {
+            index += 1
+        }
+
+        if index + 1 < source.count && source[index] == "-" && source[index + 1] == "-" {
+            index += 2
+            while index < source.count && !isLineBreak(source[index]) {
+                index += 1
+            }
+        }
+
+        if index < source.count && isLineBreak(source[index]) {
+            return index
+        }
+        return nil
     }
 
     private mutating func consumeLineBreak() {

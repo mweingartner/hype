@@ -83,6 +83,15 @@ struct LexerTests {
         #expect(tokens.filter { $0.type == .newline }.count == 1)
     }
 
+    @Test func handlesClassicLineContinuationWithTrailingComment() {
+        var lexer = Lexer(source: "put SPpath & return & \u{00AC}       -- Myst on HD\rSPpath & \"Myst Files:\" into stacks")
+        let tokens = lexer.tokenize()
+        let types = tokens.map(\.type)
+        #expect(types.filter { $0 == .newline }.count == 1)
+        #expect(!tokens.contains(where: { $0.value == "Myst on HD" }))
+        #expect(tokens.contains(where: { $0.type == .string && $0.value == "Myst Files:" }))
+    }
+
     @Test func handlesOperators() {
         var lexer = Lexer(source: "2 + 3 * 4 <= 20 <> 5 && 6")
         let tokens = lexer.tokenize()
@@ -379,6 +388,29 @@ struct ParserTests {
             return
         }
         #expect(promptValue == "Restore Myst to...")
+    }
+
+    @Test func parsesMystPathListWithCommentedClassicContinuations() throws {
+        var lexer = Lexer(source: """
+        on startup
+          put SPpath & return & \u{00AC}                          -- Myst on HD
+        SPpath & "Myst Files:" & return & \u{00AC}              -- Myst Files folder on HD
+        "Myst:" into stacks
+        end startup
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        guard case .put(_, .into, let target) = script.handlers[0].body[0] else {
+            Issue.record("Expected put statement")
+            return
+        }
+        guard case .variable(let targetName) = target else {
+            Issue.record("Expected stacks variable target")
+            return
+        }
+        #expect(targetName == "stacks")
     }
 
     @Test func parsesMystExternalCommandsWithClassicSpacing() throws {
