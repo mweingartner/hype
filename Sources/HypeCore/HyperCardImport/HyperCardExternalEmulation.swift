@@ -146,6 +146,12 @@ public struct HyperCardExternalRegistry: Sendable {
         put(.xcmd, ["playQT", "PlayMovie", "Movie"], Entry(status: .emulated) { call, context in
             playQuickTime(call: call, context: context)
         })
+        put(.xcmd, ["fadein"], Entry(status: .emulated) { call, context in
+            fadeInCompatibility(call: call, context: context)
+        })
+        put(.xcmd, ["fadeout"], Entry(status: .emulated) { call, context in
+            fadeOutCompatibility(call: call, context: context)
+        })
         put(.xcmd, ["Buzzer"], Entry(status: .emulated) { call, context in
             buzzerCompatibility(call: call, context: context)
         })
@@ -371,6 +377,85 @@ public struct HyperCardExternalRegistry: Sendable {
             value: String(removedCount),
             result: String(removedCount),
             modifiedDocument: document
+        )
+    }
+
+    private static func fadeInCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        let windowName = call.arguments.first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let rawVolume = call.arguments.dropFirst().first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let volume = clampedClassicSoundVolume(
+            rawVolume,
+            fallback: context.document.scriptGlobals["hypercard.sound.volume"] ?? "255"
+        )
+        var document = context.document
+        var changedCount = 0
+        for index in quickTimeCompatibilityPartIndices(
+            windowName: windowName.isEmpty ? nil : windowName,
+            document: document,
+            currentCardId: context.currentCardId
+        ) {
+            document.parts[index].visible = true
+            document.parts[index].videoAutoplay = true
+            document.parts[index].videoVolume = normalizedClassicSoundVolume(volume)
+            changedCount += 1
+        }
+        let windowKey = windowName.isEmpty ? "" : AssetRepository.classicMediaLookupKey(windowName)
+        var runtimeGlobals = [
+            "hypercard.fadein.window": windowName,
+            "hypercard.fadein.volume": volume,
+            "hypercard.fadein.count": String(changedCount)
+        ]
+        if !windowKey.isEmpty {
+            runtimeGlobals["hypercard.window.\(windowKey).visible"] = "true"
+            runtimeGlobals["hypercard.window.\(windowKey).rate"] = "1.0"
+            runtimeGlobals["hypercard.window.\(windowKey).audiolevel"] = volume
+        }
+        return HyperCardExternalResult(
+            value: windowName,
+            result: windowName,
+            modifiedDocument: changedCount == 0 ? nil : document,
+            runtimeGlobals: runtimeGlobals,
+            visualEffect: "fade in"
+        )
+    }
+
+    private static func fadeOutCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        let windowName = call.arguments.first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var document = context.document
+        var changedCount = 0
+        for index in quickTimeCompatibilityPartIndices(
+            windowName: windowName.isEmpty ? nil : windowName,
+            document: document,
+            currentCardId: context.currentCardId
+        ) {
+            document.parts[index].videoAutoplay = false
+            document.parts[index].videoVolume = 0
+            changedCount += 1
+        }
+        let windowKey = windowName.isEmpty ? "" : AssetRepository.classicMediaLookupKey(windowName)
+        var runtimeGlobals = [
+            "hypercard.fadeout.window": windowName,
+            "hypercard.fadeout.count": String(changedCount)
+        ]
+        if !windowKey.isEmpty {
+            runtimeGlobals["hypercard.window.\(windowKey).rate"] = "0.0"
+            runtimeGlobals["hypercard.window.\(windowKey).audiolevel"] = "0"
+        }
+        return HyperCardExternalResult(
+            value: windowName,
+            result: windowName,
+            modifiedDocument: changedCount == 0 ? nil : document,
+            runtimeGlobals: runtimeGlobals,
+            visualEffect: "fade out"
         )
     }
 
@@ -1861,6 +1946,38 @@ public struct HyperCardExternalRegistry: Sendable {
     private static func isQuickTimeCompatibilityPart(_ part: Part) -> Bool {
         part.helpText == quickTimeCompatibilityMarker ||
             part.helpText.hasPrefix("\(quickTimeCompatibilityMarker)\n")
+    }
+
+    private static func quickTimeCompatibilityPartIndices(
+        windowName: String?,
+        document: HypeDocument,
+        currentCardId: UUID
+    ) -> [Int] {
+        let normalizedWindow = windowName.map(AssetRepository.classicMediaLookupKey) ?? ""
+        return document.parts.indices.filter { index in
+            let part = document.parts[index]
+            guard part.cardId == currentCardId,
+                  part.partType == .video,
+                  isQuickTimeCompatibilityPart(part) else {
+                return false
+            }
+            guard !normalizedWindow.isEmpty else { return true }
+            if AssetRepository.classicMediaLookupKey(part.name) == normalizedWindow {
+                return true
+            }
+            return quickTimeCompatibilityWindowKey(from: part) == normalizedWindow
+        }
+    }
+
+    private static func quickTimeCompatibilityWindowKey(from part: Part) -> String? {
+        for line in part.helpText.split(separator: "\n", omittingEmptySubsequences: true) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.lowercased().hasPrefix("window=") else { continue }
+            let windowName = String(trimmed.dropFirst("window=".count))
+            let key = AssetRepository.classicMediaLookupKey(windowName)
+            if !key.isEmpty { return key }
+        }
+        return nil
     }
 
     private static func isBuzzerCompatibilityPart(_ part: Part) -> Bool {
