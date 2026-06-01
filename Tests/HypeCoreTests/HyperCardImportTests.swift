@@ -221,6 +221,8 @@ struct HyperCardImportTests {
         #expect(registry.status(for: "closemoovs", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "vd", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "vs", kind: .xcmd) == .emulated)
+        #expect(registry.status(for: "arrow", kind: .xcmd) == .emulated)
+        #expect(registry.status(for: "slideKnob", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "xSetSoundVol", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "xSetSoundVol", kind: .xfcn) == .emulated)
         #expect(registry.status(for: "xGetSoundVol", kind: .xfcn) == .emulated)
