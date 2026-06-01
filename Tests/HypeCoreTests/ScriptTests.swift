@@ -340,6 +340,47 @@ struct ParserTests {
         #expect(variableName == "RestoreData")
     }
 
+    @Test func parsesClassicBarePropertyOfObjectReferences() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          if visible of card button openElevator is false then go to card id 41669
+          get rect of card button thedoor
+          get loc of me
+        end mouseUp
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers[0].body.count == 3)
+        guard case .ifThenElse(let condition, _, _) = script.handlers[0].body[0],
+              case .binary(let lhs, let op, _) = condition,
+              case .propertyAccess(let visibleProperty, let visibleTarget?) = lhs,
+              case .scopedObjectRef(let visibleRef, let visibleOwner) = visibleTarget else {
+            Issue.record("Expected visible property check")
+            return
+        }
+        #expect(op == .equal)
+        #expect(visibleProperty == "visible")
+        #expect(visibleRef.objectType == "button")
+        #expect(visibleOwner.objectType == "card")
+        guard case .get(let rectExpr) = script.handlers[0].body[1],
+              case .propertyAccess(let rectProperty, let rectTarget?) = rectExpr,
+              case .scopedObjectRef(let rectRef, let rectOwner) = rectTarget else {
+            Issue.record("Expected rect property get")
+            return
+        }
+        #expect(rectProperty == "rect")
+        #expect(rectRef.objectType == "button")
+        #expect(rectOwner.objectType == "card")
+        guard case .get(let locExpr) = script.handlers[0].body[2],
+              case .propertyAccess(let locProperty, let locTarget?) = locExpr,
+              case .me = locTarget else {
+            Issue.record("Expected loc of me property get")
+            return
+        }
+        #expect(locProperty == "loc")
+    }
+
     @Test func parsesAnswerWithClassicButtonList() throws {
         var lexer = Lexer(source: """
         on mouseUp
@@ -1507,6 +1548,24 @@ struct InterpreterTests {
 
         #expect(result.status == .completed)
         #expect(result.returnValue == "debug value")
+    }
+
+    @Test func barePropertyOfObjectReferencesEvaluateLikeThePropertyForm() {
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        var button = Part(partType: .button, cardId: cardId, name: "openElevator", left: 10, top: 20, width: 40, height: 20)
+        button.visible = false
+        doc.addPart(button)
+
+        let result = executeScript("""
+        on test
+          if visible of card button openElevator is false then return rect of card button openElevator
+          return "visible"
+        end test
+        """, document: doc)
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "10,20,50,40")
     }
 
     @Test func shortNameOfThisStackReturnsStackName() {
