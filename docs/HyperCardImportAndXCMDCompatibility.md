@@ -53,6 +53,8 @@ The registry models the behavior that matters to scripts:
   handler, later function calls use that destination card as the lookup context.
 - Validator object-reference checks accept classic self-card references such as
   `this card` and `current card`.
+- Validator object-reference checks skip variable-driven object references such
+  as `go to card x` or `button which`; those remain runtime-resolved.
 - Function-style XFCN calls use ordinary function syntax, for example
   `put HypeVersion() into field "status"`.
 - Parameters are passed as evaluated HypeTalk strings.
