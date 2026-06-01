@@ -188,6 +188,9 @@ public struct HyperCardExternalRegistry: Sendable {
         put(.xcmd, ["pillarClick"], Entry(status: .emulated) { call, context in
             mystPillarClickCompatibility(call: call, context: context)
         })
+        put(.xcmd, ["pushKey"], Entry(status: .emulated) { call, context in
+            mystPushKeyCompatibility(call: call, context: context)
+        })
         put(.xcmd, ["DeCurse"], Entry(status: .emulated) { call, _ in
             cursorCompatibility(call: call)
         })
@@ -800,6 +803,79 @@ public struct HyperCardExternalRegistry: Sendable {
             x: part.left + max(part.width, 1) / 2.0,
             y: part.top + max(part.height, 1) / 2.0
         )
+    }
+
+    private static func mystPushKeyCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        var rawKey = call.arguments.first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if rawKey.isEmpty,
+           let target = context.document.parts.first(where: { $0.id == context.targetId }) {
+            rawKey = target.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let key = classicInteger(rawKey, fallback: 0)
+        let iconId = String(1000 + key)
+        var document = context.document
+        let targetLoc = targetLocation(in: context)
+        setPartLocation(
+            named: "mask",
+            cardId: context.currentCardId,
+            location: targetLoc,
+            in: &document
+        )
+        document.scriptGlobals["keyCounter"] = "0"
+        document.scriptGlobals["keycounter"] = "0"
+        document.scriptGlobals["hypercard.myst.pushkey.key"] = rawKey
+        document.scriptGlobals["hypercard.myst.pushkey.icon"] = iconId
+
+        let iconResult = colorIconCompatibility(
+            call: HyperCardExternalCall(
+                name: "xCIcon3",
+                kind: .xcmd,
+                arguments: [classicPointString(targetLoc), iconId]
+            ),
+            context: HyperCardExternalCallContext(
+                targetId: context.targetId,
+                currentCardId: context.currentCardId,
+                document: document
+            )
+        )
+        var resultDocument = iconResult.modifiedDocument ?? document
+        resultDocument.scriptGlobals["keyCounter"] = "0"
+        resultDocument.scriptGlobals["keycounter"] = "0"
+        resultDocument.scriptGlobals["hypercard.myst.pushkey.key"] = rawKey
+        resultDocument.scriptGlobals["hypercard.myst.pushkey.icon"] = iconId
+
+        var globals = iconResult.runtimeGlobals
+        globals.merge([
+            "keyCounter": "0",
+            "hypercard.myst.pushkey.key": rawKey,
+            "hypercard.myst.pushkey.icon": iconId
+        ]) { _, new in new }
+
+        return HyperCardExternalResult(
+            value: rawKey,
+            result: rawKey,
+            modifiedDocument: resultDocument,
+            runtimeGlobals: globals
+        )
+    }
+
+    private static func setPartLocation(
+        named name: String,
+        cardId: UUID,
+        location: CGPoint,
+        in document: inout HypeDocument
+    ) {
+        let lookupName = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard let index = document.parts.firstIndex(where: { part in
+            part.cardId == cardId
+                && part.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == lookupName
+        }) else { return }
+        document.parts[index].left = location.x
+        document.parts[index].top = location.y
     }
 
     private static func cursorCompatibility(call: HyperCardExternalCall) -> HyperCardExternalResult {
