@@ -702,15 +702,15 @@ public struct AssetRepository: Codable, Sendable {
     /// filenames, so repository lookup needs to match both direct asset names
     /// and imported metadata.
     public func asset(byClassicMediaName name: String, kind: AssetKind? = nil) -> Asset? {
-        let key = Self.classicMediaLookupKey(name)
-        guard !key.isEmpty else { return nil }
+        let keys = Self.classicMediaLookupKeys(name)
+        guard !keys.isEmpty else { return nil }
         return assets.reversed().first { asset in
             if let kind, asset.kind != kind { return false }
-            if Self.classicMediaLookupKey(asset.name) == key { return true }
+            if Self.classicMediaLookupKeys(asset.name).contains(where: keys.contains) { return true }
             return asset.metadata.contains { entry in
                 let metadataKey = entry.key.lowercased()
                 guard metadataKey == "lookup_key" || metadataKey == "classic_name" else { return false }
-                return Self.classicMediaLookupKey(entry.value) == key
+                return Self.classicMediaLookupKeys(entry.value).contains(where: keys.contains)
             }
         }
     }
@@ -762,6 +762,17 @@ public struct AssetRepository: Codable, Sendable {
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
             .replacingOccurrences(of: #"[:/\\\s_\-\.]+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func classicMediaLookupKeys(_ name: String) -> Set<String> {
+        let key = classicMediaLookupKey(name)
+        guard !key.isEmpty else { return [] }
+        var keys: Set<String> = [key]
+        let compact = key.replacingOccurrences(of: " ", with: "")
+        if !compact.isEmpty {
+            keys.insert(compact)
+        }
+        return keys
     }
 
     private static func classicMediaLookupStem(_ name: String) -> String {
