@@ -617,7 +617,7 @@ public struct Parser: Sendable {
         var property = propTok.value
         if isNameAdjective(property),
            current.type == .identifier,
-           current.value.lowercased() == "name" {
+           ["name", "id"].contains(current.value.lowercased()) {
             property += " \(advance().value)"
         }
 
@@ -3386,7 +3386,7 @@ public struct Parser: Sendable {
         var property = propTok.value
         if isNameAdjective(property),
            current.type == .identifier,
-           current.value.lowercased() == "name" {
+           ["name", "id"].contains(current.value.lowercased()) {
             property += " \(advance().value)"
         }
 
