@@ -439,7 +439,7 @@ given `partType`. The fields fall into bands:
 | pdf              | `pdfURL`, `pdfCurrentPage`, `pdfDisplayMode`, `pdfAutoScales`            |
 | map              | `mapCenterLat`, `mapCenterLon`, `mapSpan`, `mapType`, `mapAnnotationsJSON`, `mapLocation` *(geocoded)* |
 | colorWell        | `colorWellHex`, `colorWellInteractive`                                   |
-| stepper / slider | `controlValue`, `controlMin`, `controlMax`, `controlStep`; sliders derive horizontal/vertical rendering from their bounds, using the longest dimension as the interactive axis, and dispatch `valueChanged` during tracking plus `mouseUp` when tracking ends |
+| stepper / slider | `controlValue`, `controlMin`, `controlMax`, `controlStep`; sliders derive horizontal/vertical rendering from their bounds, using the longest dimension as the interactive axis; in browse mode, clicking anywhere along the track sets the value immediately, dragging scrubs continuously, and the hosted slider dispatches `valueChanged` during tracking plus `mouseUp` when tracking ends |
 | segmented        | `segmentItems` *(pipe-separated)*, `controlValue` *(selected index)*     |
 | progressView     | `progressValue`, `progressTotal`, `progressIsCircular`, `progressIsIndeterminate`, `progressLabel`, `progressTint`, `progressDecimals` |
 | gauge            | `gaugeValue`, `gaugeMin`, `gaugeMax`, `gaugeStyle`, `gaugeTint`, `gaugeLabel`, `gaugeMinLabel`, `gaugeMaxLabel`, `gaugeDecimals` |

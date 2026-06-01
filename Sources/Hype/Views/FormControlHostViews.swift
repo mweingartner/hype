@@ -80,13 +80,92 @@ final class StepperHostNSView: NSView {
 final class HypeSliderControl: NSSlider {
     var onMouseTrackingEnded: (() -> Void)?
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
     override func mouseDown(with event: NSEvent) {
-        super.mouseDown(with: event)
+        window?.makeFirstResponder(self)
+        updateValue(from: event)
+
+        let trackingMask: NSEvent.EventTypeMask = [.leftMouseDragged, .leftMouseUp]
+        while let next = window?.nextEvent(
+            matching: trackingMask,
+            until: .distantFuture,
+            inMode: .eventTracking,
+            dequeue: true
+        ) {
+            switch next.type {
+            case .leftMouseDragged:
+                updateValue(from: next)
+            case .leftMouseUp:
+                notifyMouseTrackingEnded()
+                return
+            default:
+                break
+            }
+        }
+
         notifyMouseTrackingEnded()
     }
 
     func notifyMouseTrackingEnded() {
         onMouseTrackingEnded?()
+    }
+
+    @discardableResult
+    func setValue(fromLocalPoint point: NSPoint, fireAction: Bool = true) -> Bool {
+        let nextValue = value(forLocalPoint: point)
+        guard nextValue.isFinite else { return false }
+
+        let changed = abs(doubleValue - nextValue) > Double.ulpOfOne
+        if changed {
+            doubleValue = nextValue
+            needsDisplay = true
+            if fireAction {
+                _ = sendAction(action, to: target)
+            }
+        }
+        return changed
+    }
+
+    func value(forLocalPoint point: NSPoint) -> Double {
+        let range = maxValue - minValue
+        guard range != 0 else { return minValue }
+
+        let rect = effectiveTrackRect()
+        let rawPercent: CGFloat
+        if isVertical {
+            let clampedY = min(max(point.y, rect.minY), rect.maxY)
+            if rect.height <= 0 {
+                rawPercent = 0
+            } else if isFlipped {
+                rawPercent = 1 - ((clampedY - rect.minY) / rect.height)
+            } else {
+                rawPercent = (clampedY - rect.minY) / rect.height
+            }
+        } else {
+            let clampedX = min(max(point.x, rect.minX), rect.maxX)
+            rawPercent = rect.width <= 0 ? 0 : (clampedX - rect.minX) / rect.width
+        }
+
+        let percent = Double(min(max(rawPercent, 0), 1))
+        let value = minValue + range * percent
+        return min(max(value, min(minValue, maxValue)), max(minValue, maxValue))
+    }
+
+    private func updateValue(from event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        _ = setValue(fromLocalPoint: point)
+    }
+
+    private func effectiveTrackRect() -> NSRect {
+        let length = isVertical ? bounds.height : bounds.width
+        let inset = min(CGFloat(6), max(0, length / 2))
+        if isVertical {
+            return bounds.insetBy(dx: 0, dy: inset)
+        }
+        return bounds.insetBy(dx: inset, dy: 0)
     }
 }
 
