@@ -3332,6 +3332,12 @@ public struct Parser: Sendable {
         if objType == "card" || objType == "background" || objType == "bg" {
             let ownerType = objType == "card" ? "card" : "background"
             let objectType = current.value.lowercased()
+            if objType == "card",
+               current.type == .identifier,
+               objectType == "window" {
+                _ = advance()
+                return .objectRef(ObjectRefExpr(objectType: "window", identifier: .literal("card window")))
+            }
             if current.type == .field || current.type == .button ||
                 (current.type == .identifier && ["field", "fld", "button", "btn"].contains(objectType)) {
                 _ = advance()

@@ -424,6 +424,40 @@ struct ParserTests {
         #expect(ref.objectType == "window")
     }
 
+    @Test func parsesClassicCardWindowPropertyReference() throws {
+        var lexer = Lexer(source: """
+        on startup
+          if the screenrect = the rect of card window then
+            hide menubar
+          end if
+        end startup
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        guard case .ifThenElse(let condition, _, _) = script.handlers[0].body[0] else {
+            Issue.record("Expected if statement")
+            return
+        }
+        guard case .binary(_, .equal, let rhs) = condition else {
+            Issue.record("Expected equality condition")
+            return
+        }
+        guard case .propertyAccess(let property, let target?) = rhs,
+              property == "rect",
+              case .objectRef(let ref) = target else {
+            Issue.record("Expected rect of card window property access")
+            return
+        }
+        #expect(ref.objectType == "window")
+        guard case .literal(let windowName) = ref.identifier else {
+            Issue.record("Expected card window literal")
+            return
+        }
+        #expect(windowName == "card window")
+    }
+
     @Test func topLevelGlobalPreludeAppliesToEveryHandler() throws {
         var lexer = Lexer(source: """
         global moveDir, score
@@ -1495,6 +1529,18 @@ struct InterpreterTests {
 
         #expect(result.status == .completed)
         #expect(result.returnValue == "missing")
+    }
+
+    @Test func cardWindowRectReturnsStackBounds() {
+        let doc = HypeDocument.newDocument()
+        let result = executeScript("""
+        on test
+          return the rect of card window
+        end test
+        """, document: doc)
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "0,0,800,600")
     }
 
     @Test func barePutStoresValueInItForClassicDebugHandlers() {
