@@ -239,6 +239,32 @@ struct ParserTests {
         #expect(visualArguments.isEmpty)
     }
 
+    @Test func parsesClassicDoMenuAndSaveAsCommands() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          doMenu "next window"
+          save stack "Myst:Myst Graphics:Template" as charFile
+        end mouseUp
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        guard case .doMenuCmd(let item) = script.handlers[0].body[0] else {
+            Issue.record("Expected doMenu command")
+            return
+        }
+        guard case .literal(let itemName) = item else {
+            Issue.record("Expected literal doMenu item")
+            return
+        }
+        #expect(itemName == "next window")
+        guard case .saveStack = script.handlers[0].body[1] else {
+            Issue.record("Expected save stack command")
+            return
+        }
+        #expect(script.handlers[0].body.count == 2)
+    }
+
     @Test func parsesAskWithDefaultResponse() throws {
         var lexer = Lexer(source: """
         on mouseUp
