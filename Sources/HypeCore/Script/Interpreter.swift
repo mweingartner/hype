@@ -4702,6 +4702,14 @@ public struct Interpreter: Sendable {
                 return ""
             case "name":
                 return card?.name ?? ""
+            case "id":
+                return card?.id.uuidString ?? ""
+            case "shortid", "short id", "longid", "long id":
+                guard let card else { return "" }
+                if let legacyCardId = legacyCardId(for: card, document: document) {
+                    return String(legacyCardId)
+                }
+                return card.id.uuidString
             case "marked":
                 return (card?.marked ?? false) ? "true" : "false"
             case "script":
@@ -5759,6 +5767,12 @@ public struct Interpreter: Sendable {
             return nil
         }
         return cardId
+    }
+
+    private func legacyCardId(for card: Card, document: HypeDocument) -> Int? {
+        currentStackLibraryEntry(in: document)?.cardReferences.first {
+            $0.hypeCardId == card.id
+        }?.legacyCardId
     }
 
     private func currentStackLibraryEntry(in document: HypeDocument) -> HypeStackLibraryEntry? {
