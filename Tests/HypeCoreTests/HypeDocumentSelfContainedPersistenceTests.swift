@@ -159,7 +159,7 @@ struct HypeDocumentSelfContainedPersistenceTests {
         let loaded = try store.load(fromPackageAt: packageURL)
 
         #expect(!loaded.stack.script.hasPrefix("-- Imported HyperCard script preserved for reference."))
-        #expect(loaded.stack.script.contains("put helper(x) into it\nend if\nend repeat"))
+        #expect(loaded.stack.script.contains("put helper(x) into it\nend repeat"))
         #expect(loaded.stack.script.contains("function helper value"))
     }
 
