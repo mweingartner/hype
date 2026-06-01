@@ -3918,6 +3918,42 @@ struct MessageDispatcherTests {
         #expect(outputField?.textContent == "card handled")
     }
 
+    @Test func sendToBareCardInvokesCurrentCardHandler() async {
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+
+        var field = Part(partType: .field, cardId: cardId, name: "output")
+        doc.addPart(field)
+
+        var btn = Part(partType: .button, cardId: cardId, name: "Marker")
+        btn.script = """
+        on mouseUp
+          send mouseDownInMovie to card
+        end mouseUp
+        """
+        doc.addPart(btn)
+
+        if let idx = doc.cards.firstIndex(where: { $0.id == cardId }) {
+            doc.cards[idx].script = """
+            on mouseDownInMovie
+              put "movie marker" into field "output"
+            end mouseDownInMovie
+            """
+        }
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, cardId, btn] in dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: btn.id,
+            document: doc,
+            currentCardId: cardId
+        ) }
+        #expect(result.status == .completed)
+        let outputField = result.modifiedDocument?.parts.first(where: { $0.name == "output" })
+        #expect(outputField?.textContent == "movie marker")
+    }
+
     @Test func sendToThisBackgroundInvokesBackgroundHandler() async {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id

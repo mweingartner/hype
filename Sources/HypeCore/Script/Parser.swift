@@ -2175,9 +2175,26 @@ public struct Parser: Sendable {
             skipNewlines()
             return .sendToConnection(data: data, connection: connection)
         }
+        if current.type == .card,
+           Self.isStatementTerminator(peek(1)?.type) {
+            _ = advance()
+            skipNewlines()
+            return .send(message: data, target: .literal("card"))
+        }
+        if current.type == .background,
+           Self.isStatementTerminator(peek(1)?.type) {
+            _ = advance()
+            skipNewlines()
+            return .send(message: data, target: .literal("background"))
+        }
         let connection = try parseExpression()
         skipNewlines()
         return .send(message: data, target: connection)
+    }
+
+    private static func isStatementTerminator(_ tokenType: TokenType?) -> Bool {
+        guard let tokenType else { return false }
+        return tokenType == .newline || tokenType == .eof
     }
 
     private mutating func parseStartStatement() throws -> Statement {
