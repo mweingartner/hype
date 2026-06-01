@@ -306,6 +306,36 @@ struct ParserTests {
         #expect(script.handlers[0].body.count == 2)
     }
 
+    @Test func parsesClassicOpenStateAsExpressionLiteral() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          if drawer is open then put closed into drawer
+          put open into drawer
+        end mouseUp
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers[0].body.count == 2)
+        guard case .ifThenElse(let condition, _, _) = script.handlers[0].body[0],
+              case .binary(_, let op, let rhs) = condition else {
+            Issue.record("Expected open-state comparison")
+            return
+        }
+        #expect(op == .equal)
+        guard case .literal(let state) = rhs else {
+            Issue.record("Expected open state literal")
+            return
+        }
+        #expect(state == "open")
+        guard case .put(let source, _, _) = script.handlers[0].body[1],
+              case .literal(let putState) = source else {
+            Issue.record("Expected put open literal")
+            return
+        }
+        #expect(putState == "open")
+    }
+
     @Test func parsesAskWithDefaultResponse() throws {
         var lexer = Lexer(source: """
         on mouseUp
@@ -1573,6 +1603,19 @@ struct InterpreterTests {
 
         #expect(result.status == .completed)
         #expect(result.returnValue == "debug value")
+    }
+
+    @Test func openStateLiteralSupportsClassicStateChecks() {
+        let result = executeScript("""
+        on test
+          put open into drawer
+          if drawer is open then return "drawer-open"
+          return "closed"
+        end test
+        """)
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "drawer-open")
     }
 
     @Test func shortNameOfThisStackReturnsStackName() {

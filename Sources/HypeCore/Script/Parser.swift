@@ -2864,6 +2864,10 @@ public struct Parser: Sendable {
             _ = advance()
             return .literal("false")
 
+        case .open:
+            _ = advance()
+            return .literal("open")
+
         case .it:
             _ = advance()
             return .it
@@ -3575,7 +3579,7 @@ public struct Parser: Sendable {
     private static func canStartPrimaryExpression(_ type: TokenType) -> Bool {
         switch type {
         case .integer, .float, .string, .identifier, .lparen,
-             .the, .it, .me, .this, .empty, .await,
+             .the, .it, .me, .this, .empty, .open, .await,
              .word, .char, .character, .item, .line, .number,
              .first, .second, .third, .last, .middle, .any,
              .not,
