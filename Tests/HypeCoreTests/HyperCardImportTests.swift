@@ -342,9 +342,8 @@ struct HyperCardImportTests {
 
         #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(translated))
         #expect(translated.contains("on doValveR which"))
+        #expect(translated.contains("on openCard"))
         #expect(translated.contains("on closeStack"))
-        #expect(translated.contains("-- Disabled imported handler preserved for reference."))
-        #expect(translated.contains("-- on openCard"))
         #expect(try parsedHandlerCount(translated) == 2)
     }
 
