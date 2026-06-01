@@ -250,6 +250,10 @@ public enum LegacyHyperTalkScript {
            parsesAsHypeTalk(routeScript) {
             return routeScript
         }
+        if let partialScript = partiallyEnabledHandlerScript(from: compatible),
+           parsesAsHypeTalk(partialScript) {
+            return partialScript
+        }
         return disabledForHypeTalkRuntime(compatible)
     }
 
@@ -346,6 +350,71 @@ public enum LegacyHyperTalkScript {
         let indent = line.prefix { $0 == " " || $0 == "\t" }
         let body = line.dropFirst(indent.count)
         return "\(indent)-- \(body)"
+    }
+
+    private static func partiallyEnabledHandlerScript(from script: String) -> String? {
+        let lines = script.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var result: [String] = []
+        var enabledHandlerCount = 0
+        var disabledHandlerCount = 0
+        var index = 0
+
+        while index < lines.count {
+            guard let handlerName = handlerName(in: lines[index]),
+                  let endIndex = handlerEndIndex(handlerName: handlerName, after: index, in: lines) else {
+                result.append(commentLineIfNeeded(lines[index]))
+                index += 1
+                continue
+            }
+
+            let block = Array(lines[index...endIndex])
+            let blockScript = block.joined(separator: "\n")
+            if parsesAsHypeTalk(blockScript) {
+                result.append(contentsOf: block)
+                enabledHandlerCount += 1
+            } else {
+                if !result.isEmpty, result.last?.isEmpty == false {
+                    result.append("")
+                }
+                result.append("-- Disabled imported handler preserved for reference.")
+                result.append(contentsOf: block.map(commentLineIfNeeded))
+                disabledHandlerCount += 1
+            }
+            index = endIndex + 1
+        }
+
+        guard enabledHandlerCount > 0, disabledHandlerCount > 0 else { return nil }
+        return result.joined(separator: "\n")
+    }
+
+    private static func handlerName(in line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let lowercased = trimmed.lowercased()
+        let prefix: String
+        if lowercased.hasPrefix("on ") {
+            prefix = "on "
+        } else if lowercased.hasPrefix("function ") {
+            prefix = "function "
+        } else {
+            return nil
+        }
+
+        let declaration = trimmed.dropFirst(prefix.count)
+        let name = declaration.split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "(" }).first.map(String.init)
+        guard let name, !name.isEmpty else { return nil }
+        return name
+    }
+
+    private static func handlerEndIndex(handlerName: String, after index: Int, in lines: [String]) -> Int? {
+        let expected = "end \(handlerName)".lowercased()
+        guard index + 1 < lines.count else { return nil }
+        for lineIndex in (index + 1)..<lines.count {
+            let trimmed = lines[lineIndex].trimmingCharacters(in: .whitespaces).lowercased()
+            if trimmed == expected {
+                return lineIndex
+            }
+        }
+        return nil
     }
 
     private static func compatibilityRouteScript(from script: String) -> String? {

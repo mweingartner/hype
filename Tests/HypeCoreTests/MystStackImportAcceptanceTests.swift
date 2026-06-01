@@ -104,6 +104,25 @@ struct MystStackImportAcceptanceTests {
         )
     }
 
+    @Test("keeps Channelwood stack helper handlers live around malformed legacy handlers")
+    func importsChannelwoodStackHelperHandlersAroundMalformedLegacyHandlers() throws {
+        let root = try mystExportRoot()
+        let packageURL = root.appendingPathComponent("exports/stacks/Channelwood-Age.xstk", isDirectory: true)
+
+        let document = try StackImportPackageConverter().convert(packageURL: packageURL).document
+
+        #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(document.stack.script))
+        #expect(document.stack.script.contains("on doValveR which"))
+        #expect(document.stack.script.contains("on windIdle"))
+        #expect(document.stack.script.contains("-- Disabled imported handler preserved for reference."))
+        #expect(document.stack.script.contains("-- on openCard"))
+
+        let parsed = try parseScript(document.stack.script)
+        let handlerNames = Set(parsed.handlers.map { $0.name.lowercased() })
+        #expect(handlerNames.contains("dovalver"))
+        #expect(handlerNames.contains("windidle"))
+    }
+
     @Test("imports selected Myst loose media from manifest")
     func importsSelectedMystLooseMediaFromManifest() throws {
         let root = try mystExportRoot()

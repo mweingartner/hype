@@ -314,6 +314,40 @@ struct HyperCardImportTests {
         #expect(try parsedHandlerCount(translated) == 2)
     }
 
+    @Test("legacy translator keeps valid handlers when one imported handler is malformed")
+    func legacyTranslatorKeepsValidHandlersAroundMalformedImportedHandler() throws {
+        let script = """
+        on doValveR which
+          global CH_Valve
+          put which into CH_Valve
+          push card
+          go to card id 87249
+        end doValveR
+
+        on openCard
+          if field "truepath" is not empty then
+            if checkpath() then
+              playqt "L1 Slosh Mov",,loop,100
+            else playqt "L1 slosh Mov",,loop,100
+          end if
+          pass openCard
+        end openCard
+
+        on closeStack
+          closemoovs
+        end closeStack
+        """
+
+        let translated = LegacyHyperTalkScript.preparedForHypeTalkRuntime(script)
+
+        #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(translated))
+        #expect(translated.contains("on doValveR which"))
+        #expect(translated.contains("on closeStack"))
+        #expect(translated.contains("-- Disabled imported handler preserved for reference."))
+        #expect(translated.contains("-- on openCard"))
+        #expect(try parsedHandlerCount(translated) == 2)
+    }
+
     @Test("Myst environment externals are registered as emulated")
     func mystEnvironmentExternalsAreRegisteredAsEmulated() {
         let registry = HyperCardExternalRegistry.default
