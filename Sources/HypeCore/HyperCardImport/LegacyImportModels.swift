@@ -275,7 +275,7 @@ public enum LegacyHyperTalkScript {
     }
 
     private static func normalizeCommonLegacySpellings(_ script: String) -> String {
-        script.split(separator: "\n", omittingEmptySubsequences: false)
+        let lines = script.split(separator: "\n", omittingEmptySubsequences: false)
             .map { line -> String in
                 let text = String(line)
                 let trimmed = text.trimmingCharacters(in: .whitespaces)
@@ -285,7 +285,67 @@ public enum LegacyHyperTalkScript {
                 let indent = text.prefix { $0 == " " || $0 == "\t" }
                 return "\(indent)go next"
             }
-            .joined(separator: "\n")
+        return commentOutDisabledHandlerTails(in: lines).joined(separator: "\n")
+    }
+
+    private static func commentOutDisabledHandlerTails(in lines: [String]) -> [String] {
+        var result = lines
+        var index = 0
+        while index < result.count {
+            guard let handlerName = disabledHandlerName(in: result[index]),
+                  let endIndex = disabledHandlerEndIndex(handlerName: handlerName, after: index, in: result) else {
+                index += 1
+                continue
+            }
+
+            if endIndex > index {
+                for lineIndex in (index + 1)...endIndex {
+                    result[lineIndex] = commentLineIfNeeded(result[lineIndex])
+                }
+            }
+            index = endIndex + 1
+        }
+        return result
+    }
+
+    private static func disabledHandlerName(in line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let lowercased = trimmed.lowercased()
+        let prefix: String
+        if lowercased.hasPrefix("--on ") {
+            prefix = "--on "
+        } else if lowercased.hasPrefix("--function ") {
+            prefix = "--function "
+        } else {
+            return nil
+        }
+
+        let declaration = trimmed.dropFirst(prefix.count)
+        let name = declaration.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init)
+        guard let name, !name.isEmpty else { return nil }
+        return name
+    }
+
+    private static func disabledHandlerEndIndex(handlerName: String, after index: Int, in lines: [String]) -> Int? {
+        let expected = "end \(handlerName)".lowercased()
+        guard index + 1 < lines.count else { return nil }
+        for lineIndex in (index + 1)..<lines.count {
+            let trimmed = lines[lineIndex].trimmingCharacters(in: .whitespaces)
+            if trimmed.lowercased() == expected {
+                return lineIndex
+            }
+        }
+        return nil
+    }
+
+    private static func commentLineIfNeeded(_ line: String) -> String {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.hasPrefix("--") else {
+            return line
+        }
+        let indent = line.prefix { $0 == " " || $0 == "\t" }
+        let body = line.dropFirst(indent.count)
+        return "\(indent)-- \(body)"
     }
 
     private static func compatibilityRouteScript(from script: String) -> String? {
