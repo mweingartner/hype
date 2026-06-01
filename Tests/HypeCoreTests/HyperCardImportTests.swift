@@ -372,6 +372,96 @@ struct HyperCardImportTests {
         #expect(try parsedHandlerCount(translated) == 3)
     }
 
+    @Test("legacy translator repairs classic missing end if before end repeat")
+    func legacyTranslatorRepairsClassicMissingEndIfBeforeEndRepeat() throws {
+        let script = """
+        on openCard
+        repeat with x = 1 to the number of lines in pictAdd
+        if line x of pictAdd is not empty then
+        put x into it
+        if theClip is empty then HTAddPict thePict,theLoc,"srccopy"
+        else HTAddPict thePict,theLoc,"srccopy","srcRect",theClip
+        end if
+        soundIdle
+        end repeat
+        end openCard
+        """
+
+        let translated = LegacyHyperTalkScript.preparedForHypeTalkRuntime(script)
+
+        #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(translated))
+        #expect(translated.contains("soundIdle\nend if\nend repeat"))
+        #expect(try parsedHandlerCount(translated) == 1)
+    }
+
+    @Test("legacy translator splits compact trailing else statements")
+    func legacyTranslatorSplitsCompactTrailingElseStatements() throws {
+        let script = """
+        function back
+        if NewDirection > SE_Direction then
+        if NewDirection - SE_Direction > 4 then
+        put "L" into delta else put "R" into delta
+        end if
+        else
+        put "R" into delta
+        end if
+        return delta
+        end back
+        """
+
+        let translated = LegacyHyperTalkScript.preparedForHypeTalkRuntime(script)
+
+        #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(translated))
+        #expect(translated.contains("put \"L\" into delta\nelse\nput \"R\" into delta"))
+        #expect(try parsedHandlerCount(translated) == 1)
+    }
+
+    @Test("legacy translator splits compact inline if else statements")
+    func legacyTranslatorSplitsCompactInlineIfElseStatements() throws {
+        let script = """
+        function back
+        if NewDirection > SE_Direction then
+        if NewDirection - SE_Direction > 4 then
+        put "L" into delta
+        else
+        put "R" into delta
+        end if
+        else
+        if SE_Direction - NewDirection > 4 then put "R" into delta else put "L" into delta
+        end if
+        return delta
+        end back
+        """
+
+        let translated = LegacyHyperTalkScript.preparedForHypeTalkRuntime(script)
+
+        #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(translated))
+        #expect(translated.contains("if SE_Direction - NewDirection > 4 then\nput \"R\" into delta\nelse\nput \"L\" into delta\nend if"))
+        #expect(try parsedHandlerCount(translated) == 1)
+    }
+
+    @Test("legacy translator salvages parseable handlers from partially unsupported scripts")
+    func legacyTranslatorSalvagesParseableHandlersFromPartiallyUnsupportedScripts() throws {
+        let script = """
+        on openCard
+        repeat with x = 1 to
+        put x into it
+        end repeat
+        end openCard
+
+        function FurnaceTime theParam
+        return ((theParam - 12) / 13) * 1.2
+        end FurnaceTime
+        """
+
+        let translated = LegacyHyperTalkScript.preparedForHypeTalkRuntime(script)
+
+        #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(translated))
+        #expect(translated.hasPrefix("function FurnaceTime"))
+        #expect(translated.contains("-- on openCard"))
+        #expect(try parsedHandlerCount(translated) == 1)
+    }
+
     @Test("Myst environment externals are registered as emulated")
     func mystEnvironmentExternalsAreRegisteredAsEmulated() {
         let registry = HyperCardExternalRegistry.default
@@ -391,6 +481,8 @@ struct HyperCardImportTests {
         #expect(registry.status(for: "Movie", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "Buzzer", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "dplay", kind: .xcmd) == .emulated)
+        #expect(registry.status(for: "createMenu", kind: .xcmd) == .emulated)
+        #expect(registry.status(for: "soundTime", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "closemoovs", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "vd", kind: .xcmd) == .emulated)
         #expect(registry.status(for: "vs", kind: .xcmd) == .emulated)
@@ -772,6 +864,8 @@ struct HyperCardImportTests {
           moveCursor 11, 22
           xWindowFrame
           xAbout
+          create menu "File"
+          soundTime "5,05","0","0","9,30"
           xMemory 1
           SetMode c,8
           put xDepth() & return & GetMode() & return & xSetSoundVol(128) & return & xGetSoundVol() & return & variant() into field "out"
@@ -794,6 +888,11 @@ struct HyperCardImportTests {
         #expect(modified.scriptGlobals["hypercard.movecursor.loc"] == "11,22")
         #expect(modified.scriptGlobals["hypercard.window.frame.exists"] == "true")
         #expect(modified.scriptGlobals["hypercard.xabout.invoked"] == "true")
+        #expect(modified.scriptGlobals["hypercard.menu.file.created"] == "true")
+        #expect(modified.scriptGlobals["hypercard.soundtime.start"] == "5,05")
+        #expect(modified.scriptGlobals["hypercard.soundtime.loopStart"] == "0")
+        #expect(modified.scriptGlobals["hypercard.soundtime.loopEnd"] == "0")
+        #expect(modified.scriptGlobals["hypercard.soundtime.end"] == "9,30")
         #expect(modified.scriptGlobals["hypercard.display.value"] == "c,8")
         #expect(modified.scriptGlobals["hypercard.sound.volume"] == "128")
     }

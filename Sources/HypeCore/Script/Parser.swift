@@ -844,7 +844,6 @@ public struct Parser: Sendable {
                 } else if current.type != .newline && current.type != .eof && current.line == elseToken.line {
                     elseBlock = [try parseStatement()]
                     skipNewlines()
-                    consumeOptionalEndIfUnlessFollowedByElse()
                 } else {
                     skipNewlines()
                     var elseStmts: [Statement] = []
@@ -896,11 +895,16 @@ public struct Parser: Sendable {
             elseBlock = elseStmts
         }
 
-        if isEndIfTerminator() {
-            _ = advance()
-            _ = match(.if) // `end if`
-            skipNewlines()
+        guard isEndIfTerminator() else {
+            if isLikelyHandlerBoundaryAfterUnclosedImportedIf() {
+                skipNewlines()
+                return .ifThenElse(condition: condition, thenBlock: thenBlock, elseBlock: elseBlock)
+            }
+            throw ParseError.unexpected(current, expected: "end if")
         }
+        _ = advance()
+        _ = match(.if) // `end if`
+        skipNewlines()
         return .ifThenElse(condition: condition, thenBlock: thenBlock, elseBlock: elseBlock)
     }
 
@@ -971,6 +975,21 @@ public struct Parser: Sendable {
         guard current.type == .end else { return false }
         guard let next = peek(1) else { return true }
         return next.type == .if || next.type == .newline || next.type == .eof
+    }
+
+    private func isLikelyHandlerBoundaryAfterUnclosedImportedIf() -> Bool {
+        guard current.type == .end,
+              let handlerName = peek(1),
+              handlerName.type == .identifier else {
+            return false
+        }
+
+        var lookaheadOffset = 2
+        while let token = peek(lookaheadOffset), token.type == .newline {
+            lookaheadOffset += 1
+        }
+        guard let next = peek(lookaheadOffset) else { return false }
+        return next.type == .on || next.type == .function
     }
 
     private mutating func parseRepeatStatement() throws -> Statement {
@@ -1545,6 +1564,13 @@ public struct Parser: Sendable {
             }
             skipNewlines()
             return .createSpriteArea(name: name, rect: rectExpr)
+        }
+
+        if current.type == .identifier && current.value.lowercased() == "menu" {
+            _ = advance()
+            let args = try parseExternalCommandArguments()
+            skipNewlines()
+            return .externalCommand(name: "createMenu", arguments: args)
         }
 
         // "create a new card [with background "name"]" or "create card [with background "name"]"

@@ -538,6 +538,37 @@ struct HypeCLITests {
         #expect(result.stdout.contains("not normally dispatched for button scripts"))
     }
 
+    @Test func testValidateScriptsAllowsImportedBackgroundStackLifecycleHooks() throws {
+        var document = HypeDocument.newDocument(name: "Imported Background Lifecycle Fixture")
+        document.legacyImport = LegacyStackImportMetadata(
+            sourceFormat: "stackimport .xstk",
+            sourceFileName: "Myst-Application.xstk",
+            dataForkSHA256: "fixture",
+            report: HyperCardImportReport(
+                stackName: "Myst-Application",
+                cardSize: HyperCardSize(width: document.stack.width, height: document.stack.height),
+                importedBackgrounds: 1
+            )
+        )
+        document.backgrounds[0].script = """
+        on closeStack
+          HTRemove
+          pass closeStack
+        end closeStack
+        """
+
+        let packageURL = scriptDir.appendingPathComponent("ImportedBackgroundLifecycleFixture.hype", isDirectory: true)
+        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
+
+        let result = runBinary(arguments: [
+            "--validate-scripts", packageURL.path,
+        ])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("ok\tbackground\tBackground 1"))
+        #expect(!result.stdout.contains("not normally dispatched for background scripts"))
+    }
+
     @Test func testValidateScriptsAllowsInertImportedPartLifecyclePassThroughHooks() throws {
         var document = HypeDocument.newDocument(name: "Imported Part Hook Fixture")
         let cardId = try #require(document.cards.first?.id)
@@ -963,6 +994,40 @@ struct HypeCLITests {
         #expect(result.stdout.contains("ok\tstack\tClassic Menu Save Fixture"))
         #expect(!result.stdout.contains("XCMD `doMenu`"))
         #expect(!result.stdout.contains("XCMD `as`"))
+    }
+
+    @Test func testValidateScriptsAcceptsMystMenuAndSoundTimeCompatibility() throws {
+        var document = HypeDocument.newDocument(name: "Myst Menu SoundTime Fixture")
+        let cardId = try #require(document.cards.first?.id)
+        var switchButton = Part(partType: .button, cardId: cardId, name: "Switch")
+        switchButton.script = """
+        on mouseUp
+          create menu "File"
+          soundTime "5,05","0","0","9,30"
+          put the id of the target into myID
+          put the rect of card button id (myID + 2) into theLoc
+          addVolts (myID - 2)
+        end mouseUp
+
+        on addVolts theSwitch
+          put theSwitch into it
+        end addVolts
+        """
+        document.parts.append(switchButton)
+
+        let packageURL = scriptDir.appendingPathComponent("MystMenuSoundTimeFixture.hype", isDirectory: true)
+        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
+
+        let result = runBinary(arguments: [
+            "--validate-scripts", packageURL.path,
+        ])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("ok\tbutton\tSwitch"))
+        #expect(!result.stdout.contains("XCMD `createMenu`"))
+        #expect(!result.stdout.contains("XCMD `soundTime`"))
+        #expect(!result.stdout.contains("Function `id`"))
+        #expect(!result.stdout.contains("Function `addVolts`"))
     }
 
     @Test func testPowerOperator() {

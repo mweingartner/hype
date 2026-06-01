@@ -126,6 +126,43 @@ struct HypeDocumentSelfContainedPersistenceTests {
         #expect(loaded.cards[0].script == document.cards[0].script)
     }
 
+    @Test("legacy imported scripts are repaired on load before disabling")
+    func legacyImportedScriptsAreRepairedOnLoadBeforeDisabling() throws {
+        let store = HypeSQLiteStackStore()
+        let packageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LegacyRepairScriptSQLite-\(UUID().uuidString).hype", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: packageURL) }
+
+        var document = HypeDocument.newDocument(name: "Legacy Repair Script")
+        document.stack.script = """
+        function helper value
+        return value
+        end helper
+
+        on openCard
+        repeat with x = 1 to the number of lines in pictAdd
+        if line x of pictAdd is not empty then
+        put helper(x) into it
+        end repeat
+        end openCard
+        """
+        document.legacyImport = LegacyStackImportMetadata(
+            sourceFileName: "Legacy Repair Script",
+            dataForkSHA256: "fixture",
+            report: HyperCardImportReport(
+                stackName: "Legacy Repair Script",
+                cardSize: HyperCardSize(width: document.stack.width, height: document.stack.height)
+            )
+        )
+
+        try store.save(document, toPackageAt: packageURL)
+        let loaded = try store.load(fromPackageAt: packageURL)
+
+        #expect(!loaded.stack.script.hasPrefix("-- Imported HyperCard script preserved for reference."))
+        #expect(loaded.stack.script.contains("put helper(x) into it\nend if\nend repeat"))
+        #expect(loaded.stack.script.contains("function helper value"))
+    }
+
     @Test("imported stack library persists as document metadata")
     func importedStackLibraryPersistsAsDocumentMetadata() throws {
         let store = HypeSQLiteStackStore()

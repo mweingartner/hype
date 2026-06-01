@@ -126,6 +126,10 @@ Implemented:
   QuickTime parts inherit the current volume.
 - Myst-facing `SetMode`/`GetMode` compatibility records and returns classic
   display mode/depth runtime-only state, defaulting to `c,8`.
+- Myst-facing `createMenu` compatibility records imported menu construction as
+  runtime-only metadata, and `soundTime` compatibility records classic
+  QuickTime/audio timing segment arguments so generator and intro scripts do
+  not degrade through unknown-native-external diagnostics.
 - Myst-facing `HTAddPict`, `HTChangePict`, `HTSavePict`, and `xCIcon3`
   compatibility resolves imported resource image assets by classic name or
   resource ID and creates runtime image parts on the current card.
