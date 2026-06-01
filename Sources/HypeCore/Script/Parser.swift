@@ -832,6 +832,8 @@ public struct Parser: Sendable {
                     elseBlock = [try parseIfStatement()]
                 } else if current.type != .newline && current.type != .eof && current.line == elseToken.line {
                     elseBlock = [try parseStatement()]
+                    skipNewlines()
+                    consumeOptionalEndIfUnlessFollowedByElse()
                 } else {
                     skipNewlines()
                     var elseStmts: [Statement] = []
@@ -841,13 +843,7 @@ public struct Parser: Sendable {
                         skipNewlines()
                     }
                     elseBlock = elseStmts
-                    if current.type == .end,
-                       let next = peek(1),
-                       next.type == .if {
-                        _ = advance()
-                        _ = advance()
-                        skipNewlines()
-                    }
+                    consumeOptionalEndIfUnlessFollowedByElse()
                 }
             } else {
                 let followingElseBlock = try parseSingleLineIfElseBlock(allowFollowingLineElse: true)
@@ -873,6 +869,12 @@ public struct Parser: Sendable {
                 skipNewlines()
                 return .ifThenElse(condition: condition, thenBlock: thenBlock, elseBlock: [elseIfStatement])
             }
+            if current.type != .newline && current.type != .eof && current.line == elseToken.line {
+                elseBlock = [try parseStatement()]
+                skipNewlines()
+                consumeOptionalEndIfUnlessFollowedByElse()
+                return .ifThenElse(condition: condition, thenBlock: thenBlock, elseBlock: elseBlock)
+            }
             skipNewlines()
             var elseStmts: [Statement] = []
             while current.type != .end && !isImplicitImportedBlockBoundary() {
@@ -883,21 +885,12 @@ public struct Parser: Sendable {
             elseBlock = elseStmts
         }
 
-        if isExplicitIfEndTerminator() {
+        if isEndIfTerminator() {
             _ = advance()
             _ = match(.if) // `end if`
+            skipNewlines()
         }
-        skipNewlines()
         return .ifThenElse(condition: condition, thenBlock: thenBlock, elseBlock: elseBlock)
-    }
-
-    private func isExplicitIfEndTerminator() -> Bool {
-        guard current.type == .end else { return false }
-        guard let next = peek(1) else { return true }
-        if next.type == .if || next.type == .newline || next.type == .eof {
-            return true
-        }
-        return false
     }
 
     private func isImplicitImportedBlockBoundary() -> Bool {
@@ -938,6 +931,28 @@ public struct Parser: Sendable {
             skipNewlines()
         }
         return elseStmts
+    }
+
+    private mutating func consumeOptionalEndIfUnlessFollowedByElse() {
+        guard isEndIfTerminator() else { return }
+
+        var lookaheadOffset = 2
+        while let token = peek(lookaheadOffset), token.type == .newline {
+            lookaheadOffset += 1
+        }
+        if peek(lookaheadOffset)?.type == .else {
+            return
+        }
+
+        _ = advance()
+        _ = match(.if)
+        skipNewlines()
+    }
+
+    private func isEndIfTerminator() -> Bool {
+        guard current.type == .end else { return false }
+        guard let next = peek(1) else { return true }
+        return next.type == .if || next.type == .newline || next.type == .eof
     }
 
     private mutating func parseRepeatStatement() throws -> Statement {
