@@ -873,7 +873,7 @@ private struct ScriptValidationReport {
     }
 }
 
-private struct ScriptSemanticIssue: Codable {
+private struct ScriptSemanticIssue: Codable, Hashable {
     var kind: String
     var message: String
 }
@@ -1005,20 +1005,132 @@ private struct ScriptSemanticValidator {
         let handlerNames = Set(parsed.handlers.map { $0.name.lowercased() })
         let functionNames = Set(parsed.handlers.filter { $0.handlerType == .function }.map { $0.name.lowercased() })
         let messageNames = Set(parsed.handlers.filter { $0.handlerType == .message }.map { $0.name.lowercased() })
+        let localHandlerCardContexts = localHandlerCallCardContexts(
+            parsed: parsed,
+            owner: owner,
+            messageNames: messageNames
+        )
 
         issues += sourceCompatibilityIssues(owner.source)
         for handler in parsed.handlers {
             issues += hookIssues(handler: handler, owner: owner)
-            issues += statementsIssues(
+            let bodyCardContexts = validationCardContexts(
+                owner: owner,
+                callContexts: localHandlerCardContexts[handler.name.lowercased()]
+            )
+            issues += statementsIssuesAcrossCardContexts(
                 handler.body,
                 owner: owner,
                 handlerNames: handlerNames,
                 messageNames: messageNames,
                 functionNames: functionNames,
-                effectiveCardId: owner.currentCardId
+                cardContexts: bodyCardContexts
             )
         }
         return stableUnique(issues)
+    }
+
+    private func validationCardContexts(owner: StoredScript, callContexts: Set<UUID>?) -> [UUID?] {
+        var contexts: [UUID?] = [owner.currentCardId]
+        for cardId in (callContexts ?? []).sorted(by: { $0.uuidString < $1.uuidString }) where !contexts.contains(cardId) {
+            contexts.append(cardId)
+        }
+        return contexts
+    }
+
+    private func statementsIssuesAcrossCardContexts(
+        _ statements: [Statement],
+        owner: StoredScript,
+        handlerNames: Set<String>,
+        messageNames: Set<String>,
+        functionNames: Set<String>,
+        cardContexts: [UUID?]
+    ) -> [ScriptSemanticIssue] {
+        let contexts = cardContexts.isEmpty ? [owner.currentCardId] : cardContexts
+        let issueLists = contexts.map { cardId in
+            statementsIssues(
+                statements,
+                owner: owner,
+                handlerNames: handlerNames,
+                messageNames: messageNames,
+                functionNames: functionNames,
+                effectiveCardId: cardId
+            )
+        }
+        guard let first = issueLists.first else { return [] }
+        guard issueLists.count > 1 else { return first }
+        let common = issueLists.dropFirst().reduce(Set(first)) { partial, issues in
+            partial.intersection(Set(issues))
+        }
+        return first.filter { common.contains($0) }
+    }
+
+    private func localHandlerCallCardContexts(
+        parsed: Script,
+        owner: StoredScript,
+        messageNames: Set<String>
+    ) -> [String: Set<UUID>] {
+        var contexts: [String: Set<UUID>] = [:]
+        for handler in parsed.handlers where handler.handlerType == .message {
+            collectLocalHandlerCallCardContexts(
+                in: handler.body,
+                currentCardId: owner.currentCardId,
+                messageNames: messageNames,
+                contexts: &contexts
+            )
+        }
+        return contexts
+    }
+
+    private func collectLocalHandlerCallCardContexts(
+        in statements: [Statement],
+        currentCardId: UUID?,
+        messageNames: Set<String>,
+        contexts: inout [String: Set<UUID>]
+    ) {
+        var effectiveCardId = currentCardId
+        for statement in statements {
+            switch statement {
+            case .go(let expression):
+                if let resolved = staticNavigationTarget(expression, currentCardId: effectiveCardId) {
+                    effectiveCardId = resolved
+                }
+            case .externalCommand(let name, _):
+                let lower = name.lowercased()
+                if messageNames.contains(lower), let effectiveCardId {
+                    contexts[lower, default: []].insert(effectiveCardId)
+                }
+            case .expressionStatement(.variable(let name)):
+                let lower = name.lowercased()
+                if messageNames.contains(lower), let effectiveCardId {
+                    contexts[lower, default: []].insert(effectiveCardId)
+                }
+            case .ifThenElse(_, let thenBlock, let elseBlock):
+                collectLocalHandlerCallCardContexts(
+                    in: thenBlock,
+                    currentCardId: effectiveCardId,
+                    messageNames: messageNames,
+                    contexts: &contexts
+                )
+                if let elseBlock {
+                    collectLocalHandlerCallCardContexts(
+                        in: elseBlock,
+                        currentCardId: effectiveCardId,
+                        messageNames: messageNames,
+                        contexts: &contexts
+                    )
+                }
+            case .repeatCount(_, let body), .repeatWhile(_, let body):
+                collectLocalHandlerCallCardContexts(
+                    in: body,
+                    currentCardId: effectiveCardId,
+                    messageNames: messageNames,
+                    contexts: &contexts
+                )
+            default:
+                break
+            }
+        }
     }
 
     private func sourceCompatibilityIssues(_ source: String) -> [ScriptSemanticIssue] {
@@ -1195,7 +1307,7 @@ private struct ScriptSemanticValidator {
                 }
             }
         case .objectRef(let ref):
-            issues += objectReferenceIssues(ref, owner: owner)
+            issues += objectReferenceIssues(ref, owner: owner, effectiveCardId: effectiveCardId)
             issues += expressionIssues(ref.identifier, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
         case .scopedObjectRef(let object, let ownerRef):
             issues += expressionIssues(object.identifier, owner: owner, functionNames: functionNames, effectiveCardId: effectiveCardId)
@@ -1374,14 +1486,14 @@ private struct ScriptSemanticValidator {
         }
     }
 
-    private func objectReferenceIssues(_ ref: ObjectRefExpr, owner: StoredScript) -> [ScriptSemanticIssue] {
+    private func objectReferenceIssues(_ ref: ObjectRefExpr, owner: StoredScript, effectiveCardId: UUID?) -> [ScriptSemanticIssue] {
         guard let name = staticLiteralString(ref.identifier)?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines),
               !name.isEmpty else { return [] }
         let lowerType = ref.objectType.lowercased()
         let lowerName = name.lowercased()
         switch lowerType {
         case "button", "btn", "field", "fld":
-            guard let cardId = owner.currentCardId,
+            guard let cardId = effectiveCardId ?? owner.currentCardId,
                   let card = document.cards.first(where: { $0.id == cardId }) else { return [] }
             let expectedType: PartType = lowerType == "field" || lowerType == "fld" ? .field : .button
             let found = document.parts.contains { part in
