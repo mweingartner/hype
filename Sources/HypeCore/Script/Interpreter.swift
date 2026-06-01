@@ -1892,6 +1892,12 @@ public struct Interpreter: Sendable {
             if let visualEffectDuration = result.visualEffectDuration {
                 env.locals["_visualEffectDuration"] = String(visualEffectDuration)
             }
+            if let resultNavigationTarget = result.navigationTarget {
+                navigationTarget = resultNavigationTarget
+            }
+            if let resultProjectNavigationTarget = result.projectNavigationTarget {
+                projectNavigationTarget = resultProjectNavigationTarget
+            }
             document.scriptGlobals = env.globals
             env.it = result.value
             env.result = result.result

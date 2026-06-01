@@ -1297,6 +1297,76 @@ struct InterpreterTests {
         #expect(result.modifiedDocument?.scriptGlobals["hypercard.slideknob.day.range"] == "1,31")
     }
 
+    @Test func mystChannelwoodValveHelpersSetValveAndNavigateToRouteCards() {
+        var document = HypeDocument.newDocument()
+        document.stack.name = "Channelwood Age"
+        let intake = document.addCard()
+        let left = document.addCard()
+        let right = document.addCard()
+        document.stackLibrary = HypeStackLibrary(entries: [
+            HypeStackLibraryEntry(
+                stackName: "Channelwood Age",
+                aliases: ["Channelwood-Age"],
+                source: .importedStackPackage,
+                cardReferences: [
+                    HypeStackLibraryCardReference(
+                        legacyCardId: 86839,
+                        name: "Valve Intake",
+                        sortIndex: 1,
+                        hypeCardId: intake.id
+                    ),
+                    HypeStackLibraryCardReference(
+                        legacyCardId: 87418,
+                        name: "Valve Left",
+                        sortIndex: 2,
+                        hypeCardId: left.id
+                    ),
+                    HypeStackLibraryCardReference(
+                        legacyCardId: 87249,
+                        name: "Valve Right",
+                        sortIndex: 3,
+                        hypeCardId: right.id
+                    )
+                ]
+            )
+        ])
+
+        let intakeResult = executeScript("""
+        on test
+          doValveI 5
+        end test
+        """, document: document)
+        #expect(intakeResult.status == .completed)
+        #expect(intakeResult.returnValue == "5")
+        #expect(intakeResult.navigationTarget == intake.id)
+        #expect(intakeResult.projectNavigationTarget?.legacyCardId == 86839)
+        #expect(intakeResult.projectNavigationTarget?.cardName == "Valve Intake")
+        #expect(intakeResult.modifiedDocument?.scriptGlobals["CH_Valve"] == "5")
+        #expect(intakeResult.modifiedDocument?.scriptGlobals["hypercard.channelwood.valve.route"] == "I")
+
+        let leftResult = executeScript("""
+        on test
+          doValveL 6
+        end test
+        """, document: document)
+        #expect(leftResult.status == .completed)
+        #expect(leftResult.navigationTarget == left.id)
+        #expect(leftResult.projectNavigationTarget?.legacyCardId == 87418)
+        #expect(leftResult.modifiedDocument?.scriptGlobals["CH_Valve"] == "6")
+        #expect(leftResult.modifiedDocument?.scriptGlobals["hypercard.channelwood.valve.route"] == "L")
+
+        let rightResult = executeScript("""
+        on test
+          doValveR 7
+        end test
+        """, document: document)
+        #expect(rightResult.status == .completed)
+        #expect(rightResult.navigationTarget == right.id)
+        #expect(rightResult.projectNavigationTarget?.legacyCardId == 87249)
+        #expect(rightResult.modifiedDocument?.scriptGlobals["CH_Valve"] == "7")
+        #expect(rightResult.modifiedDocument?.scriptGlobals["hypercard.channelwood.valve.route"] == "R")
+    }
+
     @Test func deCurseRecordsCursorCompatibilityState() {
         let result = executeScript("""
         on test
