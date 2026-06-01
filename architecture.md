@@ -1417,9 +1417,11 @@ script source string
   HypeTalk message dispatch; the `to connection` form is TCP I/O. For imported
   HyperCard scripts, command-style handler calls are preserved through the same
   dispatcher, including parameterless single-identifier lines such as
-  `resetDrawers`. Unknown command-style identifiers with arguments parse as
-  `.externalCommand(name:arguments:)` so XCMD calls like `SetCursor "watch"`
-  can flow into the emulation registry rather than causing a parse error.
+  `resetDrawers`, and function-call syntax such as `theAdjust()` can invoke
+  matching handler functions in the same pass-up path. Unknown command-style
+  identifiers with arguments parse as `.externalCommand(name:arguments:)` so
+  XCMD calls like `SetCursor "watch"` can flow into the emulation registry
+  rather than causing a parse error.
 
   Property animation is a first-class statement:
   `animate the loc of button "ball" to "400,300" over 0.5`,

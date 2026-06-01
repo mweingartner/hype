@@ -2837,6 +2837,38 @@ struct MessageDispatcherTests {
         #expect(result.modifiedDocument?.scriptGlobals["drawersreset"] == "true")
     }
 
+    @Test func functionCallDispatchesThroughMessagePath() async {
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        var field = Part(partType: .field, cardId: cardId, name: "output")
+        doc.addPart(field)
+        var btn = Part(partType: .button, cardId: cardId, name: "FunctionButton")
+        btn.script = """
+        on mouseUp
+          put doubleIt(5) into field "output"
+        end mouseUp
+        """
+        doc.stack.script = """
+        function doubleIt amount
+          return amount * 2
+        end doubleIt
+        """
+        doc.addPart(btn)
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, cardId, btn] in dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: btn.id,
+            document: doc,
+            currentCardId: cardId
+        ) }
+
+        #expect(result.status == .completed)
+        let output = result.modifiedDocument?.parts.first(where: { $0.name == "output" })
+        #expect(output?.textContent == "10")
+    }
+
     @Test func mystPillarClickTogglesStateAndRefreshesMarkerIcon() async {
         let offIcon = Asset(
             name: "cicn_2012",
