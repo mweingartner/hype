@@ -7035,6 +7035,18 @@ public struct Interpreter: Sendable {
         if let value = env.globals["hypercard.window.\(normalizedWindow).\(normalizedProperty)"] {
             return value
         }
+        if normalizedWindow == "card window" {
+            switch normalizedProperty {
+            case "rect", "windowrect":
+                return "0,0,\(document.stack.width),\(document.stack.height)"
+            case "loc", "windowloc":
+                return "0,0"
+            case "visible":
+                return "true"
+            default:
+                break
+            }
+        }
         guard let partIndex = hyperCardWindowPartIndex(
             windowName: windowName,
             document: document,
