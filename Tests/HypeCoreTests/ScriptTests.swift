@@ -1925,6 +1925,25 @@ struct InterpreterTests {
         #expect(result.returnValue == "About Myst")
     }
 
+    @Test func parsesClassicMenuSetupReferences() throws {
+        var lexer = Lexer(source: """
+        on MystMenu
+          if menuItem 1 of menu File is not "New Game" then
+            if there is a menu File then delete menu File
+            if there is a menu Go then delete menu Go
+            create menu File
+            put "New Game" after menu File with menuMsg NewIt
+            set the cmdChar of menuitem 1 of menu File to N
+          end if
+        end MystMenu
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        #expect(script.handlers[0].body.count == 1)
+    }
+
     @Test func xAboutRecordsCompatibilityIntent() {
         let result = executeScript("""
         on test

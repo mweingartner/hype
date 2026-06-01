@@ -1395,6 +1395,17 @@ public struct Parser: Sendable {
             return .createGroup(name: name, parent: parentExpr)
         }
 
+        // Classic HyperCard menu construction, e.g. `create menu File`.
+        // Hype does not create native app menus from imported stacks, but
+        // accepting the statement keeps compatibility menu setup handlers
+        // runnable while later `put ... with menuMsg` calls are no-ops.
+        if current.type == .identifier && current.value.lowercased() == "menu" {
+            _ = advance()
+            let name = try parsePrimary()
+            skipNewlines()
+            return .externalCommand(name: "createMenu", arguments: [name])
+        }
+
         // "create shape "name" [in scene/group "target"] [with type rect]"
         if current.type == .identifier && current.value.lowercased() == "shape" {
             _ = advance()
@@ -2966,7 +2977,7 @@ public struct Parser: Sendable {
         case .card, .background, .field, .button, .stack, .webpage, .image, .video, .sprite, .spritearea, .scene, .request, .connection, .listener:
             return try parseObjectReference()
 
-        case .identifier where ["label", "shape", "audio", "chart", "calendar", "pdf", "map", "colorwell", "color_well", "stepper", "slider", "segmented", "recorder", "audiorecorder", "musicplayer", "music", "pianokeyboard", "keyboard", "stepsequencer", "sequencer", "musicmixer", "mixer", "applemusicbrowser", "musicbrowser", "musicqueue", "scene3d", "scene3D", "model3d", "model3D", "progressview", "progress", "gauge", "divider", "window"].contains(current.value.lowercased()):
+        case .identifier where ["label", "shape", "audio", "chart", "calendar", "pdf", "map", "colorwell", "color_well", "stepper", "slider", "segmented", "recorder", "audiorecorder", "musicplayer", "music", "pianokeyboard", "keyboard", "stepsequencer", "sequencer", "musicmixer", "mixer", "applemusicbrowser", "musicbrowser", "musicqueue", "scene3d", "scene3D", "model3d", "model3D", "progressview", "progress", "gauge", "divider", "window", "menu", "menuitem", "menuitems"].contains(current.value.lowercased()):
             // Scene node types and HypeTalk part types recognized as
             // object references. Two-word kinds ("color well") aren't
             // tokenized as identifiers so we only accept the
@@ -3238,7 +3249,7 @@ public struct Parser: Sendable {
 
         case .from, .by, .times,
              .choose, .close, .open, .on, .save, .quit, .mark, .unmark, .push, .pop,
-             .click, .drag, .run, .print, .help, .debug, .reset,
+             .click, .drag, .run, .print, .help, .debug, .reset, .go,
              .export, .import, .copy, .disable, .enable, .edit, .dial,
              .reply, .start, .stop, .using, .template, .paint,
              .report, .file, .printing, .convert, .typeText,
@@ -3428,6 +3439,26 @@ public struct Parser: Sendable {
     private mutating func parseObjectReference() throws -> Expression {
         let typeTok = advance()
         let objType = typeTok.value.lowercased()
+        if objType == "menuitem" || objType == "menuitems" {
+            let itemIdent = try parsePrimary()
+            if current.type == .of {
+                let checkpoint = pos
+                _ = advance()
+                if current.type == .identifier && current.value.lowercased() == "menu" {
+                    _ = advance()
+                    let menuIdent = try parseObjectIdentifier()
+                    return .scopedObjectRef(
+                        object: ObjectRefExpr(objectType: "menuItem", identifier: itemIdent),
+                        owner: ObjectRefExpr(objectType: "menu", identifier: menuIdent)
+                    )
+                }
+                pos = checkpoint
+            }
+            return .objectRef(ObjectRefExpr(objectType: "menuItem", identifier: itemIdent))
+        }
+        if objType == "menu" {
+            return .objectRef(ObjectRefExpr(objectType: "menu", identifier: try parseObjectIdentifier()))
+        }
         if objType == "card" || objType == "background" || objType == "bg" {
             let ownerType = objType == "card" ? "card" : "background"
             let objectType = current.value.lowercased()
@@ -3498,7 +3529,7 @@ public struct Parser: Sendable {
 
     private static let objectIdentifierTerminators: Set<TokenType> = [
         .newline, .eof, .comma, .then, .else, .end, .to, .of,
-        .is, .eq, .neq, .lt, .gt, .lte, .gte
+        .with, .after, .before, .is, .eq, .neq, .lt, .gt, .lte, .gte
     ]
 
     private static let classicBarePropertyNames: Set<String> = [
@@ -3660,7 +3691,7 @@ public struct Parser: Sendable {
              .the, .it, .me, .this, .empty, .await,
              .word, .char, .character, .item, .line, .number,
              .first, .second, .third, .last, .middle, .any,
-             .not, .on, .down,
+             .not, .on, .down, .go,
              .card, .background, .field, .button, .stack, .webpage,
              .sprite, .spritearea, .request, .connection, .listener:
             return true
