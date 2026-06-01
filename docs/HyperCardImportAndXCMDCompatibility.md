@@ -48,8 +48,8 @@ The registry models the behavior that matters to scripts:
   `put HypeVersion() into field "status"`.
 - Parameters are passed as evaluated HypeTalk strings.
 - The emulated external returns a value, a `the result` diagnostic, an optional
-  modified document, optional runtime-only compatibility globals, and an
-  optional pass-message flag.
+  modified document, optional runtime globals, optional visual-effect intent,
+  and an optional pass-message flag.
 - Unknown externals set `the result` to `Can't Load External...` and continue
   without crashing the stack.
 
@@ -78,18 +78,52 @@ Implemented:
 - XCMD command parser path.
 - XFCN fallback through the built-in function dispatcher.
 - Runtime degradation for unknown externals.
-- Myst-facing runtime-state externals for the first compatibility slice:
-  `HTLock`, `HTVisual`, `DeCurse`, `moveCursor`, `xWindowFrame`, `xAbout`,
-  `xMemory`, `xVirtual`, `xDepth`, `variant`, `xSetSoundVol`, `xGetSoundVol`,
-  `SetMode`, and `GetMode`. These record script-visible compatibility state in
-  runtime globals and return deterministic values, without loading native
-  68k/PowerPC external code or changing durable document schema.
-- Myst-facing QuickTime runtime compatibility for imported media assets:
-  `playQT`, `PlayMovie`, `Movie`, `closemoovs`, `closemovies`, and `movieInfo`
-  resolve repository-backed loose-media replacements by classic media metadata.
-  `playQT`/`Movie` create compatibility video parts with asset references,
-  autoplay/loop/volume intent, audio-only hidden playback parts, and classic
-  window-property state for common `set the ... of window ...` forms.
+- Myst-facing `HTLock` compatibility records a runtime-only lock mode and
+  continues execution without blocking drawing.
+- Myst-facing `playQT`/`Movie`/`closemoovs` compatibility resolves imported
+  video assets by classic name, creates repository-backed video parts, supports
+  loop intent for `playQT`, uses basic classic point placement for `Movie`, and
+  tears down compatibility movie parts. Audio-only QuickTime replacements
+  imported as `*-modern-audio.m4a` keep classic movie lookup semantics but
+  create hidden 1x1 playback parts so ambient `playQT` calls do not display a
+  movie controller. Myst-style `set the ... of window ...`
+  statements record runtime-only window state and update compatibility video
+  parts for common properties such as `loop`, `rate`, `movie`, `windowRect`,
+  `windowLoc`, `windowName`, `audioLevel`, and `mute`.
+- Myst-facing `HTVisual` compatibility records transition intent and feeds the
+  existing Hype visual-effect result channel.
+- Myst-facing `DeCurse` compatibility records cursor override/remove intent and
+  cursor resource arguments as runtime-only state.
+- Myst-facing `xMemory` compatibility returns a deterministic positive value in
+  both XCMD and function-style paths; `xVirtual` returns deterministic false/0
+  environment information.
+- Myst-facing `xSetSoundVol`/`xGetSoundVol` compatibility records and returns
+  a classic 0...255 runtime-only sound volume, defaulting to 255, and
+  `xSetSoundVol` updates active compatibility-created video parts while later
+  QuickTime parts inherit the current volume.
+- Myst-facing `SetMode`/`GetMode` compatibility records and returns classic
+  display mode/depth runtime-only state, defaulting to `c,8`.
+- Myst-facing `HTAddPict`, `HTChangePict`, `HTSavePict`, and `xCIcon3`
+  compatibility resolves imported resource image assets by classic name or
+  resource ID and creates runtime image parts on the current card.
+  `HTAddPict` and `HTChangePict` crop decoded image resources for classic
+  `"srcRect", <rect>` arguments, record recognized transfer-mode names, and
+  composite recognized byte-wise transfer modes into the current card paint
+  layer when image pixels can be decoded. `HTSavePict` records clipboard-save
+  intent, captures current-card paint-layer pixels for clipboard destinations
+  when available, and `HTAddPict` clipboard restores remove matching transient
+  compatibility overlays before restoring that captured image.
+- Myst-facing `HTUDefPal`, `HyperTint`, and `HTRemove` compatibility records
+  stack-level palette/tint setup as runtime-only state, resolves imported
+  palette resources by `resource_type`/`resource_id` metadata when available,
+  parses StackImport palette JSON into normalized `#RRGGBB` color globals, and
+  clears transient compatibility parts during stack teardown.
+- Myst-facing `xClip` and `xLine` compatibility records QuickDraw intent and
+  renders clipped line primitives into the current card paint layer, using
+  active `HTUDefPal` normalized palette colors for classic color indexes when
+  available and grayscale indexes otherwise. This gives tower-rotation and
+  similar transient drawing scripts a persisted visual surface instead of only
+  script-global evidence.
 - `snd ` resource conversion to `audioClip` assets in `AssetRepository` via
   `stackimport_snd_to_wav()` (pure Swift path) and streaming resource
   payload callbacks (C importer path).
@@ -97,11 +131,27 @@ Implemented:
   video, JSON, and text artifacts. Multi-artifact resources keep related
   metadata with the primary asset; standalone JSON/text resources are inert
   `placeholderAsset` entries.
+- StackImport package font-table diagnostics preserve classic font IDs/names,
+  report whether each font is available on the host Mac, and write deterministic
+  available fallback font names into imported stack defaults and button/field
+  text when the original classic/custom font is missing.
+- StackImport project import treats stack-library entries marked
+  `contentStack=true` as shared content/library stacks and copies their
+  imported repository assets into the other generated `.hype` packages with
+  `shared_from_content_stack` provenance metadata. This keeps each generated
+  document self-contained while allowing classic media/resource lookup to find
+  shared content-stack assets by name or resource ID.
 
 Not yet implemented:
 
 - WOBA bitmap decompression and paint-layer reconstruction.
-- Automatic placement of PICT or other resource-derived images as card parts.
+- Exact classic compositing for every PICT/icon transfer-mode edge case, full
+  resolved-palette application beyond QuickDraw line color indexes, fully
+  composited clipboard capture, and broader paint-layer-backed overlay reuse
+  beyond current byte-wise picture, QuickDraw line, and paint-layer clipboard
+  primitives.
+- Full classic QuickTime callback timing, controller flags, exact window
+  semantics, and fade timing.
 - AddColor rendering.
 - Native replacements for most third-party XCMDs.
 - Disk-image, StuffIt, and archive extraction.
