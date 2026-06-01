@@ -3488,7 +3488,7 @@ public struct Parser: Sendable {
                     _ = advance()
                     if current.type == .card || current.type == .background {
                         let explicitOwnerType = advance().value.lowercased()
-                        let ownerIdent = try parsePrimary()
+                        let ownerIdent = try parseClassicOwnerIdentifier()
                         return .scopedObjectRef(
                             object: object,
                             owner: ObjectRefExpr(objectType: explicitOwnerType, identifier: ownerIdent)
@@ -3517,7 +3517,7 @@ public struct Parser: Sendable {
             _ = advance()
             if current.type == .card || current.type == .background {
                 let ownerType = advance().value.lowercased()
-                let ownerIdent = try parsePrimary()
+                let ownerIdent = try parseClassicOwnerIdentifier()
                 return .scopedObjectRef(
                     object: object,
                     owner: ObjectRefExpr(objectType: ownerType, identifier: ownerIdent)
@@ -3538,8 +3538,21 @@ public struct Parser: Sendable {
         return try parsePrimary()
     }
 
+    private mutating func parseClassicOwnerIdentifier() throws -> Expression {
+        if current.type == .identifier,
+           current.value.lowercased() == "id" {
+            _ = advance()
+            let idExpression = try parsePrimary()
+            if case .literal(let value) = idExpression {
+                return .literal("id \(value)")
+            }
+            return idExpression
+        }
+        return try parseObjectIdentifier()
+    }
+
     private static let objectIdentifierTerminators: Set<TokenType> = [
-        .newline, .eof, .comma, .then, .else, .end, .to, .of
+        .newline, .eof, .comma, .then, .else, .end, .to, .into, .after, .before, .of
     ]
 
     private mutating func parseCurrentScopeReference(scopeWord: String) -> Expression? {

@@ -3936,6 +3936,56 @@ struct MessageDispatcherTests {
         #expect(output?.textContent == "Myst defaults")
     }
 
+    @Test func scopedFieldOfCardIdReferenceReadsAndWritesMystPlanetariumFields() async {
+        var doc = HypeDocument.newDocument(name: "Myst")
+        let firstCard = doc.cards[0]
+        let targetCard = Card(
+            stackId: doc.stack.id,
+            backgroundId: firstCard.backgroundId,
+            name: "Planetarium",
+            sortKey: "a1"
+        )
+        doc.cards.append(targetCard)
+        doc.stackLibrary = HypeStackLibrary(entries: [
+            HypeStackLibraryEntry(
+                stackName: "Myst",
+                source: .importedStackPackage,
+                cardReferences: [
+                    HypeStackLibraryCardReference(
+                        legacyCardId: 41677,
+                        name: "Planetarium",
+                        hypeCardId: targetCard.id
+                    )
+                ]
+            )
+        ])
+        var sourceField = Part(partType: .field, cardId: targetCard.id, name: "month")
+        sourceField.textContent = "7"
+        doc.addPart(sourceField)
+        var outputField = Part(partType: .field, cardId: firstCard.id, name: "month")
+        doc.addPart(outputField)
+        var btn = Part(partType: .button, cardId: firstCard.id, name: "PlanetariumLoader")
+        btn.script = """
+        on mouseUp
+          put card field month of card id 41677 into card field month
+        end mouseUp
+        """
+        doc.addPart(btn)
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, btn, firstCard] in dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: btn.id,
+            document: doc,
+            currentCardId: firstCard.id
+        ) }
+
+        #expect(result.status == .completed)
+        let output = result.modifiedDocument?.parts.first(where: { $0.name == "month" && $0.cardId == firstCard.id })
+        #expect(output?.textContent == "7")
+    }
+
     @Test func passedMessageContinuesUpHierarchy() async {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
