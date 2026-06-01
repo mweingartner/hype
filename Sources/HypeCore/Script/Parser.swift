@@ -904,6 +904,9 @@ public struct Parser: Sendable {
         }
 
         guard isEndIfTerminator() else {
+            if current.type == .else {
+                return .ifThenElse(condition: condition, thenBlock: thenBlock, elseBlock: elseBlock)
+            }
             if isLikelyHandlerBoundaryAfterUnclosedImportedIf() {
                 skipNewlines()
                 return .ifThenElse(condition: condition, thenBlock: thenBlock, elseBlock: elseBlock)
