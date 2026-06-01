@@ -247,6 +247,28 @@ struct ParserTests {
         #expect(visualArguments.isEmpty)
     }
 
+    @Test func parsesMystVsExternalCommandWithDirectionKeywordArgument() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          vs down
+        end mouseUp
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        guard case .externalCommand(let name, let arguments) = script.handlers[0].body[0] else {
+            Issue.record("Expected vs external command")
+            return
+        }
+        #expect(name == "vs")
+        #expect(arguments.count == 1)
+        guard case .literal(let direction) = arguments[0] else {
+            Issue.record("Expected down literal argument")
+            return
+        }
+        #expect(direction == "down")
+    }
+
     @Test func parsesClassicDoMenuAndSaveAsCommands() throws {
         var lexer = Lexer(source: """
         on mouseUp

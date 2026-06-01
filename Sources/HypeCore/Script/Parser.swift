@@ -437,7 +437,7 @@ public struct Parser: Sendable {
              .the, .it, .me, .this, .empty, .await,
              .word, .char, .character, .item, .line, .number,
              .first, .second, .third, .last, .middle, .any,
-             .not,
+             .not, .down,
              .card, .background, .field, .button, .stack, .webpage,
              .image, .video, .sprite, .scene, .spritearea, .request,
              .connection, .listener:
@@ -461,7 +461,7 @@ public struct Parser: Sendable {
         switch normalizedExternalCommandName(rawName) {
         case "htaddpict", "htchangepict", "playqt", "playmovie", "movie",
              "htvisual", "xwindowframe", "xabout", "closemoovs", "closemovies",
-             "closeqt", "htremove", "vd", "fadeout":
+             "closeqt", "htremove", "vd", "vs", "fadeout":
             return true
         default:
             return isKnownZeroArgumentExternalCommand(rawName)
@@ -3660,7 +3660,7 @@ public struct Parser: Sendable {
              .the, .it, .me, .this, .empty, .await,
              .word, .char, .character, .item, .line, .number,
              .first, .second, .third, .last, .middle, .any,
-             .not, .on,
+             .not, .on, .down,
              .card, .background, .field, .button, .stack, .webpage,
              .sprite, .spritearea, .request, .connection, .listener:
             return true
