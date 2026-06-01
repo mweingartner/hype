@@ -2090,7 +2090,14 @@ public struct Parser: Sendable {
 
     private mutating func parseSendStatement() throws -> Statement {
         _ = try expect(.send)
-        let data = try parseExpression()
+        let data: Expression
+        switch current.type {
+        case .play, .stop, .open, .close:
+            data = .literal(current.value)
+            _ = advance()
+        default:
+            data = try parseExpression()
+        }
         if current.type == .newline || current.type == .eof {
             skipNewlines()
             return .send(message: data, target: nil)

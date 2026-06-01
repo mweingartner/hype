@@ -223,8 +223,11 @@ struct MystStackImportAcceptanceTests {
           playQT "Intro", "loop"
           playQT "EV StoneForest Mov"
           Movie "Fountain","borderless","12,34","visible","FountainWindow"
+          send play to window "FountainWindow"
+          send movieIdle to window "FountainWindow"
+          send pause to window "FountainWindow"
           playQT "Holo-SMessage"
-          return the result
+          return the lastMessage of window "FountainWindow"
         end test
         """)
         let handler = try #require(script.handlers.first { $0.name.caseInsensitiveCompare("test") == .orderedSame })
@@ -235,6 +238,7 @@ struct MystStackImportAcceptanceTests {
         )
 
         #expect(result.status == .completed)
+        #expect(result.returnValue == "pause")
         let runtimeDocument = try #require(result.modifiedDocument)
         let videoParts = runtimeDocument.partsForCard(currentCardId).filter { $0.partType == .video }
         #expect(videoParts.count == mediaNames.count)
@@ -260,7 +264,11 @@ struct MystStackImportAcceptanceTests {
         #expect(fountain.videoAssetRef?.id == fountainAsset.id)
         #expect(fountain.left == 12)
         #expect(fountain.top == 34)
-        #expect(fountain.videoAutoplay == true)
+        #expect(fountain.videoAutoplay == false)
+        #expect(runtimeDocument.scriptGlobals["hypercard.window.fountainwindow.message.play.count"] == "1")
+        #expect(runtimeDocument.scriptGlobals["hypercard.window.fountainwindow.message.movieidle.count"] == "1")
+        #expect(runtimeDocument.scriptGlobals["hypercard.window.fountainwindow.message.pause.count"] == "1")
+        #expect(runtimeDocument.scriptGlobals["hypercard.window.fountainwindow.rate"] == "0.0")
 
         let holo = try #require(videoParts.first { $0.name == "Holo-SMessage" })
         let holoAsset = try #require(runtimeDocument.assetRepository.asset(byClassicMediaName: "Holo-SMessage", kind: .videoClip))
