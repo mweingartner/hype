@@ -2858,6 +2858,63 @@ struct MessageDispatcherTests {
         #expect(lowered.modifiedDocument?.scriptGlobals["MY_boat"] == "down")
     }
 
+    @Test func mystPushKeyRefreshesPressedKeyIconAndMaskLocation() async {
+        let keyIcon = Asset(
+            name: "cicn_1005",
+            kind: .imageTexture,
+            mimeType: "image/png",
+            data: Data([0x10, 0x05]),
+            width: 14,
+            height: 10,
+            metadata: [
+                AssetMetadataEntry(key: "resource_type", value: "cicn"),
+                AssetMetadataEntry(key: "resource_id", value: "1005")
+            ]
+        )
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        doc.assetRepository = AssetRepository(assets: [keyIcon])
+        var key = Part(
+            partType: .button,
+            cardId: cardId,
+            name: "5",
+            left: 100,
+            top: 80,
+            width: 20,
+            height: 12
+        )
+        key.script = """
+        on mouseDown
+          pushKey the short name of me
+        end mouseDown
+        """
+        let mask = Part(partType: .button, cardId: cardId, name: "mask", left: 0, top: 0, width: 4, height: 4)
+        doc.addPart(key)
+        doc.addPart(mask)
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, cardId, key] in dispatcher.dispatch(
+            message: "mouseDown",
+            params: [],
+            targetId: key.id,
+            document: doc,
+            currentCardId: cardId
+        ) }
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "5")
+        #expect(result.modifiedDocument?.scriptGlobals["keyCounter"] == "0")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.myst.pushkey.key"] == "5")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.myst.pushkey.icon"] == "1005")
+        let updatedMask = result.modifiedDocument?.parts.first { $0.name == "mask" }
+        #expect(updatedMask?.left == 110)
+        #expect(updatedMask?.top == 86)
+        let overlay = result.modifiedDocument?.parts.first { $0.helpText == "hypercard-xcicon3" }
+        #expect(overlay?.name == "xCIcon3 cicn_1005")
+        #expect(overlay?.left == 103)
+        #expect(overlay?.top == 81)
+    }
+
     @Test func scopedFieldOfCardReferenceReadsAndWritesTargetCardField() async {
         var doc = HypeDocument.newDocument()
         let firstCard = doc.cards[0]
