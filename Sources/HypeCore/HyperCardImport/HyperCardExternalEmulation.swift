@@ -143,6 +143,9 @@ public struct HyperCardExternalRegistry: Sendable {
         put(.xcmd, ["Buzzer"], Entry(status: .emulated) { call, context in
             buzzerCompatibility(call: call, context: context)
         })
+        put(.xcmd, ["dplay"], Entry(status: .emulated) { call, context in
+            delayedPlayCompatibility(call: call, context: context)
+        })
         put(.xcmd, ["closemoovs", "closemovies", "closeQT"], Entry(status: .emulated) { _, context in
             closeQuickTimeMovies(context: context)
         })
@@ -390,6 +393,27 @@ public struct HyperCardExternalRegistry: Sendable {
                 "hypercard.buzzer.asset": asset.name,
                 "hypercard.buzzer.found": "true",
                 "hypercard.buzzer.volume": volume
+            ]
+        )
+    }
+
+    private static func delayedPlayCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        guard let soundName = call.arguments.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !soundName.isEmpty else {
+            return HyperCardExternalResult(result: "dplay requires a sound name")
+        }
+        let existing = context.document.scriptGlobals["hcsounds"] ?? context.document.scriptGlobals["HCSounds"] ?? ""
+        let queued = existing + soundName + "\r"
+        return HyperCardExternalResult(
+            value: soundName,
+            result: soundName,
+            runtimeGlobals: [
+                "hcsounds": queued,
+                "hypercard.dplay.lastSound": soundName,
+                "hypercard.dplay.queueDepth": String(queued.split(separator: "\r", omittingEmptySubsequences: true).count)
             ]
         )
     }
