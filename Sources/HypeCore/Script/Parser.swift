@@ -557,7 +557,7 @@ public struct Parser: Sendable {
         }
 
         _ = try expect(.to)
-        let value = try parseExpression()
+        let value = try parseCommaJoinedExpression()
         skipNewlines()
         return .set(property: property, of: target, to: value)
     }
@@ -755,7 +755,7 @@ public struct Parser: Sendable {
     private mutating func parseIfStatement() throws -> Statement {
         _ = try expect(.if)
         let condition = try parseExpression()
-        let thenToken = try expect(.then)
+        _ = try expect(.then)
 
         // Single-line if: `if cond then stmt [else stmt]`
         if current.type != .newline && current.type != .eof {
@@ -763,28 +763,19 @@ public struct Parser: Sendable {
             var elseBlock: [Statement]? = nil
             if current.type == .else {
                 let elseToken = advance()
-                if elseToken.line == thenToken.line {
-                    let elseStmt: Statement
-                    if current.type == .if && current.line == elseToken.line {
-                        elseStmt = try parseIfStatement()
-                    } else {
-                        elseStmt = try parseStatement()
-                    }
-                    elseBlock = [elseStmt]
+                if current.type == .if && current.line == elseToken.line {
+                    elseBlock = [try parseIfStatement()]
+                } else if current.type != .newline && current.type != .eof && current.line == elseToken.line {
+                    elseBlock = [try parseStatement()]
                 } else {
-                    if current.type == .if && current.line == elseToken.line {
-                        let elseIfStatement = try parseIfStatement()
-                        elseBlock = [elseIfStatement]
-                    } else {
+                    skipNewlines()
+                    var elseStmts: [Statement] = []
+                    while current.type != .end && current.type != .eof {
+                        let stmt = try parseStatement()
+                        elseStmts.append(stmt)
                         skipNewlines()
-                        var elseStmts: [Statement] = []
-                        while current.type != .end && current.type != .eof {
-                            let stmt = try parseStatement()
-                            elseStmts.append(stmt)
-                            skipNewlines()
-                        }
-                        elseBlock = elseStmts
                     }
+                    elseBlock = elseStmts
                     if current.type == .end,
                        let next = peek(1),
                        next.type == .if {
@@ -858,6 +849,15 @@ public struct Parser: Sendable {
             return .repeatWhile(condition: cond, body: body)
         }
 
+        // HyperTalk also accepts `repeat until <cond>`.
+        if current.value.lowercased() == "until" {
+            _ = advance()
+            let cond = try parseExpression()
+            skipNewlines()
+            let body = try parseRepeatBody()
+            return .repeatWhile(condition: .not(cond), body: body)
+        }
+
         // `repeat <count>` or `repeat for <count>`
         if current.value.lowercased() == "for" {
             _ = advance()
@@ -887,6 +887,15 @@ public struct Parser: Sendable {
             _ = advance()
             skipNewlines()
             return .exitRepeat
+        }
+        if current.type == .to,
+           let next = peek(1),
+           next.type == .identifier,
+           next.value.lowercased() == "hypercard" {
+            _ = advance()
+            _ = advance()
+            skipNewlines()
+            return .exitHandler("hypercard")
         }
         let name = advance().value
         skipNewlines()
@@ -1724,7 +1733,7 @@ public struct Parser: Sendable {
         _ = try expect(.click)
         // Skip optional "at"
         if current.type == .identifier && current.value.lowercased() == "at" { _ = advance() }
-        let loc = try parseExpression()
+        let loc = try parseCommaJoinedExpression()
         skipNewlines()
         return .clickAt(loc)
     }
@@ -2492,6 +2501,18 @@ public struct Parser: Sendable {
         return try parseOr()
     }
 
+    /// Parse HyperTalk coordinate literals like `0,0` in statement
+    /// positions where the runtime expects the conventional "x,y" text.
+    private mutating func parseCommaJoinedExpression() throws -> Expression {
+        var expression = try parseExpression()
+        while current.type == .comma {
+            _ = advance()
+            let next = try parseExpression()
+            expression = .stringConcat(.stringConcat(expression, .literal(",")), next)
+        }
+        return expression
+    }
+
     private mutating func parseOr() throws -> Expression {
         var left = try parseAnd()
         while current.type == .or {
@@ -3168,7 +3189,7 @@ public struct Parser: Sendable {
             if current.type == .field || current.type == .button ||
                 (current.type == .identifier && ["field", "fld", "button", "btn"].contains(objectType)) {
                 _ = advance()
-                let object = ObjectRefExpr(objectType: objectType, identifier: try parsePrimary())
+                let object = ObjectRefExpr(objectType: objectType, identifier: try parseObjectIdentifier())
                 if current.type == .of {
                     let checkpoint = pos
                     _ = advance()
@@ -3213,6 +3234,20 @@ public struct Parser: Sendable {
         }
         return .objectRef(object)
     }
+
+    private mutating func parseObjectIdentifier() throws -> Expression {
+        if current.type == .identifier,
+           let next = peek(1),
+           Self.objectIdentifierTerminators.contains(next.type) {
+            let token = advance()
+            return .literal(token.value)
+        }
+        return try parsePrimary()
+    }
+
+    private static let objectIdentifierTerminators: Set<TokenType> = [
+        .newline, .eof, .comma, .then, .else, .end, .to, .of
+    ]
 
     private mutating func parseCurrentScopeReference(scopeWord: String) -> Expression? {
         switch current.type {
