@@ -2721,6 +2721,143 @@ struct MessageDispatcherTests {
         #expect(result.modifiedDocument?.scriptGlobals["buzzeramount"] == "4")
     }
 
+    @Test func mystPillarClickTogglesStateAndRefreshesMarkerIcon() async {
+        let offIcon = Asset(
+            name: "cicn_2012",
+            kind: .imageTexture,
+            mimeType: "image/png",
+            data: Data([0x20, 0x12]),
+            width: 10,
+            height: 8,
+            metadata: [
+                AssetMetadataEntry(key: "resource_type", value: "cicn"),
+                AssetMetadataEntry(key: "resource_id", value: "2012")
+            ]
+        )
+        let onIcon = Asset(
+            name: "cicn_2002",
+            kind: .imageTexture,
+            mimeType: "image/png",
+            data: Data([0x20, 0x02]),
+            width: 10,
+            height: 8,
+            metadata: [
+                AssetMetadataEntry(key: "resource_type", value: "cicn"),
+                AssetMetadataEntry(key: "resource_id", value: "2002")
+            ]
+        )
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        doc.assetRepository = AssetRepository(assets: [offIcon, onIcon])
+        var marker = Part(
+            partType: .button,
+            cardId: cardId,
+            name: "Marker2",
+            left: 40,
+            top: 50,
+            width: 20,
+            height: 10
+        )
+        marker.script = """
+        on mouseUp
+          pillarClick 2
+        end mouseUp
+        """
+        doc.addPart(marker)
+
+        let dispatcher = MessageDispatcher()
+        let first = await runOnLargeStack { [doc, cardId, marker] in dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: marker.id,
+            document: doc,
+            currentCardId: cardId
+        ) }
+        #expect(first.status == .completed)
+        #expect(first.modifiedDocument?.scriptGlobals["MY_Pillars"] == "off,on,off,off,off,off,off,off")
+        #expect(first.modifiedDocument?.scriptGlobals["MY_boat"] == "")
+        #expect(first.modifiedDocument?.scriptGlobals["hypercard.myst.pillar.icon"] == "2002")
+        let firstOverlay = first.modifiedDocument?.parts.first { $0.helpText == "hypercard-xcicon3" }
+        #expect(firstOverlay?.name == "xCIcon3 cicn_2002")
+        #expect(firstOverlay?.left == 45)
+        #expect(firstOverlay?.top == 51)
+
+        let secondDocument = first.modifiedDocument ?? doc
+        let second = await runOnLargeStack { [secondDocument, cardId, marker] in dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: marker.id,
+            document: secondDocument,
+            currentCardId: cardId
+        ) }
+        #expect(second.status == .completed)
+        #expect(second.modifiedDocument?.scriptGlobals["MY_Pillars"] == "off,off,off,off,off,off,off,off")
+        #expect(second.modifiedDocument?.scriptGlobals["hypercard.myst.pillar.icon"] == "2012")
+    }
+
+    @Test func mystPillarClickRaisesAndLowersBoatStateForSolutionPattern() async {
+        let onIcon = Asset(
+            name: "cicn_2008",
+            kind: .imageTexture,
+            mimeType: "image/png",
+            data: Data([0x20, 0x08]),
+            width: 8,
+            height: 8,
+            metadata: [
+                AssetMetadataEntry(key: "resource_type", value: "cicn"),
+                AssetMetadataEntry(key: "resource_id", value: "2008")
+            ]
+        )
+        let offIcon = Asset(
+            name: "cicn_2018",
+            kind: .imageTexture,
+            mimeType: "image/png",
+            data: Data([0x20, 0x18]),
+            width: 8,
+            height: 8,
+            metadata: [
+                AssetMetadataEntry(key: "resource_type", value: "cicn"),
+                AssetMetadataEntry(key: "resource_id", value: "2018")
+            ]
+        )
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        doc.assetRepository = AssetRepository(assets: [onIcon, offIcon])
+        doc.scriptGlobals["MY_Pillars"] = "off,on,off,off,on,on,off,on"
+        doc.scriptGlobals["MY_boat"] = "up"
+        var marker = Part(partType: .button, cardId: cardId, name: "Marker8")
+        marker.script = """
+        on mouseUp
+          pillarClick 8
+        end mouseUp
+        """
+        doc.addPart(marker)
+
+        let dispatcher = MessageDispatcher()
+        let raised = await runOnLargeStack { [doc, cardId, marker] in dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: marker.id,
+            document: doc,
+            currentCardId: cardId
+        ) }
+        #expect(raised.status == .completed)
+        #expect(raised.modifiedDocument?.scriptGlobals["MY_Pillars"] == "off,on,off,off,on,on,off,off")
+        #expect(raised.modifiedDocument?.scriptGlobals["MY_boat"] == "up")
+
+        let loweredDocument = raised.modifiedDocument ?? doc
+        let lowered = await runOnLargeStack { [loweredDocument, cardId, marker] in dispatcher.dispatch(
+            message: "mouseUp",
+            params: [],
+            targetId: marker.id,
+            document: loweredDocument,
+            currentCardId: cardId
+        ) }
+        #expect(lowered.status == .completed)
+        #expect(lowered.modifiedDocument?.scriptGlobals["MY_Pillars"] == "off,on,off,off,on,on,off,on")
+        #expect(lowered.modifiedDocument?.scriptGlobals["MY_boat"] == "down")
+    }
+
     @Test func scopedFieldOfCardReferenceReadsAndWritesTargetCardField() async {
         var doc = HypeDocument.newDocument()
         let firstCard = doc.cards[0]
