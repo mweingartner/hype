@@ -205,6 +205,7 @@ struct ParserTests {
         on mouseUp
           closemoovs
           HTRemove
+          vd
         end mouseUp
         """)
         let tokens = lexer.tokenize()
@@ -222,6 +223,12 @@ struct ParserTests {
         }
         #expect(removeName == "HTRemove")
         #expect(removeArguments.isEmpty)
+        guard case .externalCommand(let visualName, let visualArguments) = script.handlers[0].body[2] else {
+            Issue.record("Expected vd external command")
+            return
+        }
+        #expect(visualName == "vd")
+        #expect(visualArguments.isEmpty)
     }
 
     @Test func parsesAskWithDefaultResponse() throws {
@@ -1206,6 +1213,37 @@ struct InterpreterTests {
         #expect(result.visualEffect == "wipe right")
         #expect(result.visualEffectDuration == 32.0 / 60.0)
         #expect(result.modifiedDocument?.scriptGlobals["hypercard.htvisual.effect"] == "wipe right")
+    }
+
+    @Test func mystVdUsesTransitionGlobalForDefaultVisualEffect() {
+        let result = executeScript("""
+        on test
+          global Trans
+          put 2 into Trans
+          vd
+        end test
+        """)
+
+        #expect(result.status == .completed)
+        #expect(result.visualEffect == "tdfBlend5")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.vd.trans"] == "2")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.vd.effect"] == "tdfBlend5")
+    }
+
+    @Test func mystVsUsesTransitionGlobalForDirectionalVisualEffect() {
+        let result = executeScript("""
+        on test
+          global Trans
+          put 1 into Trans
+          vs right
+        end test
+        """)
+
+        #expect(result.status == .completed)
+        #expect(result.visualEffect == "scroll right")
+        #expect(result.visualEffectDuration == 64.0 / 60.0)
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.vs.trans"] == "1")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.vs.direction"] == "right")
     }
 
     @Test func deCurseRecordsCursorCompatibilityState() {
