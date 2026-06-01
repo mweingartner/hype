@@ -199,6 +199,32 @@ struct HyperCardImportTests {
         #expect(try parsedHandlerCount(translated) == 2)
     }
 
+    @Test("legacy translator comments disabled handler tails without disabling earlier handlers")
+    func legacyTranslatorCommentsDisabledHandlerTails() throws {
+        let script = """
+        on mouseDown
+          put theAdjust() into it
+        end mouseDown
+
+        function theAdjust
+          return 112
+        end theAdjust
+
+        --on scrollTelescope delta
+        global theScroll,teleName
+        put 0 into ScrollVel
+        end scrollTelescope
+        """
+
+        let translated = LegacyHyperTalkScript.preparedForHypeTalkRuntime(script)
+
+        #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(translated))
+        #expect(translated.contains("function theAdjust"))
+        #expect(translated.contains("-- global theScroll,teleName"))
+        #expect(translated.contains("-- end scrollTelescope"))
+        #expect(try parsedHandlerCount(translated) == 2)
+    }
+
     @Test("Myst environment externals are registered as emulated")
     func mystEnvironmentExternalsAreRegisteredAsEmulated() {
         let registry = HyperCardExternalRegistry.default
