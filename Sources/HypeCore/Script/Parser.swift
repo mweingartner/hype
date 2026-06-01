@@ -257,12 +257,7 @@ public struct Parser: Sendable {
         case .edit:     return try parseEditStatement()
         case .typeText: return try parseTypeStatement()
         case .push:     return try parsePushStatement()
-        case .pop:
-            _ = advance()
-            // Skip optional `card` keyword — `pop card` is the idiomatic HyperCard form.
-            if current.type == .card { _ = advance() }
-            skipNewlines()
-            return .pop
+        case .pop:      return parsePopStatement()
         case .click:    return try parseClickStatement()
         case .drag:     return try parseDragStatement()
         case .help:     _ = advance(); skipNewlines(); return .helpCmd
@@ -468,9 +463,52 @@ public struct Parser: Sendable {
         else if current.type == .after { preposition = .after; _ = advance() }
         else if current.type == .before { preposition = .before; _ = advance() }
 
+        if isAtStatementBoundary(current) {
+            skipNewlines()
+            return .put(source: source, preposition: .into, target: .it)
+        }
+
+        if isClassicMenuPutTargetStart(current) {
+            skipClassicMenuPutTarget()
+            skipNewlines()
+            return .put(source: source, preposition: preposition, target: .it)
+        }
+
         let target = try parseExpression()
+        skipClassicPutMetadataTail()
         skipNewlines()
         return .put(source: source, preposition: preposition, target: target)
+    }
+
+    private func isClassicMenuPutTargetStart(_ token: Token) -> Bool {
+        guard token.type == .identifier else { return false }
+        switch token.value.lowercased() {
+        case "menu", "menuitem", "menuitems":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private mutating func skipClassicMenuPutTarget() {
+        while !isAtStatementBoundary(current) {
+            _ = advance()
+        }
+    }
+
+    private mutating func skipClassicPutMetadataTail() {
+        guard current.type == .with,
+              let next = peek(1),
+              next.type == .identifier,
+              next.value.lowercased() == "menumsg" else {
+            return
+        }
+
+        _ = advance()
+        _ = advance()
+        while !isAtStatementBoundary(current) {
+            _ = advance()
+        }
     }
 
     private mutating func parseGetStatement() throws -> Statement {
@@ -527,7 +565,12 @@ public struct Parser: Sendable {
             _ = advance()
         }
         let propTok = advance()
-        let property = propTok.value
+        var property = propTok.value
+        if isNameAdjective(property),
+           current.type == .identifier,
+           current.value.lowercased() == "name" {
+            property += " \(advance().value)"
+        }
 
         var target: Expression? = nil
         if current.type == .of {
@@ -576,6 +619,45 @@ public struct Parser: Sendable {
         _ = try expect(.go)
         _ = match(.to) // optional "to"
 
+        if let crossStackGo = try parseGoInStackStatement() {
+            return crossStackGo
+        }
+
+        if current.type == .stack {
+            _ = advance()
+            let stackExpr = try parseExpression()
+            skipNewlines()
+            return .goInStack(card: .literal("1"), stack: stackExpr)
+        }
+
+        if current.type == .card, isAtStatementBoundary(peek(1)) {
+            _ = advance()
+            skipNewlines()
+            return .go(destination: .literal("this card"))
+        }
+
+        if current.type == .this,
+           let next = peek(1),
+           next.type == .card {
+            _ = advance()
+            _ = advance()
+            skipNewlines()
+            return .go(destination: .literal("this card"))
+        }
+
+        if current.type == .card,
+           let idToken = peek(1),
+           idToken.type == .identifier,
+           idToken.value.lowercased() == "id",
+           let valueToken = peek(2),
+           [.integer, .string, .identifier].contains(valueToken.type) {
+            _ = advance()
+            _ = advance()
+            let token = advance()
+            skipNewlines()
+            return .go(destination: .literal("card id \(token.value)"))
+        }
+
         // Handle navigation keywords directly as literal values.
         // "go next", "go previous", "go first", "go last" need special handling
         // because these tokens have their own TokenType and wouldn't parse
@@ -583,6 +665,14 @@ public struct Parser: Sendable {
         switch current.type {
         case .next:
             let tok = advance()
+            if current.type == .identifier && current.value.lowercased() == "marked" {
+                _ = advance()
+                if current.type == .card {
+                    _ = advance()
+                }
+                skipNewlines()
+                return .go(destination: .literal("\(tok.value) marked card"))
+            }
             skipNewlines()
             return .go(destination: .literal(tok.value))
         case .first:
@@ -623,10 +713,65 @@ public struct Parser: Sendable {
         }
     }
 
+    private func isAtStatementBoundary(_ token: Token?) -> Bool {
+        guard let token else { return true }
+        return token.type == .newline || token.type == .eof
+    }
+
+    private mutating func parseGoInStackStatement() throws -> Statement? {
+        let start = pos
+        guard match(.card) else { return nil }
+
+        guard current.type == .identifier || Self.canStartPrimaryExpression(current.type) else {
+            pos = start
+            return nil
+        }
+
+        let cardExpr: Expression
+        if current.type == .identifier,
+           current.value.lowercased() == "id",
+           let idToken = peek(1),
+           [.integer, .string, .identifier].contains(idToken.type) {
+            _ = advance()
+            let token = advance()
+            cardExpr = .literal("id \(token.value)")
+        } else {
+            cardExpr = try parseLegacyNavigationNameExpression()
+        }
+
+        if current.type == .of {
+            _ = advance()
+        } else if current.type == .identifier && current.value.lowercased() == "in" {
+            _ = advance()
+        } else {
+            pos = start
+            return nil
+        }
+
+        guard current.type == .stack else {
+            pos = start
+            return nil
+        }
+        _ = advance()
+        let stackExpr = try parseLegacyNavigationNameExpression()
+        skipNewlines()
+        return .goInStack(card: cardExpr, stack: stackExpr)
+    }
+
+    private mutating func parseLegacyNavigationNameExpression() throws -> Expression {
+        if current.type == .identifier,
+           let next = peek(1),
+           next.type == .newline || next.type == .eof || next.type == .of || (next.type == .identifier && next.value.lowercased() == "in") {
+            let token = advance()
+            return .literal(token.value)
+        }
+        return try parseExpression()
+    }
+
     private mutating func parseIfStatement() throws -> Statement {
         _ = try expect(.if)
         let condition = try parseExpression()
-        _ = try expect(.then)
+        let thenToken = try expect(.then)
 
         // Single-line if: `if cond then stmt [else stmt]`
         if current.type != .newline && current.type != .eof {
@@ -634,13 +779,36 @@ public struct Parser: Sendable {
             var elseBlock: [Statement]? = nil
             if current.type == .else {
                 let elseToken = advance()
-                let elseStmt: Statement
-                if current.type == .if && current.line == elseToken.line {
-                    elseStmt = try parseIfStatement()
+                if elseToken.line == thenToken.line {
+                    let elseStmt: Statement
+                    if current.type == .if && current.line == elseToken.line {
+                        elseStmt = try parseIfStatement()
+                    } else {
+                        elseStmt = try parseStatement()
+                    }
+                    elseBlock = [elseStmt]
                 } else {
-                    elseStmt = try parseStatement()
+                    if current.type == .if && current.line == elseToken.line {
+                        let elseIfStatement = try parseIfStatement()
+                        elseBlock = [elseIfStatement]
+                    } else {
+                        skipNewlines()
+                        var elseStmts: [Statement] = []
+                        while current.type != .end && current.type != .eof {
+                            let stmt = try parseStatement()
+                            elseStmts.append(stmt)
+                            skipNewlines()
+                        }
+                        elseBlock = elseStmts
+                    }
+                    if current.type == .end,
+                       let next = peek(1),
+                       next.type == .if {
+                        _ = advance()
+                        _ = advance()
+                        skipNewlines()
+                    }
                 }
-                elseBlock = [elseStmt]
             }
             return .ifThenElse(condition: condition, thenBlock: [thenStmt], elseBlock: elseBlock)
         }
@@ -838,10 +1006,28 @@ public struct Parser: Sendable {
             return .askMeshy(prompt: prompt, style: style, model: model, callback: callback)
         }
 
-        // Existing fallback: plain `ask "<prompt>"`.
+        if current.type == .file {
+            _ = advance()
+            let expr = try parseExpression()
+            var defaultResponse: Expression? = nil
+            if current.type == .with {
+                _ = advance()
+                defaultResponse = try parseExpression()
+            }
+            skipNewlines()
+            return .ask(prompt: expr, defaultResponse: defaultResponse)
+        }
+
+        // Existing fallback: plain `ask "<prompt>"`, plus the
+        // classic prefilled form `ask "<prompt>" with "<default>"`.
         let expr = try parseExpression()
+        var defaultResponse: Expression? = nil
+        if current.type == .with {
+            _ = advance()
+            defaultResponse = try parseExpression()
+        }
         skipNewlines()
-        return .ask(prompt: expr)
+        return .ask(prompt: expr, defaultResponse: defaultResponse)
     }
 
     /// Parse `remesh asset "<name>" to <polycount> [with message <msg>]`
@@ -971,9 +1157,27 @@ public struct Parser: Sendable {
 
     private mutating func parseAnswerStatement() throws -> Statement {
         _ = try expect(.answer)
+        if current.type == .file {
+            _ = advance()
+            let expr = try parseExpression()
+            if current.type == .of {
+                _ = advance()
+                if current.type == .typeText {
+                    _ = advance()
+                    _ = try parseExpression()
+                }
+            }
+            skipNewlines()
+            return .answer(prompt: expr, buttons: [])
+        }
         let expr = try parseExpression()
+        var buttons: [Expression] = []
+        if current.type == .with {
+            _ = advance()
+            buttons.append(try parseExpression())
+        }
         skipNewlines()
-        return .answer(prompt: expr)
+        return .answer(prompt: expr, buttons: buttons)
     }
 
     private mutating func parseSayStatement() throws -> Statement {
@@ -1557,6 +1761,14 @@ public struct Parser: Sendable {
 
     private mutating func parsePushStatement() throws -> Statement {
         _ = try expect(.push)
+        if current.type == .card {
+            _ = advance()
+            if current.type == .newline || current.type == .eof {
+                skipNewlines()
+                return .push(nil)
+            }
+            return .push(try parseExpression())
+        }
         if current.type == .newline || current.type == .eof {
             skipNewlines()
             return .push(nil)
@@ -1575,6 +1787,15 @@ public struct Parser: Sendable {
         let expr = try parseExpression()
         skipNewlines()
         return .push(expr)
+    }
+
+    private mutating func parsePopStatement() -> Statement {
+        _ = advance()
+        if current.type == .card {
+            _ = advance()
+        }
+        skipNewlines()
+        return .pop
     }
 
     private mutating func parseClickStatement() throws -> Statement {
@@ -1849,6 +2070,10 @@ public struct Parser: Sendable {
     private mutating func parseSendStatement() throws -> Statement {
         _ = try expect(.send)
         let data = try parseExpression()
+        if current.type == .newline || current.type == .eof {
+            skipNewlines()
+            return .send(message: data, target: nil)
+        }
         _ = try expect(.to)
         if match(.connection) {
             let connection = try parseExpression()
@@ -2646,7 +2871,7 @@ public struct Parser: Sendable {
         case .identifier where current.value.lowercased() == "there":
             _ = advance() // consume "there"
             _ = match(.is)
-            let negated = current.type == .identifier && current.value.lowercased() == "no"
+            let negated = current.type == .not || (current.type == .identifier && current.value.lowercased() == "no")
             if negated { _ = advance() }
             let hasArticle = current.type == .identifier && (current.value.lowercased() == "a" || current.value.lowercased() == "an")
             if hasArticle { _ = advance() }
@@ -2975,7 +3200,12 @@ public struct Parser: Sendable {
         }
 
         let propTok = advance()
-        let property = propTok.value
+        var property = propTok.value
+        if isNameAdjective(property),
+           current.type == .identifier,
+           current.value.lowercased() == "name" {
+            property += " \(advance().value)"
+        }
 
         // `the <property> of <expr>`
         if current.type == .of {
@@ -3005,9 +3235,44 @@ public struct Parser: Sendable {
         }
     }
 
+    private func isNameAdjective(_ value: String) -> Bool {
+        switch value.lowercased() {
+        case "short", "abbrev", "abbreviated", "abbr", "long":
+            return true
+        default:
+            return false
+        }
+    }
+
     private mutating func parseObjectReference() throws -> Expression {
         let typeTok = advance()
         let objType = typeTok.value.lowercased()
+        if objType == "card" || objType == "background" || objType == "bg" {
+            let ownerType = objType == "card" ? "card" : "background"
+            let objectType = current.value.lowercased()
+            if current.type == .field || current.type == .button ||
+                (current.type == .identifier && ["field", "fld", "button", "btn"].contains(objectType)) {
+                _ = advance()
+                let object = ObjectRefExpr(objectType: objectType, identifier: try parsePrimary())
+                if current.type == .of {
+                    let checkpoint = pos
+                    _ = advance()
+                    if current.type == .card || current.type == .background {
+                        let explicitOwnerType = advance().value.lowercased()
+                        let ownerIdent = try parsePrimary()
+                        return .scopedObjectRef(
+                            object: object,
+                            owner: ObjectRefExpr(objectType: explicitOwnerType, identifier: ownerIdent)
+                        )
+                    }
+                    pos = checkpoint
+                }
+                return .scopedObjectRef(
+                    object: object,
+                    owner: ObjectRefExpr(objectType: ownerType, identifier: .literal("current"))
+                )
+            }
+        }
         // `stack` is a singleton — there's only one per document,
         // so it doesn't take an identifier after it (unlike
         // `card "Card 1"` or `button "OK"`). Trying to parse one
@@ -3016,7 +3281,22 @@ public struct Parser: Sendable {
             return .objectRef(ObjectRefExpr(objectType: "stack", identifier: .literal("stack")))
         }
         let ident = try parsePrimary()
-        return .objectRef(ObjectRefExpr(objectType: objType, identifier: ident))
+        let object = ObjectRefExpr(objectType: objType, identifier: ident)
+        if current.type == .of,
+           ["field", "fld", "button", "btn"].contains(objType) {
+            let checkpoint = pos
+            _ = advance()
+            if current.type == .card || current.type == .background {
+                let ownerType = advance().value.lowercased()
+                let ownerIdent = try parsePrimary()
+                return .scopedObjectRef(
+                    object: object,
+                    owner: ObjectRefExpr(objectType: ownerType, identifier: ownerIdent)
+                )
+            }
+            pos = checkpoint
+        }
+        return .objectRef(object)
     }
 
     private mutating func parseCurrentScopeReference(scopeWord: String) -> Expression? {

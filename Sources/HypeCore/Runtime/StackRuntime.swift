@@ -429,6 +429,7 @@ public struct AllowAllNetworkPermissionPrompter: NetworkPermissionPrompting, Sen
 public extension Notification.Name {
     static let stackRuntimeDocumentDidChange = Notification.Name("stackRuntimeDocumentDidChange")
     static let stackRuntimeStatusDidChange = Notification.Name("stackRuntimeStatusDidChange")
+    static let navigateToProjectTarget = Notification.Name("navigateToProjectTarget")
 }
 
 public actor StackRuntimeRegistry {
@@ -1408,6 +1409,11 @@ public actor StackRuntime: ScriptRuntimeProviding {
         if let navTarget = result.navigationTarget {
             Task { @MainActor in
                 NotificationCenter.default.post(name: Notification.Name("navigateToCard"), object: navTarget)
+            }
+        }
+        if let projectTarget = result.projectNavigationTarget {
+            Task { @MainActor in
+                NotificationCenter.default.post(name: .navigateToProjectTarget, object: projectTarget)
             }
         }
         if let err = result.error {
