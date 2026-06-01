@@ -505,6 +505,43 @@ struct HypeCLITests {
         #expect(!result.stdout.contains("function-unknown"))
     }
 
+    @Test func testValidateScriptsTracksFunctionContextAfterLocalGo() throws {
+        var document = HypeDocument.newDocument(name: "Post Go Function Validation Fixture")
+        let firstCard = try #require(document.cards.first)
+        let bookCard = Card(
+            stackId: document.stack.id,
+            backgroundId: firstCard.backgroundId,
+            name: "Book",
+            sortKey: "a1",
+            script: """
+            function pageName
+              return "Page1"
+            end pageName
+            """
+        )
+        document.cards.append(bookCard)
+        var button = Part(partType: .button, cardId: firstCard.id, name: "Run")
+        button.script = """
+        on mouseUp
+          go to card "Book"
+          put pageName() into it
+        end mouseUp
+        """
+        document.parts.append(button)
+
+        let packageURL = scriptDir.appendingPathComponent("PostGoFunctionValidationFixture.hype", isDirectory: true)
+        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
+
+        let result = runBinary(arguments: [
+            "--validate-scripts", packageURL.path,
+        ])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("ok\tbutton\tRun"))
+        #expect(!result.stdout.contains("Function `pageName`"))
+        #expect(!result.stdout.contains("function-unknown"))
+    }
+
     @Test func testValidateScriptsTreatsClassicPlayNotesAsNotes() throws {
         var document = HypeDocument.newDocument(name: "Classic Play Notes Fixture")
         let cardId = try #require(document.cards.first?.id)

@@ -280,6 +280,7 @@ private struct Environment {
     /// Phase 3: `the result` — set by `ask meshy` on success. Mirrors `it`.
     var result: Value = ""
     var globalNames: Set<String> = []
+    var effectiveCurrentCardId: UUID?
     /// A `wait` followed by `send "... " to me` is commonly used as
     /// a timer-loop idiom. Defer exactly that next self-send through
     /// StackRuntime so it does not grow nested synchronous send depth.
@@ -315,6 +316,10 @@ private struct Environment {
 
     mutating func invalidatePartLookupCache() {
         partLookupCache.removeAll(keepingCapacity: true)
+    }
+
+    func currentCardId(fallback: UUID) -> UUID {
+        effectiveCurrentCardId ?? fallback
     }
 
     func handlerParam(at oneBasedIndex: Int) -> Value {
@@ -815,11 +820,12 @@ public struct Interpreter: Sendable {
         handler: Handler
     ) async throws -> Value? {
         let dispatcher = MessageDispatcher()
+        let functionCardId = env.currentCardId(fallback: context.currentCardId)
         guard dispatcher.hasHandler(
             message: name,
-            targetId: context.targetId,
+            targetId: functionCardId,
             document: document,
-            currentCardId: context.currentCardId,
+            currentCardId: functionCardId,
             appScript: context.appScript,
             scriptContext: context.scriptContext,
             handlerType: .function
@@ -835,9 +841,9 @@ public struct Interpreter: Sendable {
         let result = await dispatcher.dispatchAsync(
             message: name,
             params: args,
-            targetId: context.targetId,
+            targetId: functionCardId,
             document: callDocument,
-            currentCardId: context.currentCardId,
+            currentCardId: functionCardId,
             dialogProvider: context.dialogProvider,
             drawingProvider: context.drawingProvider,
             systemProvider: context.systemProvider,
@@ -1277,6 +1283,7 @@ public struct Interpreter: Sendable {
             // Try to resolve destination to a card UUID.
             if let uuid = UUID(uuidString: destValue) {
                 navigationTarget = uuid
+                env.effectiveCurrentCardId = uuid
                 HypeLogger.shared.log(
                     .info,
                     "go direct card id from \(cardLogLabel(sourceCardId, document: document)) resolved \(cardLogLabel(uuid, document: document))",
@@ -1289,6 +1296,9 @@ public struct Interpreter: Sendable {
                 // Try to find by name or navigation keyword.
                 let resolved = resolveNavigation(destValue, document: document, currentCardId: sourceCardId)
                 navigationTarget = resolved
+                if let resolved {
+                    env.effectiveCurrentCardId = resolved
+                }
                 if resolved == nil,
                    let target = implicitProjectNavigationTarget(
                     cardValue: projectFallbackValue,
