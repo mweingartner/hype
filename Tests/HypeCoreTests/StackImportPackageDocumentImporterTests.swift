@@ -62,6 +62,7 @@ struct StackImportPackageDocumentImporterTests {
         #expect(result.summary.outputPackagePath.hasSuffix("Sample-debug.hype"))
         #expect(result.summary.outputPackageByteCount == packageByteCount(at: result.outputPackageURL))
         #expect((result.summary.outputPackageByteCount ?? 0) > 0)
+        #expect((result.summary.importDurationMilliseconds ?? -1) >= 0)
         #expect(result.summary.stackLibrary?.entryCount == 3)
         #expect(result.summary.stackLibrary?.usedStackAliases == ["ALLRes"])
         #expect(result.document.stackLibrary.resolution(for: "all res") == .resolved(allRes))
@@ -202,6 +203,8 @@ struct StackImportPackageDocumentImporterTests {
             .map { packageByteCount(at: $0.outputPackageURL) }
             .reduce(0, +))
         #expect((result.summary.totalOutputPackageByteCount ?? 0) > 0)
+        #expect((result.summary.totalImportDurationMilliseconds ?? -1) >= 0)
+        #expect(result.summary.packages.allSatisfy { ($0.importDurationMilliseconds ?? -1) >= 0 })
         #expect(result.summary.stacks.map(\.stackName) == ["Sample", "Other"])
         #expect(result.summary.stacks.map(\.firstCardName) == ["Sample Card", "Other Card"])
         #expect(result.summary.stacks.map(\.legacyFirstCardId) == [100, 200])
