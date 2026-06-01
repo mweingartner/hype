@@ -150,6 +150,52 @@ struct MystStackImportAcceptanceTests {
         #expect(seagulls.metadata.contains { $0.key == "resolved_path" && $0.value.contains("modern-quicktime") })
     }
 
+    @Test("imports broader converted Myst QuickTime batches from manifest")
+    func importsBroaderConvertedMystQuickTimeBatchesFromManifest() throws {
+        let root = try mystExportRoot()
+        var document = HypeDocument.newDocument(name: "Myst Broader QuickTime")
+        let names = [
+            "Intro",
+            "Holo-SMessage",
+            "Fountain",
+            "Caldera South",
+            "EV StoneForest Mov",
+        ]
+        let result = try LooseMediaManifestImporter().importManifest(
+            options: LooseMediaImportOptions(
+                manifestURL: root.appendingPathComponent("manifests/loose-media.tsv"),
+                replacementRootURL: root.appendingPathComponent("exports/modern-quicktime", isDirectory: true),
+                requestedNames: Set(names)
+            ),
+            into: &document
+        )
+
+        #expect(result.missing.isEmpty)
+        #expect(result.importedAssets.count == names.count)
+
+        let intro = try #require(document.assetRepository.asset(byClassicMediaName: "Intro", kind: .videoClip))
+        #expect(intro.mimeType == "video/quicktime")
+        #expect(intro.metadata.contains { $0.key == "quicktime_audio_only" && $0.value.isEmpty })
+        #expect(intro.metadata.contains { $0.key == "resolved_path" && $0.value.hasSuffix("Intro-modern-av.mov") })
+
+        let holo = try #require(document.assetRepository.asset(byClassicMediaName: "Holo-SMessage", kind: .videoClip))
+        #expect(holo.mimeType == "video/quicktime")
+        #expect(holo.metadata.contains { $0.key == "resolved_path" && $0.value.hasSuffix("Holo-SMessage-modern-av.mov") })
+
+        let fountain = try #require(document.assetRepository.asset(byClassicMediaName: "Fountain", kind: .videoClip))
+        #expect(fountain.mimeType == "video/quicktime")
+        #expect(fountain.metadata.contains { $0.key == "resolved_path" && $0.value.hasSuffix("Fountain-modern.mov") })
+
+        let caldera = try #require(document.assetRepository.asset(byClassicMediaName: "Caldera South", kind: .videoClip))
+        #expect(caldera.mimeType == "video/quicktime")
+        #expect(caldera.metadata.contains { $0.key == "resolved_path" && $0.value.hasSuffix("Caldera South-modern.mov") })
+
+        let stoneForest = try #require(document.assetRepository.asset(byClassicMediaName: "EV StoneForest Mov", kind: .videoClip))
+        #expect(stoneForest.mimeType == "video/quicktime")
+        #expect(stoneForest.metadata.contains { $0.key == "quicktime_audio_only" && $0.value == "true" })
+        #expect(stoneForest.metadata.contains { $0.key == "resolved_path" && $0.value.hasSuffix("EV StoneForest Mov-modern-audio.m4a") })
+    }
+
     @Test("seeded Myst launcher marker click returns dock project navigation target")
     func seededMystLauncherMarkerClickReturnsDockProjectNavigationTarget() throws {
         let root = try mystExportRoot()
