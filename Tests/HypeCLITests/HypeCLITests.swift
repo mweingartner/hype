@@ -419,6 +419,48 @@ struct HypeCLITests {
         #expect(scriptsJSON.contains("sound-asset"))
     }
 
+    @Test func testValidateScriptsAllowsStackLifecyclePassUpHooks() throws {
+        var document = HypeDocument.newDocument(name: "Stack Lifecycle Validation Fixture")
+        document.stack.script = """
+        on openCard
+          put "opened" into stackOpenCard
+        end openCard
+
+        on closeCard
+          put "closed" into stackCloseCard
+        end closeCard
+
+        on openBackground
+          put "opened" into stackOpenBackground
+        end openBackground
+
+        on closeBackground
+          put "closed" into stackCloseBackground
+        end closeBackground
+        """
+        let cardId = try #require(document.cards.first?.id)
+        var button = Part(partType: .button, cardId: cardId, name: "ButtonHook")
+        button.script = """
+        on closeCard
+          put "not dispatched here" into buttonCloseCard
+        end closeCard
+        """
+        document.parts.append(button)
+
+        let packageURL = scriptDir.appendingPathComponent("StackLifecycleValidationFixture.hype", isDirectory: true)
+        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
+
+        let result = runBinary(arguments: [
+            "--validate-scripts", packageURL.path,
+        ])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("ok\tstack\tStack Lifecycle Validation Fixture"))
+        #expect(result.stdout.contains("warning\tbutton\tButtonHook"))
+        #expect(!result.stdout.contains("not normally dispatched for stack scripts"))
+        #expect(result.stdout.contains("not normally dispatched for button scripts"))
+    }
+
     @Test func testValidateScriptsTreatsCommandStyleHandlerCallsAsHandlers() throws {
         var document = HypeDocument.newDocument(name: "Handler Command Validation Fixture")
         let cardId = try #require(document.cards.first?.id)
