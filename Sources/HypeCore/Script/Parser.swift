@@ -292,6 +292,8 @@ public struct Parser: Sendable {
                 _ = advance()
                 skipNewlines()
                 return .go(destination: .literal("previous"))
+            case "domenu":
+                return try parseDoMenuStatement()
             case "pause":
                 if isAppleMusicPhrase(startingAt: 1) {
                     return try parsePauseAppleMusicStatement()
@@ -1656,8 +1658,29 @@ public struct Parser: Sendable {
         _ = match(.this)
         // Skip optional "stack"
         _ = match(.stack)
+        if current.type != .newline && current.type != .eof {
+            _ = try parseExpression()
+            if current.type == .identifier && current.value.lowercased() == "as" {
+                _ = advance()
+                if current.type != .newline && current.type != .eof {
+                    _ = try parseExpression()
+                }
+            }
+        }
         skipNewlines()
         return .saveStack
+    }
+
+    private mutating func parseDoMenuStatement() throws -> Statement {
+        _ = advance()
+        let item: Expression
+        if current.type == .newline || current.type == .eof {
+            item = .literal("")
+        } else {
+            item = try parseExpression()
+        }
+        skipNewlines()
+        return .doMenuCmd(item)
     }
 
     private mutating func parseMarkStatement() throws -> Statement {
