@@ -250,9 +250,9 @@ public enum LegacyHyperTalkScript {
            parsesAsHypeTalk(routeScript) {
             return routeScript
         }
-        if let partialScript = partiallyEnabledHandlerScript(from: compatible),
-           parsesAsHypeTalk(partialScript) {
-            return partialScript
+        if let handlerSalvageScript = compatibilityHandlerSalvageScript(from: compatible),
+           parsesAsHypeTalk(handlerSalvageScript) {
+            return handlerSalvageScript
         }
         return disabledForHypeTalkRuntime(compatible)
     }
@@ -294,7 +294,258 @@ public enum LegacyHyperTalkScript {
                 let indent = text.prefix { $0 == " " || $0 == "\t" }
                 return "\(indent)go next"
             }
-        return commentOutDisabledHandlerTails(in: lines).joined(separator: "\n")
+        let linesWithClassicElseBlocks = splitClassicInlineElseStatements(
+            in: splitClassicTrailingElseStatements(
+                in: splitClassicIfThenElseBlocks(
+                    in: splitClassicInlineIfThenElseStatements(in: lines)
+                )
+            )
+        )
+        return repairClassicMissingEndIfBeforeEndRepeat(
+            in: commentOutDisabledHandlerTails(in: linesWithClassicElseBlocks)
+        ).joined(separator: "\n")
+    }
+
+    private static func splitClassicTrailingElseStatements(in lines: [String]) -> [String] {
+        var result: [String] = []
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let lowercased = trimmed.lowercased()
+            guard !lowercased.hasPrefix("--"),
+                  !lowercased.hasPrefix("if "),
+                  !lowercased.hasPrefix("else "),
+                  let elseRange = lowercased.range(of: " else "),
+                  elseRange.lowerBound > lowercased.startIndex,
+                  elseRange.upperBound < lowercased.endIndex else {
+                result.append(line)
+                continue
+            }
+
+            let indent = String(line.prefix { $0 == " " || $0 == "\t" })
+            let splitOffset = lowercased.distance(from: lowercased.startIndex, to: elseRange.lowerBound)
+            let splitIndex = line.index(line.startIndex, offsetBy: splitOffset)
+            let bodyStart = line.index(splitIndex, offsetBy: " else ".count)
+            let thenBody = String(line[..<splitIndex]).trimmingCharacters(in: .whitespaces)
+            let elseBody = String(line[bodyStart...]).trimmingCharacters(in: .whitespaces)
+            if !thenBody.isEmpty {
+                result.append("\(indent)\(thenBody)")
+            }
+            result.append("\(indent)else")
+            if !elseBody.isEmpty {
+                result.append("\(indent)\(elseBody)")
+            }
+        }
+        return result
+    }
+
+    private static func splitClassicInlineElseStatements(in lines: [String]) -> [String] {
+        var result: [String] = []
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let lowercased = trimmed.lowercased()
+            guard lowercased.hasPrefix("else "),
+                  !lowercased.hasPrefix("else if ") else {
+                result.append(line)
+                continue
+            }
+
+            let indent = String(line.prefix { $0 == " " || $0 == "\t" })
+            let elseEndIndex = line.index(line.startIndex, offsetBy: indent.count + "else".count)
+            let bodyStart = line.index(after: elseEndIndex)
+            let body = String(line[bodyStart...]).trimmingCharacters(in: .whitespaces)
+            result.append("\(indent)else")
+            if !body.isEmpty {
+                result.append("\(indent)\(body)")
+            }
+        }
+        return result
+    }
+
+    private static func splitClassicInlineIfThenElseStatements(in lines: [String]) -> [String] {
+        var result: [String] = []
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let lowercased = trimmed.lowercased()
+            guard !lowercased.hasPrefix("--"),
+                  lowercased.hasPrefix("if "),
+                  let thenRange = lowercased.range(of: " then "),
+                  let elseRange = lowercased.range(
+                    of: " else ",
+                    range: thenRange.upperBound..<lowercased.endIndex
+                  ),
+                  thenRange.upperBound < elseRange.lowerBound,
+                  elseRange.upperBound < lowercased.endIndex else {
+                result.append(line)
+                continue
+            }
+
+            let indent = String(line.prefix { $0 == " " || $0 == "\t" })
+            let thenOffset = lowercased.distance(from: lowercased.startIndex, to: thenRange.lowerBound)
+            let elseOffset = lowercased.distance(from: lowercased.startIndex, to: elseRange.lowerBound)
+            let headerEndIndex = line.index(line.startIndex, offsetBy: thenOffset + " then".count)
+            let thenBodyStart = line.index(after: headerEndIndex)
+            let elseIndex = line.index(line.startIndex, offsetBy: elseOffset)
+            let elseBodyStart = line.index(elseIndex, offsetBy: " else ".count)
+            let header = String(line[..<headerEndIndex])
+            let thenBody = String(line[thenBodyStart..<elseIndex]).trimmingCharacters(in: .whitespaces)
+            let elseBody = String(line[elseBodyStart...]).trimmingCharacters(in: .whitespaces)
+
+            result.append(header)
+            if !thenBody.isEmpty {
+                result.append("\(indent)\(thenBody)")
+            }
+            result.append("\(indent)else")
+            if !elseBody.isEmpty {
+                result.append("\(indent)\(elseBody)")
+            }
+            result.append("\(indent)end if")
+        }
+        return result
+    }
+
+    private static func splitClassicIfThenElseBlocks(in lines: [String]) -> [String] {
+        var result: [String] = []
+        for (index, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let lowercased = trimmed.lowercased()
+            guard lowercased.hasPrefix("if "),
+                  nextSignificantLine(after: index, in: lines).map({ $0 == "else" || $0.hasPrefix("else ") }) == true,
+                  let thenRange = lowercased.range(of: " then "),
+                  thenRange.upperBound < lowercased.endIndex else {
+                result.append(line)
+                continue
+            }
+
+            let indent = String(line.prefix { $0 == " " || $0 == "\t" })
+            let splitOffset = lowercased.distance(from: lowercased.startIndex, to: thenRange.lowerBound) + " then".count
+            let splitIndex = line.index(line.startIndex, offsetBy: splitOffset)
+            let header = String(line[..<splitIndex])
+            let bodyStart = line.index(after: splitIndex)
+            let body = String(line[bodyStart...]).trimmingCharacters(in: .whitespaces)
+            result.append(header)
+            if !body.isEmpty {
+                result.append("\(indent)\(body)")
+            }
+        }
+        return result
+    }
+
+    private static func repairClassicMissingEndIfBeforeEndRepeat(in lines: [String]) -> [String] {
+        enum Block: Equatable {
+            case `if`
+            case `repeat`
+        }
+
+        var result: [String] = []
+        var blocks: [Block] = []
+
+        for (index, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let lowercased = trimmed.lowercased()
+            if lowercased.hasPrefix("end repeat") {
+                while blocks.last == .if {
+                    result.append("\(line.prefix { $0 == " " || $0 == "\t" })end if")
+                    _ = blocks.popLast()
+                }
+                if blocks.last == .repeat {
+                    _ = blocks.popLast()
+                }
+                result.append(line)
+                continue
+            }
+
+            result.append(line)
+
+            if lowercased.hasPrefix("--") || lowercased.isEmpty {
+                continue
+            }
+            if lowercased.hasPrefix("repeat ") {
+                blocks.append(.repeat)
+            } else if isMultilineIfHeader(lowercased, nextLine: nextSignificantLine(after: index, in: lines)) {
+                blocks.append(.if)
+            } else if lowercased.hasPrefix("end if") {
+                if blocks.last == .if {
+                    _ = blocks.popLast()
+                }
+            }
+        }
+
+        return result
+    }
+
+    private static func isMultilineIfHeader(_ lowercased: String, nextLine: String?) -> Bool {
+        guard lowercased.hasPrefix("if ") else {
+            return false
+        }
+        if lowercased.hasSuffix(" then") {
+            return true
+        }
+        return nextLine?.hasPrefix("else ") == true || nextLine == "else"
+    }
+
+    private static func nextSignificantLine(after index: Int, in lines: [String]) -> String? {
+        guard index + 1 < lines.count else { return nil }
+        for line in lines[(index + 1)...] {
+            let lowercased = line.trimmingCharacters(in: .whitespaces).lowercased()
+            if lowercased.isEmpty || lowercased.hasPrefix("--") {
+                continue
+            }
+            return lowercased
+        }
+        return nil
+    }
+
+    private static func compatibilityHandlerSalvageScript(from script: String) -> String? {
+        let lines = script.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var salvagedHandlers: [String] = []
+        var index = 0
+
+        while index < lines.count {
+            guard let handlerName = handlerName(in: lines[index]),
+                  let endIndex = handlerEndIndex(handlerName: handlerName, after: index, in: lines) else {
+                index += 1
+                continue
+            }
+
+            let handlerSource = lines[index...endIndex].joined(separator: "\n")
+            if parsesAsHypeTalk(handlerSource) {
+                salvagedHandlers.append(handlerSource)
+            }
+            index = endIndex + 1
+        }
+
+        guard !salvagedHandlers.isEmpty else { return nil }
+        return (salvagedHandlers + [disabledForHypeTalkRuntime(script)]).joined(separator: "\n\n")
+    }
+
+    private static func handlerName(in line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let lowercased = trimmed.lowercased()
+        let prefix: String
+        if lowercased.hasPrefix("on ") {
+            prefix = "on "
+        } else if lowercased.hasPrefix("function ") {
+            prefix = "function "
+        } else {
+            return nil
+        }
+
+        let declaration = trimmed.dropFirst(prefix.count)
+        let name = declaration.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init)
+        guard let name, !name.isEmpty else { return nil }
+        return name
+    }
+
+    private static func handlerEndIndex(handlerName: String, after index: Int, in lines: [String]) -> Int? {
+        let expected = "end \(handlerName)".lowercased()
+        guard index + 1 < lines.count else { return nil }
+        for lineIndex in (index + 1)..<lines.count {
+            let trimmed = lines[lineIndex].trimmingCharacters(in: .whitespaces)
+            if trimmed.lowercased() == expected {
+                return lineIndex
+            }
+        }
+        return nil
     }
 
     private static func isCommentedHandlerStart(_ line: String) -> Bool {

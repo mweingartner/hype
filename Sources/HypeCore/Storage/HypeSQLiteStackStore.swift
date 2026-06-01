@@ -401,6 +401,10 @@ public final class HypeSQLiteStackStore {
             _ = try parser.parse()
             return source
         } catch {
+            let prepared = LegacyHyperTalkScript.preparedForHypeTalkRuntime(source)
+            if !LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(prepared) {
+                return prepared
+            }
             return LegacyHyperTalkScript.disabledForHypeTalkRuntime(source)
         }
     }
