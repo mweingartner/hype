@@ -266,6 +266,7 @@ public struct HyperCardExternalRegistry: Sendable {
         let hasLoopArgument = call.arguments.dropFirst().contains { argument in
             AssetRepository.classicMediaLookupKey(argument).contains("loop")
         }
+        let windowName = quickTimeWindowName(from: call)
         let audioOnly = isAudioOnlyQuickTimeAsset(asset)
         let moviePoint = quickTimePoint(from: call.arguments)
         var part = Part(
@@ -284,17 +285,31 @@ public struct HyperCardExternalRegistry: Sendable {
         part.videoVolume = normalizedClassicSoundVolume(
             context.document.scriptGlobals["hypercard.sound.volume"] ?? "255"
         )
-        part.helpText = audioOnly ? "\(quickTimeCompatibilityMarker)\naudioOnly=true" : quickTimeCompatibilityMarker
+        var markers = [quickTimeCompatibilityMarker]
+        if let windowName {
+            markers.append("window=\(windowName)")
+        }
+        if audioOnly {
+            markers.append("audioOnly=true")
+        }
+        part.helpText = markers.joined(separator: "\n")
         document.addPart(part)
+
+        var runtimeGlobals = [
+            "hypercard.playqt.asset": asset.name,
+            "hypercard.playqt.audioOnly": audioOnly ? "true" : "false"
+        ]
+        if let windowName {
+            let windowKey = AssetRepository.classicMediaLookupKey(windowName)
+            runtimeGlobals["hypercard.window.\(windowKey).movie"] = rawName
+            runtimeGlobals["hypercard.window.\(windowKey).exists"] = "true"
+        }
 
         return HyperCardExternalResult(
             value: asset.name,
             result: asset.name,
             modifiedDocument: document,
-            runtimeGlobals: [
-                "hypercard.playqt.asset": asset.name,
-                "hypercard.playqt.audioOnly": audioOnly ? "true" : "false"
-            ]
+            runtimeGlobals: runtimeGlobals
         )
     }
 
@@ -325,6 +340,23 @@ public struct HyperCardExternalRegistry: Sendable {
             }
         }
         return nil
+    }
+
+    private static func quickTimeWindowName(from call: HyperCardExternalCall) -> Value? {
+        let commandName = normalizedName(call.name)
+        guard commandName == "movie" || commandName == "playmovie" else { return nil }
+        guard call.arguments.count >= 5 else { return nil }
+        let candidate = call.arguments.last?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !candidate.isEmpty else { return nil }
+        let normalizedCandidate = AssetRepository.classicMediaLookupKey(candidate)
+        let optionNames = ["borderless", "visible", "invisible", "loop", "controller"]
+        if optionNames.contains(normalizedCandidate) {
+            return nil
+        }
+        if classicPoint(from: candidate) != nil {
+            return nil
+        }
+        return candidate
     }
 
     private static func lockScreenCompatibility(
