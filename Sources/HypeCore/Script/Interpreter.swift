@@ -3074,7 +3074,6 @@ public struct Interpreter: Sendable {
 
         case .clickAt, .disableCmd, .enableCmd,
               .helpCmd, .debugCmd, .dialCmd,
-              .readCmd, .writeCmd,
               .runCmd, .copyTemplate:
             break
 
