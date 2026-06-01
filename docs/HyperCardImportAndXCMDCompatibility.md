@@ -51,6 +51,8 @@ The registry models the behavior that matters to scripts:
   message path before falling back to built-ins and emulated XFCNs, for example
   `theAdjust()`. If a local `go` changes the current card earlier in the same
   handler, later function calls use that destination card as the lookup context.
+- Validator object-reference checks accept classic self-card references such as
+  `this card` and `current card`.
 - Function-style XFCN calls use ordinary function syntax, for example
   `put HypeVersion() into field "status"`.
 - Parameters are passed as evaluated HypeTalk strings.
