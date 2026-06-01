@@ -5489,6 +5489,10 @@ public struct Interpreter: Sendable {
         if let ci = document.cards.firstIndex(where: { $0.name.lowercased() == trimmed.lowercased() }) {
             return ci
         }
+        if let legacyCardId = legacyCardId(fromNavigationDestination: trimmed),
+           let cardId = resolveLocalLegacyCardId(legacyCardId, document: document) {
+            return document.cards.firstIndex(where: { $0.id == cardId })
+        }
         if let num = Int(trimmed), num >= 1, num <= document.sortedCards.count {
             let cardId = document.sortedCards[num - 1].id
             return document.cards.firstIndex(where: { $0.id == cardId })
