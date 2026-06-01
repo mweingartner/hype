@@ -30,6 +30,27 @@ struct LexerTests {
         #expect(tokens[3].type == .identifier)
     }
 
+    @Test func keepsSmartQuotesInsideStraightStringLiterals() {
+        var lexer = Lexer(source: "answer \"Drag \u{201C}Myst\u{201D} to your hard disk\" with \"Quit\"")
+        let tokens = lexer.tokenize()
+        #expect(tokens[0].type == .answer)
+        #expect(tokens[1].type == .string)
+        #expect(tokens[1].value == "Drag \u{201C}Myst\u{201D} to your hard disk")
+        #expect(tokens[2].type == .with)
+        #expect(tokens[3].type == .string)
+        #expect(tokens[3].value == "Quit")
+    }
+
+    @Test func handlesSmartQuotedStringLiterals() {
+        var lexer = Lexer(source: "put \u{201C}hello world\u{201D} into x")
+        let tokens = lexer.tokenize()
+        #expect(tokens[0].type == .put)
+        #expect(tokens[1].type == .string)
+        #expect(tokens[1].value == "hello world")
+        #expect(tokens[2].type == .into)
+        #expect(tokens[3].type == .identifier)
+    }
+
     @Test func handlesNumbers() {
         var lexer = Lexer(source: "42 3.14")
         let tokens = lexer.tokenize()
@@ -359,6 +380,32 @@ struct ParserTests {
         }
         #expect(promptValue == "Do you want to save this game before starting a new game?")
         #expect(buttons.count == 1)
+    }
+
+    @Test func parsesMystAnswerWithSmartQuotesInsidePrompt() throws {
+        var lexer = Lexer(source: """
+        on startup
+          answer "You have to start Myst from your hard disk. Drag \u{201C}Myst\u{201D} to your hard disk and try again. (Check instructions for more info.)" with "Quit"
+        end startup
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        guard case .answer(let prompt, let buttons) = script.handlers[0].body[0] else {
+            Issue.record("Expected answer statement")
+            return
+        }
+        guard case .literal(let promptValue) = prompt else {
+            Issue.record("Expected literal answer prompt")
+            return
+        }
+        #expect(promptValue == "You have to start Myst from your hard disk. Drag \u{201C}Myst\u{201D} to your hard disk and try again. (Check instructions for more info.)")
+        #expect(buttons.count == 1)
+        guard case .literal(let buttonValue) = buttons[0] else {
+            Issue.record("Expected literal answer button")
+            return
+        }
+        #expect(buttonValue == "Quit")
     }
 
     @Test func parsesClassicAnswerFileOfType() throws {

@@ -184,17 +184,31 @@ public struct Lexer: Sendable {
         ch == "\"" || ch == "\u{201C}" || ch == "\u{201D}"
     }
 
+    private func closesString(openedBy openingQuote: Character, candidate: Character) -> Bool {
+        switch openingQuote {
+        case "\"":
+            candidate == "\""
+        case "\u{201C}":
+            candidate == "\u{201D}" || candidate == "\""
+        case "\u{201D}":
+            candidate == "\u{201D}" || candidate == "\""
+        default:
+            false
+        }
+    }
+
     private mutating func scanString() {
+        let openingQuote = source[pos]
         pos += 1 // skip opening quote (straight or curly)
         var result: [Character] = []
-        while pos < source.count && !isQuote(source[pos]) {
+        while pos < source.count && !closesString(openedBy: openingQuote, candidate: source[pos]) {
             if isLineBreak(source[pos]) {
                 break // unterminated string at newline
             }
             result.append(source[pos])
             pos += 1
         }
-        if pos < source.count && isQuote(source[pos]) {
+        if pos < source.count && closesString(openedBy: openingQuote, candidate: source[pos]) {
             pos += 1 // skip closing quote (straight or curly)
         }
         tokens.append(Token(type: .string, value: String(result), line: currentLine))
