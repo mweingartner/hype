@@ -574,6 +574,39 @@ struct ParserTests {
         #expect(value == "false")
     }
 
+    @Test func parsesClassicOpenAsStateLiteral() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          global drawer
+          put open into drawer
+          if drawer is open then
+            go to card id 4495
+          end if
+        end mouseUp
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        guard case .put(let source, _, let target) = script.handlers[0].body[1],
+              case .literal(let sourceValue) = source,
+              case .variable(let targetName) = target else {
+            Issue.record("Expected put open into drawer")
+            return
+        }
+        #expect(sourceValue == "open")
+        #expect(targetName == "drawer")
+        guard case .ifThenElse(let condition, _, _) = script.handlers[0].body[2],
+              case .binary(let lhs, .equal, let rhs) = condition,
+              case .variable(let lhsName) = lhs,
+              case .literal(let rhsValue) = rhs else {
+            Issue.record("Expected drawer is open comparison")
+            return
+        }
+        #expect(lhsName == "drawer")
+        #expect(rhsValue == "open")
+    }
+
     @Test func topLevelGlobalPreludeAppliesToEveryHandler() throws {
         var lexer = Lexer(source: """
         global moveDir, score

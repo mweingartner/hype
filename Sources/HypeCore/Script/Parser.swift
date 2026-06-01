@@ -3194,7 +3194,7 @@ public struct Parser: Sendable {
             return .variable(tok.value)
 
         case .from, .by, .times,
-             .choose, .close, .save, .quit, .mark, .unmark, .push, .pop,
+             .choose, .close, .open, .save, .quit, .mark, .unmark, .push, .pop,
              .click, .drag, .run, .print, .help, .debug, .reset,
              .export, .import, .copy, .disable, .enable, .edit, .dial,
              .reply, .start, .stop, .using, .template, .paint,
