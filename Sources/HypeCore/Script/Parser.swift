@@ -280,6 +280,7 @@ public struct Parser: Sendable {
         case .import:   return try parseImportStatement()
         case .convert:  return try parseConvertStatement()
         case .constrain: return try parseConstrainStatement()
+        case .camera:   return try parseExternalCommandStatement()
         case .play:     return try parsePlayStatement()
         case .beep:     return try parseBeepStatement()
         case .wait:     return try parseWaitStatement()

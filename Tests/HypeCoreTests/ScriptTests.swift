@@ -239,6 +239,29 @@ struct ParserTests {
         #expect(visualArguments.isEmpty)
     }
 
+    @Test func parsesClassicCameraAsExternalCommand() throws {
+        var lexer = Lexer(source: """
+        on mouseWithin
+          camera SE_CameraID
+        end mouseWithin
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+
+        guard case .externalCommand(let name, let arguments) = script.handlers[0].body[0] else {
+            Issue.record("Expected camera external command")
+            return
+        }
+        #expect(name == "camera")
+        #expect(arguments.count == 1)
+        guard case .variable(let cameraVariable) = arguments[0] else {
+            Issue.record("Expected camera variable argument")
+            return
+        }
+        #expect(cameraVariable == "SE_CameraID")
+    }
+
     @Test func parsesClassicDoMenuAndSaveAsCommands() throws {
         var lexer = Lexer(source: """
         on mouseUp
@@ -3274,6 +3297,33 @@ struct MessageDispatcherTests {
         #expect(result.modifiedDocument?.scriptGlobals["hypercard.window.towerscroll.scroll"] == "15,200")
         let updatedHeading = result.modifiedDocument?.parts.first { $0.name == "heading" }
         #expect(updatedHeading?.textContent == "3")
+    }
+
+    @Test func mystSeleniticCameraCommandUpdatesCameraState() async {
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        doc.scriptGlobals["SE_CameraID"] = "2"
+        var button = Part(partType: .button, cardId: cardId, name: "mic")
+        button.script = """
+        on mouseDown
+          camera 5
+        end mouseDown
+        """
+        doc.addPart(button)
+
+        let dispatcher = MessageDispatcher()
+        let result = await runOnLargeStack { [doc, cardId, button] in dispatcher.dispatch(
+            message: "mouseDown",
+            params: [],
+            targetId: button.id,
+            document: doc,
+            currentCardId: cardId
+        ) }
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "5")
+        #expect(result.modifiedDocument?.scriptGlobals["SE_CameraID"] == "5")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.selenitic.camera"] == "5")
     }
 
     @Test func mystStoneshipTelescopeScrollWrapsClassicRange() async {
