@@ -95,6 +95,14 @@ struct PlayCommandTests {
         """))
     }
 
+    @Test func playSoundWithClassicUnquotedNotes() {
+        #expect(parses("""
+        on test
+          play "harpsichord" tempo 200 cw c c g#3
+        end test
+        """))
+    }
+
     @Test func beepAlone() {
         #expect(parses("""
         on test
@@ -171,6 +179,12 @@ struct PlayCommandTests {
         var lexer = Lexer(source: "wait")
         let tokens = lexer.tokenize()
         #expect(tokens[0].type == .wait)
+    }
+
+    @Test func sharpClassicNoteTokenStaysTogether() {
+        var lexer = Lexer(source: "play \"harpsichord\" tempo 100 g#3")
+        let tokens = lexer.tokenize()
+        #expect(tokens.contains { $0.type == .identifier && $0.value == "g#3" })
     }
 
     // MARK: - Interpreter tests
@@ -251,6 +265,38 @@ struct PlayCommandTests {
             .playNotes(instrument: "harpsichord", notes: "g4q g4q g5q e5q c5q b4q a4h", tempo: 120),
             .currentSoundName,
             .playNotes(instrument: "harpsichord", notes: "f5q f5q e5q c5q d5q c5h", tempo: 120)
+        ])
+    }
+
+    @Test("Runtime dispatch preserves classic unquoted play notes")
+    func runtimeDispatchPreservesClassicUnquotedPlayNotes() async {
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        var button = Part(partType: .button, cardId: cardId, name: "Classic Notes")
+        button.script = """
+        on mouseUp
+          play "harpsichord" tempo 200 cw c c g#3
+        end mouseUp
+        """
+        doc.addPart(button)
+
+        let provider = RecordingSystemProvider()
+        let runtime = StackRuntime(
+            document: doc,
+            configuration: StackRuntimeConfiguration(systemProvider: provider)
+        )
+
+        let result = await runtime.dispatchAndWait(
+            "mouseUp",
+            params: [],
+            targetId: button.id,
+            currentCardId: cardId
+        )
+
+        #expect(result.status == .completed)
+        let events = await provider.recordedEvents()
+        #expect(events == [
+            .playNotes(instrument: "harpsichord", notes: "cw c c g#3", tempo: 200)
         ])
     }
 

@@ -2177,9 +2177,19 @@ public struct Parser: Sendable {
         // Check for optional notes string (must be on the same logical line)
         if current.type == .string {
             notes = try parsePrimary()
+        } else if current.type != .newline && current.type != .eof {
+            notes = parseClassicPlayNotes()
         }
         skipNewlines()
         return .playSound(sound: sound, notes: notes, tempo: tempo)
+    }
+
+    private mutating func parseClassicPlayNotes() -> Expression {
+        var values: [String] = []
+        while current.type != .newline && current.type != .eof {
+            values.append(advance().value)
+        }
+        return .literal(values.joined(separator: " "))
     }
 
     private mutating func parseBeepStatement() throws -> Statement {

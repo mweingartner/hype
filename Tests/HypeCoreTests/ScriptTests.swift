@@ -75,6 +75,14 @@ struct LexerTests {
         #expect(tokens.contains(where: { $0.type == .string && $0.value == " world" }))
     }
 
+    @Test func handlesClassicMacNotSignLineContinuation() {
+        var lexer = Lexer(source: "play \"GR Ratchet\" tempo 100 c6 c6 \u{00AC}\rc6 c6")
+        let tokens = lexer.tokenize()
+        let c6Tokens = tokens.filter { $0.type == .identifier && $0.value == "c6" }
+        #expect(c6Tokens.count == 4)
+        #expect(tokens.filter { $0.type == .newline }.count == 1)
+    }
+
     @Test func handlesOperators() {
         var lexer = Lexer(source: "2 + 3 * 4 <= 20 <> 5 && 6")
         let tokens = lexer.tokenize()
