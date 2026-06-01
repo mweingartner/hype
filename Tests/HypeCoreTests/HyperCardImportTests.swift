@@ -235,6 +235,22 @@ struct HyperCardImportTests {
         #expect(try parsedHandlerCount(translated) == 1)
     }
 
+    @Test("legacy translator keeps two-word play QT handlers live")
+    func legacyTranslatorKeepsTwoWordPlayQTHandlersLive() throws {
+        let script = """
+        on mouseUp
+        go to card id 4355
+        play QT "EV Wind/Water Mov", , loop, 250
+        end mouseUp
+        """
+
+        let translated = LegacyHyperTalkScript.preparedForHypeTalkRuntime(script)
+
+        #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(translated))
+        #expect(translated.contains(#"play QT "EV Wind/Water Mov", , loop, 250"#))
+        #expect(try parsedHandlerCount(translated) == 1)
+    }
+
     @Test("legacy translator comments disabled handler tails without disabling earlier handlers")
     func legacyTranslatorCommentsDisabledHandlerTails() throws {
         let script = """

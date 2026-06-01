@@ -447,6 +447,12 @@ public struct Parser: Sendable {
 
     private mutating func parseExternalCommandStatement() throws -> Statement {
         let name = advance().value
+        let arguments = try parseExternalCommandArguments()
+        skipNewlines()
+        return .externalCommand(name: name, arguments: arguments)
+    }
+
+    private mutating func parseExternalCommandArguments() throws -> [Expression] {
         var arguments: [Expression] = []
         while current.type != .newline && current.type != .eof && current.type != .end && current.type != .else {
             if current.type == .comma {
@@ -466,8 +472,7 @@ public struct Parser: Sendable {
                 }
             }
         }
-        skipNewlines()
-        return .externalCommand(name: name, arguments: arguments)
+        return arguments
     }
 
     // MARK: - Individual statement parsers
@@ -2273,6 +2278,19 @@ public struct Parser: Sendable {
 
     private mutating func parsePlayStatement() throws -> Statement {
         _ = try expect(.play)
+        // Classic stacks sometimes spell the QuickTime XCMD as two words:
+        // `play QT "Movie", , loop, 250`.
+        if current.type == .identifier {
+            let normalized = current.value
+                .lowercased()
+                .filter { $0.isLetter || $0.isNumber }
+            if normalized == "qt" || normalized == "quicktime" {
+                _ = advance()
+                let arguments = try parseExternalCommandArguments()
+                skipNewlines()
+                return .externalCommand(name: "playQT", arguments: arguments)
+            }
+        }
         // play stop
         if current.type == .stop {
             _ = advance()
