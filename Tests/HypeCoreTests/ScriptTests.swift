@@ -93,6 +93,15 @@ struct LexerTests {
         #expect(types.contains(.neq))
         #expect(types.contains(.doubleAmpersand))
     }
+
+    @Test func handlesClassicComparisonGlyphOperators() {
+        var lexer = Lexer(source: "if it \u{2265} 9 then\nif it \u{2264} 10 then\nif it \u{2260} 0 then")
+        let tokens = lexer.tokenize()
+        let types = tokens.map { $0.type }
+        #expect(types.contains(.gte))
+        #expect(types.contains(.lte))
+        #expect(types.contains(.neq))
+    }
 }
 
 // MARK: - Parser Tests
@@ -1747,6 +1756,19 @@ struct InterpreterTests {
         #expect(result.status == .completed)
         #expect(result.returnValue == "pass")
         #expect(result.modifiedDocument?.scriptGlobals["hypercard.variant.value"] == "2.1")
+    }
+
+    @Test func classicComparisonGlyphsParseInImportedConditionals() {
+        let result = executeScript("""
+        on test
+          get 9
+          if it \u{2265} 9 then return "gte"
+          return "block"
+        end test
+        """)
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "gte")
     }
 
     @Test func movieInfoReturnsRepositoryBackedMovieMetadata() {
