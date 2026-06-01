@@ -510,11 +510,13 @@ struct HyperCardImportTests {
           xWindowFrame
           xAbout
           xSetSoundVol true
+          put on into light
+          if light is on then put off into light
         end mouseUp
         """)
 
         #expect(script.handlers.count == 1)
-        #expect(script.handlers[0].body.count == 5)
+        #expect(script.handlers[0].body.count == 7)
         guard case .externalCommand(let name, let arguments) = script.handlers[0].body[0] else {
             Issue.record("Expected external command statement")
             return
