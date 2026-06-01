@@ -2350,10 +2350,10 @@ bind a TCP port. Socket accept/read handling runs on a dedicated dispatch queue
 and supports long-lived connections, while document and tool mutations still
 hop to the main actor. MCP protocol handling lives in the TypeScript stdio
 server at `Tools/hype-mcp-server`, which discovers active Hype descriptors,
-attaches or detaches from one running process, keeps a debug connection alive
-with `debug/keepalive`, and proxies MCP tool calls into the debug bridge. This
-lets Hype.app instances come and go independently while MCP clients keep a
-stable stdio server process.
+probes each candidate socket with `debug/keepalive`, attaches or detaches from
+one running process, keeps a debug connection alive with `debug/keepalive`, and
+proxies MCP tool calls into the debug bridge. This lets Hype.app instances come
+and go independently while MCP clients keep a stable stdio server process.
 
 Automation-created stacks and imports use acknowledged macOS deployment targets
 by default, with explicit `target_platforms` / `primary_target_platform`
