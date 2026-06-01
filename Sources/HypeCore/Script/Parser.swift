@@ -139,6 +139,17 @@ public struct Parser: Sendable {
             let handler = try parseHandler()
             handlers.append(handler)
             skipNewlines()
+            while current.type != .eof,
+                  current.type != .on,
+                  current.type != .function,
+                  current.type != .global {
+                let statement = try parseStatement()
+                if var previous = handlers.popLast() {
+                    previous.body.append(statement)
+                    handlers.append(previous)
+                }
+                skipNewlines()
+            }
         }
         if !topLevelGlobalNames.isEmpty {
             let globals = stableUnique(topLevelGlobalNames)
