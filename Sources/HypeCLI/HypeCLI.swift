@@ -1375,7 +1375,7 @@ private struct ScriptSemanticValidator {
     }
 
     private func objectReferenceIssues(_ ref: ObjectRefExpr, owner: StoredScript) -> [ScriptSemanticIssue] {
-        guard let name = staticString(ref.identifier)?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines),
+        guard let name = staticLiteralString(ref.identifier)?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines),
               !name.isEmpty else { return [] }
         let lowerType = ref.objectType.lowercased()
         let lowerName = name.lowercased()
@@ -1456,6 +1456,13 @@ private struct ScriptSemanticValidator {
         default:
             return false
         }
+    }
+
+    private func staticLiteralString(_ expression: HypeCore.Expression) -> String? {
+        if case .literal(let value) = expression {
+            return value
+        }
+        return nil
     }
 
     private func staticString(_ expression: HypeCore.Expression) -> String? {

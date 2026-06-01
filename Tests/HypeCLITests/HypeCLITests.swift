@@ -568,6 +568,34 @@ struct HypeCLITests {
         #expect(!result.stdout.contains("object-reference"))
     }
 
+    @Test func testValidateScriptsSkipsDynamicObjectReferenceWarnings() throws {
+        var document = HypeDocument.newDocument(name: "Dynamic Reference Validation Fixture")
+        let cardId = try #require(document.cards.first?.id)
+        var button = Part(partType: .button, cardId: cardId, name: "Dynamic")
+        button.script = """
+        on mouseUp
+          put "Card 1" into targetCard
+          put "Run" into targetButton
+          go to card targetCard
+          hide card button targetButton
+        end mouseUp
+        """
+        document.parts.append(button)
+
+        let packageURL = scriptDir.appendingPathComponent("DynamicReferenceValidationFixture.hype", isDirectory: true)
+        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
+
+        let result = runBinary(arguments: [
+            "--validate-scripts", packageURL.path,
+        ])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("ok\tbutton\tDynamic"))
+        #expect(!result.stdout.contains("card \"targetCard\""))
+        #expect(!result.stdout.contains("button \"targetButton\""))
+        #expect(!result.stdout.contains("object-reference"))
+    }
+
     @Test func testValidateScriptsTreatsClassicPlayNotesAsNotes() throws {
         var document = HypeDocument.newDocument(name: "Classic Play Notes Fixture")
         let cardId = try #require(document.cards.first?.id)
