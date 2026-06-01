@@ -339,6 +339,67 @@ struct HypeCLITests {
         #expect(imported.stack.name == "Resources.stak")
     }
 
+    @Test func testStackImportProjectOutputDirectoryCommand() throws {
+        let tempDir = scriptDir
+        let packageA = tempDir.appendingPathComponent("Sample.xstk", isDirectory: true)
+        let packageB = tempDir.appendingPathComponent("Other.xstk", isDirectory: true)
+        let outputDir = tempDir.appendingPathComponent("project-out", isDirectory: true)
+        let libraryURL = tempDir.appendingPathComponent("stack-library.json")
+        try FileManager.default.createDirectory(at: packageA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: packageB, withIntermediateDirectories: true)
+        try writeSyntheticStackImportPackage(at: packageA, name: "Sample", cardId: 100, cardName: "Sample Card")
+        try writeSyntheticStackImportPackage(at: packageB, name: "Other", cardId: 200, cardName: "Other Card")
+        try Data("""
+        [
+          {
+            "stackName": "Sample",
+            "aliases": ["Sample"],
+            "source": "importedStackPackage",
+            "packagePath": "\(packageA.path)",
+            "legacyFirstCardId": 100,
+            "cardCount": 1,
+            "cardReferences": [{"legacyCardId": 100, "name": "Sample Card", "sortIndex": 0}]
+          },
+          {
+            "stackName": "Other",
+            "aliases": ["Other"],
+            "source": "importedStackPackage",
+            "packagePath": "\(packageB.path)",
+            "legacyFirstCardId": 200,
+            "cardCount": 1,
+            "cardReferences": [{"legacyCardId": 200, "name": "Other Card", "sortIndex": 0}]
+          }
+        ]
+        """.utf8).write(to: libraryURL)
+
+        let result = runBinary(arguments: [
+            "--import-stackimport-project", packageA.path, packageB.path,
+            "--output-dir", outputDir.path,
+            "--stack-library-json", libraryURL.path,
+            "--used-stack-aliases", "Sample,Other",
+        ])
+
+        #expect(result.exitStatus == 0)
+        let data = try #require(result.stdout.data(using: .utf8))
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let summary = try #require(object["result"] as? [String: Any])
+        #expect(summary["stackCount"] as? Int == 2)
+        #expect(summary["stackLibraryEntryCount"] as? Int == 2)
+        let sampleURL = outputDir.appendingPathComponent("Sample-debug-imported.hype", isDirectory: true)
+        let otherURL = outputDir.appendingPathComponent("Other-debug-imported.hype", isDirectory: true)
+        #expect(FileManager.default.fileExists(atPath: sampleURL.path))
+        #expect(FileManager.default.fileExists(atPath: otherURL.path))
+
+        let sample = try HypeSQLiteStackStore().load(fromPackageAt: sampleURL)
+        guard case .resolved(let otherInSample) = sample.stackLibrary.resolution(for: "Other") else {
+            Issue.record("Expected imported project package to carry linked stack metadata")
+            return
+        }
+        #expect(otherInSample.documentPath == otherURL.path)
+        #expect(otherInSample.cardReferences.first?.legacyCardId == 200)
+        #expect(sample.stackLibrary.usedStackAliases == ["Sample", "Other"])
+    }
+
     @Test func testValidateScriptsExportsWithoutExecuting() throws {
         var document = HypeDocument.newDocument(name: "Validation Fixture")
         document.stack.script = "on openStack\r  put \"do not print\" into x -- classic comment\rend openStack"
@@ -1029,6 +1090,32 @@ struct HypeCLITests {
         #expect(await client.chatMessageCount() == 1)
         #expect(await client.didPreloadModel())
         #expect(streamed == "hello world")
+    }
+
+    private func writeSyntheticStackImportPackage(
+        at url: URL,
+        name: String,
+        cardId: Int,
+        cardName: String
+    ) throws {
+        try Data("""
+        {"sourceFileName":"\(name)","stackFile":"stack_-1.json","blocks":[],"fonts":[{"id":1,"name":"Chicago"}]}
+        """.utf8).write(to: url.appendingPathComponent("project.json"))
+        try Data("""
+        {"name":"\(name)","cardWidth":512,"cardHeight":342,"script":"","pages":[{"cardIds":[\(cardId)]}],"layers":[{"kind":"background","id":10,"file":"background_10.json"},{"kind":"card","id":\(cardId),"owner":10,"file":"card_\(cardId).json"}]}
+        """.utf8).write(to: url.appendingPathComponent("stack_-1.json"))
+        try Data("""
+        {"id":10,"bitmap":null,"name":"Background","script":"","parts":[],"contents":[]}
+        """.utf8).write(to: url.appendingPathComponent("background_10.json"))
+        try Data("""
+        {"id":\(cardId),"bitmap":null,"name":"\(cardName)","script":"on openCard\\rpass openCard\\rend openCard","parts":[{"id":1,"type":"button","style":"transparent","rect":{"left":10,"top":20,"right":110,"bottom":50},"name":"Start","script":"on mouseUp\\rgo next\\rend mouseUp"}],"contents":[]}
+        """.utf8).write(to: url.appendingPathComponent("card_\(cardId).json"))
+        try Data("""
+        {"sourcePath":"/Myst/\(name)","outputPackage":"\(name).xstk","dataForkBytes":123,"resourceForkBytes":456,"resources":[]}
+        """.utf8).write(to: url.appendingPathComponent("resource-manifest.json"))
+        try Data("""
+        {"entries":[]}
+        """.utf8).write(to: url.appendingPathComponent("script-index.json"))
     }
 }
 
