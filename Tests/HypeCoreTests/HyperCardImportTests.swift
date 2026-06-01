@@ -119,6 +119,35 @@ struct HyperCardImportTests {
         #expect(result.report.unsupportedFeatures.contains { $0.contains("XCMD/XFCN") })
     }
 
+    @Test("legacy route-only translator preserves state gated cross-stack movie clicks")
+    func legacyRouteOnlyTranslatorPreservesStateGatedCrossStackMovieClicks() throws {
+        let script = """
+        on mouseDownInMovie which
+        global MY_Selenitic
+        if which is "SeleniticBook.MooV" then
+        if MY_Selenitic is not "true" then
+        put "true" into MY_Selenitic
+        set the currTime of window which to "5,50"
+        repeat with x = 1 to
+        else
+        put "false" into MY_Selenitic
+        go to card "black"
+        go to card "black" of stack "Selenitic Age"
+        go to card id 45136 of stack "Selenitic Age"
+        end if
+        end if
+        end mouseDownInMovie
+        """
+
+        let translated = LegacyHyperTalkScript.preparedForHypeTalkRuntime(script)
+
+        #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(translated))
+        #expect(translated.contains("route compatibility script"))
+        #expect(translated.contains("if MY_Selenitic is \"true\" then"))
+        #expect(translated.contains("go to card id 45136 of stack \"Selenitic Age\""))
+        #expect(try parsedHandlerCount(translated) == 1)
+    }
+
     @Test("Myst environment externals are registered as emulated")
     func mystEnvironmentExternalsAreRegisteredAsEmulated() {
         let registry = HyperCardExternalRegistry.default

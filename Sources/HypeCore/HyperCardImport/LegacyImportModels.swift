@@ -246,6 +246,10 @@ public enum LegacyHyperTalkScript {
         if parsesAsHypeTalk(compatible) {
             return compatible
         }
+        if let routeScript = compatibilityRouteScript(from: compatible),
+           parsesAsHypeTalk(routeScript) {
+            return routeScript
+        }
         return disabledForHypeTalkRuntime(compatible)
     }
 
@@ -282,6 +286,57 @@ public enum LegacyHyperTalkScript {
                 return "\(indent)go next"
             }
             .joined(separator: "\n")
+    }
+
+    private static func compatibilityRouteScript(from script: String) -> String? {
+        let lines = script.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let lowercased = script.lowercased()
+        guard lowercased.contains("on mousedowninmovie") else { return nil }
+
+        let routeCommands = lines.compactMap { line -> String? in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.hasPrefix("--") else { return nil }
+            guard trimmed.lowercased().hasPrefix("go "),
+                  trimmed.range(of: #"of\s+stack"#, options: [.regularExpression, .caseInsensitive]) != nil else {
+                return nil
+            }
+            return trimmed
+        }
+        guard !routeCommands.isEmpty else { return nil }
+
+        let bodyLines: [String]
+        if lowercased.contains("global du_end"),
+           lowercased.contains("if du_end is \"win\" then") {
+            bodyLines = [
+                "  global DU_End",
+                "  if DU_End is \"win\" then",
+            ] + routeCommands.map { "    \($0)" } + [
+                "  end if",
+            ]
+        } else if lowercased.contains("if which is \"seleniticbook.moov\" then"),
+                  lowercased.contains("global my_selenitic") {
+            bodyLines = [
+                "  global MY_Selenitic",
+                "  if which is \"SeleniticBook.MooV\" then",
+                "    if MY_Selenitic is \"true\" then",
+            ] + routeCommands.map { "      \($0)" } + [
+                "    end if",
+                "  end if",
+            ]
+        } else {
+            bodyLines = routeCommands.map { "  \($0)" }
+        }
+
+        let original = lines.map { "-- \($0)" }
+        return ([
+            "-- Imported HyperCard route compatibility script.",
+            "-- The original script could not be fully translated; cross-stack navigation is preserved below.",
+            "on mouseDownInMovie which",
+        ] + bodyLines + [
+            "end mouseDownInMovie",
+            "",
+            "-- Original script:",
+        ] + original).joined(separator: "\n")
     }
 
     private static func parsesAsHypeTalk(_ script: String) -> Bool {
