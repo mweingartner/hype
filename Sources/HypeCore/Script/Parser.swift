@@ -3219,6 +3219,11 @@ public struct Parser: Sendable {
         case .word, .char, .character, .item, .line, .number,
              .first, .second, .third, .last, .middle, .any:
             return try parsePrimary()
+        case .card
+            where pos + 1 < tokens.count &&
+                tokens[pos + 1].type == .identifier &&
+                tokens[pos + 1].value.lowercased() == "window":
+            return try parsePrimary()
         default:
             break
         }

@@ -458,6 +458,32 @@ struct ParserTests {
         #expect(windowName == "card window")
     }
 
+    @Test func parsesClassicTheCardWindowPropertyReference() throws {
+        var lexer = Lexer(source: """
+        on startup
+          get the loc of the card window
+          set the loc of the card window to it
+        end startup
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        guard case .get(let expression) = script.handlers[0].body[0],
+              case .propertyAccess(let property, let target?) = expression,
+              property == "loc",
+              case .objectRef(let ref) = target else {
+            Issue.record("Expected get the loc of the card window")
+            return
+        }
+        #expect(ref.objectType == "window")
+        guard case .literal(let windowName) = ref.identifier else {
+            Issue.record("Expected card window literal")
+            return
+        }
+        #expect(windowName == "card window")
+    }
+
     @Test func topLevelGlobalPreludeAppliesToEveryHandler() throws {
         var lexer = Lexer(source: """
         global moveDir, score
@@ -1541,6 +1567,20 @@ struct InterpreterTests {
 
         #expect(result.status == .completed)
         #expect(result.returnValue == "0,0,800,600")
+    }
+
+    @Test func theCardWindowLocCanBeReadAndSet() {
+        let result = executeScript("""
+        on test
+          get the loc of the card window
+          set the loc of the card window to it
+          return it
+        end test
+        """)
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "0,0")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.window.card window.loc"] == "0,0")
     }
 
     @Test func barePutStoresValueInItForClassicDebugHandlers() {
