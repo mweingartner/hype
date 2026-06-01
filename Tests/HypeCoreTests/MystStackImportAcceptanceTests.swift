@@ -349,6 +349,14 @@ struct MystStackImportAcceptanceTests {
             let importedNames = Set(package.looseMedia?.imported.map(\.name) ?? [])
             return mediaNames.isSubset(of: importedNames)
         })
+        let disabledImportedScripts = result.packageResults.flatMap { package in
+            storedScripts(in: package.document).compactMap { script in
+                LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(script.source)
+                    ? "\(package.document.stack.name): \(script.ownerPath)"
+                    : nil
+            }
+        }
+        #expect(disabledImportedScripts.isEmpty)
     }
 
     @Test("full Myst project packages survive SQLite save reload validation")
