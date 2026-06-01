@@ -155,6 +155,12 @@ public struct HyperCardExternalRegistry: Sendable {
         put(.xcmd, ["HTVisual"], Entry(status: .emulated) { call, context in
             visualEffectCompatibility(call: call, context: context)
         })
+        put(.xcmd, ["vd"], Entry(status: .emulated) { _, context in
+            mystDefaultVisualTransitionCompatibility(context: context)
+        })
+        put(.xcmd, ["vs"], Entry(status: .emulated) { call, context in
+            mystScrollVisualTransitionCompatibility(call: call, context: context)
+        })
         put(.xcmd, ["DeCurse"], Entry(status: .emulated) { call, _ in
             cursorCompatibility(call: call)
         })
@@ -473,6 +479,68 @@ public struct HyperCardExternalRegistry: Sendable {
             runtimeGlobals: [
                 "hypercard.htvisual.effect": effect,
                 "hypercard.htvisual.arguments": call.arguments.joined(separator: "\t")
+            ],
+            visualEffect: effect.isEmpty ? nil : effect,
+            visualEffectDuration: duration
+        )
+    }
+
+    private static func mystDefaultVisualTransitionCompatibility(
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        let trans = hyperCardGlobal("Trans", in: context.document)
+        let effect: String
+        switch trans.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1":
+            effect = "tdfBlend7"
+        case "2":
+            effect = "tdfBlend5"
+        case "3":
+            effect = "tdfBlend2"
+        default:
+            effect = ""
+        }
+        return HyperCardExternalResult(
+            value: effect,
+            result: effect,
+            runtimeGlobals: [
+                "hypercard.vd.trans": trans,
+                "hypercard.vd.effect": effect
+            ],
+            visualEffect: effect.isEmpty ? nil : effect
+        )
+    }
+
+    private static func mystScrollVisualTransitionCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        let trans = hyperCardGlobal("Trans", in: context.document)
+        let direction = call.arguments.first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let effect: String
+        let duration: Double?
+        switch trans.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1":
+            effect = direction.isEmpty ? "scroll" : "scroll \(direction)"
+            duration = 64.0 / 60.0
+        case "2":
+            effect = direction.isEmpty ? "pan" : "pan \(direction)"
+            duration = 32.0 / 60.0
+        case "3":
+            effect = direction.isEmpty ? "pan" : "pan \(direction)"
+            duration = 32.0 / 60.0
+        default:
+            effect = ""
+            duration = nil
+        }
+        return HyperCardExternalResult(
+            value: effect,
+            result: effect,
+            runtimeGlobals: [
+                "hypercard.vs.trans": trans,
+                "hypercard.vs.direction": direction,
+                "hypercard.vs.effect": effect
             ],
             visualEffect: effect.isEmpty ? nil : effect,
             visualEffectDuration: duration
@@ -1317,6 +1385,16 @@ public struct HyperCardExternalRegistry: Sendable {
             return value / 60.0
         }
         return nil
+    }
+
+    private static func hyperCardGlobal(_ name: String, in document: HypeDocument) -> String {
+        if let value = document.scriptGlobals[name] {
+            return value
+        }
+        let folded = name.lowercased()
+        return document.scriptGlobals.first { key, _ in
+            key.lowercased() == folded
+        }?.value ?? ""
     }
 
     private static func normalizedCursorMode(from arguments: [Value]) -> Value {
