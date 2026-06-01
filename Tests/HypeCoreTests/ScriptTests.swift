@@ -2296,6 +2296,20 @@ struct InterpreterTests {
         #expect(result.modifiedDocument?.scriptGlobals["hypercard.buzzer.volume"] == "128")
     }
 
+    @Test func dplayQueuesDelayedSoundNamesForImportedOpenCardHandlers() {
+        let result = executeScript("""
+        on test
+          dplay "DR wood open"
+          dplay "DR wood shut"
+        end test
+        """)
+
+        #expect(result.status == .completed)
+        #expect(result.modifiedDocument?.scriptGlobals["hcsounds"] == "DR wood open\rDR wood shut\r")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.dplay.lastSound"] == "DR wood shut")
+        #expect(result.modifiedDocument?.scriptGlobals["hypercard.dplay.queueDepth"] == "2")
+    }
+
     @Test func movieCreatesRepositoryBackedVideoPartAtClassicPoint() {
         let movie = Asset(
             name: "MystLib-modern.mov",
