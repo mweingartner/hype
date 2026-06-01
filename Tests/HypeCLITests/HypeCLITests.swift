@@ -638,6 +638,59 @@ struct HypeCLITests {
         #expect(!result.stdout.contains("object-reference"))
     }
 
+    @Test func testValidateScriptsAcceptsProjectCardReferences() throws {
+        var document = HypeDocument.newDocument(name: "Project Card Validation Fixture")
+        let cardId = try #require(document.cards.first?.id)
+        document.stackLibrary = HypeStackLibrary(entries: [
+            HypeStackLibraryEntry(
+                stackName: "Myst",
+                aliases: ["Myst Island"],
+                source: .importedStackPackage,
+                cardReferences: [
+                    HypeStackLibraryCardReference(legacyCardId: 8336, name: "dock", sortIndex: 2),
+                    HypeStackLibraryCardReference(legacyCardId: 46439, name: "restart", sortIndex: 1),
+                ]
+            ),
+            HypeStackLibraryEntry(
+                stackName: "Channelwood Age",
+                source: .importedStackPackage,
+                cardReferences: [
+                    HypeStackLibraryCardReference(legacyCardId: 28497, name: "restart", sortIndex: 163),
+                ]
+            ),
+            HypeStackLibraryEntry(
+                stackName: "ALLRes",
+                source: .looseResourceStack,
+                cardReferences: [
+                    HypeStackLibraryCardReference(legacyCardId: 4981, name: "finalBookOpen", sortIndex: 5),
+                ]
+            )
+        ])
+        var button = Part(partType: .button, cardId: cardId, name: "ProjectGo")
+        button.script = """
+        on mouseUp
+          go to card "dock"
+          go to card "reStart"
+          go to card "finalBookOpen"
+        end mouseUp
+        """
+        document.parts.append(button)
+
+        let packageURL = scriptDir.appendingPathComponent("ProjectCardValidationFixture.hype", isDirectory: true)
+        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
+
+        let result = runBinary(arguments: [
+            "--validate-scripts", packageURL.path,
+        ])
+
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("ok\tbutton\tProjectGo"))
+        #expect(!result.stdout.contains("card \"dock\""))
+        #expect(!result.stdout.contains("card \"reStart\""))
+        #expect(!result.stdout.contains("card \"finalBookOpen\""))
+        #expect(!result.stdout.contains("object-reference"))
+    }
+
     @Test func testValidateScriptsUsesClassicAudioLookupAndSkipsDynamicSoundWarnings() throws {
         var document = HypeDocument.newDocument(name: "Classic Audio Validation Fixture")
         let audio = Asset(

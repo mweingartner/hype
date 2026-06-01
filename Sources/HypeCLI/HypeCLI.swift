@@ -1399,7 +1399,7 @@ private struct ScriptSemanticValidator {
             let found = document.cards.contains { card in
                 card.name.lowercased() == lowerName || String(document.cards.firstIndex(where: { $0.id == card.id }).map { $0 + 1 } ?? -1) == lowerName
             }
-            if !found {
+            if !found && !stackLibraryHasCardReference(named: name) {
                 return [issue("object-reference", "`card \"\(name)\"` does not resolve in this stack.")]
             }
         case "background", "bg":
@@ -1411,6 +1411,14 @@ private struct ScriptSemanticValidator {
             break
         }
         return []
+    }
+
+    private func stackLibraryHasCardReference(named name: String) -> Bool {
+        let key = HypeStackLibrary.lookupKey(name)
+        guard !key.isEmpty else { return false }
+        return document.stackLibrary.entries.flatMap(\.cardReferences).contains { reference in
+            HypeStackLibrary.lookupKey(reference.name) == key
+        }
     }
 
     private func isCurrentCardReference(_ value: String) -> Bool {
