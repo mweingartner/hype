@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 
 public struct LooseMediaImportOptions: Sendable {
@@ -204,15 +203,15 @@ public struct LooseMediaManifestImporter: Sendable {
         existingNames: Set<String>
     ) -> Asset {
         let kind = assetKind(for: entry, resolvedURL: resolvedURL)
-        let image = kind == .imageTexture ? NSImage(data: data) : nil
+        let dimensions = kind == .imageTexture ? PNGEncoding.imageDimensions(data: data) : nil
         let mimeType = mediaType(for: entry, resolvedURL: resolvedURL)
         var asset = Asset(
             name: uniqueName(name, existingNames: existingNames),
             kind: kind,
             mimeType: mimeType,
             data: data,
-            width: Int(image?.size.width ?? 0),
-            height: Int(image?.size.height ?? 0),
+            width: dimensions?.width ?? 0,
+            height: dimensions?.height ?? 0,
             tags: tags(for: entry),
             provenance: AssetProvenance(
                 origin: .userImport,

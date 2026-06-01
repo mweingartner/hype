@@ -187,6 +187,11 @@ struct ViewMenuCommands: Commands {
             }
             .help("Generate runtime-only package artifacts for the selected target platforms")
 
+            Button("Test Stack in Simulator…") {
+                NotificationCenter.default.post(name: .testStackInSimulator, object: nil)
+            }
+            .help("Build the current stack as a runtime-only app and launch it in Apple Simulator")
+
             Menu("Emulate Target Device") {
                 Button("Off") {
                     NotificationCenter.default.post(name: .setTargetEmulation, object: nil, userInfo: ["profileId": ""])
@@ -274,6 +279,7 @@ extension Notification.Name {
     static let toggleObjectsPanel = Notification.Name("toggleObjectsPanel")
     static let showTargetPlatforms = Notification.Name("showTargetPlatforms")
     static let exportRuntimePackages = Notification.Name("exportRuntimePackages")
+    static let testStackInSimulator = Notification.Name("testStackInSimulator")
     static let setTargetEmulation = Notification.Name("setTargetEmulation")
     static let haltAIChat = Notification.Name("haltAIChat")
     /// Posted by `CardCanvasView.Coordinator` when a HypeTalk runtime

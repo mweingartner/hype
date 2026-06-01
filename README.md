@@ -601,6 +601,11 @@ factors, safe areas, and input models differ.
   script-editor UI. Export validates the actual parts in the stack for each
   target and fails early with unsupported part names and reasons instead of
   producing a broken runtime package.
+- View -> Test Stack in Simulator builds the selected iPhone, iPad, or tvOS
+  runtime package, lists installed Apple Simulator devices with `xcrun simctl`,
+  builds for the chosen simulator with `xcrun xcodebuild`, boots/opens
+  Simulator, installs the generated app, and launches the stack without the user
+  opening Xcode first.
 - Target control availability is intentionally strict. iPhone/iPad expose the
   full shipped SwiftUI runtime adapter set; tvOS exposes only the focus-safe
   runtime set. Sprite areas, audio recorders, and legacy music queues remain

@@ -1,6 +1,6 @@
-import AppKit
 import CoreGraphics
 import Foundation
+import ImageIO
 
 public struct HyperCardExternalCall: Sendable, Equatable {
     public var name: String
@@ -1575,17 +1575,13 @@ public struct HyperCardExternalRegistry: Sendable {
     }
 
     private static func croppedPNGData(from imageData: Data, sourceRect: CGRect) -> Data? {
-        guard let image = NSImage(data: imageData) else { return nil }
-        var proposedRect = CGRect(origin: .zero, size: image.size)
-        guard let cgImage = image.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil) else {
-            return nil
-        }
+        guard let cgImage = cgImage(from: imageData) else { return nil }
         let bounded = sourceRect.integral.intersection(CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
         guard !bounded.isNull, bounded.width > 0, bounded.height > 0,
               let cropped = cgImage.cropping(to: bounded) else {
             return nil
         }
-        return NSBitmapImageRep(cgImage: cropped).representation(using: .png, properties: [:])
+        return pngData(from: cropped)
     }
 
     private static func compositePictureIntoPaintLayer(
@@ -1665,11 +1661,7 @@ public struct HyperCardExternalRegistry: Sendable {
     }
 
     private static func rgbaImageData(from imageData: Data) -> (data: Data, width: Int, height: Int)? {
-        guard let image = NSImage(data: imageData) else { return nil }
-        var proposedRect = CGRect(origin: .zero, size: image.size)
-        guard let cgImage = image.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil) else {
-            return nil
-        }
+        guard let cgImage = cgImage(from: imageData) else { return nil }
         let width = max(1, cgImage.width)
         let height = max(1, cgImage.height)
         var data = Data(count: width * height * 4)
@@ -1690,6 +1682,23 @@ public struct HyperCardExternalRegistry: Sendable {
             return true
         }
         return rendered ? (data, width, height) : nil
+    }
+
+    private static func cgImage(from imageData: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(imageData as CFData, nil) else {
+            return nil
+        }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+
+    private static func pngData(from image: CGImage) -> Data? {
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(output, "public.png" as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return output as Data
     }
 
     private static func compositeClassicPixel(
@@ -1749,23 +1758,7 @@ public struct HyperCardExternalRegistry: Sendable {
             )
         }
 
-        guard let provider = CGDataProvider(data: cropped as CFData),
-              let image = CGImage(
-                width: width,
-                height: height,
-                bitsPerComponent: 8,
-                bitsPerPixel: 32,
-                bytesPerRow: width * 4,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-                provider: provider,
-                decode: nil,
-                shouldInterpolate: false,
-                intent: .defaultIntent
-              ),
-              let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
-            return nil
-        }
+        guard let png = PNGEncoding.rgbaDataToPNG(cropped, width: width, height: height) else { return nil }
         return (png, width, height)
     }
 

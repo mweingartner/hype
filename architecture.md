@@ -2057,6 +2057,16 @@ write build/deploy helper scripts:
 - `RuntimeShell/deploy-ios-device.sh` installs the built app with
   `xcrun devicectl device install app` using `HYPE_DEVICE_ID`.
 
+Authoring Hype also exposes View -> Test Stack in Simulator. That path uses
+`HypeSimulatorRuntimeLauncher` to discover available iPhone, iPad, and tvOS
+simulator devices through `/usr/bin/xcrun simctl list devices available --json`,
+build the selected runtime package with the same `TargetRuntimePackageBuilder`,
+invoke `/usr/bin/xcrun xcodebuild` with a concrete `-destination id=<UDID>`,
+boot/open Simulator, install the generated `.app`, and launch the runtime bundle
+identifier. The launcher never routes stack names, paths, device UDIDs, or
+bundle IDs through `/bin/sh -c`; every external process uses an executable URL
+plus an argument array. The source stack is not mutated by simulator testing.
+
 The generated target shell is a normal SwiftUI app target that embeds `RuntimeManifest.json`
 and the `Stack/Stack.hype` folder as app resources. The app loads the embedded
 SQLite stack through `HypeSQLiteStackStore`, forces runtime mode, keeps the

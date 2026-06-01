@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(AppKit)
 import AppKit
+#endif
 
 public struct StackImportPackageConverter: Sendable {
     public var options: HyperCardImportOptions
@@ -724,7 +726,7 @@ public struct StackImportPackageConverter: Sendable {
         fonts.compactMap { font in
             let name = font.name.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { return nil }
-            let available = NSFont(name: name, size: 12) != nil
+            let available = isFontAvailable(name)
             return StackImportFontSummary(
                 id: font.id,
                 name: name,
@@ -740,7 +742,7 @@ public struct StackImportPackageConverter: Sendable {
         if let resolved = resolvedFontsByName[name.lowercased()] {
             return resolved
         }
-        if NSFont(name: name, size: 12) != nil {
+        if isFontAvailable(name) {
             return name
         }
         return classicFontFallback(for: name)
@@ -754,13 +756,29 @@ public struct StackImportPackageConverter: Sendable {
         default:
             preferred = "Helvetica"
         }
-        if NSFont(name: preferred, size: 12) != nil {
+        if isFontAvailable(preferred) {
             return preferred
         }
-        if NSFont(name: "Helvetica", size: 12) != nil {
+        if isFontAvailable("Helvetica") {
             return "Helvetica"
         }
+        return systemFontName()
+    }
+
+    private func isFontAvailable(_ name: String) -> Bool {
+        #if canImport(AppKit)
+        return NSFont(name: name, size: 12) != nil
+        #else
+        return !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        #endif
+    }
+
+    private func systemFontName() -> String {
+        #if canImport(AppKit)
         return NSFont.systemFont(ofSize: 12).fontName
+        #else
+        return "System"
+        #endif
     }
 
     private func sortKey(_ index: Int) -> String {

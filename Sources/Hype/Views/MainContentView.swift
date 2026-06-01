@@ -269,6 +269,7 @@ struct MainContentView: View {
     @State private var showNetworkPanel: Bool = false
     @State private var runtimeStatus = RuntimeStatusSnapshot(requests: [], listeners: [], connections: [])
     @State private var showTargetSelectionSheet: Bool = false
+    @State private var showSimulatorLaunchSheet: Bool = false
     @State private var emulatedProfileId: String?
     @State private var debuggerConnectionCount = 0
     @State private var displayedRunningScripts: [RuntimeStatusSnapshot.RunningScriptSummary] = []
@@ -568,6 +569,9 @@ struct MainContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .exportRuntimePackages)) { _ in
             exportRuntimePackages()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .testStackInSimulator)) { _ in
+            showSimulatorLaunchSheet = true
+        }
         .onChange(of: document.document.stack.deploymentTargets.selectedPlatforms) { _, platforms in
             if let partType = ObjectToolCatalog.createdPartType(for: currentTool),
                !PartAvailabilityCatalog.supports(partType, across: platforms) {
@@ -586,6 +590,9 @@ struct MainContentView: View {
         }
         .sheet(isPresented: $showTargetSelectionSheet) {
             StackTargetSelectionSheet(document: trackedDocumentBinding)
+        }
+        .sheet(isPresented: $showSimulatorLaunchSheet) {
+            SimulatorLaunchSheet(document: trackedDocumentBinding)
         }
     }
 

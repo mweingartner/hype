@@ -18,6 +18,7 @@ struct MenuCommandSourceTests {
         #expect(source.contains("Switch to Runtime Mode"))
         #expect(source.contains("Target Platforms…"))
         #expect(source.contains("Export Runtime Packages…"))
+        #expect(source.contains("Test Stack in Simulator…"))
         #expect(source.contains("Show Console"))
     }
 
