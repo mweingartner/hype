@@ -372,6 +372,7 @@ struct HyperCardImportTests {
         #expect(try parsedHandlerCount(translated) == 3)
     }
 
+
     @Test("legacy translator repairs classic missing end if before end repeat")
     func legacyTranslatorRepairsClassicMissingEndIfBeforeEndRepeat() throws {
         let script = """
