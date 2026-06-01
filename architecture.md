@@ -1440,7 +1440,9 @@ script source string
   destination card as the effective lookup context, matching Myst-era scripts
   that navigate before calling a card-local helper. Semantic validation treats
   `this card`/`current card` as resolvable self-references, including classic
-  property mutations such as `set the name of this card ...`. Unknown
+  property mutations such as `set the name of this card ...`, and it skips
+  unresolved-object warnings for variable-driven object references so dynamic
+  forms like `go to card x` are left to runtime resolution. Unknown
   command-style identifiers with arguments parse as
   `.externalCommand(name:arguments:)` so XCMD calls like `SetCursor "watch"`
   can flow into the emulation registry rather than causing a parse error.
