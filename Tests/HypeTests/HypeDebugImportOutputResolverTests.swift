@@ -26,4 +26,44 @@ struct HypeDebugImportOutputResolverTests {
 
         #expect(resolved.standardizedFileURL == explicit.standardizedFileURL)
     }
+
+    @Test("refuses to overwrite existing output package by default")
+    func refusesToOverwriteExistingOutputPackageByDefault() throws {
+        let packageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HypeDebugImportOutputSafetyTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("Existing-debug-imported.hype", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: packageURL.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+
+        do {
+            try HypeDebugImportOutputSafety.prepareOutputPackage(at: packageURL, params: [:])
+            Issue.record("Expected debug import output safety to reject existing package")
+        } catch let error as HypeDebugImportOutputSafetyError {
+            #expect(error == .outputPackageAlreadyExists(packageURL))
+        }
+    }
+
+    @Test("allows intentional output package replacement")
+    func allowsIntentionalOutputPackageReplacement() throws {
+        let packageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HypeDebugImportOutputSafetyTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("Existing-debug-imported.hype", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: packageURL.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+
+        try HypeDebugImportOutputSafety.prepareOutputPackage(
+            at: packageURL,
+            params: ["replaceExistingOutputPackage": true]
+        )
+
+        #expect(!FileManager.default.fileExists(atPath: packageURL.path))
+    }
+
+    @Test("parses string overwrite opt in")
+    func parsesStringOverwriteOptIn() {
+        #expect(HypeDebugImportOutputSafety.replaceExistingOutput(from: ["replaceExisting": "true"]))
+        #expect(HypeDebugImportOutputSafety.replaceExistingOutput(from: ["overwriteExisting": "1"]))
+        #expect(!HypeDebugImportOutputSafety.replaceExistingOutput(from: ["replaceExisting": "false"]))
+        #expect(!HypeDebugImportOutputSafety.replaceExistingOutput(from: [:]))
+    }
 }
