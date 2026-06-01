@@ -148,6 +148,57 @@ struct HyperCardImportTests {
         #expect(try parsedHandlerCount(translated) == 1)
     }
 
+    @Test("legacy translator keeps Myst keyboard pushKey handler live")
+    func legacyTranslatorKeepsMystKeyboardPushKeyHandlerLive() throws {
+        let script = """
+        on openCard
+        global keyCounter
+        put 0 into keyCounter
+        pass opencard
+        end openCard
+
+        on pushKey theKey
+        global keyCounter,MY_SpacePower
+        add 1 to keyCounter
+        get the Loc of the target
+        set the loc of card button mask to 0,0
+        xCIcon3 it,1000 + theKey
+        play stop
+        if MY_SpacePower = 59 then play "MU Organ" tempo 1 48 + theKey
+        repeat until the mouse is up
+        put the mouseloc into ml
+        if  ml is not within the rect of the target then
+        if keyCounter > 10 then exit repeat
+        set the loc of card button mask to it
+        --play stop
+        if ml is within the rect of card button keyboard then click at ml
+        else play stop
+        exit pushKey
+        end if
+        end repeat
+        set the loc of card button mask to it
+        if keyCounter > 10 then
+        put 0 into keycounter
+        play stop
+        exit to hypercard
+        end if
+        put 0 into keyCounter
+        play stop
+        end pushKey
+        """
+
+        do {
+            _ = try parse(script)
+        } catch {
+            Issue.record("Myst pushKey source did not parse: \(error.localizedDescription)")
+        }
+        let translated = LegacyHyperTalkScript.preparedForHypeTalkRuntime(script)
+
+        #expect(!LegacyHyperTalkScript.isDisabledForHypeTalkRuntime(translated))
+        #expect(translated.contains("on pushKey theKey"))
+        #expect(try parsedHandlerCount(translated) == 2)
+    }
+
     @Test("Myst environment externals are registered as emulated")
     func mystEnvironmentExternalsAreRegisteredAsEmulated() {
         let registry = HyperCardExternalRegistry.default
