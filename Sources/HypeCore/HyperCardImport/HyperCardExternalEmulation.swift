@@ -182,6 +182,12 @@ public struct HyperCardExternalRegistry: Sendable {
         put(.xcmd, ["doValveR"], Entry(status: .emulated) { call, context in
             mystChannelwoodValveCompatibility(call: call, context: context, route: "R", legacyCardId: 87249)
         })
+        put(.xcmd, ["showPillar"], Entry(status: .emulated) { call, context in
+            mystShowPillarCompatibility(call: call, context: context)
+        })
+        put(.xcmd, ["pillarClick"], Entry(status: .emulated) { call, context in
+            mystPillarClickCompatibility(call: call, context: context)
+        })
         put(.xcmd, ["DeCurse"], Entry(status: .emulated) { call, _ in
             cursorCompatibility(call: call)
         })
@@ -680,6 +686,119 @@ public struct HyperCardExternalRegistry: Sendable {
             cardName: match.1.name,
             sortIndex: match.1.sortIndex,
             hypeCardId: match.1.hypeCardId
+        )
+    }
+
+    private static func mystShowPillarCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        let pillarId = max(1, classicInteger(call.arguments.first, fallback: 1))
+        let pillars = mystPillarStates(in: context.document)
+        let isOff = mystPillarState(pillarId, in: pillars) == "off"
+        let iconId = String(pillarId + (isOff ? 2010 : 2000))
+        var iconContext = context
+        iconContext.document = context.document
+        let iconResult = colorIconCompatibility(
+            call: HyperCardExternalCall(
+                name: "xCIcon3",
+                kind: .xcmd,
+                arguments: [classicPointString(targetLocation(in: context)), iconId]
+            ),
+            context: iconContext
+        )
+        var globals = iconResult.runtimeGlobals
+        globals.merge([
+            "hypercard.myst.pillar.id": String(pillarId),
+            "hypercard.myst.pillar.icon": iconId,
+            "hypercard.myst.pillar.state": isOff ? "off" : "on"
+        ]) { _, new in new }
+        return HyperCardExternalResult(
+            value: iconResult.value,
+            result: iconResult.result,
+            modifiedDocument: iconResult.modifiedDocument,
+            runtimeGlobals: globals
+        )
+    }
+
+    private static func mystPillarClickCompatibility(
+        call: HyperCardExternalCall,
+        context: HyperCardExternalCallContext
+    ) -> HyperCardExternalResult {
+        let pillarId = max(1, classicInteger(call.arguments.first, fallback: 1))
+        let originalBoat = hyperCardGlobal("MY_boat", in: context.document)
+        var document = context.document
+        var pillars = mystPillarStates(in: document)
+        while pillars.count < pillarId {
+            pillars.append("off")
+        }
+        let current = mystPillarState(pillarId, in: pillars)
+        pillars[pillarId - 1] = current == "on" ? "off" : "on"
+        let pillarsValue = pillars.joined(separator: ",")
+        var boat = originalBoat
+        if pillarsValue == "off,on,off,off,on,on,off,off" {
+            boat = "up"
+        } else if originalBoat.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "up" {
+            boat = "down"
+        }
+        document.scriptGlobals["MY_Pillars"] = pillarsValue
+        document.scriptGlobals["my_pillars"] = pillarsValue
+        document.scriptGlobals["MY_boat"] = boat
+        document.scriptGlobals["my_boat"] = boat
+
+        let showResult = mystShowPillarCompatibility(
+            call: call,
+            context: HyperCardExternalCallContext(
+                targetId: context.targetId,
+                currentCardId: context.currentCardId,
+                document: document
+            )
+        )
+        var resultDocument = showResult.modifiedDocument ?? document
+        resultDocument.scriptGlobals["MY_Pillars"] = pillarsValue
+        resultDocument.scriptGlobals["my_pillars"] = pillarsValue
+        resultDocument.scriptGlobals["MY_boat"] = boat
+        resultDocument.scriptGlobals["my_boat"] = boat
+        var globals = showResult.runtimeGlobals
+        globals.merge([
+            "MY_Pillars": pillarsValue,
+            "MY_boat": boat,
+            "hypercard.myst.pillars": pillarsValue,
+            "hypercard.myst.pillar.clicked": String(pillarId),
+            "hypercard.myst.boat": boat
+        ]) { _, new in new }
+        return HyperCardExternalResult(
+            value: pillarsValue,
+            result: pillarsValue,
+            modifiedDocument: resultDocument,
+            runtimeGlobals: globals
+        )
+    }
+
+    private static func mystPillarStates(in document: HypeDocument) -> [String] {
+        let raw = hyperCardGlobal("MY_Pillars", in: document)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else {
+            return Array(repeating: "off", count: 8)
+        }
+        let states = raw.split(separator: ",", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        return states.isEmpty ? Array(repeating: "off", count: 8) : states
+    }
+
+    private static func mystPillarState(_ pillarId: Int, in states: [String]) -> String {
+        let index = pillarId - 1
+        guard states.indices.contains(index) else { return "off" }
+        return states[index] == "on" ? "on" : "off"
+    }
+
+    private static func targetLocation(in context: HyperCardExternalCallContext) -> CGPoint {
+        guard let part = context.document.parts.first(where: { $0.id == context.targetId }) else {
+            return .zero
+        }
+        return CGPoint(
+            x: part.left + max(part.width, 1) / 2.0,
+            y: part.top + max(part.height, 1) / 2.0
         )
     }
 
