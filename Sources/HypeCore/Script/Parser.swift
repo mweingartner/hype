@@ -859,7 +859,7 @@ public struct Parser: Sendable {
                 } else {
                     skipNewlines()
                     var elseStmts: [Statement] = []
-                    while current.type != .end && current.type != .eof {
+                    while current.type != .else && current.type != .end && current.type != .eof {
                         let stmt = try parseStatement()
                         elseStmts.append(stmt)
                         skipNewlines()
@@ -896,7 +896,7 @@ public struct Parser: Sendable {
             }
             skipNewlines()
             var elseStmts: [Statement] = []
-            while current.type != .end && current.type != .eof {
+            while current.type != .else && current.type != .end && current.type != .eof {
                 let stmt = try parseStatement()
                 elseStmts.append(stmt)
                 skipNewlines()
