@@ -608,36 +608,6 @@ public enum LegacyHyperTalkScript {
         return (salvagedHandlers + [disabledForHypeTalkRuntime(script)]).joined(separator: "\n\n")
     }
 
-    private static func handlerName(in line: String) -> String? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        let lowercased = trimmed.lowercased()
-        let prefix: String
-        if lowercased.hasPrefix("on ") {
-            prefix = "on "
-        } else if lowercased.hasPrefix("function ") {
-            prefix = "function "
-        } else {
-            return nil
-        }
-
-        let declaration = trimmed.dropFirst(prefix.count)
-        let name = declaration.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init)
-        guard let name, !name.isEmpty else { return nil }
-        return name
-    }
-
-    private static func handlerEndIndex(handlerName: String, after index: Int, in lines: [String]) -> Int? {
-        let expected = "end \(handlerName)".lowercased()
-        guard index + 1 < lines.count else { return nil }
-        for lineIndex in (index + 1)..<lines.count {
-            let trimmed = lines[lineIndex].trimmingCharacters(in: .whitespaces)
-            if trimmed.lowercased() == expected {
-                return lineIndex
-            }
-        }
-        return nil
-    }
-
     private static func isCommentedHandlerStart(_ line: String) -> Bool {
         let lowercased = line.lowercased()
         return lowercased.hasPrefix("--on ") || lowercased.hasPrefix("--function ")
