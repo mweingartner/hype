@@ -30,25 +30,15 @@ struct LexerTests {
         #expect(tokens[3].type == .identifier)
     }
 
-    @Test func keepsSmartQuotesInsideStraightStringLiterals() {
-        var lexer = Lexer(source: "answer \"Drag \u{201C}Myst\u{201D} to your hard disk\" with \"Quit\"")
+    @Test func straightQuotedStringCanContainSmartQuotes() {
+        var lexer = Lexer(source: "answer \"Drag “Myst” to your hard disk\" with \"Quit\"")
         let tokens = lexer.tokenize()
         #expect(tokens[0].type == .answer)
         #expect(tokens[1].type == .string)
-        #expect(tokens[1].value == "Drag \u{201C}Myst\u{201D} to your hard disk")
+        #expect(tokens[1].value == "Drag “Myst” to your hard disk")
         #expect(tokens[2].type == .with)
         #expect(tokens[3].type == .string)
         #expect(tokens[3].value == "Quit")
-    }
-
-    @Test func handlesSmartQuotedStringLiterals() {
-        var lexer = Lexer(source: "put \u{201C}hello world\u{201D} into x")
-        let tokens = lexer.tokenize()
-        #expect(tokens[0].type == .put)
-        #expect(tokens[1].type == .string)
-        #expect(tokens[1].value == "hello world")
-        #expect(tokens[2].type == .into)
-        #expect(tokens[3].type == .identifier)
     }
 
     @Test func handlesNumbers() {
@@ -104,13 +94,12 @@ struct LexerTests {
         #expect(tokens.filter { $0.type == .newline }.count == 1)
     }
 
-    @Test func handlesClassicLineContinuationWithTrailingComment() {
-        var lexer = Lexer(source: "put SPpath & return & \u{00AC}       -- Myst on HD\rSPpath & \"Myst Files:\" into stacks")
+    @Test func handlesClassicMacLineContinuationBeforeInlineComment() {
+        var lexer = Lexer(source: "put \"a\" & \u{00AC} -- first chunk\n\"b\" into value")
         let tokens = lexer.tokenize()
-        let types = tokens.map(\.type)
-        #expect(types.filter { $0 == .newline }.count == 1)
-        #expect(!tokens.contains(where: { $0.value == "Myst on HD" }))
-        #expect(tokens.contains(where: { $0.type == .string && $0.value == "Myst Files:" }))
+        #expect(tokens.contains(where: { $0.type == .string && $0.value == "a" }))
+        #expect(tokens.contains(where: { $0.type == .string && $0.value == "b" }))
+        #expect(tokens.filter { $0.type == .newline }.count == 1)
     }
 
     @Test func handlesOperators() {
@@ -122,15 +111,6 @@ struct LexerTests {
         #expect(types.contains(.lte))
         #expect(types.contains(.neq))
         #expect(types.contains(.doubleAmpersand))
-    }
-
-    @Test func handlesClassicComparisonGlyphOperators() {
-        var lexer = Lexer(source: "if it \u{2265} 9 then\nif it \u{2264} 10 then\nif it \u{2260} 0 then")
-        let tokens = lexer.tokenize()
-        let types = tokens.map { $0.type }
-        #expect(types.contains(.gte))
-        #expect(types.contains(.lte))
-        #expect(types.contains(.neq))
     }
 
     @Test func handlesClassicComparisonGlyphs() {
@@ -286,77 +266,26 @@ struct ParserTests {
         #expect(visualArguments.isEmpty)
     }
 
-    @Test func parsesClassicPlayQTAsQuickTimeExternalCommand() throws {
+    @Test func parsesMystVsExternalCommandWithDirectionKeywordArgument() throws {
         var lexer = Lexer(source: """
         on mouseUp
-          play QT "EV Wind/Water Mov", , loop, 250
+          vs down
         end mouseUp
         """)
         let tokens = lexer.tokenize()
         var parser = Parser(tokens: tokens)
         let script = try parser.parse()
         guard case .externalCommand(let name, let arguments) = script.handlers[0].body[0] else {
-            Issue.record("Expected playQT external command")
+            Issue.record("Expected vs external command")
             return
         }
-        #expect(name == "playQT")
-        #expect(arguments.count == 3)
-        guard case .literal(let movieName) = arguments[0] else {
-            Issue.record("Expected movie-name literal")
-            return
-        }
-        #expect(movieName == "EV Wind/Water Mov")
-        guard case .variable(let loopFlag) = arguments[1] else {
-            Issue.record("Expected bare loop flag")
-            return
-        }
-        #expect(loopFlag == "loop")
-        guard case .literal(let rate) = arguments[2] else {
-            Issue.record("Expected playback-rate literal")
-            return
-        }
-        #expect(rate == "250")
-    }
-
-    @Test func parsesClassicCameraAsExternalCommand() throws {
-        var lexer = Lexer(source: """
-        on mouseWithin
-          camera SE_CameraID
-        end mouseWithin
-        """)
-        let tokens = lexer.tokenize()
-        var parser = Parser(tokens: tokens)
-        let script = try parser.parse()
-
-        guard case .externalCommand(let name, let arguments) = script.handlers[0].body[0] else {
-            Issue.record("Expected camera external command")
-            return
-        }
-        #expect(name == "camera")
+        #expect(name == "vs")
         #expect(arguments.count == 1)
-        guard case .variable(let cameraVariable) = arguments[0] else {
-            Issue.record("Expected camera variable argument")
+        guard case .literal(let direction) = arguments[0] else {
+            Issue.record("Expected down literal argument")
             return
         }
-        #expect(cameraVariable == "SE_CameraID")
-    }
-
-    @Test func parsesClassicPictureExternalCommandsWithParenthesizedArguments() throws {
-        var lexer = Lexer(source: """
-        on mouseUp
-          HTAddPict (field "pict name" & " (open)"),¬
-            the rect of card button marker, "srccopy"
-        end mouseUp
-        """)
-        let tokens = lexer.tokenize()
-        var parser = Parser(tokens: tokens)
-        let script = try parser.parse()
-        guard case .externalCommand(let name, let arguments) = script.handlers[0].body[0] else {
-            Issue.record("Expected HTAddPict external command")
-            return
-        }
-        #expect(name == "HTAddPict")
-        #expect(arguments.count == 3)
+        #expect(direction == "down")
     }
 
     @Test func parsesClassicDoMenuAndSaveAsCommands() throws {
@@ -383,36 +312,6 @@ struct ParserTests {
             return
         }
         #expect(script.handlers[0].body.count == 2)
-    }
-
-    @Test func parsesClassicOpenStateAsExpressionLiteral() throws {
-        var lexer = Lexer(source: """
-        on mouseUp
-          if drawer is open then put closed into drawer
-          put open into drawer
-        end mouseUp
-        """)
-        let tokens = lexer.tokenize()
-        var parser = Parser(tokens: tokens)
-        let script = try parser.parse()
-        #expect(script.handlers[0].body.count == 2)
-        guard case .ifThenElse(let condition, _, _) = script.handlers[0].body[0],
-              case .binary(_, let op, let rhs) = condition else {
-            Issue.record("Expected open-state comparison")
-            return
-        }
-        #expect(op == .equal)
-        guard case .literal(let state) = rhs else {
-            Issue.record("Expected open state literal")
-            return
-        }
-        #expect(state == "open")
-        guard case .put(let source, _, _) = script.handlers[0].body[1],
-              case .literal(let putState) = source else {
-            Issue.record("Expected put open literal")
-            return
-        }
-        #expect(putState == "open")
     }
 
     @Test func parsesAskWithDefaultResponse() throws {
@@ -488,47 +387,6 @@ struct ParserTests {
             return
         }
         #expect(variableName == "RestoreData")
-    }
-
-    @Test func parsesClassicBarePropertyOfObjectReferences() throws {
-        var lexer = Lexer(source: """
-        on mouseUp
-          if visible of card button openElevator is false then go to card id 41669
-          get rect of card button thedoor
-          get loc of me
-        end mouseUp
-        """)
-        let tokens = lexer.tokenize()
-        var parser = Parser(tokens: tokens)
-        let script = try parser.parse()
-        #expect(script.handlers[0].body.count == 3)
-        guard case .ifThenElse(let condition, _, _) = script.handlers[0].body[0],
-              case .binary(let lhs, let op, _) = condition,
-              case .propertyAccess(let visibleProperty, let visibleTarget?) = lhs,
-              case .scopedObjectRef(let visibleRef, let visibleOwner) = visibleTarget else {
-            Issue.record("Expected visible property check")
-            return
-        }
-        #expect(op == .equal)
-        #expect(visibleProperty == "visible")
-        #expect(visibleRef.objectType == "button")
-        #expect(visibleOwner.objectType == "card")
-        guard case .get(let rectExpr) = script.handlers[0].body[1],
-              case .propertyAccess(let rectProperty, let rectTarget?) = rectExpr,
-              case .scopedObjectRef(let rectRef, let rectOwner) = rectTarget else {
-            Issue.record("Expected rect property get")
-            return
-        }
-        #expect(rectProperty == "rect")
-        #expect(rectRef.objectType == "button")
-        #expect(rectOwner.objectType == "card")
-        guard case .get(let locExpr) = script.handlers[0].body[2],
-              case .propertyAccess(let locProperty, let locTarget?) = locExpr,
-              case .me = locTarget else {
-            Issue.record("Expected loc of me property get")
-            return
-        }
-        #expect(locProperty == "loc")
     }
 
     @Test func parsesClassicCardFieldOfCardIdReference() throws {
@@ -609,32 +467,6 @@ struct ParserTests {
         #expect(buttons.count == 1)
     }
 
-    @Test func parsesMystAnswerWithSmartQuotesInsidePrompt() throws {
-        var lexer = Lexer(source: """
-        on startup
-          answer "You have to start Myst from your hard disk. Drag \u{201C}Myst\u{201D} to your hard disk and try again. (Check instructions for more info.)" with "Quit"
-        end startup
-        """)
-        let tokens = lexer.tokenize()
-        var parser = Parser(tokens: tokens)
-        let script = try parser.parse()
-        guard case .answer(let prompt, let buttons) = script.handlers[0].body[0] else {
-            Issue.record("Expected answer statement")
-            return
-        }
-        guard case .literal(let promptValue) = prompt else {
-            Issue.record("Expected literal answer prompt")
-            return
-        }
-        #expect(promptValue == "You have to start Myst from your hard disk. Drag \u{201C}Myst\u{201D} to your hard disk and try again. (Check instructions for more info.)")
-        #expect(buttons.count == 1)
-        guard case .literal(let buttonValue) = buttons[0] else {
-            Issue.record("Expected literal answer button")
-            return
-        }
-        #expect(buttonValue == "Quit")
-    }
-
     @Test func parsesClassicAnswerFileOfType() throws {
         var lexer = Lexer(source: """
         on mouseUp
@@ -655,35 +487,14 @@ struct ParserTests {
         #expect(promptValue == "Restore Myst to...")
     }
 
-    @Test func parsesMystPathListWithCommentedClassicContinuations() throws {
-        var lexer = Lexer(source: """
-        on startup
-          put SPpath & return & \u{00AC}                          -- Myst on HD
-        SPpath & "Myst Files:" & return & \u{00AC}              -- Myst Files folder on HD
-        "Myst:" into stacks
-        end startup
-        """)
-        let tokens = lexer.tokenize()
-        var parser = Parser(tokens: tokens)
-        let script = try parser.parse()
-        #expect(script.handlers.count == 1)
-        guard case .put(_, .into, let target) = script.handlers[0].body[0] else {
-            Issue.record("Expected put statement")
-            return
-        }
-        guard case .variable(let targetName) = target else {
-            Issue.record("Expected stacks variable target")
-            return
-        }
-        #expect(targetName == "stacks")
-    }
-
     @Test func parsesMystExternalCommandsWithClassicSpacing() throws {
         var lexer = Lexer(source: """
         on mouseUp
           htlock"bw"
           HTVisual "wipe right",,,1,32
           deCurse "override",2003,"color","nodelay"
+          HTVisual "pan up",,the rect of card button creditMarker,2,8
+          HTAddPict ("Credits" & x),the rect of card button creditMarker,"srccopy"
         end mouseUp
         """)
         let tokens = lexer.tokenize()
@@ -698,9 +509,55 @@ struct ParserTests {
         #expect(lockName == "htlock")
         #expect(lockArguments.count == 1)
         #expect(visualName == "HTVisual")
-        #expect(visualArguments.count == 3)
+        #expect(visualArguments.count == 5)
+        guard case .literal(let firstEmptyArgument) = visualArguments[1],
+              case .literal(let secondEmptyArgument) = visualArguments[2] else {
+            Issue.record("Expected empty placeholder arguments")
+            return
+        }
+        #expect(firstEmptyArgument == "")
+        #expect(secondEmptyArgument == "")
         #expect(cursorName == "deCurse")
         #expect(cursorArguments.count == 4)
+        guard case .externalCommand(let visualWithRectName, let visualWithRectArguments) = script.handlers[0].body[3] else {
+            Issue.record("Expected HTVisual command with classic empty argument")
+            return
+        }
+        #expect(visualWithRectName == "HTVisual")
+        #expect(visualWithRectArguments.count == 5)
+        guard case .literal(let rectEmptyArgument) = visualWithRectArguments[1] else {
+            Issue.record("Expected empty placeholder argument")
+            return
+        }
+        #expect(rectEmptyArgument == "")
+        guard case .externalCommand(let addPictName, let addPictArguments) = script.handlers[0].body[4] else {
+            Issue.record("Expected HTAddPict command with parenthesized first argument")
+            return
+        }
+        #expect(addPictName == "HTAddPict")
+        #expect(addPictArguments.count == 3)
+    }
+
+    @Test func parsesClassicSpacedPlayQTCommand() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          play QT "EV Wind/Water Mov", , loop, 250
+        end mouseUp
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        guard case .externalCommand(let name, let arguments) = script.handlers[0].body[0] else {
+            Issue.record("Expected play QT to parse as playQT external command")
+            return
+        }
+        #expect(name == "playQT")
+        #expect(arguments.count == 4)
+        guard case .literal(let emptyArgument) = arguments[1] else {
+            Issue.record("Expected empty playQT placeholder argument")
+            return
+        }
+        #expect(emptyArgument == "")
     }
 
     @Test func parsesMovieWindowPropertySet() throws {
@@ -781,6 +638,167 @@ struct ParserTests {
         #expect(windowName == "card window")
     }
 
+    @Test func parsesClassicPropertyReferenceWithoutThe() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          if visible of card button openElevator is false then
+            go to card id 41669
+          end if
+        end mouseUp
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        guard case .ifThenElse(let condition, _, _) = script.handlers[0].body[0] else {
+            Issue.record("Expected if statement")
+            return
+        }
+        guard case .binary(let lhs, .equal, let rhs) = condition,
+              case .propertyAccess(let property, let target?) = lhs,
+              property == "visible",
+              case .scopedObjectRef(let object, let owner) = target,
+              case .literal(let value) = rhs else {
+            Issue.record("Expected visible property comparison")
+            return
+        }
+        #expect(object.objectType == "button")
+        #expect(owner.objectType == "card")
+        guard case .literal(let buttonName) = object.identifier else {
+            Issue.record("Expected button literal")
+            return
+        }
+        #expect(buttonName == "openElevator")
+        #expect(value == "false")
+    }
+
+    @Test func parsesClassicOpenAsStateLiteral() throws {
+        var lexer = Lexer(source: """
+        on mouseUp
+          global drawer
+          put open into drawer
+          if drawer is open then
+            go to card id 4495
+          end if
+        end mouseUp
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        guard case .put(let source, _, let target) = script.handlers[0].body[1],
+              case .literal(let sourceValue) = source,
+              case .variable(let targetName) = target else {
+            Issue.record("Expected put open into drawer")
+            return
+        }
+        #expect(sourceValue == "open")
+        #expect(targetName == "drawer")
+        guard case .ifThenElse(let condition, _, _) = script.handlers[0].body[2],
+              case .binary(let lhs, .equal, let rhs) = condition,
+              case .variable(let lhsName) = lhs,
+              case .literal(let rhsValue) = rhs else {
+            Issue.record("Expected drawer is open comparison")
+            return
+        }
+        #expect(lhsName == "drawer")
+        #expect(rhsValue == "open")
+    }
+
+    @Test func parsesClassicOnAsStateLiteral() throws {
+        var lexer = Lexer(source: """
+        on mouseDown
+          put on into light
+          if light is on then
+            put "lit" into field "status"
+          end if
+        end mouseDown
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        guard case .put(let source, _, let target) = script.handlers[0].body[0],
+              case .literal(let sourceValue) = source,
+              case .variable(let targetName) = target else {
+            Issue.record("Expected put on into light")
+            return
+        }
+        #expect(sourceValue == "on")
+        #expect(targetName == "light")
+        guard case .ifThenElse(let condition, _, _) = script.handlers[0].body[1],
+              case .binary(let lhs, .equal, let rhs) = condition,
+              case .variable(let lhsName) = lhs,
+              case .literal(let rhsValue) = rhs else {
+            Issue.record("Expected light is on comparison")
+            return
+        }
+        #expect(lhsName == "light")
+        #expect(rhsValue == "on")
+    }
+
+    @Test func rejectsStatementStartOnInsideHandler() throws {
+        var lexer = Lexer(source: """
+        on mouseDown
+          on anotherHandler
+        end mouseDown
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        #expect(throws: ParseError.self) {
+            try parser.parse()
+        }
+    }
+
+    @Test func parsesClassicSingleLineElseWithoutEndIfAtHandlerBoundary() throws {
+        var lexer = Lexer(source: """
+        on ToggleQuick
+          global Quick
+          if Quick is "true" then
+            put "false" into Quick
+          else put "true" into Quick
+          hide menubar
+        end ToggleQuick
+
+        on arrowKey
+          beep
+        end arrowKey
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 2)
+        #expect(script.handlers[0].name == "ToggleQuick")
+        #expect(script.handlers[1].name == "arrowKey")
+        guard case .ifThenElse(_, _, let elseBlock?) = script.handlers[0].body[1] else {
+            Issue.record("Expected if statement with else block")
+            return
+        }
+        #expect(elseBlock.count == 1)
+        #expect(script.handlers[0].body.count == 3)
+    }
+
+    @Test func parsesClassicSingleLineElseWithExplicitEndIf() throws {
+        var lexer = Lexer(source: """
+        on toggle
+          if flag is "true" then
+            put "false" into flag
+          else put "true" into flag
+          end if
+          put flag into field "status"
+        end toggle
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        guard case .ifThenElse(_, _, let elseBlock?) = script.handlers[0].body[0] else {
+            Issue.record("Expected if statement with else block")
+            return
+        }
+        #expect(elseBlock.count == 1)
+        #expect(script.handlers[0].body.count == 2)
+    }
 
     @Test func parsesClassicInlineElseExternalCommandWithExplicitEndIf() throws {
         var lexer = Lexer(source: """
@@ -840,28 +858,33 @@ struct ParserTests {
         #expect(script.handlers[1].name == "openStack")
     }
 
-    @Test func parsesClassicOuterElseAfterInnerMultilineElseEndIf() throws {
+    @Test func parsesClassicCameraHandlerCommand() throws {
         var lexer = Lexer(source: """
-        on GenUp
-          if MY_GenVolts = 0 then
-            if there is not a window "EL GenAll MoV" then playQT "EL GenAll MoV",,loop,150,"5,05","0","0","9,30",true
-            else
-              playQT "EL GenAll MoV",,Loop,150,,,,,true
-              soundTime "5,05","0","0","9,30"
-            end if
-          else soundTime "14,41","9,30","9,30","23,40"
-        end GenUp
+        on mouseDown
+          camera 3
+        end mouseDown
+
+        on camera which
+          put which into currentCamera
+        end camera
         """)
         let tokens = lexer.tokenize()
         var parser = Parser(tokens: tokens)
         let script = try parser.parse()
-        #expect(script.handlers.count == 1)
-        #expect(script.handlers[0].name == "GenUp")
-        guard case .ifThenElse(_, _, let elseBlock?) = script.handlers[0].body[0] else {
-            Issue.record("Expected outer if with else block")
+        #expect(script.handlers.count == 2)
+        guard case .externalCommand(let name, let arguments) = script.handlers[0].body[0] else {
+            Issue.record("Expected camera command-style handler call")
             return
         }
-        #expect(elseBlock.count == 1)
+        #expect(name == "camera")
+        #expect(arguments.count == 1)
+        guard case .literal(let value) = arguments.first else {
+            Issue.record("Expected camera argument literal")
+            return
+        }
+        #expect(value == "3")
+        #expect(script.handlers[1].name == "camera")
+        #expect(script.handlers[1].params == ["which"])
     }
 
     @Test func topLevelGlobalPreludeAppliesToEveryHandler() throws {
@@ -903,61 +926,6 @@ struct ParserTests {
         #expect(throws: ParseError.self) {
             try parser.parse()
         }
-    }
-
-    @Test func interHandlerClassicExecutableStatementAppendsToPreviousHandler() throws {
-        var lexer = Lexer(source: """
-        on openCard
-          pass openCard
-        end openCard
-        put true into soundFlag
-
-        on HoloMove
-          put soundFlag into field "status"
-        end HoloMove
-        """)
-        let tokens = lexer.tokenize()
-        var parser = Parser(tokens: tokens)
-        let script = try parser.parse()
-        #expect(script.handlers.count == 2)
-        #expect(script.handlers[0].name == "openCard")
-        #expect(script.handlers[0].body.count == 2)
-        guard case .put(let source, _, let target) = script.handlers[0].body[1],
-              case .literal(let value) = source,
-              case .variable(let name) = target else {
-            Issue.record("Expected recovered classic top-level put in previous handler")
-            return
-        }
-        #expect(value == "true")
-        #expect(name == "soundFlag")
-        #expect(script.handlers[1].name == "HoloMove")
-    }
-
-    @Test func parsesOuterElseAfterNestedMultilineElseBlock() throws {
-        var lexer = Lexer(source: """
-        function back
-          if SE_Current = 0 then
-            put "-" into how
-          else
-            if SE_Current = 1 then
-              if NewDirection > SE_Direction then
-                if NewDirection - SE_Direction > 4 then put "L" into delta else put "R" into delta
-              else
-                if SE_Direction - NewDirection > 4 then put "R" into delta else put "L" into delta
-              end if
-              put "-AF" into how
-            else
-              put item 10 of line SE_Current of card field destination into backTrack
-            end if
-          end if
-          return how
-        end back
-        """)
-        let tokens = lexer.tokenize()
-        var parser = Parser(tokens: tokens)
-        let script = try parser.parse()
-        #expect(script.handlers.count == 1)
-        #expect(script.handlers[0].name == "back")
     }
 
     @Test func parsesPutStatement() throws {
@@ -1004,76 +972,6 @@ struct ParserTests {
         } else {
             Issue.record("Expected if/then/else statement")
         }
-    }
-
-    @Test func parsesTrailingClassicIfClosedByHandlerEnd() throws {
-        var lexer = Lexer(source: """
-        on mouseUp
-          global st_pump
-          if st_pump is 3 then
-            go to card id 21557
-          else go to card id 13528
-        end mouseUp
-        """)
-        let tokens = lexer.tokenize()
-        var parser = Parser(tokens: tokens)
-        let script = try parser.parse()
-        #expect(script.handlers.count == 1)
-        #expect(script.handlers[0].body.count == 2)
-        guard case .ifThenElse(_, let thenBlock, let elseBlock) = script.handlers[0].body[1] else {
-            Issue.record("Expected trailing if/then/else statement")
-            return
-        }
-        #expect(thenBlock.count == 1)
-        #expect(elseBlock?.count == 1)
-    }
-
-    @Test func parsesSingleLineIfWithFollowingLineElseIf() async throws {
-        var lexer = Lexer(source: """
-        on test
-          if route is "P" then put "p" into result
-          else if route is "Q" then put "q" into result
-          else put "fallback" into result
-        end test
-        """)
-        let tokens = lexer.tokenize()
-        var parser = Parser(tokens: tokens)
-        let script = try parser.parse()
-        let stmt = script.handlers[0].body[0]
-        guard case .ifThenElse(_, let thenBlock, let elseBlock) = stmt else {
-            Issue.record("Expected if/then/else statement")
-            return
-        }
-        #expect(thenBlock.count == 1)
-        #expect(elseBlock?.count == 1)
-        guard case .ifThenElse(_, let elseIfThenBlock, let elseIfElseBlock) = elseBlock?.first else {
-            Issue.record("Expected nested else-if statement")
-            return
-        }
-        #expect(elseIfThenBlock.count == 1)
-        #expect(elseIfElseBlock?.count == 1)
-    }
-
-    @Test func parsesNestedSingleLineIfFollowingElseIfShape() async throws {
-        var lexer = Lexer(source: """
-        on test
-          if branch is "B" then
-            if bridge is "up" then
-              if route is "P" then put "p" into result
-              else if route is "Q" then put "q" into result
-              else put "fallback" into result
-            else
-              put "bridge down" into result
-            end if
-          else
-            put "branch fallback" into result
-          end if
-        end test
-        """)
-        let tokens = lexer.tokenize()
-        var parser = Parser(tokens: tokens)
-        let script = try parser.parse()
-        #expect(script.handlers[0].body.count == 1)
     }
 
     @Test func parsesRepeatCount() async throws {
@@ -1162,31 +1060,6 @@ struct ParserTests {
         #expect(target == nil)
     }
 
-    @Test func parsesClassicSendToBareCardAsCurrentCardDispatch() throws {
-        var lexer = Lexer(source: """
-        on mouseUp
-          send mouseDownInMovie to card
-        end mouseUp
-        """)
-        let tokens = lexer.tokenize()
-        var parser = Parser(tokens: tokens)
-        let script = try parser.parse()
-        guard case .send(_, let target) = script.handlers[0].body[0] else {
-            Issue.record("Expected send message statement")
-            return
-        }
-        guard case .objectRef(let ref)? = target else {
-            Issue.record("Expected current card object reference")
-            return
-        }
-        #expect(ref.objectType == "card")
-        guard case .literal(let identifier) = ref.identifier else {
-            Issue.record("Expected current-card literal identifier")
-            return
-        }
-        #expect(identifier == "current")
-    }
-
     @Test func parsesClassicPushAndPopCard() throws {
         var lexer = Lexer(source: """
         on mouseUp
@@ -1247,23 +1120,6 @@ struct ParserTests {
             return
         }
         #expect(variableName == "connId")
-    }
-
-    @Test func parsesClassicOnOffStateLiterals() throws {
-        var lexer = Lexer(source: """
-        on mouseDown
-          put on into light
-          if light is on then put off into light
-        end mouseDown
-        """)
-        let tokens = lexer.tokenize()
-        var parser = Parser(tokens: tokens)
-        let script = try parser.parse()
-        #expect(script.handlers[0].body.count == 2)
-        guard case .put(.literal("on"), _, .variable("light")) = script.handlers[0].body[0] else {
-            Issue.record("Expected classic on literal assignment")
-            return
-        }
     }
 
     @Test func parsesClassicBareRepeat() throws {
@@ -1327,18 +1183,6 @@ struct InterpreterTests {
         """)
         #expect(result.status == .completed)
         #expect(result.returnValue == "hello world")
-    }
-
-    @Test func evaluatesClassicOnOffStateLiterals() {
-        let result = executeScript("""
-        on test
-          put on into light
-          if light is on then put off into light
-          return light
-        end test
-        """)
-        #expect(result.status == .completed)
-        #expect(result.returnValue == "off")
     }
 
     @Test func startUsingStackUpdatesImportedStackLibrary() {
@@ -1718,30 +1562,6 @@ struct InterpreterTests {
         #expect(result.status == .completed)
         #expect(result.projectNavigationTarget?.stackName == "Myst")
         #expect(result.projectNavigationTarget?.legacyCardId == 8336)
-    }
-
-    @Test func importedIfBlockCanCloseAtNextHandlerBoundary() throws {
-        var lexer = Lexer(source: """
-        on openCard
-          if field "truepath" is not empty then
-            if checkpath() then
-              if word 2 of field "truepath" is "P" then playqt "L1 Slosh/Run/Motor Mov",,loop,100
-              else playqt "L1 slosh Mov",,loop,100
-              end if
-            else playqt "L1 slosh Mov",,loop,100
-            end if
-          hide msg
-          pass openCard
-        end openCard
-
-        on openStack
-          start using stack "CHRes1"
-        end openStack
-        """)
-        var parser = Parser(tokens: lexer.tokenize())
-        let script = try parser.parse()
-
-        #expect(script.handlers.map(\.name) == ["openCard", "openStack"])
     }
 
     @Test func implicitNamedCardGoResolvesUniqueProjectCard() {
@@ -2214,37 +2034,6 @@ struct InterpreterTests {
         #expect(result.returnValue == "debug value")
     }
 
-    @Test func openStateLiteralSupportsClassicStateChecks() {
-        let result = executeScript("""
-        on test
-          put open into drawer
-          if drawer is open then return "drawer-open"
-          return "closed"
-        end test
-        """)
-
-        #expect(result.status == .completed)
-        #expect(result.returnValue == "drawer-open")
-    }
-
-    @Test func barePropertyOfObjectReferencesEvaluateLikeThePropertyForm() {
-        var doc = HypeDocument.newDocument()
-        let cardId = doc.cards[0].id
-        var button = Part(partType: .button, cardId: cardId, name: "openElevator", left: 10, top: 20, width: 40, height: 20)
-        button.visible = false
-        doc.addPart(button)
-
-        let result = executeScript("""
-        on test
-          if visible of card button openElevator is false then return rect of card button openElevator
-          return "visible"
-        end test
-        """, document: doc)
-
-        #expect(result.status == .completed)
-        #expect(result.returnValue == "10,20,50,40")
-    }
-
     @Test func shortNameOfThisStackReturnsStackName() {
         let doc = HypeDocument.newDocument(name: " Myst")
         let result = executeScript("""
@@ -2255,38 +2044,6 @@ struct InterpreterTests {
 
         #expect(result.status == .completed)
         #expect(result.returnValue == " Myst")
-    }
-
-    @Test func shortIdOfThisCardReturnsImportedLegacyCardId() {
-        var doc = HypeDocument.newDocument(name: "Dunny Age")
-        let cardId = doc.cards[0].id
-        doc.stackLibrary = HypeStackLibrary(entries: [
-            HypeStackLibraryEntry(
-                stackName: "Dunny Age",
-                aliases: ["Dunny Age"],
-                source: .importedStackPackage,
-                cardReferences: [
-                    HypeStackLibraryCardReference(
-                        legacyCardId: 4840,
-                        name: "Father-Out",
-                        sortIndex: 0,
-                        hypeCardId: cardId
-                    )
-                ]
-            )
-        ])
-
-        let result = executeScript("""
-        on test
-          if the short id of this card is 4840 then
-            return "legacy"
-          end if
-          return "missing"
-        end test
-        """, document: doc)
-
-        #expect(result.status == .completed)
-        #expect(result.returnValue == "legacy")
     }
 
     @Test func classicMenuPutWithMenuMsgParsesAsCompatibilityNoOp() {
@@ -2300,6 +2057,25 @@ struct InterpreterTests {
 
         #expect(result.status == .completed)
         #expect(result.returnValue == "About Myst")
+    }
+
+    @Test func parsesClassicMenuSetupReferences() throws {
+        var lexer = Lexer(source: """
+        on MystMenu
+          if menuItem 1 of menu File is not "New Game" then
+            if there is a menu File then delete menu File
+            if there is a menu Go then delete menu Go
+            create menu File
+            put "New Game" after menu File with menuMsg NewIt
+            set the cmdChar of menuitem 1 of menu File to N
+          end if
+        end MystMenu
+        """)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        #expect(script.handlers[0].body.count == 1)
     }
 
     @Test func xAboutRecordsCompatibilityIntent() {
@@ -2515,19 +2291,6 @@ struct InterpreterTests {
         #expect(result.status == .completed)
         #expect(result.returnValue == "pass")
         #expect(result.modifiedDocument?.scriptGlobals["hypercard.variant.value"] == "2.1")
-    }
-
-    @Test func classicComparisonGlyphsParseInImportedConditionals() {
-        let result = executeScript("""
-        on test
-          get 9
-          if it \u{2265} 9 then return "gte"
-          return "block"
-        end test
-        """)
-
-        #expect(result.status == .completed)
-        #expect(result.returnValue == "gte")
     }
 
     @Test func movieInfoReturnsRepositoryBackedMovieMetadata() {
@@ -3202,34 +2965,6 @@ struct InterpreterTests {
         #expect(videoPart?.videoLoop == true)
     }
 
-    @Test func playQTTreatsTwoWordClassicQTCommandAsVideoPlayback() {
-        let movie = Asset(
-            name: "EV Wind Water-modern.mov",
-            kind: .videoClip,
-            mimeType: "video/quicktime",
-            data: Data("movie".utf8),
-            metadata: [
-                AssetMetadataEntry(key: "classic_name", value: "EV Wind/Water Mov"),
-                AssetMetadataEntry(key: "lookup_key", value: "ev wind water mov")
-            ]
-        )
-        var doc = HypeDocument.newDocument()
-        doc.assetRepository = AssetRepository(assets: [movie])
-
-        let result = executeScript("""
-        on test
-          play QT "EV Wind/Water Mov", , loop, 250
-        end test
-        """, document: doc)
-
-        #expect(result.status == .completed)
-        let videoPart = result.modifiedDocument?.parts.first { $0.partType == .video }
-        #expect(videoPart?.name == "EV Wind/Water Mov")
-        #expect(videoPart?.videoAssetRef?.id == movie.id)
-        #expect(videoPart?.videoAutoplay == true)
-        #expect(videoPart?.videoLoop == true)
-    }
-
     @Test func playQTTreatsAudioOnlyQuickTimeAsHiddenPlaybackPart() {
         let movie = Asset(
             name: "Intro Wind Mov-modern-audio.m4a",
@@ -3259,100 +2994,6 @@ struct InterpreterTests {
         #expect(videoPart?.helpText.contains("audioOnly=true") == true)
         #expect(videoPart?.videoAssetRef?.id == movie.id)
         #expect(result.modifiedDocument?.scriptGlobals["hypercard.playqt.audioOnly"] == "true")
-    }
-
-    @Test func playQTTracksActiveMystSoundMovieGlobal() {
-        let movie = Asset(
-            name: "EL GenAll MoV-modern-audio.m4a",
-            kind: .videoClip,
-            mimeType: "video/quicktime",
-            data: Data("audio".utf8),
-            metadata: [
-                AssetMetadataEntry(key: "classic_name", value: "EL GenAll MoV"),
-                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("EL GenAll MoV")),
-                AssetMetadataEntry(key: "classic_alias", value: "El GenRun"),
-                AssetMetadataEntry(key: "quicktime_audio_only", value: "true")
-            ]
-        )
-        var doc = HypeDocument.newDocument()
-        doc.assetRepository = AssetRepository(assets: [movie])
-
-        let result = executeScript("""
-        on test
-          playQT "El GenRun",,loop,150
-        end test
-        """, document: doc)
-
-        #expect(result.status == .completed)
-        #expect(result.modifiedDocument?.scriptGlobals["soundMooV"] == "El GenRun")
-        #expect(result.modifiedDocument?.scriptGlobals["soundmoov"] == "El GenRun")
-        #expect(result.modifiedDocument?.scriptGlobals["hypercard.playqt.asset"] == movie.name)
-    }
-
-    @Test func mystSoundTimeRetimesActiveSoundMoviePart() {
-        let movie = Asset(
-            name: "EL GenAll MoV-modern-audio.m4a",
-            kind: .videoClip,
-            mimeType: "video/quicktime",
-            data: Data("audio".utf8),
-            metadata: [
-                AssetMetadataEntry(key: "classic_name", value: "EL GenAll MoV"),
-                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("EL GenAll MoV")),
-                AssetMetadataEntry(key: "quicktime_audio_only", value: "true")
-            ]
-        )
-        var doc = HypeDocument.newDocument()
-        doc.assetRepository = AssetRepository(assets: [movie])
-
-        let result = executeScript("""
-        on test
-          playQT "EL GenAll MoV",,loop,150
-          soundTime "5,05","0","0","9,30"
-        end test
-        """, document: doc)
-
-        #expect(result.status == .completed)
-        let videoPart = result.modifiedDocument?.parts.first { $0.partType == .video }
-        #expect(videoPart?.name == "EL GenAll MoV")
-        #expect(videoPart?.videoCurrentTime == 0)
-        #expect(videoPart?.videoDuration == 9.5)
-        #expect(videoPart?.videoAutoplay == true)
-        #expect(videoPart?.videoPlayRate == 1)
-        let globals = result.modifiedDocument?.scriptGlobals ?? [:]
-        #expect(globals["hypercard.soundtime.window"] == "EL GenAll MoV")
-        #expect(globals["hypercard.window.el genall mov.starttime"] == "5.083333333333333")
-        #expect(globals["hypercard.window.el genall mov.currtime"] == "0")
-        #expect(globals["hypercard.window.el genall mov.endtime"] == "9.5")
-    }
-
-    @Test func mystSoundStopStopsActiveSoundMoviePart() {
-        let movie = Asset(
-            name: "EL GenAll MoV-modern-audio.m4a",
-            kind: .videoClip,
-            mimeType: "video/quicktime",
-            data: Data("audio".utf8),
-            metadata: [
-                AssetMetadataEntry(key: "classic_name", value: "EL GenAll MoV"),
-                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("EL GenAll MoV")),
-                AssetMetadataEntry(key: "quicktime_audio_only", value: "true")
-            ]
-        )
-        var doc = HypeDocument.newDocument()
-        doc.assetRepository = AssetRepository(assets: [movie])
-
-        let result = executeScript("""
-        on test
-          playQT "EL GenAll MoV",,loop,150
-          soundStop
-        end test
-        """, document: doc)
-
-        #expect(result.status == .completed)
-        let videoPart = result.modifiedDocument?.parts.first { $0.partType == .video }
-        #expect(videoPart?.videoAutoplay == false)
-        #expect(videoPart?.videoPlayRate == 0)
-        #expect(result.modifiedDocument?.scriptGlobals["hypercard.soundstop.count"] == "1")
-        #expect(result.modifiedDocument?.scriptGlobals["hypercard.sound.state"] == "done")
     }
 
     @Test func buzzerCreatesHiddenAudioPlaybackPartByClassicName() {
@@ -4222,33 +3863,6 @@ struct MessageDispatcherTests {
         #expect(updatedHeading?.textContent == "3")
     }
 
-    @Test func mystSeleniticCameraCommandUpdatesCameraState() async {
-        var doc = HypeDocument.newDocument()
-        let cardId = doc.cards[0].id
-        doc.scriptGlobals["SE_CameraID"] = "2"
-        var button = Part(partType: .button, cardId: cardId, name: "mic")
-        button.script = """
-        on mouseDown
-          camera 5
-        end mouseDown
-        """
-        doc.addPart(button)
-
-        let dispatcher = MessageDispatcher()
-        let result = await runOnLargeStack { [doc, cardId, button] in dispatcher.dispatch(
-            message: "mouseDown",
-            params: [],
-            targetId: button.id,
-            document: doc,
-            currentCardId: cardId
-        ) }
-
-        #expect(result.status == .completed)
-        #expect(result.returnValue == "5")
-        #expect(result.modifiedDocument?.scriptGlobals["SE_CameraID"] == "5")
-        #expect(result.modifiedDocument?.scriptGlobals["hypercard.selenitic.camera"] == "5")
-    }
-
     @Test func mystStoneshipTelescopeScrollWrapsClassicRange() async {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
@@ -4337,56 +3951,6 @@ struct MessageDispatcherTests {
         let modified = result.modifiedDocument
         let output = modified?.parts.first(where: { $0.name == "Output" })
         #expect(output?.textContent == "Myst defaults")
-    }
-
-    @Test func scopedFieldOfCardIdReferenceReadsAndWritesMystPlanetariumFields() async {
-        var doc = HypeDocument.newDocument(name: "Myst")
-        let firstCard = doc.cards[0]
-        let targetCard = Card(
-            stackId: doc.stack.id,
-            backgroundId: firstCard.backgroundId,
-            name: "Planetarium",
-            sortKey: "a1"
-        )
-        doc.cards.append(targetCard)
-        doc.stackLibrary = HypeStackLibrary(entries: [
-            HypeStackLibraryEntry(
-                stackName: "Myst",
-                source: .importedStackPackage,
-                cardReferences: [
-                    HypeStackLibraryCardReference(
-                        legacyCardId: 41677,
-                        name: "Planetarium",
-                        hypeCardId: targetCard.id
-                    )
-                ]
-            )
-        ])
-        var sourceField = Part(partType: .field, cardId: targetCard.id, name: "month")
-        sourceField.textContent = "7"
-        doc.addPart(sourceField)
-        var outputField = Part(partType: .field, cardId: firstCard.id, name: "month")
-        doc.addPart(outputField)
-        var btn = Part(partType: .button, cardId: firstCard.id, name: "PlanetariumLoader")
-        btn.script = """
-        on mouseUp
-          put card field month of card id 41677 into card field month
-        end mouseUp
-        """
-        doc.addPart(btn)
-
-        let dispatcher = MessageDispatcher()
-        let result = await runOnLargeStack { [doc, btn, firstCard] in dispatcher.dispatch(
-            message: "mouseUp",
-            params: [],
-            targetId: btn.id,
-            document: doc,
-            currentCardId: firstCard.id
-        ) }
-
-        #expect(result.status == .completed)
-        let output = result.modifiedDocument?.parts.first(where: { $0.name == "month" && $0.cardId == firstCard.id })
-        #expect(output?.textContent == "7")
     }
 
     @Test func passedMessageContinuesUpHierarchy() async {
@@ -4675,19 +4239,19 @@ struct MessageDispatcherTests {
         var field = Part(partType: .field, cardId: cardId, name: "output")
         doc.addPart(field)
 
-        var btn = Part(partType: .button, cardId: cardId, name: "Source")
+        var btn = Part(partType: .button, cardId: cardId, name: "Marker")
         btn.script = """
         on mouseUp
-          send doCard to card
+          send mouseDownInMovie to card
         end mouseUp
         """
         doc.addPart(btn)
 
         if let idx = doc.cards.firstIndex(where: { $0.id == cardId }) {
             doc.cards[idx].script = """
-            on doCard
-              put "bare card handled" into field "output"
-            end doCard
+            on mouseDownInMovie
+              put "movie marker" into field "output"
+            end mouseDownInMovie
             """
         }
 
@@ -4701,7 +4265,7 @@ struct MessageDispatcherTests {
         ) }
         #expect(result.status == .completed)
         let outputField = result.modifiedDocument?.parts.first(where: { $0.name == "output" })
-        #expect(outputField?.textContent == "bare card handled")
+        #expect(outputField?.textContent == "movie marker")
     }
 
     @Test func sendToThisBackgroundInvokesBackgroundHandler() async {

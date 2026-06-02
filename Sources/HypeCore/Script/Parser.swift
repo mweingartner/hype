@@ -139,17 +139,6 @@ public struct Parser: Sendable {
             let handler = try parseHandler()
             handlers.append(handler)
             skipNewlines()
-            while current.type != .eof,
-                  current.type != .on,
-                  current.type != .function,
-                  current.type != .global {
-                let statement = try parseStatement()
-                if var previous = handlers.popLast() {
-                    previous.body.append(statement)
-                    handlers.append(previous)
-                }
-                skipNewlines()
-            }
         }
         if !topLevelGlobalNames.isEmpty {
             let globals = stableUnique(topLevelGlobalNames)
@@ -235,6 +224,7 @@ public struct Parser: Sendable {
         case .set:      return try parseSetStatement()
         case .go:       return try parseGoStatement()
         case .if:       return try parseIfStatement()
+        case .on:       throw ParseError.unexpected(current, expected: "statement")
         case .repeat:   return try parseRepeatStatement()
         case .exit:     return try parseExitStatement()
         case .next:     return try parseNextStatement()
@@ -291,7 +281,6 @@ public struct Parser: Sendable {
         case .import:   return try parseImportStatement()
         case .convert:  return try parseConvertStatement()
         case .constrain: return try parseConstrainStatement()
-        case .camera:   return try parseExternalCommandStatement()
         case .button:
             if shouldParseClassicButtonCommand() {
                 return try parseExternalCommandStatement()
@@ -303,6 +292,7 @@ public struct Parser: Sendable {
         case .beep:     return try parseBeepStatement()
         case .wait:     return try parseWaitStatement()
         case .animate:   return try parseAnimateStatement()
+        case .camera:    return try parseExternalCommandStatement()
         case .remesh:    return try parseRemeshAssetStatement()
         case .retexture: return try parseRetextureAssetStatement()
         case .doKeyword:    return try parseDoStatement()
@@ -440,14 +430,14 @@ public struct Parser: Sendable {
             return Self.isKnownZeroArgumentExternalCommand(current.value)
         }
         if next.type == .lparen {
-            return Self.isKnownParenthesizedArgumentExternalCommand(current.value)
+            return Self.isKnownExternalCommand(current.value)
         }
         switch next.type {
         case .string, .integer, .float, .identifier, .true, .false, .comma,
              .the, .it, .me, .this, .empty, .await,
              .word, .char, .character, .item, .line, .number,
              .first, .second, .third, .last, .middle, .any,
-             .not,
+             .not, .down,
              .card, .background, .field, .button, .stack, .webpage,
              .image, .video, .sprite, .scene, .spritearea, .request,
              .connection, .listener:
@@ -458,47 +448,56 @@ public struct Parser: Sendable {
     }
 
     private static func isKnownZeroArgumentExternalCommand(_ rawName: String) -> Bool {
-        switch rawName
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .filter({ $0.isLetter || $0.isNumber }) {
+        switch normalizedExternalCommandName(rawName) {
         case "xwindowframe", "xabout", "closemoovs", "closemovies", "closeqt",
-             "htremove", "vd", "fadeout", "soundidle", "soundstop":
+             "htremove", "vd", "fadeout":
             return true
         default:
             return false
         }
     }
 
-    private static func isKnownParenthesizedArgumentExternalCommand(_ rawName: String) -> Bool {
-        switch rawName
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .filter({ $0.isLetter || $0.isNumber }) {
-        case "htaddpict", "htchangepict":
+    private static func isKnownExternalCommand(_ rawName: String) -> Bool {
+        switch normalizedExternalCommandName(rawName) {
+        case "htaddpict", "htchangepict", "playqt", "playmovie", "movie",
+             "htvisual", "xwindowframe", "xabout", "closemoovs", "closemovies",
+             "closeqt", "htremove", "vd", "vs", "fadeout":
             return true
         default:
-            return false
+            return isKnownZeroArgumentExternalCommand(rawName)
         }
+    }
+
+    private static func normalizedExternalCommandName(_ rawName: String) -> String {
+        rawName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber }
     }
 
     private mutating func parseExternalCommandStatement() throws -> Statement {
         let name = advance().value
-        let arguments = try parseExternalCommandArguments()
+        let arguments = try parseClassicCommandArguments()
         skipNewlines()
         return .externalCommand(name: name, arguments: arguments)
     }
 
-    private mutating func parseExternalCommandArguments() throws -> [Expression] {
+    private mutating func parseClassicCommandArguments() throws -> [Expression] {
         var arguments: [Expression] = []
+        var expectingArgument = true
         while current.type != .newline && current.type != .eof && current.type != .end && current.type != .else {
             if current.type == .comma {
+                if expectingArgument && peek(1)?.type != .newline && peek(1)?.type != .eof {
+                    arguments.append(.literal(""))
+                }
                 _ = advance()
+                expectingArgument = true
                 continue
             }
             arguments.append(try parseExpression())
+            expectingArgument = false
             if current.type == .comma {
-                _ = advance()
+                continue
             } else if current.type != .newline && current.type != .eof && current.type != .end && current.type != .else {
                 // Classic external commands use whitespace-separated
                 // or comma-separated parameters. Continue while the
@@ -507,6 +506,7 @@ public struct Parser: Sendable {
                 if !Self.canStartPrimaryExpression(current.type) {
                     break
                 }
+                expectingArgument = true
             }
         }
         return arguments
@@ -628,7 +628,7 @@ public struct Parser: Sendable {
         var property = propTok.value
         if isNameAdjective(property),
            current.type == .identifier,
-           ["name", "id"].contains(current.value.lowercased()) {
+           current.value.lowercased() == "name" {
             property += " \(advance().value)"
         }
 
@@ -844,20 +844,18 @@ public struct Parser: Sendable {
                 } else if current.type != .newline && current.type != .eof && current.line == elseToken.line {
                     elseBlock = [try parseStatement()]
                     skipNewlines()
+                    consumeOptionalEndIfUnlessFollowedByElse()
                 } else {
                     skipNewlines()
                     var elseStmts: [Statement] = []
-                    while current.type != .else && current.type != .end && !isImplicitImportedBlockBoundary() {
+                    while current.type != .end && current.type != .eof {
                         let stmt = try parseStatement()
                         elseStmts.append(stmt)
                         skipNewlines()
                     }
                     elseBlock = elseStmts
-                    consumeOptionalEndIf()
+                    consumeOptionalEndIfUnlessFollowedByElse()
                 }
-            } else {
-                let followingElseBlock = try parseSingleLineIfElseBlock(allowFollowingLineElse: true)
-                elseBlock = followingElseBlock
             }
             return .ifThenElse(condition: condition, thenBlock: [thenStmt], elseBlock: elseBlock)
         }
@@ -865,7 +863,7 @@ public struct Parser: Sendable {
         // Multi-line if block.
         skipNewlines()
         var thenBlock: [Statement] = []
-        while current.type != .else && current.type != .end && !isImplicitImportedBlockBoundary() {
+        while current.type != .else && current.type != .end && current.type != .eof {
             let stmt = try parseStatement()
             thenBlock.append(stmt)
             skipNewlines()
@@ -887,7 +885,7 @@ public struct Parser: Sendable {
             }
             skipNewlines()
             var elseStmts: [Statement] = []
-            while current.type != .else && current.type != .end && !isImplicitImportedBlockBoundary() {
+            while current.type != .end && current.type != .eof {
                 let stmt = try parseStatement()
                 elseStmts.append(stmt)
                 skipNewlines()
@@ -895,60 +893,12 @@ public struct Parser: Sendable {
             elseBlock = elseStmts
         }
 
-        guard isEndIfTerminator() else {
-            if current.type == .else {
-                return .ifThenElse(condition: condition, thenBlock: thenBlock, elseBlock: elseBlock)
-            }
-            if isLikelyHandlerBoundaryAfterUnclosedImportedIf() {
-                skipNewlines()
-                return .ifThenElse(condition: condition, thenBlock: thenBlock, elseBlock: elseBlock)
-            }
-            throw ParseError.unexpected(current, expected: "end if")
+        if isEndIfTerminator() {
+            _ = advance()
+            _ = match(.if) // `end if`
+            skipNewlines()
         }
-        _ = advance()
-        _ = match(.if) // `end if`
-        skipNewlines()
         return .ifThenElse(condition: condition, thenBlock: thenBlock, elseBlock: elseBlock)
-    }
-
-    private func isImplicitImportedBlockBoundary() -> Bool {
-        current.type == .eof || current.type == .on || current.type == .function
-    }
-
-    private mutating func parseSingleLineIfElseBlock(allowFollowingLineElse: Bool) throws -> [Statement]? {
-        if allowFollowingLineElse && current.type == .newline {
-            let checkpoint = pos
-            skipNewlines()
-            guard current.type == .else else {
-                pos = checkpoint
-                return nil
-            }
-        }
-
-        guard current.type == .else else { return nil }
-        let elseToken = advance()
-        if current.type == .if && current.line == elseToken.line {
-            return [try parseIfStatement()]
-        }
-        if current.type != .newline && current.type != .eof && current.line == elseToken.line {
-            return [try parseStatement()]
-        }
-
-        skipNewlines()
-        var elseStmts: [Statement] = []
-        while current.type != .end && current.type != .eof {
-            let stmt = try parseStatement()
-            elseStmts.append(stmt)
-            skipNewlines()
-        }
-        if current.type == .end,
-           let next = peek(1),
-           next.type == .if {
-            _ = advance()
-            _ = advance()
-            skipNewlines()
-        }
-        return elseStmts
     }
 
     private mutating func consumeOptionalEndIfUnlessFollowedByElse() {
@@ -967,32 +917,10 @@ public struct Parser: Sendable {
         skipNewlines()
     }
 
-    private mutating func consumeOptionalEndIf() {
-        guard isEndIfTerminator() else { return }
-        _ = advance()
-        _ = match(.if)
-        skipNewlines()
-    }
-
     private func isEndIfTerminator() -> Bool {
         guard current.type == .end else { return false }
         guard let next = peek(1) else { return true }
         return next.type == .if || next.type == .newline || next.type == .eof
-    }
-
-    private func isLikelyHandlerBoundaryAfterUnclosedImportedIf() -> Bool {
-        guard current.type == .end,
-              let handlerName = peek(1),
-              handlerName.type == .identifier else {
-            return false
-        }
-
-        var lookaheadOffset = 2
-        while let token = peek(lookaheadOffset), token.type == .newline {
-            lookaheadOffset += 1
-        }
-        guard let next = peek(lookaheadOffset) else { return false }
-        return next.type == .on || next.type == .function
     }
 
     private mutating func parseRepeatStatement() throws -> Statement {
@@ -1482,6 +1410,17 @@ public struct Parser: Sendable {
             return .createGroup(name: name, parent: parentExpr)
         }
 
+        // Classic HyperCard menu construction, e.g. `create menu File`.
+        // Hype does not create native app menus from imported stacks, but
+        // accepting the statement keeps compatibility menu setup handlers
+        // runnable while later `put ... with menuMsg` calls are no-ops.
+        if current.type == .identifier && current.value.lowercased() == "menu" {
+            _ = advance()
+            let name = try parsePrimary()
+            skipNewlines()
+            return .externalCommand(name: "createMenu", arguments: [name])
+        }
+
         // "create shape "name" [in scene/group "target"] [with type rect]"
         if current.type == .identifier && current.value.lowercased() == "shape" {
             _ = advance()
@@ -1567,13 +1506,6 @@ public struct Parser: Sendable {
             }
             skipNewlines()
             return .createSpriteArea(name: name, rect: rectExpr)
-        }
-
-        if current.type == .identifier && current.value.lowercased() == "menu" {
-            _ = advance()
-            let args = try parseExternalCommandArguments()
-            skipNewlines()
-            return .externalCommand(name: "createMenu", arguments: args)
         }
 
         // "create a new card [with background "name"]" or "create card [with background "name"]"
@@ -2294,22 +2226,26 @@ public struct Parser: Sendable {
             skipNewlines()
             return .sendToConnection(data: data, connection: connection)
         }
-        if let scopedTarget = parseBareCurrentScopeSendTarget() {
+        if current.type == .card,
+           Self.isStatementTerminator(peek(1)?.type) {
+            _ = advance()
             skipNewlines()
-            return .send(message: data, target: scopedTarget)
+            return .send(message: data, target: .literal("card"))
+        }
+        if current.type == .background,
+           Self.isStatementTerminator(peek(1)?.type) {
+            _ = advance()
+            skipNewlines()
+            return .send(message: data, target: .literal("background"))
         }
         let connection = try parseExpression()
         skipNewlines()
         return .send(message: data, target: connection)
     }
 
-    private mutating func parseBareCurrentScopeSendTarget() -> Expression? {
-        guard let next = peek(1),
-              Self.objectIdentifierTerminators.contains(next.type),
-              [.card, .background, .stack].contains(current.type) else {
-            return nil
-        }
-        return parseCurrentScopeReference(scopeWord: "current")
+    private static func isStatementTerminator(_ tokenType: TokenType?) -> Bool {
+        guard let tokenType else { return false }
+        return tokenType == .newline || tokenType == .eof
     }
 
     private mutating func parseStartStatement() throws -> Statement {
@@ -2427,24 +2363,18 @@ public struct Parser: Sendable {
 
     private mutating func parsePlayStatement() throws -> Statement {
         _ = try expect(.play)
-        // Classic stacks sometimes spell the QuickTime XCMD as two words:
-        // `play QT "Movie", , loop, 250`.
-        if current.type == .identifier {
-            let normalized = current.value
-                .lowercased()
-                .filter { $0.isLetter || $0.isNumber }
-            if normalized == "qt" || normalized == "quicktime" {
-                _ = advance()
-                let arguments = try parseExternalCommandArguments()
-                skipNewlines()
-                return .externalCommand(name: "playQT", arguments: arguments)
-            }
-        }
         // play stop
         if current.type == .stop {
             _ = advance()
             skipNewlines()
             return .playStop
+        }
+        // Classic imports sometimes spell playQT as `play QT ...`.
+        if current.type == .identifier && current.value.lowercased() == "qt" {
+            _ = advance()
+            let arguments = try parseClassicCommandArguments()
+            skipNewlines()
+            return .externalCommand(name: "playQT", arguments: arguments)
         }
         // play pattern "name" [loop]
         if current.type == .identifier && current.value.lowercased() == "pattern" {
@@ -3013,14 +2943,6 @@ public struct Parser: Sendable {
             _ = advance()
             return .literal("false")
 
-        case .open:
-            _ = advance()
-            return .literal("open")
-
-        case .on:
-            _ = advance()
-            return .literal("on")
-
         case .it:
             _ = advance()
             return .it
@@ -3070,7 +2992,7 @@ public struct Parser: Sendable {
         case .card, .background, .field, .button, .stack, .webpage, .image, .video, .sprite, .spritearea, .scene, .request, .connection, .listener:
             return try parseObjectReference()
 
-        case .identifier where ["label", "shape", "audio", "chart", "calendar", "pdf", "map", "colorwell", "color_well", "stepper", "slider", "segmented", "recorder", "audiorecorder", "musicplayer", "music", "pianokeyboard", "keyboard", "stepsequencer", "sequencer", "musicmixer", "mixer", "applemusicbrowser", "musicbrowser", "musicqueue", "scene3d", "scene3D", "model3d", "model3D", "progressview", "progress", "gauge", "divider", "window"].contains(current.value.lowercased()):
+        case .identifier where ["label", "shape", "audio", "chart", "calendar", "pdf", "map", "colorwell", "color_well", "stepper", "slider", "segmented", "recorder", "audiorecorder", "musicplayer", "music", "pianokeyboard", "keyboard", "stepsequencer", "sequencer", "musicmixer", "mixer", "applemusicbrowser", "musicbrowser", "musicqueue", "scene3d", "scene3D", "model3d", "model3D", "progressview", "progress", "gauge", "divider", "window", "menu", "menuitem", "menuitems"].contains(current.value.lowercased()):
             // Scene node types and HypeTalk part types recognized as
             // object references. Two-word kinds ("color well") aren't
             // tokenized as identifiers so we only accept the
@@ -3083,10 +3005,6 @@ public struct Parser: Sendable {
                 return scopedRef
             }
             return .variable("current")
-
-        case .identifier where current.value.lowercased() == "off":
-            _ = advance()
-            return .literal("off")
 
         case .identifier where current.value.lowercased() == "data":
             // Possible compound data-point reference:
@@ -3154,13 +3072,17 @@ public struct Parser: Sendable {
             return negated ? .thereIsNo(objectType, nameExpr) : .thereIsA(objectType, nameExpr)
 
         case .identifier:
-            if let property = parseBareClassicPropertyName() {
-                _ = try expect(.of)
+            let tok = advance()
+            // Classic HyperTalk accepts property reads without the
+            // article in front: `visible of card button marker`.
+            // Preserve the same AST as `the visible of ...`.
+            if current.type == .of,
+               Self.classicBarePropertyNames.contains(tok.value.lowercased()) {
+                _ = advance()
                 skipTransparentOfChain()
                 let target = try parsePrimary()
-                return .propertyAccess(property, target)
+                return .propertyAccess(tok.value, target)
             }
-            let tok = advance()
             // Check for function call: name(args)
             if current.type == .lparen {
                 _ = advance()
@@ -3341,8 +3263,8 @@ public struct Parser: Sendable {
             return .variable(tok.value)
 
         case .from, .by, .times,
-             .choose, .close, .save, .quit, .mark, .unmark, .push, .pop,
-             .click, .drag, .run, .print, .help, .debug, .reset,
+             .choose, .close, .open, .on, .save, .quit, .mark, .unmark, .push, .pop,
+             .click, .drag, .run, .print, .help, .debug, .reset, .go,
              .export, .import, .copy, .disable, .enable, .edit, .dial,
              .reply, .start, .stop, .using, .template, .paint,
              .report, .file, .printing, .convert, .typeText,
@@ -3388,24 +3310,6 @@ public struct Parser: Sendable {
             throw ParseError.unexpected(current, expected: "expression")
         }
     }
-
-    private mutating func parseBareClassicPropertyName() -> String? {
-        guard current.type == .identifier,
-              peek(1)?.type == .of,
-              Self.bareClassicPropertyNames.contains(current.value.lowercased()) else {
-            return nil
-        }
-        return advance().value
-    }
-
-    private static let bareClassicPropertyNames: Set<String> = [
-        "visible", "enabled", "hilite",
-        "loc", "location",
-        "rect", "rectangle",
-        "topleft", "bottomright",
-        "currtime", "currenttime",
-        "duration"
-    ]
 
     private mutating func parseTheExpression() throws -> Expression {
         _ = try expect(.the)
@@ -3506,7 +3410,7 @@ public struct Parser: Sendable {
         var property = propTok.value
         if isNameAdjective(property),
            current.type == .identifier,
-           ["name", "id"].contains(current.value.lowercased()) {
+           current.value.lowercased() == "name" {
             property += " \(advance().value)"
         }
 
@@ -3550,6 +3454,26 @@ public struct Parser: Sendable {
     private mutating func parseObjectReference() throws -> Expression {
         let typeTok = advance()
         let objType = typeTok.value.lowercased()
+        if objType == "menuitem" || objType == "menuitems" {
+            let itemIdent = try parsePrimary()
+            if current.type == .of {
+                let checkpoint = pos
+                _ = advance()
+                if current.type == .identifier && current.value.lowercased() == "menu" {
+                    _ = advance()
+                    let menuIdent = try parseObjectIdentifier()
+                    return .scopedObjectRef(
+                        object: ObjectRefExpr(objectType: "menuItem", identifier: itemIdent),
+                        owner: ObjectRefExpr(objectType: "menu", identifier: menuIdent)
+                    )
+                }
+                pos = checkpoint
+            }
+            return .objectRef(ObjectRefExpr(objectType: "menuItem", identifier: itemIdent))
+        }
+        if objType == "menu" {
+            return .objectRef(ObjectRefExpr(objectType: "menu", identifier: try parseObjectIdentifier()))
+        }
         if objType == "card" || objType == "background" || objType == "bg" {
             let ownerType = objType == "card" ? "card" : "background"
             let objectType = current.value.lowercased()
@@ -3637,21 +3561,9 @@ public struct Parser: Sendable {
         return try parsePrimary()
     }
 
-    private mutating func parseClassicOwnerIdentifier() throws -> Expression {
-        if current.type == .identifier,
-           current.value.lowercased() == "id" {
-            _ = advance()
-            let idExpression = try parsePrimary()
-            if case .literal(let value) = idExpression {
-                return .literal("id \(value)")
-            }
-            return idExpression
-        }
-        return try parseObjectIdentifier()
-    }
-
     private static let objectIdentifierTerminators: Set<TokenType> = [
-        .newline, .eof, .comma, .then, .else, .end, .to, .into, .after, .before, .of
+        .newline, .eof, .comma, .then, .else, .end, .to, .of,
+        .with, .after, .before, .is, .eq, .neq, .lt, .gt, .lte, .gte
     ]
 
     private static let classicBarePropertyNames: Set<String> = [
@@ -3810,10 +3722,10 @@ public struct Parser: Sendable {
     private static func canStartPrimaryExpression(_ type: TokenType) -> Bool {
         switch type {
         case .integer, .float, .string, .identifier, .lparen,
-             .the, .it, .me, .this, .empty, .open, .await,
+             .the, .it, .me, .this, .empty, .await,
              .word, .char, .character, .item, .line, .number,
              .first, .second, .third, .last, .middle, .any,
-             .not,
+             .not, .on, .down, .go,
              .card, .background, .field, .button, .stack, .webpage,
              .sprite, .spritearea, .request, .connection, .listener:
             return true
