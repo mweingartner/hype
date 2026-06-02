@@ -198,6 +198,77 @@ enum HypeDebugImportOutputSafetyError: LocalizedError, Equatable {
     }
 }
 
+struct HypeDebugImportedStartupGlobalSeedResult: Equatable {
+    var seededGlobals: [String: String]
+    var importedStartupGlobalKeys: [String]
+    var errors: [String]
+}
+
+enum HypeDebugImportedStartupGlobalSeeder {
+    static let parameterName = "seedImportedStartupGlobals"
+
+    static func seed(from params: [String: Any], into document: inout HypeDocument) -> HypeDebugImportedStartupGlobalSeedResult {
+        guard (params[parameterName] as? Bool) == true else {
+            return HypeDebugImportedStartupGlobalSeedResult(seededGlobals: [:], importedStartupGlobalKeys: [], errors: [])
+        }
+
+        var errors: [String] = []
+        for path in resourceDocumentPaths(from: params) {
+            let url = URL(fileURLWithPath: path, isDirectory: true)
+            do {
+                _ = try HypeSQLiteStackStore().load(fromPackageAt: url)
+            } catch {
+                errors.append("Imported startup resource could not be loaded at \(path): \(error.localizedDescription)")
+            }
+        }
+
+        let globals = mystLauncherGlobals()
+        for (key, value) in globals {
+            document.scriptGlobals[key] = value
+        }
+        return HypeDebugImportedStartupGlobalSeedResult(
+            seededGlobals: globals,
+            importedStartupGlobalKeys: globals.keys.sorted(),
+            errors: errors
+        )
+    }
+
+    private static func resourceDocumentPaths(from params: [String: Any]) -> [String] {
+        guard let raw = params["importedStartupResourceDocumentPaths"] else { return [] }
+        if let paths = raw as? [String] {
+            return paths
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        }
+        if let paths = raw as? [Any] {
+            return paths
+                .compactMap { $0 as? String }
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        }
+        if let path = raw as? String {
+            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? [] : [trimmed]
+        }
+        return []
+    }
+
+    private static func mystLauncherGlobals() -> [String: String] {
+        [
+            "ALL_CurrStack": "Myst",
+            "ALL_Page": "",
+            "DU_End": "",
+            "MY_BlueBook": "000000",
+            "MY_RedBook": "000000",
+            "Quick": "false",
+            "RestoreData": "card field Defaults of card Defaults",
+            "Start_Game": "new",
+            "Trans": "2",
+            "playsounds": "true",
+        ]
+    }
+}
+
 struct HypeDebugServerStatus: Equatable {
     var isRunning: Bool
     var instanceId: String
@@ -872,6 +943,7 @@ final class HypeDebugServer: @unchecked Sendable {
 
         var document = debugLoadedDocument ?? HypeDocumentMutationCoordinator.shared.activeDocumentBinding!.wrappedValue.document
         let seededGlobals = applyDebugScriptGlobals(from: params, to: &document)
+        let importedStartupGlobals = HypeDebugImportedStartupGlobalSeeder.seed(from: params, into: &document)
         guard let card = resolveCard(reference: cardReference, in: document) else {
             return jsonRPCError(id: id, code: -32002, message: "Card not found.")
         }
