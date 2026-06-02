@@ -268,8 +268,6 @@ enum HypeDebugImportedStartupGlobalSeeder {
         ]
     }
 }
-    }
-}
 
 struct HypeDebugServerStatus: Equatable {
     var isRunning: Bool
