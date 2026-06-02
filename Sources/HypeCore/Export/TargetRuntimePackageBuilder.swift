@@ -470,6 +470,8 @@ public struct TargetRuntimePackageBuilder {
             \(deviceFamilyEntries)
                 <key>UIApplicationSupportsIndirectInputEvents</key>
                 <true/>
+                <key>UILaunchScreen</key>
+                <dict/>
                 <key>UISupportedInterfaceOrientations</key>
                 <array>
                     <string>UIInterfaceOrientationPortrait</string>
@@ -643,6 +645,8 @@ public struct TargetRuntimePackageBuilder {
                     }
                 }
                 .accessibilityLabel("Hype runtime stack \\(stackName) for \\(targetPlatform)")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.white.ignoresSafeArea())
                 .task {
                     await model.load(embeddedStackPath: embeddedStackPath)
                 }
@@ -740,331 +744,52 @@ public struct TargetRuntimePackageBuilder {
             let onMouseUp: @Sendable (Part) async -> Void
 
             var body: some View {
-                let card = currentCardId.flatMap { id in document.cards.first { $0.id == id } } ?? document.sortedCards.first
-                let profile = HypeDeviceProfileCatalog.profile(id: profileId) ?? document.stack.deploymentTargets.primaryProfile
-                let resolution = card.map { LayoutResolver().resolve(document: document, profile: profile, cardId: $0.id) }
-                ZStack(alignment: .topLeading) {
-                    Color.white
-                    if let card {
-                        ForEach(document.effectivePartsForCard(card.id)) { part in
-                            TargetRuntimePartView(
-                                part: part,
-                                geometry: resolution?.geometries[part.id],
-                                document: document,
-                                systemProvider: systemProvider,
-                                onPartChanged: onPartChanged,
-                                onMouseUp: onMouseUp
-                            )
-                        }
-                    }
-                }
-                .frame(width: CGFloat(profile.width), height: CGFloat(profile.height))
-            }
-        }
-
-        #if !os(tvOS)
-        struct HypeRuntimePartView: View {
-            let part: Part
-            let geometry: PartResolvedGeometry?
-            let document: HypeDocument
-            let systemProvider: HypeRuntimeSystemProvider
-            let onMouseUp: (Part) async -> Void
-
-            private var left: Double { geometry?.left ?? part.left }
-            private var top: Double { geometry?.top ?? part.top }
-            private var width: Double { geometry?.width ?? part.width }
-            private var height: Double { geometry?.height ?? part.height }
-
-            var body: some View {
-                Group {
-                    switch part.partType {
-                    case .button:
-                        Button(part.showName ? part.name : part.textContent) {
-                            Task { await onMouseUp(part) }
-                        }
-                    case .field:
-                        Text(part.textContent)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                    case .shape:
-                        RoundedRectangle(cornerRadius: part.cornerRadius)
-                            .fill(Color(hex: part.fillColor))
-                    case .image:
-                        if let data = part.imageData, let image = PlatformImage(data: data) {
-                            PlatformImageView(image: image)
-                        } else {
-                            Rectangle().fill(Color.gray.opacity(0.2))
-                        }
-                    case .map:
-                        HypeRuntimeMapView(part: part)
-                    case .pianoKeyboard:
-                        HypeRuntimePianoKeyboardView(
-                            part: part,
-                            document: document,
-                            systemProvider: systemProvider
-                        )
-                    default:
-                        Text(part.name)
-                    }
-                }
-                .frame(width: CGFloat(width), height: CGFloat(height))
-                .position(x: CGFloat(left + width / 2), y: CGFloat(top + height / 2))
-                .opacity(part.visible ? 1 : 0)
-                .accessibilityLabel(part.name)
-            }
-        }
-
-        #if canImport(MapKit)
-        private struct HypeRuntimeMapAnnotationPayload: Decodable {
-            var lat: Double?
-            var latitude: Double?
-            var lon: Double?
-            var lng: Double?
-            var longitude: Double?
-            var title: String?
-        }
-
-        private enum HypeRuntimeMapSupport {
-            static func apply(_ part: Part, to mapView: MKMapView) {
-                mapView.mapType = mapType(for: part.mapType)
-                if part.mapCenterLat.isFinite, part.mapCenterLon.isFinite {
-                    let span = CLLocationDegrees(max(0.0001, abs(part.mapSpan)))
-                    let region = MKCoordinateRegion(
-                        center: CLLocationCoordinate2D(
-                            latitude: CLLocationDegrees(part.mapCenterLat),
-                            longitude: CLLocationDegrees(part.mapCenterLon)
-                        ),
-                        span: MKCoordinateSpan(latitudeDelta: span, longitudeDelta: span)
-                    )
-                    mapView.setRegion(region, animated: false)
-                }
-
-                mapView.removeAnnotations(mapView.annotations)
-                guard let data = part.mapAnnotationsJSON.data(using: .utf8),
-                      let payloads = try? JSONDecoder().decode([HypeRuntimeMapAnnotationPayload].self, from: data) else {
-                    return
-                }
-                let annotations = payloads.compactMap { payload -> MKPointAnnotation? in
-                    guard let lat = payload.lat ?? payload.latitude,
-                          let lon = payload.lon ?? payload.lng ?? payload.longitude,
-                          lat.isFinite,
-                          lon.isFinite else {
-                        return nil
-                    }
-                    let annotation = MKPointAnnotation()
-                    annotation.coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
-                    annotation.title = payload.title
-                    return annotation
-                }
-                mapView.addAnnotations(annotations)
-            }
-
-            private static func mapType(for value: String) -> MKMapType {
-                switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-                case "satellite":
-                    return .satellite
-                case "hybrid":
-                    return .hybrid
-                case "mutedstandard", "muted_standard", "muted-standard":
-                    if #available(iOS 11.0, macOS 10.13, tvOS 11.0, *) {
-                        return .mutedStandard
-                    }
-                    return .standard
-                default:
-                    return .standard
-                }
-            }
-        }
-        #endif
-
-        #if canImport(MapKit) && canImport(UIKit)
-        struct HypeRuntimeMapView: UIViewRepresentable {
-            let part: Part
-
-            func makeUIView(context: Context) -> MKMapView {
-                let view = MKMapView(frame: .zero)
-                view.isRotateEnabled = false
-                view.isPitchEnabled = false
-                HypeRuntimeMapSupport.apply(part, to: view)
-                return view
-            }
-
-            func updateUIView(_ uiView: MKMapView, context: Context) {
-                HypeRuntimeMapSupport.apply(part, to: uiView)
-            }
-        }
-        #elseif canImport(MapKit) && canImport(AppKit)
-        struct HypeRuntimeMapView: NSViewRepresentable {
-            let part: Part
-
-            func makeNSView(context: Context) -> MKMapView {
-                let view = MKMapView(frame: .zero)
-                view.isRotateEnabled = false
-                view.isPitchEnabled = false
-                HypeRuntimeMapSupport.apply(part, to: view)
-                return view
-            }
-
-            func updateNSView(_ nsView: MKMapView, context: Context) {
-                HypeRuntimeMapSupport.apply(part, to: nsView)
-            }
-        }
-        #else
-        struct HypeRuntimeMapView: View {
-            let part: Part
-
-            var body: some View {
-                ZStack {
-                    Rectangle().fill(Color.gray.opacity(0.12))
-                    Text("Map unavailable")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        #endif
-
-        struct HypeRuntimePianoKeyboardView: View {
-            let part: Part
-            let document: HypeDocument
-            let systemProvider: HypeRuntimeSystemProvider
-            @State private var activeNote: String?
-
-            var body: some View {
                 GeometryReader { proxy in
-                    let runtimePart = runtimePart(for: proxy.size)
-                    let layout = MusicControlInteraction.keyboardLayout(for: runtimePart)
-
+                    let card = currentCardId.flatMap { id in document.cards.first { $0.id == id } } ?? document.sortedCards.first
+                    let baseProfile = HypeDeviceProfileCatalog.profile(id: profileId) ?? document.stack.deploymentTargets.primaryProfile
+                    let liveProfile = runtimeProfile(baseProfile: baseProfile, proxy: proxy)
+                    let resolution = card.map { LayoutResolver().resolve(document: document, profile: liveProfile, cardId: $0.id) }
                     ZStack(alignment: .topLeading) {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(Color(hex: part.fillColor).opacity(0.12))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(Color.black.opacity(0.18), lineWidth: 1)
-                            )
-
-                        if MusicControlInteraction.pianoKeyboardShowsMetadata(part) {
-                            HStack(spacing: 8) {
-                                if part.musicShowControlType {
-                                    Text("Piano Keyboard")
-                                }
-                                if part.musicShowPattern, !part.musicPatternName.isEmpty {
-                                    Text(part.musicPatternName)
-                                }
-                                if part.musicShowInstrument {
-                                    Text(part.musicInstrumentName)
-                                }
-                                if part.musicShowTempo {
-                                    Text(String(MusicTempo.clamp(part.musicTempo)) + " BPM")
-                                }
+                        Color.white
+                        if let card {
+                            ForEach(document.effectivePartsForCard(card.id)) { part in
+                                TargetRuntimePartView(
+                                    part: part,
+                                    geometry: resolution?.geometries[part.id],
+                                    document: document,
+                                    systemProvider: systemProvider,
+                                    onPartChanged: onPartChanged,
+                                    onMouseUp: onMouseUp
+                                )
                             }
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .padding(.horizontal, 10)
-                            .padding(.top, 6)
-                        }
-
-                        ForEach(layout.whiteKeys, id: \\.note) { key in
-                            HypeRuntimePianoKeyView(
-                                key: key,
-                                isActive: activeNote == key.note
-                            )
-                        }
-                        ForEach(layout.blackKeys, id: \\.note) { key in
-                            HypeRuntimePianoKeyView(
-                                key: key,
-                                isActive: activeNote == key.note
-                            )
                         }
                     }
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 0, coordinateSpace: .local)
-                            .onChanged { value in
-                                playKeyboardNote(at: value.location, size: proxy.size)
-                            }
-                            .onEnded { _ in
-                                activeNote = nil
-                                Task {
-                                    await systemProvider.stopSustainedMusicNotes(forPart: part.id)
-                                }
-                            }
-                    )
+                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
                 }
+                .background(Color.white.ignoresSafeArea())
             }
 
-            private func runtimePart(for size: CGSize) -> Part {
-                var copy = part
-                copy.left = 0
-                copy.top = 0
-                copy.width = max(1, Double(size.width))
-                copy.height = max(1, Double(size.height))
-                return copy
-            }
-
-            private func playKeyboardNote(at point: CGPoint, size: CGSize) {
-                let runtimePart = runtimePart(for: size)
-                guard let note = MusicControlInteraction.keyboardNote(at: point, for: runtimePart) else {
-                    if activeNote != nil {
-                        activeNote = nil
-                        Task {
-                            await systemProvider.stopSustainedMusicNotes(forPart: part.id)
-                        }
-                    }
-                    return
-                }
-                guard activeNote != note else { return }
-                activeNote = note
-                guard let request = MusicControlInteraction.playbackRequest(
-                    for: runtimePart,
-                    document: document,
-                    clickPoint: point
-                ) else {
-                    return
-                }
-                Task {
-                    await systemProvider.stopSustainedMusicNotes(forPart: part.id)
-                    if let sustainedNote = request.sustainedNote {
-                        await systemProvider.playSustainedMusicNote(sustainedNote, document: document)
-                    } else {
-                        await systemProvider.playMusicPattern(request.pattern, loop: request.loop, document: document)
-                    }
-                }
+            private func runtimeProfile(baseProfile: HypeDeviceProfile, proxy: GeometryProxy) -> HypeDeviceProfile {
+                let width = max(1, Int((proxy.size.width > 0 ? proxy.size.width : CGFloat(baseProfile.width)).rounded()))
+                let height = max(1, Int((proxy.size.height > 0 ? proxy.size.height : CGFloat(baseProfile.height)).rounded()))
+                return HypeDeviceProfile(
+                    id: baseProfile.id,
+                    platform: baseProfile.platform,
+                    displayName: baseProfile.displayName,
+                    width: width,
+                    height: height,
+                    orientation: baseProfile.orientation,
+                    inputModel: baseProfile.inputModel,
+                    safeArea: HypeSafeAreaInsets(
+                        top: Double(proxy.safeAreaInsets.top),
+                        left: Double(proxy.safeAreaInsets.leading),
+                        bottom: Double(proxy.safeAreaInsets.bottom),
+                        right: Double(proxy.safeAreaInsets.trailing)
+                    ),
+                    scale: baseProfile.scale
+                )
             }
         }
-
-        private struct HypeRuntimePianoKeyView: View {
-            let key: MusicKeyboardKeyLayout
-            let isActive: Bool
-
-            var body: some View {
-                RoundedRectangle(cornerRadius: key.isBlack ? 3 : 4)
-                    .fill(fill)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: key.isBlack ? 3 : 4)
-                            .stroke(stroke, lineWidth: key.isBlack ? 0.7 : 0.8)
-                    )
-                    .shadow(
-                        color: isActive ? Color.yellow.opacity(key.isBlack ? 0.7 : 0.45) : Color.clear,
-                        radius: isActive ? 6 : 0
-                    )
-                    .frame(width: key.frame.width, height: key.frame.height)
-                    .position(x: key.frame.midX, y: key.frame.midY)
-                    .zIndex(key.isBlack ? 2 : 1)
-            }
-
-            private var fill: Color {
-                if key.isBlack {
-                    return isActive ? Color.yellow.opacity(0.75) : Color.black
-                }
-                return isActive ? Color.yellow.opacity(0.28) : Color.white
-            }
-
-            private var stroke: Color {
-                key.isBlack ? Color.black.opacity(0.85) : Color.black.opacity(0.28)
-            }
-        }
-        #endif
 
         actor HypeRuntimeSystemProvider: SystemProvider {
             private let appleMusicProvider = AppleMusicProviderFactory.makeDefault()

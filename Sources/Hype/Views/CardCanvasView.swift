@@ -490,8 +490,13 @@ struct CardCanvasView: NSViewRepresentable {
         /// `CalendarHostNSView.onDateChange` via the NSView's
         /// `coordinator?` pointer. Also dispatches the
         /// `dateChanged` message so script handlers can react.
-        func setPartCalendarDate(id: UUID, isoDate: String) {
-            parent.document.document.updatePart(id: id) { $0.selectedDate = isoDate }
+        func setPartCalendarDate(id: UUID, isoDate: String, isoTime: String? = nil) {
+            parent.document.document.updatePart(id: id) {
+                $0.selectedDate = isoDate
+                if let isoTime {
+                    $0.selectedTime = isoTime
+                }
+            }
             dispatchMessage("dateChanged", to: id)
         }
 
@@ -4694,9 +4699,9 @@ class CardCanvasNSView: NSView {
             // HypeTalk reads of `the selectedDate of calendar "X"`
             // reflect the user's interactive choice.
             let partId = part.id
-            host.onDateChange = { [weak self] iso in
+            host.onDateChange = { [weak self] iso, time in
                 guard let self = self else { return }
-                self.coordinator?.setPartCalendarDate(id: partId, isoDate: iso)
+                self.coordinator?.setPartCalendarDate(id: partId, isoDate: iso, isoTime: time)
             }
             addSubview(host, positioned: .above, relativeTo: nil)
             calendarViews[part.id] = host

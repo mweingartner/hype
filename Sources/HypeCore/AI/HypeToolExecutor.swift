@@ -1907,6 +1907,7 @@ public struct HypeToolExecutor: Sendable {
 
         case "create_calendar":
             let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
+            let defaultSize = PartCreationDefaults.defaultSize(for: .calendar)
             var part = Part(
                 partType: .calendar,
                 cardId: place.cardId,
@@ -1914,10 +1915,11 @@ public struct HypeToolExecutor: Sendable {
                 name: arguments["name"] ?? "Calendar",
                 left: Double(arguments["left"] ?? "100") ?? 100,
                 top: Double(arguments["top"] ?? "100") ?? 100,
-                width: Double(arguments["width"] ?? "260") ?? 260,
-                height: Double(arguments["height"] ?? "180") ?? 180
+                width: Double(arguments["width"] ?? "\(defaultSize.width)") ?? defaultSize.width,
+                height: Double(arguments["height"] ?? "\(defaultSize.height)") ?? defaultSize.height
             )
             part.selectedDate = arguments["selected_date"] ?? ""
+            part.selectedTime = arguments["selected_time"] ?? ""
             part.displayMonth = arguments["display_month"] ?? ""
             part.minDate = arguments["min_date"] ?? ""
             part.maxDate = arguments["max_date"] ?? ""
@@ -2072,6 +2074,7 @@ public struct HypeToolExecutor: Sendable {
                 case "enabled": document.parts[index].enabled = (value.lowercased() == "true")
                 // Calendar-specific properties — settable on calendar parts only.
                 case "selecteddate", "selected_date": document.parts[index].selectedDate = value
+                case "selectedtime", "selected_time": document.parts[index].selectedTime = value
                 case "displaymonth", "display_month": document.parts[index].displayMonth = value
                 case "mindate", "min_date": document.parts[index].minDate = value
                 case "maxdate", "max_date": document.parts[index].maxDate = value
@@ -3732,6 +3735,7 @@ public struct HypeToolExecutor: Sendable {
             // Calendar-specific properties — readable on any part,
             // but only meaningful when the part's type is .calendar.
             case "selecteddate", "selected_date": return part.selectedDate
+            case "selectedtime", "selected_time": return part.selectedTime
             case "displaymonth", "display_month": return part.displayMonth
             case "mindate", "min_date": return part.minDate
             case "maxdate", "max_date": return part.maxDate
@@ -6254,6 +6258,7 @@ public struct HypeToolExecutor: Sendable {
             row("sceneSpec", "\"\(p.sceneSpec.prefix(80))\(p.sceneSpec.count > 80 ? "..." : "")\"", "JSON spec")
         case .calendar:
             row("selectedDate", "\"\(p.selectedDate)\"", "\"\" (today)")
+            row("selectedTime", "\"\(p.selectedTime)\"", "\"\"")
             row("displayMonth", "\"\(p.displayMonth)\"", "\"\"")
             row("minDate", "\"\(p.minDate)\"", "\"\"")
             row("maxDate", "\"\(p.maxDate)\"", "\"\"")

@@ -208,7 +208,7 @@ public enum HypeTalkGuide {
           set the helpText of cd btn "Save" to ""    -- clear the bubble
           ```
         **Framework control properties** (used as `the <prop> of <kind> "name"`):
-          - **calendar:** selectedDate, displayMonth, minDate, maxDate, calendarStyle (graphical | textual | clockAndCalendar)
+          - **calendar:** selectedDate, selectedTime, displayMonth, minDate, maxDate, calendarStyle (graphical | textual | clockAndCalendar; selectedTime is HH:mm:ss for clockAndCalendar)
           - **pdf:** pdfurl, currentPage, displayMode (single | continuous | twoUp), autoScales
           - **map:** centerLat, centerLon, span, mapType (standard | satellite | hybrid | mutedStandard), annotations, location (alias: maplocation / map_location — geocoded place name, address, or US ZIP; resolves async)
           - **colorWell:** color (hex like "#FF5500"), interactive

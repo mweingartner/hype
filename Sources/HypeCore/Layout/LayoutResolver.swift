@@ -160,9 +160,7 @@ public struct LayoutResolver: Sendable {
             return (1, 1, 0, 0)
         case .scaleToFit:
             let scale = min(safeWidth / sourceWidth, safeHeight / sourceHeight)
-            let renderedWidth = sourceWidth * scale
-            let renderedHeight = sourceHeight * scale
-            return (scale, scale, (safeWidth - renderedWidth) / 2, (safeHeight - renderedHeight) / 2)
+            return (scale, scale, 0, 0)
         case .stretchToFill:
             return (safeWidth / sourceWidth, safeHeight / sourceHeight, 0, 0)
         }

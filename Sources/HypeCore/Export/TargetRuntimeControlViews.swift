@@ -197,7 +197,7 @@ private struct TargetRuntimeChartView: View {
         let axisLabels = config.spiderAxisLabels()
         guard axisLabels.count >= 3, !seriesList.isEmpty else { return }
         let center = CGPoint(x: rect.midX, y: rect.midY)
-        let radius = min(rect.width, rect.height) * 0.34
+        let radius = spiderPlotRadius(in: rect)
         let ringCount = max(ChartConfig.spiderMinimumRingCount, config.spiderRingCount)
 
         for ring in 1...ringCount {
@@ -233,8 +233,7 @@ private struct TargetRuntimeChartView: View {
                 context.fill(Path(ellipseIn: CGRect(x: point.x - 4, y: point.y - 4, width: 8, height: 8)), with: .color(Color(hex: series.color)))
             }
         }
-        for ring in 0...ringCount {
-            let fraction = Double(ring) / Double(ringCount)
+        for fraction in spiderTickFractions(radius: radius, ringCount: ringCount) {
             let tick = config.formattedSpiderValue(config.spiderRadialTickValue(fraction: fraction))
             context.draw(Text(tick).font(.caption2).foregroundColor(Color(hex: config.spiderLabelColor)), at: CGPoint(x: center.x + 8, y: center.y - radius * CGFloat(fraction)), anchor: .leading)
         }
@@ -259,7 +258,7 @@ private struct TargetRuntimeChartView: View {
         guard let firstSeries = seriesList.first, firstSeries.data.count >= 3 else { return nil }
         let rect = CGRect(origin: .zero, size: size).insetBy(dx: 16, dy: 12)
         let center = CGPoint(x: rect.midX, y: rect.midY)
-        let radius = min(rect.width, rect.height) * 0.34
+        let radius = spiderPlotRadius(in: rect)
         guard radius > 0 else { return nil }
         let axisCount = firstSeries.data.count
         let vector = CGVector(dx: location.x - center.x, dy: location.y - center.y)
@@ -306,6 +305,22 @@ private struct TargetRuntimeChartView: View {
         path.closeSubpath()
         return path
     }
+
+    private func spiderPlotRadius(in rect: CGRect) -> CGFloat {
+        // Compact deployed charts need more of their available height for the
+        // plot; otherwise tick labels collapse into the center on iPhone/iPad.
+        max(24, min(rect.width, rect.height) * 0.44)
+    }
+
+    private func spiderTickFractions(radius: CGFloat, ringCount: Int) -> [Double] {
+        if radius < 72 {
+            return [0, 0.5, 1]
+        }
+        if radius < 112 {
+            return [0, 1.0 / 3.0, 2.0 / 3.0, 1]
+        }
+        return (0...ringCount).map { Double($0) / Double(ringCount) }
+    }
 }
 
 private struct TargetRuntimeSpiderAxisLabels: View {
@@ -316,7 +331,7 @@ private struct TargetRuntimeSpiderAxisLabels: View {
         let labels = config.spiderAxisLabels()
         let rect = CGRect(origin: .zero, size: size).insetBy(dx: 16, dy: 12)
         let center = CGPoint(x: rect.midX, y: rect.midY)
-        let radius = min(rect.width, rect.height) * 0.42
+        let radius = max(28, min(rect.width, rect.height) * 0.51)
         ZStack {
             ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
                 Text(label)
@@ -663,66 +678,72 @@ private struct TargetRuntimeAppleMusicBrowserView<SystemProviderType: SystemProv
         #if os(tvOS)
         placeholder("Apple Music is not available in the tvOS runtime")
         #else
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                TextField("Search Apple Music", text: $term)
-                    .textFieldStyle(.roundedBorder)
-                Button("Search") { search() }
-                    .buttonStyle(.borderedProminent)
-            }
-            HStack {
-                Picker("Scope", selection: $scope) {
-                    Text("Catalog").tag(AppleMusicSearchScope.catalog)
-                    Text("Library").tag(AppleMusicSearchScope.library)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    TextField("Search Apple Music", text: $term)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Search") { search() }
+                        .buttonStyle(.borderedProminent)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
                 }
-                .pickerStyle(.segmented)
-                Picker("Type", selection: $kind) {
-                    ForEach([AppleMusicItemKind.song, .album, .artist, .playlist], id: \.self) { item in
-                        Text(item.rawValue.capitalized).tag(item)
+                HStack {
+                    Picker("Scope", selection: $scope) {
+                        Text("Catalog").tag(AppleMusicSearchScope.catalog)
+                        Text("Library").tag(AppleMusicSearchScope.library)
+                    }
+                    .pickerStyle(.segmented)
+                    Picker("Type", selection: $kind) {
+                        ForEach([AppleMusicItemKind.song, .album, .artist, .playlist], id: \.self) { item in
+                            Text(item.rawValue.capitalized).tag(item)
+                        }
                     }
                 }
-            }
-            .font(.caption)
-            if !document.stack.appleMusicAllowed {
-                Text("Apple Music is disabled for this stack.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else if results.isEmpty {
-                selectedSummary
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 3) {
-                        ForEach(results, id: \.encodedSource) { item in
-                            Button(item.titleSnapshot.isEmpty ? item.id : item.titleSnapshot) {
-                                select(item)
+                .font(.caption)
+                if !document.stack.appleMusicAllowed {
+                    Text("Apple Music is disabled for this stack.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else if results.isEmpty {
+                    selectedSummary
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(results, id: \.encodedSource) { item in
+                                Button(item.titleSnapshot.isEmpty ? item.id : item.titleSnapshot) {
+                                    select(item)
+                                }
+                                .buttonStyle(.plain)
+                                .lineLimit(1)
                             }
-                            .buttonStyle(.plain)
-                            .lineLimit(1)
                         }
                     }
                 }
-            }
-            HStack {
-                Button("Play") { playSelected() }
-                Button("Stop") { Task { await systemProvider.stopAppleMusic(engine: .application) } }
-                if part.musicDuration > 0 {
-                    Slider(value: Binding(
-                        get: { min(max(0, part.musicPosition), part.musicDuration) },
-                        set: { value in
-                            var updated = part
-                            updated.musicPosition = value
-                            commit(updated, message: "positionChanged")
-                            Task { try? await systemProvider.seekAppleMusic(to: value, engine: .application) }
-                        }
-                    ), in: 0...part.musicDuration)
+                HStack {
+                    Button("Play") { playSelected() }
+                    Button("Stop") { Task { await systemProvider.stopAppleMusic(engine: .application) } }
+                    if part.musicDuration > 0 {
+                        Slider(value: Binding(
+                            get: { min(max(0, part.musicPosition), part.musicDuration) },
+                            set: { value in
+                                var updated = part
+                                updated.musicPosition = value
+                                commit(updated, message: "positionChanged")
+                                Task { try? await systemProvider.seekAppleMusic(to: value, engine: .application) }
+                            }
+                        ), in: 0...part.musicDuration)
+                    }
+                }
+                .font(.caption)
+                if !statusText.isEmpty {
+                    Text(statusText).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
                 }
             }
-            .font(.caption)
-            if !statusText.isEmpty {
-                Text(statusText).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(8)
         }
-        .padding(8)
+        .scrollIndicators(.visible)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.gray.opacity(0.08)))
         .onAppear {
             term = part.musicSearchTerm
@@ -942,8 +963,8 @@ private struct TargetRuntimeButtonView: View {
     }
 
     var body: some View {
-        switch part.buttonStyle {
-        case .toggle, .checkBox, .radio:
+        switch TargetRuntimeButtonRenderKind(style: part.buttonStyle) {
+        case .toggle:
             Toggle(isOn: Binding(
                 get: { part.hilite || part.controlValue >= 0.5 },
                 set: { newValue in
@@ -959,6 +980,10 @@ private struct TargetRuntimeButtonView: View {
             .toggleStyle(.switch)
             #endif
             .padding(.horizontal, 6)
+        case .checkBox:
+            indicatorButton(shape: .checkBox)
+        case .radio:
+            indicatorButton(shape: .radio)
         case .popup:
             Menu {
                 ForEach(popupItems, id: \.self) { item in
@@ -983,15 +1008,132 @@ private struct TargetRuntimeButtonView: View {
             .buttonStyle(.plain)
             .foregroundStyle(.blue)
             .underline()
-        case .transparent:
-            Button(label) { dispatchMouseUp(part) }
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        default:
-            Button(label) { dispatchMouseUp(part) }
-                .buttonStyle(.borderedProminent)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .transparent, .filledRectangle, .roundedRectangle, .prominentDefault, .shadow, .oval:
+            styledButton(kind: TargetRuntimeButtonRenderKind(style: part.buttonStyle))
         }
+    }
+
+    private enum IndicatorShape {
+        case checkBox
+        case radio
+    }
+
+    private func indicatorButton(shape: IndicatorShape) -> some View {
+        Button {
+            var updated = part
+            let isOn = !(part.hilite || part.controlValue >= 0.5)
+            updated.hilite = isOn
+            updated.controlValue = isOn ? 1 : 0
+            commit(updated, message: "valueChanged")
+        } label: {
+            HStack(spacing: 8) {
+                indicatorMark(shape: shape)
+                Text(label)
+                    .font(.system(size: max(8, part.textSize)))
+                    .foregroundStyle(textColor)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .padding(.horizontal, 6)
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func indicatorMark(shape: IndicatorShape) -> some View {
+        let isOn = part.hilite || part.controlValue >= 0.5
+        switch shape {
+        case .checkBox:
+            RoundedRectangle(cornerRadius: 3)
+                .fill(isOn ? accentColor : Color.clear)
+                .overlay(RoundedRectangle(cornerRadius: 3).stroke(accentColor, lineWidth: 1.5))
+                .overlay {
+                    if isOn {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(Color.white)
+                    }
+                }
+                .frame(width: 18, height: 18)
+        case .radio:
+            Circle()
+                .fill(Color.clear)
+                .overlay(Circle().stroke(accentColor, lineWidth: 1.5))
+                .overlay {
+                    if isOn {
+                        Circle()
+                            .fill(accentColor)
+                            .frame(width: 9, height: 9)
+                    }
+                }
+                .frame(width: 18, height: 18)
+        }
+    }
+
+    private func styledButton(kind: TargetRuntimeButtonRenderKind) -> some View {
+        Button(label) { dispatchMouseUp(part) }
+            .buttonStyle(.plain)
+            .font(.system(size: max(8, part.textSize), weight: kind == .prominentDefault ? .semibold : .regular))
+            .foregroundStyle(buttonForeground(kind: kind))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, kind == .transparent ? 0 : 8)
+            .background(buttonBackground(kind: kind))
+            .shadow(color: kind == .shadow ? .black.opacity(0.28) : .clear, radius: 3, x: 2, y: 2)
+    }
+
+    @ViewBuilder
+    private func buttonBackground(kind: TargetRuntimeButtonRenderKind) -> some View {
+        switch kind {
+        case .transparent:
+            Color.clear
+        case .filledRectangle:
+            Rectangle()
+                .fill(part.hilite ? accentColor.opacity(0.85) : fillColor)
+                .overlay(Rectangle().stroke(borderColor, lineWidth: 1))
+        case .roundedRectangle:
+            RoundedRectangle(cornerRadius: buttonCornerRadius(minimum: 6))
+                .fill(part.hilite ? accentColor.opacity(0.85) : fillColor)
+                .overlay(RoundedRectangle(cornerRadius: buttonCornerRadius(minimum: 6)).stroke(borderColor, lineWidth: 1))
+        case .prominentDefault:
+            RoundedRectangle(cornerRadius: buttonCornerRadius(minimum: 8))
+                .fill(accentColor)
+        case .shadow:
+            Rectangle()
+                .fill(part.hilite ? accentColor.opacity(0.85) : fillColor)
+                .overlay(Rectangle().stroke(borderColor, lineWidth: 1))
+        case .oval:
+            Capsule()
+                .fill(part.hilite ? accentColor.opacity(0.85) : fillColor)
+                .overlay(Capsule().stroke(borderColor, lineWidth: 1))
+        case .toggle, .checkBox, .radio, .popup, .link:
+            EmptyView()
+        }
+    }
+
+    private func buttonForeground(kind: TargetRuntimeButtonRenderKind) -> Color {
+        if !part.fontColor.isEmpty { return Color(hex: part.fontColor) }
+        return kind == .prominentDefault ? .white : textColor
+    }
+
+    private var fillColor: Color {
+        part.fillColor.isEmpty ? Color.gray.opacity(0.12) : Color(hex: part.fillColor)
+    }
+
+    private var borderColor: Color {
+        part.strokeColor.isEmpty ? Color.secondary.opacity(0.45) : Color(hex: part.strokeColor)
+    }
+
+    private var accentColor: Color {
+        Color.accentColor
+    }
+
+    private var textColor: Color {
+        part.fontColor.isEmpty ? Color.primary : Color(hex: part.fontColor)
+    }
+
+    private func buttonCornerRadius(minimum: Double) -> CGFloat {
+        CGFloat(max(minimum, part.cornerRadius))
     }
 
     private var popupItems: [String] {
@@ -1043,7 +1185,7 @@ private struct TargetRuntimeFieldView: View {
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { dispatch("searchSubmitted") }
                     .padding(4)
-            } else if part.fieldStyle == .scrolling || !part.dontWrap {
+            } else if part.fieldStyle == .scrolling || (!part.dontWrap && part.height > 64) {
                 TextEditor(text: fieldBinding(message: nil))
                     .scrollContentBackground(.hidden)
                     .padding(part.wideMargins ? 8 : 2)
@@ -1180,6 +1322,15 @@ private struct TargetRuntimeImageView: View {
     let part: Part
 
     var body: some View {
+        #if canImport(UIKit)
+        if let data = part.imageData {
+            TargetRuntimeAnimatedImageView(data: data, isAnimating: part.animated)
+        } else {
+            Rectangle()
+                .fill(Color.gray.opacity(0.16))
+                .overlay(Text("Image").font(.caption).foregroundStyle(.secondary))
+        }
+        #else
         if let data = part.imageData, let image = TargetRuntimePlatformImage(data: data) {
             TargetRuntimePlatformImageView(image: image)
                 .scaledToFit()
@@ -1188,8 +1339,89 @@ private struct TargetRuntimeImageView: View {
                 .fill(Color.gray.opacity(0.16))
                 .overlay(Text("Image").font(.caption).foregroundStyle(.secondary))
         }
+        #endif
     }
 }
+
+#if canImport(UIKit)
+private struct TargetRuntimeAnimatedImageView: UIViewRepresentable {
+    let data: Data
+    let isAnimating: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> UIImageView {
+        let imageView = UIImageView(frame: .zero)
+        imageView.contentMode = .scaleAspectFit
+        imageView.clipsToBounds = true
+        apply(to: imageView, coordinator: context.coordinator)
+        return imageView
+    }
+
+    func updateUIView(_ uiView: UIImageView, context: Context) {
+        apply(to: uiView, coordinator: context.coordinator)
+    }
+
+    private func apply(to imageView: UIImageView, coordinator: Coordinator) {
+        coordinator.prepare(data: data)
+        guard isAnimating, coordinator.animatedFrames.count > 1 else {
+            imageView.stopAnimating()
+            imageView.animationImages = nil
+            imageView.image = coordinator.staticImage
+            coordinator.appliedRevision = nil
+            return
+        }
+
+        if coordinator.appliedRevision != coordinator.revision {
+            imageView.stopAnimating()
+            imageView.animationImages = coordinator.animatedFrames
+            imageView.animationDuration = coordinator.animationDuration
+            imageView.animationRepeatCount = coordinator.animationRepeatCount
+            imageView.image = coordinator.staticImage
+            coordinator.appliedRevision = coordinator.revision
+        }
+        if !imageView.isAnimating {
+            imageView.startAnimating()
+        }
+    }
+
+    final class Coordinator {
+        private var preparedData: Data?
+        private(set) var revision: Int = 0
+        var appliedRevision: Int?
+        private(set) var staticImage: UIImage?
+        private(set) var animatedFrames: [UIImage] = []
+        private(set) var animationDuration: TimeInterval = 0
+        private(set) var animationRepeatCount: Int = 0
+
+        func prepare(data: Data) {
+            guard preparedData != data else { return }
+            preparedData = data
+            revision &+= 1
+            appliedRevision = nil
+            staticImage = UIImage(data: data)
+            animatedFrames = []
+            animationDuration = 0
+            animationRepeatCount = 0
+            if let decoded = GIFDecoder.decode(data) {
+                let scale = UIScreen.main.scale
+                let frames = decoded.frames.map { UIImage(cgImage: $0, scale: scale, orientation: .up) }
+                let duration = max(0.1, decoded.frameDelays.reduce(0, +))
+                animatedFrames = frames
+                animationDuration = duration
+                animationRepeatCount = decoded.loopCount
+                staticImage = frames.first ?? staticImage
+            } else if let frames = staticImage?.images, frames.count > 1 {
+                animatedFrames = frames
+                animationDuration = staticImage?.duration ?? 0
+                animationRepeatCount = 0
+            }
+        }
+    }
+}
+#endif
 
 private struct TargetRuntimeVideoView: View {
     let part: Part
@@ -1212,13 +1444,19 @@ private struct TargetRuntimeCalendarView: View {
     let part: Part
     let onPartChanged: TargetRuntimePartMutationHandler
 
+    private var style: TargetRuntimeCalendarStyle {
+        TargetRuntimeCalendarStyle(rawOrAlias: part.calendarStyle)
+    }
+
     var body: some View {
         #if os(tvOS)
         Text(part.selectedDate.isEmpty ? "Date unavailable" : part.selectedDate)
             .font(.caption)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         #else
-        if part.calendarStyle.lowercased().contains("text") {
+        if style == .clockAndCalendar {
+            TargetRuntimeClockAndCalendarView(part: part, onPartChanged: onPartChanged)
+        } else if style.usesCompactPicker {
             picker.datePickerStyle(.compact).labelsHidden().padding(4)
         } else {
             picker.datePickerStyle(.graphical).labelsHidden().padding(4)
@@ -1231,11 +1469,14 @@ private struct TargetRuntimeCalendarView: View {
         DatePicker(
             part.name.isEmpty ? "Date" : part.name,
             selection: Binding(
-                get: { parseDate(part.selectedDate) ?? Date() },
+                get: { parseDateAndTime(date: part.selectedDate, time: style.persistsTime ? part.selectedTime : "") ?? Date() },
                 set: { date in
                     var updated = part
                     updated.selectedDate = formatDate(date)
                     updated.displayMonth = monthDate(date)
+                    if style.persistsTime {
+                        updated.selectedTime = formatTime(date)
+                    }
                     commit(updated, message: "dateChanged")
                 }
             ),
@@ -1249,6 +1490,224 @@ private struct TargetRuntimeCalendarView: View {
         Task { await handler(updated, message) }
     }
 }
+
+#if !os(tvOS)
+private struct TargetRuntimeClockAndCalendarView: View {
+    let part: Part
+    let onPartChanged: TargetRuntimePartMutationHandler
+
+    var body: some View {
+        GeometryReader { proxy in
+            let horizontal = proxy.size.width >= proxy.size.height
+            Group {
+                if horizontal {
+                    HStack(spacing: 6) {
+                        calendarGrid
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        clockPanel
+                            .frame(width: max(96, proxy.size.width * 0.34))
+                            .frame(maxHeight: .infinity)
+                    }
+                } else {
+                    VStack(spacing: 6) {
+                        calendarGrid
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        clockPanel
+                            .frame(height: max(92, proxy.size.height * 0.32))
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+            .padding(6)
+        }
+        .background(RoundedRectangle(cornerRadius: 10).fill(targetRuntimeCalendarChromeColor))
+    }
+
+    private var calendarGrid: some View {
+        VStack(spacing: 3) {
+            HStack(spacing: 6) {
+                Button("<") { shiftDisplayMonth(by: -1) }
+                    .buttonStyle(.plain)
+                    .font(.caption.bold())
+                Text(monthTitle(displayMonthDate))
+                    .font(.caption.bold())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.62)
+                    .frame(maxWidth: .infinity)
+                Button(">") { shiftDisplayMonth(by: 1) }
+                    .buttonStyle(.plain)
+                    .font(.caption.bold())
+            }
+            HStack(spacing: 1) {
+                ForEach(Array(["S", "M", "T", "W", "T", "F", "S"].enumerated()), id: \.offset) { _, label in
+                    Text(label)
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 1), count: 7), spacing: 1) {
+                ForEach(Array(monthGridDates(for: displayMonthDate).enumerated()), id: \.offset) { _, date in
+                    dayCell(date)
+                }
+            }
+        }
+        .padding(5)
+        .background(RoundedRectangle(cornerRadius: 8).fill(targetRuntimeCalendarPanelColor))
+    }
+
+    private var clockPanel: some View {
+        VStack(spacing: 4) {
+            Text(formatTime(selectedDateTime))
+                .font(.caption.monospacedDigit())
+                .lineLimit(1)
+            TargetRuntimeAnalogClockFace(date: selectedDateTime) { hour, minute in
+                setClockTime(hour: hour, minute: minute)
+            }
+            Text("Drag clock to set time")
+                .font(.system(size: 8))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+        }
+        .padding(5)
+        .background(RoundedRectangle(cornerRadius: 8).fill(targetRuntimeCalendarPanelColor))
+    }
+
+    @ViewBuilder
+    private func dayCell(_ date: Date?) -> some View {
+        if let date {
+            let selected = targetRuntimeCalendarUTC.isDate(date, inSameDayAs: selectedDateTime)
+            Button {
+                selectDay(date)
+            } label: {
+                Text("\(targetRuntimeCalendarUTC.component(.day, from: date))")
+                    .font(.system(size: 10, weight: selected ? .bold : .regular))
+                    .foregroundStyle(selected ? Color.white : Color.primary)
+                    .frame(maxWidth: .infinity, minHeight: 18)
+                    .background(Circle().fill(selected ? Color.accentColor : Color.clear))
+            }
+            .buttonStyle(.plain)
+        } else {
+            Color.clear
+                .frame(minHeight: 18)
+        }
+    }
+
+    private var selectedDateTime: Date {
+        parseDateAndTime(date: part.selectedDate, time: part.selectedTime) ?? Date()
+    }
+
+    private var displayMonthDate: Date {
+        parseDate(part.displayMonth) ?? parseDate(part.selectedDate) ?? selectedDateTime
+    }
+
+    private func selectDay(_ date: Date) {
+        var dayComponents = targetRuntimeCalendarUTC.dateComponents([.year, .month, .day], from: date)
+        let timeComponents = targetRuntimeCalendarUTC.dateComponents([.hour, .minute, .second], from: selectedDateTime)
+        dayComponents.hour = timeComponents.hour ?? 0
+        dayComponents.minute = timeComponents.minute ?? 0
+        dayComponents.second = timeComponents.second ?? 0
+        guard let combined = targetRuntimeCalendarUTC.date(from: dayComponents) else { return }
+        commit(date: combined, displayMonth: date)
+    }
+
+    private func shiftDisplayMonth(by delta: Int) {
+        guard let month = targetRuntimeCalendarUTC.date(byAdding: .month, value: delta, to: displayMonthDate) else { return }
+        var updated = part
+        updated.displayMonth = monthDate(month)
+        let handler = onPartChanged
+        Task { await handler(updated, nil) }
+    }
+
+    private func setClockTime(hour: Int, minute: Int) {
+        var components = targetRuntimeCalendarUTC.dateComponents([.year, .month, .day], from: selectedDateTime)
+        components.hour = max(0, min(23, hour))
+        components.minute = max(0, min(59, minute))
+        components.second = 0
+        guard let combined = targetRuntimeCalendarUTC.date(from: components) else { return }
+        commit(date: combined, displayMonth: displayMonthDate)
+    }
+
+    private func commit(date: Date, displayMonth: Date) {
+        var updated = part
+        updated.selectedDate = formatDate(date)
+        updated.selectedTime = formatTime(date)
+        updated.displayMonth = monthDate(displayMonth)
+        let handler = onPartChanged
+        Task { await handler(updated, "dateChanged") }
+    }
+}
+
+private struct TargetRuntimeAnalogClockFace: View {
+    let date: Date
+    let onTimeChanged: (Int, Int) -> Void
+
+    var body: some View {
+        GeometryReader { proxy in
+            let diameter = min(proxy.size.width, proxy.size.height)
+            let radius = diameter / 2
+            let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+            let components = targetRuntimeCalendarUTC.dateComponents([.hour, .minute], from: date)
+            let hour = components.hour ?? 0
+            let minute = components.minute ?? 0
+            ZStack {
+                Circle()
+                    .fill(targetRuntimeCalendarPanelColor)
+                    .overlay(Circle().stroke(Color.secondary.opacity(0.55), lineWidth: 1.2))
+                ForEach(0..<12, id: \.self) { tick in
+                    Capsule()
+                        .fill(Color.secondary.opacity(tick % 3 == 0 ? 0.75 : 0.38))
+                        .frame(width: tick % 3 == 0 ? 2 : 1, height: tick % 3 == 0 ? 10 : 6)
+                        .offset(y: -radius + 10)
+                        .rotationEffect(.degrees(Double(tick) * 30))
+                }
+                hand(length: radius * 0.48, width: 4, color: .primary, degrees: hourDegrees(hour: hour, minute: minute))
+                hand(length: radius * 0.68, width: 2, color: .accentColor, degrees: Double(minute) * 6)
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: 7, height: 7)
+            }
+            .frame(width: diameter, height: diameter)
+            .position(center)
+            .contentShape(Circle())
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                    .onChanged { value in setTime(from: value.location, in: proxy.size) }
+            )
+        }
+    }
+
+    private func hand(length: CGFloat, width: CGFloat, color: Color, degrees: Double) -> some View {
+        Capsule()
+            .fill(color)
+            .frame(width: width, height: length)
+            .offset(y: -length / 2)
+            .rotationEffect(.degrees(degrees))
+    }
+
+    private func hourDegrees(hour: Int, minute: Int) -> Double {
+        Double(hour % 12) * 30 + Double(minute) * 0.5
+    }
+
+    private func setTime(from location: CGPoint, in size: CGSize) {
+        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+        let dx = location.x - center.x
+        let dy = location.y - center.y
+        guard abs(dx) > 0.001 || abs(dy) > 0.001 else { return }
+        var angle = atan2(dy, dx) + (.pi / 2)
+        if angle < 0 { angle += .pi * 2 }
+        let currentHour = targetRuntimeCalendarUTC.component(.hour, from: date)
+        let preservesPM = currentHour >= 12
+        let fiveMinuteStep = Int((Double(angle) / (Double.pi * 2) * 144).rounded()) % 144
+        let totalMinutes = fiveMinuteStep * 5
+        let hour12 = (totalMinutes / 60) % 12
+        let minute = totalMinutes % 60
+        let hour = preservesPM ? (hour12 == 0 ? 12 : hour12 + 12) : hour12
+        onTimeChanged(hour, minute)
+    }
+}
+#endif
 
 private struct TargetRuntimeColorWellView: View {
     let part: Part
@@ -1341,14 +1800,16 @@ private struct TargetRuntimeSliderView: View {
                     .font(.caption)
                     .lineLimit(1)
             }
-            Slider(value: Binding(
-                get: { clampedControlValue(part) },
-                set: { value in
-                    var updated = part
-                    updated.controlValue = quantizedControlValue(value, part: part)
-                    commit(updated, message: "valueChanged")
+            if part.sliderControlOrientation == .vertical {
+                GeometryReader { proxy in
+                    slider
+                        .frame(width: proxy.size.height, height: proxy.size.width)
+                        .rotationEffect(.degrees(-90))
+                        .frame(width: proxy.size.width, height: proxy.size.height)
                 }
-            ), in: controlRange(part), step: max(0.0001, part.controlStep))
+            } else {
+                slider
+            }
             Text(ChartConfig.formattedValue(clampedControlValue(part)))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -1356,6 +1817,19 @@ private struct TargetRuntimeSliderView: View {
         .padding(.horizontal, 8)
         #endif
     }
+
+    #if !os(tvOS)
+    private var slider: some View {
+        Slider(value: Binding(
+            get: { clampedControlValue(part) },
+            set: { value in
+                var updated = part
+                updated.controlValue = quantizedControlValue(value, part: part)
+                commit(updated, message: "valueChanged")
+            }
+        ), in: controlRange(part), step: max(0.0001, part.controlStep))
+    }
+    #endif
 
     private func commit(_ updated: Part, message: String?) {
         let handler = onPartChanged
@@ -1376,20 +1850,43 @@ private struct TargetRuntimeSegmentedView: View {
     }
 
     var body: some View {
-        Picker(part.name.isEmpty ? "Selection" : part.name, selection: Binding(
-            get: { min(max(0, Int(part.controlValue.rounded())), max(0, items.count - 1)) },
-            set: { index in
-                var updated = part
-                updated.controlValue = Double(index)
-                commit(updated, message: "selectionChanged")
-            }
-        )) {
+        HStack(spacing: 0) {
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                Text(item).tag(index)
+                Button {
+                    select(index)
+                } label: {
+                    Text(item)
+                        .font(.caption)
+                        .fontWeight(selectedIndex == index ? .semibold : .regular)
+                        .foregroundStyle(selectedIndex == index ? Color.primary : Color.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.horizontal, 8)
+                        .background {
+                            if selectedIndex == index {
+                                Capsule()
+                                    .fill(Color.white.opacity(0.94))
+                                    .shadow(color: .black.opacity(0.08), radius: 1, y: 1)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
             }
         }
-        .pickerStyle(.segmented)
+        .background(Capsule().fill(Color.gray.opacity(0.16)))
         .padding(4)
+    }
+
+    private var selectedIndex: Int {
+        min(max(0, Int(part.controlValue.rounded())), max(0, items.count - 1))
+    }
+
+    private func select(_ index: Int) {
+        guard index != selectedIndex else { return }
+        var updated = part
+        updated.controlValue = Double(index)
+        commit(updated, message: "selectionChanged")
     }
 
     private func commit(_ updated: Part, message: String?) {
@@ -1462,6 +1959,8 @@ private struct TargetRuntimeGaugeView: View {
             gauge.gaugeStyle(.accessoryCircularCapacity).tint(tint).padding(6)
         case "accessorylinear", "accessorylineargauge":
             gauge.gaugeStyle(.accessoryLinear).tint(tint).padding(6)
+        case "accessorylinearcapacity":
+            gauge.gaugeStyle(.accessoryLinearCapacity).tint(tint).padding(6)
         default:
             gauge.gaugeStyle(.linearCapacity).tint(tint).padding(6)
         }
@@ -1577,40 +2076,107 @@ private struct TargetRuntimePDFView: View {
 private struct TargetRuntimePDFKitView: UIViewRepresentable {
     let url: URL
     let part: Part
+    func makeCoordinator() -> Coordinator { Coordinator() }
     func makeUIView(context: Context) -> PDFView {
         let view = PDFView(frame: .zero)
-        apply(to: view)
+        view.displayDirection = .vertical
+        view.displaysPageBreaks = true
+        view.backgroundColor = .clear
+        view.usePageViewController(false)
+        apply(to: view, coordinator: context.coordinator)
         return view
     }
-    func updateUIView(_ uiView: PDFView, context: Context) { apply(to: uiView) }
-    private func apply(to view: PDFView) {
-        view.autoScales = part.pdfAutoScales
-        if view.document?.documentURL != url {
+    func updateUIView(_ uiView: PDFView, context: Context) {
+        apply(to: uiView, coordinator: context.coordinator)
+    }
+    private func apply(to view: PDFView, coordinator: Coordinator) {
+        let displayMode = targetRuntimePDFDisplayMode(part.pdfDisplayMode)
+        if coordinator.autoScales != part.pdfAutoScales {
+            view.autoScales = part.pdfAutoScales
+            coordinator.autoScales = part.pdfAutoScales
+        }
+        if coordinator.displayMode != displayMode {
+            view.displayMode = displayMode
+            coordinator.displayMode = displayMode
+        }
+        if coordinator.url != url || view.document?.documentURL != url {
             view.document = PDFDocument(url: url)
+            coordinator.url = url
+            coordinator.currentPage = nil
         }
-        if let page = view.document?.page(at: max(0, part.pdfCurrentPage - 1)) {
+        let requestedPage = max(0, part.pdfCurrentPage - 1)
+        if coordinator.currentPage != requestedPage,
+           let page = view.document?.page(at: requestedPage) {
             view.go(to: page)
+            coordinator.currentPage = requestedPage
         }
+    }
+
+    final class Coordinator {
+        var url: URL?
+        var autoScales: Bool?
+        var displayMode: PDFDisplayMode?
+        var currentPage: Int?
     }
 }
 #elseif canImport(PDFKit) && canImport(AppKit)
 private struct TargetRuntimePDFKitView: NSViewRepresentable {
     let url: URL
     let part: Part
+    func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> PDFView {
         let view = PDFView(frame: .zero)
-        apply(to: view)
+        view.displayDirection = .vertical
+        view.displaysPageBreaks = true
+        apply(to: view, coordinator: context.coordinator)
         return view
     }
-    func updateNSView(_ nsView: PDFView, context: Context) { apply(to: nsView) }
-    private func apply(to view: PDFView) {
-        view.autoScales = part.pdfAutoScales
-        if view.document?.documentURL != url {
+    func updateNSView(_ nsView: PDFView, context: Context) {
+        apply(to: nsView, coordinator: context.coordinator)
+    }
+    private func apply(to view: PDFView, coordinator: Coordinator) {
+        let displayMode = targetRuntimePDFDisplayMode(part.pdfDisplayMode)
+        if coordinator.autoScales != part.pdfAutoScales {
+            view.autoScales = part.pdfAutoScales
+            coordinator.autoScales = part.pdfAutoScales
+        }
+        if coordinator.displayMode != displayMode {
+            view.displayMode = displayMode
+            coordinator.displayMode = displayMode
+        }
+        if coordinator.url != url || view.document?.documentURL != url {
             view.document = PDFDocument(url: url)
+            coordinator.url = url
+            coordinator.currentPage = nil
         }
-        if let page = view.document?.page(at: max(0, part.pdfCurrentPage - 1)) {
+        let requestedPage = max(0, part.pdfCurrentPage - 1)
+        if coordinator.currentPage != requestedPage,
+           let page = view.document?.page(at: requestedPage) {
             view.go(to: page)
+            coordinator.currentPage = requestedPage
         }
+    }
+
+    final class Coordinator {
+        var url: URL?
+        var autoScales: Bool?
+        var displayMode: PDFDisplayMode?
+        var currentPage: Int?
+    }
+}
+#endif
+
+#if canImport(PDFKit)
+private func targetRuntimePDFDisplayMode(_ raw: String) -> PDFDisplayMode {
+    switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "single", "singlepage":
+        return .singlePage
+    case "twoup", "two_up", "twopage":
+        return .twoUp
+    case "twoupcontinuous", "two_up_continuous", "twopagescontinuous":
+        return .twoUpContinuous
+    default:
+        return .singlePageContinuous
     }
 }
 #endif
@@ -1918,24 +2484,118 @@ private func parseDate(_ raw: String) -> Date? {
     return targetRuntimeDateFormatter.date(from: raw)
 }
 
+private func parseDateAndTime(date: String, time: String) -> Date? {
+    guard let day = parseDate(date) else { return nil }
+    guard !time.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return day }
+    let pieces = time.split(separator: ":").compactMap { Int($0) }
+    guard pieces.count >= 2 else { return day }
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    var components = calendar.dateComponents([.year, .month, .day], from: day)
+    components.hour = max(0, min(23, pieces[0]))
+    components.minute = max(0, min(59, pieces[1]))
+    components.second = pieces.count >= 3 ? max(0, min(59, pieces[2])) : 0
+    return calendar.date(from: components)
+}
+
 private func formatDate(_ date: Date) -> String {
     targetRuntimeDateFormatter.string(from: date)
 }
 
-private func monthDate(_ date: Date) -> String {
-    var components = Calendar(identifier: .gregorian).dateComponents([.year, .month], from: date)
-    components.day = 1
-    return targetRuntimeDateFormatter.string(from: Calendar(identifier: .gregorian).date(from: components) ?? date)
+private func formatTime(_ date: Date) -> String {
+    targetRuntimeTimeFormatter.string(from: date)
 }
+
+private func monthDate(_ date: Date) -> String {
+    var components = targetRuntimeCalendarUTC.dateComponents([.year, .month], from: date)
+    components.day = 1
+    return targetRuntimeDateFormatter.string(from: targetRuntimeCalendarUTC.date(from: components) ?? date)
+}
+
+private func monthTitle(_ date: Date) -> String {
+    targetRuntimeMonthFormatter.string(from: date)
+}
+
+private func monthGridDates(for date: Date) -> [Date?] {
+    let monthComponents = targetRuntimeCalendarUTC.dateComponents([.year, .month], from: date)
+    guard let year = monthComponents.year,
+          let month = monthComponents.month,
+          let monthStart = targetRuntimeCalendarUTC.date(from: DateComponents(
+            calendar: targetRuntimeCalendarUTC,
+            timeZone: targetRuntimeTimeZoneUTC,
+            year: year,
+            month: month,
+            day: 1
+          )),
+          let dayRange = targetRuntimeCalendarUTC.range(of: .day, in: .month, for: monthStart) else {
+        return []
+    }
+    let leadingBlanks = (targetRuntimeCalendarUTC.component(.weekday, from: monthStart) - targetRuntimeCalendarUTC.firstWeekday + 7) % 7
+    var cells: [Date?] = Array(repeating: nil, count: leadingBlanks)
+    for day in dayRange {
+        cells.append(targetRuntimeCalendarUTC.date(byAdding: .day, value: day - 1, to: monthStart))
+    }
+    while cells.count % 7 != 0 {
+        cells.append(nil)
+    }
+    return cells
+}
+
+private let targetRuntimeTimeZoneUTC = TimeZone(secondsFromGMT: 0)!
+
+private let targetRuntimeCalendarUTC: Calendar = {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = targetRuntimeTimeZoneUTC
+    calendar.firstWeekday = 1
+    return calendar
+}()
 
 private let targetRuntimeDateFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.calendar = Calendar(identifier: .gregorian)
     formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    formatter.timeZone = targetRuntimeTimeZoneUTC
     formatter.dateFormat = "yyyy-MM-dd"
     return formatter
 }()
+
+private let targetRuntimeTimeFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = targetRuntimeTimeZoneUTC
+    formatter.dateFormat = "HH:mm:ss"
+    return formatter
+}()
+
+private let targetRuntimeMonthFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = targetRuntimeTimeZoneUTC
+    formatter.dateFormat = "MMM yyyy"
+    return formatter
+}()
+
+private var targetRuntimeCalendarChromeColor: Color {
+    #if os(macOS)
+    Color(nsColor: .controlBackgroundColor).opacity(0.72)
+    #elseif canImport(UIKit)
+    Color(uiColor: .secondarySystemBackground).opacity(0.72)
+    #else
+    Color.gray.opacity(0.12)
+    #endif
+}
+
+private var targetRuntimeCalendarPanelColor: Color {
+    #if os(macOS)
+    Color(nsColor: .textBackgroundColor).opacity(0.82)
+    #elseif canImport(UIKit)
+    Color(uiColor: .systemBackground).opacity(0.82)
+    #else
+    Color.white.opacity(0.82)
+    #endif
+}
 
 #if os(macOS)
 private typealias TargetRuntimePlatformImage = NSImage

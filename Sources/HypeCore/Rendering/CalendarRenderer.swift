@@ -17,6 +17,7 @@ public enum CalendarRenderer {
 
     public static func draw(ctx: CGContext, part: Part, rect: CGRect) {
         ctx.saveGState()
+        let style = TargetRuntimeCalendarStyle(rawOrAlias: part.calendarStyle)
 
         // Background — light surface with rounded corners.
         let bg = NSColor.controlBackgroundColor.cgColor
@@ -31,12 +32,34 @@ public enum CalendarRenderer {
         ctx.addPath(path)
         ctx.strokePath()
 
+        if style == .textual {
+            drawTextualPlaceholder(ctx: ctx, part: part, rect: rect)
+            ctx.restoreGState()
+            return
+        }
+
+        let calendarRect: CGRect
+        let clockRect: CGRect?
+        if style.persistsTime && rect.width >= 180 {
+            let splitWidth = rect.width * 0.62
+            calendarRect = CGRect(x: rect.minX, y: rect.minY, width: splitWidth, height: rect.height)
+            clockRect = CGRect(
+                x: calendarRect.maxX + 4,
+                y: rect.minY + 8,
+                width: max(0, rect.maxX - calendarRect.maxX - 8),
+                height: max(0, rect.height - 16)
+            )
+        } else {
+            calendarRect = rect
+            clockRect = nil
+        }
+
         // Header strip (top 28pt) with the visible month/year.
         let headerHeight: CGFloat = min(28, rect.height * 0.25)
         let header = CGRect(
-            x: rect.minX,
-            y: rect.minY,
-            width: rect.width,
+            x: calendarRect.minX,
+            y: calendarRect.minY,
+            width: calendarRect.width,
             height: headerHeight
         )
         ctx.setFillColor(NSColor.systemBlue.withAlphaComponent(0.12).cgColor)
@@ -55,16 +78,16 @@ public enum CalendarRenderer {
         let dowStripY = rect.minY + headerHeight + 2
         let dowHeight: CGFloat = 14
         let dowRect = CGRect(
-            x: rect.minX,
+            x: calendarRect.minX,
             y: dowStripY,
-            width: rect.width,
+            width: calendarRect.width,
             height: dowHeight
         )
         let initials = ["S", "M", "T", "W", "T", "F", "S"]
-        let cellWidth = rect.width / 7
+        let cellWidth = calendarRect.width / 7
         for (i, letter) in initials.enumerated() {
             let cell = CGRect(
-                x: rect.minX + cellWidth * CGFloat(i),
+                x: calendarRect.minX + cellWidth * CGFloat(i),
                 y: dowStripY,
                 width: cellWidth,
                 height: dowHeight
@@ -81,7 +104,7 @@ public enum CalendarRenderer {
 
         // Day grid below — 6 rows × 7 columns of dots.
         let gridTop = dowStripY + dowHeight + 4
-        let gridBottom = rect.maxY - 4
+        let gridBottom = calendarRect.maxY - 4
         let rowCount: CGFloat = 6
         let rowHeight = max(8, (gridBottom - gridTop) / rowCount)
         let dotRadius: CGFloat = min(2.0, rowHeight * 0.18)
@@ -89,7 +112,7 @@ public enum CalendarRenderer {
         ctx.setFillColor(NSColor.tertiaryLabelColor.cgColor)
         for row in 0..<6 {
             for col in 0..<7 {
-                let cx = rect.minX + cellWidth * (CGFloat(col) + 0.5)
+                let cx = calendarRect.minX + cellWidth * (CGFloat(col) + 0.5)
                 let cy = gridTop + rowHeight * (CGFloat(row) + 0.5)
                 let dot = CGRect(
                     x: cx - dotRadius,
@@ -103,7 +126,7 @@ public enum CalendarRenderer {
 
         // If a selected date is set, highlight its dot.
         if !part.selectedDate.isEmpty,
-           let highlight = highlightedDayCell(for: part, gridTop: gridTop, rowHeight: rowHeight, cellWidth: cellWidth, in: rect) {
+           let highlight = highlightedDayCell(for: part, gridTop: gridTop, rowHeight: rowHeight, cellWidth: cellWidth, in: calendarRect) {
             ctx.setFillColor(NSColor.systemBlue.cgColor)
             let dot = CGRect(
                 x: highlight.x - dotRadius * 1.6,
@@ -114,7 +137,79 @@ public enum CalendarRenderer {
             ctx.fillEllipse(in: dot)
         }
 
+        if let clockRect {
+            drawClock(ctx: ctx, part: part, rect: clockRect)
+        }
+
         ctx.restoreGState()
+    }
+
+    private static func drawTextualPlaceholder(ctx: CGContext, part: Part, rect: CGRect) {
+        let inset = rect.insetBy(dx: 8, dy: max(6, rect.height * 0.18))
+        let fieldPath = CGPath(roundedRect: inset, cornerWidth: 5, cornerHeight: 5, transform: nil)
+        ctx.addPath(fieldPath)
+        ctx.setFillColor(NSColor.textBackgroundColor.cgColor)
+        ctx.fillPath()
+        ctx.addPath(fieldPath)
+        ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+        ctx.setLineWidth(1)
+        ctx.strokePath()
+
+        let stepperWidth: CGFloat = min(28, inset.width * 0.24)
+        let stepperRect = CGRect(x: inset.maxX - stepperWidth, y: inset.minY, width: stepperWidth, height: inset.height)
+        ctx.setFillColor(NSColor.controlBackgroundColor.cgColor)
+        ctx.fill(stepperRect)
+        ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+        ctx.stroke(stepperRect)
+        drawCenteredText("^\nv", in: stepperRect.insetBy(dx: 2, dy: 2), font: NSFont.systemFont(ofSize: 8), color: NSColor.secondaryLabelColor, ctx: ctx)
+
+        let value = part.selectedDate.isEmpty ? "Select date" : part.selectedDate
+        drawCenteredText(value, in: CGRect(x: inset.minX + 6, y: inset.minY, width: inset.width - stepperWidth - 12, height: inset.height), font: NSFont.systemFont(ofSize: 11), color: NSColor.labelColor, ctx: ctx)
+    }
+
+    private static func drawClock(ctx: CGContext, part: Part, rect: CGRect) {
+        guard rect.width > 20, rect.height > 20 else { return }
+        let labelHeight: CGFloat = 20
+        let diameter = max(18, min(rect.width, rect.height - labelHeight))
+        let clockRect = CGRect(
+            x: rect.midX - diameter / 2,
+            y: rect.minY + max(0, (rect.height - labelHeight - diameter) / 2),
+            width: diameter,
+            height: diameter
+        )
+        ctx.setFillColor(NSColor.textBackgroundColor.cgColor)
+        ctx.fillEllipse(in: clockRect)
+        ctx.setStrokeColor(NSColor.separatorColor.cgColor)
+        ctx.setLineWidth(1)
+        ctx.strokeEllipse(in: clockRect)
+
+        let center = CGPoint(x: clockRect.midX, y: clockRect.midY)
+        let radius = diameter / 2
+        for tick in 0..<12 {
+            let angle = CGFloat(tick) / 12 * .pi * 2 - .pi / 2
+            let outer = CGPoint(x: center.x + cos(angle) * radius * 0.84, y: center.y + sin(angle) * radius * 0.84)
+            let inner = CGPoint(x: center.x + cos(angle) * radius * 0.72, y: center.y + sin(angle) * radius * 0.72)
+            ctx.move(to: inner)
+            ctx.addLine(to: outer)
+        }
+        ctx.strokePath()
+
+        let time = parsedTime(part.selectedTime)
+        let minuteAngle = CGFloat(time.minute) / 60 * .pi * 2 - .pi / 2
+        let hourAngle = (CGFloat(time.hour % 12) + CGFloat(time.minute) / 60) / 12 * .pi * 2 - .pi / 2
+        ctx.setStrokeColor(NSColor.labelColor.cgColor)
+        ctx.setLineWidth(2)
+        ctx.move(to: center)
+        ctx.addLine(to: CGPoint(x: center.x + cos(hourAngle) * radius * 0.42, y: center.y + sin(hourAngle) * radius * 0.42))
+        ctx.strokePath()
+        ctx.setLineWidth(1.5)
+        ctx.move(to: center)
+        ctx.addLine(to: CGPoint(x: center.x + cos(minuteAngle) * radius * 0.62, y: center.y + sin(minuteAngle) * radius * 0.62))
+        ctx.strokePath()
+        ctx.setFillColor(NSColor.labelColor.cgColor)
+        ctx.fillEllipse(in: CGRect(x: center.x - 2, y: center.y - 2, width: 4, height: 4))
+
+        drawCenteredText(time.label, in: CGRect(x: rect.minX, y: clockRect.maxY + 2, width: rect.width, height: labelHeight), font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular), color: NSColor.secondaryLabelColor, ctx: ctx)
     }
 
     private static func monthYearLabel(for part: Part) -> String {
@@ -162,6 +257,13 @@ public enum CalendarRenderer {
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter.date(from: string)
+    }
+
+    private static func parsedTime(_ string: String) -> (hour: Int, minute: Int, label: String) {
+        let parts = string.split(separator: ":").compactMap { Int($0) }
+        let hour = parts.isEmpty ? 0 : max(0, min(23, parts[0]))
+        let minute = parts.count < 2 ? 0 : max(0, min(59, parts[1]))
+        return (hour, minute, String(format: "%02d:%02d", hour, minute))
     }
 
     private static func drawCenteredText(

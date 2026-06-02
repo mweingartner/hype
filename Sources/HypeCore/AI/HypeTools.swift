@@ -498,11 +498,12 @@ public struct HypeToolDefinitions {
             Create a calendar/date-picker control. The user picks dates via a live \
             macOS NSDatePicker; the selected date is stored on the part as ISO 8601 \
             (yyyy-MM-dd) and is readable from HypeTalk as `the selectedDate of \
-            calendar "name"`. The `dateChanged` message fires on the part each time \
-            the user changes the selection. Set `selected_date`, `min_date`, `max_date` \
-            using yyyy-MM-dd format. `style` is one of 'graphical' (default month grid), \
-            'textual' (compact text + stepper), or 'clockAndCalendar' (graphical month \
-            plus an analog clock face).
+            calendar "name"`. The clockAndCalendar style also stores `selectedTime` \
+            as HH:mm:ss. The `dateChanged` message fires on the part each time \
+            the user changes the selection. Set `selected_date`, `selected_time`, \
+            `min_date`, `max_date` using yyyy-MM-dd / HH:mm:ss formats. `style` is \
+            one of 'graphical' (default month grid), 'textual' (compact text + stepper), \
+            or 'clockAndCalendar' (graphical month plus clock).
             """, params: [
             "name": ("string", "Calendar part name", true),
             "left": ("string", "X position", true),
@@ -510,6 +511,7 @@ public struct HypeToolDefinitions {
             "width": ("string", "Width", true),
             "height": ("string", "Height", true),
             "selected_date": ("string", "Initially-selected date as yyyy-MM-dd. Empty = today.", false),
+            "selected_time": ("string", "Initially-selected time as HH:mm:ss. Used by clockAndCalendar.", false),
             "display_month": ("string", "Visible month as yyyy-MM-01. Empty = follows selected_date.", false),
             "min_date": ("string", "Earliest allowed date as yyyy-MM-dd. Empty = no minimum.", false),
             "max_date": ("string", "Latest allowed date as yyyy-MM-dd. Empty = no maximum.", false),

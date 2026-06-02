@@ -298,13 +298,27 @@ struct MainContentView: View {
     private var authoringCommandContext: HypeAuthoringCommandContext {
         HypeAuthoringCommandContext(
             canDuplicateSelection: canDuplicateSelectedParts,
-            duplicateSelection: duplicateSelectedParts
+            duplicateSelection: duplicateSelectedParts,
+            layerTransferTitle: layerTransferTitle,
+            canTransferSelectionToAlternateLayer: canTransferSelectedPartsToAlternateLayer,
+            transferSelectionToAlternateLayer: transferSelectedPartsToAlternateLayer
         )
     }
 
     private var canDuplicateSelectedParts: Bool {
         guard !isRuntimeMode, !selectedPartIds.isEmpty else { return false }
         guard !Self.firstResponderIsTextEditor else { return false }
+        return !selectedPartIds.intersection(editablePartIdsForCurrentLayer()).isEmpty
+    }
+
+    private var layerTransferTitle: String {
+        editingBackground ? "Move to Card" : "Move to Background"
+    }
+
+    private var canTransferSelectedPartsToAlternateLayer: Bool {
+        guard !isRuntimeMode, !selectedPartIds.isEmpty else { return false }
+        guard !Self.firstResponderIsTextEditor else { return false }
+        guard effectiveCurrentCardId != nil else { return false }
         return !selectedPartIds.intersection(editablePartIdsForCurrentLayer()).isEmpty
     }
 
@@ -487,6 +501,33 @@ struct MainContentView: View {
             actionName: "Duplicate Selection"
         )
         selectedPartIds = updatedDocument.expandedGroupSelection(Set(result.copiedPartIds))
+        currentTool = .select
+        updateAutomationRegistry()
+    }
+
+    private func transferSelectedPartsToAlternateLayer() {
+        guard canTransferSelectedPartsToAlternateLayer,
+              let currentCardId = effectiveCurrentCardId,
+              let currentCard = document.document.cards.first(where: { $0.id == currentCardId }) else { return }
+        let ids = selectedPartIds.intersection(editablePartIdsForCurrentLayer())
+        guard !ids.isEmpty else { return }
+
+        let destination: PartLayerTransferDestination = editingBackground
+            ? .card(currentCardId)
+            : .background(currentCard.backgroundId)
+
+        var updatedDocument = document.document
+        let result = updatedDocument.transferParts(ids: ids, to: destination)
+        guard !result.transferredPartIds.isEmpty else { return }
+
+        HypeDocumentMutationCoordinator.shared.applyDocument(
+            updatedDocument,
+            to: trackedDocumentBinding,
+            undoManager: undoManager,
+            actionName: layerTransferTitle
+        )
+        editingBackground.toggle()
+        selectedPartIds = updatedDocument.expandedGroupSelection(Set(result.transferredPartIds))
         currentTool = .select
         updateAutomationRegistry()
     }

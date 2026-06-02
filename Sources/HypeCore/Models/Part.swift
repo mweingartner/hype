@@ -137,9 +137,13 @@ public struct Part: Identifiable, Codable, Sendable {
 
     // Calendar-specific
     /// Currently-selected date as ISO 8601 (yyyy-MM-dd). Empty
-    /// string means no date selected — the underlying NSDatePicker
+    /// string means no date selected — the underlying date picker
     /// will fall back to today's date for display purposes only.
     public var selectedDate: String
+    /// Currently-selected time as HH:mm:ss. Used only by
+    /// `calendarStyle == "clockAndCalendar"`; empty means midnight
+    /// for persisted state and the platform default for display.
+    public var selectedTime: String
     /// Visible month as ISO 8601 (yyyy-MM-01). Empty = follow
     /// `selectedDate`. Lets a user navigate the calendar without
     /// changing the selection.
@@ -500,6 +504,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.transparentBackground = false
         self.sceneSpec = ""
         self.selectedDate = ""
+        self.selectedTime = ""
         self.displayMonth = ""
         self.minDate = ""
         self.maxDate = ""
@@ -668,6 +673,7 @@ public struct Part: Identifiable, Codable, Sendable {
         sceneSpec = try container.decodeIfPresent(String.self, forKey: .sceneSpec) ?? ""
         // Calendar fields — added later, all backward-compat optional.
         selectedDate = try container.decodeIfPresent(String.self, forKey: .selectedDate) ?? ""
+        selectedTime = try container.decodeIfPresent(String.self, forKey: .selectedTime) ?? ""
         displayMonth = try container.decodeIfPresent(String.self, forKey: .displayMonth) ?? ""
         minDate = try container.decodeIfPresent(String.self, forKey: .minDate) ?? ""
         maxDate = try container.decodeIfPresent(String.self, forKey: .maxDate) ?? ""

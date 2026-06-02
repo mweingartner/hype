@@ -16,6 +16,7 @@ struct CalendarPartTests {
         let part = Part(partType: .calendar, name: "due")
         #expect(part.partType == .calendar)
         #expect(part.selectedDate == "")
+        #expect(part.selectedTime == "")
         #expect(part.displayMonth == "")
         #expect(part.minDate == "")
         #expect(part.maxDate == "")
@@ -26,6 +27,7 @@ struct CalendarPartTests {
     func codable() throws {
         var part = Part(partType: .calendar, name: "due")
         part.selectedDate = "2026-12-25"
+        part.selectedTime = "14:30:00"
         part.displayMonth = "2026-12-01"
         part.minDate = "2026-01-01"
         part.maxDate = "2027-12-31"
@@ -34,6 +36,7 @@ struct CalendarPartTests {
         let data = try JSONEncoder().encode(part)
         let decoded = try JSONDecoder().decode(Part.self, from: data)
         #expect(decoded.selectedDate == "2026-12-25")
+        #expect(decoded.selectedTime == "14:30:00")
         #expect(decoded.displayMonth == "2026-12-01")
         #expect(decoded.minDate == "2026-01-01")
         #expect(decoded.maxDate == "2027-12-31")
@@ -96,6 +99,7 @@ struct CalendarPartTests {
         let decoded = try JSONDecoder().decode(Part.self, from: data)
         #expect(decoded.partType == .button)
         #expect(decoded.selectedDate == "")
+        #expect(decoded.selectedTime == "")
         #expect(decoded.calendarStyle == "graphical")
     }
 
@@ -115,6 +119,7 @@ struct CalendarPartTests {
                 "width": "300",
                 "height": "200",
                 "selected_date": "2026-12-25",
+                "selected_time": "14:30:00",
                 "min_date": "2026-01-01",
                 "max_date": "2027-12-31",
                 "style": "clockAndCalendar"
@@ -129,6 +134,7 @@ struct CalendarPartTests {
         #expect(part?.width == 300)
         #expect(part?.height == 200)
         #expect(part?.selectedDate == "2026-12-25")
+        #expect(part?.selectedTime == "14:30:00")
         #expect(part?.minDate == "2026-01-01")
         #expect(part?.maxDate == "2027-12-31")
         #expect(part?.calendarStyle == "clockAndCalendar")
@@ -190,11 +196,48 @@ struct CalendarPartTests {
         #expect(result == "2026-09-15")
     }
 
+    @Test("set/get part property accepts selected_time on a calendar")
+    func aiSetAndGetSelectedTime() async {
+        var doc = HypeDocument.newDocument(name: "CalTimeTest")
+        let cardId = doc.cards[0].id
+        let executor = HypeToolExecutor()
+        _ = await executor.execute(
+            toolName: "create_calendar",
+            arguments: ["name": "due", "left": "0", "top": "0", "width": "260", "height": "220", "style": "clockAndCalendar"],
+            document: &doc,
+            currentCardId: cardId
+        )
+        _ = await executor.execute(
+            toolName: "set_part_property",
+            arguments: ["part_name": "due", "property": "selected_time", "value": "09:15:00"],
+            document: &doc,
+            currentCardId: cardId
+        )
+        let result = await executor.execute(
+            toolName: "get_part_property",
+            arguments: ["part_name": "due", "property": "selected_time"],
+            document: &doc,
+            currentCardId: cardId
+        )
+        #expect(result == "09:15:00")
+    }
+
     // MARK: - HypeTalk grammar
 
     @Test("HypeTalk parser accepts `the selectedDate of calendar \"X\"`")
     func hypeTalkParse() throws {
         let source = "on openCard\n  put the selectedDate of calendar \"due\" into d\nend openCard"
+        var lexer = Lexer(source: source)
+        let tokens = lexer.tokenize()
+        var parser = Parser(tokens: tokens)
+        let script = try parser.parse()
+        #expect(script.handlers.count == 1)
+        #expect(script.handlers[0].name == "openCard")
+    }
+
+    @Test("HypeTalk parser accepts `the selectedTime of calendar \"X\"`")
+    func hypeTalkSelectedTimeParse() throws {
+        let source = "on openCard\n  put the selectedTime of calendar \"due\" into t\nend openCard"
         var lexer = Lexer(source: source)
         let tokens = lexer.tokenize()
         var parser = Parser(tokens: tokens)

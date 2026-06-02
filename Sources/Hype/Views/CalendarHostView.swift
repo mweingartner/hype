@@ -34,7 +34,7 @@ final class CalendarHostNSView: NSView {
     /// Closure fired after the user changes the selected date. The
     /// String is ISO 8601 (yyyy-MM-dd) — what HypeTalk + AI tools
     /// store on `Part.selectedDate`.
-    var onDateChange: ((String) -> Void)?
+    var onDateChange: ((String, String?) -> Void)?
 
     /// Last-applied style/elements/dates so apply() can compare-and-
     /// skip. Without these guards, every draw cycle reset the live
@@ -42,7 +42,9 @@ final class CalendarHostNSView: NSView {
     /// the user's interactive picking.
     private var appliedStyle: NSDatePicker.Style?
     private var appliedElements: NSDatePicker.ElementFlags = []
+    private var appliedCalendarStyle: TargetRuntimeCalendarStyle = .graphical
     private var appliedSelectedISO: String? = nil
+    private var appliedSelectedTimeISO: String? = nil
     private var appliedMinISO: String? = nil
     private var appliedMaxISO: String? = nil
 
@@ -70,8 +72,10 @@ final class CalendarHostNSView: NSView {
     /// `dateValue` mid-interaction (which previously happened on
     /// every redraw) would clobber the user's selection.
     func apply(_ part: Part) {
-        let style = Self.pickerStyle(for: part.calendarStyle)
-        let elements = Self.elementFlags(for: part.calendarStyle)
+        let calendarStyle = TargetRuntimeCalendarStyle(rawOrAlias: part.calendarStyle)
+        let style = Self.pickerStyle(for: calendarStyle)
+        let elements = Self.elementFlags(for: calendarStyle)
+        appliedCalendarStyle = calendarStyle
 
         if style != appliedStyle {
             datePicker.datePickerStyle = style
@@ -92,8 +96,8 @@ final class CalendarHostNSView: NSView {
         // Date binding — only update when the SOURCE OF TRUTH (the
         // part's stored value) actually changed. This protects the
         // user's interactive picking from being reset on every draw.
-        if part.selectedDate != appliedSelectedISO {
-            if let selected = Self.parseISO(part.selectedDate) {
+        if part.selectedDate != appliedSelectedISO || (calendarStyle.persistsTime && part.selectedTime != appliedSelectedTimeISO) {
+            if let selected = Self.parseDateAndTime(date: part.selectedDate, time: calendarStyle.persistsTime ? part.selectedTime : "") {
                 datePicker.dateValue = selected
             } else if let displayed = Self.parseISO(part.displayMonth) {
                 datePicker.dateValue = displayed
@@ -101,6 +105,7 @@ final class CalendarHostNSView: NSView {
                 datePicker.dateValue = Date()
             }
             appliedSelectedISO = part.selectedDate
+            appliedSelectedTimeISO = part.selectedTime
         }
 
         if part.minDate != appliedMinISO {
@@ -115,10 +120,14 @@ final class CalendarHostNSView: NSView {
 
     @objc private func dateDidChange() {
         let iso = Self.formatISO(datePicker.dateValue)
+        let time = appliedCalendarStyle.persistsTime ? Self.formatTime(datePicker.dateValue) : nil
         // Update the cached "last-applied" so the next apply()
         // doesn't see a "change" and clobber the live value.
         appliedSelectedISO = iso
-        onDateChange?(iso)
+        if let time {
+            appliedSelectedTimeISO = time
+        }
+        onDateChange?(iso, time)
     }
 
     // MARK: - Style mapping
@@ -128,26 +137,38 @@ final class CalendarHostNSView: NSView {
     /// styles; "graphical" and "clockAndCalendar" both use the
     /// `.clockAndCalendar` style, but `elementFlags(for:)` discriminates
     /// them by which elements (date/time) are visible.
-    private static func pickerStyle(for raw: String) -> NSDatePicker.Style {
-        switch raw.lowercased() {
-        case "textual", "textualwithstepper":
+    private static func pickerStyle(for style: TargetRuntimeCalendarStyle) -> NSDatePicker.Style {
+        switch style {
+        case .textual:
             return .textFieldAndStepper
-        default:
-            // "graphical" + "clockAndCalendar" + anything unknown.
+        case .graphical, .clockAndCalendar:
             return .clockAndCalendar
         }
     }
 
     /// Element flags for each named style. "graphical" hides the
     /// clock face (date only); "clockAndCalendar" enables it.
-    private static func elementFlags(for raw: String) -> NSDatePicker.ElementFlags {
-        switch raw.lowercased() {
-        case "clockandcalendar":
+    private static func elementFlags(for style: TargetRuntimeCalendarStyle) -> NSDatePicker.ElementFlags {
+        switch style {
+        case .clockAndCalendar:
             return [.yearMonthDay, .hourMinuteSecond]
-        default:
-            // graphical + textual + unknown — date only.
+        case .graphical, .textual:
             return [.yearMonthDay]
         }
+    }
+
+    private static func parseDateAndTime(date: String, time: String) -> Date? {
+        guard let day = parseISO(date) else { return nil }
+        guard !time.isEmpty else { return day }
+        let parts = time.split(separator: ":").compactMap { Int($0) }
+        guard parts.count >= 2 else { return day }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        var components = calendar.dateComponents([.year, .month, .day], from: day)
+        components.hour = max(0, min(23, parts[0]))
+        components.minute = max(0, min(59, parts[1]))
+        components.second = parts.count >= 3 ? max(0, min(59, parts[2])) : 0
+        return calendar.date(from: components)
     }
 
     private static func parseISO(_ s: String) -> Date? {
@@ -161,6 +182,13 @@ final class CalendarHostNSView: NSView {
     private static func formatISO(_ date: Date) -> String {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        return f.string(from: date)
+    }
+
+    private static func formatTime(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
         f.timeZone = TimeZone(secondsFromGMT: 0)
         return f.string(from: date)
     }

@@ -1141,6 +1141,9 @@ struct PropertyInspector: View {
         VStack(alignment: .leading, spacing: 6) {
             sectionHeading("Calendar")
             propertyRow("Selected (yyyy-MM-dd)", binding: bindPartString(part.id, \.selectedDate))
+            if TargetRuntimeCalendarStyle(rawOrAlias: part.calendarStyle).persistsTime {
+                propertyRow("Selected Time (HH:mm:ss)", binding: bindPartString(part.id, \.selectedTime))
+            }
             propertyRow("Display Month", binding: bindPartString(part.id, \.displayMonth))
             propertyRow("Min Date", binding: bindPartString(part.id, \.minDate))
             propertyRow("Max Date", binding: bindPartString(part.id, \.maxDate))

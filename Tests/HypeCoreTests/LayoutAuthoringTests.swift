@@ -14,6 +14,7 @@ struct LayoutAuthoringTests {
         #expect(PartCreationDefaults.defaultSize(for: .slider) == PartDefaultSize(width: 96, height: 16))
         #expect(PartCreationDefaults.defaultSize(for: .progressView) == PartDefaultSize(width: 96, height: 14))
         #expect(PartCreationDefaults.defaultSize(for: .spriteArea) == PartDefaultSize(width: 320, height: 240))
+        #expect(PartCreationDefaults.defaultSize(for: .calendar) == PartDefaultSize(width: 320, height: 260))
     }
 
     @Test("canonical creation tools map to one persisted part type")

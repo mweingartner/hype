@@ -94,12 +94,19 @@ struct ObjectsMenuCommands: Commands {
 }
 
 struct ArrangeMenuCommands: Commands {
+    @FocusedValue(\.hypeAuthoringCommandContext) private var authoringCommands
+
     var body: some Commands {
         CommandMenu("Arrange") {
             Button("Group") { NotificationCenter.default.post(name: .groupSelection, object: nil) }
                 .keyboardShortcut("g", modifiers: [.command, .option])
             Button("Ungroup") { NotificationCenter.default.post(name: .ungroupSelection, object: nil) }
                 .keyboardShortcut("g", modifiers: [.command, .option, .shift])
+            Divider()
+            Button(authoringCommands?.layerTransferTitle ?? "Move to Background") {
+                authoringCommands?.transferSelectionToAlternateLayer()
+            }
+            .disabled(!(authoringCommands?.canTransferSelectionToAlternateLayer ?? false))
             Divider()
             Button("Bring Forward") { NotificationCenter.default.post(name: .bringForward, object: nil) }
                 .keyboardShortcut("+", modifiers: .command)

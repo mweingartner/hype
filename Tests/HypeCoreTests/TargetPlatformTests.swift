@@ -59,6 +59,47 @@ struct TargetPlatformTests {
         #expect(!TargetRuntimeAdapterCatalog.supportedPartTypes(on: .iPad).contains(.audioRecorder))
     }
 
+    @Test("iPhone and iPad runtime style support covers advertised control variants")
+    func iOSRuntimeStyleSupportCoversAdvertisedVariants() {
+        #expect(TargetRuntimeCalendarStyle(rawOrAlias: "graphical") == .graphical)
+        #expect(TargetRuntimeCalendarStyle(rawOrAlias: "textual").usesCompactPicker)
+        #expect(TargetRuntimeCalendarStyle(rawOrAlias: "clockAndCalendar").persistsTime)
+        #expect(TargetRuntimeCalendarStyle(rawOrAlias: "date_time").persistsTime)
+
+        let buttonKinds = Set(ButtonStyle.pickerCases.map { TargetRuntimeButtonRenderKind(style: $0) })
+        #expect(buttonKinds.contains(.filledRectangle))
+        #expect(buttonKinds.contains(.prominentDefault))
+        #expect(buttonKinds.contains(.shadow))
+        #expect(buttonKinds.contains(.transparent))
+        #expect(buttonKinds.contains(.oval))
+        #expect(buttonKinds.contains(.toggle))
+        #expect(buttonKinds.contains(.link))
+        #expect(buttonKinds.contains(.checkBox))
+        #expect(buttonKinds.contains(.popup))
+        #expect(buttonKinds.contains(.radio))
+    }
+
+    @Test("target runtime adapter source has explicit style paths for iOS controls")
+    func targetRuntimeAdapterSourceHasExplicitStylePaths() throws {
+        let sourceURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("Sources/HypeCore/Export/TargetRuntimeControlViews.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        #expect(source.contains("TargetRuntimeClockAndCalendarView(part: part"))
+        #expect(source.contains("TargetRuntimeAnalogClockFace"))
+        #expect(source.contains("monthGridDates(for: displayMonthDate)"))
+        #expect(source.contains("TargetRuntimeButtonRenderKind(style: part.buttonStyle)"))
+        #expect(source.contains("part.sliderControlOrientation == .vertical"))
+        #expect(source.contains("!part.dontWrap && part.height > 64"))
+        #expect(source.contains("targetRuntimePDFDisplayMode(part.pdfDisplayMode)"))
+        #expect(source.contains("TargetRuntimeAnimatedImageView(data: data, isAnimating: part.animated)"))
+        #expect(source.contains("GIFDecoder.decode(data)"))
+        #expect(source.contains("animationImages = coordinator.animatedFrames"))
+        #expect(source.contains("view.usePageViewController(false)"))
+        #expect(source.contains("coordinator.currentPage != requestedPage"))
+        #expect(source.contains("accessoryLinearCapacity"))
+    }
+
     @Test("device profile catalog includes current shipping iPhone and iPad form factors")
     func deviceProfileCatalogIncludesCurrentShippingIOSFormFactors() {
         let ids = Set(HypeDeviceProfileCatalog.standardProfiles.map(\.id))
@@ -125,8 +166,10 @@ struct TargetPlatformTests {
 
         #expect(resolution.layoutPolicy == .scaleToFit)
         #expect(abs(resolution.contentScaleX - 0.49125) < 0.001)
+        #expect(abs(resolution.contentOffsetX) < 0.001)
+        #expect(abs(resolution.contentOffsetY) < 0.001)
         #expect(abs(geometry.left - 196.5) < 0.1)
-        #expect(abs(geometry.top - 438.5) < 0.1)
+        #expect(abs(geometry.top - 206.375) < 0.1)
         #expect(abs(geometry.width - 49.125) < 0.1)
     }
 
@@ -275,6 +318,15 @@ struct TargetPlatformTests {
                 .appendingPathComponent("Package.swift"),
             encoding: .utf8
         )
+        let runtimeAdapterSource = try String(
+            contentsOf: shellDir
+                .appendingPathComponent("HypeSource", isDirectory: true)
+                .appendingPathComponent("Sources", isDirectory: true)
+                .appendingPathComponent("HypeCore", isDirectory: true)
+                .appendingPathComponent("Export", isDirectory: true)
+                .appendingPathComponent("TargetRuntimeControlViews.swift"),
+            encoding: .utf8
+        )
         let infoPlist = try String(
             contentsOf: shellDir.appendingPathComponent("Info.plist"),
             encoding: .utf8
@@ -302,19 +354,29 @@ struct TargetPlatformTests {
         #expect(runtimeDocument.scriptGlobals.isEmpty)
         #expect(shellSource.contains("HypeSQLiteStackStore().load"))
         #expect(shellSource.contains("HypeRuntimeCardView"))
+        #expect(shellSource.contains(".frame(maxWidth: .infinity, maxHeight: .infinity)"))
+        #expect(shellSource.contains(".background(Color.white.ignoresSafeArea())"))
+        #expect(shellSource.contains("GeometryReader { proxy in"))
+        #expect(shellSource.contains("runtimeProfile(baseProfile: baseProfile, proxy: proxy)"))
+        #expect(shellSource.contains("HypeSafeAreaInsets("))
         #expect(shellSource.contains("LayoutResolver().resolve"))
         #expect(shellSource.contains("profileId: \"iphone-portrait\""))
         #expect(shellSource.contains("StackRuntimeRegistry.shared.runtime"))
         #expect(shellSource.contains("StackRuntimeConfiguration(systemProvider: systemProvider)"))
         #expect(shellSource.contains("dispatchAndWait("))
-        #expect(shellSource.contains("HypeRuntimeMapView"))
-        #expect(shellSource.contains("MKMapView"))
-        #expect(shellSource.contains("HypeRuntimePianoKeyboardView"))
-        #expect(shellSource.contains("MusicControlInteraction.keyboardLayout"))
+        #expect(shellSource.contains("TargetRuntimePartView"))
         #expect(shellSource.contains("HypeRuntimeSystemProvider"))
         #expect(shellSource.contains("AVAudioPlayer"))
-        #expect(shellSource.contains("case .map:"))
-        #expect(shellSource.contains("case .pianoKeyboard:"))
+        #expect(!shellSource.contains(".frame(width: CGFloat(profile.width), height: CGFloat(profile.height))"))
+        #expect(!shellSource.contains("struct HypeRuntimePartView"))
+        #expect(runtimeAdapterSource.contains("TargetRuntimeMapView"))
+        #expect(runtimeAdapterSource.contains("MKMapView"))
+        #expect(runtimeAdapterSource.contains("TargetRuntimePianoKeyboardView"))
+        #expect(runtimeAdapterSource.contains("MusicControlInteraction.keyboardLayout"))
+        #expect(runtimeAdapterSource.contains("case .map:"))
+        #expect(runtimeAdapterSource.contains("case .pianoKeyboard:"))
+        #expect(runtimeAdapterSource.contains("TargetRuntimeAnimatedImageView(data: data, isAnimating: part.animated)"))
+        #expect(runtimeAdapterSource.contains("view.usePageViewController(false)"))
         #expect(!shellSource.contains("PropertyInspector"))
         #expect(!shellSource.contains("ScriptEditor"))
         #expect(projectFile.contains("productType = \"com.apple.product-type.application\""))
@@ -326,6 +388,7 @@ struct TargetPlatformTests {
         #expect(FileManager.default.fileExists(atPath: shellDir.appendingPathComponent("HypeSource/Sources/HypeCore").path))
         #expect(infoPlist.contains("<key>UIDeviceFamily</key>"))
         #expect(infoPlist.contains("<integer>1</integer>"))
+        #expect(infoPlist.contains("<key>UILaunchScreen</key>"))
         #expect(FileManager.default.isExecutableFile(atPath: simulatorBuildScript.path))
         #expect(FileManager.default.isExecutableFile(atPath: deviceBuildScript.path))
         #expect(deviceDeployScript.contains("devicectl device install app"))

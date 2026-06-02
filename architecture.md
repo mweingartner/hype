@@ -436,7 +436,7 @@ given `partType`. The fields fall into bands:
 | video            | `videoURL`                                                               |
 | image            | `imageData?`, `invertOnClick`, `transparentBackground`, `imageFilter`, `imageFilterIntensity`, `animated` (GIF) |
 | chart            | `chartData` *(JSON-encoded ChartConfig)*                                 |
-| calendar         | `selectedDate`, `displayMonth`, `minDate`, `maxDate`, `calendarStyle`    |
+| calendar         | `selectedDate`, `selectedTime`, `displayMonth`, `minDate`, `maxDate`, `calendarStyle` |
 | pdf              | `pdfURL`, `pdfCurrentPage`, `pdfDisplayMode`, `pdfAutoScales`            |
 | map              | `mapCenterLat`, `mapCenterLon`, `mapSpan`, `mapType`, `mapAnnotationsJSON`, `mapLocation` *(geocoded)* |
 | colorWell        | `colorWellHex`, `colorWellInteractive`                                   |
@@ -1642,7 +1642,7 @@ scene-node type. A few representative ones:
 | webpage       | `url`                                                                                              |
 | image         | `imageFilter`, `imageFilterIntensity`, `transparentBackground`, `animated`                          |
 | chart         | `chartData`, `charttype` (`bar`, `line`, `area`, `point`, `pie`, `rule`, `spider`), `charttitle`, `xAxisLabel`, `yAxisLabel` *(non-spider only)*, `showLegend`, `showGrid`, `interactable`, spider/radar display properties (`spider_ring_count`, `spider_grid_color`, `spider_axis_color`, `spider_label_color`, `spider_fill_opacity`, `spider_point_radius`, `spider_show_value_labels`, `spider_decimal_places`); spider data points own `min`/`value`/`max` |
-| calendar      | `selectedDate`, `displayMonth`, `minDate`, `maxDate`, `calendarStyle`                               |
+| calendar      | `selectedDate`, `selectedTime`, `displayMonth`, `minDate`, `maxDate`, `calendarStyle`                |
 | pdf           | `pdfurl`, `currentPage`, `displayMode`, `autoScales`, `pageCount`                                   |
 | map           | `centerLat`, `centerLon`, `span`, `mapType`, `annotations`, `location` *(geocoded async)*           |
 | colorWell     | `color`, `interactive`                                                                              |
@@ -2050,8 +2050,8 @@ object panel filters creation controls using strict selected-target
 intersection: a control appears only when it is usable on every platform
 selected for the stack.
 `StackDeploymentTargets.layoutPolicy` controls target projection: `fixed`
-preserves absolute coordinates, `scaleToFit` uniformly scales and centers the
-authored card inside the target safe area, and `stretchToFill` scales each axis
+preserves absolute coordinates, `scaleToFit` uniformly scales and top-leading
+anchors the authored card inside the target safe area, and `stretchToFill` scales each axis
 independently. `LayoutResolver` projects persisted part geometry and explicit
 constraints into a target profile without storing live platform views. The View
 menu's **Target Platforms…** command edits target/platform policy; **Emulate
@@ -2086,9 +2086,10 @@ or embedded audio data. Webpage controls are intentionally excluded because
 their contract is live web content. Remote PDF/video/model URLs are not fetched
 implicitly during export; they remain explicit authoring references and fail
 deployment validation until the user imports or replaces them.
-Apple mobile/runtime packages for iPhone, iPad, and tvOS also generate `HypeRuntimeApp.xcodeproj`, copy
-the HypeCore runtime sources into a local `RuntimeShell/HypeSource` package, and
-write build/deploy helper scripts:
+Apple mobile/runtime packages for iPhone, iPad, and tvOS also generate
+`HypeRuntimeApp.xcodeproj`, copy the HypeCore runtime sources into a local
+`RuntimeShell/HypeSource` package, include launch-screen metadata so iOS uses
+the full device display, and write build/deploy helper scripts:
 
 - `RuntimeShell/build-ios-simulator.sh` builds an unsigned iOS Simulator app
   or tvOS Simulator app with `xcodebuild`, depending on the target manifest.
@@ -2116,9 +2117,12 @@ SQLite stack through `HypeSQLiteStackStore`, forces runtime mode, keeps the
 current card in runtime state, and dispatches supported control events through
 `StackRuntime.dispatchAndWait` so HypeTalk changes and card navigation flow
 through the same interpreter and message hierarchy used by the authoring app.
-The generated shell uses the manifest profile id and `LayoutResolver` so the
-runtime view applies the same fixed / scale-to-fit / stretch-to-fill projection
-used by AI previews and deployment validation.
+The generated shell uses live SwiftUI geometry plus the manifest profile id and
+`LayoutResolver` so the runtime view applies the same fixed / scale-to-fit /
+stretch-to-fill projection used by AI previews and deployment validation. For
+mobile runtimes, `scaleToFit` preserves the authored aspect ratio but anchors at
+the target safe-area origin instead of centering vertically; this avoids
+letterboxed blank space and keeps controls legible on tall iPhone screens.
 The shell renders target-supported controls with native runtime adapters rather
 than placeholder labels. `TargetRuntimeAdapterCatalog` is the source of truth
 for standalone runtime control availability; `PartAvailabilityCatalog`, the
@@ -2130,6 +2134,11 @@ back into `HypeRuntimeDocumentModel`, which refreshes `StackRuntime` before
 dispatching lifecycle messages such as `mouseUp`, `valueChanged`,
 `dateChanged`, `colorChanged`, `selectionChanged`, `positionChanged`, and
 `chartChange`.
+The iOS image adapter decodes stored animated GIF data through `GIFDecoder` and
+drives a `UIImageView` frame sequence when `Part.animated` is true. The PDF
+adapter uses PDFKit in continuous scrolling mode and only reloads the document
+or seeks to a page when the backing asset URL or requested page changes, so
+ordinary SwiftUI updates do not reset the user's scroll position.
 The iPhone/iPad runtime adapter set currently includes buttons, fields, shapes,
 web/image/video/PDF/map, charts, calendars, color wells, steppers, sliders,
 segmented controls, Scene3D, AudioKit music controls, MusicKit search/player
@@ -2138,6 +2147,12 @@ smaller focus-safe set: buttons, shapes, images, video, charts, Scene3D,
 music playback, progress views, gauges, and dividers. Sprite areas, audio
 recorders, and legacy music queues are hidden/blocked for non-macOS export
 until those targets have real standalone runtime adapters.
+Calendar parts use platform-native compact/graphical date pickers for the
+`textual` and `graphical` styles. The `clockAndCalendar` style does not rely on
+SwiftUI's graphical `DatePicker` time components on iPhone/iPad because that
+picker presents only the calendar face on iPad; Hype renders a deterministic
+composite calendar grid plus analog round clock and persists changes through
+`selectedDate`, `selectedTime`, and `dateChanged`.
 Map parts are projected into MapKit map views using the persisted
 center/span/type/annotation properties. Piano keyboard parts are rendered as
 touch/drag-playable SwiftUI keyboards on iPhone/iPad and route music playback

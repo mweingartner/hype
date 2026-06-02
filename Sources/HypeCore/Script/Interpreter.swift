@@ -4894,6 +4894,7 @@ public struct Interpreter: Sendable {
         case "url":         return part.url
         case "chartdata", "chart_data": return part.chartData
         case "selecteddate", "selected_date":   return part.selectedDate
+        case "selectedtime", "selected_time":   return part.selectedTime
         case "displaymonth", "display_month":   return part.displayMonth
         case "mindate", "min_date":             return part.minDate
         case "maxdate", "max_date":             return part.maxDate
@@ -6560,6 +6561,8 @@ public struct Interpreter: Sendable {
         // Empty string clears the bound (NSDatePicker.minDate/maxDate accept nil).
         case "selecteddate", "selected_date":
             document.parts[partIndex].selectedDate = value
+        case "selectedtime", "selected_time":
+            document.parts[partIndex].selectedTime = value
         case "displaymonth", "display_month":
             document.parts[partIndex].displayMonth = value
         case "mindate", "min_date":

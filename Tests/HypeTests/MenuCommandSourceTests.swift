@@ -38,6 +38,30 @@ struct MenuCommandSourceTests {
         #expect(source.contains(".keyboardShortcut(\"d\", modifiers: .command)"))
     }
 
+    @Test("Arrange menu exposes focused layer transfer command")
+    func arrangeMenuHasLayerTransferCommand() throws {
+        let root = try packageRoot()
+        let commandsURL = root
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("Hype")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("GoMenuCommands.swift")
+        let bridgeURL = root
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("Hype")
+            .appendingPathComponent("AuthoringCommandBridge.swift")
+        let commandSource = try String(contentsOf: commandsURL, encoding: .utf8)
+        let bridgeSource = try String(contentsOf: bridgeURL, encoding: .utf8)
+
+        #expect(commandSource.contains("CommandMenu(\"Arrange\")"))
+        #expect(commandSource.contains("authoringCommands?.layerTransferTitle"))
+        #expect(commandSource.contains("transferSelectionToAlternateLayer"))
+        #expect(commandSource.contains("canTransferSelectionToAlternateLayer"))
+        #expect(bridgeSource.contains("var layerTransferTitle: String"))
+        #expect(bridgeSource.contains("var canTransferSelectionToAlternateLayer: Bool"))
+        #expect(bridgeSource.contains("var transferSelectionToAlternateLayer: () -> Void"))
+    }
+
     private func packageRoot() throws -> URL {
         var url = URL(fileURLWithPath: #filePath)
         while url.path != "/" {

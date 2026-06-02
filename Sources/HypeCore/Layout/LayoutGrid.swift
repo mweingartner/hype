@@ -96,7 +96,7 @@ public enum PartCreationDefaults {
         case .spriteArea, .scene3D, .pdf, .map:
             return PartDefaultSize(width: 320, height: 240)
         case .calendar:
-            return PartDefaultSize(width: 260, height: 220)
+            return PartDefaultSize(width: 320, height: 260)
         case .webpage, .video, .chart:
             return PartDefaultSize(width: 320, height: 180)
         case .image:
