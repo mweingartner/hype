@@ -229,13 +229,18 @@ struct ViewMenuCommands: Commands {
 /// `CommandMenu("Edit")` — the latter would produce a duplicate Edit
 /// menu next to the system one.
 ///
-/// Note: the Themes menu item moved to Window (the Theme Designer is
-/// a window, not an edit operation). This struct is currently empty
-/// but kept as a stub so future Hype-specific Edit additions have a
-/// place to go without re-introducing the parallel-Edit-menu bug.
 struct EditMenuCommands: Commands {
+    @FocusedValue(\.hypeAuthoringCommandContext) private var authoringCommands
+
     var body: some Commands {
-        CommandGroup(after: .pasteboard) { }
+        CommandGroup(after: .pasteboard) {
+            Divider()
+            Button("Duplicate") {
+                authoringCommands?.duplicateSelection()
+            }
+            .keyboardShortcut("d", modifiers: .command)
+            .disabled(!(authoringCommands?.canDuplicateSelection ?? false))
+        }
     }
 }
 

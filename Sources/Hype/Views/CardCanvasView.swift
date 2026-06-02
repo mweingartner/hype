@@ -368,6 +368,16 @@ struct CardCanvasView: NSViewRepresentable {
             parent.selectedPartIds = parent.document.document.expandedGroupSelection(parent.selectedPartIds)
         }
 
+        @discardableResult
+        func duplicateParts(ids: Set<UUID>) -> PartDuplicationResult {
+            let result = parent.document.document.duplicateParts(ids: ids)
+            guard !result.copiedPartIds.isEmpty else { return result }
+            let copiedSelection = parent.document.document.expandedGroupSelection(Set(result.copiedPartIds))
+            parent.selectedPartIds = copiedSelection
+            nsView?.selectedPartIds = copiedSelection
+            return result
+        }
+
         func resizePart(id: UUID, handle: CardCanvasNSView.ResizeHandle, dx: Double, dy: Double) {
             parent.document.document.updatePart(id: id) { part in
                 let minSize: Double = 10
@@ -2155,6 +2165,17 @@ class CardCanvasNSView: NSView {
         if event.keyCode == 51 || event.keyCode == 117 {
             if !selectedPartIds.isEmpty {
                 coordinator?.deleteParts(ids: selectedPartIds)
+                needsDisplay = true
+                return
+            }
+        }
+
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "d",
+           !selectedPartIds.isEmpty {
+            let result = coordinator?.duplicateParts(ids: selectedPartIds)
+            if result?.copiedPartIds.isEmpty == false {
+                selectedPartIds = Set(result?.copiedPartIds ?? [])
                 needsDisplay = true
                 return
             }

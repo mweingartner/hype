@@ -295,6 +295,19 @@ struct MainContentView: View {
         )
     }
 
+    private var authoringCommandContext: HypeAuthoringCommandContext {
+        HypeAuthoringCommandContext(
+            canDuplicateSelection: canDuplicateSelectedParts,
+            duplicateSelection: duplicateSelectedParts
+        )
+    }
+
+    private var canDuplicateSelectedParts: Bool {
+        guard !isRuntimeMode, !selectedPartIds.isEmpty else { return false }
+        guard !Self.firstResponderIsTextEditor else { return false }
+        return !selectedPartIds.intersection(editablePartIdsForCurrentLayer()).isEmpty
+    }
+
     private var showInspector: Bool {
         // Hidden in runtime mode — the entire point of runtime mode
         // is to show the stack as the end-user experiences it,
@@ -396,7 +409,10 @@ struct MainContentView: View {
             // would always render disabled. See `HypeApp.swift` for
             // the FocusedValueKey declaration and the wrapper that
             // reads this value in the Settings scene.
-            .focusedSceneValue(\.hypeCurrentDocument, trackedDocumentBinding)
+            .modifier(FocusedSceneCommandValues(
+                document: trackedDocumentBinding,
+                authoringCommandContext: authoringCommandContext
+            ))
             // Also register with the mutation coordinator as the
             // currently-active document. `@FocusedValue` returns nil
             // once Preferences itself becomes the focused scene, so
@@ -444,6 +460,41 @@ struct MainContentView: View {
             currentTool: currentTool,
             editingBackground: editingBackground
         )
+    }
+
+    private func editablePartIdsForCurrentLayer() -> Set<UUID> {
+        guard let currentCardId = effectiveCurrentCardId else { return [] }
+        if editingBackground,
+           let backgroundId = document.document.cards.first(where: { $0.id == currentCardId })?.backgroundId {
+            return Set(document.document.partsForBackground(backgroundId).map(\.id))
+        }
+        return Set(document.document.partsForCard(currentCardId).map(\.id))
+    }
+
+    private func duplicateSelectedParts() {
+        guard canDuplicateSelectedParts else { return }
+        let ids = selectedPartIds.intersection(editablePartIdsForCurrentLayer())
+        guard !ids.isEmpty else { return }
+
+        var updatedDocument = document.document
+        let result = updatedDocument.duplicateParts(ids: ids)
+        guard !result.copiedPartIds.isEmpty else { return }
+
+        HypeDocumentMutationCoordinator.shared.applyDocument(
+            updatedDocument,
+            to: trackedDocumentBinding,
+            undoManager: undoManager,
+            actionName: "Duplicate Selection"
+        )
+        selectedPartIds = updatedDocument.expandedGroupSelection(Set(result.copiedPartIds))
+        currentTool = .select
+        updateAutomationRegistry()
+    }
+
+    private static var firstResponderIsTextEditor: Bool {
+        guard let firstResponder = NSApp?.keyWindow?.firstResponder else { return false }
+        if firstResponder is NSTextView || firstResponder is NSTextField { return true }
+        return String(describing: type(of: firstResponder)).contains("FieldEditor")
     }
 
     private func resetCurrentCardSelection() {
@@ -1697,6 +1748,17 @@ private struct ArrangeHandlers: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .sendToBack)) { _ in
                 document.document.sendToBack(ids: selectedPartIds)
             }
+    }
+}
+
+private struct FocusedSceneCommandValues: ViewModifier {
+    let document: Binding<HypeDocumentWrapper>
+    let authoringCommandContext: HypeAuthoringCommandContext
+
+    func body(content: Content) -> some View {
+        content
+            .focusedSceneValue(\.hypeCurrentDocument, document)
+            .focusedSceneValue(\.hypeAuthoringCommandContext, authoringCommandContext)
     }
 }
 

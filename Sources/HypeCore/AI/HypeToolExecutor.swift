@@ -4919,12 +4919,18 @@ public struct HypeToolExecutor: Sendable {
             let dy = Double(arguments["dy"] ?? "20") ?? 20
             let requestedName = arguments["new_name"] ?? ""
             let original = document.parts[originalIdx]
-            var copy = original
-            copy.id = UUID()
-            copy.name = requestedName.isEmpty ? "\(original.name) 2" : requestedName
-            copy.left = original.left + dx
-            copy.top = original.top + dy
-            document.addPart(copy)
+            let result = document.duplicateParts(
+                ids: [original.id],
+                options: PartDuplicationOptions(
+                    offsetX: dx,
+                    offsetY: dy,
+                    requestedSingleName: requestedName.isEmpty ? nil : requestedName
+                )
+            )
+            guard let copyId = result.originalToCopy[original.id],
+                  let copy = document.part(byId: copyId) else {
+                return "duplicate_part: failed to duplicate '\(original.name)'"
+            }
             return "Duplicated '\(original.name)' as '\(copy.name)'"
 
         // MARK: - Scene-level admin

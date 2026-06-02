@@ -205,6 +205,69 @@ struct CardCanvasGroupingInteractionTests {
         #expect(state.selectedPartIds == [firstId, secondId])
     }
 
+    @Test("command-D duplicates the selected group and selects the copies")
+    func commandDDuplicatesSelectedGroup() throws {
+        let (state, firstId, secondId, coordinator, nsView) = try groupedFixture()
+        state.selectedPartIds = [firstId]
+        nsView.selectedPartIds = [firstId]
+
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "d",
+            charactersIgnoringModifiers: "d",
+            isARepeat: false,
+            keyCode: 2
+        ))
+
+        withExtendedLifetime(coordinator) {
+            nsView.keyDown(with: event)
+        }
+
+        let copyIds = state.selectedPartIds
+        #expect(copyIds.count == 2)
+        #expect(!copyIds.contains(firstId))
+        #expect(!copyIds.contains(secondId))
+        let copies = state.wrapper.document.parts.filter { copyIds.contains($0.id) }
+        #expect(copies.map(\.name).sorted() == ["first copy", "second copy"])
+        #expect(Set(copies.compactMap(\.groupId)).count == 1)
+        #expect(copies.contains { $0.left == 18 && $0.top == 28 })
+        #expect(copies.contains { $0.left == 88 && $0.top == 68 })
+    }
+
+    @Test("browse mode command-D does not duplicate a stale authoring selection")
+    func browseModeCommandDDoesNotDuplicateSelection() throws {
+        let (state, firstId, _, coordinator, nsView) = try groupedFixture()
+        state.selectedPartIds = [firstId]
+        nsView.selectedPartIds = [firstId]
+        nsView.currentTool = .browse
+        let originalPartCount = state.wrapper.document.parts.count
+
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "d",
+            charactersIgnoringModifiers: "d",
+            isARepeat: false,
+            keyCode: 2
+        ))
+
+        withExtendedLifetime(coordinator) {
+            nsView.keyDown(with: event)
+        }
+
+        #expect(state.wrapper.document.parts.count == originalPartCount)
+        #expect(state.selectedPartIds == [firstId])
+    }
+
     @Test("browse mode keyboard dispatch does not fall through to edit-mode nudge")
     func browseModeKeyboardDoesNotNudgeStaleSelection() throws {
         let (state, firstId, secondId, coordinator, nsView) = try groupedFixture()

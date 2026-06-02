@@ -1667,9 +1667,9 @@ public struct HypeToolDefinitions {
             "new_position": ("string", "1-based target position", true),
         ]),
 
-        makeTool(name: "duplicate_part", description: "Clone a named part on the current card and offset the copy. The new part's name is the original name with a number suffix unless new_name is given.", params: [
+        makeTool(name: "duplicate_part", description: "Clone a named part on the current card/background and offset the copy. The copy preserves scripts, embedded content, and safe intra-selection layout metadata. If new_name is supplied it is used exactly unless it collides, otherwise the copy is named '<name> copy'.", params: [
             "part_name": ("string", "Name of the part to duplicate", true),
-            "new_name": ("string", "Name for the copy (defaults to '<name> 2')", false),
+            "new_name": ("string", "Exact name for the copy when available (defaults to '<name> copy')", false),
             "dx": ("string", "Horizontal offset in points (default 20)", false),
             "dy": ("string", "Vertical offset in points (default 20)", false),
         ]),
