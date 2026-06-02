@@ -1007,6 +1007,7 @@ struct ParserTests {
         #expect(script.handlers[0].name == "back")
     }
 
+
     @Test func parsesPutStatement() throws {
         var lexer = Lexer(source: """
         on test
