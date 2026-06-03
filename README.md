@@ -907,9 +907,7 @@ For PRs:
 
 ## License
 
-The project is intended to use the MIT license, but a checked-in `LICENSE` file
-is not present yet. Add that file before relying on GitHub's license detection
-or distributing the project as an open-source package.
+Hype is licensed under the MIT License. See [`LICENSE`](LICENSE).
 
 The HyperCard name and design language are property of Apple Inc.
 Hype is an independent revival project that uses no Apple HyperCard
