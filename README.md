@@ -16,8 +16,9 @@ and OpenAI-compatible local/model-proxy endpoints such as llama-swap
 through one unified tool-calling contract.
 
 This repository contains the full source for the desktop application,
-the core library, the HypeTalk language toolchain, and the AI
-fine-tuning / evaluation pipeline.
+the core library, the HypeTalk language toolchain, HyperCard stack
+import/conversion support, runtime export tooling, the local MCP bridge,
+and the AI fine-tuning / evaluation pipeline.
 
 ---
 
@@ -31,13 +32,18 @@ Apple Silicon, edit cleanly under source control, expose every
 visual control the platform offers, and let an LLM ride along as a
 co-author without the user ever leaving the canvas.
 
-That's what Hype is. It is **not** a HyperCard emulator and it does
-not run legacy `.stack` files. It is a fresh codebase that adopts the
-HyperTalk-style authoring philosophy, extends it to roughly twice the
-control surface, and treats SpriteKit as a first-class peer of the
-classic flat-card model — so a card can host both a static button-and-
-field layout *and* a live physics scene with a tile map and particle
-emitters in the same document, with one unified scripting model.
+That's what Hype is. It is **not** a classic Mac emulator and it never
+executes native 68K/PPC HyperCard externals, but it now includes a safe
+HyperCard stack importer. Original stacks can be selected from disk,
+structurally converted into normal self-contained `.hype` packages, and
+opened as Hype documents. Compatibility for supported XCMDs/XFCNs is
+implemented in Swift through explicit emulators rather than by loading
+legacy code. Hype remains a fresh codebase that adopts the HyperTalk-style
+authoring philosophy, extends it to a much larger control surface, and
+treats SpriteKit as a first-class peer of the classic flat-card model —
+so a card can host both a static button-and-field layout *and* a live
+physics scene with a tile map and particle emitters in the same document,
+with one unified scripting model.
 
 ---
 
@@ -81,6 +87,14 @@ emitters in the same document, with one unified scripting model.
   (`await ollama(…)`, `request "…" with message …`, `listen for tcp`),
   and 50+ message types (`mouseUp`, `openCard`, `frameUpdate`,
   `beginContact`, `valueChanged`, `recordingStarted`, …).
+- **HyperCard stack import.** File → Import HyperCard Stack... accepts
+  original stack files, reads data/resource forks when available, parses
+  classic block/resource structures with hard safety limits, maps supported
+  stacks/backgrounds/cards/buttons/fields/text/scripts into `HypeDocument`,
+  preserves unsupported legacy metadata, imports convertible media resources,
+  and writes the result as a normal SQLite-backed `.hype` package. XCMD/XFCN
+  compatibility is handled through an explicit Swift registry; unknown
+  externals degrade safely instead of executing native classic-Mac code.
 - **SpriteKit as the interaction substrate.** Card-level cinematic
   transitions go through `SKView.presentScene(_:transition:)`. A
   `spriteArea` part hosts a live `SKScene` with a real scene graph —
@@ -122,8 +136,8 @@ emitters in the same document, with one unified scripting model.
   The runtime still works with a single `HypeDocument` aggregate of
   value types, while storage tables index layout, scripts, content,
   assets, SpriteKit scenes, AI context, and full-text search.
-- **Tested.** 2,208 tests in 247 suites under Swift Testing, all passing
-  under the parallel runner in roughly 80 seconds. Coverage spans
+- **Tested.** The current suite has 2,800+ Swift Testing tests; the latest
+  local full run passed 2,836 tests in 297 suites. Coverage spans
   parser, interpreter, tool-call routing, scene serialization,
   rendering geometry (per-pixel sampling), theme cascade, async
   runtime, AI evaluation, and Meshy 3D generation pipeline.
@@ -169,6 +183,41 @@ converter; asset binding via `Part.scene3DAssetRef` + Asset Repository).
 `spriteArea` — a live `SKScene` host. Inside it: sprite, label,
 shape, group, camera, emitter, audio, video, tilemap nodes; physics
 bodies; joints; constraints; physics fields. All HypeTalk-addressable.
+
+---
+
+## HyperCard stack import
+
+Hype can import original HyperCard stacks through a safe structural converter
+rather than a classic-Mac runtime emulator.
+
+- The app exposes the importer at **File → Import HyperCard Stack...** and uses
+  an untyped file picker because restored classic stacks often have no modern
+  file extension.
+- `Sources/HypeCore/HyperCardImport/` normalizes data/resource forks, parses
+  HyperCard blocks such as `STAK`, `BKGD`, `CARD`, `LIST`, `PAGE`, `BMAP`, and
+  `TAIL`, and reads classic resource maps without executing resource code.
+- Supported stack/background/card/button/field structure, part text, scripts,
+  and convertible image/audio/video/text resources are mapped into a normal
+  `HypeDocument` with `LegacyStackImportMetadata` and an import report.
+- Legacy scripts must parse as HypeTalk before they are enabled. Certain
+  StackImport-era movie-click scripts can be reduced to route-only
+  compatibility handlers when that preserves explicit cross-stack navigation;
+  otherwise unsupported script text is kept as commented reference material.
+- XCMD/XFCN compatibility is provided by `HyperCardExternalRegistry`. Supported
+  externals are reimplemented in Swift against Hype's model APIs; unknown
+  externals set a diagnostic result and continue without crashing the stack.
+- Converted stacks are saved as self-contained SQLite-backed `.hype` packages.
+  Supported content travels with the document; no import result depends on the
+  original source path.
+
+Import security rules are deliberately strict: treat every byte as hostile,
+enforce block/resource size limits before allocation, preserve native resources
+as data only, never load classic native code, and prefer explicit emulators over
+generic native bridges. Current compatibility status and gaps are documented in
+[`docs/HyperCardImportAndXCMDCompatibility.md`](docs/HyperCardImportAndXCMDCompatibility.md),
+with the per-external map in
+[`docs/HyperCardExternalMapping.md`](docs/HyperCardExternalMapping.md).
 
 ---
 
@@ -676,7 +725,7 @@ swift run Hype
 ### Run the test suite
 
 ```bash
-scripts/test.sh                    # 2,208 tests in 247 suites, ~80 seconds
+scripts/test.sh                    # full Swift Testing suite
 scripts/test.sh --filter HypeTalk  # subset by Suite or Test name
 scripts/test.sh --no-parallel      # serial runner — fallback for debugging
 ```
@@ -690,11 +739,18 @@ Hype/
 ├── Package.swift                 # SwiftPM, macOS 15+, Swift 6
 ├── install.sh                    # Build release → install to /Applications
 ├── architecture.md               # In-depth architecture overview
+├── decisions.md                  # Product behavior and guardrails
+├── AGENTS.md                     # Agent workflow, safety, test, deploy, git rules
 ├── HyperTalk_Reference.md        # Long-form HypeTalk language reference
 ├── HypeTalk-LLM-Context.md       # Older LLM context doc (now lives in code)
 ├── SpriteKit-Tutorial.md         # Hands-on SpriteKit walkthrough
 ├── docs/
-│   └── AppleFrameworksRoadmap.md # Apple-framework integration roadmap
+│   ├── HyperCardImportAndXCMDCompatibility.md # Stack import + XCMD/XFCN behavior
+│   ├── HyperCardExternalMapping.md            # Per-external compatibility table
+│   ├── ClassicHyperCardStackManifest.md       # Portable package layout for imports
+│   ├── SQLiteStackStorageDesign.md            # SQLite package schema + migrations
+│   ├── HypeDebugBridgeAndMCP.md               # MCP/debug bridge notes
+│   └── AppleFrameworksRoadmap.md              # Apple-framework integration roadmap
 ├── Sources/
 │   ├── Hype/                     # Executable target — UI / AppKit / SpriteKit
 │   │   ├── HypeApp.swift         # @main, DocumentGroup, menu commands
@@ -717,6 +773,7 @@ Hype/
 │       ├── AI/                   # HypeAIClient, RuntimeAIProvider, tools, validator, transactions, context, image + speech clients
 │       ├── Theme/                # HypeTheme, BuiltInThemes, ColorContrast
 │       ├── Runtime/              # Browse-mode StackRuntime actor, speech listener provider
+│       ├── HyperCardImport/      # Safe legacy HyperCard stack parser/converter
 │       ├── Animation/            # `animate the X of Y over N` engine
 │       ├── Audio/                # Sound playback, AudioKit music, MusicKit references, NAOD note parser
 │       ├── Layout/               # Snap-to-grid, alignment, distribution
@@ -731,6 +788,7 @@ Hype/
 │   └── HypeTests/                # SpriteKit / canvas / menu / Script Editor AI integration smokes
 └── scripts/
     ├── test.sh                   # Canonical `swift test` invocation
+    ├── visual_qa.sh              # Build/deploy/open/screenshot visual QA harness
     └── ai-training/              # LoRA fine-tuning + eval pipeline
         ├── Makefile
         ├── config.yaml
@@ -787,6 +845,21 @@ the author's primary workflow.
 
 Recent milestones:
 
+- **HyperCard stack import and XCMD/XFCN compatibility.** Safe block/resource
+  parsing, import reports, converted media assets, route-only script
+  compatibility for supported cross-stack navigation cases, and Swift-based
+  emulators for supported externals.
+- **SQLite-backed self-contained documents.** `.hype` packages now contain
+  `manifest.json` plus `stack.sqlite` with indexed layout, scripts, content,
+  assets, SpriteKit scenes, AI context, and full-text search projections.
+- **Target runtime export.** New stacks select target platforms, the object
+  palette filters to supported controls, target emulation uses device profiles,
+  and runtime package export can generate runtime-only app artifacts for macOS,
+  iPhone, iPad, and tvOS planning/testing flows.
+- **MCP/debug automation and visual QA.** The local debug bridge plus
+  `Tools/hype-mcp-server` lets external agents inspect/mutate Hype through
+  validated tools; `scripts/visual_qa.sh` captures the build/deploy/open/test
+  workflow and screenshot evidence under ignored `.hype/visual-qa/`.
 - Apple's Liquid Glass theme + theme-aware rendering across every
   button style.
 - Multi-selection (canvas + sprite scenes) with Cmd/Shift-click
@@ -794,9 +867,6 @@ Recent milestones:
   appearance, and text formatting (alignment, font, color).
 - AI eval suite expanded to 127 prompts across 10 categories;
   `granite4.1:30b` reaches 98.4% raw / 99.999% effective.
-- Test suite parallel-runner deadlock fixed (cooperative-thread
-  starvation in the sync→async dispatch bridge); 2,075 tests in
-  230 suites run in ~80 s.
 - **7-phase code-review remediation (CodeReviewAndGapsPlan).**
   Doc staleness fixed across all plan documents; AR Quick Look
   test suite (9 tests, DI refactor with `Scene3DAssetConverting`
@@ -819,10 +889,10 @@ Recent milestones:
 
 ## Contributing
 
-The repository is open-source under the MIT license. Issues and
-pull requests are welcome. See `AGENTS.md` for the repo workflow and
-`architecture.md` before opening a substantive PR — many design choices
-have load-bearing rationale documented there.
+Issues and pull requests are welcome. See `AGENTS.md` for the repo workflow,
+`decisions.md` for product guardrails, and `architecture.md` before opening a
+substantive PR — many design choices have load-bearing rationale documented
+there.
 
 For PRs:
 
@@ -837,7 +907,9 @@ For PRs:
 
 ## License
 
-MIT — see `LICENSE` (to be added) for the full text.
+The project is intended to use the MIT license, but a checked-in `LICENSE` file
+is not present yet. Add that file before relying on GitHub's license detection
+or distributing the project as an open-source package.
 
 The HyperCard name and design language are property of Apple Inc.
 Hype is an independent revival project that uses no Apple HyperCard
