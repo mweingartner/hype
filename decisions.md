@@ -66,6 +66,15 @@ document semantics.
 - Network-backed or paid services must be optional, preference-gated, and safe to disable without breaking local stack creation or playback.
 - Stack content should remain portable. External assets, generated media, context notes, and model-created content should be embedded or copied into the stack package when that is the expected user-facing behavior.
 
+## Visual QA And Debugging Guardrails
+
+- Agentic development on Hype must include visual ownership, not just source-level correctness. For user-facing UI, control rendering, target-runtime export, layout, interaction, animation, or authoring workflow changes, build, deploy, open, and visually inspect the running app before calling the work complete unless the user explicitly asks for design-only analysis.
+- Use first-class local automation for visual debugging: `/Applications/Hype.app` for deployed macOS behavior, `cliclick` for pointer/keyboard interaction when reliable, `screencapture` and `view_image` for screenshot inspection, `xcrun simctl` for iPhone/iPad simulator launch and screenshots, and the Hype MCP/debug bridge for live stack/app introspection and mutation.
+- Prefer repeatable visual QA commands over ad hoc inspection. `scripts/visual_qa.sh` is the default harness for build/deploy/open, focused target/runtime/control tests, MCP validation, and screenshot artifacts under ignored `.hype/visual-qa/`. Use `--live-ios` whenever iPhone/iPad deployed runtime behavior is relevant; live simulators are expected validation tools for target-runtime work, not optional last resorts. Shut down simulators after the pass unless the user explicitly wants them left running.
+- Treat visual artifacts as evidence. When validating a fix, inspect screenshots or the live app for legibility, clipping, layout fit, animation state, hit targets, and interaction feedback. Passing tests do not prove the UI is visually correct.
+- Keep visual QA non-destructive for user documents. Do not mutate ordinary user `.hype` stack files or commit screenshot artifacts unless explicitly requested. Stacks whose document names or filenames start with `test` are agent-owned QA fixtures and may be opened, mutated, saved, exported, and run in simulators as needed for debugging. Use generated temporary test stacks, ignored `.hype/` artifacts, simulator runtime packages, and MCP/debug tools for inspection and deterministic mutation.
+- When `cliclick` click delivery into Simulator is unreliable, use drag-down/drag-up sequences, simulator screenshots, source-level adapter tests, and MCP/debug introspection to triangulate behavior instead of over-trusting a single pointer event.
+
 ## References
 
 - `architecture.md`: source of truth for architecture as built.
