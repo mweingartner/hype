@@ -208,7 +208,7 @@ public struct HypeToolDefinitions {
         ]),
 
         makeTool(name: "create_slider", description: """
-            Create a slider (NSSlider). Continuous-tracking — `valueChanged` fires \
+            Create a slider. Continuous-tracking — `valueChanged` fires \
             during drag, not just on release. Reads use `the value of slider "X"`.
             """, params: [
             "name": ("string", "Slider part name", true),

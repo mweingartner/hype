@@ -12,8 +12,8 @@ import AppKit
 public enum FormControlsRenderer {
 
     public static func draw(_ kind: PartType, ctx: CGContext, part: Part, rect: CGRect, theme: HypeTheme? = nil) {
-        // Form controls have native AppKit overlays at runtime
-        // (NSStepper / NSSlider / NSSegmentedControl). The CG path
+        // Form controls have live AppKit overlays at runtime
+        // (NSStepper / Hype-owned slider host / NSSegmentedControl). The CG path
         // here is an edit-mode placeholder. The runtime overlay
         // picks up macOS's vibrancy when the host window has
         // `material = .regularMaterial`, so live glass rendering

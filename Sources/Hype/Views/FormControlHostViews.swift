@@ -77,10 +77,35 @@ final class StepperHostNSView: NSView {
 
 // MARK: - Slider
 
-final class HypeSliderControl: NSSlider {
-    var isMouseTracking = false
-    var onMouseTrackingBegan: (() -> Void)?
-    var onMouseTrackingEnded: (() -> Void)?
+/// Runtime slider host owned entirely by Hype.
+///
+/// We intentionally do not use `NSSlider` here. AppKit's private slider
+/// tracking behavior has repeatedly proven fragile inside Hype's canvas
+/// overlay stack, especially for "click the value line" interactions.
+/// This view draws the slider and owns click/drag tracking directly while
+/// still writing through the same coordinator closures as every form control.
+final class SliderHostNSView: NSView {
+    var onValueChange: ((Double) -> Void)?
+    var onInteractionBegin: (() -> Void)?
+    var onInteractionEnd: (() -> Void)?
+
+    private(set) var isMouseTracking = false
+    private(set) var controlMin: Double = 0
+    private(set) var controlMax: Double = 100
+    private(set) var controlValue: Double = 0
+    private(set) var orientation: SliderControlOrientation = .horizontal
+
+    override var isFlipped: Bool { true }
+
+    override init(frame frameRect: NSRect) { super.init(frame: frameRect) }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private var appliedValue: Double?
+    private var appliedMin: Double?
+    private var appliedMax: Double?
+    private var appliedOrientation: SliderControlOrientation?
+
+    override var acceptsFirstResponder: Bool { true }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
@@ -88,153 +113,224 @@ final class HypeSliderControl: NSSlider {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden, alphaValue > 0, bounds.contains(point) else { return nil }
-        // Modern AppKit sliders render the thumb through private child views.
-        // Route every hit in the control bounds back through NSSlider so our
-        // tracking begin/end hooks and AppKit's native drag handling both run.
+        // Own the full part rect so the control remains interactive even when
+        // AppKit's private NSSlider subviews do not expose a stable hit target.
         return self
     }
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        let initialPoint = convert(event.locationInWindow, from: nil)
-        isMouseTracking = true
-        onMouseTrackingBegan?()
-        defer {
-            if isMouseTracking {
-                isMouseTracking = false
-                notifyMouseTrackingEnded()
-            }
-        }
-        if !knobHitRect().contains(initialPoint) {
-            _ = setValue(fromLocalPoint: initialPoint)
-        }
-        super.mouseDown(with: event)
+        trackMouseSequence(startingWith: event)
     }
 
-    func notifyMouseTrackingEnded() {
-        onMouseTrackingEnded?()
+    override func mouseDragged(with event: NSEvent) {
+        continueMouseTracking(atLocalPoint: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        endMouseTracking(atLocalPoint: convert(event.locationInWindow, from: nil))
+    }
+
+    private func trackMouseSequence(startingWith event: NSEvent) {
+        beginMouseTracking(atLocalPoint: convert(event.locationInWindow, from: nil))
+        defer {
+            if isMouseTracking {
+                cancelMouseTracking()
+            }
+        }
+        guard let window else { return }
+
+        while isMouseTracking {
+            guard let nextEvent = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) else {
+                break
+            }
+
+            let point = convert(nextEvent.locationInWindow, from: nil)
+            switch nextEvent.type {
+            case .leftMouseDragged:
+                continueMouseTracking(atLocalPoint: point)
+            case .leftMouseUp:
+                endMouseTracking(atLocalPoint: point)
+            default:
+                break
+            }
+        }
+    }
+
+    func apply(_ part: Part) {
+        let shouldBeVertical = part.sliderControlOrientation == .vertical
+        let nextOrientation: SliderControlOrientation = shouldBeVertical ? .vertical : .horizontal
+        if nextOrientation != appliedOrientation {
+            orientation = nextOrientation
+            appliedOrientation = nextOrientation
+            needsDisplay = true
+        }
+        if part.controlMin != appliedMin {
+            controlMin = part.controlMin
+            appliedMin = part.controlMin
+            needsDisplay = true
+        }
+        if part.controlMax != appliedMax {
+            controlMax = part.controlMax
+            appliedMax = part.controlMax
+            needsDisplay = true
+        }
+        if !isMouseTracking && part.controlValue != appliedValue {
+            controlValue = clampedValue(part.controlValue)
+            appliedValue = part.controlValue
+            needsDisplay = true
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let track = trackRect()
+        let trackPath = NSBezierPath(roundedRect: track, xRadius: track.height / 2, yRadius: track.height / 2)
+        NSColor.tertiaryLabelColor.withAlphaComponent(0.8).setFill()
+        trackPath.fill()
+
+        let activeTrack = activeTrackRect(in: track)
+        if !activeTrack.isEmpty {
+            let activePath = NSBezierPath(roundedRect: activeTrack, xRadius: activeTrack.height / 2, yRadius: activeTrack.height / 2)
+            NSColor.controlAccentColor.withAlphaComponent(0.55).setFill()
+            activePath.fill()
+        }
+
+        let knob = knobRect(in: track)
+        NSColor.windowBackgroundColor.setFill()
+        NSBezierPath(ovalIn: knob.insetBy(dx: -1, dy: -1)).fill()
+        (isMouseTracking ? NSColor.controlAccentColor : NSColor.labelColor).withAlphaComponent(isMouseTracking ? 0.95 : 0.75).setStroke()
+        let knobPath = NSBezierPath(ovalIn: knob)
+        knobPath.lineWidth = isMouseTracking ? 2 : 1
+        knobPath.stroke()
+        NSColor.controlAccentColor.setFill()
+        knobPath.fill()
+    }
+
+    func beginMouseTracking(atLocalPoint point: NSPoint) {
+        if !isMouseTracking {
+            isMouseTracking = true
+            onInteractionBegin?()
+        }
+        _ = setValue(fromLocalPoint: point)
+    }
+
+    func continueMouseTracking(atLocalPoint point: NSPoint) {
+        guard isMouseTracking else { return }
+        _ = setValue(fromLocalPoint: point)
+    }
+
+    func endMouseTracking(atLocalPoint point: NSPoint) {
+        guard isMouseTracking else { return }
+        _ = setValue(fromLocalPoint: point)
+        finishMouseTracking()
+    }
+
+    private func cancelMouseTracking() {
+        finishMouseTracking()
+    }
+
+    private func finishMouseTracking() {
+        guard isMouseTracking else { return }
+        isMouseTracking = false
+        needsDisplay = true
+        onInteractionEnd?()
+    }
+
+    func setDisplayedValue(_ value: Double) {
+        controlValue = clampedValue(value)
+        appliedValue = controlValue
+        needsDisplay = true
     }
 
     @discardableResult
-    func setValue(fromLocalPoint point: NSPoint, fireAction: Bool = true) -> Bool {
+    func setValue(fromLocalPoint point: NSPoint) -> Bool {
         let nextValue = value(forLocalPoint: point)
         guard nextValue.isFinite else { return false }
-
-        let changed = abs(doubleValue - nextValue) > Double.ulpOfOne
+        let changed = abs(controlValue - nextValue) > Double.ulpOfOne
         if changed {
-            doubleValue = nextValue
+            controlValue = nextValue
+            appliedValue = nextValue
             needsDisplay = true
-            if fireAction {
-                _ = sendAction(action, to: target)
-            }
+            onValueChange?(nextValue)
         }
         return changed
     }
 
     func value(forLocalPoint point: NSPoint) -> Double {
-        let range = maxValue - minValue
-        guard range != 0 else { return minValue }
+        let range = controlMax - controlMin
+        guard range != 0 else { return controlMin }
 
-        let rect = effectiveTrackRect()
+        let rect = trackRect()
         let rawPercent: CGFloat
-        if isVertical {
+        switch orientation {
+        case .vertical:
             let clampedY = min(max(point.y, rect.minY), rect.maxY)
-            if rect.height <= 0 {
-                rawPercent = 0
-            } else if isFlipped {
-                rawPercent = 1 - ((clampedY - rect.minY) / rect.height)
-            } else {
-                rawPercent = (clampedY - rect.minY) / rect.height
-            }
-        } else {
+            rawPercent = rect.height <= 0 ? 0 : 1 - ((clampedY - rect.minY) / rect.height)
+        case .horizontal:
             let clampedX = min(max(point.x, rect.minX), rect.maxX)
             rawPercent = rect.width <= 0 ? 0 : (clampedX - rect.minX) / rect.width
         }
 
         let percent = Double(min(max(rawPercent, 0), 1))
-        let value = minValue + range * percent
-        return min(max(value, min(minValue, maxValue)), max(minValue, maxValue))
+        return clampedValue(controlMin + range * percent)
     }
 
-    private func effectiveTrackRect() -> NSRect {
-        let length = isVertical ? bounds.height : bounds.width
+    private func clampedValue(_ value: Double) -> Double {
+        min(max(value, min(controlMin, controlMax)), max(controlMin, controlMax))
+    }
+
+    private func trackRect() -> NSRect {
+        let length = orientation == .vertical ? bounds.height : bounds.width
         let inset = min(CGFloat(6), max(0, length / 2))
-        if isVertical {
-            return bounds.insetBy(dx: 0, dy: inset)
-        }
-        return bounds.insetBy(dx: inset, dy: 0)
-    }
-
-    private func knobHitRect() -> NSRect {
-        sliderCell().knobRect(flipped: isFlipped).insetBy(dx: -8, dy: -8)
-    }
-
-    private func sliderCell() -> NSSliderCell {
-        if let cell = cell as? NSSliderCell {
-            return cell
-        }
-        let fallback = NSSliderCell()
-        fallback.minValue = minValue
-        fallback.maxValue = maxValue
-        fallback.doubleValue = doubleValue
-        return fallback
-    }
-}
-
-final class SliderHostNSView: NSView {
-    let slider = HypeSliderControl()
-    var onValueChange: ((Double) -> Void)?
-    var onInteractionBegin: (() -> Void)?
-    var onInteractionEnd: (() -> Void)?
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        slider.translatesAutoresizingMaskIntoConstraints = false
-        slider.target = self
-        slider.action = #selector(sliderDidChange)
-        slider.isContinuous = true
-        slider.onMouseTrackingBegan = { [weak self] in
-            self?.onInteractionBegin?()
-        }
-        slider.onMouseTrackingEnded = { [weak self] in
-            self?.onInteractionEnd?()
-        }
-        addSubview(slider)
-        NSLayoutConstraint.activate([
-            slider.topAnchor.constraint(equalTo: topAnchor),
-            slider.bottomAnchor.constraint(equalTo: bottomAnchor),
-            slider.leadingAnchor.constraint(equalTo: leadingAnchor),
-            slider.trailingAnchor.constraint(equalTo: trailingAnchor)
-        ])
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    private var appliedValue: Double?
-    private var appliedMin: Double?
-    private var appliedMax: Double?
-
-    func apply(_ part: Part) {
-        let shouldBeVertical = part.sliderControlOrientation == .vertical
-        if slider.isVertical != shouldBeVertical {
-            slider.isVertical = shouldBeVertical
-        }
-        if part.controlMin != appliedMin {
-            slider.minValue = part.controlMin
-            appliedMin = part.controlMin
-        }
-        if part.controlMax != appliedMax {
-            slider.maxValue = part.controlMax
-            appliedMax = part.controlMax
-        }
-        if !slider.isMouseTracking && part.controlValue != appliedValue {
-            slider.doubleValue = part.controlValue
-            appliedValue = part.controlValue
+        let thickness: CGFloat = 4
+        switch orientation {
+        case .vertical:
+            return NSRect(
+                x: bounds.midX - thickness / 2,
+                y: bounds.minY + inset,
+                width: thickness,
+                height: max(0, bounds.height - inset * 2)
+            )
+        case .horizontal:
+            return NSRect(
+                x: bounds.minX + inset,
+                y: bounds.midY - thickness / 2,
+                width: max(0, bounds.width - inset * 2),
+                height: thickness
+            )
         }
     }
 
-    @objc private func sliderDidChange() {
-        appliedValue = slider.doubleValue
-        onValueChange?(slider.doubleValue)
+    private func activeTrackRect(in track: NSRect) -> NSRect {
+        let percent = knobPercent()
+        switch orientation {
+        case .vertical:
+            let knobY = track.maxY - track.height * CGFloat(percent)
+            return NSRect(x: track.minX, y: knobY, width: track.width, height: track.maxY - knobY)
+        case .horizontal:
+            return NSRect(x: track.minX, y: track.minY, width: track.width * CGFloat(percent), height: track.height)
+        }
+    }
+
+    private func knobRect(in track: NSRect) -> NSRect {
+        let percent = CGFloat(knobPercent())
+        let size: CGFloat = 16
+        switch orientation {
+        case .vertical:
+            let y = track.maxY - track.height * percent
+            return NSRect(x: bounds.midX - size / 2, y: y - size / 2, width: size, height: size)
+        case .horizontal:
+            let x = track.minX + track.width * percent
+            return NSRect(x: x - size / 2, y: bounds.midY - size / 2, width: size, height: size)
+        }
+    }
+
+    private func knobPercent() -> Double {
+        let range = controlMax - controlMin
+        guard range != 0 else { return 0 }
+        return min(max((controlValue - controlMin) / range, 0), 1)
     }
 }
 

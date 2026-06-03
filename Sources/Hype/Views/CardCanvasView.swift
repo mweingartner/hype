@@ -668,7 +668,7 @@ struct CardCanvasView: NSViewRepresentable {
             state.lastDispatchedValue = value
             continuousControlDispatches[id] = state
 
-            dispatchMessage(message, to: id, params: []) { [weak self] in
+            dispatchMessage(message, to: id, params: [], preservingLiveControlValueFor: id) { [weak self] in
                 guard let self else { return }
                 var state = self.continuousControlDispatches[id] ?? ContinuousControlDispatchState()
                 state.isDispatching = false
@@ -1135,6 +1135,7 @@ struct CardCanvasView: NSViewRepresentable {
             mouseX: Double = 0,
             mouseY: Double = 0,
             scriptContext: ScriptDispatchContext? = nil,
+            preservingLiveControlValueFor preservedControlPartId: UUID? = nil,
             completion: (@MainActor () -> Void)? = nil
         ) {
             let cardId = parent.currentCardId
@@ -1147,6 +1148,7 @@ struct CardCanvasView: NSViewRepresentable {
                 mouseX: mouseX,
                 mouseY: mouseY,
                 scriptContext: scriptContext,
+                preservingLiveControlValueFor: preservedControlPartId,
                 completion: completion
             )
         }
@@ -1299,7 +1301,7 @@ struct CardCanvasView: NSViewRepresentable {
         /// side-effect surface an ExecutionResult can carry and
         /// applies it to SwiftUI state, AppKit, and the notification
         /// center.
-        private func applyDispatchResult(_ result: ExecutionResult) {
+        private func applyDispatchResult(_ result: ExecutionResult, preservingLiveControlValueFor preservedControlPartId: UUID? = nil) {
             switch result.status {
             case .completed, .passed:
                 // Apply document modifications from script. This is
@@ -1308,7 +1310,12 @@ struct CardCanvasView: NSViewRepresentable {
                 // document snapshot and returns a mutated copy in
                 // `result.modifiedDocument`; writing it back is what
                 // makes the mutation actually visible.
-                if let modified = result.modifiedDocument {
+                if var modified = result.modifiedDocument {
+                    if let preservedControlPartId,
+                       let liveValue = parent.document.document.parts.first(where: { $0.id == preservedControlPartId })?.controlValue {
+                        modified.updatePart(id: preservedControlPartId) { $0.controlValue = liveValue }
+                        nsView?.setSliderHostDisplayedValue(partId: preservedControlPartId, value: liveValue)
+                    }
                     // Drop the cached PaintLayer when the document's stored layer
                     // differs from what is in the cache. This ensures that an
                     // `import paint` command (which writes a new CardPaintLayer into
@@ -1523,6 +1530,7 @@ struct CardCanvasView: NSViewRepresentable {
             mouseX: Double,
             mouseY: Double,
             scriptContext: ScriptDispatchContext?,
+            preservingLiveControlValueFor preservedControlPartId: UUID? = nil,
             completion: (@MainActor () -> Void)? = nil
         ) {
             let snapshot = parent.document.document
@@ -1539,7 +1547,7 @@ struct CardCanvasView: NSViewRepresentable {
                     scriptContext: scriptContext
                 )
                 await MainActor.run {
-                    self.applyDispatchResult(result)
+                    self.applyDispatchResult(result, preservingLiveControlValueFor: preservedControlPartId)
                     completion?()
                 }
             }
@@ -1727,6 +1735,28 @@ class CardCanvasNSView: NSView {
     var musicControlPlaybackHandler: ((MusicControlPlaybackRequest, HypeDocument) -> Void)?
     var musicControlSustainStopHandler: ((MusicSustainedNoteSpec, HypeDocument) -> Void)?
 
+    static func effectiveMouseTool(currentTool: ToolName, runtimeModeEnabled: Bool) -> ToolName {
+        runtimeModeEnabled ? .browse : currentTool
+    }
+
+    static func allowsRuntimeInteraction(currentTool: ToolName, runtimeModeEnabled: Bool) -> Bool {
+        ToolState(currentTool: effectiveMouseTool(
+            currentTool: currentTool,
+            runtimeModeEnabled: runtimeModeEnabled
+        ).rawValue).category == .browse
+    }
+
+    private var effectiveMouseTool: ToolName {
+        Self.effectiveMouseTool(
+            currentTool: currentTool,
+            runtimeModeEnabled: document.stack.runtimeModeEnabled
+        )
+    }
+
+    private var effectiveMouseToolState: ToolState {
+        ToolState(currentTool: effectiveMouseTool.rawValue)
+    }
+
     /// Configure the layer-backing and redraw policy required for the
     /// card canvas to behave correctly. Both `wantsLayer = true` (so
     /// AppKit text-field subviews composite atop the CG-drawn card) and
@@ -1810,6 +1840,15 @@ class CardCanvasNSView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        // Layer-backed canvases can fail to hand events to embedded controls
+        // through the default AppKit recursion. Route slider hits explicitly so
+        // click-to-value and drag scrubbing reach the Hype-owned slider host.
+        for view in sliderViews.values.reversed() {
+            guard !view.isHidden, view.frame.contains(point) else { continue }
+            let localPoint = convert(point, to: view)
+            return view.hitTest(localPoint) ?? view
+        }
+
         // Layer-backed canvas rendering can otherwise keep mouse events on the
         // canvas even when an interactive SwiftUI chart host sits above it.
         // Route spider-chart hits explicitly so value-dot drags and axis-line
@@ -1878,6 +1917,7 @@ class CardCanvasNSView: NSView {
     private var stepperViews: [UUID: StepperHostNSView] = [:]
     private var sliderViews: [UUID: SliderHostNSView] = [:]
     private var segmentedViews: [UUID: SegmentedHostNSView] = [:]
+    private var activeCanvasSliderPartId: UUID?
     private var appleMusicBrowserViews: [UUID: AppleMusicBrowserHostNSView] = [:]
     private var musicInstrumentPopupViews: [UUID: MusicInstrumentPopupHostNSView] = [:]
     private var audioRecorderViews: [UUID: AudioRecorderHostNSView] = [:]
@@ -2234,7 +2274,7 @@ class CardCanvasNSView: NSView {
     }
 
     override func keyUp(with event: NSEvent) {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let toolState = effectiveMouseToolState
         if toolState.category == .browse {
             // Forward key-up events to active sprite scenes
             for (_, skView) in spriteViews {
@@ -2296,8 +2336,10 @@ class CardCanvasNSView: NSView {
         // (b) in edit mode we WANT the placeholder visible, since the SKView
         // is intentionally torn down in edit mode and the placeholder is
         // the authoring affordance.
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        let isBrowseModeForRender = toolState.category == .browse
+        let isBrowseModeForRender = Self.allowsRuntimeInteraction(
+            currentTool: currentTool,
+            runtimeModeEnabled: document.stack.runtimeModeEnabled
+        )
         let nativePartIds: Set<UUID>
         let musicControlRenderOptions: MusicControlRenderOptions
         if isBrowseModeForRender {
@@ -2945,18 +2987,19 @@ class CardCanvasNSView: NSView {
     }
 
     private func cursorDescriptorForCurrentTool() -> CursorDescriptor {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let tool = effectiveMouseTool
+        let toolState = ToolState(currentTool: tool.rawValue)
         switch toolState.category {
         case .browse:
             return .pointingHand
         case .edit:
-            if currentTool == .select {
+            if tool == .select {
                 return .arrow
             } else {
                 return .crosshair
             }
         case .paint:
-            switch currentTool {
+            switch tool {
             case .eraser:
                 return .eraser(radius: eraserRadius)
             case .spray:
@@ -3136,7 +3179,7 @@ class CardCanvasNSView: NSView {
 
     @MainActor
     private func dispatchIdleTickIfNeeded() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
+        let toolState = effectiveMouseToolState
         guard toolState.category == .browse, activeFieldEditor == nil else { return }
 
         let targets = idleDispatchTargetsForCurrentCard()
@@ -3524,7 +3567,7 @@ class CardCanvasNSView: NSView {
         // Dispatch mouseWithin (throttled to every 100ms) with mouse coordinates
         if let partId = hoveredPartId, Date().timeIntervalSince(lastMouseWithinTime) > 0.1 {
             lastMouseWithinTime = Date()
-            let toolState = ToolState(currentTool: currentTool.rawValue)
+            let toolState = effectiveMouseToolState
             if toolState.category == .browse {
                 coordinator?.dispatchMessage("mouseWithin", to: partId,
                                              mouseX: Double(point.x), mouseY: Double(point.y))
@@ -3687,12 +3730,13 @@ class CardCanvasNSView: NSView {
         let point = flippedPoint(for: event)
 
         // Handle paint tools directly
-        let paintToolCheck = ToolState(currentTool: currentTool.rawValue)
+        let eventTool = effectiveMouseTool
+        let paintToolCheck = ToolState(currentTool: eventTool.rawValue)
         if paintToolCheck.category == .paint {
             let x = Int(point.x)
             let y = Int(point.y)
 
-            switch currentTool {
+            switch eventTool {
             case .pencil:
                 let pl = paintLayerForCurrentCard()
                 pl.drawCircle(cx: x, cy: y, radius: pencilRadius, color: paintColor)
@@ -3722,7 +3766,7 @@ class CardCanvasNSView: NSView {
 
         let rawHitPart = renderer.partAtPoint(point, document: document, cardId: currentCardId)
 
-        let toolCheck = ToolState(currentTool: currentTool.rawValue)
+        let toolCheck = ToolState(currentTool: eventTool.rawValue)
         if toolCheck.category == .browse,
            let part = rawHitPart,
            handleSpiderChartCanvasInteraction(part: part, at: point, phase: .began) {
@@ -3766,6 +3810,13 @@ class CardCanvasNSView: NSView {
         // but double-clicks and Cmd-clicks must stay available to the stack.
         let authoringBrowseMode = toolCheck.category == .browse && !document.stack.runtimeModeEnabled
 
+        if toolCheck.category == .browse,
+           let part = hitPart,
+           beginCanvasSliderInteraction(part: part, at: point) {
+            coordinator?.recordClickState(point: point, hitPart: hitPart, document: document)
+            return
+        }
+
         // Double-click on a part in authoring Browse mode → dispatch message and open properties
         // Cmd+click in authoring Browse mode: open script editor for the
         // topmost part under the cursor, regardless of editing
@@ -3796,11 +3847,11 @@ class CardCanvasNSView: NSView {
             return
         }
 
-        var toolState = ToolState(currentTool: currentTool.rawValue)
+        var toolState = ToolState(currentTool: eventTool.rawValue)
         toolState.selectedPartId = selectedPartIds.first
 
         // Handle select tool directly for cleaner click-vs-marquee logic
-        if currentTool == .select {
+        if eventTool == .select {
             // Check resize handle first. A grouped selection counts
             // as one resizable unit even though selectedPartIds
             // contains every member.
@@ -3940,8 +3991,64 @@ class CardCanvasNSView: NSView {
         }
     }
 
+    private func beginCanvasSliderInteraction(part: Part, at point: CGPoint) -> Bool {
+        guard part.partType == .slider else { return false }
+        activeCanvasSliderPartId = part.id
+        coordinator?.beginContinuousControlValueChange()
+        updateCanvasSliderInteraction(part: part, at: point)
+        return true
+    }
+
+    private func updateCanvasSliderInteraction(part: Part, at point: CGPoint) {
+        let value = Self.canvasSliderControlValue(forCanvasPoint: point, part: part)
+        coordinator?.setPartContinuousControlValue(id: part.id, value: value, message: "valueChanged")
+        if let host = sliderViews[part.id] {
+            host.setDisplayedValue(value)
+            host.needsDisplay = true
+        }
+        needsDisplay = true
+    }
+
+    static func canvasSliderControlValue(forCanvasPoint point: CGPoint, part: Part) -> Double {
+        let range = part.controlMax - part.controlMin
+        guard range != 0 else { return part.controlMin }
+
+        let isVertical = part.sliderControlOrientation == .vertical
+        let length = isVertical ? part.height : part.width
+        let inset = min(6.0, max(0, length / 2))
+        let trackLength = max(length - inset * 2, 0)
+
+        let rawPercent: Double
+        if isVertical {
+            let localY = point.y - part.top
+            let clamped = min(max(localY, inset), inset + trackLength)
+            rawPercent = trackLength <= 0 ? 0 : 1 - ((clamped - inset) / trackLength)
+        } else {
+            let localX = point.x - part.left
+            let clamped = min(max(localX, inset), inset + trackLength)
+            rawPercent = trackLength <= 0 ? 0 : (clamped - inset) / trackLength
+        }
+
+        let percent = min(max(rawPercent, 0), 1)
+        let value = part.controlMin + range * percent
+        return min(max(value, min(part.controlMin, part.controlMax)), max(part.controlMin, part.controlMax))
+    }
+
+    func setSliderHostDisplayedValue(partId: UUID, value: Double) {
+        guard let host = sliderViews[partId] else { return }
+        host.setDisplayedValue(value)
+        host.needsDisplay = true
+    }
+
     override func mouseDragged(with event: NSEvent) {
         let point = flippedPoint(for: event)
+
+        if let activeCanvasSliderPartId {
+            if let part = document.parts.first(where: { $0.id == activeCanvasSliderPartId }) {
+                updateCanvasSliderInteraction(part: part, at: point)
+            }
+            return
+        }
 
         if let activeSpiderChartDrag {
             if let part = document.parts.first(where: { $0.id == activeSpiderChartDrag.partId }) {
@@ -3958,11 +4065,12 @@ class CardCanvasNSView: NSView {
         }
 
         // Handle paint tool dragging
-        if isDragging && ToolState(currentTool: currentTool.rawValue).category == .paint {
+        let eventTool = effectiveMouseTool
+        if isDragging && ToolState(currentTool: eventTool.rawValue).category == .paint {
             let x = Int(point.x)
             let y = Int(point.y)
 
-            switch currentTool {
+            switch eventTool {
             case .pencil:
                 if let last = lastPencilPoint {
                     let pl = paintLayerForCurrentCard()
@@ -4082,6 +4190,18 @@ class CardCanvasNSView: NSView {
         endMusicControlDrag()
 
         let point = flippedPoint(for: event)
+        let eventTool = effectiveMouseTool
+
+        if let partId = activeCanvasSliderPartId {
+            activeCanvasSliderPartId = nil
+            if let part = document.parts.first(where: { $0.id == partId }) {
+                updateCanvasSliderInteraction(part: part, at: point)
+            }
+            coordinator?.endContinuousControlValueChange(id: partId, message: "valueChanged") { [weak self] in
+                self?.coordinator?.dispatchMessage("mouseUp", to: partId)
+            }
+            return
+        }
 
         if let activeSpiderChartDrag,
            let part = document.parts.first(where: { $0.id == activeSpiderChartDrag.partId }) {
@@ -4106,8 +4226,8 @@ class CardCanvasNSView: NSView {
 
         // Handle paint tool mouseUp. Object creation is owned by
         // canonical edit tools; paint tools mutate only the paint layer.
-        if isDragging && ToolState(currentTool: currentTool.rawValue).category == .paint {
-            switch currentTool {
+        if isDragging && ToolState(currentTool: eventTool.rawValue).category == .paint {
+            switch eventTool {
             case .pencil:
                 lastPencilPoint = nil
                 persistPaintLayerForCurrentCard()
@@ -4167,7 +4287,7 @@ class CardCanvasNSView: NSView {
         }
 
         // In browse mode, dispatch mouseUp even without a drag
-        let toolCheck = ToolState(currentTool: currentTool.rawValue)
+        let toolCheck = ToolState(currentTool: eventTool.rawValue)
         if toolCheck.category == .browse {
             let hitPart = renderer.partAtPoint(point, document: document, cardId: currentCardId)
 
@@ -4235,7 +4355,7 @@ class CardCanvasNSView: NSView {
         guard isDragging else { return }
 
         let hitPart = renderer.partAtPoint(point, document: document, cardId: currentCardId)
-        var toolState = ToolState(currentTool: currentTool.rawValue)
+        var toolState = ToolState(currentTool: eventTool.rawValue)
         toolState.selectedPartId = selectedPartIds.first
 
         let cgDragStart: CGPoint? = dragStart
@@ -4315,8 +4435,10 @@ class CardCanvasNSView: NSView {
 
     /// Create, update, or remove WKWebViews for webpage parts on the current card.
     private func updateWebViews() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        let isBrowseMode = toolState.category == .browse
+        let isBrowseMode = Self.allowsRuntimeInteraction(
+            currentTool: currentTool,
+            runtimeModeEnabled: document.stack.runtimeModeEnabled
+        )
 
         // Get all webpage parts on the current card
         let cardParts = document.partsForCard(currentCardId)
@@ -4406,8 +4528,10 @@ class CardCanvasNSView: NSView {
 
     /// Create, update, or remove AVPlayerViews for video parts on the current card.
     private func updateVideoPlayers() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        let isBrowseMode = toolState.category == .browse
+        let isBrowseMode = Self.allowsRuntimeInteraction(
+            currentTool: currentTool,
+            runtimeModeEnabled: document.stack.runtimeModeEnabled
+        )
 
         let cardParts = document.partsForCard(currentCardId)
         let bgParts: [Part]
@@ -4448,7 +4572,7 @@ class CardCanvasNSView: NSView {
                 ? CGRect(x: part.left, y: part.top, width: 1, height: 1)
                 : CGRect(x: part.left, y: part.top, width: part.width, height: part.height)
 
-            if let existing = videoPlayers[part.id], let player = existing.player {
+            if let existing = videoPlayers[part.id], existing.player != nil {
                 existing.frame = frame
                 existing.controlsStyle = videoSource.audioOnly ? .none : .inline
                 existing.alphaValue = videoSource.audioOnly ? 0 : 1
@@ -4565,8 +4689,10 @@ class CardCanvasNSView: NSView {
 
     /// Create, update, or remove NSHostingViews for chart parts on the current card.
     private func updateChartViews() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        let isBrowseMode = toolState.category == .browse
+        let isBrowseMode = Self.allowsRuntimeInteraction(
+            currentTool: currentTool,
+            runtimeModeEnabled: document.stack.runtimeModeEnabled
+        )
 
         let cardParts = document.partsForCard(currentCardId)
         let bgParts: [Part]
@@ -4657,8 +4783,10 @@ class CardCanvasNSView: NSView {
     /// the live AppKit picker shows in browse mode, the CG
     /// `CalendarRenderer` placeholder shows in edit mode.
     private func updateCalendarViews() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        let isBrowseMode = toolState.category == .browse
+        let isBrowseMode = Self.allowsRuntimeInteraction(
+            currentTool: currentTool,
+            runtimeModeEnabled: document.stack.runtimeModeEnabled
+        )
 
         let cardParts = document.partsForCard(currentCardId)
         let bgParts: [Part]
@@ -4719,8 +4847,10 @@ class CardCanvasNSView: NSView {
     /// Same lifecycle as charts/calendars — live in browse mode,
     /// placeholder via `PDFRenderer` in edit mode.
     private func updatePDFViews() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        let isBrowseMode = toolState.category == .browse
+        let isBrowseMode = Self.allowsRuntimeInteraction(
+            currentTool: currentTool,
+            runtimeModeEnabled: document.stack.runtimeModeEnabled
+        )
 
         let cardParts = document.partsForCard(currentCardId)
         let bgParts: [Part]
@@ -4781,11 +4911,13 @@ class CardCanvasNSView: NSView {
     /// background parts first, then card parts, each in document
     /// order, so the same topmost part wins as `CardRenderer`.
     private func updatePartToolTips() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
         let nextDescriptors = Self.toolTipDescriptors(
             in: document,
             currentCardId: currentCardId,
-            isBrowseMode: toolState.category == .browse
+            isBrowseMode: Self.allowsRuntimeInteraction(
+                currentTool: currentTool,
+                runtimeModeEnabled: document.stack.runtimeModeEnabled
+            )
         )
 
         guard nextDescriptors != registeredToolTipDescriptors else { return }
@@ -4858,8 +4990,10 @@ class CardCanvasNSView: NSView {
 
     /// Create, update, or remove `MKMapView` hosts for `map` parts.
     private func updateMapViews() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        let isBrowseMode = toolState.category == .browse
+        let isBrowseMode = Self.allowsRuntimeInteraction(
+            currentTool: currentTool,
+            runtimeModeEnabled: document.stack.runtimeModeEnabled
+        )
 
         let cardParts = document.partsForCard(currentCardId)
         let bgParts: [Part]
@@ -4913,8 +5047,10 @@ class CardCanvasNSView: NSView {
     /// immediately and `colorChanged` messages dispatch on the
     /// part.
     private func updateColorWellViews() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        let isBrowseMode = toolState.category == .browse
+        let isBrowseMode = Self.allowsRuntimeInteraction(
+            currentTool: currentTool,
+            runtimeModeEnabled: document.stack.runtimeModeEnabled
+        )
 
         let cardParts = document.partsForCard(currentCardId)
         let bgParts: [Part]
@@ -4968,8 +5104,10 @@ class CardCanvasNSView: NSView {
     /// reflect what's on screen, and the `valueChanged` /
     /// `selectionChanged` HypeTalk messages dispatch on the part.
     private func updateFormControlViews() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        let isBrowseMode = toolState.category == .browse
+        let isBrowseMode = Self.allowsRuntimeInteraction(
+            currentTool: currentTool,
+            runtimeModeEnabled: document.stack.runtimeModeEnabled
+        )
 
         let cardParts = document.partsForCard(currentCardId)
         let bgParts: [Part]
@@ -5087,8 +5225,10 @@ class CardCanvasNSView: NSView {
     /// the actual search/select/play/seek UI and writes stable metadata back
     /// into the stack document.
     private func updateAppleMusicBrowserViews() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        let isBrowseMode = toolState.category == .browse
+        let isBrowseMode = Self.allowsRuntimeInteraction(
+            currentTool: currentTool,
+            runtimeModeEnabled: document.stack.runtimeModeEnabled
+        )
 
         let allParts = partsForCurrentCard()
         let browserParts = allParts.filter { $0.partType == .appleMusicBrowser && $0.visible }
@@ -5153,8 +5293,10 @@ class CardCanvasNSView: NSView {
     /// CGContext-rendered and route note playback through the existing
     /// browse-mode music-control path.
     private func updateMusicInstrumentPopupViews() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        let isBrowseMode = toolState.category == .browse
+        let isBrowseMode = Self.allowsRuntimeInteraction(
+            currentTool: currentTool,
+            runtimeModeEnabled: document.stack.runtimeModeEnabled
+        )
 
         let allParts = partsForCurrentCard()
         let popupParts = allParts.filter {
@@ -5203,8 +5345,10 @@ class CardCanvasNSView: NSView {
     /// engine; setting the part's `audioRecording` flag to true
     /// flips the host into recording mode.
     private func updateAudioRecorderViews() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        let isBrowseMode = toolState.category == .browse
+        let isBrowseMode = Self.allowsRuntimeInteraction(
+            currentTool: currentTool,
+            runtimeModeEnabled: document.stack.runtimeModeEnabled
+        )
 
         let cardParts = document.partsForCard(currentCardId)
         let bgParts: [Part]
@@ -5263,8 +5407,10 @@ class CardCanvasNSView: NSView {
 
     /// Create, update, or remove `SCNView` hosts for `scene3D` parts.
     private func updateScene3DViews() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        let isBrowseMode = toolState.category == .browse
+        let isBrowseMode = Self.allowsRuntimeInteraction(
+            currentTool: currentTool,
+            runtimeModeEnabled: document.stack.runtimeModeEnabled
+        )
 
         let cardParts = document.partsForCard(currentCardId)
         let bgParts: [Part]
@@ -5312,8 +5458,10 @@ class CardCanvasNSView: NSView {
 
     /// Create, update, or remove `ProgressViewHostNSView`s for `progressView` parts.
     private func updateProgressViewHosts() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        let isBrowseMode = toolState.category == .browse
+        let isBrowseMode = Self.allowsRuntimeInteraction(
+            currentTool: currentTool,
+            runtimeModeEnabled: document.stack.runtimeModeEnabled
+        )
 
         let allParts = partsForCurrentCard()
         let typeParts = allParts.filter { $0.partType == .progressView && $0.visible }
@@ -5351,8 +5499,10 @@ class CardCanvasNSView: NSView {
 
     /// Create, update, or remove `GaugeHostNSView`s for `gauge` parts.
     private func updateGaugeHosts() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        let isBrowseMode = toolState.category == .browse
+        let isBrowseMode = Self.allowsRuntimeInteraction(
+            currentTool: currentTool,
+            runtimeModeEnabled: document.stack.runtimeModeEnabled
+        )
 
         let allParts = partsForCurrentCard()
         let typeParts = allParts.filter { $0.partType == .gauge && $0.visible }
@@ -5434,8 +5584,10 @@ class CardCanvasNSView: NSView {
 
     /// Create, update, or remove SKViews for spriteArea parts on the current card.
     private func updateSpriteViews() {
-        let toolState = ToolState(currentTool: currentTool.rawValue)
-        let isBrowseMode = toolState.category == .browse
+        let isBrowseMode = Self.allowsRuntimeInteraction(
+            currentTool: currentTool,
+            runtimeModeEnabled: document.stack.runtimeModeEnabled
+        )
 
         let cardParts = document.partsForCard(currentCardId)
         let bgParts: [Part]
@@ -6673,7 +6825,7 @@ extension CardCanvasNSView: SpriteEventDelegate {
                 coordinator?.dispatchMessage("endContact", to: payload.targetId, params: [nodeNames[nodeA] ?? ""], scriptContext: payload.context)
             }
         case .frameUpdate(let deltaTime):
-            let toolState = ToolState(currentTool: currentTool.rawValue)
+            let toolState = effectiveMouseToolState
             guard toolState.category == .browse, activeFieldEditor == nil else {
                 frameUpdateDispatchInFlight.remove(partId)
                 return
