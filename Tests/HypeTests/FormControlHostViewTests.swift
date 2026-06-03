@@ -125,14 +125,45 @@ struct FormControlHostViewTests {
         #expect(source.contains("return self"))
         #expect(source.contains("final class SliderHostNSView: NSView"))
         #expect(source.contains("override var acceptsFirstResponder: Bool { true }"))
-        #expect(source.contains("private func trackMouseSequence(startingWith event: NSEvent)"))
-        #expect(source.contains("window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp])"))
         #expect(source.contains("func beginMouseTracking(atLocalPoint point: NSPoint)"))
         #expect(source.contains("override func mouseDragged(with event: NSEvent)"))
         #expect(source.contains("override func mouseUp(with event: NSEvent)"))
         #expect(source.contains("func value(forLocalPoint point: NSPoint) -> Double"))
         #expect(!source.contains("final class HypeSliderControl: NSSlider"))
         #expect(!source.contains("super.mouseDown(with: event)"))
+    }
+
+    @Test("Canvas slider event monitor targets only topmost visible sliders")
+    func canvasSliderEventMonitorTargetsOnlyTopmostVisibleSliders() throws {
+        var document = HypeDocument.newDocument(name: "Slider Hit")
+        let cardId = try #require(document.cards.first?.id)
+        var slider = Part(partType: .slider, cardId: cardId, name: "volume")
+        slider.left = 40
+        slider.top = 40
+        slider.width = 160
+        slider.height = 24
+        document.parts.append(slider)
+
+        let hit = CardCanvasNSView.sliderPartForCanvasInteraction(
+            at: CGPoint(x: 120, y: 52),
+            document: document,
+            cardId: cardId
+        )
+        #expect(hit?.id == slider.id)
+
+        var coveringButton = Part(partType: .button, cardId: cardId, name: "cover")
+        coveringButton.left = 32
+        coveringButton.top = 32
+        coveringButton.width = 180
+        coveringButton.height = 40
+        document.parts.append(coveringButton)
+
+        let coveredHit = CardCanvasNSView.sliderPartForCanvasInteraction(
+            at: CGPoint(x: 120, y: 52),
+            document: document,
+            cardId: cardId
+        )
+        #expect(coveredHit == nil)
     }
 
     @Test("Canvas slider fallback maps visible vertical slider points to values")
@@ -189,6 +220,11 @@ struct FormControlHostViewTests {
 
         #expect(source.contains("host.onInteractionEnd = { [weak self] in"))
         #expect(source.contains("self?.coordinator?.dispatchMessage(\"mouseUp\", to: partId)"))
+        #expect(source.contains("NSEvent.addLocalMonitorForEvents"))
+        #expect(source.contains("handleLocalSliderEvent"))
+        #expect(source.contains("removeSliderEventMonitor"))
+        #expect(source.contains("sliderPartForCanvasInteraction"))
+        #expect(source.contains("return nil"))
     }
 
     @Test("Canvas hit testing explicitly routes slider hosts")

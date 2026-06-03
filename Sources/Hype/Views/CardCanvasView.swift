@@ -211,6 +211,7 @@ struct CardCanvasView: NSViewRepresentable {
         // keep receiving lock/unlock notifications.
         NotificationCenter.default.removeObserver(nsView, name: .hypeScreenLock, object: nil)
         NotificationCenter.default.removeObserver(nsView, name: .hypeScreenUnlock, object: nil)
+        nsView.removeSliderEventMonitor()
         // Remove all periodic video time observers BEFORE the players are released.
         // AVFoundation crashes if a player is deallocated while a periodic observer
         // is still registered (Security Condition 10).
@@ -1789,6 +1790,7 @@ class CardCanvasNSView: NSView {
             name: .hypeScreenUnlock,
             object: nil
         )
+        installSliderEventMonitorIfNeeded()
     }
 
     @objc private func handleScreenLock() {
@@ -1865,6 +1867,88 @@ class CardCanvasNSView: NSView {
         return super.hitTest(point)
     }
 
+    private func installSliderEventMonitorIfNeeded() {
+        guard sliderEventMonitor == nil else { return }
+        sliderEventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
+        ) { [weak self] event in
+            guard let self else { return event }
+            return self.handleLocalSliderEvent(event)
+        }
+    }
+
+    func removeSliderEventMonitor() {
+        guard let sliderEventMonitor else { return }
+        NSEvent.removeMonitor(sliderEventMonitor)
+        self.sliderEventMonitor = nil
+    }
+
+    private func handleLocalSliderEvent(_ event: NSEvent) -> NSEvent? {
+        guard event.window === window else { return event }
+        let isBrowseMode = Self.allowsRuntimeInteraction(
+            currentTool: currentTool,
+            runtimeModeEnabled: document.stack.runtimeModeEnabled
+        )
+        if !isBrowseMode {
+            if event.type == .leftMouseUp {
+                activeCanvasSliderPartId = nil
+            }
+            return event
+        }
+
+        let point = convert(event.locationInWindow, from: nil)
+        switch event.type {
+        case .leftMouseDown:
+            guard bounds.contains(point),
+                  let part = Self.sliderPartForCanvasInteraction(
+                    at: point,
+                    document: document,
+                    cardId: currentCardId
+                  ) else {
+                return event
+            }
+            _ = beginCanvasSliderInteraction(part: part, at: point)
+            coordinator?.recordClickState(point: point, hitPart: part, document: document)
+            return nil
+
+        case .leftMouseDragged:
+            guard let partId = activeCanvasSliderPartId,
+                  let part = document.parts.first(where: { $0.id == partId }) else {
+                return event
+            }
+            updateCanvasSliderInteraction(part: part, at: point)
+            return nil
+
+        case .leftMouseUp:
+            guard let partId = activeCanvasSliderPartId else { return event }
+            activeCanvasSliderPartId = nil
+            if let part = document.parts.first(where: { $0.id == partId }) {
+                updateCanvasSliderInteraction(part: part, at: point)
+            }
+            coordinator?.endContinuousControlValueChange(id: partId, message: "valueChanged") { [weak self] in
+                self?.coordinator?.dispatchMessage("mouseUp", to: partId)
+            }
+            return nil
+
+        default:
+            return event
+        }
+    }
+
+    static func sliderPartForCanvasInteraction(
+        at point: CGPoint,
+        document: HypeDocument,
+        cardId: UUID
+    ) -> Part? {
+        let renderer = CardRenderer()
+        guard let part = renderer.partAtPoint(point, document: document, cardId: cardId),
+              part.partType == .slider,
+              part.visible else {
+            return nil
+        }
+        return part
+    }
+
     /// Eraser radius in pixels (adjustable with [ and ] keys).
     var eraserRadius: Int = 10
     /// Spray radius in pixels (adjustable with [ and ] keys when spray tool active).
@@ -1918,6 +2002,7 @@ class CardCanvasNSView: NSView {
     private var sliderViews: [UUID: SliderHostNSView] = [:]
     private var segmentedViews: [UUID: SegmentedHostNSView] = [:]
     private var activeCanvasSliderPartId: UUID?
+    private var sliderEventMonitor: Any?
     private var appleMusicBrowserViews: [UUID: AppleMusicBrowserHostNSView] = [:]
     private var musicInstrumentPopupViews: [UUID: MusicInstrumentPopupHostNSView] = [:]
     private var audioRecorderViews: [UUID: AudioRecorderHostNSView] = [:]

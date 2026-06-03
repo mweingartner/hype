@@ -120,7 +120,7 @@ final class SliderHostNSView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        trackMouseSequence(startingWith: event)
+        beginMouseTracking(atLocalPoint: convert(event.locationInWindow, from: nil))
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -129,32 +129,6 @@ final class SliderHostNSView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         endMouseTracking(atLocalPoint: convert(event.locationInWindow, from: nil))
-    }
-
-    private func trackMouseSequence(startingWith event: NSEvent) {
-        beginMouseTracking(atLocalPoint: convert(event.locationInWindow, from: nil))
-        defer {
-            if isMouseTracking {
-                cancelMouseTracking()
-            }
-        }
-        guard let window else { return }
-
-        while isMouseTracking {
-            guard let nextEvent = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) else {
-                break
-            }
-
-            let point = convert(nextEvent.locationInWindow, from: nil)
-            switch nextEvent.type {
-            case .leftMouseDragged:
-                continueMouseTracking(atLocalPoint: point)
-            case .leftMouseUp:
-                endMouseTracking(atLocalPoint: point)
-            default:
-                break
-            }
-        }
     }
 
     func apply(_ part: Part) {
