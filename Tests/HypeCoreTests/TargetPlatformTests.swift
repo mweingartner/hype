@@ -337,6 +337,30 @@ struct TargetPlatformTests {
             contentsOf: shellDir.appendingPathComponent("deploy-ios-device.sh"),
             encoding: .utf8
         )
+        let preflightScript = try String(
+            contentsOf: shellDir.appendingPathComponent("preflight-ios-deployment.sh"),
+            encoding: .utf8
+        )
+        let archiveScript = try String(
+            contentsOf: shellDir.appendingPathComponent("archive-ios.sh"),
+            encoding: .utf8
+        )
+        let exportScript = try String(
+            contentsOf: shellDir.appendingPathComponent("export-ios-archive.sh"),
+            encoding: .utf8
+        )
+        let uploadScript = try String(
+            contentsOf: shellDir.appendingPathComponent("upload-testflight.sh"),
+            encoding: .utf8
+        )
+        let diagnostics = try JSONDecoder().decode(
+            HypeRuntimeDeploymentDiagnostics.self,
+            from: Data(contentsOf: shellDir.appendingPathComponent("DeploymentDiagnostics.json"))
+        )
+        let privacyManifest = try String(
+            contentsOf: shellDir.appendingPathComponent("PrivacyInfo.xcprivacy"),
+            encoding: .utf8
+        )
 
         #expect(manifest.platform == .iPhone)
         #expect(manifest.runtimeOnly)
@@ -348,10 +372,24 @@ struct TargetPlatformTests {
         #expect(manifest.xcodeProjectPath == "RuntimeShell/HypeRuntimeApp.xcodeproj")
         #expect(manifest.simulatorBuildScriptPath == "RuntimeShell/build-ios-simulator.sh")
         #expect(manifest.deviceDeployScriptPath == "RuntimeShell/deploy-ios-device.sh")
+        #expect(manifest.deploymentPreflightScriptPath == "RuntimeShell/preflight-ios-deployment.sh")
+        #expect(manifest.archiveScriptPath == "RuntimeShell/archive-ios.sh")
+        #expect(manifest.exportArchiveScriptPath == "RuntimeShell/export-ios-archive.sh")
+        #expect(manifest.testFlightUploadScriptPath == "RuntimeShell/upload-testflight.sh")
+        #expect(manifest.deploymentDiagnosticsPath == "RuntimeShell/DeploymentDiagnostics.json")
+        #expect(manifest.privacyManifestPath == "RuntimeShell/PrivacyInfo.xcprivacy")
         #expect(manifest.minimumOSVersion == "17.0")
         #expect(manifest.deviceFamilies == ["iPhone"])
         #expect(runtimeDocument.stack.runtimeModeEnabled)
         #expect(runtimeDocument.scriptGlobals.isEmpty)
+        #expect(diagnostics.format == "hype-runtime-deployment-diagnostics")
+        #expect(diagnostics.platform == .iPhone)
+        #expect(diagnostics.bundleIdentifier == manifest.bundleIdentifier)
+        #expect(diagnostics.totalPartCount == runtimeDocument.parts.count)
+        #expect(diagnostics.assetCount == runtimeDocument.assetRepository.assets.count)
+        #expect(diagnostics.distributionScripts.contains("RuntimeShell/archive-ios.sh"))
+        #expect(privacyManifest.contains("<key>NSPrivacyTracking</key>"))
+        #expect(privacyManifest.contains("<key>NSPrivacyCollectedDataTypes</key>"))
         #expect(shellSource.contains("HypeSQLiteStackStore().load"))
         #expect(shellSource.contains("HypeRuntimeCardView"))
         #expect(shellSource.contains(".frame(maxWidth: .infinity, maxHeight: .infinity)"))
@@ -381,6 +419,8 @@ struct TargetPlatformTests {
         #expect(!shellSource.contains("ScriptEditor"))
         #expect(projectFile.contains("productType = \"com.apple.product-type.application\""))
         #expect(projectFile.contains("relativePath = HypeSource"))
+        #expect(projectFile.contains("PrivacyInfo.xcprivacy in Resources"))
+        #expect(projectFile.contains("DeploymentDiagnostics.json in Resources"))
         #expect(projectFile.contains("TARGETED_DEVICE_FAMILY = \"1\""))
         #expect(!projectFile.contains("/Users/"))
         #expect(runtimeCorePackage.contains("name: \"HypeRuntimeCore\""))
@@ -392,6 +432,15 @@ struct TargetPlatformTests {
         #expect(FileManager.default.isExecutableFile(atPath: simulatorBuildScript.path))
         #expect(FileManager.default.isExecutableFile(atPath: deviceBuildScript.path))
         #expect(deviceDeployScript.contains("devicectl device install app"))
+        #expect(preflightScript.contains("HYPE_DEVELOPMENT_TEAM is not set"))
+        #expect(archiveScript.contains("xcodebuild"))
+        #expect(archiveScript.contains("-archivePath"))
+        #expect(archiveScript.contains("HYPE_ASC_KEY_PATH"))
+        #expect(exportScript.contains("-exportArchive"))
+        #expect(exportScript.contains("app-store-connect"))
+        #expect(uploadScript.contains("HYPE_EXPORT_DESTINATION=upload"))
+        #expect(!archiveScript.contains("YOURTEAMID"))
+        #expect(!exportScript.contains("YOURTEAMID"))
     }
 
     @Test("runtime package builder emits iPad-specific app device family")
@@ -426,6 +475,8 @@ struct TargetPlatformTests {
         #expect(package.manifest.platform == .iPad)
         #expect(package.manifest.profileId == "ipad-portrait")
         #expect(package.manifest.deviceFamilies == ["iPad"])
+        #expect(package.manifest.archiveScriptPath == "RuntimeShell/archive-ios.sh")
+        #expect(package.manifest.testFlightUploadScriptPath == "RuntimeShell/upload-testflight.sh")
         #expect(projectFile.contains("TARGETED_DEVICE_FAMILY = \"2\""))
         #expect(infoPlist.contains("<integer>2</integer>"))
     }

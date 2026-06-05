@@ -2097,6 +2097,17 @@ the full device display, and write build/deploy helper scripts:
   `HYPE_DEVELOPMENT_TEAM`.
 - `RuntimeShell/deploy-ios-device.sh` installs the built app with
   `xcrun devicectl device install app` using `HYPE_DEVICE_ID`.
+- `RuntimeShell/preflight-ios-deployment.sh` verifies the active Xcode
+  installation, target SDK, generated Xcode project, embedded stack,
+  deployment diagnostics, and privacy manifest before build/archive flows.
+- iPhone and iPad packages also include `RuntimeShell/archive-ios.sh`,
+  `RuntimeShell/export-ios-archive.sh`, and `RuntimeShell/upload-testflight.sh`.
+  These use Apple's standard `xcodebuild archive` and `xcodebuild
+  -exportArchive` flow. Signing, bundle-ID override, and optional App Store
+  Connect API-key authentication remain environment-driven through
+  `HYPE_DEVELOPMENT_TEAM`, `HYPE_BUNDLE_IDENTIFIER`, `HYPE_ASC_KEY_PATH`,
+  `HYPE_ASC_KEY_ID`, and `HYPE_ASC_ISSUER_ID`; generated packages do not store
+  credentials.
 
 Authoring Hype also exposes View -> Test Stack in Simulator. That path uses
 `HypeSimulatorRuntimeLauncher` to discover available iPhone, iPad, and tvOS
@@ -2164,6 +2175,14 @@ the stack against each selected target. `TargetRuntimePackageBuilder` refuses to
 produce a runtime package when the document still contains controls unsupported
 by that target, so exported artifacts fail early with actionable part names and
 reasons rather than producing a broken standalone runtime.
+
+Every generated Apple runtime package includes `RuntimeShell/PrivacyInfo.xcprivacy`
+and `RuntimeShell/DeploymentDiagnostics.json`. The privacy manifest declares no
+tracking, collected data, or required-reason API categories by default. The
+deployment diagnostics file records the target profile, bundle identifier,
+runtime-only status, part counts, asset count/byte size, entitlements, supported
+and unsupported part types, and generated distribution scripts so exported
+packages can be audited without opening the stack database.
 
 Each deployment plan also carries a runtime AI policy. Automatic policy maps
 iPhone and iPad runtime shells to Apple Foundation Models, maps tvOS to disabled

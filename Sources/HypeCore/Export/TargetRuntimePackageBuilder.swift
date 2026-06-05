@@ -27,6 +27,12 @@ public struct HypeRuntimePackageManifest: Codable, Sendable, Equatable {
     public var simulatorBuildScriptPath: String?
     public var deviceBuildScriptPath: String?
     public var deviceDeployScriptPath: String?
+    public var deploymentPreflightScriptPath: String?
+    public var archiveScriptPath: String?
+    public var exportArchiveScriptPath: String?
+    public var testFlightUploadScriptPath: String?
+    public var deploymentDiagnosticsPath: String?
+    public var privacyManifestPath: String?
     public var minimumOSVersion: String?
     public var deviceFamilies: [String]?
     public var generatedAt: Date
@@ -58,6 +64,12 @@ public struct HypeRuntimePackageManifest: Codable, Sendable, Equatable {
         simulatorBuildScriptPath: String? = nil,
         deviceBuildScriptPath: String? = nil,
         deviceDeployScriptPath: String? = nil,
+        deploymentPreflightScriptPath: String? = nil,
+        archiveScriptPath: String? = nil,
+        exportArchiveScriptPath: String? = nil,
+        testFlightUploadScriptPath: String? = nil,
+        deploymentDiagnosticsPath: String? = nil,
+        privacyManifestPath: String? = nil,
         minimumOSVersion: String? = nil,
         deviceFamilies: [String]? = nil,
         generatedAt: Date = Date()
@@ -88,9 +100,79 @@ public struct HypeRuntimePackageManifest: Codable, Sendable, Equatable {
         self.simulatorBuildScriptPath = simulatorBuildScriptPath
         self.deviceBuildScriptPath = deviceBuildScriptPath
         self.deviceDeployScriptPath = deviceDeployScriptPath
+        self.deploymentPreflightScriptPath = deploymentPreflightScriptPath
+        self.archiveScriptPath = archiveScriptPath
+        self.exportArchiveScriptPath = exportArchiveScriptPath
+        self.testFlightUploadScriptPath = testFlightUploadScriptPath
+        self.deploymentDiagnosticsPath = deploymentDiagnosticsPath
+        self.privacyManifestPath = privacyManifestPath
         self.minimumOSVersion = minimumOSVersion
         self.deviceFamilies = deviceFamilies
         self.generatedAt = generatedAt
+    }
+}
+
+public struct HypeRuntimeDeploymentDiagnostics: Codable, Sendable, Equatable {
+    public var format: String
+    public var formatVersion: Int
+    public var generatedAt: Date
+    public var stackId: UUID
+    public var stackName: String
+    public var platform: HypeTargetPlatform
+    public var profileId: String
+    public var profileName: String
+    public var bundleIdentifier: String
+    public var runtimeOnly: Bool
+    public var includesAuthoringUI: Bool
+    public var totalPartCount: Int
+    public var partCountsByType: [String: Int]
+    public var assetCount: Int
+    public var assetByteCount: Int
+    public var requiredEntitlements: [String]
+    public var supportedPartTypes: [String]
+    public var unsupportedPartTypes: [String]
+    public var distributionScripts: [String]
+
+    public init(
+        format: String = "hype-runtime-deployment-diagnostics",
+        formatVersion: Int = 1,
+        generatedAt: Date = Date(),
+        stackId: UUID,
+        stackName: String,
+        platform: HypeTargetPlatform,
+        profileId: String,
+        profileName: String,
+        bundleIdentifier: String,
+        runtimeOnly: Bool,
+        includesAuthoringUI: Bool,
+        totalPartCount: Int,
+        partCountsByType: [String: Int],
+        assetCount: Int,
+        assetByteCount: Int,
+        requiredEntitlements: [String],
+        supportedPartTypes: [String],
+        unsupportedPartTypes: [String],
+        distributionScripts: [String]
+    ) {
+        self.format = format
+        self.formatVersion = formatVersion
+        self.generatedAt = generatedAt
+        self.stackId = stackId
+        self.stackName = stackName
+        self.platform = platform
+        self.profileId = profileId
+        self.profileName = profileName
+        self.bundleIdentifier = bundleIdentifier
+        self.runtimeOnly = runtimeOnly
+        self.includesAuthoringUI = includesAuthoringUI
+        self.totalPartCount = totalPartCount
+        self.partCountsByType = partCountsByType
+        self.assetCount = assetCount
+        self.assetByteCount = assetByteCount
+        self.requiredEntitlements = requiredEntitlements
+        self.supportedPartTypes = supportedPartTypes
+        self.unsupportedPartTypes = unsupportedPartTypes
+        self.distributionScripts = distributionScripts
     }
 }
 
@@ -245,6 +327,12 @@ public struct TargetRuntimePackageBuilder {
             simulatorBuildScriptPath: isGeneratedAppleRuntimePlatform(plan.platform) ? "\(Self.shellDirectoryName)/build-ios-simulator.sh" : nil,
             deviceBuildScriptPath: isGeneratedAppleRuntimePlatform(plan.platform) ? "\(Self.shellDirectoryName)/build-ios-device.sh" : nil,
             deviceDeployScriptPath: isGeneratedAppleRuntimePlatform(plan.platform) ? "\(Self.shellDirectoryName)/deploy-ios-device.sh" : nil,
+            deploymentPreflightScriptPath: isGeneratedAppleRuntimePlatform(plan.platform) ? "\(Self.shellDirectoryName)/preflight-ios-deployment.sh" : nil,
+            archiveScriptPath: isIOSRuntimePlatform(plan.platform) ? "\(Self.shellDirectoryName)/archive-ios.sh" : nil,
+            exportArchiveScriptPath: isIOSRuntimePlatform(plan.platform) ? "\(Self.shellDirectoryName)/export-ios-archive.sh" : nil,
+            testFlightUploadScriptPath: isIOSRuntimePlatform(plan.platform) ? "\(Self.shellDirectoryName)/upload-testflight.sh" : nil,
+            deploymentDiagnosticsPath: "\(Self.shellDirectoryName)/DeploymentDiagnostics.json",
+            privacyManifestPath: isGeneratedAppleRuntimePlatform(plan.platform) ? "\(Self.shellDirectoryName)/PrivacyInfo.xcprivacy" : nil,
             minimumOSVersion: isGeneratedAppleRuntimePlatform(plan.platform) ? "17.0" : nil,
             deviceFamilies: deviceFamilies(for: plan.platform)
         )
@@ -281,6 +369,10 @@ public struct TargetRuntimePackageBuilder {
         try readme.write(to: shellDir.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
         generatedFiles.append("\(Self.shellDirectoryName)/README.md")
 
+        let diagnostics = deploymentDiagnostics(for: document, manifest: manifest)
+        try encoder.encode(diagnostics).write(to: shellDir.appendingPathComponent("DeploymentDiagnostics.json"), options: [.atomic])
+        generatedFiles.append("\(Self.shellDirectoryName)/DeploymentDiagnostics.json")
+
         if isGeneratedAppleRuntimePlatform(plan.platform) {
             try writeIOSAppProject(for: document, manifest: manifest, shellDir: shellDir, generatedFiles: &generatedFiles)
         }
@@ -316,11 +408,21 @@ public struct TargetRuntimePackageBuilder {
                   FileManager.default.fileExists(atPath: sourcePackageURL.appendingPathComponent("Sources/HypeCore").path) else {
                 throw TargetRuntimePackageBuilderError.packageValidationFailed("\(manifest.platform.displayName) runtime package is missing its embedded HypeCore runtime source package.")
             }
-            for script in ["build-ios-simulator.sh", "build-ios-device.sh", "deploy-ios-device.sh"] {
+            var requiredScripts = ["build-ios-simulator.sh", "build-ios-device.sh", "deploy-ios-device.sh", "preflight-ios-deployment.sh"]
+            if isIOSRuntimePlatform(manifest.platform) {
+                requiredScripts += ["archive-ios.sh", "export-ios-archive.sh", "upload-testflight.sh"]
+            }
+            for script in requiredScripts {
                 guard FileManager.default.fileExists(atPath: shellDir.appendingPathComponent(script).path) else {
                     throw TargetRuntimePackageBuilderError.packageValidationFailed("\(manifest.platform.displayName) runtime package is missing \(script).")
                 }
             }
+            guard FileManager.default.fileExists(atPath: shellDir.appendingPathComponent("PrivacyInfo.xcprivacy").path) else {
+                throw TargetRuntimePackageBuilderError.packageValidationFailed("\(manifest.platform.displayName) runtime package is missing PrivacyInfo.xcprivacy.")
+            }
+        }
+        guard FileManager.default.fileExists(atPath: packageURL.appendingPathComponent(Self.shellDirectoryName, isDirectory: true).appendingPathComponent("DeploymentDiagnostics.json").path) else {
+            throw TargetRuntimePackageBuilderError.packageValidationFailed("Runtime package is missing DeploymentDiagnostics.json.")
         }
     }
 
@@ -562,6 +664,63 @@ public struct TargetRuntimePackageBuilder {
         <plist version="1.0">
         <dict>
         \(entries)
+        </dict>
+        </plist>
+        """
+    }
+
+    private func deploymentDiagnostics(
+        for document: HypeDocument,
+        manifest: HypeRuntimePackageManifest
+    ) -> HypeRuntimeDeploymentDiagnostics {
+        let counts = Dictionary(grouping: document.parts, by: { $0.partType.rawValue })
+            .mapValues(\.count)
+        let assetByteCount = document.assetRepository.assets.reduce(0) { partial, asset in
+            partial + asset.data.count
+        }
+        let scripts = [
+            manifest.simulatorBuildScriptPath,
+            manifest.deviceBuildScriptPath,
+            manifest.deviceDeployScriptPath,
+            manifest.deploymentPreflightScriptPath,
+            manifest.archiveScriptPath,
+            manifest.exportArchiveScriptPath,
+            manifest.testFlightUploadScriptPath
+        ].compactMap { $0 }.sorted()
+        return HypeRuntimeDeploymentDiagnostics(
+            stackId: manifest.stackId,
+            stackName: manifest.stackName,
+            platform: manifest.platform,
+            profileId: manifest.profileId,
+            profileName: manifest.profileName,
+            bundleIdentifier: manifest.bundleIdentifier,
+            runtimeOnly: manifest.runtimeOnly,
+            includesAuthoringUI: manifest.includesAuthoringUI,
+            totalPartCount: document.parts.count,
+            partCountsByType: counts,
+            assetCount: document.assetRepository.assets.count,
+            assetByteCount: assetByteCount,
+            requiredEntitlements: manifest.requiredEntitlements,
+            supportedPartTypes: manifest.supportedPartTypes,
+            unsupportedPartTypes: manifest.unsupportedPartTypes,
+            distributionScripts: scripts
+        )
+    }
+
+    private func privacyManifest() -> String {
+        """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>NSPrivacyTracking</key>
+            <false/>
+            <key>NSPrivacyTrackingDomains</key>
+            <array/>
+            <key>NSPrivacyCollectedDataTypes</key>
+            <array/>
+            <key>NSPrivacyAccessedAPITypes</key>
+            <array/>
         </dict>
         </plist>
         """
@@ -1063,7 +1222,16 @@ public struct TargetRuntimePackageBuilder {
         try pbxproj.write(to: projectDir.appendingPathComponent("project.pbxproj"), atomically: true, encoding: .utf8)
         generatedFiles.append("\(Self.shellDirectoryName)/HypeRuntimeApp.xcodeproj/project.pbxproj")
 
+        try privacyManifest().write(to: shellDir.appendingPathComponent("PrivacyInfo.xcprivacy"), atomically: true, encoding: .utf8)
+        generatedFiles.append("\(Self.shellDirectoryName)/PrivacyInfo.xcprivacy")
+
         try writeRuntimeCoreSourcePackage(to: shellDir.appendingPathComponent("HypeSource", isDirectory: true), generatedFiles: &generatedFiles)
+
+        let preflight = iosDeploymentPreflightScript(for: manifest)
+        let preflightURL = shellDir.appendingPathComponent("preflight-ios-deployment.sh")
+        try preflight.write(to: preflightURL, atomically: true, encoding: .utf8)
+        try makeExecutable(preflightURL)
+        generatedFiles.append("\(Self.shellDirectoryName)/preflight-ios-deployment.sh")
 
         let simulatorBuild = iosSimulatorBuildScript(for: manifest)
         let simulatorBuildURL = shellDir.appendingPathComponent("build-ios-simulator.sh")
@@ -1082,6 +1250,26 @@ public struct TargetRuntimePackageBuilder {
         try deviceDeploy.write(to: deviceDeployURL, atomically: true, encoding: .utf8)
         try makeExecutable(deviceDeployURL)
         generatedFiles.append("\(Self.shellDirectoryName)/deploy-ios-device.sh")
+
+        if isIOSRuntimePlatform(manifest.platform) {
+            let archive = iosArchiveScript(for: manifest)
+            let archiveURL = shellDir.appendingPathComponent("archive-ios.sh")
+            try archive.write(to: archiveURL, atomically: true, encoding: .utf8)
+            try makeExecutable(archiveURL)
+            generatedFiles.append("\(Self.shellDirectoryName)/archive-ios.sh")
+
+            let export = iosExportArchiveScript(for: manifest)
+            let exportURL = shellDir.appendingPathComponent("export-ios-archive.sh")
+            try export.write(to: exportURL, atomically: true, encoding: .utf8)
+            try makeExecutable(exportURL)
+            generatedFiles.append("\(Self.shellDirectoryName)/export-ios-archive.sh")
+
+            let upload = iosTestFlightUploadScript(for: manifest)
+            let uploadURL = shellDir.appendingPathComponent("upload-testflight.sh")
+            try upload.write(to: uploadURL, atomically: true, encoding: .utf8)
+            try makeExecutable(uploadURL)
+            generatedFiles.append("\(Self.shellDirectoryName)/upload-testflight.sh")
+        }
     }
 
     private func writeRuntimeCoreSourcePackage(to sourcePackageDir: URL, generatedFiles: inout [String]) throws {
@@ -1181,20 +1369,64 @@ public struct TargetRuntimePackageBuilder {
         """
     }
 
+    private func iosDeploymentPreflightScript(for manifest: HypeRuntimePackageManifest) -> String {
+        let target = manifest.appTargetName ?? appTargetName(stackName: manifest.stackName, platform: manifest.platform)
+        let sdk = sdkRoot(for: manifest.platform)
+        let defaultBundleID = manifest.bundleIdentifier
+        return """
+        #!/bin/bash
+        set -euo pipefail
+
+        SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+        TARGET="\(target)"
+        BUNDLE_IDENTIFIER="${HYPE_BUNDLE_IDENTIFIER:-\(defaultBundleID)}"
+
+        echo "Hype runtime preflight"
+        echo "Target: $TARGET"
+        echo "Bundle identifier: $BUNDLE_IDENTIFIER"
+        echo "Platform: \(manifest.platform.displayName)"
+        echo "Profile: \(manifest.profileName)"
+
+        /usr/bin/xcrun -f xcodebuild >/dev/null
+        /usr/bin/xcrun xcodebuild -version
+        /usr/bin/xcrun xcodebuild -showsdks | /usr/bin/grep -q "\(sdk)" || {
+          echo "Missing \(sdk) SDK in the active Xcode installation." >&2
+          exit 1
+        }
+
+        test -d "$SCRIPT_DIR/HypeRuntimeApp.xcodeproj" || { echo "Missing generated Xcode project." >&2; exit 1; }
+        test -f "$SCRIPT_DIR/../RuntimeManifest.json" || { echo "Missing RuntimeManifest.json." >&2; exit 1; }
+        test -d "$SCRIPT_DIR/../Stack/Stack.hype" || { echo "Missing embedded Stack/Stack.hype package." >&2; exit 1; }
+        test -f "$SCRIPT_DIR/DeploymentDiagnostics.json" || { echo "Missing DeploymentDiagnostics.json." >&2; exit 1; }
+        test -f "$SCRIPT_DIR/PrivacyInfo.xcprivacy" || { echo "Missing PrivacyInfo.xcprivacy." >&2; exit 1; }
+
+        if [ -z "${HYPE_DEVELOPMENT_TEAM:-}" ]; then
+          echo "HYPE_DEVELOPMENT_TEAM is not set. Simulator builds can run, but device/archive/export flows need a Team ID." >&2
+        fi
+
+        echo "Preflight passed."
+        """
+    }
+
     private func iosSimulatorBuildScript(for manifest: HypeRuntimePackageManifest) -> String {
         let target = manifest.appTargetName ?? appTargetName(stackName: manifest.stackName, platform: manifest.platform)
         let destination = simulatorDestination(for: manifest.platform)
+        let defaultBundleID = manifest.bundleIdentifier
         return """
-        #!/bin/sh
-        set -eu
+        #!/bin/bash
+        set -euo pipefail
         SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
         DERIVED_DATA="${DERIVED_DATA:-"$SCRIPT_DIR/Build/DerivedData"}"
+        CONFIGURATION="${HYPE_CONFIGURATION:-Debug}"
+        BUNDLE_IDENTIFIER="${HYPE_BUNDLE_IDENTIFIER:-\(defaultBundleID)}"
+        "$SCRIPT_DIR/preflight-ios-deployment.sh"
         /usr/bin/xcrun xcodebuild \\
           -project "$SCRIPT_DIR/HypeRuntimeApp.xcodeproj" \\
           -scheme "\(target)" \\
-          -configuration Debug \\
+          -configuration "$CONFIGURATION" \\
           -destination '\(destination)' \\
           -derivedDataPath "$DERIVED_DATA" \\
+          PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_IDENTIFIER" \\
           CODE_SIGNING_ALLOWED=NO \\
           build
         """
@@ -1203,40 +1435,177 @@ public struct TargetRuntimePackageBuilder {
     private func iosDeviceBuildScript(for manifest: HypeRuntimePackageManifest) -> String {
         let target = manifest.appTargetName ?? appTargetName(stackName: manifest.stackName, platform: manifest.platform)
         let destination = deviceDestination(for: manifest.platform)
+        let defaultBundleID = manifest.bundleIdentifier
         return """
-        #!/bin/sh
-        set -eu
+        #!/bin/bash
+        set -euo pipefail
         : "${HYPE_DEVELOPMENT_TEAM:?Set HYPE_DEVELOPMENT_TEAM to your Apple Developer Team ID before building for device.}"
         SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
         DERIVED_DATA="${DERIVED_DATA:-"$SCRIPT_DIR/Build/DerivedData"}"
+        CONFIGURATION="${HYPE_CONFIGURATION:-Debug}"
+        BUNDLE_IDENTIFIER="${HYPE_BUNDLE_IDENTIFIER:-\(defaultBundleID)}"
+        "$SCRIPT_DIR/preflight-ios-deployment.sh"
         /usr/bin/xcrun xcodebuild \\
           -project "$SCRIPT_DIR/HypeRuntimeApp.xcodeproj" \\
           -scheme "\(target)" \\
-          -configuration Debug \\
+          -configuration "$CONFIGURATION" \\
           -destination '\(destination)' \\
           -derivedDataPath "$DERIVED_DATA" \\
           -allowProvisioningUpdates \\
           DEVELOPMENT_TEAM="$HYPE_DEVELOPMENT_TEAM" \\
+          PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_IDENTIFIER" \\
           build
         """
     }
 
     private func iosDeviceDeployScript(for manifest: HypeRuntimePackageManifest) -> String {
         let target = manifest.appTargetName ?? appTargetName(stackName: manifest.stackName, platform: manifest.platform)
-        let productDirectory = deviceProductDirectory(for: manifest.platform)
+        let productSuffix = deviceProductSuffix(for: manifest.platform)
         return """
-        #!/bin/sh
-        set -eu
+        #!/bin/bash
+        set -euo pipefail
         : "${HYPE_DEVICE_ID:?Set HYPE_DEVICE_ID to the target device UDID, serial number, or device name.}"
         SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
         DERIVED_DATA="${DERIVED_DATA:-"$SCRIPT_DIR/Build/DerivedData"}"
+        CONFIGURATION="${HYPE_CONFIGURATION:-Debug}"
         "$SCRIPT_DIR/build-ios-device.sh"
-        APP_PATH="$DERIVED_DATA/Build/Products/\(productDirectory)/\(target).app"
+        APP_PATH="$DERIVED_DATA/Build/Products/${CONFIGURATION}-\(productSuffix)/\(target).app"
         if [ ! -d "$APP_PATH" ]; then
           echo "Built app not found at $APP_PATH" >&2
           exit 1
         fi
         /usr/bin/xcrun devicectl device install app --device "$HYPE_DEVICE_ID" "$APP_PATH"
+        """
+    }
+
+    private func iosArchiveScript(for manifest: HypeRuntimePackageManifest) -> String {
+        let target = manifest.appTargetName ?? appTargetName(stackName: manifest.stackName, platform: manifest.platform)
+        let destination = deviceDestination(for: manifest.platform)
+        let defaultBundleID = manifest.bundleIdentifier
+        return """
+        #!/bin/bash
+        set -euo pipefail
+        : "${HYPE_DEVELOPMENT_TEAM:?Set HYPE_DEVELOPMENT_TEAM to your Apple Developer Team ID before archiving.}"
+
+        SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+        DERIVED_DATA="${DERIVED_DATA:-"$SCRIPT_DIR/Build/DerivedData"}"
+        ARCHIVE_PATH="${HYPE_ARCHIVE_PATH:-"$SCRIPT_DIR/Build/Archives/\(target).xcarchive"}"
+        BUNDLE_IDENTIFIER="${HYPE_BUNDLE_IDENTIFIER:-\(defaultBundleID)}"
+
+        AUTH_ARGS=()
+        if [ -n "${HYPE_ASC_KEY_PATH:-}" ] || [ -n "${HYPE_ASC_KEY_ID:-}" ] || [ -n "${HYPE_ASC_ISSUER_ID:-}" ]; then
+          : "${HYPE_ASC_KEY_PATH:?Set HYPE_ASC_KEY_PATH, HYPE_ASC_KEY_ID, and HYPE_ASC_ISSUER_ID together.}"
+          : "${HYPE_ASC_KEY_ID:?Set HYPE_ASC_KEY_PATH, HYPE_ASC_KEY_ID, and HYPE_ASC_ISSUER_ID together.}"
+          : "${HYPE_ASC_ISSUER_ID:?Set HYPE_ASC_KEY_PATH, HYPE_ASC_KEY_ID, and HYPE_ASC_ISSUER_ID together.}"
+          AUTH_ARGS=(-authenticationKeyPath "$HYPE_ASC_KEY_PATH" -authenticationKeyID "$HYPE_ASC_KEY_ID" -authenticationKeyIssuerID "$HYPE_ASC_ISSUER_ID")
+        fi
+
+        "$SCRIPT_DIR/preflight-ios-deployment.sh"
+        /bin/mkdir -p "$(dirname "$ARCHIVE_PATH")"
+        /usr/bin/xcrun xcodebuild \\
+          -project "$SCRIPT_DIR/HypeRuntimeApp.xcodeproj" \\
+          -scheme "\(target)" \\
+          -configuration Release \\
+          -destination '\(destination)' \\
+          -derivedDataPath "$DERIVED_DATA" \\
+          -archivePath "$ARCHIVE_PATH" \\
+          -allowProvisioningUpdates \\
+          "${AUTH_ARGS[@]}" \\
+          DEVELOPMENT_TEAM="$HYPE_DEVELOPMENT_TEAM" \\
+          PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_IDENTIFIER" \\
+          archive
+        echo "Archive written to $ARCHIVE_PATH"
+        """
+    }
+
+    private func iosExportArchiveScript(for manifest: HypeRuntimePackageManifest) -> String {
+        let target = manifest.appTargetName ?? appTargetName(stackName: manifest.stackName, platform: manifest.platform)
+        let defaultBundleID = manifest.bundleIdentifier
+        return """
+        #!/bin/bash
+        set -euo pipefail
+        : "${HYPE_DEVELOPMENT_TEAM:?Set HYPE_DEVELOPMENT_TEAM to your Apple Developer Team ID before exporting.}"
+
+        SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+        ARCHIVE_PATH="${HYPE_ARCHIVE_PATH:-"$SCRIPT_DIR/Build/Archives/\(target).xcarchive"}"
+        EXPORT_PATH="${HYPE_EXPORT_PATH:-"$SCRIPT_DIR/Build/Export"}"
+        EXPORT_OPTIONS="${HYPE_EXPORT_OPTIONS_PLIST:-"$SCRIPT_DIR/Build/ExportOptions.plist"}"
+        EXPORT_METHOD="${HYPE_EXPORT_METHOD:-debugging}"
+        EXPORT_DESTINATION="${HYPE_EXPORT_DESTINATION:-export}"
+        BUNDLE_IDENTIFIER="${HYPE_BUNDLE_IDENTIFIER:-\(defaultBundleID)}"
+        TESTFLIGHT_INTERNAL_ONLY="${HYPE_TESTFLIGHT_INTERNAL_ONLY:-true}"
+
+        if [ "$EXPORT_DESTINATION" = "upload" ] && [ "$EXPORT_METHOD" != "app-store-connect" ]; then
+          echo "HYPE_EXPORT_DESTINATION=upload requires HYPE_EXPORT_METHOD=app-store-connect." >&2
+          exit 1
+        fi
+        test -d "$ARCHIVE_PATH" || { echo "Archive not found at $ARCHIVE_PATH. Run archive-ios.sh first." >&2; exit 1; }
+
+        AUTH_ARGS=()
+        if [ -n "${HYPE_ASC_KEY_PATH:-}" ] || [ -n "${HYPE_ASC_KEY_ID:-}" ] || [ -n "${HYPE_ASC_ISSUER_ID:-}" ]; then
+          : "${HYPE_ASC_KEY_PATH:?Set HYPE_ASC_KEY_PATH, HYPE_ASC_KEY_ID, and HYPE_ASC_ISSUER_ID together.}"
+          : "${HYPE_ASC_KEY_ID:?Set HYPE_ASC_KEY_PATH, HYPE_ASC_KEY_ID, and HYPE_ASC_ISSUER_ID together.}"
+          : "${HYPE_ASC_ISSUER_ID:?Set HYPE_ASC_KEY_PATH, HYPE_ASC_KEY_ID, and HYPE_ASC_ISSUER_ID together.}"
+          AUTH_ARGS=(-authenticationKeyPath "$HYPE_ASC_KEY_PATH" -authenticationKeyID "$HYPE_ASC_KEY_ID" -authenticationKeyIssuerID "$HYPE_ASC_ISSUER_ID")
+        fi
+
+        /bin/mkdir -p "$(dirname "$EXPORT_OPTIONS")" "$EXPORT_PATH"
+        {
+          echo '<?xml version="1.0" encoding="UTF-8"?>'
+          echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+          echo '<plist version="1.0">'
+          echo '<dict>'
+          echo '  <key>method</key>'
+          echo "  <string>$EXPORT_METHOD</string>"
+          echo '  <key>destination</key>'
+          echo "  <string>$EXPORT_DESTINATION</string>"
+          echo '  <key>teamID</key>'
+          echo "  <string>$HYPE_DEVELOPMENT_TEAM</string>"
+          echo '  <key>signingStyle</key>'
+          echo '  <string>automatic</string>'
+          echo '  <key>stripSwiftSymbols</key>'
+          echo '  <true/>'
+          echo '  <key>thinning</key>'
+          echo '  <string>&lt;none&gt;</string>'
+          if [ "$EXPORT_METHOD" = "app-store-connect" ]; then
+            echo '  <key>distributionBundleIdentifier</key>'
+            echo "  <string>$BUNDLE_IDENTIFIER</string>"
+            echo '  <key>uploadSymbols</key>'
+            echo '  <true/>'
+            echo '  <key>manageAppVersionAndBuildNumber</key>'
+            echo '  <true/>'
+            echo '  <key>testFlightInternalTestingOnly</key>'
+            if [ "$TESTFLIGHT_INTERNAL_ONLY" = "true" ] || [ "$TESTFLIGHT_INTERNAL_ONLY" = "1" ]; then
+              echo '  <true/>'
+            else
+              echo '  <false/>'
+            fi
+          fi
+          echo '</dict>'
+          echo '</plist>'
+        } > "$EXPORT_OPTIONS"
+
+        /usr/bin/xcrun xcodebuild \\
+          -exportArchive \\
+          -archivePath "$ARCHIVE_PATH" \\
+          -exportPath "$EXPORT_PATH" \\
+          -exportOptionsPlist "$EXPORT_OPTIONS" \\
+          -allowProvisioningUpdates \\
+          "${AUTH_ARGS[@]}"
+        echo "Export completed at $EXPORT_PATH"
+        """
+    }
+
+    private func iosTestFlightUploadScript(for manifest: HypeRuntimePackageManifest) -> String {
+        """
+        #!/bin/bash
+        set -euo pipefail
+        SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+        "$SCRIPT_DIR/archive-ios.sh"
+        HYPE_EXPORT_METHOD=app-store-connect \\
+        HYPE_EXPORT_DESTINATION=upload \\
+        HYPE_TESTFLIGHT_INTERNAL_ONLY="${HYPE_TESTFLIGHT_INTERNAL_ONLY:-true}" \\
+        "$SCRIPT_DIR/export-ios-archive.sh"
         """
     }
 
@@ -1254,10 +1623,10 @@ public struct TargetRuntimePackageBuilder {
         }
     }
 
-    private func deviceProductDirectory(for platform: HypeTargetPlatform) -> String {
+    private func deviceProductSuffix(for platform: HypeTargetPlatform) -> String {
         switch platform {
-        case .tvOS: return "Debug-appletvos"
-        default: return "Debug-iphoneos"
+        case .tvOS: return "appletvos"
+        default: return "iphoneos"
         }
     }
 
@@ -1286,6 +1655,8 @@ public struct TargetRuntimePackageBuilder {
                 A00000000000000000000003 /* Stack in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000103 /* Stack */; };
                 A00000000000000000000004 /* AppIntents.json in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000104 /* AppIntents.json */; };
                 A00000000000000000000005 /* HypeCore in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000301 /* HypeCore */; };
+                A00000000000000000000006 /* DeploymentDiagnostics.json in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000108 /* DeploymentDiagnostics.json */; };
+                A00000000000000000000007 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000109 /* PrivacyInfo.xcprivacy */; };
         /* End PBXBuildFile section */
 
         /* Begin PBXFileReference section */
@@ -1296,6 +1667,8 @@ public struct TargetRuntimePackageBuilder {
                 A00000000000000000000105 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
                 A00000000000000000000106 /* Entitlements.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Entitlements.plist; sourceTree = "<group>"; };
                 A00000000000000000000107 /* \(target).app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "\(target).app"; sourceTree = BUILT_PRODUCTS_DIR; };
+                A00000000000000000000108 /* DeploymentDiagnostics.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = DeploymentDiagnostics.json; sourceTree = "<group>"; };
+                A00000000000000000000109 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
         /* End PBXFileReference section */
 
         /* Begin PBXFrameworksBuildPhase section */
@@ -1319,6 +1692,8 @@ public struct TargetRuntimePackageBuilder {
                         A00000000000000000000104 /* AppIntents.json */,
                         A00000000000000000000105 /* Info.plist */,
                         A00000000000000000000106 /* Entitlements.plist */,
+                        A00000000000000000000108 /* DeploymentDiagnostics.json */,
+                        A00000000000000000000109 /* PrivacyInfo.xcprivacy */,
                         A00000000000000000000402 /* Products */,
                     );
                     sourceTree = "<group>";
@@ -1399,6 +1774,8 @@ public struct TargetRuntimePackageBuilder {
                         A00000000000000000000002 /* RuntimeManifest.json in Resources */,
                         A00000000000000000000003 /* Stack in Resources */,
                         A00000000000000000000004 /* AppIntents.json in Resources */,
+                        A00000000000000000000006 /* DeploymentDiagnostics.json in Resources */,
+                        A00000000000000000000007 /* PrivacyInfo.xcprivacy in Resources */,
                     );
                     runOnlyForDeploymentPostprocessing = 0;
                 };
