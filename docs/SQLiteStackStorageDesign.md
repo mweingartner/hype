@@ -40,12 +40,20 @@ AVFoundation, AudioKit, or network objects into the persistent model.
 
 The schema uses normalized, queryable tables for the core Hype taxonomy:
 
+- `document_values`
 - `stacks`
+- `deployment_targets`
+- `runtime_ai_settings`
 - `backgrounds`
 - `cards`
 - `parts`
 - `scripts`
 - `assets`
+- `music_patterns`
+- `music_tracks`
+- `music_notes`
+- `apple_music_items`
+- `apple_music_queues`
 - `ai_context_sources`
 - `ai_context_items`
 - `themes`
@@ -54,9 +62,6 @@ The schema uses normalized, queryable tables for the core Hype taxonomy:
 - `sprite_areas`
 - `scenes`
 - `scene_nodes`
-- `music_patterns`
-- `music_tracks`
-- `music_notes`
 - `search_fts`
 
 Rows also carry `payload_json` for exact value-model reconstruction. This is an
@@ -102,6 +107,26 @@ Schema version 3 projects stack-contained AudioKit music into `music_patterns`,
 source of truth for runtime code; the relational rows make patterns searchable,
 diagnosable, and portable without storing live AudioKit engine state.
 
+Schema version 4 projects Apple Music references into `apple_music_items` and
+`apple_music_queues`. Those rows persist stable MusicKit/catalog identifiers and
+metadata snapshots only; licensed catalog/library audio is never embedded in the
+package.
+
+Schema version 5 projects target-platform planning into `deployment_targets`.
+`Stack.deploymentTargets` remains the value-model source of truth, while the
+rows make target selection, primary target, profile metadata, and layout policy
+diagnosable without decoding the stack payload.
+
+Schema version 6 projects deployed-runtime AI policy into
+`runtime_ai_settings`. `Stack.runtimeAISettings` remains the value-model source
+of truth; the table exists for diagnostics, target-runtime export checks, and
+search/reporting tools.
+
+Schema version 7 is the current writer version. It keeps the v6 relational
+shape and persists imported multi-stack project metadata as
+`document_values.stackLibrary` when `HypeDocument.stackLibrary` is non-empty.
+Older packages without that document value decode to an empty `HypeStackLibrary`.
+
 ## Document Version Migrations
 
 SQLite schema version and document model version are separate:
@@ -142,6 +167,7 @@ keys before any model decoding occurs.
 - SpriteKit scene/node names, label text, and scripts
 - asset names, tags, and provenance
 - music pattern names, instruments, notes, and tempo
+- Apple Music item titles/artists/albums and queue contents
 - AI context summaries and text chunks
 
 Search is derived data. If it drifts, it can be rebuilt from the relational
@@ -162,6 +188,10 @@ The database also defines diagnostic views:
 - `v_card_layout`
 - `v_object_scripts`
 - `v_missing_asset_refs`
+- `v_music_patterns`
+- `v_apple_music_items`
+- `v_deployment_targets`
+- `v_runtime_ai_settings`
 
 ## Save And Recovery
 

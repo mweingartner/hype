@@ -21,7 +21,8 @@
 > - `b3eb0c2` — Phase 7: polish (web-asset success logging,
 >   `Sources/Hype/SpriteKit/README.md` NSCoder pattern note)
 >
-> Final test count: **2,075 tests in 230 suites passing.** Net delta
+> Historical final test count for this 2026-05-13 plan:
+> **2,075 tests in 230 suites passing.** Net delta
 > from the pre-plan baseline of 1,909 / 214: **+166 tests, +16 suites.**
 >
 > Three follow-up items remain explicitly deferred (see end of doc):

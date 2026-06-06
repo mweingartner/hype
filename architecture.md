@@ -1,6 +1,6 @@
 # Hype Architecture
 
-> A snapshot of the current implementation as of 2026-05-27.
+> A snapshot of the current implementation as of 2026-06-06.
 
 Hype is a modern, macOS-native re-imagining of HyperCard. It preserves the
 HyperCard mental model — **stacks** of **cards** built on shared **backgrounds**,
@@ -46,7 +46,7 @@ message dispatch, rendering bridges, AI/tool surfaces, and known feature gaps.
 ### 1.1 Repository structure
 
 ```
-hype-v2/
+hype/
 ├── Package.swift                   # SwiftPM, macOS 15+, Swift 6
 ├── Sources/
 │   ├── Hype/                       # Executable target — UI / AppKit / SpriteKit host
@@ -68,8 +68,8 @@ hype-v2/
 │   │   │   └── ImagePartNode.swift        # SKSpriteNode rendering of an image Part
 │   │   └── Views/                  # SwiftUI / NSViewRepresentable UI
 │   │       ├── MainContentView.swift      # Main split view, state plumbing
-│   │       ├── CardCanvasView.swift       # NSViewRepresentable + CardCanvasNSView (~4,400 LoC)
-│   │       ├── PropertyInspector.swift    # Per-part property pane (~4,300 LoC, multi-select aware)
+│   │       ├── CardCanvasView.swift       # NSViewRepresentable + CardCanvasNSView (~7,000 LoC)
+│   │       ├── PropertyInspector.swift    # Per-part property pane (~5,100 LoC, multi-select aware)
 │   │       ├── ObjectsToolPanel.swift     # Left-edge tool palette + Run/Edit toggle
 │   │       ├── ScriptEditor.swift         # HypeTalk script editor window
 │   │       ├── SpriteSceneSetupGuide.swift # Guided SpriteKit scene setup flow
@@ -100,8 +100,11 @@ hype-v2/
 │   │       ├── MessageBoxView.swift       # HypeTalk REPL
 │   │       ├── Themes/
 │   │       │   ├── ThemeDesignerWindowController.swift  # Detached theme editor
-│   │       │   ├── ThemeColorWell.swift                 # NSColorPanel-backed color picker
-│   │       │   └── ThemePicker.swift                    # Picker bound to BuiltInThemes + stack themes
+│   │       │   ├── ThemeDesignerView.swift              # Theme design workspace
+│   │       │   ├── ThemeSidebar.swift                   # Built-in/user theme catalog
+│   │       │   ├── ThemeEditor.swift                    # Token/property editor
+│   │       │   ├── ThemePreview.swift                   # Live themed component preview
+│   │       │   └── ThemeColorWell.swift                 # NSColorPanel-backed color picker
 │   │       ├── ToolName.swift             # Tool palette catalog
 │   │       └── GoMenuCommands.swift       # Menu items (Go, Objects, Arrange, Tools, AI + View/Window additions)
 │   ├── HypePacmanTestbedBuilder/   # CLI that emits a Pac-Man .hype regression stack
@@ -134,14 +137,15 @@ hype-v2/
 │       │   ├── Token.swift                # 100+ token types (including `animate`)
 │       │   ├── Lexer.swift                # Hand-written tokenizer
 │       │   ├── AST.swift                  # Statement / Expression nodes
-│       │   ├── Parser.swift               # Recursive descent parser (~1,800 LoC)
-│       │   ├── Interpreter.swift          # Tree-walking interpreter (~5,000 LoC)
+│       │   ├── Parser.swift               # Recursive descent parser (~3,800 LoC)
+│       │   ├── Interpreter.swift          # Tree-walking interpreter (~8,000 LoC)
 │       │   ├── MessageDispatcher.swift    # part → card → background → stack → app
 │       │   └── HypeTalkHighlighter.swift  # Editor syntax highlighting
 │       ├── AI/                     # Provider-backed AI, tool-calling, speech
-│       │   ├── OllamaToolClient.swift     # /api/chat, /api/generate, /api/tags, structured JSON
+│       │   ├── OllamaToolClient.swift     # Native Ollama /api/* utilities + legacy/schema path
 │       │   ├── LlamaSwapClient.swift      # local OpenAI-compatible llama-swap proxy
 │       │   ├── OpenAIResponsesClient.swift # /v1/responses text/tool/schema bridge
+│       │   ├── OpenAIChatCompletionsClient.swift # /v1/chat/completions bridge (Ollama, llama.cpp, Z.ai, MiniMax)
 │       │   ├── OpenAIImageGenerationClient.swift # /v1/images/generations image bytes for parts/assets
 │       │   ├── OpenAISpeechClient.swift   # /v1/audio transcriptions + speech
 │       │   ├── HypeAIClient.swift         # Provider-neutral client/config factory
@@ -327,6 +331,9 @@ Two arrows are worth highlighting:
 
 ```swift
 public struct HypeDocument: Codable, Sendable {
+    public static let currentDocumentVersion = 2
+
+    public var documentVersion: Int
     public var stack: Stack
     public var backgrounds: [Background]
     public var cards: [Card]
@@ -334,9 +341,14 @@ public struct HypeDocument: Codable, Sendable {
     public var paintLayers: [CardPaintLayer]      // per-card paint snapshots
     public var constraints: [LayoutConstraint]
     public var assetRepository: AssetRepository
-    public var themes: [HypeTheme]                // user-edited theme registry
+    public var musicLibrary: MusicLibrary
     public var aiContextLibrary: AIContextLibrary // rules / assets / examples sent to AI
     public var aiPromptHistory: [String]
+    public var defaultBackgroundId: UUID?
+    public var legacyImport: LegacyStackImportMetadata?
+    public var stackLibrary: HypeStackLibrary      // imported multi-stack project metadata
+    public var themes: [HypeTheme]                // user-edited theme registry
+    public var scriptGlobals: [String: String]    // session-only, not persisted
 }
 ```
 
@@ -349,13 +361,14 @@ A few choices are deliberate:
   copy-of-copy issues, makes draw-order trivial (the array index is the
   z-order), and keeps undo, AI tool edits, and SQLite reconstruction simple.
 - **All value types.** Every model — `Stack`, `Background`, `Card`, `Part`,
-  `AssetRepository`, `SceneSpec`, `LayoutConstraint`, `Asset` — is a
+  `AssetRepository`, `MusicLibrary`, `HypeStackLibrary`, `SceneSpec`,
+  `LayoutConstraint`, `Asset`, `HypeTheme` — is a
   `struct` conforming to `Sendable`. There is no shared mutable state in
   the model layer; updates flow through `mutating` document methods
   (`addPart`, `updatePart`, `bringForward`, `sendToBack`, `addConstraint`).
 - **Forward-compatible decoding.** Custom `init(from:)` decoders accept
   missing fields with sensible defaults so older `.hype` files keep loading
-  as the schema evolves (HypeDocument.swift:36).
+  as the schema evolves.
 
 ### 2.2 Cards, backgrounds, parts
 
@@ -366,7 +379,11 @@ HypeDocument
   ├── Cards[]          (sortKey, name, marked, backgroundId, script)
   ├── Parts[]          (cardId? or backgroundId?, see §2.3)
   ├── Constraints[]    (LayoutConstraint, see §6.5)
+  ├── MusicLibrary     (stack-contained patterns + Apple Music references)
   ├── AIContextLibrary (stack-scoped AI files/images/notes/folders)
+  ├── Themes[]         (user-defined themes; built-ins ship with the app)
+  ├── StackLibrary     (HyperCard start/stop-using-stack metadata)
+  ├── LegacyImport?    (HyperCard/StackImport audit metadata)
   └── AssetRepository (see §4)
 ```
 
@@ -512,6 +529,11 @@ stack's deployed-runtime AI provider policy, runtime-safe side-effect tool
 gate, allowlisted tool names, fallback text, and transcript persistence flag.
 `Stack.runtimeAISettings` remains the reconstruction source of truth; the table
 is for diagnostics and target-runtime export validation.
+Schema version 7 is the current writer version. It preserves the v6 normalized
+table surface and adds current document-value persistence for imported
+multi-stack project metadata: non-empty `HypeDocument.stackLibrary` values are
+stored as `document_values.stackLibrary`, while old packages without that key
+decode to an empty library.
 
 Document model compatibility is tracked separately from SQLite schema shape.
 `HypeDocument.currentDocumentVersion` is the current value-model version;
@@ -957,7 +979,7 @@ height keeps coordinate handling local — no scattered Y-flip arithmetic.
 ### 3.6 Hosting sprite areas in the canvas
 
 The integration point on the AppKit side is `CardCanvasNSView`
-(CardCanvasView.swift:856, ~4,400 LoC). This is the layer-backed NSView
+(CardCanvasView.swift, ~7,000 LoC). This is the layer-backed NSView
 that draws the card via Core Graphics and overlays NSViews for native
 controls. Sprite areas are tracked in parallel dictionaries:
 
@@ -1323,8 +1345,9 @@ It supports drag-and-drop import (PNG / JPEG / audio formats), Cmd+click
 multi-select, slicing into frame rects, tile-set classification (auto-detect
 + manual W×H), animation-clip authoring (FPS, loops), per-asset rename,
 duplicate, delete, and attribution view (for web-search imports). It is the
-surface that the AI's `list_repository_assets`, `import_repository_asset`,
-`generate_sprite_asset`, and `web_asset_search` tools mirror — keeping human
+surface that the AI's `list_repository_assets`, `get_repository_asset`,
+`import_repository_asset`, `generate_sprite_asset`, `search_web_for_sprite`,
+`import_web_asset`, and `find_and_import_sprite` tools mirror — keeping human
 and AI workflows on the same data. The right side of the repository window also
 hosts `AssetRepositoryAIChatView`, a repository-scoped chat surface that can
 ask for the required sprite asset name and then call `generate_sprite_asset`
@@ -2398,9 +2421,8 @@ Hype's AI integration is now split across five deliberate surfaces:
 - **voice input/output** for speaking requests and optionally hearing replies
 
 The primary AI paths now route through `HypeAIClient`, a provider-neutral
-contract implemented by `OllamaToolClient`, `LlamaSwapClient`, and
-`OpenAIResponsesClient`, with `OpenAIChatCompletionsClient` used for
-OpenAI-compatible local and third-party providers.
+contract implemented by `OpenAIResponsesClient`, `OpenAIChatCompletionsClient`,
+`LlamaSwapClient`, and the native `OllamaToolClient` compatibility client.
 They still use different contracts because they solve different problems.
 The authoring paths want structured mutations and previews; the scripting path
 wants plain text results or callback completion; speech wants explicit
@@ -2408,13 +2430,27 @@ microphone capture and audio playback.
 
 ### 7.1 Provider clients
 
-`OllamaToolClient` (Sources/HypeCore/AI/OllamaToolClient.swift) is a
-multi-surface HTTP client for the local Ollama daemon. It now serves three
-distinct architectural roles:
+`OpenAIChatCompletionsClient`
+(Sources/HypeCore/AI/OpenAIChatCompletionsClient.swift) is the shared Chat
+Completions bridge for OpenAI-compatible providers:
 
-- `/api/chat` for structured authoring conversations and tool calls
-- `/api/generate` for one-shot HypeTalk scripting requests
+- selected Ollama authoring uses Ollama's OpenAI-compatible
+  `/v1/chat/completions` endpoint via `Configuration.ollama(...)`
+- llama.cpp, Z.ai, and MiniMax use the same bridge with provider-specific base
+  URLs, API keys, and model-list paths
+- llama-swap wraps this bridge through `LlamaSwapClient` so model swaps happen
+  through llama-swap's `/v1/models` and `/v1/chat/completions` contract
+
+`OllamaToolClient` (Sources/HypeCore/AI/OllamaToolClient.swift) remains the
+native Ollama API client. It is used by diagnostics, explicit
+`OllamaAIScriptingProvider`/legacy text paths, CLI/live tests, and native
+Ollama model operations:
+
 - `/api/tags` for model discovery
+- `/api/pull` for model setup diagnostics
+- `/api/generate` for one-shot text generation in native Ollama paths
+- `/api/chat` structured/tool-call support remains implemented and tested, but
+  it is no longer the default selected authoring route for Ollama
 
 `OpenAIResponsesClient` (Sources/HypeCore/AI/OpenAIResponsesClient.swift)
 adapts the same Hype message/tool/schema types onto OpenAI's Responses API:
@@ -2531,16 +2567,16 @@ schema struct. The categories:
 | Part creation             | `create_button`, `create_field`, `create_label`, `create_shape`, `create_webpage`, `create_video`, `create_chart`, `create_image`, `generate_image`, `create_calendar`, `create_pdf`, `create_map`, `create_color_well`, `create_stepper`, `create_slider`, `create_segmented`, `create_progressview`, `create_gauge`, `create_divider`, `create_audio_recorder`, `create_music_player`, `create_piano_keyboard`, `create_step_sequencer`, `create_music_mixer`, `create_apple_music_browser`, `create_scene3d` |
 | Part modification         | `set_part_property` (canonical write surface, accepts ~250 property names + aliases incl. `helpText`, `fontColor`, `textStyle`, `rotation`, `imageFilter`), `delete_part`, `repair_form_controls` |
 | Part introspection        | `get_part_property`, `list_all_properties` (full property dump w/ defaults), `get_card_parts`, `get_background_parts`, `capture_card_image` |
-| Target-aware layout       | `list_target_profiles`, `get_hig_layout_guide`, `apply_hig_layout`, `validate_hig_layout`, `pin_part_to_safe_area`, `add_part_layout_constraint`, `list_part_layout_constraints`, `preview_layout_profile` |
-| Themes                    | `list_themes`, `get_theme`, `create_or_update_theme`, `delete_theme`, `apply_theme` |
+| Target-aware layout       | `list_target_profiles`, `get_part_target_availability`, `get_hig_layout_guide`, `apply_hig_layout`, `validate_hig_layout`, `pin_part_to_safe_area`, `add_part_layout_constraint`, `list_part_layout_constraints`, `preview_layout_profile`, `plan_stack_deployment` |
+| Themes                    | `list_themes`, `create_theme`, `duplicate_theme`, `delete_theme`, `set_theme_property` |
 | Charts                    | `create_chart` / `set_part_property` / `get_part_property` for chart-level config; spider/radar charts use series colors, per-point min/value/max ranges, and `spider_decimal_places` precision, plus `set_chart_data_point_color` *(non-spider)* and `get_chart_data_points` |
 | Maps                      | `add_map_annotation`, `clear_map_annotations` |
 | Images                    | `set_image_filter` |
-| Music                     | `list_music_instruments`, `create_music_pattern`, `list_music_patterns`, `export_music_pattern`, `get_apple_music_capabilities`, `authorize_apple_music`, `search_apple_music`, `set_apple_music_selection`, `play_apple_music`, `play_music_player`, `pause_apple_music`, `resume_apple_music`, `stop_apple_music` |
-| Sprite areas / scenes     | `create_sprite_area`, `infer_sprite_game_template`, `get_sprite_game_template_guide`, `create_sprite_game_template`, `list_sprite_game_templates`, `get_scene_spec`, `apply_scene_diff`, `add_sprite_to_scene`, `add_label_to_scene`, `add_shape_to_scene`, `add_emitter_to_scene`, `add_audio_to_scene`, `add_video_to_scene`, `add_group_to_scene`, `create_tilemap`, `create_basic_tileset_asset`, `classify_asset_as_tileset`, `set_tile`, `fill_tilemap`, `get_tilemap_info`, `create_camera`, `add_joint_to_scene`, `add_constraint_to_scene`, `add_physics_field_to_scene`, `capture_scene_snapshot`, `get_scene_diagnostics`, `list_scene_nodes`, `list_scene_joints`, `list_scene_constraints`, `get_scene_script`, `get_node_script`, `get_node_property`, `set_node_property`, `set_node_script`, `set_scene_script`, `set_physics_body` |
-| Asset repository          | `list_repository_assets`, `import_repository_asset`, `generate_sprite_asset`, `create_basic_tileset_asset`, `web_asset_search`, `web_asset_import` |
+| Music                     | `list_music_instruments`, `create_music_pattern`, `list_music_patterns`, `export_music_pattern`, `get_apple_music_capabilities`, `authorize_apple_music`, `search_apple_music`, `set_apple_music_selection`, `set_music_player_source`, `play_apple_music`, `play_music_player`, `pause_apple_music`, `resume_apple_music`, `seek_apple_music`, `stop_apple_music` |
+| Sprite areas / scenes     | `create_sprite_area`, `infer_sprite_game_template`, `get_sprite_game_template_guide`, `create_sprite_game_template`, `list_sprite_game_templates`, `get_scene_spec`, `apply_scene_diff`, `set_scene_property`, `add_scene`, `delete_scene`, `rename_scene`, `set_active_scene`, `list_scenes`, `add_sprite_to_scene`, `add_label_to_scene`, `add_shape_to_scene`, `add_emitter_to_scene`, `add_audio_to_scene`, `add_video_to_scene`, `add_group_to_scene`, `create_tilemap`, `create_basic_tileset_asset`, `classify_asset_as_tileset`, `set_tile`, `fill_tilemap`, `get_tilemap_info`, `create_camera`, `add_joint_to_scene`, `add_constraint_to_scene`, `add_physics_field_to_scene`, `list_scene_physics_fields`, `capture_scene_snapshot`, `get_scene_diagnostics`, `list_scene_nodes`, `list_scene_joints`, `list_scene_constraints`, `get_scene_script`, `get_node_script`, `get_node_property`, `set_node_property`, `set_node_script`, `set_scene_script`, `set_physics_body`, `delete_scene_node`, `add_action`, `remove_all_actions` |
+| Asset repository          | `list_repository_assets`, `get_repository_asset`, `import_repository_asset`, `generate_sprite_asset`, `create_basic_tileset_asset`, `search_web_for_sprite`, `import_web_asset`, `find_and_import_sprite` |
 | AI Context Library        | `list_ai_context`, `search_ai_context`, `read_ai_context_item`, `import_context_asset`, `write_ai_context_note` |
-| 3D model generation (Meshy) | `generate_3d_model_from_text`, `generate_3d_model_from_image`, `generate_3d_model_from_images`, `list_3d_models`, `remesh_3d_model`, `retexture_3d_model` |
+| 3D model generation (Meshy) | `generate_3d_model_from_text`, `generate_3d_model_from_image`, `generate_3d_model_from_images`, `list_3d_models`, `bind_3d_model_to_scene3d`, `remesh_3d_model`, `retexture_3d_model` |
 | HypeTalk scripting skills | `list_hypetalk_skills`, `get_hypetalk_skill_guide`, `plan_hypetalk_script`, `inspect_message_path`, `suggest_handler_location`, `get_hypetalk_pattern`, `review_hypetalk_script` |
 | Script gating             | `check_script` (REQUIRED before storing any HypeTalk; runs the validator) |
 
@@ -2637,7 +2673,7 @@ scene edit.
 
 ### 7.4 Executor and authoring loop
 
-`HypeToolExecutor` (Sources/HypeCore/AI/HypeToolExecutor.swift, ~5,200 LoC)
+`HypeToolExecutor` (Sources/HypeCore/AI/HypeToolExecutor.swift, ~6,600 LoC)
 remains the structural mutation engine. It is still a large `switch` over tool
 name taking `document: inout HypeDocument`, but its responsibilities are now
 more sharply defined:
@@ -2657,8 +2693,8 @@ the dispatcher; high-volume tool families now live in sibling files under
 
 | Branch file | Tool cases hosted |
 |-------------|-------------------|
-| `WebAssetExecutorBranches.swift` (~260 LoC) | `search_web_for_sprite`, `import_web_asset`, `find_and_import_sprite` |
-| `Scene3DExecutorBranches.swift` (~740 LoC) | `list_3d_models`, `bind_model_3d_to_scene3d`, `generate_3d_from_text/image/images`, `remesh_3d`, `retexture_3d` |
+| `WebAssetExecutorBranches.swift` (~270 LoC) | `search_web_for_sprite`, `import_web_asset`, `find_and_import_sprite` |
+| `Scene3DExecutorBranches.swift` (~740 LoC) | `list_3d_models`, `bind_3d_model_to_scene3d`, `generate_3d_model_from_text`, `generate_3d_model_from_image`, `generate_3d_model_from_images`, `remesh_3d_model`, `retexture_3d_model` |
 | `SceneNodeExecutorBranches.swift` (~410 LoC) | `apply_scene_diff`, `set_node_property`, `set_node_script`, `set_physics_body`, `delete_scene_node`, `add_action`, `remove_all_actions` |
 | `FileIOExecutorBranches.swift` (~100 LoC) | `fetch_url`, `read_file`, `write_file`, `list_directory` (each accepts injected `urlSession` / `fileSystem` for testability — see §8.4) |
 
@@ -2960,8 +2996,8 @@ available to the stack/control instead of switching Hype into edit mode.
 
 ### 8.4 Testing
 
-The combined SwiftPM test suite currently runs **230 suites and 2,075 tests**
-in about 80-90 seconds on the local machine. Most tests live in
+The combined SwiftPM test suite currently runs **297 suites and 2,836 tests**
+in the latest documented full local run. Most tests live in
 `HypeCoreTests` and run without launching the app because they exercise the
 model, parser, interpreter, renderer helpers, and tool executor directly;
 `HypeTests` covers app-facing seams that need AppKit, SpriteKit, or an

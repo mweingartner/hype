@@ -5,6 +5,13 @@
 Prepared for Michael  
 Date: April 8, 2026
 
+> **Historical status (2026-06-06)**
+> This PRD is preserved as pre-implementation design context. The shipped
+> feature is now named **Asset Repository**, not Sprite Repository, and current
+> implementation details live in `architecture.md`, `README.md`, and
+> `SpriteKit-Tutorial.md`. HypeTalk examples in this draft that reference
+> `spriteRepository` describe an early proposal, not the current parser surface.
+
 
 
 > **Purpose**  

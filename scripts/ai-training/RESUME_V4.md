@@ -42,7 +42,7 @@ From `scripts/ai-training/`, two options:
 ### Option A — Resume from the iter-100 checkpoint (recommended)
 
 ```bash
-cd /Users/mweingar/dev/hype-v2/scripts/ai-training
+cd /Users/michaelweingartner/dev/hype/scripts/ai-training
 
 # Start a fresh log
 LOG=out/logs/train_v4_resume_$(date +%Y%m%d_%H%M%S).log
@@ -81,7 +81,7 @@ If anything about the corpus or config changed since we paused,
 clean slate is safer:
 
 ```bash
-cd /Users/mweingar/dev/hype-v2/scripts/ai-training
+cd /Users/michaelweingartner/dev/hype/scripts/ai-training
 rm -rf out/adapters && mkdir -p out/adapters
 bash src/train.sh --force > out/logs/train_v4_fresh_$(date +%Y%m%d_%H%M%S).log 2>&1 &
 ```
