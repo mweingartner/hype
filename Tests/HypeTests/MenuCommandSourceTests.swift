@@ -62,6 +62,21 @@ struct MenuCommandSourceTests {
         #expect(bridgeSource.contains("var transferSelectionToAlternateLayer: () -> Void"))
     }
 
+    @Test("runtime edit toggle cancels running scripts and returns to select tool")
+    func runtimeEditToggleCancelsScripts() throws {
+        let root = try packageRoot()
+        let sourceURL = root
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("Hype")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("MainContentView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        #expect(source.contains("currentTool = .select"))
+        #expect(source.contains("cancelRunningScripts()"))
+        #expect(source.contains("Switch to Edit Mode"))
+    }
+
     private func packageRoot() throws -> URL {
         var url = URL(fileURLWithPath: #filePath)
         while url.path != "/" {

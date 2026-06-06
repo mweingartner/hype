@@ -36,7 +36,7 @@ struct RuntimeDocumentMergeTests {
 
     @Test("runtime-only entities are kept while current-only entities are preserved")
     func runtimeOnlyEntitiesAreKept() throws {
-        var base = HypeDocument.newDocument()
+        let base = HypeDocument.newDocument()
         let cardId = try #require(base.sortedCards.first?.id)
         let currentOnly = Part(partType: .button, cardId: cardId, name: "New Game", left: 12, top: 12, width: 112, height: 38)
         let runtimeOnly = Part(partType: .field, cardId: cardId, name: "runtimeStatus", left: 12, top: 56, width: 160, height: 28)
@@ -54,6 +54,39 @@ struct RuntimeDocumentMergeTests {
 
         #expect(result.document.parts.contains(where: { $0.id == currentOnly.id }))
         #expect(result.document.parts.contains(where: { $0.id == runtimeOnly.id }))
+    }
+
+    @Test("stale runtime snapshot cannot re-enter runtime mode after user switches to edit")
+    func staleRuntimeSnapshotDoesNotReenableRuntimeMode() throws {
+        var runtime = HypeDocument.newDocument()
+        runtime.stack.runtimeModeEnabled = true
+
+        var current = runtime
+        current.stack.runtimeModeEnabled = false
+
+        let result = RuntimeDocumentMerge.preservingCurrentOnlyEntities(
+            runtimeDocument: runtime,
+            currentDocument: current
+        )
+
+        #expect(result.preservedCurrentOnlyEntities)
+        #expect(!result.document.stack.runtimeModeEnabled)
+    }
+
+    @Test("runtime can still turn runtime mode off intentionally")
+    func runtimeCanDisableRuntimeMode() throws {
+        var current = HypeDocument.newDocument()
+        current.stack.runtimeModeEnabled = true
+
+        var runtime = current
+        runtime.stack.runtimeModeEnabled = false
+
+        let result = RuntimeDocumentMerge.preservingCurrentOnlyEntities(
+            runtimeDocument: runtime,
+            currentDocument: current
+        )
+
+        #expect(!result.document.stack.runtimeModeEnabled)
     }
 
     @Test("current-only AI context sources are preserved with their items")

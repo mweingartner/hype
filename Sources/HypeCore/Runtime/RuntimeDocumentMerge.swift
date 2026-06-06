@@ -107,6 +107,14 @@ public enum RuntimeDocumentMerge {
             preserved = true
         }
 
+        // Runtime snapshots are full-document values and may arrive after the
+        // user has already left runtime mode. Do not let a stale in-flight
+        // script snapshot force the authoring window back into runtime mode.
+        if !currentDocument.stack.runtimeModeEnabled && runtimeDocument.stack.runtimeModeEnabled {
+            merged.stack.runtimeModeEnabled = false
+            preserved = true
+        }
+
         return RuntimeDocumentMergeResult(document: merged, preservedCurrentOnlyEntities: preserved)
     }
 

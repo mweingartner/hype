@@ -139,6 +139,172 @@ private struct ObjectToolDragButton: NSViewRepresentable {
     }
 }
 
+private struct ObjectModeButton: NSViewRepresentable {
+    let title: String
+    let systemImage: String
+    let isActive: Bool
+    let help: ObjectToolHoverHelp
+    let action: () -> Void
+
+    func makeNSView(context: Context) -> ObjectModeButtonNSButton {
+        ObjectModeButtonNSButton(
+            title: title,
+            systemImage: systemImage,
+            isActive: isActive,
+            help: help,
+            action: action
+        )
+    }
+
+    func updateNSView(_ nsView: ObjectModeButtonNSButton, context: Context) {
+        nsView.configure(
+            title: title,
+            systemImage: systemImage,
+            isActive: isActive,
+            help: help,
+            action: action
+        )
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: ObjectModeButtonNSButton, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 180, height: 28)
+    }
+}
+
+private final class ObjectModeButtonNSButton: NSButton {
+    private var systemImage: String
+    private var isActiveMode: Bool
+    private var help: ObjectToolHoverHelp
+    private var clickAction: () -> Void
+    private var hoverTrackingArea: NSTrackingArea?
+
+    init(
+        title: String,
+        systemImage: String,
+        isActive: Bool,
+        help: ObjectToolHoverHelp,
+        action: @escaping () -> Void
+    ) {
+        self.systemImage = systemImage
+        self.isActiveMode = isActive
+        self.help = help
+        self.clickAction = action
+        super.init(frame: NSRect(x: 0, y: 0, width: 180, height: 28))
+        isBordered = false
+        bezelStyle = .regularSquare
+        setButtonType(.momentaryChange)
+        imagePosition = .imageLeading
+        alignment = .left
+        lineBreakMode = .byTruncatingTail
+        focusRingType = .none
+        wantsLayer = true
+        target = self
+        self.action = #selector(performClickAction(_:))
+        configure(title: title, systemImage: systemImage, isActive: isActive, help: help, action: action)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize { NSSize(width: 180, height: 28) }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    func configure(
+        title: String,
+        systemImage: String,
+        isActive: Bool,
+        help: ObjectToolHoverHelp,
+        action: @escaping () -> Void
+    ) {
+        self.title = title
+        self.systemImage = systemImage
+        self.isActiveMode = isActive
+        self.help = help
+        self.clickAction = action
+
+        let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: isActive ? .semibold : .regular)
+        image = NSImage(systemSymbolName: systemImage, accessibilityDescription: title)?
+            .withSymbolConfiguration(symbolConfiguration)
+        contentTintColor = isActive ? .controlAccentColor : .labelColor
+        attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [
+                .foregroundColor: isActive ? NSColor.controlAccentColor : NSColor.labelColor,
+                .font: NSFont.systemFont(ofSize: 12, weight: isActive ? .semibold : .regular)
+            ]
+        )
+        imageHugsTitle = true
+        layer?.cornerRadius = 6
+        layer?.backgroundColor = isActive
+            ? NSColor.controlAccentColor.withAlphaComponent(0.15).cgColor
+            : NSColor.clear.cgColor
+
+        setAccessibilityIdentifier(HypeAccessibilityID.toolbar("mode.\(title.lowercased())"))
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(title)
+        setAccessibilityHelp(help.body)
+        setAccessibilityValue(isActive ? "active" : "inactive")
+        toolTip = nil
+
+        needsDisplay = true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        hoverTrackingArea = area
+        addTrackingArea(area)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        ObjectToolHelpWindowPresenter.shared.show(help)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        ObjectToolHelpWindowPresenter.shared.hide(help)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        isHighlighted = true
+        needsDisplay = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer {
+            isHighlighted = false
+            needsDisplay = true
+        }
+        let point = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(point) else { return }
+        clickAction()
+    }
+
+    @objc private func performClickAction(_ sender: Any?) {
+        clickAction()
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        clickAction()
+        return true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        layer?.backgroundColor = (isActiveMode || isHighlighted)
+            ? NSColor.controlAccentColor.withAlphaComponent(isHighlighted ? 0.24 : 0.15).cgColor
+            : NSColor.clear.cgColor
+        super.draw(dirtyRect)
+    }
+}
+
 private final class ObjectToolDragButtonNSView: NSView, NSDraggingSource {
     private let imageView = NSImageView()
     private var tool: ToolName
@@ -479,29 +645,15 @@ struct ObjectsToolPanel: View {
         help: ObjectToolHoverHelp,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 13, weight: isActive ? .semibold : .regular))
-                Text(title)
-                    .font(.system(size: 12, weight: isActive ? .semibold : .regular))
-                Spacer(minLength: 0)
-            }
-            .foregroundColor(isActive ? .accentColor : .primary)
-            .padding(.horizontal, 8)
-            .frame(maxWidth: .infinity)
-            .frame(height: 28)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isActive ? Color.accentColor.opacity(0.15) : Color.clear)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { setActiveHelp(help, isHovering: $0) }
-        .accessibilityLabel(title)
-        .accessibilityHint(help.body)
-        .accessibilityValue(isActive ? "active" : "inactive")
-        .accessibilityIdentifier(HypeAccessibilityID.toolbar("mode.\(title.lowercased())"))
+        ObjectModeButton(
+            title: title,
+            systemImage: systemImage,
+            isActive: isActive,
+            help: help,
+            action: action
+        )
+        .frame(maxWidth: .infinity)
+        .frame(height: 28)
     }
 
     @ViewBuilder

@@ -1147,11 +1147,18 @@ struct MainContentView: View {
         mutateDocument(actionName: enabled ? "Switch to Runtime Mode" : "Switch to Edit Mode") { document in
             document.stack.runtimeModeEnabled = enabled
         }
-        // Entering runtime mode: clear authoring side-effects.
         if enabled {
+            // Entering runtime mode: clear authoring side-effects.
             currentTool = .browse
             selectedPartIds = []
             editingBackground = false
+        } else {
+            // Leaving runtime mode must be authoritative even when scripts are
+            // still unwinding and posting stale runtime document snapshots.
+            currentTool = .select
+            selectedPartIds = []
+            editingBackground = false
+            cancelRunningScripts()
         }
     }
 

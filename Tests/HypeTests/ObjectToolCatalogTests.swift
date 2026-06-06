@@ -176,6 +176,26 @@ struct ObjectToolCatalogTests {
         #expect(source.contains("toolTip = nil"))
     }
 
+    @Test("run edit mode rows use AppKit click targets")
+    func runEditModeRowsUseAppKitClickTargets() throws {
+        let source = try String(contentsOf: packageRoot()
+            .appendingPathComponent("Sources/Hype/Views/ObjectsToolPanel.swift"), encoding: .utf8)
+
+        #expect(source.contains("ObjectModeButtonNSButton"))
+        #expect(source.contains("private final class ObjectModeButtonNSButton: NSButton"))
+        #expect(source.contains("override func acceptsFirstMouse"))
+        #expect(source.contains("override func mouseDown"))
+        #expect(source.contains("override func mouseUp"))
+        #expect(source.contains("guard bounds.contains(point) else { return }"))
+        #expect(source.contains("clickAction()"))
+        #expect(source.contains("setButtonType(.momentaryChange)"))
+        #expect(source.contains("target = self"))
+        #expect(source.contains("self.action = #selector(performClickAction(_:))"))
+        #expect(source.contains("override func accessibilityPerformPress"))
+        #expect(source.contains("ObjectModeButton("))
+        #expect(source.contains("HypeAccessibilityID.toolbar(\"mode.\\(title.lowercased())\")"))
+    }
+
     @Test("Objects menu does not reintroduce duplicate field or shape creation commands")
     func objectsMenuHasOnlyCanonicalCreationCommands() throws {
         let source = try String(contentsOf: packageRoot()
