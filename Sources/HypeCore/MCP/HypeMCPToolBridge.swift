@@ -4,10 +4,17 @@ public enum HypeMCPToolBridge {
     public static let mcpControlToolNames: Set<String> = [
         "hype_get_app_state",
         "hype_list_open_stacks",
+        "hype_get_stack_document",
+        "hype_get_object",
+        "hype_canvas_hit_test",
+        "hype_open_script_editor",
+        "hype_dispatch_message",
         "hype_get_preferences",
         "hype_set_preference",
         "hype_set_secret",
         "hype_delete_secret",
+        "hype_set_script",
+        "hype_replace_part",
         "hype_run_existing_tool",
         "hype_preview_transaction",
         "hype_apply_transaction",
@@ -84,6 +91,45 @@ public enum HypeMCPToolBridge {
                 [:]
             ),
             tool(
+                "hype_get_stack_document",
+                "Return the full active HypeDocument as JSON, including stack/card/background/part scripts and attributes. Local privileged MCP/debug boundary only.",
+                [:]
+            ),
+            tool(
+                "hype_get_object",
+                "Return a full stack, card, background, or part object by UUID or case-insensitive name.",
+                [
+                    "object_type": ("string", "Object type: stack, card, background, or part.", true),
+                    "id_or_name": ("string", "UUID or case-insensitive name. Omit only for stack.", false)
+                ]
+            ),
+            tool(
+                "hype_canvas_hit_test",
+                "Diagnose logical canvas hit testing at a card coordinate. Live Hype adds AppKit routed-view diagnostics.",
+                [
+                    "x": ("number", "Canvas X coordinate in points.", true),
+                    "y": ("number", "Canvas Y coordinate in points.", true),
+                    "card_id": ("string", "Optional card UUID. Defaults to current card.", false)
+                ]
+            ),
+            tool(
+                "hype_open_script_editor",
+                "Open Hype's single script editor window for a stack, card, background, or part. The live app enforces stack userLevel.",
+                [
+                    "object_type": ("string", "Object type: stack, card, background, or part.", true),
+                    "id_or_name": ("string", "UUID or case-insensitive name. Omit only for stack.", false)
+                ]
+            ),
+            tool(
+                "hype_dispatch_message",
+                "Dispatch a HypeTalk message such as mouseUp to an existing object through the normal runtime MessageDispatcher path.",
+                [
+                    "object_type": ("string", "Object type: stack, card, background, or part.", true),
+                    "id_or_name": ("string", "UUID or case-insensitive name. Omit only for stack.", false),
+                    "message": ("string", "Message name, e.g. mouseUp.", true)
+                ]
+            ),
+            tool(
                 "hype_get_preferences",
                 "Read all MCP-exposed Hype preferences. Secret values are redacted to boolean status.",
                 [:]
@@ -109,6 +155,24 @@ public enum HypeMCPToolBridge {
                 "Delete an MCP-exposed provider secret from Keychain.",
                 [
                     "name": ("string", "Secret name: openai, llama-swap, z.ai, minimax, meshy, or pexels.", true)
+                ]
+            ),
+            tool(
+                "hype_set_script",
+                "Set a stack, card, background, or part script after parser validation. Empty scripts are allowed.",
+                [
+                    "object_type": ("string", "Object type: stack, card, background, or part.", true),
+                    "id_or_name": ("string", "UUID or case-insensitive name. Omit only for stack.", false),
+                    "script": ("string", "HypeTalk script to store.", true),
+                    "validate": ("string", "Optional true/false. Defaults to true.", false)
+                ]
+            ),
+            tool(
+                "hype_replace_part",
+                "Replace one existing Part from full JSON previously read from hype_get_object or hype://stack/{id}/part/{partId}/full. Useful for complete attribute mutation.",
+                [
+                    "part_json": ("string", "Full JSON object for the replacement Part. The id must already exist.", true),
+                    "validate_script": ("string", "Optional true/false. Defaults to true.", false)
                 ]
             ),
             tool(

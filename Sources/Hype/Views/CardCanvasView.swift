@@ -1759,6 +1759,19 @@ class CardCanvasNSView: NSView {
         ).rawValue).category == .browse
     }
 
+    static func shouldOpenScriptEditorShortcut(
+        modifierFlags: NSEvent.ModifierFlags,
+        runtimeModeEnabled: Bool,
+        userLevel: HypeUserLevel
+    ) -> Bool {
+        let flags = modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return !runtimeModeEnabled
+            && userLevel.canEditScripts
+            && flags.contains(.command)
+            && flags.contains(.option)
+            && !flags.contains(.control)
+    }
+
     private var effectiveMouseTool: ToolName {
         Self.effectiveMouseTool(
             currentTool: currentTool,
@@ -1855,29 +1868,155 @@ class CardCanvasNSView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // Layer-backed canvases can fail to hand events to embedded controls
-        // through the default AppKit recursion. Route slider hits explicitly so
-        // click-to-value and drag scrubbing reach the Hype-owned slider host.
-        for view in sliderViews.values.reversed() {
-            guard !view.isHidden, view.frame.contains(point) else { continue }
-            let localPoint = convert(point, to: view)
-            return view.hitTest(localPoint) ?? view
+        guard bounds.contains(point) else { return nil }
+
+        // Hype's document order is the source of truth for the topmost part.
+        // Ask the renderer first, then route only the winning native-hosted
+        // part to AppKit. CG-rendered parts (buttons, fields, images, shapes,
+        // music controls, etc.) must keep events on the canvas so browse-mode
+        // message dispatch and Command-Option script opening cannot be stolen
+        // by an overlapping transparent host view.
+        if let part = renderer.partAtPoint(point, document: document, cardId: currentCardId) {
+            if let host = hostedRuntimeView(for: part),
+               !host.isHidden,
+               host.frame.contains(point) {
+                let localPoint = convert(point, to: host)
+                return host.hitTest(localPoint) ?? host
+            }
+            return self
         }
 
-        // Layer-backed canvas rendering can otherwise keep mouse events on the
-        // canvas even when an interactive SwiftUI chart host sits above it.
-        // Route spider-chart hits explicitly so value-dot drags and axis-line
-        // clicks reach `ChartHostingView.mouseDown/Dragged/Up`.
-        for view in chartViews.values.reversed() {
-            guard let chartHost = view as? ChartHostingView,
-                  chartHost.acceptsChartInteraction,
-                  chartHost.frame.contains(point) else {
-                continue
-            }
-            let localPoint = convert(point, to: chartHost)
-            return chartHost.hitTest(localPoint) ?? chartHost
-        }
         return super.hitTest(point)
+    }
+
+    private func hostedRuntimeView(for part: Part) -> NSView? {
+        switch part.partType {
+        case .webpage:
+            return webViews[part.id]
+        case .video:
+            return videoPlayers[part.id]
+        case .chart:
+            return chartViews[part.id]
+        case .calendar:
+            return calendarViews[part.id]
+        case .pdf:
+            return pdfViews[part.id]
+        case .map:
+            return mapViews[part.id]
+        case .colorWell:
+            return colorWellViews[part.id]
+        case .stepper:
+            return stepperViews[part.id]
+        case .slider:
+            return sliderViews[part.id]
+        case .segmented:
+            return segmentedViews[part.id]
+        case .appleMusicBrowser:
+            return appleMusicBrowserViews[part.id]
+        case .audioRecorder:
+            return audioRecorderViews[part.id]
+        case .scene3D:
+            return scene3DViews[part.id]
+        case .progressView:
+            return progressViewHosts[part.id]
+        case .gauge:
+            return gaugeHosts[part.id]
+        case .spriteArea:
+            return spriteViews[part.id]
+        default:
+            return nil
+        }
+    }
+
+    func debugHitTestReport(at point: CGPoint) -> [String: Any] {
+        let part = renderer.partAtPoint(point, document: document, cardId: currentCardId)
+        let host = part.flatMap(hostedRuntimeView(for:))
+        let routedView = hitTest(point)
+        var report: [String: Any] = [
+            "point": ["x": Double(point.x), "y": Double(point.y)],
+            "bounds": [
+                "x": Double(bounds.origin.x),
+                "y": Double(bounds.origin.y),
+                "width": Double(bounds.width),
+                "height": Double(bounds.height),
+            ],
+            "currentCardId": currentCardId.uuidString,
+            "currentTool": currentTool.rawValue,
+            "effectiveMouseTool": effectiveMouseTool.rawValue,
+            "runtimeModeEnabled": document.stack.runtimeModeEnabled,
+            "userLevel": document.stack.userLevel,
+            "userLevelName": document.stack.userLevel.hypeUserLevel.displayName,
+            "topPart": part.map(debugPartSummary) ?? NSNull(),
+            "hostedView": host.map(debugViewSummary) ?? NSNull(),
+            "routedView": routedView.map(debugViewSummary) ?? NSNull(),
+            "canvasWillHandleEvent": routedView === self,
+        ]
+        if let screenReport = debugScreenCoordinateReport(for: point) {
+            report["screen"] = screenReport
+        }
+        return report
+    }
+
+    private func debugPartSummary(_ part: Part) -> [String: Any] {
+        [
+            "id": part.id.uuidString,
+            "name": part.name,
+            "partType": part.partType.rawValue,
+            "cardId": part.cardId?.uuidString ?? NSNull(),
+            "backgroundId": part.backgroundId?.uuidString ?? NSNull(),
+            "rect": [
+                "left": part.left,
+                "top": part.top,
+                "width": part.width,
+                "height": part.height,
+            ],
+            "visible": part.visible,
+            "enabled": part.enabled,
+            "scriptLength": part.script.count,
+        ]
+    }
+
+    private func debugViewSummary(_ view: NSView) -> [String: Any] {
+        [
+            "className": String(describing: type(of: view)),
+            "isCanvas": view === self,
+            "isHidden": view.isHidden,
+            "frame": [
+                "x": Double(view.frame.origin.x),
+                "y": Double(view.frame.origin.y),
+                "width": Double(view.frame.width),
+                "height": Double(view.frame.height),
+            ],
+        ]
+    }
+
+    private func debugScreenCoordinateReport(for point: CGPoint) -> [String: Any]? {
+        guard let window else { return nil }
+        let windowPoint = convert(point, to: nil)
+        let screenPoint = window.convertPoint(toScreen: windowPoint)
+        let screen = NSScreen.screens.first { NSPointInRect(screenPoint, $0.frame) } ?? window.screen ?? NSScreen.main
+        let screenFrame = screen?.frame ?? .zero
+        return [
+            "windowNumber": window.windowNumber,
+            "windowPoint": [
+                "x": Double(windowPoint.x),
+                "y": Double(windowPoint.y),
+            ],
+            "screenPointBottomLeft": [
+                "x": Double(screenPoint.x),
+                "y": Double(screenPoint.y),
+            ],
+            "screenFrame": [
+                "x": Double(screenFrame.origin.x),
+                "y": Double(screenFrame.origin.y),
+                "width": Double(screenFrame.width),
+                "height": Double(screenFrame.height),
+            ],
+            "cliclickApproxPoint": [
+                "x": Double(screenPoint.x),
+                "y": Double(screenFrame.maxY - screenPoint.y),
+            ],
+        ]
     }
 
     private func installSliderEventMonitorIfNeeded() {
@@ -3832,6 +3971,21 @@ class CardCanvasNSView: NSView {
         }
 
         let point = flippedPoint(for: event)
+        let rawHitPart = renderer.partAtPoint(point, document: document, cardId: currentCardId)
+        let userLevel = document.stack.userLevel.hypeUserLevel
+
+        if Self.shouldOpenScriptEditorShortcut(
+            modifierFlags: event.modifierFlags,
+            runtimeModeEnabled: document.stack.runtimeModeEnabled,
+            userLevel: userLevel
+        ), let part = rawHitPart {
+            NotificationCenter.default.post(
+                name: .openPartScriptEditor,
+                object: nil,
+                userInfo: ["partId": part.id, "target": ScriptTarget.part(part.id)]
+            )
+            return
+        }
 
         // Handle paint tools directly
         let eventTool = effectiveMouseTool
@@ -3867,8 +4021,6 @@ class CardCanvasNSView: NSView {
             needsDisplay = true
             return
         }
-
-        let rawHitPart = renderer.partAtPoint(point, document: document, cardId: currentCardId)
 
         let toolCheck = ToolState(currentTool: eventTool.rawValue)
         if toolCheck.category == .browse,
@@ -3909,47 +4061,10 @@ class CardCanvasNSView: NSView {
             return
         }
 
-        // Authoring-only Browse shortcuts are disabled when the stack is in
-        // runtime mode. Runtime mode still uses the Browse tool for interaction,
-        // but double-clicks and Cmd-clicks must stay available to the stack.
-        let userLevel = document.stack.userLevel.hypeUserLevel
-        let authoringBrowseMode = toolCheck.category == .browse && !document.stack.runtimeModeEnabled && userLevel.canAuthorObjects
-        let scriptingBrowseMode = toolCheck.category == .browse && !document.stack.runtimeModeEnabled && userLevel.canEditScripts
-
         if toolCheck.category == .browse,
            let part = hitPart,
            beginCanvasSliderInteraction(part: part, at: point) {
             coordinator?.recordClickState(point: point, hitPart: hitPart, document: document)
-            return
-        }
-
-        // Double-click on a part in authoring Browse mode → dispatch message and open properties
-        // Cmd+click in authoring Browse mode: open script editor for the
-        // topmost part under the cursor, regardless of editing
-        // mode. Uses rawHitPart (not the editing-mode-filtered
-        // hitPart) so background parts are reachable even when
-        // not in background-edit mode. If no part is hit, opens
-        // the card's script editor.
-        if scriptingBrowseMode && event.modifierFlags.contains(.command) {
-            if let part = rawHitPart {
-                NotificationCenter.default.post(
-                    name: .openPartScriptEditor,
-                    object: nil,
-                    userInfo: ["partId": part.id]
-                )
-            } else {
-                NotificationCenter.default.post(
-                    name: .openPartScriptEditor,
-                    object: nil,
-                    userInfo: ["cardId": currentCardId]
-                )
-            }
-            return
-        }
-
-        if event.clickCount == 2 && authoringBrowseMode, let part = hitPart {
-            coordinator?.dispatchMessage("mouseDoubleClick", to: part.id)
-            NotificationCenter.default.post(name: .editPartProperties, object: part.id)
             return
         }
 
@@ -4398,14 +4513,18 @@ class CardCanvasNSView: NSView {
         if toolCheck.category == .browse {
             let hitPart = renderer.partAtPoint(point, document: document, cardId: currentCardId)
 
-            // Cmd+click is handled in mouseDown (line 1340) so it
-            // responds immediately. Skip all mouseUp processing
-            // when Cmd is held to avoid double-opening the editor
-            // or dispatching mouseUp to the part.
-            if event.modifierFlags.contains(.command) {
-                // Even on a Cmd+click skip, release any transient
-                // press state so a stuck pressed-button doesn't
-                // outlive the mouseDown.
+            // Command-Option-click script opening is handled in
+            // mouseDown so it responds immediately. Skip mouseUp for
+            // that exact shortcut to avoid also dispatching mouseUp
+            // to the part.
+            if Self.shouldOpenScriptEditorShortcut(
+                modifierFlags: event.modifierFlags,
+                runtimeModeEnabled: document.stack.runtimeModeEnabled,
+                userLevel: document.stack.userLevel.hypeUserLevel
+            ) {
+                // Even on a shortcut skip, release any transient press
+                // state so a stuck pressed-button doesn't outlive the
+                // mouseDown.
                 if let pressedId = pressedButtonId {
                     coordinator?.setPartHilite(id: pressedId, to: false)
                     pressedButtonId = nil

@@ -365,11 +365,12 @@ extension Notification.Name {
     /// repeated runtime errors" fix — the first half is the
     /// dedup map in `openScriptEditorWindow` itself.
     static let refreshScriptError = Notification.Name("refreshScriptError")
-    /// Posted by `CardCanvasNSView.mouseUp` when the user Cmd+clicks
-    /// a part or empty space in browse mode. `userInfo` carries
-    /// either `"partId": UUID` (for a part) or `"cardId": UUID`
-    /// (for the card). `MainContentView` listens and opens the
-    /// script editor via `openScriptEditorWindow`.
+    /// Posted by authoring surfaces when the user requests a script
+    /// editor. The canvas posts this for Command-Option-click on a
+    /// part; inspectors and error surfaces may post explicit
+    /// `ScriptTarget` values. `MainContentView` listens and opens the
+    /// script editor via `openScriptEditorWindow` after checking the
+    /// current stack user level.
     static let openPartScriptEditor = Notification.Name("openPartScriptEditor")
     /// Posted by a clickable console-log script error action. Unlike
     /// `.showScriptError`, this presents the editor in the current

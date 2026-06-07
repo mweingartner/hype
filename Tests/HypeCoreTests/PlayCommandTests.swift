@@ -1,5 +1,8 @@
 import Testing
 import Foundation
+#if canImport(AppKit)
+import AppKit
+#endif
 @testable import HypeCore
 
 @Suite("Play/Beep/Wait Command Tests", .serialized)
@@ -196,7 +199,7 @@ struct PlayCommandTests {
         var doc = HypeDocument.newDocument()
         let cardId = doc.cards[0].id
 
-        var field = Part(partType: .field, cardId: cardId, name: "output")
+        let field = Part(partType: .field, cardId: cardId, name: "output")
         doc.addPart(field)
 
         if let idx = doc.cards.firstIndex(where: { $0.id == cardId }) {
@@ -300,6 +303,36 @@ struct PlayCommandTests {
         ])
     }
 
+    @Test("Runtime dispatch routes classic boing sound")
+    func runtimeDispatchRoutesClassicBoingSound() async {
+        var doc = HypeDocument.newDocument()
+        let cardId = doc.cards[0].id
+        var button = Part(partType: .button, cardId: cardId, name: "Button 14")
+        button.script = """
+        on mouseUp
+          play "boing"
+        end mouseUp
+        """
+        doc.addPart(button)
+
+        let provider = RecordingSystemProvider()
+        let runtime = StackRuntime(
+            document: doc,
+            configuration: StackRuntimeConfiguration(systemProvider: provider)
+        )
+
+        let result = await runtime.dispatchAndWait(
+            "mouseUp",
+            params: [],
+            targetId: button.id,
+            currentCardId: cardId
+        )
+
+        #expect(result.status == .completed)
+        let events = await provider.recordedEvents()
+        #expect(events == [.playSound("boing")])
+    }
+
     @Test func beepExecutesWithoutCrash() {
         var lexer = Lexer(source: """
         on test
@@ -378,6 +411,14 @@ struct PlayCommandTests {
     // even compile if the main-actor isolation was dropped.
 
     #if canImport(AppKit)
+    @Test("Classic HyperCard boing maps to available macOS Frog sound")
+    @MainActor
+    func classicBoingAliasMapsToAvailableSystemSound() {
+        #expect(SoundPlayer.hyperCardSystemSoundName(for: "boing") == "Frog")
+        #expect(SoundPlayer.hyperCardSystemSoundName(for: " BoInG ") == "Frog")
+        #expect(NSSound(named: NSSound.Name("Frog")) != nil)
+    }
+
     @Test("SoundPlayer.stop() works when invoked from a detached cooperative task")
     func stopFromDetachedTaskDoesNotCrash() async {
         // Prime the player on main first, then `stop` from a non-main

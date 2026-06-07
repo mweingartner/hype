@@ -18,6 +18,8 @@ struct CardCanvasGroupingInteractionTests {
 
     private final class NotificationCounter: @unchecked Sendable {
         var count = 0
+        var partId: UUID?
+        var target: ScriptTarget?
     }
 
     private func groupedFixture() throws -> (CanvasState, UUID, UUID, CardCanvasView.Coordinator, CardCanvasNSView) {
@@ -299,8 +301,142 @@ struct CardCanvasGroupingInteractionTests {
         #expect(second.left == 80)
     }
 
-    @Test("authoring browse double-click opens properties")
-    func authoringBrowseDoubleClickOpensProperties() throws {
+    @Test("command-option click opens the clicked part script at scripting level")
+    func commandOptionClickOpensClickedPartScriptAtScriptingLevel() throws {
+        let (_, firstId, _, coordinator, nsView) = try groupedFixture()
+        nsView.currentTool = .browse
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = nsView
+
+        let counter = NotificationCounter()
+        let token = NotificationCenter.default.addObserver(
+            forName: .openPartScriptEditor,
+            object: nil,
+            queue: nil
+        ) { notification in
+            if notification.userInfo?["partId"] as? UUID == firstId {
+                counter.count += 1
+                counter.partId = firstId
+                counter.target = notification.userInfo?["target"] as? ScriptTarget
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: nsView.convert(NSPoint(x: 12, y: 22), to: nil),
+            modifierFlags: [.command, .option],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+
+        withExtendedLifetime((coordinator, window)) {
+            nsView.mouseDown(with: event)
+        }
+
+        #expect(counter.count == 1)
+        #expect(counter.partId == firstId)
+        #expect(counter.target == .part(firstId))
+    }
+
+    @Test("command-option click below scripting level does not open script")
+    func commandOptionClickBelowScriptingLevelDoesNotOpenScript() throws {
+        let (state, firstId, _, coordinator, nsView) = try groupedFixture()
+        state.wrapper.document.stack.userLevel = HypeUserLevel.authoring.rawValue
+        nsView.document.stack.userLevel = HypeUserLevel.authoring.rawValue
+        nsView.currentTool = .browse
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = nsView
+
+        let counter = NotificationCounter()
+        let token = NotificationCenter.default.addObserver(
+            forName: .openPartScriptEditor,
+            object: nil,
+            queue: nil
+        ) { notification in
+            if notification.userInfo?["partId"] as? UUID == firstId {
+                counter.count += 1
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: nsView.convert(NSPoint(x: 12, y: 22), to: nil),
+            modifierFlags: [.command, .option],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+
+        withExtendedLifetime((coordinator, window)) {
+            nsView.mouseDown(with: event)
+        }
+
+        #expect(counter.count == 0)
+    }
+
+    @Test("CG-rendered topmost part owns hit testing over overlapping hosted subviews")
+    func canvasHitTestRoutesTopmostCGPartToCanvas() throws {
+        var document = HypeDocument.newDocument(name: "Hit Test")
+        let cardId = try #require(document.sortedCards.first?.id)
+        let button = Part(partType: .button, cardId: cardId, name: "Button 14", left: 684, top: 599, width: 88, height: 24)
+        document.addPart(button)
+
+        let state = CanvasState(document: document)
+        let canvasView = CardCanvasView(
+            document: Binding(
+                get: { state.wrapper },
+                set: { state.wrapper = $0 }
+            ),
+            currentCardId: cardId,
+            currentTool: .browse,
+            selectedPartIds: Binding(
+                get: { state.selectedPartIds },
+                set: { state.selectedPartIds = $0 }
+            ),
+            editingBackground: false
+        )
+        let coordinator = CardCanvasView.Coordinator(parent: canvasView)
+        let nsView = CardCanvasNSView(frame: NSRect(x: 0, y: 0, width: 900, height: 900))
+        nsView.document = state.wrapper.document
+        nsView.currentCardId = cardId
+        nsView.currentTool = .browse
+        nsView.coordinator = coordinator
+        coordinator.nsView = nsView
+
+        let overlappingSubview = NSView(frame: NSRect(x: 650, y: 560, width: 220, height: 120))
+        nsView.addSubview(overlappingSubview)
+
+        let hit = nsView.hitTest(NSPoint(x: 700, y: 610))
+
+        withExtendedLifetime((coordinator, overlappingSubview)) {}
+        #expect(hit === nsView)
+        let report = nsView.debugHitTestReport(at: CGPoint(x: 700, y: 610))
+        #expect(report["canvasWillHandleEvent"] as? Bool == true)
+        let part = try #require(report["topPart"] as? [String: Any])
+        #expect(part["name"] as? String == "Button 14")
+    }
+
+    @Test("authoring browse double-click does not open properties")
+    func authoringBrowseDoubleClickDoesNotOpenProperties() throws {
         let (_, firstId, _, coordinator, nsView) = try groupedFixture()
         nsView.currentTool = .browse
         let window = NSWindow(
@@ -339,7 +475,7 @@ struct CardCanvasGroupingInteractionTests {
             nsView.mouseDown(with: event)
         }
 
-        #expect(counter.count == 1)
+        #expect(counter.count == 0)
     }
 
     @Test("runtime mode double-click does not enter edit mode")

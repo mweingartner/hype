@@ -655,7 +655,11 @@ final class HypeDebugServer: @unchecked Sendable {
                 return await runScript(script, params: params, id: id)
             case "debug/getScriptState":
                 return jsonRPCResult(id: id, result: scriptState(params: params))
-            case "debug/hello", "debug/getState":
+            case "debug/canvasHitTest":
+                return jsonRPCResult(id: id, result: liveCanvasHitTest(params: mcpArguments(from: params)).jsonObject as? [String: Any] ?? [:])
+            case "debug/openScriptEditor":
+                return jsonRPCResult(id: id, result: openScriptEditor(arguments: mcpArguments(from: params)).jsonObject as? [String: Any] ?? [:])
+            case "debug/hello", "debug/getState", "debug/status":
                 try? writeDescriptor()
                 return jsonRPCResult(id: id, result: descriptor())
             case "debug/listTools":
@@ -943,7 +947,7 @@ final class HypeDebugServer: @unchecked Sendable {
 
         var document = debugLoadedDocument ?? HypeDocumentMutationCoordinator.shared.activeDocumentBinding!.wrappedValue.document
         let seededGlobals = applyDebugScriptGlobals(from: params, to: &document)
-        let importedStartupGlobals = HypeDebugImportedStartupGlobalSeeder.seed(from: params, into: &document)
+        _ = HypeDebugImportedStartupGlobalSeeder.seed(from: params, into: &document)
         guard let card = resolveCard(reference: cardReference, in: document) else {
             return jsonRPCError(id: id, code: -32002, message: "Card not found.")
         }
@@ -962,6 +966,7 @@ final class HypeDebugServer: @unchecked Sendable {
             targetId: button.id,
             document: document,
             currentCardId: card.id,
+            systemProvider: AppKitSystemProvider(),
             mouseX: Double(button.left),
             mouseY: Double(button.top)
         )
@@ -1031,6 +1036,7 @@ final class HypeDebugServer: @unchecked Sendable {
             targetId: targetId,
             document: document,
             currentCardId: card.id,
+            systemProvider: AppKitSystemProvider(),
             mouseX: (params["mouseX"] as? NSNumber)?.doubleValue ?? 0,
             mouseY: (params["mouseY"] as? NSNumber)?.doubleValue ?? 0,
             scriptContext: ScriptDispatchContext(
@@ -1310,6 +1316,25 @@ final class HypeDebugServer: @unchecked Sendable {
 
     @MainActor
     private func documentBackend() -> HypeMCPDocumentBackend? {
+        if let session = HypeAutomationRegistry.shared.activeSession() {
+            return HypeMCPDocumentBackend(
+                document: session.document,
+                currentCardId: session.currentCardId,
+                selectedPartIds: session.selectedPartIds,
+                currentTool: session.currentTool.rawValue,
+                editingBackground: session.editingBackground,
+                allowMutations: allowMCPMutations()
+            )
+        }
+        if let document = debugLoadedDocument {
+            let currentCardId = HypeDocumentMutationCoordinator.shared.activeCardId
+                ?? document.sortedCards.first?.id
+            return HypeMCPDocumentBackend(
+                document: document,
+                currentCardId: currentCardId,
+                allowMutations: allowMCPMutations()
+            )
+        }
         guard let document = HypeDocumentMutationCoordinator.shared.activeDocumentBinding?.wrappedValue.document else {
             return nil
         }
@@ -1400,6 +1425,16 @@ final class HypeDebugServer: @unchecked Sendable {
         switch name {
         case "hype_get_app_state", "hype_list_open_stacks":
             return (debugJSONText(await debugResource(uri: "hype://app/state")), false)
+        case "hype_get_stack_document", "hype_get_object":
+            return await callBackendControlTool(name: name, arguments: arguments, applyMutation: false)
+        case "hype_canvas_hit_test":
+            return (debugJSONText(liveCanvasHitTest(params: arguments).jsonObject), false)
+        case "hype_open_script_editor":
+            let result = openScriptEditor(arguments: arguments)
+            return (debugJSONText(result.jsonObject), result.objectValue?["error"] != nil)
+        case "hype_dispatch_message":
+            guard allowMCPMutations() else { return ("MCP mutations are disabled.", true) }
+            return await dispatchMessage(arguments: arguments)
         case "hype_get_preferences":
             return (debugJSONText(HypeMCPPreferenceStore.snapshot().jsonObject), false)
         case "hype_set_preference":
@@ -1420,6 +1455,9 @@ final class HypeDebugServer: @unchecked Sendable {
             guard allowMCPMutations() else { return ("MCP mutations are disabled.", true) }
             let result = HypeMCPPreferenceStore.deleteSecret(name: arguments["name"]?.flattenedString ?? "")
             return (debugJSONText(["result": result, "preferences": HypeMCPPreferenceStore.snapshot().jsonObject]), false)
+        case "hype_set_script", "hype_replace_part":
+            guard allowMCPMutations() else { return ("MCP mutations are disabled.", true) }
+            return await callBackendControlTool(name: name, arguments: arguments, applyMutation: true)
         case "hype_run_existing_tool":
             guard allowMCPMutations() else { return ("MCP mutations are disabled.", true) }
             let toolName = arguments["tool_name"]?.flattenedString ?? ""
@@ -1442,6 +1480,338 @@ final class HypeDebugServer: @unchecked Sendable {
         default:
             return ("Unknown MCP control tool \(name)", true)
         }
+    }
+
+    @MainActor
+    private func callBackendControlTool(
+        name: String,
+        arguments: [String: HypeMCPJSONValue],
+        applyMutation: Bool
+    ) async -> (text: String, isError: Bool) {
+        if let session = HypeAutomationRegistry.shared.activeSession() {
+            let backend = HypeMCPDocumentBackend(
+                document: session.document,
+                currentCardId: session.currentCardId,
+                selectedPartIds: session.selectedPartIds,
+                currentTool: session.currentTool.rawValue,
+                editingBackground: session.editingBackground,
+                allowMutations: allowMCPMutations()
+            )
+            let result = await backend.callTool(name: name, arguments: arguments)
+            let isError = result.objectValue?["error"] != nil
+            if applyMutation, !isError {
+                HypeAutomationRegistry.shared.apply(
+                    document: backend.document,
+                    to: session,
+                    currentCardId: backend.currentCardId,
+                    actionName: "Debug MCP \(name)"
+                )
+            }
+            return (debugJSONText(result.jsonObject), isError)
+        }
+
+        if let document = debugLoadedDocument {
+            let backend = HypeMCPDocumentBackend(
+                document: document,
+                currentCardId: HypeDocumentMutationCoordinator.shared.activeCardId ?? document.sortedCards.first?.id,
+                allowMutations: allowMCPMutations()
+            )
+            let result = await backend.callTool(name: name, arguments: arguments)
+            let isError = result.objectValue?["error"] != nil
+            if applyMutation, !isError {
+                debugLoadedDocument = backend.document
+            }
+            return (debugJSONText(result.jsonObject), isError)
+        }
+
+        guard let binding = HypeDocumentMutationCoordinator.shared.activeDocumentBinding else {
+            return ("No active Hype document. Open or focus a stack window before calling \(name).", true)
+        }
+        let document = binding.wrappedValue.document
+        let backend = HypeMCPDocumentBackend(
+            document: document,
+            currentCardId: HypeDocumentMutationCoordinator.shared.activeCardId ?? document.sortedCards.first?.id,
+            allowMutations: allowMCPMutations()
+        )
+        let result = await backend.callTool(name: name, arguments: arguments)
+        let isError = result.objectValue?["error"] != nil
+        if applyMutation, !isError {
+            HypeDocumentMutationCoordinator.shared.applyDocument(
+                backend.document,
+                to: binding,
+                undoManager: nil,
+                actionName: "Debug MCP \(name)"
+            )
+        }
+        return (debugJSONText(result.jsonObject), isError)
+    }
+
+    @MainActor
+    private func liveCanvasHitTest(params: [String: HypeMCPJSONValue]) -> HypeMCPJSONValue {
+        guard let canvas = findLiveCardCanvas() else {
+            guard let backend = documentBackend() else {
+                return .object(["error": .string("No live CardCanvasNSView or active Hype document was found.")])
+            }
+            guard let x = params["x"]?.doubleValue,
+                  let y = params["y"]?.doubleValue else {
+                return .object(["error": .string("No live canvas is available; logical fallback requires numeric x and y.")])
+            }
+            let cardId = (params["card_id"] ?? params["cardId"])
+                .flatMap { UUID(uuidString: $0.flattenedString) }
+                ?? backend.currentCardId
+            let point = CGPoint(x: x, y: y)
+            let part = CardRenderer().partAtPoint(point, document: backend.document, cardId: cardId)
+            return .object([
+                "point": .object(["x": .number(x), "y": .number(y)]),
+                "currentCardId": .string(cardId.uuidString),
+                "logicalTopPart": part.map { HypeMCPJSONValue(any: debugPartSummary($0)) } ?? .null,
+                "source": .string("document-renderer-fallback")
+            ])
+        }
+
+        let point: CGPoint
+        if let x = params["x"]?.doubleValue,
+           let y = params["y"]?.doubleValue {
+            point = CGPoint(x: x, y: y)
+        } else if let part = resolveDebugPart(
+            identifier: params.identifierArgument,
+            document: canvas.document
+        ) {
+            point = CGPoint(x: part.left + part.width / 2, y: part.top + part.height / 2)
+        } else {
+            return .object(["error": .string("hype_canvas_hit_test requires x/y or an id_or_name matching a part.")])
+        }
+
+        return HypeMCPJSONValue(any: canvas.debugHitTestReport(at: point))
+    }
+
+    @MainActor
+    private func openScriptEditor(arguments: [String: HypeMCPJSONValue]) -> HypeMCPJSONValue {
+        guard let document = activeDebugDocument() else {
+            return .object(["error": .string("No active Hype document.")])
+        }
+        let type = arguments.objectTypeArgument
+        let identifier = arguments.identifierArgument
+        guard let target = resolveScriptTarget(type: type, identifier: identifier, document: document) else {
+            return .object(["error": .string("No \(type) matched '\(identifier)'.")])
+        }
+        var userInfo: [AnyHashable: Any] = ["target": target]
+        if case .part(let partId) = target {
+            userInfo["partId"] = partId
+        }
+        NotificationCenter.default.post(name: .openPartScriptEditor, object: nil, userInfo: userInfo)
+        return .object([
+            "result": .string("Posted script editor request."),
+            "target": .string(scriptTargetDescription(target)),
+            "userLevel": .number(Double(document.stack.userLevel)),
+            "userLevelName": .string(document.stack.userLevel.hypeUserLevel.displayName),
+            "willOpen": .bool(document.stack.userLevel.hypeUserLevel.canEditScripts)
+        ])
+    }
+
+    @MainActor
+    private func dispatchMessage(arguments: [String: HypeMCPJSONValue]) async -> (text: String, isError: Bool) {
+        guard let binding = HypeDocumentMutationCoordinator.shared.activeDocumentBinding else {
+            return ("No active Hype document. Open or focus a stack window before dispatching messages.", true)
+        }
+        var document = binding.wrappedValue.document
+        let type = arguments.objectTypeArgument
+        let identifier = arguments.identifierArgument
+        let message = arguments["message"]?.flattenedString.nonEmpty ?? "mouseUp"
+        guard let targetId = resolveMessageTargetId(type: type, identifier: identifier, document: document) else {
+            return ("No \(type) matched '\(identifier)'.", true)
+        }
+        let currentCardId = HypeDocumentMutationCoordinator.shared.activeCardId
+            ?? document.sortedCards.first?.id
+            ?? UUID()
+        let started = Date()
+        let result = await MessageDispatcher().dispatchAsync(
+            message: message,
+            params: [],
+            targetId: targetId,
+            document: document,
+            currentCardId: currentCardId,
+            systemProvider: AppKitSystemProvider()
+        )
+        let elapsedMS = Int(Date().timeIntervalSince(started) * 1000)
+        if let updated = result.modifiedDocument {
+            document = updated
+            HypeDocumentMutationCoordinator.shared.applyDocument(
+                updated,
+                to: binding,
+                undoManager: nil,
+                actionName: "Debug Dispatch \(message)"
+            )
+        }
+        if let navTarget = result.navigationTarget {
+            HypeDocumentMutationCoordinator.shared.activeCardId = navTarget
+        }
+        let payload: [String: Any] = [
+            "message": message,
+            "targetId": targetId.uuidString,
+            "status": String(describing: result.status),
+            "elapsedMS": elapsedMS,
+            "navigationTarget": result.navigationTarget?.uuidString ?? NSNull(),
+            "returnValue": result.returnValue ?? NSNull(),
+            "error": result.error?.message ?? NSNull(),
+            "state": [
+                "activeStackId": document.stack.id.uuidString,
+                "currentCardId": HypeDocumentMutationCoordinator.shared.activeCardId?.uuidString ?? currentCardId.uuidString,
+            ],
+        ]
+        return (debugJSONText(payload), result.error != nil)
+    }
+
+    @MainActor
+    private func activeDebugDocument() -> HypeDocument? {
+        if let session = HypeAutomationRegistry.shared.activeSession() {
+            return session.document
+        }
+        return debugLoadedDocument ?? HypeDocumentMutationCoordinator.shared.activeDocumentBinding?.wrappedValue.document
+    }
+
+    @MainActor
+    private func findLiveCardCanvas() -> CardCanvasNSView? {
+        let preferredWindows = [NSApp.keyWindow, NSApp.mainWindow].compactMap { $0 }
+        let remainingWindows = NSApp.windows.filter { window in
+            !preferredWindows.contains { $0 === window }
+        }
+        for window in preferredWindows + remainingWindows {
+            if let canvas = findCardCanvas(in: window.contentView) {
+                return canvas
+            }
+        }
+        return nil
+    }
+
+    @MainActor
+    private func findCardCanvas(in view: NSView?) -> CardCanvasNSView? {
+        guard let view else { return nil }
+        if let canvas = view as? CardCanvasNSView { return canvas }
+        for subview in view.subviews {
+            if let found = findCardCanvas(in: subview) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    @MainActor
+    private func resolveScriptTarget(
+        type rawType: String,
+        identifier: String,
+        document: HypeDocument
+    ) -> ScriptTarget? {
+        switch rawType.normalizedDebugObjectType {
+        case "stack":
+            return .stack
+        case "card":
+            return resolveDebugCard(identifier: identifier, document: document).map { .card($0.id) }
+        case "background":
+            return resolveDebugBackground(identifier: identifier, document: document).map { .background($0.id) }
+        case "part", "button", "field", "object":
+            return resolveDebugPart(identifier: identifier, document: document).map { .part($0.id) }
+        default:
+            return nil
+        }
+    }
+
+    @MainActor
+    private func resolveMessageTargetId(
+        type rawType: String,
+        identifier: String,
+        document: HypeDocument
+    ) -> UUID? {
+        switch rawType.normalizedDebugObjectType {
+        case "stack":
+            return document.stack.id
+        case "card":
+            return resolveDebugCard(identifier: identifier, document: document)?.id
+        case "background":
+            return resolveDebugBackground(identifier: identifier, document: document)?.id
+        case "part", "button", "field", "object":
+            return resolveDebugPart(identifier: identifier, document: document)?.id
+        default:
+            return nil
+        }
+    }
+
+    @MainActor
+    private func resolveDebugPart(identifier: String, document: HypeDocument) -> Part? {
+        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let id = UUID(uuidString: trimmed) {
+            return document.parts.first { $0.id == id }
+        }
+        return document.parts.first { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }
+    }
+
+    @MainActor
+    private func resolveDebugCard(identifier: String, document: HypeDocument) -> Card? {
+        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let id = UUID(uuidString: trimmed) {
+            return document.cards.first { $0.id == id }
+        }
+        if !trimmed.isEmpty {
+            return document.cards.first { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }
+        }
+        if let active = HypeDocumentMutationCoordinator.shared.activeCardId {
+            return document.cards.first { $0.id == active }
+        }
+        return document.sortedCards.first
+    }
+
+    @MainActor
+    private func resolveDebugBackground(identifier: String, document: HypeDocument) -> Background? {
+        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let id = UUID(uuidString: trimmed) {
+            return document.backgrounds.first { $0.id == id }
+        }
+        if !trimmed.isEmpty {
+            return document.backgrounds.first { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }
+        }
+        guard let card = resolveDebugCard(identifier: "", document: document) else {
+            return document.backgrounds.first
+        }
+        return document.backgrounds.first { $0.id == card.backgroundId }
+    }
+
+    private func scriptTargetDescription(_ target: ScriptTarget) -> String {
+        switch target {
+        case .part(let id):
+            return "part:\(id.uuidString)"
+        case .card(let id):
+            return "card:\(id.uuidString)"
+        case .background(let id):
+            return "background:\(id.uuidString)"
+        case .scene(let partId, let sceneId):
+            return "scene:\(partId.uuidString):\(sceneId.uuidString)"
+        case .node(let partId, let nodeId):
+            return "node:\(partId.uuidString):\(nodeId.uuidString)"
+        case .stack:
+            return "stack"
+        case .hype:
+            return "hype"
+        }
+    }
+
+    private func debugPartSummary(_ part: Part) -> [String: Any] {
+        [
+            "id": part.id.uuidString,
+            "name": part.name,
+            "partType": part.partType.rawValue,
+            "cardId": part.cardId?.uuidString ?? NSNull(),
+            "backgroundId": part.backgroundId?.uuidString ?? NSNull(),
+            "rect": [
+                "left": part.left,
+                "top": part.top,
+                "width": part.width,
+                "height": part.height,
+            ],
+            "visible": part.visible,
+            "enabled": part.enabled,
+            "scriptLength": part.script.count,
+        ]
     }
 
     @MainActor
@@ -2024,6 +2394,34 @@ private extension HypeMCPJSONValue {
             return values.mapValues(\.jsonObject)
         }
     }
+
+    var doubleValue: Double? {
+        switch self {
+        case .number(let value):
+            return value
+        case .string(let text):
+            return Double(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        default:
+            return nil
+        }
+    }
+}
+
+private extension Dictionary where Key == String, Value == HypeMCPJSONValue {
+    var objectTypeArgument: String {
+        self["object_type"]?.flattenedString
+            ?? self["objectType"]?.flattenedString
+            ?? "part"
+    }
+
+    var identifierArgument: String {
+        self["id_or_name"]?.flattenedString
+            ?? self["idOrName"]?.flattenedString
+            ?? self["id"]?.flattenedString
+            ?? self["name"]?.flattenedString
+            ?? self["part"]?.flattenedString
+            ?? ""
+    }
 }
 
 private func debugJSONText(_ value: Any) -> String {
@@ -2038,6 +2436,12 @@ private func debugJSONText(_ value: Any) -> String {
 private extension String {
     var nonEmpty: String? {
         isEmpty ? nil : self
+    }
+
+    var normalizedDebugObjectType: String {
+        trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "-", with: "_")
+            .lowercased()
     }
 }
 

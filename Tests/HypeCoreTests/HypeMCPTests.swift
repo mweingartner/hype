@@ -35,6 +35,11 @@ struct HypeMCPTests {
             #expect(names.contains(tool.function.name), "Missing MCP wrapper for \(tool.function.name)")
         }
         #expect(names.contains("hype_get_app_state"))
+        #expect(names.contains("hype_get_stack_document"))
+        #expect(names.contains("hype_get_object"))
+        #expect(names.contains("hype_canvas_hit_test"))
+        #expect(names.contains("hype_set_script"))
+        #expect(names.contains("hype_replace_part"))
         #expect(names.contains("hype_preview_transaction"))
         #expect(names.contains("hype_create_test_stack"))
     }
@@ -97,6 +102,92 @@ struct HypeMCPTests {
         #expect(resourceURIs.contains("hype://app/state"))
         #expect(resourceURIs.contains("hype://app/preferences"))
         #expect(resourceURIs.contains("hype://stacks"))
+        #expect(resourceURIs.contains { $0.hasSuffix("/document") })
+    }
+
+    @Test("full object resources include scripts and persisted attributes")
+    func fullObjectResourcesIncludeScriptsAndAttributes() async throws {
+        var document = HypeDocument.newDocument(name: "MCP")
+        let cardId = try #require(document.sortedCards.first?.id)
+        let button = Part(partType: .button, cardId: cardId, name: "Button 14", left: 684, top: 599, width: 88, height: 24)
+        document.addPart(button)
+        document.updatePart(id: button.id) { part in
+            part.script = "on mouseUp\n  play \"boing\"\nend mouseUp"
+        }
+        let backend = HypeMCPDocumentBackend(document: document, currentCardId: cardId)
+
+        let object = await backend.callTool(
+            name: "hype_get_object",
+            arguments: [
+                "object_type": .string("part"),
+                "id_or_name": .string("Button 14")
+            ]
+        )
+        let fullPart = object.object?["object"]?.object
+        #expect(fullPart?["name"]?.string == "Button 14")
+        #expect(fullPart?["script"]?.string?.contains("play \"boing\"") == true)
+        #expect(fullPart?["top"]?.number == 599)
+
+        let doc = await backend.readResource(uri: "hype://stack/\(document.stack.id.uuidString)/document")
+        #expect(doc.object?["document"]?.object?["parts"]?.array?.count == 1)
+    }
+
+    @Test("MCP set_script validates and stores scripts")
+    func setScriptValidatesAndStores() async throws {
+        var document = HypeDocument.newDocument(name: "MCP")
+        let cardId = try #require(document.sortedCards.first?.id)
+        let button = Part(partType: .button, cardId: cardId, name: "Action")
+        document.addPart(button)
+        let backend = HypeMCPDocumentBackend(document: document, currentCardId: cardId)
+
+        let invalid = await backend.callTool(
+            name: "hype_set_script",
+            arguments: [
+                "object_type": .string("part"),
+                "id_or_name": .string("Action"),
+                "script": .string("on mouseUp\n  if then\nend mouseUp")
+            ]
+        )
+        #expect(invalid.object?["error"]?.string?.contains("Script validation failed") == true)
+        #expect(backend.document.parts.first?.script.isEmpty == true)
+
+        let valid = await backend.callTool(
+            name: "hype_set_script",
+            arguments: [
+                "object_type": .string("part"),
+                "id_or_name": .string("Action"),
+                "script": .string("on mouseUp\n  play \"boing\"\nend mouseUp")
+            ]
+        )
+        #expect(valid.object?["result"]?.string?.contains("Updated part script") == true)
+        #expect(backend.document.parts.first?.script.contains("play \"boing\"") == true)
+    }
+
+    @Test("MCP replace_part mutates complete part JSON")
+    func replacePartMutatesCompletePartJSON() async throws {
+        var document = HypeDocument.newDocument(name: "MCP")
+        let cardId = try #require(document.sortedCards.first?.id)
+        var button = Part(partType: .button, cardId: cardId, name: "Original", left: 10, top: 20, width: 88, height: 24)
+        button.script = "on mouseUp\n  play \"boing\"\nend mouseUp"
+        document.addPart(button)
+        let backend = HypeMCPDocumentBackend(document: document, currentCardId: cardId)
+
+        var replacement = button
+        replacement.name = "Renamed"
+        replacement.left = 123
+        replacement.helpText = "Click to test sound."
+        let data = try JSONEncoder().encode(replacement)
+        let json = try #require(String(data: data, encoding: .utf8))
+
+        let result = await backend.callTool(
+            name: "hype_replace_part",
+            arguments: ["part_json": .string(json)]
+        )
+
+        #expect(result.object?["result"]?.string?.contains("Replaced part") == true)
+        #expect(backend.document.parts.first?.name == "Renamed")
+        #expect(backend.document.parts.first?.left == 123)
+        #expect(backend.document.parts.first?.helpText == "Click to test sound.")
     }
 
     @Test("MCP tool list applies AI context policy")

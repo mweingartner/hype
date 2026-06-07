@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 @MainActor
@@ -64,9 +65,12 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
             HypeMCPResource(uri: "hype://app/preferences", name: "Preferences", description: "MCP-exposed Hype preferences and redacted secret status."),
             HypeMCPResource(uri: "hype://stacks", name: "Open Stacks", description: "Open stack summaries."),
             HypeMCPResource(uri: "hype://stack/\(stackId)/summary", name: "Active Stack Summary", description: "Stack, card, background, part, repository, and context summary."),
+            HypeMCPResource(uri: "hype://stack/\(stackId)/document", name: "Full Active Stack Document", description: "Full HypeDocument JSON, including scripts and all persisted attributes."),
             HypeMCPResource(uri: "hype://stack/\(stackId)/cards", name: "Cards", description: "Cards in the active stack."),
             HypeMCPResource(uri: "hype://stack/\(stackId)/backgrounds", name: "Backgrounds", description: "Backgrounds in the active stack."),
-            HypeMCPResource(uri: "hype://stack/\(stackId)/parts", name: "Parts", description: "Parts visible to the active stack.")
+            HypeMCPResource(uri: "hype://stack/\(stackId)/parts", name: "Parts", description: "Parts visible to the active stack."),
+            HypeMCPResource(uri: "hype://stack/\(stackId)/stack/full", name: "Full Stack Object", description: "Full stack object JSON, including script."),
+            HypeMCPResource(uri: "hype://stack/\(stackId)/card/\(currentCardId)/full", name: "Full Current Card", description: "Full current card object JSON, including script.")
         ]
     }
 
@@ -79,6 +83,12 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
         case "hype://stacks":
             return .object(["stacks": .array([stackSummary(compact: true)])])
         default:
+            if uri.hasSuffix("/document") {
+                return fullDocumentResource()
+            }
+            if uri.hasSuffix("/stack/full") {
+                return .object(["objectType": .string("stack"), "object": codableJSONValue(document.stack)])
+            }
             if uri.hasSuffix("/cards") {
                 return .object(["cards": .array(document.sortedCards.map(cardSummary))])
             }
@@ -92,9 +102,27 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
                let part = document.parts.first(where: { $0.id == id }) {
                 return partSummary(part)
             }
+            if uri.contains("/part/"), uri.hasSuffix("/full"),
+               let idText = uri.split(separator: "/").dropLast().last,
+               let id = UUID(uuidString: String(idText)),
+               let part = document.parts.first(where: { $0.id == id }) {
+                return .object(["objectType": .string("part"), "object": codableJSONValue(part)])
+            }
             if uri.contains("/card/"), let idText = uri.split(separator: "/").last, let id = UUID(uuidString: String(idText)),
                let card = document.cards.first(where: { $0.id == id }) {
                 return cardSummary(card)
+            }
+            if uri.contains("/card/"), uri.hasSuffix("/full"),
+               let idText = uri.split(separator: "/").dropLast().last,
+               let id = UUID(uuidString: String(idText)),
+               let card = document.cards.first(where: { $0.id == id }) {
+                return .object(["objectType": .string("card"), "object": codableJSONValue(card)])
+            }
+            if uri.contains("/background/"), uri.hasSuffix("/full"),
+               let idText = uri.split(separator: "/").dropLast().last,
+               let id = UUID(uuidString: String(idText)),
+               let background = document.backgrounds.first(where: { $0.id == id }) {
+                return .object(["objectType": .string("background"), "object": codableJSONValue(background)])
             }
             return stackSummary(compact: false)
         }
@@ -167,6 +195,19 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
         switch name {
         case "hype_get_app_state", "hype_list_open_stacks":
             return appState()
+        case "hype_get_stack_document":
+            return fullDocumentResource()
+        case "hype_get_object":
+            return getObject(arguments: arguments)
+        case "hype_canvas_hit_test":
+            return logicalCanvasHitTest(arguments: arguments)
+        case "hype_open_script_editor":
+            return .object([
+                "result": .string("Script editor open is available only through the live Hype debug server."),
+                "requestedObject": getObject(arguments: arguments)
+            ])
+        case "hype_dispatch_message":
+            return error("Message dispatch is available only through the live Hype debug server.")
         case "hype_get_preferences":
             return HypeMCPPreferenceStore.snapshot(defaults: defaults)
         case "hype_set_preference":
@@ -198,6 +239,12 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
                 )),
                 "preferences": HypeMCPPreferenceStore.snapshot(defaults: defaults)
             ])
+        case "hype_set_script":
+            guard allowMutations else { return error("MCP mutations are disabled.") }
+            return setScript(arguments: arguments)
+        case "hype_replace_part":
+            guard allowMutations else { return error("MCP mutations are disabled.") }
+            return replacePart(arguments: arguments)
         case "hype_run_existing_tool":
             guard allowMutations else { return error("MCP mutations are disabled.") }
             let toolName = arguments["tool_name"]?.flattenedString ?? ""
@@ -436,6 +483,207 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
         ])
     }
 
+    private func fullDocumentResource() -> HypeMCPJSONValue {
+        .object([
+            "objectType": .string("document"),
+            "document": codableJSONValue(document),
+            "state": appState()
+        ])
+    }
+
+    private func getObject(arguments: [String: HypeMCPJSONValue]) -> HypeMCPJSONValue {
+        let type = arguments["object_type"]?.flattenedString
+            ?? arguments["objectType"]?.flattenedString
+            ?? "part"
+        let identifier = arguments["id_or_name"]?.flattenedString
+            ?? arguments["idOrName"]?.flattenedString
+            ?? arguments["id"]?.flattenedString
+            ?? arguments["name"]?.flattenedString
+            ?? ""
+
+        switch type.normalizedObjectType {
+        case "stack":
+            return .object(["objectType": .string("stack"), "object": codableJSONValue(document.stack)])
+        case "card":
+            guard let card = resolveCard(identifier) else { return error("No card matched '\(identifier)'.") }
+            return .object(["objectType": .string("card"), "object": codableJSONValue(card)])
+        case "background":
+            guard let background = resolveBackground(identifier) else { return error("No background matched '\(identifier)'.") }
+            return .object(["objectType": .string("background"), "object": codableJSONValue(background)])
+        case "part", "button", "field", "object":
+            guard let part = resolvePart(identifier) else { return error("No part matched '\(identifier)'.") }
+            return .object(["objectType": .string("part"), "object": codableJSONValue(part)])
+        default:
+            return error("Unsupported object_type '\(type)'. Use stack, card, background, or part.")
+        }
+    }
+
+    private func logicalCanvasHitTest(arguments: [String: HypeMCPJSONValue]) -> HypeMCPJSONValue {
+        guard let x = arguments["x"]?.doubleValue,
+              let y = arguments["y"]?.doubleValue else {
+            return error("hype_canvas_hit_test requires numeric x and y.")
+        }
+        let cardId = (arguments["card_id"] ?? arguments["cardId"])
+            .flatMap { UUID(uuidString: $0.flattenedString) }
+            ?? currentCardId
+        let point = CGPoint(x: x, y: y)
+        let part = CardRenderer().partAtPoint(point, document: document, cardId: cardId)
+        return .object([
+            "point": .object(["x": .number(x), "y": .number(y)]),
+            "currentCardId": .string(cardId.uuidString),
+            "logicalTopPart": part.map(partSummary) ?? .null,
+            "source": .string("document-renderer")
+        ])
+    }
+
+    private func setScript(arguments: [String: HypeMCPJSONValue]) -> HypeMCPJSONValue {
+        let script = arguments["script"]?.flattenedString ?? ""
+        let shouldValidate = (arguments["validate"]?.flattenedString).mcpBool(default: true)
+        if shouldValidate, let validationError = scriptValidationError(script) {
+            return error(validationError)
+        }
+
+        let type = arguments["object_type"]?.flattenedString
+            ?? arguments["objectType"]?.flattenedString
+            ?? "part"
+        let identifier = arguments["id_or_name"]?.flattenedString
+            ?? arguments["idOrName"]?.flattenedString
+            ?? arguments["id"]?.flattenedString
+            ?? arguments["name"]?.flattenedString
+            ?? ""
+
+        switch type.normalizedObjectType {
+        case "stack":
+            document.stack.script = script
+            return .object(["result": .string("Updated stack script."), "object": codableJSONValue(document.stack)])
+        case "card":
+            guard let index = resolveCardIndex(identifier) else { return error("No card matched '\(identifier)'.") }
+            document.cards[index].script = script
+            return .object(["result": .string("Updated card script."), "object": codableJSONValue(document.cards[index])])
+        case "background":
+            guard let index = resolveBackgroundIndex(identifier) else { return error("No background matched '\(identifier)'.") }
+            document.backgrounds[index].script = script
+            return .object(["result": .string("Updated background script."), "object": codableJSONValue(document.backgrounds[index])])
+        case "part", "button", "field", "object":
+            guard let index = resolvePartIndex(identifier) else { return error("No part matched '\(identifier)'.") }
+            document.parts[index].script = script
+            return .object(["result": .string("Updated part script."), "object": codableJSONValue(document.parts[index])])
+        default:
+            return error("Unsupported object_type '\(type)'. Use stack, card, background, or part.")
+        }
+    }
+
+    private func replacePart(arguments: [String: HypeMCPJSONValue]) -> HypeMCPJSONValue {
+        let rawPart = arguments["part_json"] ?? arguments["partJson"] ?? arguments["part"]
+        guard let rawPart,
+              let replacement = decodePart(from: rawPart) else {
+            return error("hype_replace_part requires part_json containing a full Part JSON object.")
+        }
+        guard let index = document.partIndex(byId: replacement.id) else {
+            return error("No existing part has id \(replacement.id.uuidString).")
+        }
+        guard replacement.cardId.map({ cardId in document.cards.contains(where: { $0.id == cardId }) }) ?? true else {
+            return error("Replacement part references a missing cardId.")
+        }
+        guard replacement.backgroundId.map({ backgroundId in document.backgrounds.contains(where: { $0.id == backgroundId }) }) ?? true else {
+            return error("Replacement part references a missing backgroundId.")
+        }
+        let shouldValidate = (arguments["validate_script"]?.flattenedString
+            ?? arguments["validateScript"]?.flattenedString).mcpBool(default: true)
+        if shouldValidate, let validationError = scriptValidationError(replacement.script) {
+            return error(validationError)
+        }
+
+        document.parts[index] = replacement
+        return .object([
+            "result": .string("Replaced part \(replacement.name.isEmpty ? replacement.id.uuidString : replacement.name)."),
+            "object": codableJSONValue(replacement),
+            "state": appState()
+        ])
+    }
+
+    private func scriptValidationError(_ script: String) -> String? {
+        guard !script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let result = executor.checkScriptResponse(script)
+        guard result.hasPrefix("OK:") else {
+            return "Script validation failed: \(result)"
+        }
+        return nil
+    }
+
+    private func decodePart(from value: HypeMCPJSONValue) -> Part? {
+        let data: Data?
+        if case .string(let text) = value {
+            data = text.data(using: .utf8)
+        } else {
+            data = try? JSONEncoder().encode(value)
+        }
+        guard let data else { return nil }
+        return try? JSONDecoder().decode(Part.self, from: data)
+    }
+
+    private func resolvePart(_ identifier: String) -> Part? {
+        guard !identifier.isEmpty else { return nil }
+        if let id = UUID(uuidString: identifier) {
+            return document.parts.first { $0.id == id }
+        }
+        return document.parts.first { $0.name.caseInsensitiveCompare(identifier) == .orderedSame }
+    }
+
+    private func resolvePartIndex(_ identifier: String) -> Int? {
+        guard !identifier.isEmpty else { return nil }
+        if let id = UUID(uuidString: identifier) {
+            return document.partIndex(byId: id)
+        }
+        return document.parts.firstIndex { $0.name.caseInsensitiveCompare(identifier) == .orderedSame }
+    }
+
+    private func resolveCard(_ identifier: String) -> Card? {
+        guard !identifier.isEmpty else { return document.cards.first { $0.id == currentCardId } }
+        if let id = UUID(uuidString: identifier) {
+            return document.cards.first { $0.id == id }
+        }
+        return document.cards.first { $0.name.caseInsensitiveCompare(identifier) == .orderedSame }
+    }
+
+    private func resolveCardIndex(_ identifier: String) -> Int? {
+        guard !identifier.isEmpty else { return document.cards.firstIndex { $0.id == currentCardId } }
+        if let id = UUID(uuidString: identifier) {
+            return document.cards.firstIndex { $0.id == id }
+        }
+        return document.cards.firstIndex { $0.name.caseInsensitiveCompare(identifier) == .orderedSame }
+    }
+
+    private func resolveBackground(_ identifier: String) -> Background? {
+        if !identifier.isEmpty, let id = UUID(uuidString: identifier) {
+            return document.backgrounds.first { $0.id == id }
+        }
+        if !identifier.isEmpty {
+            return document.backgrounds.first { $0.name.caseInsensitiveCompare(identifier) == .orderedSame }
+        }
+        return document.cards.first { $0.id == currentCardId }
+            .flatMap { card in document.backgrounds.first { $0.id == card.backgroundId } }
+    }
+
+    private func resolveBackgroundIndex(_ identifier: String) -> Int? {
+        if !identifier.isEmpty, let id = UUID(uuidString: identifier) {
+            return document.backgrounds.firstIndex { $0.id == id }
+        }
+        if !identifier.isEmpty {
+            return document.backgrounds.firstIndex { $0.name.caseInsensitiveCompare(identifier) == .orderedSame }
+        }
+        guard let card = document.cards.first(where: { $0.id == currentCardId }) else { return nil }
+        return document.backgrounds.firstIndex { $0.id == card.backgroundId }
+    }
+
+    private func codableJSONValue<T: Encodable>(_ value: T) -> HypeMCPJSONValue {
+        guard let data = try? JSONEncoder().encode(value),
+              let any = try? JSONSerialization.jsonObject(with: data) else {
+            return .null
+        }
+        return HypeMCPJSONValue(any: any)
+    }
+
     private func transactionSummary(_ transaction: AIEditTransaction) -> HypeMCPJSONValue {
         .object([
             "transactionId": .string(transaction.id.uuidString),
@@ -480,5 +728,41 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
 private extension String {
     var nilIfEmpty: String? {
         isEmpty ? nil : self
+    }
+
+    var normalizedObjectType: String {
+        trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "-", with: "_")
+            .lowercased()
+    }
+}
+
+private extension Optional where Wrapped == String {
+    func mcpBool(default defaultValue: Bool) -> Bool {
+        guard let text = self?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !text.isEmpty else {
+            return defaultValue
+        }
+        switch text {
+        case "1", "true", "yes", "y", "on":
+            return true
+        case "0", "false", "no", "n", "off":
+            return false
+        default:
+            return defaultValue
+        }
+    }
+}
+
+private extension HypeMCPJSONValue {
+    var doubleValue: Double? {
+        switch self {
+        case .number(let value):
+            return value
+        case .string(let text):
+            return Double(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        default:
+            return nil
+        }
     }
 }

@@ -235,8 +235,11 @@ struct FormControlHostViewTests {
             encoding: .utf8
         )
 
-        #expect(source.contains("for view in sliderViews.values.reversed()"))
-        #expect(source.contains("return view.hitTest(localPoint) ?? view"))
+        #expect(source.contains("renderer.partAtPoint(point, document: document, cardId: currentCardId)"))
+        #expect(source.contains("hostedRuntimeView(for: part)"))
+        #expect(source.contains("case .slider:"))
+        #expect(source.contains("return sliderViews[part.id]"))
+        #expect(source.contains("return host.hitTest(localPoint) ?? host"))
     }
 
     @Test("Runtime mode forces browse interaction even if the selected tool drifts")

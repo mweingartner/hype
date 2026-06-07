@@ -1534,8 +1534,10 @@ private struct NavigationHandlers: ViewModifier {
 
     private func openPartScriptEditor(notification: Notification) {
         guard document.document.stack.userLevel.hypeUserLevel.canEditScripts else { return }
-        // Cmd+click in browse mode: open the script editor for the
-        // clicked part, or the current card when clicking empty space.
+        // Command-Option-click on a part and other script-editor
+        // surfaces converge here. User-level gating stays duplicated
+        // at this boundary so synthesized notifications cannot bypass
+        // the Scripting-level requirement.
         let info = notification.userInfo ?? [:]
         if let target = info["target"] as? ScriptTarget {
             let partId = info["partId"] as? UUID

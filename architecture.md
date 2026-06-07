@@ -1776,10 +1776,11 @@ SpriteKit knobs with no scaffolding.
 
 **Author shortcuts to the script editor.** Two interaction conventions
 shorten the path from a part to its script:
-- **Cmd+click** in browse mode opens the clicked part's script editor (or
-  the current card's script editor when clicking empty canvas). Implemented
-  in `CardCanvasNSView.mouseDown` (Sources/Hype/Views/CardCanvasView.swift)
-  and consumed via the `.openPartScriptEditor` notification.
+- **Command-Option-click** on a visible part opens that part's script editor
+  only when the current stack `userLevel` is Scripting. Implemented in
+  `CardCanvasNSView.mouseDown` (Sources/Hype/Views/CardCanvasView.swift)
+  and consumed via the `.openPartScriptEditor` notification. Plain Cmd-click
+  remains available for normal platform selection/runtime semantics.
 - The inspector's per-part **"Edit Script…"** row opens the same editor
   bound to the selected part's `script` field.
 
@@ -2544,15 +2545,18 @@ descriptor for discovery. Discovery uses `HYPE_DEBUG_SOCKET_DIR` env var, then
 app-support directory by default and also reads an existing repo-local
 `.hype/debug/` directory left by development runs. That debug bridge speaks
 newline-delimited JSON-RPC methods such as `debug/keepalive`, `debug/hello`,
-`debug/listTools`, and `debug/callTool`; it does not speak MCP and it does not
-bind a TCP port. Socket accept/read handling runs on a dedicated dispatch queue
-and supports long-lived connections, while document and tool mutations still
-hop to the main actor. MCP protocol handling lives in the TypeScript stdio
-server at `Tools/hype-mcp-server`, which discovers active Hype descriptors,
-probes each candidate socket with `debug/keepalive`, attaches or detaches from
-one running process, keeps a debug connection alive with `debug/keepalive`, and
-proxies MCP tool calls into the debug bridge. This lets Hype.app instances come
-and go independently while MCP clients keep a stable stdio server process.
+`debug/listTools`, `debug/readResource`, `debug/callTool`,
+`debug/openScriptEditor`, and `debug/canvasHitTest`; it does not speak MCP and
+it does not bind a TCP port. Socket accept/read handling runs on a dedicated
+dispatch queue and supports long-lived connections, while document and tool
+mutations still hop to the main actor through `HypeAutomationRegistry` and
+`HypeDocumentMutationCoordinator`. MCP protocol handling lives in the
+TypeScript stdio server at `Tools/hype-mcp-server`, which discovers active Hype
+descriptors, probes each candidate socket with `debug/keepalive`, attaches or
+detaches from one running process, keeps a debug connection alive with
+`debug/keepalive`, and proxies MCP tool calls into the debug bridge. This lets
+Hype.app instances come and go independently while MCP clients keep a stable
+stdio server process.
 
 Automation-created stacks and imports use acknowledged macOS deployment targets
 by default, with explicit `target_platforms` / `primary_target_platform`
@@ -2833,22 +2837,30 @@ The implementation is split by runtime boundary:
   `HypeMCPProcessor` dispatcher.
 - `Sources/HypeCore/MCP/HypeMCPToolBridge.swift` maps every
   `HypeToolDefinitions` tool into an MCP tool and adds Hype-specific control
-  tools such as `hype_get_app_state`, `hype_get_preferences`,
-  `hype_run_existing_tool`, `hype_preview_transaction`,
-  `hype_apply_transaction`, `hype_rollback_transaction`, and
-  `hype_create_test_stack`.
+  tools such as `hype_get_app_state`, `hype_get_stack_document`,
+  `hype_get_object`, `hype_canvas_hit_test`, `hype_open_script_editor`,
+  `hype_dispatch_message`, `hype_get_preferences`, `hype_set_script`,
+  `hype_replace_part`, `hype_run_existing_tool`,
+  `hype_preview_transaction`, `hype_apply_transaction`,
+  `hype_rollback_transaction`, and `hype_create_test_stack`.
 - `Sources/HypeCore/MCP/HypeMCPPreferenceStore.swift` exposes preferences as
   scalar descriptors and exposes provider secrets only as redacted `isSet`
   status. Provider API keys remain in Keychain.
 - `Sources/HypeCore/MCP/HypeMCPDocumentBackend.swift` is the testable in-memory
-  backend used by unit tests and non-UI harnesses.
+  backend used by unit tests and non-UI harnesses. It exposes full
+  Codable-backed document, stack, card, background, and part resources,
+  validates scripts before storage, and supports complete part replacement from
+  JSON for precise attribute mutation.
 - `Sources/Hype/MCP/HypeAutomationRegistry.swift` tracks live
   `MainContentView` document bindings, current card, selection, active tool,
   and background-editing state.
 - `Sources/Hype/HypeDebugServer.swift` owns the live app automation server. It
   exposes debug JSON-RPC over a per-process Unix-domain socket, including tool,
   resource, prompt, preference, and transaction methods for the stdio MCP
-  client to translate.
+  client to translate. Live-only diagnostics include `debug/canvasHitTest`,
+  which reports the actual `CardCanvasNSView` bounds, topmost persisted part,
+  native hosted view, routed AppKit view, effective tool, runtime mode, and
+  user level for a click point.
 - `Tools/hype-mcp-server` is the only MCP-facing server. It discovers running
   Hype debug descriptors, attaches to one Unix socket, and translates MCP
   `tools/*`, `resources/*`, and `prompts/*` requests into debug JSON-RPC.
@@ -2872,11 +2884,17 @@ The initial resource catalog is intentionally diagnosable:
   secret status
 - `hype://stacks` — summaries of registered open stacks
 - `hype://stack/{id}/summary`, `/cards`, `/backgrounds`, `/parts` — active
-  document structure and scripts at each scope
+  document summaries
+- `hype://stack/{id}/document` — full active `HypeDocument` JSON, including
+  scripts and persisted attributes
+- `hype://stack/{id}/stack/full`, `/card/{cardId}/full`,
+  `/background/{backgroundId}/full`, and `/part/{partId}/full` — full object
+  resources for stack ontology introspection
 
 Tests in `HypeMCPTests` cover JSON-RPC initialization, tool/resource catalog
-exposure, preference redaction, document mutation, mutation-policy refusal, and
-preview/apply transaction semantics. Live app validation uses
+exposure, preference redaction, full-object/script introspection,
+parser-validated script mutation, complete part replacement, mutation-policy
+refusal, and preview/apply transaction semantics. Live app validation uses
 `Tools/hype-mcp-server/bin/hype-mcp.js` against `/Applications/Hype.app` after
 deployment.
 
@@ -3019,9 +3037,10 @@ Browse-mode hit testing uses the raw topmost visible card or background part.
 The card/background layer filter applies only to edit-mode selection so
 background controls remain playable after switching a stack into runtime mode.
 Authoring-only Browse shortcuts are gated off when
-`Stack.runtimeModeEnabled == true`: double-clicking a part in authoring Browse
-mode may open the property inspector, but runtime mode keeps double-clicks
-available to the stack/control instead of switching Hype into edit mode.
+`Stack.runtimeModeEnabled == true`: Command-Option-click script editing is
+disabled in runtime mode, and double-clicking a part in Browse mode is no
+longer an authoring shortcut. Double-clicks remain available to the
+stack/control instead of switching Hype into edit mode.
 
 ### 8.4 Testing
 

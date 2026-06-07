@@ -56,6 +56,11 @@ public final class SoundPlayer: NSObject, NSSoundDelegate {
         "flute": "Purr",
     ]
 
+    /// Resolve a classic HyperCard sound alias to the macOS system sound Hype uses.
+    public static func hyperCardSystemSoundName(for name: String) -> String? {
+        hyperCardSounds[name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()]
+    }
+
     /// All macOS system alert sound names (sans extension) from
     /// `/System/Library/Sounds/`.
     public static let systemSoundNames: [String] = {
@@ -145,34 +150,40 @@ public final class SoundPlayer: NSObject, NSSoundDelegate {
     /// 5. File path fallback.
     public func play(name: String, document: HypeDocument? = nil) {
         stop()
-        currentName = name
+        let requestedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !requestedName.isEmpty else {
+            currentName = nil
+            HypeLogger.shared.warn("Ignored empty sound name.", source: "SoundPlayer")
+            return
+        }
+        currentName = requestedName
 
         // 1. System alert sounds (NSSound searches /System/Library/Sounds,
         //    /Library/Sounds, and ~/Library/Sounds automatically)
-        if let sysSound = NSSound(named: NSSound.Name(name)) {
-            sysSound.delegate = self
-            currentSound = sysSound
-            sysSound.play()
-            return
-        }
-
-        // 2. ToneLibrary alert tones and ringtones (case-insensitive)
-        if let url = Self.toneLibraryIndex[name.lowercased()] {
-            if playWithAVAudioPlayer(url: url) { return }
+        if let sysSound = NSSound(named: NSSound.Name(requestedName)) {
+            if play(sysSound, requestedName: requestedName, resolvedName: requestedName, sourceDescription: "system sound") {
+                return
+            }
         }
 
         // 3. HyperCard built-in mapping
-        if let mapped = Self.hyperCardSounds[name.lowercased()],
+        if let mapped = Self.hyperCardSystemSoundName(for: requestedName),
            let sysSound = NSSound(named: NSSound.Name(mapped)) {
-            sysSound.delegate = self
-            currentSound = sysSound
-            sysSound.play()
-            return
+            if play(sysSound, requestedName: requestedName, resolvedName: mapped, sourceDescription: "classic HyperCard alias") {
+                return
+            }
+        }
+
+        // 2. ToneLibrary alert tones and ringtones (case-insensitive)
+        if let url = Self.toneLibraryIndex[requestedName.lowercased()] {
+            if playWithAVAudioPlayer(url: url, requestedName: requestedName, sourceDescription: "ToneLibrary") {
+                return
+            }
         }
 
         // 4. AssetRepository audio asset or audio-only QuickTime replacement
         if let doc = document,
-           let asset = doc.assetRepository.playableAudioAsset(byClassicMediaName: name) {
+           let asset = doc.assetRepository.playableAudioAsset(byClassicMediaName: requestedName) {
             let tempDir = FileManager.default.temporaryDirectory
             let ext = Self.audioFileExtension(for: asset)
             let tempFile = tempDir.appendingPathComponent("\(asset.id.uuidString).\(ext)")
@@ -180,30 +191,57 @@ public final class SoundPlayer: NSObject, NSSoundDelegate {
                 try? asset.data.write(to: tempFile)
             }
             if let sound = NSSound(contentsOf: tempFile, byReference: false) {
-                sound.delegate = self
-                currentSound = sound
-                sound.play()
-                return
+                if play(sound, requestedName: requestedName, resolvedName: asset.name, sourceDescription: "stack asset") {
+                    return
+                }
             }
             // NSSound may fail on .m4r/.mp3 — fall back to AVAudioPlayer
-            if playWithAVAudioPlayer(url: tempFile) { return }
+            if playWithAVAudioPlayer(url: tempFile, requestedName: requestedName, sourceDescription: "stack asset") {
+                return
+            }
         }
 
         // 5. File path fallback
-        let url = URL(fileURLWithPath: name)
+        let url = URL(fileURLWithPath: requestedName)
         if FileManager.default.fileExists(atPath: url.path) {
             if let sound = NSSound(contentsOf: url, byReference: false) {
-                sound.delegate = self
-                currentSound = sound
-                sound.play()
-                return
+                if play(sound, requestedName: requestedName, resolvedName: url.lastPathComponent, sourceDescription: "file") {
+                    return
+                }
             }
             // Try AVAudioPlayer for formats NSSound doesn't support
-            if playWithAVAudioPlayer(url: url) { return }
+            if playWithAVAudioPlayer(url: url, requestedName: requestedName, sourceDescription: "file") {
+                return
+            }
         }
 
         // Couldn't load — clear state
         currentName = nil
+        HypeLogger.shared.warn("Could not resolve sound \"\(requestedName)\".", source: "SoundPlayer")
+    }
+
+    @discardableResult
+    private func play(
+        _ sound: NSSound,
+        requestedName: String,
+        resolvedName: String,
+        sourceDescription: String
+    ) -> Bool {
+        sound.delegate = self
+        currentSound = sound
+        guard sound.play() else {
+            currentSound = nil
+            HypeLogger.shared.warn(
+                "Could not start sound \"\(requestedName)\" resolved as \"\(resolvedName)\" via \(sourceDescription).",
+                source: "SoundPlayer"
+            )
+            return false
+        }
+        HypeLogger.shared.debug(
+            "Playing sound \"\(requestedName)\" as \"\(resolvedName)\" via \(sourceDescription).",
+            source: "SoundPlayer"
+        )
+        return true
     }
 
     private static func audioFileExtension(for asset: Asset) -> String {
@@ -227,14 +265,33 @@ public final class SoundPlayer: NSObject, NSSoundDelegate {
     /// Play a file via `AVAudioPlayer`. Returns true on success.
     /// Used for `.m4r` and other formats that `NSSound` can't handle.
     @discardableResult
-    private func playWithAVAudioPlayer(url: URL) -> Bool {
+    private func playWithAVAudioPlayer(
+        url: URL,
+        requestedName: String,
+        sourceDescription: String
+    ) -> Bool {
         do {
             let player = try AVAudioPlayer(contentsOf: url)
             player.delegate = self
             avPlayer = player
-            player.play()
+            guard player.play() else {
+                avPlayer = nil
+                HypeLogger.shared.warn(
+                    "Could not start sound \"\(requestedName)\" from \(sourceDescription) file \"\(url.lastPathComponent)\".",
+                    source: "SoundPlayer"
+                )
+                return false
+            }
+            HypeLogger.shared.debug(
+                "Playing sound \"\(requestedName)\" from \(sourceDescription) file \"\(url.lastPathComponent)\".",
+                source: "SoundPlayer"
+            )
             return true
         } catch {
+            HypeLogger.shared.warn(
+                "Could not load sound \"\(requestedName)\" from \(sourceDescription) file \"\(url.lastPathComponent)\": \(error.localizedDescription)",
+                source: "SoundPlayer"
+            )
             return false
         }
     }
