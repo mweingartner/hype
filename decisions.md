@@ -41,6 +41,7 @@ document semantics.
 - Add parser/interpreter tests for new grammar, commands, properties, events, or legacy compatibility behavior.
 - Do not silently swallow script errors. Route parse/runtime errors through existing logging and UI notification paths.
 - Preserve HyperCard-style semantics where they exist in Hype: message dispatch, pass-up behavior, container ownership, and stack/card/background/object introspection.
+- Preserve classic `it` semantics: commands such as `get`, `ask`, `answer`, `read`, request/reply, and explicit `put ... into it` may set `it`; ordinary `put ... into/after/before` another field, button, property, or scoped container must not clobber `it`.
 - For legacy HyperCard compatibility, emulate behavior in Swift; never execute classic native XCMD/XFCN code.
 - Import may enable a route-only compatibility translation for otherwise unsupported legacy movie-click scripts only when it can emit parser-validated HypeTalk that preserves explicit cross-stack navigation. Unsupported movie/window side effects stay inert and documented; scripts that cannot be safely reduced this way remain disabled as commented reference text.
 - Debug HyperCard/stackimport automation must not overwrite default generated `.hype` packages that may already be open in AppKit document windows. Use isolated per-request temp output directories unless the caller explicitly requests an `outputDirectory`.

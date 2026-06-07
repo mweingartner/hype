@@ -1064,7 +1064,6 @@ public struct Interpreter: Sendable {
                         document.parts[partIndex].textContent = value + document.parts[partIndex].textContent
                     }
                 }
-                env.it = value
 
             case .scopedObjectRef(let object, let owner):
                 if let partIndex = try await findScopedPartIndex(
@@ -1083,7 +1082,6 @@ public struct Interpreter: Sendable {
                         document.parts[partIndex].textContent = value + document.parts[partIndex].textContent
                     }
                 }
-                env.it = value
 
             case .propertyAccess(let property, let targetExpr):
                 context.profiler?.recordPropertyWrite(property)
@@ -1116,7 +1114,6 @@ public struct Interpreter: Sendable {
                         )
                     }
                 }
-                env.it = value
 
             default:
                 // Unknown target — store in `it`
@@ -2043,6 +2040,16 @@ public struct Interpreter: Sendable {
                 navigationTarget: &navigationTarget,
                 projectNavigationTarget: &projectNavigationTarget,
                 handler: handler
+            ) {
+                break
+            }
+            if handleClassicBuiltInCommand(
+                normalizedName: normalizedName,
+                args: args,
+                document: document,
+                context: context,
+                navigationTarget: &navigationTarget,
+                env: &env
             ) {
                 break
             }
@@ -3380,23 +3387,167 @@ public struct Interpreter: Sendable {
             throw ScriptError(message: "Paint import is not available on this platform.", line: handler.line, handler: handler.name)
             #endif
 
-        case .readCmd(let pathExpr):
+        case .readCmd(let pathExpr, let startExpr, let mode):
             let name = try await evaluate(pathExpr, env: &env, document: document, context: context)
             do {
                 let contents = try await context.fileProvider.readFile(named: name)
-                env.it = contents
+                env.it = try await boundedRead(
+                    contents,
+                    startExpr: startExpr,
+                    mode: mode,
+                    env: &env,
+                    document: document,
+                    context: context
+                )
             } catch let e as FileAccessError {
                 throw ScriptError(message: e.scriptMessage, line: handler.line, handler: handler.name)
             }
 
-        case .writeCmd(let dataExpr, let pathExpr):
+        case .writeCmd(let dataExpr, let pathExpr, let placement):
             let data = try await evaluate(dataExpr, env: &env, document: document, context: context)
             let name = try await evaluate(pathExpr, env: &env, document: document, context: context)
             do {
-                try await context.fileProvider.writeFile(data, named: name)
+                let contents = try await placedWriteContents(
+                    data: data,
+                    path: name,
+                    placement: placement,
+                    env: &env,
+                    document: document,
+                    context: context
+                )
+                try await context.fileProvider.writeFile(contents, named: name)
             } catch let e as FileAccessError {
                 throw ScriptError(message: e.scriptMessage, line: handler.line, handler: handler.name)
             }
+        }
+    }
+
+    private func handleClassicBuiltInCommand(
+        normalizedName: String,
+        args: [Value],
+        document: HypeDocument,
+        context: ExecutionContext,
+        navigationTarget: inout UUID?,
+        env: inout Environment
+    ) -> Bool {
+        switch normalizedName {
+        case "arrowkey":
+            let direction = args.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+            switch direction {
+            case "left":
+                navigationTarget = CardNavigator.navigate(direction: .previous, currentCardId: context.currentCardId, document: document)
+            case "right":
+                navigationTarget = CardNavigator.navigate(direction: .next, currentCardId: context.currentCardId, document: document)
+            case "up", "down":
+                // HyperCard uses the recent-card stack for up/down. Hype's
+                // runtime card history is async, so keep this command safe and
+                // deterministic at interpreter level; explicit `push`/`pop` is
+                // already supported for stack history traversal.
+                navigationTarget = nil
+            default:
+                navigationTarget = nil
+            }
+            if let navigationTarget {
+                env.effectiveCurrentCardId = navigationTarget
+            }
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func boundedRead(
+        _ contents: String,
+        startExpr: Expression?,
+        mode: FileReadMode,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async throws -> String {
+        let startOffset = try await fileReadStartOffset(
+            contents: contents,
+            startExpr: startExpr,
+            env: &env,
+            document: document,
+            context: context
+        )
+        let start = contents.index(contents.startIndex, offsetBy: startOffset)
+        let remainder = String(contents[start...])
+        switch mode {
+        case .entireFile:
+            return remainder
+        case .charCount(let countExpr):
+            let countText = try await evaluate(countExpr, env: &env, document: document, context: context)
+            let count = max(0, Int(toNumber(countText)))
+            let end = remainder.index(remainder.startIndex, offsetBy: min(count, remainder.count))
+            return String(remainder[..<end])
+        case .until(let delimiterExpr):
+            let delimiterText = try await evaluate(delimiterExpr, env: &env, document: document, context: context)
+            if delimiterText.lowercased() == "eof" {
+                return remainder
+            }
+            guard !delimiterText.isEmpty else { return remainder }
+            if let range = remainder.range(of: delimiterText) {
+                return String(remainder[..<range.upperBound])
+            }
+            return remainder
+        }
+    }
+
+    private func fileReadStartOffset(
+        contents: String,
+        startExpr: Expression?,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async throws -> Int {
+        guard let startExpr else { return 0 }
+        let startText = try await evaluate(startExpr, env: &env, document: document, context: context)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if startText.isEmpty || startText == "start" {
+            return 0
+        }
+        let raw = Int(toNumber(startText))
+        if raw < 0 {
+            return max(0, contents.count + raw)
+        }
+        if raw == 0 { return 0 }
+        return min(contents.count, raw - 1)
+    }
+
+    private func placedWriteContents(
+        data: String,
+        path: String,
+        placement: FileWritePlacement,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext
+    ) async throws -> String {
+        switch placement {
+        case .replace:
+            return data
+        case .start:
+            let existing = try await existingFileContentsOrEmpty(path: path, context: context)
+            return data + existing
+        case .end:
+            let existing = try await existingFileContentsOrEmpty(path: path, context: context)
+            return existing + data
+        case .offset(let offsetExpr):
+            let existing = try await existingFileContentsOrEmpty(path: path, context: context)
+            let offsetText = try await evaluate(offsetExpr, env: &env, document: document, context: context)
+            let raw = Int(toNumber(offsetText))
+            let offset = raw < 0 ? max(0, existing.count + raw) : min(existing.count, max(0, raw - 1))
+            let index = existing.index(existing.startIndex, offsetBy: offset)
+            return String(existing[..<index]) + data + String(existing[index...])
+        }
+    }
+
+    private func existingFileContentsOrEmpty(path: String, context: ExecutionContext) async throws -> String {
+        do {
+            return try await context.fileProvider.readFile(named: path)
+        } catch FileAccessError.notFound {
+            return ""
         }
     }
 
@@ -4367,6 +4518,12 @@ public struct Interpreter: Sendable {
                 let formatter = DateFormatter()
                 formatter.dateStyle = .medium
                 return formatter.string(from: Date())
+            case "shortdate", "short date":
+                return formatHyperCardDate(Date(), formatKeyword: "short date")
+            case "abbrevdate", "abbrev date", "abbreviateddate", "abbreviated date", "abbrdate", "abbr date":
+                return formatHyperCardDate(Date(), formatKeyword: "abbrev date")
+            case "longdate", "long date":
+                return formatHyperCardDate(Date(), formatKeyword: "long date")
             case "time", "shorttime", "short time", "abbrevtime", "abbrev time",
                  "abbreviatedtime", "abbreviated time", "abbrtime", "abbr time":
                 return formatHyperCardTime(style: .short)

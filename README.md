@@ -227,6 +227,12 @@ HypeTalk is an English-like, case-insensitive scripting language
 modeled on HyperTalk and extended for SpriteKit, async networking,
 and AI calls.
 
+Reference-backed HyperTalk compatibility work is tracked in
+[`docs/HyperTalkCompatibilityAudit.md`](docs/HyperTalkCompatibilityAudit.md).
+The current compatibility suite covers classic command/function forms from
+Apple's *HyperCard Script Language Guide* while also pinning Hype extensions
+such as SpriteKit, Meshy, AudioKit/MusicKit, speech, themes, and charts.
+
 ```hypetalk
 on mouseUp
   set the visible of image "logo" to not the visible of image "logo"

@@ -464,7 +464,7 @@ struct ParserTests {
             return
         }
         #expect(promptValue == "Do you want to save this game before starting a new game?")
-        #expect(buttons.count == 1)
+        #expect(buttons.count == 3)
     }
 
     @Test func parsesClassicAnswerFileOfType() throws {

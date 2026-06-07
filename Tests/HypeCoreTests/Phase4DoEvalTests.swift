@@ -88,13 +88,16 @@ struct Phase4ParserTests {
         }
     }
 
-    @Test("read from file ... until return — rejected at parse time")
-    func readWithUntilRejected() throws {
+    @Test("read from file ... until return parses to bounded read")
+    func readWithUntilParses() throws {
         var lexer = Lexer(source: "on mouseUp\n  read from file \"a\" until return\nend mouseUp")
         let tokens = lexer.tokenize()
         var parser = Parser(tokens: tokens)
-        #expect(throws: (any Error).self) {
-            try parser.parse()
+        let script = try parser.parse()
+        guard let handler = script.handlers.first else { Issue.record("No handler"); return }
+        guard case .readCmd(_, nil, .until) = handler.body.first else {
+            Issue.record("Expected bounded .readCmd, got \(String(describing: handler.body.first))")
+            return
         }
     }
 

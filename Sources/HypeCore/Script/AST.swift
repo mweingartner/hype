@@ -98,6 +98,25 @@ public enum WaitConditionMode: Sendable {
     case whileTrue
 }
 
+/// Optional read bounds accepted by classic HyperTalk `read from file`.
+///
+/// Hype keeps file access sandboxed and single-shot; these modes are applied to
+/// the file contents returned by `FileAccessProvider` rather than to an open
+/// OS file cursor.
+public enum FileReadMode: Sendable {
+    case entireFile
+    case charCount(Expression)
+    case until(Expression)
+}
+
+/// Placement accepted by classic HyperTalk `write ... to file ... at ...`.
+public enum FileWritePlacement: Sendable {
+    case replace
+    case start
+    case end
+    case offset(Expression)
+}
+
 /// Chunk types for text addressing.
 public enum ChunkType: String, Sendable {
     case word, char, character, item, line
@@ -277,8 +296,8 @@ public indirect enum Statement: Sendable {
     case dialCmd(Expression)                                     // dial "number"
     case resetCmd(Expression?)                                   // reset
     case printCmd(Expression?)                                   // print card
-    case readCmd(Expression)                                     // read from file
-    case writeCmd(Expression, Expression)                        // write to file
+    case readCmd(path: Expression, start: Expression?, mode: FileReadMode) // read from file
+    case writeCmd(data: Expression, path: Expression, placement: FileWritePlacement) // write to file
     case replyRequest(request: Expression, status: Expression, headers: Expression?, body: Expression?)
     case requestURL(url: Expression, method: Expression?, headers: Expression?, body: Expression?, username: Expression?, password: Expression?, callback: Expression?)
     case listenHTTP(port: Expression, host: Expression?, method: Expression?, path: Expression?, callback: Expression)

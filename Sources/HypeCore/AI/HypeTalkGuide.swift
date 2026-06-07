@@ -97,7 +97,7 @@ public enum HypeTalkGuide {
             get the name of me            -- shorthand: equivalent to `put the name of me into it`
             get the loc of me into pt     -- variant: also writes to a named target
 
-        **`it` lifecycle.** `it` is set by `ask`, `answer`, `get`, every async request (the request UUID), most built-in queries, and the synchronous `ollama(...)` function. `it` is a per-handler local — it persists across statements WITHIN a handler but does NOT carry over from one handler to another. Globals carry; `it` does not.
+        **`it` lifecycle.** `it` is set by `ask`, `answer`, `get`, `read`, every async request (the request UUID), most built-in queries, and the synchronous `ollama(...)` function. `it` is a per-handler local — it persists across statements WITHIN a handler but does NOT carry over from one handler to another. Ordinary `put ... into/after/before field`, button, property, or scoped container writes do NOT clobber `it`; explicit `put ... into it` does. Globals carry; `it` does not.
 
         **`global` scoping.** Declare `global <name>` inside every handler that reads or writes the global, or use a top-level `global a, b, c` prelude before the handlers. The prelude is the ONLY supported top-level statement form; executable commands still belong inside handlers. Globals persist for the life of the stack session (across idle ticks, navigation, and handler calls).
 
@@ -448,7 +448,7 @@ public enum HypeTalkGuide {
             answer "Save?" with "Save" or "Discard" or "Cancel"   -- 3-way choice
             ask "What is your name?"             -- input prompt; typed text in `it`
             ask "Pick:" with "default text"      -- prefilled input
-        After every `ask`/`answer`, READ FROM `it` IMMEDIATELY — any subsequent command can overwrite it.
+        After every `ask`/`answer`, read from `it` before calling another result-producing command such as `ask`, `answer`, `get`, `read`, or an async request.
 
         ## Find, select & click
             find "needle"                   -- case-insensitive search across all card+bg fields;
@@ -1186,7 +1186,10 @@ public enum HypeTalkGuide {
         `fileAccessAllowed` flag is enabled. Names are relative paths inside the
         per-stack sandbox directory — absolute paths and `..` are refused.
             read from file "data.txt"        -- read entire file into `it`
+            read from file "data.txt" at 4 for 20
+            read from file "data.txt" until return
             write "hello" to file "out.txt"  -- overwrite file with value
+            write "hello" to file "out.txt" at end
 
         **Paint (macOS AppKit only, same fileAccessAllowed gate):**
             import paint "card-bg.png"       -- load a PNG into the current card's paint layer

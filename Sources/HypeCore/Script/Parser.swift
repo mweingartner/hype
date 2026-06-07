@@ -461,7 +461,8 @@ public struct Parser: Sendable {
     private static func isKnownZeroArgumentExternalCommand(_ rawName: String) -> Bool {
         switch normalizedExternalCommandName(rawName) {
         case "xwindowframe", "xabout", "closemoovs", "closemovies", "closeqt",
-             "htremove", "vd", "fadeout":
+             "htremove", "vd", "fadeout",
+             "enterinfield", "enterkey", "returninfield", "returnkey", "tabkey":
             return true
         default:
             return false
@@ -472,7 +473,8 @@ public struct Parser: Sendable {
         switch normalizedExternalCommandName(rawName) {
         case "htaddpict", "htchangepict", "playqt", "playmovie", "movie",
              "htvisual", "xwindowframe", "xabout", "closemoovs", "closemovies",
-             "closeqt", "htremove", "vd", "vs", "fadeout":
+             "closeqt", "htremove", "vd", "vs", "fadeout",
+             "arrowkey", "keydown", "commandkeydown", "controlkey", "functionkey":
             return true
         default:
             return isKnownZeroArgumentExternalCommand(rawName)
@@ -1132,6 +1134,24 @@ public struct Parser: Sendable {
             var defaultResponse: Expression? = nil
             if current.type == .with {
                 _ = advance()
+                if current.type == .identifier && current.value.lowercased() == "default" {
+                    _ = advance()
+                }
+                defaultResponse = try parseExpression()
+            }
+            skipNewlines()
+            return .ask(prompt: expr, defaultResponse: defaultResponse)
+        }
+
+        if current.type == .password {
+            _ = advance()
+            if current.type == .identifier && current.value.lowercased() == "clear" {
+                _ = advance()
+            }
+            let expr = try parseExpression()
+            var defaultResponse: Expression? = nil
+            if current.type == .with {
+                _ = advance()
                 defaultResponse = try parseExpression()
             }
             skipNewlines()
@@ -1234,45 +1254,98 @@ public struct Parser: Sendable {
         return .doBlock(e)
     }
 
-    /// Parse: `read from file <expr>`
+    /// Parse: `read from file <expr> [at <start>] [for <n>|until <char|constant>]`
     ///
-    /// Reads the entire named file from the sandbox root.
-    /// Result is placed in `it`. Delimiter forms (`until`, `for`,
-    /// `to`) are NOT supported; encountering them is a parse error
-    /// because silently ignoring them would produce confusing results.
+    /// Hype applies these bounds to a sandboxed whole-file read. Classic
+    /// HyperCard also kept a cursor for open files; Hype does not model that
+    /// cursor yet, so omitted `at` starts at the beginning of the sandboxed
+    /// file for deterministic behavior.
     private mutating func parseReadStatement() throws -> Statement {
         _ = try expect(.readKeyword)
         _ = try expect(.from)
         _ = try expect(.file)
         let path = try parseExpression()
-        // Reject delimiter forms that the single-arg whole-file read
-        // does not support, so authors get a clear error rather than
-        // silent truncation.
+        var start: Expression? = nil
+        var mode: FileReadMode = .entireFile
+
+        if current.type == .identifier && current.value.lowercased() == "at" {
+            _ = advance()
+            start = try parseExpression()
+        }
+
         if current.type == .identifier {
-            let v = current.value.lowercased()
-            if v == "until" || v == "for" {
-                throw ParseError.unexpected(current, expected: "end of read statement")
+            switch current.value.lowercased() {
+            case "for":
+                _ = advance()
+                mode = .charCount(try parseExpression())
+            case "until":
+                _ = advance()
+                mode = .until(try parseFileDelimiterExpression())
+            default:
+                break
             }
         }
         if current.type == .to {
             throw ParseError.unexpected(current, expected: "end of read statement")
         }
         skipNewlines()
-        return .readCmd(path)
+        return .readCmd(path: path, start: start, mode: mode)
     }
 
-    /// Parse: `write <expr> to file <expr>`
+    /// Parse: `write <expr> to file <expr> [at start|end|eof|offset]`
     ///
-    /// Writes the first expression's value to the named file in the
-    /// sandbox root, replacing any existing content.
+    /// Writes through the sandboxed file provider. The default remains replace;
+    /// `at end`/`at eof` append and `at start` prepends.
     private mutating func parseWriteStatement() throws -> Statement {
         _ = try expect(.writeKeyword)
         let data = try parseExpression()
         _ = try expect(.to)
         _ = try expect(.file)
         let path = try parseExpression()
+        var placement: FileWritePlacement = .replace
+        if current.type == .identifier && current.value.lowercased() == "at" {
+            _ = advance()
+            if current.type == .end {
+                _ = advance()
+                placement = .end
+            } else
+            if current.type == .identifier {
+                switch current.value.lowercased() {
+                case "start":
+                    _ = advance()
+                    placement = .start
+                case "end", "eof":
+                    _ = advance()
+                    placement = .end
+                default:
+                    placement = .offset(try parseExpression())
+                }
+            } else {
+                placement = .offset(try parseExpression())
+            }
+        }
         skipNewlines()
-        return .writeCmd(data, path)
+        return .writeCmd(data: data, path: path, placement: placement)
+    }
+
+    private mutating func parseFileDelimiterExpression() throws -> Expression {
+        if current.type == .end {
+            _ = advance()
+            return .literal("eof")
+        }
+        if current.type == .identifier {
+            switch current.value.lowercased() {
+            case "eof", "end":
+                _ = advance()
+                return .literal("eof")
+            case "formfeed", "form_feed":
+                _ = advance()
+                return .literal("\u{000C}")
+            default:
+                break
+            }
+        }
+        return try parseExpression()
     }
 
     private mutating func parseAnswerStatement() throws -> Statement {
@@ -1290,11 +1363,33 @@ public struct Parser: Sendable {
             skipNewlines()
             return .answer(prompt: expr, buttons: [])
         }
+        if current.type == .identifier && current.value.lowercased() == "program" {
+            _ = advance()
+            let expr: Expression
+            if current.type == .newline || current.type == .eof {
+                expr = .literal("")
+            } else {
+                expr = try parseExpression()
+            }
+            if current.type == .of {
+                _ = advance()
+                if current.type == .typeText {
+                    _ = advance()
+                    _ = try parseExpression()
+                }
+            }
+            skipNewlines()
+            return .answer(prompt: expr, buttons: [])
+        }
         let expr = try parseExpression()
         var buttons: [Expression] = []
         if current.type == .with {
             _ = advance()
-            buttons.append(try parseExpression())
+            buttons.append(try parsePrimary())
+            while current.type == .or {
+                _ = advance()
+                buttons.append(try parsePrimary())
+            }
         }
         skipNewlines()
         return .answer(prompt: expr, buttons: buttons)
@@ -3254,7 +3349,7 @@ public struct Parser: Sendable {
                 // undefined variable), breaking the number-of lookup.
                 if current.type == .identifier {
                     switch current.value.lowercased() {
-                    case "cards", "backgrounds", "buttons", "fields",
+                    case "cards", "cds", "backgrounds", "bkgnds", "buttons", "btns", "fields", "flds",
                          "parts", "windows", "menus", "marked":
                         let tok = advance()
                         return .propertyAccess("number", .literal(tok.value))
@@ -3374,10 +3469,23 @@ public struct Parser: Sendable {
            isTimeAdjective(current.value),
            pos + 1 < tokens.count,
            tokens[pos + 1].type == .identifier,
-           tokens[pos + 1].value.lowercased() == "time" {
+           ["time", "date"].contains(tokens[pos + 1].value.lowercased()) {
             let adjective = advance().value
-            _ = advance() // time
-            return .propertyAccess("\(adjective) time", nil)
+            let dateOrTime = advance().value
+            return .propertyAccess("\(adjective) \(dateOrTime)", nil)
+        }
+
+        // Apple HyperTalk function syntax accepts `the abs of factor`
+        // alongside `abs(factor)`. Keep this narrow to known unary built-ins
+        // so normal object properties still parse as property access.
+        if current.type == .identifier,
+           Self.classicTheOfFunctionNames.contains(current.value.lowercased()),
+           pos + 1 < tokens.count,
+           tokens[pos + 1].type == .of {
+            let functionName = advance().value
+            _ = advance() // of
+            let argument = try parseUnary()
+            return .functionCall(functionName, [argument])
         }
 
         // `the tile at <col>,<row> of tilemap "X"` — read a single
@@ -3719,6 +3827,16 @@ public struct Parser: Sendable {
         "random", "abs", "round", "trunc", "sqrt",
         "sin", "cos", "tan", "atan", "exp", "ln", "log2",
         "chartonum", "numtochar", "length", "value", "ollama", "param",
+    ]
+
+    /// Apple-guide `the <function> of <factor>` forms. This is intentionally
+    /// smaller than `unaryPrefixBuiltins`: names like `value` are common Hype
+    /// object properties (`the value of data point ...`) and must stay property
+    /// accesses in `the ... of ...` form.
+    private static let classicTheOfFunctionNames: Set<String> = [
+        "abs", "round", "trunc", "sqrt",
+        "sin", "cos", "tan", "atan", "exp", "exp1", "exp2", "ln", "ln1", "log2",
+        "chartonum", "numtochar", "length"
     ]
 
     /// Can the given token type start a *primary* expression?

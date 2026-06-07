@@ -1488,6 +1488,12 @@ script source string
   command-style identifiers with arguments parse as
   `.externalCommand(name:arguments:)` so XCMD calls like `SetCursor "watch"`
   can flow into the emulation registry rather than causing a parse error.
+  Reference-backed HyperTalk compatibility is tracked in
+  `docs/HyperTalkCompatibilityAudit.md`; current parser coverage includes
+  classic aliases such as `cd`/`bkgnd`, multi-button `answer ... with ... or ...`
+  forms, `ask password clear`, bounded `read from file`, placed `write ... to
+  file`, keyboard-message commands, and Apple-guide `the <function> of <factor>`
+  forms without stealing Hype object properties such as `the value of data point`.
 
   Property animation is a first-class statement:
   `animate the loc of button "ball" to "400,300" over 0.5`,
@@ -1515,6 +1521,10 @@ script source string
     modified document out, used heavily by tests and non-browse tooling
   - a **runtime-backed async path** used in browse mode and by the Message Box,
     where suspension points preserve locals while the live stack keeps evolving
+  HypeTalk preserves classic `it` semantics: `get`, `ask`, `answer`, `read`,
+  request/reply-style commands, and explicit `put ... into it` set `it`, while
+  ordinary `put ... into/after/before` field, button, property, or scoped
+  containers do not clobber the previous `it` value.
 
 ### 5.2 Message dispatch and runtime ownership
 

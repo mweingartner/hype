@@ -123,6 +123,23 @@ answer "Are you sure?"    -- alert, result in "it"
 ask "What is your name?"  -- input, result in "it"
 ```
 
+`it` persists within a handler until a result-producing command changes it.
+Ordinary `put ... into/after/before field`, button, property, or scoped
+container writes do not clobber `it`; explicit `put ... into it` does.
+
+## Files
+
+File commands require the stack file-access gate and use relative names inside
+the per-stack sandbox.
+
+```
+read from file "data.txt"
+read from file "data.txt" at 4 for 20
+read from file "data.txt" until return
+write "hello" to file "out.txt"
+write "hello" to file "out.txt" at end
+```
+
 ## Speech
 
 ```
