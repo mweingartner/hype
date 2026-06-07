@@ -382,7 +382,7 @@ carry OpenAI keys, Ollama hosts, or local model endpoints by default.
 ### Tool-calling architecture
 
 The model never types HypeTalk into your document directly. Every
-change goes through a structured tool-call interface with **135+
+change goes through a structured tool-call interface with **169
 defined tools** (`Sources/HypeCore/AI/HypeTools.swift`,
 `HypeToolExecutor.swift`):
 

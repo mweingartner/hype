@@ -73,7 +73,8 @@ public enum RuntimeDocumentMerge {
 
     public static func preservingCurrentOnlyEntities(
         runtimeDocument: HypeDocument,
-        currentDocument: HypeDocument
+        currentDocument: HypeDocument,
+        preserveCurrentRuntimeMode: Bool = false
     ) -> RuntimeDocumentMergeResult {
         guard runtimeDocument.stack.id == currentDocument.stack.id else {
             return RuntimeDocumentMergeResult(document: runtimeDocument, preservedCurrentOnlyEntities: false)
@@ -107,11 +108,9 @@ public enum RuntimeDocumentMerge {
             preserved = true
         }
 
-        // Runtime snapshots are full-document values and may arrive after the
-        // user has already left runtime mode. Do not let a stale in-flight
-        // script snapshot force the authoring window back into runtime mode.
-        if !currentDocument.stack.runtimeModeEnabled && runtimeDocument.stack.runtimeModeEnabled {
-            merged.stack.runtimeModeEnabled = false
+        if preserveCurrentRuntimeMode,
+           merged.stack.runtimeModeEnabled != currentDocument.stack.runtimeModeEnabled {
+            merged.stack.runtimeModeEnabled = currentDocument.stack.runtimeModeEnabled
             preserved = true
         }
 

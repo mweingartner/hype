@@ -374,7 +374,8 @@ struct MainContentView: View {
                       let updated = notification.userInfo?["document"] as? HypeDocument else { return }
                 let merge = RuntimeDocumentMerge.preservingCurrentOnlyEntities(
                     runtimeDocument: updated,
-                    currentDocument: document.document
+                    currentDocument: document.document,
+                    preserveCurrentRuntimeMode: true
                 )
                 applyDocument(merge.document, actionName: "Apply Runtime Changes")
                 if merge.preservedCurrentOnlyEntities {
@@ -1144,9 +1145,11 @@ struct MainContentView: View {
 
     private func setRuntimeMode(_ enabled: Bool) {
         guard document.document.stack.runtimeModeEnabled != enabled else { return }
-        mutateDocument(actionName: enabled ? "Switch to Runtime Mode" : "Switch to Edit Mode") { document in
-            document.stack.runtimeModeEnabled = enabled
-        }
+        var updated = document.document
+        updated.stack.runtimeModeEnabled = enabled
+        applyDocument(updated, actionName: enabled ? "Switch to Runtime Mode" : "Switch to Edit Mode")
+        syncRuntimeDocument(updated)
+
         if enabled {
             // Entering runtime mode: clear authoring side-effects.
             currentTool = .browse

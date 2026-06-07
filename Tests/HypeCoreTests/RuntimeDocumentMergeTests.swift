@@ -49,7 +49,8 @@ struct RuntimeDocumentMergeTests {
 
         let result = RuntimeDocumentMerge.preservingCurrentOnlyEntities(
             runtimeDocument: runtime,
-            currentDocument: current
+            currentDocument: current,
+            preserveCurrentRuntimeMode: true
         )
 
         #expect(result.document.parts.contains(where: { $0.id == currentOnly.id }))
@@ -66,7 +67,8 @@ struct RuntimeDocumentMergeTests {
 
         let result = RuntimeDocumentMerge.preservingCurrentOnlyEntities(
             runtimeDocument: runtime,
-            currentDocument: current
+            currentDocument: current,
+            preserveCurrentRuntimeMode: true
         )
 
         #expect(result.preservedCurrentOnlyEntities)
@@ -141,5 +143,31 @@ struct RuntimeDocumentMergeTests {
         #expect(result.preservedCurrentOnlyEntities)
         #expect(result.document.parts.first(where: { $0.id == slider.id })?.controlValue == 80)
         #expect(result.document.parts.first(where: { $0.id == map.id })?.mapSpan == 50)
+    }
+
+    @Test("runtime notification merge preserves current editor mode")
+    func runtimeNotificationMergePreservesCurrentEditorMode() throws {
+        var current = HypeDocument.newDocument()
+        let cardId = try #require(current.sortedCards.first?.id)
+        var score = Part(partType: .field, cardId: cardId, name: "score", left: 10, top: 10, width: 120, height: 28)
+        score.textContent = "Score: 0"
+        current.addPart(score)
+        current.stack.runtimeModeEnabled = false
+
+        var runtime = current
+        runtime.stack.runtimeModeEnabled = true
+        runtime.updatePart(id: score.id) { part in
+            part.textContent = "Score: 10"
+        }
+
+        let result = RuntimeDocumentMerge.preservingCurrentOnlyEntities(
+            runtimeDocument: runtime,
+            currentDocument: current,
+            preserveCurrentRuntimeMode: true
+        )
+
+        #expect(result.preservedCurrentOnlyEntities)
+        #expect(result.document.stack.runtimeModeEnabled == false)
+        #expect(result.document.parts.first(where: { $0.id == score.id })?.textContent == "Score: 10")
     }
 }

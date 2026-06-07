@@ -6,7 +6,7 @@ A hands-on guide to building interactive 2D games and animated experiences insid
 
 1. [Core Concepts](#core-concepts)
 2. [Getting Started Manually](#getting-started-manually)
-3. [The Sprite Repository](#the-sprite-repository)
+3. [The Asset Repository](#the-asset-repository)
 4. [Scripting Sprites with HypeTalk](#scripting-sprites-with-hypetalk)
 5. [Physics and Collisions](#physics-and-collisions)
 6. [Actions and Animation](#actions-and-animation)
@@ -82,13 +82,13 @@ Shapes can be rectangles, circles, ellipses, or freeform paths — useful for wa
 
 ---
 
-## The Sprite Repository
+## The Asset Repository
 
-The **Sprite Repository** is a stack-scoped asset library. Import art once, reuse it across every scene in your stack. Assets are stored inside the stack document itself, so stacks remain fully portable.
+The **Asset Repository** is a stack-scoped asset library. Import art once, reuse it across every scene in your stack. Assets are stored inside the stack document itself, so stacks remain fully portable.
 
 ### Opening the Repository
 
-Click the **tray icon** in the toolbar to open the Sprite Repository window.
+Click the **tray icon** in the toolbar to open the Asset Repository window.
 
 ### Importing Assets
 
@@ -96,11 +96,9 @@ Click the **tray icon** in the toolbar to open the Sprite Repository window.
 2. Select one or more PNG or JPEG files.
 3. Each file becomes a named asset, using the filename as the default name.
 
-From HypeTalk:
-
-```hypertalk
-import file "/Users/me/Art/ship.png" into spriteRepository as asset "ship"
-```
+AI tools can also add assets with `import_repository_asset`, `generate_sprite_asset`,
+or the opt-in web asset tools. HypeTalk scripts reference repository assets by
+name after they exist; file import itself is an authoring UI/tool operation.
 
 ### Browsing and Searching
 
@@ -339,7 +337,7 @@ Hype's Ollama AI integration has full SpriteKit support. Open the AI panel (spar
 | `get_scene_spec` | Retrieves the full SceneSpec JSON for inspection |
 | `apply_scene_diff` | Applies incremental changes to a scene (add/remove/update nodes) |
 | `add_sprite_to_scene` | Adds a sprite node with optional asset binding |
-| `list_repository_assets` | Shows all assets in the Sprite Repository |
+| `list_repository_assets` | Shows all assets in the Asset Repository |
 | `import_repository_asset` | Imports an image file into the repository |
 
 ### Example Prompts

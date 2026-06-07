@@ -185,12 +185,11 @@ final class Scene3DHostNSView: NSView {
                 return
             }
 
-            // Track temp path so it can be cleaned up on next swap / deinit.
-            DispatchQueue.main.async { self?.tempScenePath = tempURL.path }
-
             // Load via the asset loader.
             let result = Result { try localLoader.load(from: tempURL) }
+            let tempPath = tempURL.path
             DispatchQueue.main.async {
+                self?.tempScenePath = tempPath
                 switch result {
                 case .success(let scene):
                     self?.scnView.scene = scene

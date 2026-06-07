@@ -17,6 +17,9 @@ BUNDLE_ID="com.hype.app"
 MIN_SYSTEM_VERSION="15.0"
 APP_ICON="$ROOT_DIR/Sources/Hype/Resources/AppIcon.icns"
 DOC_ICON="$ROOT_DIR/Sources/Hype/Resources/HypeDocIcon.icns"
+MICROPHONE_USAGE_DESCRIPTION="Hype uses the microphone for voice input in the AI Chat panel (transcribed locally and sent to your AI model as text) and for recording audio into Audio Recorder parts in your stacks."
+SPEECH_USAGE_DESCRIPTION="Hype uses speech recognition to transcribe voice commands in the AI Chat panel into text prompts for your AI model. Recognition is performed on-device when supported."
+APPLE_MUSIC_USAGE_DESCRIPTION="Hype uses Apple Music access only when you enable MusicKit features, authorize access, and use MusicKit Search controls or Apple Music playback in your stacks."
 
 cd "$ROOT_DIR"
 
@@ -66,12 +69,14 @@ write_default_info_plist() {
   <string>2.0.0</string>
   <key>LSMinimumSystemVersion</key>
   <string>${MIN_SYSTEM_VERSION}</string>
+  <key>NSAppleMusicUsageDescription</key>
+  <string>${APPLE_MUSIC_USAGE_DESCRIPTION}</string>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Hype uses the microphone for voice input in the AI Chat panel (transcribed locally and sent to your AI model as text) and for recording audio into Audio Recorder parts in your stacks.</string>
+  <string>${MICROPHONE_USAGE_DESCRIPTION}</string>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
   <key>NSSpeechRecognitionUsageDescription</key>
-  <string>Hype uses speech recognition to transcribe voice commands in the AI Chat panel into text prompts for your AI model. Recognition is performed on-device when supported.</string>
+  <string>${SPEECH_USAGE_DESCRIPTION}</string>
   <key>UTExportedTypeDeclarations</key>
   <array>
     <dict>
@@ -99,6 +104,26 @@ write_default_info_plist() {
 </dict>
 </plist>
 PLIST
+}
+
+set_or_add_plist_string() {
+  local plist="$1"
+  local key="$2"
+  local value="$3"
+
+  if /usr/libexec/PlistBuddy -c "Print :${key}" "$plist" >/dev/null 2>&1; then
+    /usr/libexec/PlistBuddy -c "Set :${key} ${value}" "$plist" >/dev/null
+  else
+    /usr/libexec/PlistBuddy -c "Add :${key} string ${value}" "$plist" >/dev/null
+  fi
+}
+
+ensure_usage_descriptions() {
+  local plist="$1"
+
+  set_or_add_plist_string "$plist" "NSAppleMusicUsageDescription" "$APPLE_MUSIC_USAGE_DESCRIPTION"
+  set_or_add_plist_string "$plist" "NSMicrophoneUsageDescription" "$MICROPHONE_USAGE_DESCRIPTION"
+  set_or_add_plist_string "$plist" "NSSpeechRecognitionUsageDescription" "$SPEECH_USAGE_DESCRIPTION"
 }
 
 run_with_retry() {
@@ -223,6 +248,9 @@ else
   fi
   log_error "Generated fallback Info.plist; build bundle metadata was not found in dist/ or build/."
 fi
+
+echo "Ensuring privacy usage descriptions..."
+ensure_usage_descriptions "$APP/Contents/Info.plist"
 
 echo "Re-signing..."
 if ! /usr/bin/codesign --force --sign - --deep "$APP"; then
