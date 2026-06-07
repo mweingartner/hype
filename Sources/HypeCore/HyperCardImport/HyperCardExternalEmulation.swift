@@ -684,7 +684,7 @@ public struct HyperCardExternalRegistry: Sendable {
             document.parts[index].videoAutoplay = false
             document.parts[index].videoPlayRate = 0
         }
-        var globals = [
+        var globals: [String: String] = [
             "hypercard.soundstop.count": String(indices.count),
             "hypercard.soundstop.arguments": call.arguments.joined(separator: "\t"),
             "hypercard.sound.state": "done"
@@ -747,7 +747,7 @@ public struct HyperCardExternalRegistry: Sendable {
             document.parts[index].visible = true
         }
 
-        var globals = [
+        var globals: [String: String] = [
             "soundMooV": windowName,
             "hypercard.soundtime.window": windowName,
             "hypercard.soundtime.arguments": call.arguments.joined(separator: "\t"),

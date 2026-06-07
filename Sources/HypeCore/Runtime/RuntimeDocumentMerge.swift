@@ -73,7 +73,8 @@ public enum RuntimeDocumentMerge {
 
     public static func preservingCurrentOnlyEntities(
         runtimeDocument: HypeDocument,
-        currentDocument: HypeDocument
+        currentDocument: HypeDocument,
+        preserveCurrentRuntimeMode: Bool = false
     ) -> RuntimeDocumentMergeResult {
         guard runtimeDocument.stack.id == currentDocument.stack.id else {
             return RuntimeDocumentMergeResult(document: runtimeDocument, preservedCurrentOnlyEntities: false)
@@ -104,6 +105,12 @@ public enum RuntimeDocumentMerge {
 
         if currentDocument.defaultBackgroundId != nil && runtimeDocument.defaultBackgroundId == nil {
             merged.defaultBackgroundId = currentDocument.defaultBackgroundId
+            preserved = true
+        }
+
+        if preserveCurrentRuntimeMode,
+           merged.stack.runtimeModeEnabled != currentDocument.stack.runtimeModeEnabled {
+            merged.stack.runtimeModeEnabled = currentDocument.stack.runtimeModeEnabled
             preserved = true
         }
 
