@@ -252,6 +252,15 @@ struct FormControlHostViewTests {
         #expect(!CardCanvasNSView.allowsRuntimeInteraction(currentTool: .slider, runtimeModeEnabled: false))
     }
 
+    @Test("userLevel constrains effective canvas tools outside runtime mode")
+    func userLevelConstrainsEffectiveCanvasTools() {
+        #expect(CardCanvasNSView.effectiveMouseTool(currentTool: .button, runtimeModeEnabled: false, userLevel: .browsing) == .browse)
+        #expect(CardCanvasNSView.effectiveMouseTool(currentTool: .field, runtimeModeEnabled: false, userLevel: .typing) == .browse)
+        #expect(CardCanvasNSView.effectiveMouseTool(currentTool: .pencil, runtimeModeEnabled: false, userLevel: .painting) == .pencil)
+        #expect(CardCanvasNSView.effectiveMouseTool(currentTool: .button, runtimeModeEnabled: false, userLevel: .painting) == .browse)
+        #expect(CardCanvasNSView.effectiveMouseTool(currentTool: .button, runtimeModeEnabled: false, userLevel: .authoring) == .button)
+    }
+
     @Test("Scripted continuous sliders preserve live value when applying script results")
     func scriptedContinuousSlidersPreserveLiveValueWhenApplyingScriptResults() throws {
         let source = try String(

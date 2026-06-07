@@ -509,6 +509,7 @@ struct ObjectsToolPanel: View {
     @Binding var selectedPartIds: Set<UUID>
     let isRuntimeMode: Bool
     let targetPlatforms: [HypeTargetPlatform]
+    let userLevel: HypeUserLevel
 
     // MARK: - Sizing constants
 
@@ -566,7 +567,7 @@ struct ObjectsToolPanel: View {
             if !isRuntimeMode {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 8) {
-                        ForEach(Array(ObjectToolCatalog.authoringSections(for: targetPlatforms).enumerated()), id: \.offset) { index, section in
+                        ForEach(Array(ObjectToolCatalog.authoringSections(for: targetPlatforms, userLevel: userLevel).enumerated()), id: \.offset) { index, section in
                             if index > 0 {
                                 sectionDivider
                             }

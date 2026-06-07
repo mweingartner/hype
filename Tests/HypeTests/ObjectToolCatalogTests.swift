@@ -71,6 +71,26 @@ struct ObjectToolCatalogTests {
         #expect(!panelTools.contains(.field))
     }
 
+    @Test("left panel filters tools by HyperCard-compatible user level")
+    func leftPanelFiltersToolsByUserLevel() throws {
+        let browsingTools = ObjectToolCatalog.authoringSections(for: [.macOS], userLevel: .browsing).flatMap(\.tools)
+        #expect(browsingTools == [.browse])
+
+        let typingTools = ObjectToolCatalog.authoringSections(for: [.macOS], userLevel: .typing).flatMap(\.tools)
+        #expect(typingTools == [.browse])
+
+        let paintingTools = ObjectToolCatalog.authoringSections(for: [.macOS], userLevel: .painting).flatMap(\.tools)
+        #expect(paintingTools.contains(.browse))
+        #expect(paintingTools.contains(.pencil))
+        #expect(!paintingTools.contains(.select))
+        #expect(!paintingTools.contains(.button))
+
+        let authoringTools = ObjectToolCatalog.authoringSections(for: [.macOS], userLevel: .authoring).flatMap(\.tools)
+        #expect(authoringTools.contains(.select))
+        #expect(authoringTools.contains(.button))
+        #expect(authoringTools.contains(.pencil))
+    }
+
     @Test("legacy duplicate object tools are absent from the panel catalog")
     func legacyDuplicateToolsAreAbsent() {
         let panelToolNames = Set(ObjectToolCatalog.panelTools.map(\.rawValue))

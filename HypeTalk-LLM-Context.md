@@ -85,7 +85,9 @@ not generate that form unless preserving a user's existing script.
 
 **Part properties:** name, id, left, top, width, height, right, bottom, loc (x,y), rect (l,t,r,b), visible, enabled, hilite, style, textFont, textSize, textAlign, textStyle, fillColor, strokeColor, strokeWidth, cornerRadius, script, showName, autoHilite, lockText
 
-**Global properties:** the date, the time, the long time, the English time, the ticks, the seconds, the mouseLoc (x,y), the mouseH, the mouseV, the version
+**Global properties:** the date, the time, the long time, the English time, the ticks, the seconds, the mouseLoc (x,y), the mouseH, the mouseV, the version, the userLevel
+
+`userLevel` is saved on the stack and follows HyperCard's 1-5 authoring tiers: 1 browsing, 2 typing, 3 painting, 4 authoring, 5 scripting. Use `set the userLevel to 5`, `set the userLevel to "authoring"`, or stack-scoped forms like `set the userLevel of stack to 3`. This gates Hype's authoring UI and scripting surfaces; it is not a security boundary.
 
 ## Chunk Expressions
 

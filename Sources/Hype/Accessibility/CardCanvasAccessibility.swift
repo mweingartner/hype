@@ -572,7 +572,8 @@ extension CardCanvasNSView {
     }
 
     func performAccessibilityPick(onPart partId: UUID) -> Bool {
-        guard document.parts.contains(where: { $0.id == partId }) else { return false }
+        guard document.stack.userLevel.hypeUserLevel.canAuthorObjects,
+              document.parts.contains(where: { $0.id == partId }) else { return false }
         coordinator?.selectPart(partId)
         selectedPartIds = document.expandedGroupSelection([partId])
         needsDisplay = true
@@ -582,8 +583,14 @@ extension CardCanvasNSView {
 
     func performAccessibilityPress(onPart partId: UUID) -> Bool {
         guard let part = document.parts.first(where: { $0.id == partId }) else { return false }
-        if ToolState(currentTool: currentTool.rawValue).category == .browse {
-            if part.partType == .field && !part.lockText {
+        let effectiveTool = CardCanvasNSView.effectiveMouseTool(
+            currentTool: currentTool,
+            runtimeModeEnabled: document.stack.runtimeModeEnabled,
+            userLevel: document.stack.userLevel.hypeUserLevel
+        )
+        if ToolState(currentTool: effectiveTool.rawValue).category == .browse {
+            if document.stack.userLevel.hypeUserLevel.canEditTextFields,
+               part.partType == .field && !part.lockText {
                 setAccessibilityValue(part.textContent, forPart: partId)
             }
             coordinator?.dispatchMessage("mouseUp", to: partId)
@@ -593,7 +600,8 @@ extension CardCanvasNSView {
     }
 
     func openAccessibilityScriptEditor(forPart partId: UUID) -> Bool {
-        guard document.parts.contains(where: { $0.id == partId }) else { return false }
+        guard document.stack.userLevel.hypeUserLevel.canEditScripts,
+              document.parts.contains(where: { $0.id == partId }) else { return false }
         NotificationCenter.default.post(
             name: .openPartScriptEditor,
             object: nil,
@@ -603,7 +611,8 @@ extension CardCanvasNSView {
     }
 
     func openAccessibilityScriptEditor(forScene sceneId: UUID, inPart partId: UUID) -> Bool {
-        guard spriteScene(sceneId, partId: partId) != nil else { return false }
+        guard document.stack.userLevel.hypeUserLevel.canEditScripts,
+              spriteScene(sceneId, partId: partId) != nil else { return false }
         NotificationCenter.default.post(
             name: .openPartScriptEditor,
             object: nil,
@@ -613,7 +622,8 @@ extension CardCanvasNSView {
     }
 
     func openAccessibilityScriptEditor(forNode nodeId: UUID, sceneId: UUID, partId: UUID) -> Bool {
-        guard spriteNode(nodeId, sceneId: sceneId, partId: partId) != nil else { return false }
+        guard document.stack.userLevel.hypeUserLevel.canEditScripts,
+              spriteNode(nodeId, sceneId: sceneId, partId: partId) != nil else { return false }
         NotificationCenter.default.post(
             name: .openPartScriptEditor,
             object: nil,
@@ -623,13 +633,15 @@ extension CardCanvasNSView {
     }
 
     func revealAccessibilityPartInInspector(_ partId: UUID) -> Bool {
-        guard document.parts.contains(where: { $0.id == partId }) else { return false }
+        guard document.stack.userLevel.hypeUserLevel.canAuthorObjects,
+              document.parts.contains(where: { $0.id == partId }) else { return false }
         NotificationCenter.default.post(name: .editPartProperties, object: partId)
         return performAccessibilityPick(onPart: partId)
     }
 
     func revealAccessibilitySceneInInspector(sceneId: UUID, partId: UUID) -> Bool {
-        guard spriteScene(sceneId, partId: partId) != nil else { return false }
+        guard document.stack.userLevel.hypeUserLevel.canAuthorObjects,
+              spriteScene(sceneId, partId: partId) != nil else { return false }
         NotificationCenter.default.post(
             name: .revealSpriteNode,
             object: nil,
@@ -639,7 +651,8 @@ extension CardCanvasNSView {
     }
 
     func revealAccessibilityNodeInInspector(nodeId: UUID, sceneId: UUID, partId: UUID) -> Bool {
-        guard spriteNode(nodeId, sceneId: sceneId, partId: partId) != nil else { return false }
+        guard document.stack.userLevel.hypeUserLevel.canAuthorObjects,
+              spriteNode(nodeId, sceneId: sceneId, partId: partId) != nil else { return false }
         NotificationCenter.default.post(
             name: .revealSpriteNode,
             object: nil,

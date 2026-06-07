@@ -95,6 +95,43 @@ struct StackPropertyTests {
         #expect(result.modifiedDocument?.stack.webAssetsAllowed == true)
     }
 
+    @Test func userLevelGlobalPropertyIsScriptable() async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        var field = Part(partType: .field, cardId: cardId, name: "output")
+        doc.addPart(field)
+        doc.cards[0].script = """
+        on openCard
+          set the userLevel to 2
+          put the userLevel into field "output"
+        end openCard
+        """
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
+            message: "openCard", params: [], targetId: cardId,
+            document: doc, currentCardId: cardId
+        ) }
+        #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
+        #expect(result.modifiedDocument?.stack.userLevel == HypeUserLevel.typing.rawValue)
+        let output = result.modifiedDocument?.parts.first { $0.name == "output" }
+        #expect(output?.textContent == "2")
+    }
+
+    @Test func userLevelStackPropertyAcceptsNames() async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        doc.cards[0].script = """
+        on openCard
+          set the userLevel of stack to "painting"
+        end openCard
+        """
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
+            message: "openCard", params: [], targetId: cardId,
+            document: doc, currentCardId: cardId
+        ) }
+        #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
+        #expect(result.modifiedDocument?.stack.userLevel == HypeUserLevel.painting.rawValue)
+    }
+
     @Test func stackRuntimeAISettingsAreScriptable() async {
         var doc = HypeDocument.newDocument(name: "Test")
         let cardId = doc.cards[0].id

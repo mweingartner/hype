@@ -2752,6 +2752,8 @@ public struct HypeToolExecutor: Sendable {
                 return String(document.stack.webAssetsAllowed)
             case "runtimemode", "runtime_mode", "runtimemodeenabled", "runtime_mode_enabled":
                 return String(document.stack.runtimeModeEnabled)
+            case "userlevel", "user_level":
+                return String(document.stack.userLevel)
             case "runtimeaiproviderpolicy", "runtime_ai_provider_policy", "aiproviderpolicy":
                 return document.stack.runtimeAISettings.providerPolicy.rawValue
             case "runtimeaitoolsallowed", "runtime_ai_tools_allowed":
@@ -2781,7 +2783,7 @@ public struct HypeToolExecutor: Sendable {
             case "theme":
                 return document.stack.themeName
             default:
-                return "Unknown stack property '\(property)'. Valid: id, name, width, height, defaultFont, webAssetsAllowed, runtimeMode, runtimeAIProviderPolicy, runtimeAIToolsAllowed, runtimeAIAllowedTools, runtimeAIPersistTranscript, targetPlatforms, primaryTargetPlatform, layoutPolicy, aiContextCount, aiContextSummary, aiContextCloudSharingAllowed, cardCount, backgroundCount, script, theme"
+                return "Unknown stack property '\(property)'. Valid: id, name, width, height, defaultFont, userLevel, webAssetsAllowed, runtimeMode, runtimeAIProviderPolicy, runtimeAIToolsAllowed, runtimeAIAllowedTools, runtimeAIPersistTranscript, targetPlatforms, primaryTargetPlatform, layoutPolicy, aiContextCount, aiContextSummary, aiContextCloudSharingAllowed, cardCount, backgroundCount, script, theme"
             }
 
         case "get_card_property":
@@ -4730,6 +4732,11 @@ public struct HypeToolExecutor: Sendable {
                 document.stack.aiContextCloudSharingAllowed = (value.lowercased() == "true")
             case "runtimemode", "runtime_mode", "runtimemodeenabled", "runtime_mode_enabled":
                 document.stack.runtimeModeEnabled = (value.lowercased() == "true")
+            case "userlevel", "user_level":
+                guard let level = HypeUserLevel.parse(value) else {
+                    return "Invalid value for userLevel: '\(value)' (expected 1-5 or browsing, typing, painting, authoring, scripting)"
+                }
+                document.stack.userLevel = level.rawValue
             case "runtimeaiproviderpolicy", "runtime_ai_provider_policy", "aiproviderpolicy":
                 guard let policy = RuntimeAIProviderPolicy.parse(value) else {
                     return "Invalid value for runtimeAIProviderPolicy: '\(value)' (expected automatic, appleFoundationModels, or disabled)"
@@ -4775,7 +4782,7 @@ public struct HypeToolExecutor: Sendable {
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 document.stack.themeName = trimmed.isEmpty ? BuiltInThemes.fallbackName : trimmed
             default:
-                return "Unknown stack property '\(property)'. Valid: width, height, name, defaultFont, webAssetsAllowed, runtimeMode, runtimeAIProviderPolicy, runtimeAIToolsAllowed, runtimeAIAllowedTools, runtimeAIPersistTranscript, targetPlatforms, primaryTargetPlatform, layoutPolicy, aiContextCloudSharingAllowed, theme"
+                return "Unknown stack property '\(property)'. Valid: width, height, name, defaultFont, userLevel, webAssetsAllowed, runtimeMode, runtimeAIProviderPolicy, runtimeAIToolsAllowed, runtimeAIAllowedTools, runtimeAIPersistTranscript, targetPlatforms, primaryTargetPlatform, layoutPolicy, aiContextCloudSharingAllowed, theme"
             }
             return "Set \(property) of stack to \(value)"
 

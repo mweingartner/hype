@@ -13,6 +13,7 @@ struct PropertyInspector: View {
     var currentCardId: UUID? = nil
     @Binding var paintColor: Color
     @Binding var pencilRadius: Double
+    var userLevel: HypeUserLevel = .scripting
     @State private var showingScript = false
     @State private var showingCardScript = false
     @State private var showingBgScript = false
@@ -107,28 +108,30 @@ struct PropertyInspector: View {
 
                         Divider()
 
-                        // Script section
-                        VStack(alignment: .leading, spacing: 6) {
-                            sectionHeading("SCRIPT")
+                        if userLevel.canEditScripts {
+                            // Script section
+                            VStack(alignment: .leading, spacing: 6) {
+                                sectionHeading("SCRIPT")
 
-                            Button(action: {
-                                openScriptEditorWindow(document: $document, partId: partId, target: .part(partId))
-                            }) {
-                                HStack {
-                                    Image(systemName: "applescript")
-                                    Text(part.script.isEmpty ? "Add Script..." : "Edit Script...")
+                                Button(action: {
+                                    openScriptEditorWindow(document: $document, partId: partId, target: .part(partId))
+                                }) {
+                                    HStack {
+                                        Image(systemName: "applescript")
+                                        Text(part.script.isEmpty ? "Add Script..." : "Edit Script...")
+                                    }
+                                }
+
+                                if !part.script.isEmpty {
+                                    Text(String(part.script.prefix(100)) + (part.script.count > 100 ? "..." : ""))
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(3)
                                 }
                             }
 
-                            if !part.script.isEmpty {
-                                Text(String(part.script.prefix(100)) + (part.script.count > 100 ? "..." : ""))
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(3)
-                            }
+                            Divider()
                         }
-
-                        Divider()
 
                         // Constraints section
                         constraintsSection(partId: part.id)
@@ -176,21 +179,30 @@ struct PropertyInspector: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Scripts")
+                        Text(userLevel.canEditScripts ? "Scripts" : "Stack")
                             .font(.headline)
                             .padding(.bottom, 4)
-                        scriptsSection
+                        if userLevel.canEditScripts {
+                            scriptsSection
 
-                        Divider()
+                            Divider()
+                        }
 
-                        // Theme picker rows for the current card,
-                        // its background, and the stack default.
-                        // This is the primary editing surface for
-                        // theme assignment — the Theme Designer
-                        // window only authors theme values; this
-                        // section is what wires those values to
-                        // surfaces. See `themePickerSection`.
-                        themePickerSection
+                        if userLevel.canAuthorObjects {
+                            // Theme picker rows for the current card,
+                            // its background, and the stack default.
+                            // This is the primary editing surface for
+                            // theme assignment — the Theme Designer
+                            // window only authors theme values; this
+                            // section is what wires those values to
+                            // surfaces. See `themePickerSection`.
+                            themePickerSection
+                        } else {
+                            Text(userLevel.helpText)
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                     .padding()
                 }
@@ -2025,13 +2037,15 @@ struct PropertyInspector: View {
                     .font(.system(size: 10))
                     .buttonStyle(.borderless)
 
-                    Button("Scene Script") {
-                        if let sceneId = areaSpec.activeSceneEntry?.id {
-                            openScriptEditorWindow(document: $document, target: .scene(partId: part.id, sceneId: sceneId))
+                    if userLevel.canEditScripts {
+                        Button("Scene Script") {
+                            if let sceneId = areaSpec.activeSceneEntry?.id {
+                                openScriptEditorWindow(document: $document, target: .scene(partId: part.id, sceneId: sceneId))
+                            }
                         }
+                        .font(.system(size: 10))
+                        .buttonStyle(.borderless)
                     }
-                    .font(.system(size: 10))
-                    .buttonStyle(.borderless)
 
                     Button("Repository") {
                         openAssetRepositoryWindow(document: $document)
@@ -2251,13 +2265,15 @@ struct PropertyInspector: View {
                         Text(node.nodeType.rawValue)
                             .font(.system(size: 9))
                             .foregroundColor(.secondary)
-                        Button(action: {
-                            openScriptEditorWindow(document: $document, target: .node(partId: partId, nodeId: node.id))
-                        }) {
-                            Image(systemName: "applescript")
-                                .font(.system(size: 11))
+                        if userLevel.canEditScripts {
+                            Button(action: {
+                                openScriptEditorWindow(document: $document, target: .node(partId: partId, nodeId: node.id))
+                            }) {
+                                Image(systemName: "applescript")
+                                    .font(.system(size: 11))
+                            }
+                            .buttonStyle(.borderless)
                         }
-                        .buttonStyle(.borderless)
                         Button(action: { removeSceneNode(partId: partId, nodeId: node.id) }) {
                             Image(systemName: "minus.circle.fill")
                                 .foregroundColor(.red)
@@ -2946,11 +2962,13 @@ struct PropertyInspector: View {
     private func nodeDetailPanel(partId: UUID, node: HypeNodeSpec) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Button("Node Script") {
-                    openScriptEditorWindow(document: $document, target: .node(partId: partId, nodeId: node.id))
+                if userLevel.canEditScripts {
+                    Button("Node Script") {
+                        openScriptEditorWindow(document: $document, target: .node(partId: partId, nodeId: node.id))
+                    }
+                    .font(.system(size: 10))
+                    .buttonStyle(.borderless)
                 }
-                .font(.system(size: 10))
-                .buttonStyle(.borderless)
 
                 if let assetId = node.assetRef?.id {
                     Button("Reveal Asset") {

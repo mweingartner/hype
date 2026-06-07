@@ -1736,21 +1736,34 @@ class CardCanvasNSView: NSView {
     var musicControlPlaybackHandler: ((MusicControlPlaybackRequest, HypeDocument) -> Void)?
     var musicControlSustainStopHandler: ((MusicSustainedNoteSpec, HypeDocument) -> Void)?
 
-    static func effectiveMouseTool(currentTool: ToolName, runtimeModeEnabled: Bool) -> ToolName {
-        runtimeModeEnabled ? .browse : currentTool
+    static func effectiveMouseTool(
+        currentTool: ToolName,
+        runtimeModeEnabled: Bool,
+        userLevel: HypeUserLevel = .scripting
+    ) -> ToolName {
+        if runtimeModeEnabled { return .browse }
+        return ObjectToolCatalog.isTool(currentTool, availableAt: userLevel)
+            ? currentTool
+            : ObjectToolCatalog.fallbackTool(for: userLevel)
     }
 
-    static func allowsRuntimeInteraction(currentTool: ToolName, runtimeModeEnabled: Bool) -> Bool {
+    static func allowsRuntimeInteraction(
+        currentTool: ToolName,
+        runtimeModeEnabled: Bool,
+        userLevel: HypeUserLevel = .scripting
+    ) -> Bool {
         ToolState(currentTool: effectiveMouseTool(
             currentTool: currentTool,
-            runtimeModeEnabled: runtimeModeEnabled
+            runtimeModeEnabled: runtimeModeEnabled,
+            userLevel: userLevel
         ).rawValue).category == .browse
     }
 
     private var effectiveMouseTool: ToolName {
         Self.effectiveMouseTool(
             currentTool: currentTool,
-            runtimeModeEnabled: document.stack.runtimeModeEnabled
+            runtimeModeEnabled: document.stack.runtimeModeEnabled,
+            userLevel: document.stack.userLevel.hypeUserLevel
         )
     }
 
@@ -2905,6 +2918,7 @@ class CardCanvasNSView: NSView {
 
     @discardableResult
     private func focusFirstEditableField(reverse: Bool = false) -> Bool {
+        guard document.stack.userLevel.hypeUserLevel.canEditTextFields else { return false }
         let fields = Self.editableFieldTabOrder(in: document, currentCardId: currentCardId)
         guard let part = reverse ? fields.last : fields.first else { return false }
         startFieldEditing(part: part, selectText: true)
@@ -2913,6 +2927,7 @@ class CardCanvasNSView: NSView {
 
     @discardableResult
     private func moveFieldEditingFocus(reverse: Bool) -> Bool {
+        guard document.stack.userLevel.hypeUserLevel.canEditTextFields else { return false }
         let fields = Self.editableFieldTabOrder(in: document, currentCardId: currentCardId)
         guard !fields.isEmpty else { return false }
 
@@ -2940,7 +2955,8 @@ class CardCanvasNSView: NSView {
 
     private func startFieldEditing(part: Part, selectText: Bool = false) {
         // Don't edit if locked
-        guard part.partType == .field && !part.lockText else { return }
+        guard document.stack.userLevel.hypeUserLevel.canEditTextFields,
+              part.partType == .field && !part.lockText else { return }
 
         // Remove existing editor
         endFieldEditing()
@@ -3678,11 +3694,13 @@ class CardCanvasNSView: NSView {
     }
 
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        Self.paletteTool(from: sender.draggingPasteboard) != nil
+        guard let tool = Self.paletteTool(from: sender.draggingPasteboard) else { return false }
+        return ObjectToolCatalog.isTool(tool, availableAt: document.stack.userLevel.hypeUserLevel)
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let tool = Self.paletteTool(from: sender.draggingPasteboard) else {
+        guard let tool = Self.paletteTool(from: sender.draggingPasteboard),
+              ObjectToolCatalog.isTool(tool, availableAt: document.stack.userLevel.hypeUserLevel) else {
             return false
         }
         let point = convert(sender.draggingLocation, from: nil)
@@ -3709,6 +3727,7 @@ class CardCanvasNSView: NSView {
 
     private func updatePaletteDrag(from sender: NSDraggingInfo) -> Bool {
         guard let tool = Self.paletteTool(from: sender.draggingPasteboard),
+              ObjectToolCatalog.isTool(tool, availableAt: document.stack.userLevel.hypeUserLevel),
               let toolSpec = PartCreationDefaults.toolSpec(for: tool.rawValue) else {
             return false
         }
@@ -3893,7 +3912,9 @@ class CardCanvasNSView: NSView {
         // Authoring-only Browse shortcuts are disabled when the stack is in
         // runtime mode. Runtime mode still uses the Browse tool for interaction,
         // but double-clicks and Cmd-clicks must stay available to the stack.
-        let authoringBrowseMode = toolCheck.category == .browse && !document.stack.runtimeModeEnabled
+        let userLevel = document.stack.userLevel.hypeUserLevel
+        let authoringBrowseMode = toolCheck.category == .browse && !document.stack.runtimeModeEnabled && userLevel.canAuthorObjects
+        let scriptingBrowseMode = toolCheck.category == .browse && !document.stack.runtimeModeEnabled && userLevel.canEditScripts
 
         if toolCheck.category == .browse,
            let part = hitPart,
@@ -3909,7 +3930,7 @@ class CardCanvasNSView: NSView {
         // hitPart) so background parts are reachable even when
         // not in background-edit mode. If no part is hit, opens
         // the card's script editor.
-        if authoringBrowseMode && event.modifierFlags.contains(.command) {
+        if scriptingBrowseMode && event.modifierFlags.contains(.command) {
             if let part = rawHitPart {
                 NotificationCenter.default.post(
                     name: .openPartScriptEditor,
@@ -4026,6 +4047,7 @@ class CardCanvasNSView: NSView {
         case .sendMessage(let partId, let message):
             // Check if we clicked a field in browse mode — start editing
             if let part = document.parts.first(where: { $0.id == partId }),
+               document.stack.userLevel.hypeUserLevel.canEditTextFields,
                part.partType == .field && !part.lockText {
                 startFieldEditing(part: part)
                 return

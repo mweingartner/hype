@@ -60,9 +60,15 @@ enum ObjectToolCatalog {
         authoringSections.flatMap(\.tools)
     }
 
-    static func authoringSections(for targetPlatforms: [HypeTargetPlatform]) -> [ObjectToolSection] {
+    static func authoringSections(
+        for targetPlatforms: [HypeTargetPlatform],
+        userLevel: HypeUserLevel = .scripting
+    ) -> [ObjectToolSection] {
         authoringSections.compactMap { section in
             let filteredTools = section.tools.filter { tool in
+                guard isTool(tool, availableAt: userLevel) else {
+                    return false
+                }
                 guard let partType = createdPartType(for: tool) else {
                     return true
                 }
@@ -71,6 +77,23 @@ enum ObjectToolCatalog {
             guard !filteredTools.isEmpty else { return nil }
             return ObjectToolSection(title: section.title, tools: filteredTools)
         }
+    }
+
+    static func isTool(_ tool: ToolName, availableAt userLevel: HypeUserLevel) -> Bool {
+        switch tool {
+        case .browse:
+            return true
+        case .select:
+            return userLevel.canAuthorObjects
+        case .pencil, .spray, .bucket, .eraser:
+            return userLevel.canUsePaintTools
+        default:
+            return createdPartType(for: tool) != nil && userLevel.canAuthorObjects
+        }
+    }
+
+    static func fallbackTool(for userLevel: HypeUserLevel) -> ToolName {
+        userLevel.canAuthorObjects ? .select : .browse
     }
 
     static func creationTools(for targetPlatforms: [HypeTargetPlatform]) -> [ToolName] {

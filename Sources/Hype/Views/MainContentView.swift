@@ -297,6 +297,7 @@ struct MainContentView: View {
 
     private var authoringCommandContext: HypeAuthoringCommandContext {
         HypeAuthoringCommandContext(
+            userLevel: activeUserLevel,
             canDuplicateSelection: canDuplicateSelectedParts,
             duplicateSelection: duplicateSelectedParts,
             layerTransferTitle: layerTransferTitle,
@@ -306,7 +307,7 @@ struct MainContentView: View {
     }
 
     private var canDuplicateSelectedParts: Bool {
-        guard !isRuntimeMode, !selectedPartIds.isEmpty else { return false }
+        guard !isRuntimeMode, activeUserLevel.canAuthorObjects, !selectedPartIds.isEmpty else { return false }
         guard !Self.firstResponderIsTextEditor else { return false }
         return !selectedPartIds.intersection(editablePartIdsForCurrentLayer()).isEmpty
     }
@@ -316,7 +317,7 @@ struct MainContentView: View {
     }
 
     private var canTransferSelectedPartsToAlternateLayer: Bool {
-        guard !isRuntimeMode, !selectedPartIds.isEmpty else { return false }
+        guard !isRuntimeMode, activeUserLevel.canAuthorObjects, !selectedPartIds.isEmpty else { return false }
         guard !Self.firstResponderIsTextEditor else { return false }
         guard effectiveCurrentCardId != nil else { return false }
         return !selectedPartIds.intersection(editablePartIdsForCurrentLayer()).isEmpty
@@ -326,11 +327,15 @@ struct MainContentView: View {
         // Hidden in runtime mode — the entire point of runtime mode
         // is to show the stack as the end-user experiences it,
         // without authoring chrome.
-        !isRuntimeMode
+        !isRuntimeMode && activeUserLevel.canUsePaintTools
     }
 
     private var isRuntimeMode: Bool {
         document.document.stack.runtimeModeEnabled
+    }
+
+    private var activeUserLevel: HypeUserLevel {
+        document.document.stack.userLevel.hypeUserLevel
     }
 
     private var emulatedProfile: HypeDeviceProfile? {
@@ -356,6 +361,7 @@ struct MainContentView: View {
             .onAppear {
                 HypeDocumentMutationCoordinator.shared.noteDocumentOpened(document.document)
                 resetCurrentCardSelection()
+                coerceCurrentToolForUserLevel()
                 updateAutomationRegistry()
                 if !document.document.stack.deploymentTargets.selectionPromptAcknowledged && !isRuntimeMode {
                     showTargetSelectionSheet = true
@@ -477,6 +483,18 @@ struct MainContentView: View {
         )
     }
 
+    private func coerceCurrentToolForUserLevel() {
+        if !ObjectToolCatalog.isTool(currentTool, availableAt: activeUserLevel) {
+            currentTool = ObjectToolCatalog.fallbackTool(for: activeUserLevel)
+        }
+        if !activeUserLevel.canAuthorObjects {
+            selectedPartIds = []
+        }
+        if !activeUserLevel.canEditScripts {
+            showAI = false
+        }
+    }
+
     private func editablePartIdsForCurrentLayer() -> Set<UUID> {
         guard let currentCardId = effectiveCurrentCardId else { return [] }
         if editingBackground,
@@ -569,7 +587,8 @@ struct MainContentView: View {
                     currentTool: $currentTool,
                     selectedPartIds: $selectedPartIds,
                     isRuntimeMode: isRuntimeMode,
-                    targetPlatforms: document.document.stack.deploymentTargets.selectedPlatforms
+                    targetPlatforms: document.document.stack.deploymentTargets.selectedPlatforms,
+                    userLevel: activeUserLevel
                 )
                 .accessibilityIdentifier(HypeAccessibilityID.objectsPanel)
             }
@@ -612,7 +631,7 @@ struct MainContentView: View {
                 .accessibilityLabel("Next Card")
                 .accessibilityIdentifier(HypeAccessibilityID.toolbar("nextCard"))
 
-                if !isRuntimeMode {
+                if !isRuntimeMode && activeUserLevel.canAuthorObjects {
                     Divider()
 
                     Button(action: {
@@ -633,13 +652,15 @@ struct MainContentView: View {
                     .accessibilityLabel("AI Context Library")
                     .accessibilityIdentifier(HypeAccessibilityID.toolbar("aiContextLibrary"))
 
-                    Button(action: { showAI.toggle() }) {
-                        Image(systemName: "sparkles")
-                            .foregroundColor(showAI ? .accentColor : .primary)
+                    if activeUserLevel.canEditScripts {
+                        Button(action: { showAI.toggle() }) {
+                            Image(systemName: "sparkles")
+                                .foregroundColor(showAI ? .accentColor : .primary)
+                        }
+                        .help("AI Assistant")
+                        .accessibilityLabel(showAI ? "Hide AI Assistant" : "Show AI Assistant")
+                        .accessibilityIdentifier(HypeAccessibilityID.toolbar("aiAssistant"))
                     }
-                    .help("AI Assistant")
-                    .accessibilityLabel(showAI ? "Hide AI Assistant" : "Show AI Assistant")
-                    .accessibilityIdentifier(HypeAccessibilityID.toolbar("aiAssistant"))
 
                     Button(action: { showNetworkPanel = true }) {
                         Image(systemName: "antenna.radiowaves.left.and.right")
@@ -657,12 +678,15 @@ struct MainContentView: View {
             objectsPanelVisible.toggle()
         }
         .onReceive(NotificationCenter.default.publisher(for: .showTargetPlatforms)) { _ in
+            guard activeUserLevel.canAuthorObjects else { return }
             showTargetSelectionSheet = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .exportRuntimePackages)) { _ in
+            guard activeUserLevel.canAuthorObjects else { return }
             exportRuntimePackages()
         }
         .onReceive(NotificationCenter.default.publisher(for: .testStackInSimulator)) { _ in
+            guard activeUserLevel.canAuthorObjects else { return }
             showSimulatorLaunchSheet = true
         }
         .onChange(of: document.document.stack.deploymentTargets.selectedPlatforms) { _, platforms in
@@ -670,6 +694,9 @@ struct MainContentView: View {
                !PartAvailabilityCatalog.supports(partType, across: platforms) {
                 currentTool = .select
             }
+        }
+        .onChange(of: document.document.stack.userLevel) { _, _ in
+            coerceCurrentToolForUserLevel()
         }
         .onReceive(NotificationCenter.default.publisher(for: .setTargetEmulation)) { notification in
             let profileId = notification.userInfo?["profileId"] as? String
@@ -796,10 +823,11 @@ struct MainContentView: View {
         if showInspector {
             PropertyInspector(document: trackedDocumentBinding, selectedPartIds: $selectedPartIds,
                               currentTool: currentTool, currentCardId: effectiveCurrentCardId,
-                              paintColor: $paintColor, pencilRadius: $pencilRadius)
+                              paintColor: $paintColor, pencilRadius: $pencilRadius,
+                              userLevel: activeUserLevel)
             .accessibilityIdentifier(HypeAccessibilityID.propertyInspector)
         }
-        if showAI {
+        if showAI && activeUserLevel.canEditScripts {
             AIChatPanel(document: trackedDocumentBinding, currentCardId: $currentCardId)
                 .accessibilityIdentifier(HypeAccessibilityID.aiAssistant)
         }
@@ -1194,6 +1222,7 @@ private struct ThemeDesignerHandler: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: .openThemeDesigner)) { _ in
+                guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
                 // The Edit > Themes... menu item AND the "Edit
                 // Themes..." button inside the PropertyInspector
                 // both post this notification. The opener is
@@ -1203,6 +1232,7 @@ private struct ThemeDesignerHandler: ViewModifier {
                 openThemeDesignerWindow(document: $document)
             }
             .onReceive(NotificationCenter.default.publisher(for: .openAIContextLibrary)) { _ in
+                guard document.document.stack.userLevel.hypeUserLevel.canEditScripts else { return }
                 openAIContextLibraryWindow(document: $document)
             }
     }
@@ -1229,6 +1259,7 @@ private struct ScriptErrorConsoleHandlers: ViewModifier {
     private func openScriptErrorLink(notification: Notification) {
         guard let url = notification.userInfo?["url"] as? URL else { return }
         if let request = makeScriptErrorOpenRequest(from: url) {
+            guard document.document.stack.userLevel.hypeUserLevel.canEditScripts else { return }
             revealScriptTarget(request.target)
             openScriptEditorWindow(
                 document: $document,
@@ -1399,6 +1430,8 @@ private struct NavigationHandlers: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: .selectTool)) { notification in
                 guard let tool = notification.object as? ToolName else { return }
+                let userLevel = document.document.stack.userLevel.hypeUserLevel
+                guard ObjectToolCatalog.isTool(tool, availableAt: userLevel) else { return }
                 if let partType = ObjectToolCatalog.createdPartType(for: tool),
                    !PartAvailabilityCatalog.supports(partType, across: document.document.stack.deploymentTargets.selectedPlatforms) {
                     return
@@ -1418,28 +1451,35 @@ private struct NavigationHandlers: ViewModifier {
                 ProjectNavigationRouter.route(target)
             }
             .onReceive(NotificationCenter.default.publisher(for: .addNewCard)) { _ in
+                guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
                 addNewCard()
             }
             .onReceive(NotificationCenter.default.publisher(for: .deleteCurrentCard)) { _ in
+                guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
                 deleteCurrentCard()
             }
             .onReceive(NotificationCenter.default.publisher(for: .addNewBackground)) { _ in
+                guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
                 addNewBackgroundFlow()
             }
             .onReceive(NotificationCenter.default.publisher(for: .toggleEditBackground)) { notification in
+                guard document.document.stack.userLevel.hypeUserLevel.canUsePaintTools else { return }
                 editingBackground = (notification.object as? Bool) ?? false
                 selectedPartIds = []
             }
             .onReceive(NotificationCenter.default.publisher(for: .editPartProperties)) { notification in
+                guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
                 if let partId = notification.object as? UUID {
                     selectedPartIds = document.document.expandedGroupSelection([partId])
                     currentTool = .select
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .toggleAI)) { _ in
+                guard document.document.stack.userLevel.hypeUserLevel.canEditScripts else { return }
                 showAI.toggle()
             }
             .onReceive(NotificationCenter.default.publisher(for: .openAssetRepository)) { _ in
+                guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
                 // The menu/shortcut no longer toggles a sheet —
                 // it opens (or surfaces) the detached browser
                 // window. openAssetRepositoryWindow is idempotent:
@@ -1477,6 +1517,7 @@ private struct NavigationHandlers: ViewModifier {
     /// line pre-highlighted. Falls back gracefully if any field is
     /// missing so a malformed notification never crashes the UI.
     private func openScriptErrorEditor(notification: Notification) {
+        guard document.document.stack.userLevel.hypeUserLevel.canEditScripts else { return }
         let info = notification.userInfo ?? [:]
         let target = resolvedScriptTarget(from: info)
         let line = info["line"] as? Int
@@ -1492,6 +1533,7 @@ private struct NavigationHandlers: ViewModifier {
     }
 
     private func openPartScriptEditor(notification: Notification) {
+        guard document.document.stack.userLevel.hypeUserLevel.canEditScripts else { return }
         // Cmd+click in browse mode: open the script editor for the
         // clicked part, or the current card when clicking empty space.
         let info = notification.userInfo ?? [:]
@@ -1537,6 +1579,7 @@ private struct NavigationHandlers: ViewModifier {
     }
 
     private func revealSpriteNode(notification: Notification) {
+        guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
         let info = notification.userInfo ?? [:]
         guard let partId = info["partId"] as? UUID else { return }
 
@@ -1775,6 +1818,7 @@ private struct ArrangeHandlers: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: .groupSelection)) { _ in
+                guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
                 if let groupId = document.document.groupParts(ids: selectedPartIds) {
                     selectedPartIds = document.document.expandedGroupSelection(
                         Set(document.document.parts.filter { $0.groupId == groupId }.map(\.id))
@@ -1782,21 +1826,26 @@ private struct ArrangeHandlers: ViewModifier {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .ungroupSelection)) { _ in
+                guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
                 let affected = document.document.ungroupParts(ids: selectedPartIds)
                 if !affected.isEmpty {
                     selectedPartIds = affected
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .bringForward)) { _ in
+                guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
                 document.document.bringForward(ids: selectedPartIds)
             }
             .onReceive(NotificationCenter.default.publisher(for: .sendBackward)) { _ in
+                guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
                 document.document.sendBackward(ids: selectedPartIds)
             }
             .onReceive(NotificationCenter.default.publisher(for: .bringToFront)) { _ in
+                guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
                 document.document.bringToFront(ids: selectedPartIds)
             }
             .onReceive(NotificationCenter.default.publisher(for: .sendToBack)) { _ in
+                guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
                 document.document.sendToBack(ids: selectedPartIds)
             }
     }
@@ -1851,6 +1900,7 @@ private struct AlignmentHandlers: ViewModifier {
     }
 
     private func alignSelectedParts(_ alignment: AlignmentType) {
+        guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
         let units = document.document.selectionUnits(for: selectedPartIds)
         guard units.count >= 2 else { return }
 

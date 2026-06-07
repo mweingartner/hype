@@ -331,6 +331,8 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
             "currentCardName": .string(document.cards.first(where: { $0.id == currentCardId })?.name ?? ""),
             "selectedPartIds": .array(selectedPartIds.map { .string($0.uuidString) }),
             "currentTool": .string(currentTool),
+            "userLevel": .number(Double(document.stack.userLevel)),
+            "userLevelName": .string(document.stack.userLevel.hypeUserLevel.displayName),
             "editingBackground": .bool(editingBackground),
             "allowMutations": .bool(allowMutations),
             "mcp": .object([
@@ -351,6 +353,8 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
             "partCount": .number(Double(document.parts.count)),
             "currentCardId": .string(currentCardId.uuidString),
             "runtimeModeEnabled": .bool(document.stack.runtimeModeEnabled),
+            "userLevel": .number(Double(document.stack.userLevel)),
+            "userLevelName": .string(document.stack.userLevel.hypeUserLevel.displayName),
             "aiContextItemCount": .number(Double(document.aiContextLibrary.itemCount)),
             "aiContextCloudSharingAllowed": .bool(document.stack.aiContextCloudSharingAllowed),
             "aiContextPolicy": .string(aiContextPolicy.stateDescription),

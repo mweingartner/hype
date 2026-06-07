@@ -7,6 +7,16 @@ import HypeCore
 /// management items live alongside the navigation verbs they relate
 /// to, rather than being split across Go and Objects.
 struct GoMenuCommands: Commands {
+    @FocusedValue(\.hypeAuthoringCommandContext) private var authoringCommands
+
+    private var canUsePaintTools: Bool {
+        authoringCommands?.userLevel.canUsePaintTools ?? false
+    }
+
+    private var canAuthorObjects: Bool {
+        authoringCommands?.userLevel.canAuthorObjects ?? false
+    }
+
     var body: some Commands {
         CommandMenu("Go") {
             Button("First Card") { NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.first) }
@@ -22,14 +32,19 @@ struct GoMenuCommands: Commands {
 
             Button("New Card") { NotificationCenter.default.post(name: .addNewCard, object: nil) }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
+                .disabled(!canAuthorObjects)
             Button("Delete Current Card") { NotificationCenter.default.post(name: .deleteCurrentCard, object: nil) }
+                .disabled(!canAuthorObjects)
 
             Divider()
 
             Button("Edit Card") { NotificationCenter.default.post(name: .toggleEditBackground, object: false) }
+                .disabled(!canUsePaintTools)
             Button("Edit Background") { NotificationCenter.default.post(name: .toggleEditBackground, object: true) }
                 .keyboardShortcut("b", modifiers: [.command, .shift])
+                .disabled(!canUsePaintTools)
             Button("New Background…") { NotificationCenter.default.post(name: .addNewBackground, object: nil) }
+                .disabled(!canAuthorObjects)
         }
     }
 }
@@ -45,35 +60,41 @@ struct GoMenuCommands: Commands {
 /// canvas into the calendar drag-to-create mode just like clicking
 /// the calendar icon in the left panel.
 struct ObjectsMenuCommands: Commands {
+    @FocusedValue(\.hypeAuthoringCommandContext) private var authoringCommands
+
+    private var canAuthorObjects: Bool {
+        authoringCommands?.userLevel.canAuthorObjects ?? false
+    }
+
     var body: some Commands {
         CommandMenu("Objects") {
             // Basic objects.
             Group {
-                Button("Button") { NotificationCenter.default.post(name: .selectTool, object: ToolName.button) }
-                Button("Field") { NotificationCenter.default.post(name: .selectTool, object: ToolName.field) }
-                Button("Shape") { NotificationCenter.default.post(name: .selectTool, object: ToolName.shape) }
-                Button("Image") { NotificationCenter.default.post(name: .selectTool, object: ToolName.image) }
-                Button("Web Page") { NotificationCenter.default.post(name: .selectTool, object: ToolName.webpage) }
-                Button("Video") { NotificationCenter.default.post(name: .selectTool, object: ToolName.video) }
-                Button("Chart") { NotificationCenter.default.post(name: .selectTool, object: ToolName.chart) }
+                Button("Button") { NotificationCenter.default.post(name: .selectTool, object: ToolName.button) }.disabled(!canAuthorObjects)
+                Button("Field") { NotificationCenter.default.post(name: .selectTool, object: ToolName.field) }.disabled(!canAuthorObjects)
+                Button("Shape") { NotificationCenter.default.post(name: .selectTool, object: ToolName.shape) }.disabled(!canAuthorObjects)
+                Button("Image") { NotificationCenter.default.post(name: .selectTool, object: ToolName.image) }.disabled(!canAuthorObjects)
+                Button("Web Page") { NotificationCenter.default.post(name: .selectTool, object: ToolName.webpage) }.disabled(!canAuthorObjects)
+                Button("Video") { NotificationCenter.default.post(name: .selectTool, object: ToolName.video) }.disabled(!canAuthorObjects)
+                Button("Chart") { NotificationCenter.default.post(name: .selectTool, object: ToolName.chart) }.disabled(!canAuthorObjects)
             }
 
             Divider()
 
             // Framework-backed controls (Phase 1 + 2 roadmap items).
             Group {
-                Button("Calendar") { NotificationCenter.default.post(name: .selectTool, object: ToolName.calendar) }
-                Button("PDF Viewer") { NotificationCenter.default.post(name: .selectTool, object: ToolName.pdf) }
-                Button("Map") { NotificationCenter.default.post(name: .selectTool, object: ToolName.map) }
-                Button("Color Well") { NotificationCenter.default.post(name: .selectTool, object: ToolName.colorWell) }
-                Button("Audio Recorder") { NotificationCenter.default.post(name: .selectTool, object: ToolName.audioRecorder) }
-                Button("Music Player") { NotificationCenter.default.post(name: .selectTool, object: ToolName.musicPlayer) }
-                Button("Piano Keyboard") { NotificationCenter.default.post(name: .selectTool, object: ToolName.pianoKeyboard) }
-                Button("Step Sequencer") { NotificationCenter.default.post(name: .selectTool, object: ToolName.stepSequencer) }
-                Button("Music Mixer") { NotificationCenter.default.post(name: .selectTool, object: ToolName.musicMixer) }
-                Button("MusicKit Search") { NotificationCenter.default.post(name: .selectTool, object: ToolName.appleMusicBrowser) }
-                Button("3D Scene") { NotificationCenter.default.post(name: .selectTool, object: ToolName.scene3D) }
-                Button("Sprite Area") { NotificationCenter.default.post(name: .selectTool, object: ToolName.spriteArea) }
+                Button("Calendar") { NotificationCenter.default.post(name: .selectTool, object: ToolName.calendar) }.disabled(!canAuthorObjects)
+                Button("PDF Viewer") { NotificationCenter.default.post(name: .selectTool, object: ToolName.pdf) }.disabled(!canAuthorObjects)
+                Button("Map") { NotificationCenter.default.post(name: .selectTool, object: ToolName.map) }.disabled(!canAuthorObjects)
+                Button("Color Well") { NotificationCenter.default.post(name: .selectTool, object: ToolName.colorWell) }.disabled(!canAuthorObjects)
+                Button("Audio Recorder") { NotificationCenter.default.post(name: .selectTool, object: ToolName.audioRecorder) }.disabled(!canAuthorObjects)
+                Button("Music Player") { NotificationCenter.default.post(name: .selectTool, object: ToolName.musicPlayer) }.disabled(!canAuthorObjects)
+                Button("Piano Keyboard") { NotificationCenter.default.post(name: .selectTool, object: ToolName.pianoKeyboard) }.disabled(!canAuthorObjects)
+                Button("Step Sequencer") { NotificationCenter.default.post(name: .selectTool, object: ToolName.stepSequencer) }.disabled(!canAuthorObjects)
+                Button("Music Mixer") { NotificationCenter.default.post(name: .selectTool, object: ToolName.musicMixer) }.disabled(!canAuthorObjects)
+                Button("MusicKit Search") { NotificationCenter.default.post(name: .selectTool, object: ToolName.appleMusicBrowser) }.disabled(!canAuthorObjects)
+                Button("3D Scene") { NotificationCenter.default.post(name: .selectTool, object: ToolName.scene3D) }.disabled(!canAuthorObjects)
+                Button("Sprite Area") { NotificationCenter.default.post(name: .selectTool, object: ToolName.spriteArea) }.disabled(!canAuthorObjects)
             }
 
             Divider()
@@ -82,12 +103,12 @@ struct ObjectsMenuCommands: Commands {
             // Toggle removed in dedup — create as button + .toggle
             // style instead.
             Group {
-                Button("Stepper") { NotificationCenter.default.post(name: .selectTool, object: ToolName.stepper) }
-                Button("Slider") { NotificationCenter.default.post(name: .selectTool, object: ToolName.slider) }
-                Button("Segmented Control") { NotificationCenter.default.post(name: .selectTool, object: ToolName.segmented) }
-                Button("Progress View") { NotificationCenter.default.post(name: .selectTool, object: ToolName.progressView) }
-                Button("Gauge") { NotificationCenter.default.post(name: .selectTool, object: ToolName.gauge) }
-                Button("Divider") { NotificationCenter.default.post(name: .selectTool, object: ToolName.divider) }
+                Button("Stepper") { NotificationCenter.default.post(name: .selectTool, object: ToolName.stepper) }.disabled(!canAuthorObjects)
+                Button("Slider") { NotificationCenter.default.post(name: .selectTool, object: ToolName.slider) }.disabled(!canAuthorObjects)
+                Button("Segmented Control") { NotificationCenter.default.post(name: .selectTool, object: ToolName.segmented) }.disabled(!canAuthorObjects)
+                Button("Progress View") { NotificationCenter.default.post(name: .selectTool, object: ToolName.progressView) }.disabled(!canAuthorObjects)
+                Button("Gauge") { NotificationCenter.default.post(name: .selectTool, object: ToolName.gauge) }.disabled(!canAuthorObjects)
+                Button("Divider") { NotificationCenter.default.post(name: .selectTool, object: ToolName.divider) }.disabled(!canAuthorObjects)
             }
         }
     }
@@ -141,19 +162,34 @@ struct ArrangeMenuCommands: Commands {
 /// the new View menu; the dead Asset Repository entry moved to
 /// Window where it belongs.
 struct ToolsMenuCommands: Commands {
+    @FocusedValue(\.hypeAuthoringCommandContext) private var authoringCommands
+
+    private var canUsePaintTools: Bool {
+        authoringCommands?.userLevel.canUsePaintTools ?? false
+    }
+
+    private var canAuthorObjects: Bool {
+        authoringCommands?.userLevel.canAuthorObjects ?? false
+    }
+
     var body: some Commands {
         CommandMenu("Tools") {
             Button("Browse") { NotificationCenter.default.post(name: .selectTool, object: ToolName.browse) }
                 .keyboardShortcut("b", modifiers: .command)
             Button("Select") { NotificationCenter.default.post(name: .selectTool, object: ToolName.select) }
+                .disabled(!canAuthorObjects)
 
             Divider()
 
             // Raster paint tools.
             Button("Pencil") { NotificationCenter.default.post(name: .selectTool, object: ToolName.pencil) }
+                .disabled(!canUsePaintTools)
             Button("Spray") { NotificationCenter.default.post(name: .selectTool, object: ToolName.spray) }
+                .disabled(!canUsePaintTools)
             Button("Bucket Fill") { NotificationCenter.default.post(name: .selectTool, object: ToolName.bucket) }
+                .disabled(!canUsePaintTools)
             Button("Eraser") { NotificationCenter.default.post(name: .selectTool, object: ToolName.eraser) }
+                .disabled(!canUsePaintTools)
         }
     }
 }
@@ -166,6 +202,15 @@ struct ToolsMenuCommands: Commands {
 /// avoid a duplicate top-level View menu.
 struct ViewMenuCommands: Commands {
     @AppStorage("hypeObjectsPanelVisible") private var objectsPanelVisible: Bool = true
+    @FocusedValue(\.hypeAuthoringCommandContext) private var authoringCommands
+
+    private var canAuthorObjects: Bool {
+        authoringCommands?.userLevel.canAuthorObjects ?? false
+    }
+
+    private var canEditScripts: Bool {
+        authoringCommands?.userLevel.canEditScripts ?? false
+    }
 
     var body: some Commands {
         CommandGroup(after: .toolbar) {
@@ -188,16 +233,19 @@ struct ViewMenuCommands: Commands {
                 NotificationCenter.default.post(name: .showTargetPlatforms, object: nil)
             }
             .help("Choose the stack's deployment targets and primary design target")
+            .disabled(!canAuthorObjects)
 
             Button("Export Runtime Packages…") {
                 NotificationCenter.default.post(name: .exportRuntimePackages, object: nil)
             }
             .help("Generate runtime-only package artifacts for the selected target platforms")
+            .disabled(!canAuthorObjects)
 
             Button("Test Stack in Simulator…") {
                 NotificationCenter.default.post(name: .testStackInSimulator, object: nil)
             }
             .help("Build the current stack as a runtime-only app and launch it in Apple Simulator")
+            .disabled(!canAuthorObjects)
 
             Menu("Emulate Target Device") {
                 Button("Off") {
@@ -219,6 +267,7 @@ struct ViewMenuCommands: Commands {
                 NotificationCenter.default.post(name: .toggleAI, object: nil)
             }
             .keyboardShortcut("i", modifiers: [.command, .shift])
+            .disabled(!canEditScripts)
 
             Button("Show Console") {
                 NotificationCenter.default.post(name: .showConsole, object: nil)
@@ -370,6 +419,16 @@ struct AIMenuCommands: Commands {
 /// Console moved to View since it's a transient toggleable panel,
 /// not a true window.
 struct WindowMenuCommands: Commands {
+    @FocusedValue(\.hypeAuthoringCommandContext) private var authoringCommands
+
+    private var canAuthorObjects: Bool {
+        authoringCommands?.userLevel.canAuthorObjects ?? false
+    }
+
+    private var canEditScripts: Bool {
+        authoringCommands?.userLevel.canEditScripts ?? false
+    }
+
     var body: some Commands {
         CommandGroup(after: .windowList) {
             Divider()
@@ -377,14 +436,17 @@ struct WindowMenuCommands: Commands {
                 NotificationCenter.default.post(name: .openAssetRepository, object: nil)
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
+            .disabled(!canAuthorObjects)
             Button("AI Context Library") {
                 NotificationCenter.default.post(name: .openAIContextLibrary, object: nil)
             }
             .keyboardShortcut("k", modifiers: [.command, .shift])
+            .disabled(!canEditScripts)
             Button("Theme Designer") {
                 NotificationCenter.default.post(name: .openThemeDesigner, object: nil)
             }
             .keyboardShortcut("t", modifiers: [.command, .shift])
+            .disabled(!canAuthorObjects)
         }
     }
 }

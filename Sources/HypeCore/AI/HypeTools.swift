@@ -1612,8 +1612,9 @@ public struct HypeToolDefinitions {
         // ------------------------------------------------------------------
 
         makeTool(name: "set_stack_property", description: """
-            Set a stack-level property: width, height, name, defaultFont, theme. `width` and `height` \
+            Set a stack-level property: width, height, name, defaultFont, userLevel, theme. `width` and `height` \
             control the canvas size in points. `defaultFont` applies to new parts. \
+            `userLevel` is HyperCard-compatible authoring access: 1 browsing, 2 typing, 3 painting, 4 authoring, 5 scripting. \
             `webAssetsAllowed` toggles the stack's AI web-asset search permission. \
             `runtimeMode` controls whether the stack opens in end-user runtime mode. \
             `runtimeAIProviderPolicy` is automatic, appleFoundationModels, or disabled for deployed runtimes. \
@@ -1623,7 +1624,7 @@ public struct HypeToolDefinitions {
             `theme` accepts any theme name from `list_themes`; empty value resets to the fallback theme. \
             Use this instead of set_part_property — the stack is not a part.
             """, params: [
-            "property": ("string", "Property name: width, height, name, defaultFont, webAssetsAllowed, runtimeMode, runtimeAIProviderPolicy, runtimeAIToolsAllowed, runtimeAIAllowedTools, runtimeAIPersistTranscript, targetPlatforms, primaryTargetPlatform, layoutPolicy, aiContextCloudSharingAllowed, theme", true),
+            "property": ("string", "Property name: width, height, name, defaultFont, userLevel, webAssetsAllowed, runtimeMode, runtimeAIProviderPolicy, runtimeAIToolsAllowed, runtimeAIAllowedTools, runtimeAIPersistTranscript, targetPlatforms, primaryTargetPlatform, layoutPolicy, aiContextCloudSharingAllowed, theme", true),
             "value": ("string", "New value (numeric for width/height, string for name/defaultFont)", true),
         ]),
 
@@ -1728,7 +1729,7 @@ public struct HypeToolDefinitions {
         // ------------------------------------------------------------------
 
         makeTool(name: "get_stack_property", description: """
-            Read a stack-level property: name, width, height, defaultFont, script, theme, \
+            Read a stack-level property: name, width, height, defaultFont, userLevel, script, theme, \
             webAssetsAllowed, runtimeMode, targetPlatforms, primaryTargetPlatform, \
             layoutPolicy, \
             runtimeAIProviderPolicy, runtimeAIToolsAllowed, runtimeAIAllowedTools, runtimeAIPersistTranscript, \

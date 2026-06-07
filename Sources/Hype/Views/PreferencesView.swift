@@ -53,11 +53,13 @@ struct PreferencesView: View {
     @State private var selectedCategory: PreferenceCategory = .ai
     @State private var debugStatus: HypeDebugServerStatus?
     @State private var aiContextCloudWarning: AIContextCloudWarning?
+    @State private var userLevelSelection = UserLevelPreferenceSelection()
 
     private enum PreferenceCategory: String, CaseIterable, Hashable {
         case ai = "AI"
         case services = "Services"
         case debug = "Debug"
+        case authoring = "Authoring"
         case speech = "Speech"
         case assets = "Assets"
         case context = "Context"
@@ -68,6 +70,8 @@ struct PreferencesView: View {
                 "sparkles"
             case .services:
                 "cube"
+            case .authoring:
+                "person.crop.circle.badge.checkmark"
             case .speech:
                 "waveform"
             case .assets:
@@ -159,6 +163,10 @@ struct PreferencesView: View {
                 .tabItem { Label(PreferenceCategory.debug.rawValue, systemImage: PreferenceCategory.debug.systemImage) }
                 .tag(PreferenceCategory.debug)
 
+            authoringSettings
+                .tabItem { Label(PreferenceCategory.authoring.rawValue, systemImage: PreferenceCategory.authoring.systemImage) }
+                .tag(PreferenceCategory.authoring)
+
             speechSettings
                 .tabItem { Label(PreferenceCategory.speech.rawValue, systemImage: PreferenceCategory.speech.systemImage) }
                 .tag(PreferenceCategory.speech)
@@ -179,6 +187,7 @@ struct PreferencesView: View {
         // text fields keep their labels readable on themed bg.
         .environment(\.colorScheme, hypeTheme.chromeColorScheme)
         .onAppear {
+            syncUserLevelSelectionFromDocument()
             fetchModels()
             pexelsKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.pexelsAPIKeyAccount)
             openAIKeyIsSet = hasUsableSecret(account: KeychainStore.openAIAPIKeyAccount)
@@ -189,6 +198,9 @@ struct PreferencesView: View {
         }
         .onChange(of: aiProviderRaw) { _, _ in
             fetchModels()
+        }
+        .onChange(of: document?.document.stack.userLevel) { _, _ in
+            syncUserLevelSelectionFromDocument()
         }
         .alert(item: $aiContextCloudWarning) { warning in
             Alert(
@@ -626,6 +638,29 @@ struct PreferencesView: View {
         }
     }
 
+    private var authoringSettings: some View {
+        settingsForm {
+            Section("Current Stack User Level") {
+                Picker("User Level", selection: currentStackUserLevelSelectionBinding) {
+                    ForEach(HypeUserLevel.allCases) { level in
+                        Text(level.preferenceLabel).tag(level.rawValue)
+                    }
+                }
+                .disabled(document == nil)
+
+                Text(currentStackUserLevelHelpText)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("User Level is saved inside the stack and is available to HypeTalk as `the userLevel`. It gates Hype's authoring UI; it is not a security boundary.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
     private var assetSettings: some View {
         settingsForm {
             // MARK: - Web Asset Search section
@@ -845,6 +880,33 @@ struct PreferencesView: View {
     }
 
     // MARK: - Current Stack Binding
+
+    private var currentStackUserLevelSelectionBinding: Binding<Int> {
+        Binding(
+            get: {
+                userLevelSelection.rawValue
+            },
+            set: { newValue in
+                setCurrentStackUserLevel(newValue)
+            }
+        )
+    }
+
+    private var currentStackUserLevelHelpText: String {
+        guard document != nil else { return "Open a stack to set its user level." }
+        return userLevelSelection.userLevel.helpText
+    }
+
+    private func syncUserLevelSelectionFromDocument() {
+        userLevelSelection.sync(stackRawValue: document?.document.stack.userLevel)
+    }
+
+    private func setCurrentStackUserLevel(_ newValue: Int) {
+        let rawValue = userLevelSelection.select(newValue)
+        guard var wrapper = document else { return }
+        wrapper.document.stack.userLevel = rawValue
+        document = wrapper
+    }
 
     /// A `Binding<Bool>` that reads `webAssetsAllowed` from the passed-in document
     /// and re-resolves the front document at write time via the binding chain.
@@ -1507,5 +1569,32 @@ struct PreferencesView: View {
                 // Silently fail -- models stay empty until user refreshes
             }
         }
+    }
+}
+
+struct UserLevelPreferenceSelection: Equatable {
+    private(set) var rawValue: Int
+
+    init(stackRawValue: Int? = nil) {
+        self.rawValue = Self.normalized(stackRawValue)
+    }
+
+    var userLevel: HypeUserLevel {
+        rawValue.hypeUserLevel
+    }
+
+    mutating func sync(stackRawValue: Int?) {
+        rawValue = Self.normalized(stackRawValue)
+    }
+
+    @discardableResult
+    mutating func select(_ newValue: Int) -> Int {
+        let normalized = Self.normalized(newValue)
+        rawValue = normalized
+        return normalized
+    }
+
+    static func normalized(_ rawValue: Int?) -> Int {
+        HypeUserLevel.clamped(rawValue ?? HypeUserLevel.scripting.rawValue).rawValue
     }
 }

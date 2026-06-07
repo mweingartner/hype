@@ -1,6 +1,8 @@
 import SwiftUI
+import HypeCore
 
 struct HypeAuthoringCommandContext {
+    var userLevel: HypeUserLevel
     var canDuplicateSelection: Bool
     var duplicateSelection: () -> Void
     var layerTransferTitle: String

@@ -63,6 +63,13 @@ public struct Stack: Identifiable, Codable, Sendable {
     /// instead of inheriting whatever the last local editor window used.
     public var runtimeModeEnabled: Bool
 
+    /// HyperCard-compatible authoring capability level for this stack.
+    ///
+    /// Defaults to Scripting (5) to preserve Hype's existing full-authoring
+    /// behavior for newly created and legacy stacks. Lower values hide or
+    /// disable authoring surfaces progressively.
+    public var userLevel: Int
+
     /// The deployment target contract for this stack.
     ///
     /// New stacks default to macOS but must ask the user to confirm/select
@@ -97,6 +104,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         case appleMusicAllowed
         case fileAccessAllowed
         case runtimeModeEnabled
+        case userLevel
         case deploymentTargets
         case runtimeAISettings
         case themeName
@@ -118,6 +126,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         appleMusicAllowed: Bool = false,
         fileAccessAllowed: Bool = false,
         runtimeModeEnabled: Bool = false,
+        userLevel: Int = HypeUserLevel.scripting.rawValue,
         deploymentTargets: StackDeploymentTargets = .macOSDefault(selectionPromptAcknowledged: false),
         runtimeAISettings: RuntimeAISettings = .defaultRuntime,
         themeName: String = "System"
@@ -137,6 +146,7 @@ public struct Stack: Identifiable, Codable, Sendable {
         self.appleMusicAllowed = appleMusicAllowed
         self.fileAccessAllowed = fileAccessAllowed
         self.runtimeModeEnabled = runtimeModeEnabled
+        self.userLevel = HypeUserLevel.clamped(userLevel).rawValue
         self.deploymentTargets = deploymentTargets
         self.runtimeAISettings = runtimeAISettings
         self.themeName = themeName
@@ -165,6 +175,10 @@ public struct Stack: Identifiable, Codable, Sendable {
         fileAccessAllowed = try c.decodeIfPresent(Bool.self, forKey: .fileAccessAllowed) ?? false
         // Backward-compatible: pre-runtime-mode stacks open in edit mode.
         runtimeModeEnabled = try c.decodeIfPresent(Bool.self, forKey: .runtimeModeEnabled) ?? false
+        // Backward-compatible: pre-userLevel stacks keep full authoring access.
+        userLevel = HypeUserLevel.clamped(
+            try c.decodeIfPresent(Int.self, forKey: .userLevel) ?? HypeUserLevel.scripting.rawValue
+        ).rawValue
         // Backward-compatible: existing stacks are macOS-only and should not be
         // forced through the new-stack target wizard on first open.
         deploymentTargets = try c.decodeIfPresent(StackDeploymentTargets.self, forKey: .deploymentTargets)

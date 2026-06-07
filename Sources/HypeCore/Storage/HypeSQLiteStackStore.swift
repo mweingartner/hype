@@ -119,7 +119,7 @@ public enum HypeSQLiteStackStoreError: Error, LocalizedError, Equatable {
 }
 
 public final class HypeSQLiteStackStore {
-    public static let schemaVersion = 7
+    public static let schemaVersion = 8
     public static let manifestFileName = "manifest.json"
     public static let sqliteFileName = "stack.sqlite"
 
@@ -456,6 +456,7 @@ public final class HypeSQLiteStackStore {
                 default_font TEXT NOT NULL,
                 theme_name TEXT NOT NULL,
                 runtime_mode_enabled INTEGER NOT NULL,
+                user_level INTEGER NOT NULL,
                 web_assets_allowed INTEGER NOT NULL,
                 ai_context_cloud_allowed INTEGER NOT NULL,
                 meshy_enabled INTEGER NOT NULL,
@@ -788,9 +789,9 @@ public final class HypeSQLiteStackStore {
             """
             INSERT INTO stacks (
                 id, name, width, height, created_at, modified_at, default_font,
-                theme_name, runtime_mode_enabled, web_assets_allowed,
+                theme_name, runtime_mode_enabled, user_level, web_assets_allowed,
                 ai_context_cloud_allowed, meshy_enabled, script_id, payload_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 .text(document.stack.id.uuidString),
@@ -802,6 +803,7 @@ public final class HypeSQLiteStackStore {
                 .text(document.stack.defaultFont),
                 .text(document.stack.themeName),
                 .int(document.stack.runtimeModeEnabled.sqliteInt),
+                .int(Int64(document.stack.userLevel)),
                 .int(document.stack.webAssetsAllowed.sqliteInt),
                 .int(document.stack.aiContextCloudSharingAllowed.sqliteInt),
                 .int(document.stack.meshyEnabled.sqliteInt),

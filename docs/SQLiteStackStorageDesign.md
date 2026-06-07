@@ -122,10 +122,16 @@ Schema version 6 projects deployed-runtime AI policy into
 of truth; the table exists for diagnostics, target-runtime export checks, and
 search/reporting tools.
 
-Schema version 7 is the current writer version. It keeps the v6 relational
-shape and persists imported multi-stack project metadata as
-`document_values.stackLibrary` when `HypeDocument.stackLibrary` is non-empty.
-Older packages without that document value decode to an empty `HypeStackLibrary`.
+Schema version 7 keeps the v6 relational shape and persists imported multi-stack
+project metadata as `document_values.stackLibrary` when
+`HypeDocument.stackLibrary` is non-empty. Older packages without that document
+value decode to an empty `HypeStackLibrary`.
+
+Schema version 8 is the current writer version. It projects
+`Stack.userLevel` into `stacks.user_level` for quick diagnostics while keeping
+`stacks.payload_json` as the source of truth. Older packages without the
+`userLevel` payload field decode to Scripting level (5), preserving full
+authoring behavior.
 
 ## Document Version Migrations
 

@@ -71,6 +71,34 @@ struct AIToolPropertyScopeTests {
         #expect(result == "true")
     }
 
+    @Test("set_stack_property updates userLevel")
+    func setStackPropertyUserLevel() async {
+        var doc = HypeDocument.newDocument(name: "Props")
+        let executor = HypeToolExecutor()
+        let result = await executor.execute(
+            toolName: "set_stack_property",
+            arguments: ["property": "userLevel", "value": "authoring"],
+            document: &doc,
+            currentCardId: doc.cards[0].id
+        )
+        #expect(result.contains("userLevel"))
+        #expect(doc.stack.userLevel == HypeUserLevel.authoring.rawValue)
+    }
+
+    @Test("get_stack_property reads userLevel")
+    func getStackPropertyUserLevel() async {
+        var doc = HypeDocument.newDocument(name: "Props")
+        doc.stack.userLevel = HypeUserLevel.painting.rawValue
+        let executor = HypeToolExecutor()
+        let result = await executor.execute(
+            toolName: "get_stack_property",
+            arguments: ["property": "userLevel"],
+            document: &doc,
+            currentCardId: doc.cards[0].id
+        )
+        #expect(result == "3")
+    }
+
     @Test("get_card_property returns the current card background name")
     func getCardPropertyBackgroundName() async {
         var doc = HypeDocument.newDocument(name: "Props")

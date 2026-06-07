@@ -580,9 +580,19 @@ the undo stack. AI transaction application and script/runtime side effects pass
 through the same binding path, so accepted multi-tool edits and HypeTalk
 document mutations participate in the same save/undo pipeline as manual edits.
 Stack-authored mode flags that affect portability, including
-`Stack.runtimeModeEnabled` and `Stack.runtimeAISettings`, live in the stack model rather than `UserDefaults`;
+`Stack.runtimeModeEnabled`, `Stack.runtimeAISettings`, and the HyperCard-compatible
+`Stack.userLevel`, live in the stack model rather than `UserDefaults`;
 purely local window geometry, selected AI provider, and API keys remain local
 app preferences or Keychain entries.
+
+`Stack.userLevel` is a progressive authoring capability level saved with the
+stack: 1 Browsing, 2 Typing, 3 Painting, 4 Authoring, 5 Scripting. It drives the
+left `ObjectsToolPanel`, top-level menu availability, inline field editing,
+paint-tool access, property inspector/script-editor affordances, accessibility
+actions, AI authoring visibility, HypeTalk `the userLevel`, and AI/MCP stack
+property tools. It is a UX and authoring guardrail, not a sandbox or security
+boundary; script execution, file/network access, AI context, and debug/MCP
+control continue to rely on their dedicated permission gates.
 
 For stored-as-string runtime sub-documents — `Part.sceneSpec` (a
 JSON-encoded `SpriteAreaSpec`), `Part.chartData` (a `ChartConfig`),

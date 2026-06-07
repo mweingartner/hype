@@ -32,6 +32,7 @@ struct StackCodingKeysRoundTripTests {
         #expect(stack.webAssetsAllowed == false)
         #expect(stack.aiContextCloudSharingAllowed == false)
         #expect(stack.runtimeModeEnabled == false)
+        #expect(stack.userLevel == HypeUserLevel.scripting.rawValue)
         #expect(stack.runtimeAISettings.providerPolicy == .automatic)
         #expect(stack.name == "My Stack")
     }
@@ -60,6 +61,7 @@ struct StackCodingKeysRoundTripTests {
         #expect(stack.webAssetsAllowed == false)
         #expect(stack.aiContextCloudSharingAllowed == false)
         #expect(stack.runtimeModeEnabled == false)
+        #expect(stack.userLevel == HypeUserLevel.scripting.rawValue)
     }
 
     // MARK: - All 9 pre-existing fields decode correctly
@@ -94,6 +96,30 @@ struct StackCodingKeysRoundTripTests {
         #expect(stack.webAssetsAllowed == false)
         #expect(stack.aiContextCloudSharingAllowed == false)
         #expect(stack.runtimeModeEnabled == false)
+        #expect(stack.userLevel == HypeUserLevel.scripting.rawValue)
+    }
+
+    @Test("Stack JSON clamps decoded userLevel into the HyperCard range")
+    func userLevelClampsOnDecode() throws {
+        let json = """
+        {
+            "id": "12345678-1234-1234-1234-123456789ABC",
+            "name": "Stack",
+            "width": 800,
+            "height": 600,
+            "createdAt": "2024-01-01T00:00:00Z",
+            "modifiedAt": "2024-01-01T00:00:00Z",
+            "script": "",
+            "defaultFont": "Apple Braille",
+            "networkManifest": { "outboundHostRules": [], "savedListeners": [] },
+            "userLevel": 99
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let stack = try decoder.decode(Stack.self, from: data)
+        #expect(stack.userLevel == HypeUserLevel.scripting.rawValue)
     }
 
     // MARK: - Full round-trip with webAssetsAllowed = true
@@ -113,6 +139,7 @@ struct StackCodingKeysRoundTripTests {
             webAssetsAllowed: true,
             aiContextCloudSharingAllowed: true,
             runtimeModeEnabled: true,
+            userLevel: HypeUserLevel.authoring.rawValue,
             deploymentTargets: StackDeploymentTargets(
                 selectedPlatforms: [.macOS, .iPad],
                 primaryPlatform: .iPad,
@@ -145,6 +172,7 @@ struct StackCodingKeysRoundTripTests {
         #expect(decoded.webAssetsAllowed == true)
         #expect(decoded.aiContextCloudSharingAllowed == true)
         #expect(decoded.runtimeModeEnabled == true)
+        #expect(decoded.userLevel == HypeUserLevel.authoring.rawValue)
         #expect(decoded.deploymentTargets.selectedPlatforms == [.macOS, .iPad])
         #expect(decoded.deploymentTargets.primaryPlatform == .iPad)
         #expect(decoded.deploymentTargets.layoutPolicy == .scaleToFit)
@@ -176,6 +204,7 @@ struct StackCodingKeysRoundTripTests {
         #expect(stack.webAssetsAllowed == false)
         #expect(stack.aiContextCloudSharingAllowed == false)
         #expect(stack.runtimeModeEnabled == false)
+        #expect(stack.userLevel == HypeUserLevel.scripting.rawValue)
         #expect(stack.runtimeAISettings.providerPolicy == .automatic)
     }
 
@@ -209,5 +238,6 @@ struct StackCodingKeysRoundTripTests {
         #expect(stack.webAssetsAllowed == false)
         #expect(stack.aiContextCloudSharingAllowed == false)
         #expect(stack.runtimeModeEnabled == false)
+        #expect(stack.userLevel == HypeUserLevel.scripting.rawValue)
     }
 }

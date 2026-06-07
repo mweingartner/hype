@@ -812,6 +812,28 @@ public struct Interpreter: Sendable {
         }
     }
 
+    private func isUserLevelProperty(_ property: String) -> Bool {
+        switch property.lowercased()
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: " ", with: "") {
+        case "userlevel":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func resolvedUserLevel(from value: Value, handler: Handler) throws -> HypeUserLevel {
+        if let level = HypeUserLevel.parse(value) {
+            return level
+        }
+        throw ScriptError(
+            message: "Invalid userLevel '\(value)' (expected 1-5 or browsing, typing, painting, authoring, scripting)",
+            line: handler.line,
+            handler: handler.name
+        )
+    }
+
     private func setSpeechListenerActive(
         _ activeValue: Value,
         context: ExecutionContext,
@@ -1107,6 +1129,12 @@ public struct Interpreter: Sendable {
         case .set(let property, let target, let toExpr):
             context.profiler?.recordPropertyWrite(property)
             let value = try await evaluate(toExpr, env: &env, document: document, context: context)
+            if target == nil, isUserLevelProperty(property) {
+                let level = try resolvedUserLevel(from: value, handler: handler)
+                document.stack.userLevel = level.rawValue
+                env.it = String(level.rawValue)
+                break
+            }
             if target == nil, isActivateListenerProperty(property) {
                 try await setSpeechListenerActive(value, context: context, handler: handler)
                 env.it = isTruthy(value) ? "true" : "false"
@@ -1270,6 +1298,9 @@ public struct Interpreter: Sendable {
                         document.stack.aiContextCloudSharingAllowed = isTruthy(value)
                     case "runtimemode", "runtime_mode", "runtimemodeenabled", "runtime_mode_enabled":
                         document.stack.runtimeModeEnabled = isTruthy(value)
+                    case "userlevel", "user_level":
+                        let level = try resolvedUserLevel(from: value, handler: handler)
+                        document.stack.userLevel = level.rawValue
                     case "runtimeaiproviderpolicy", "runtime_ai_provider_policy", "aiproviderpolicy":
                         if let policy = RuntimeAIProviderPolicy.parse(value) {
                             document.stack.runtimeAISettings.providerPolicy = policy
@@ -4330,6 +4361,8 @@ public struct Interpreter: Sendable {
                 return status.capabilities.map(\.rawValue).joined(separator: "\n")
             case "activatelistener", "speechlistener", "listeneractive":
                 return (await context.runtimeProvider?.isSpeechListenerActive()) == true ? "true" : "false"
+            case "userlevel", "user level", "user_level":
+                return String(document.stack.userLevel)
             case "date":
                 let formatter = DateFormatter()
                 formatter.dateStyle = .medium
@@ -4375,8 +4408,6 @@ public struct Interpreter: Sendable {
                 return "false"
             case "editbkgnd":
                 return "false"
-            case "userlevel":
-                return "5"
             case "sound":
                 return await context.systemProvider.currentSoundName()
             case "musicstate":
@@ -4608,6 +4639,8 @@ public struct Interpreter: Sendable {
                 return String(document.stack.aiContextCloudSharingAllowed)
             case "runtimemode", "runtime_mode", "runtimemodeenabled", "runtime_mode_enabled":
                 return String(document.stack.runtimeModeEnabled)
+            case "userlevel", "user level", "user_level":
+                return String(document.stack.userLevel)
             case "runtimeaiproviderpolicy", "runtime_ai_provider_policy", "aiproviderpolicy":
                 return document.stack.runtimeAISettings.providerPolicy.rawValue
             case "runtimeaitoolsallowed", "runtime_ai_tools_allowed":
