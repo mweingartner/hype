@@ -69,6 +69,140 @@ final class HypeRecoveryStore {
     }
 }
 
+/// Manages serialized, latest-wins background recovery snapshot writes.
+///
+/// All methods on this class are called from the main actor (the coordinator),
+/// but the actual disk I/O is dispatched onto a private serial queue. The
+/// latest-wins latch (`pendingDocument`) ensures that if multiple writes are
+/// requested before the current write finishes, only the most recently
+/// requested document state is written to disk — intermediate states are
+/// silently dropped.
+///
+/// `flush()` provides a synchronous drain: it blocks the caller until any
+/// in-flight write completes and the latest pending document has been
+/// persisted. This satisfies the app-quit / window-close contract: calling
+/// `flushAllAutosaves()` on the coordinator right before termination
+/// guarantees the most recent edit reaches disk.
+///
+/// The `writeListener` closure, if set, is called synchronously on the
+/// serial queue after each successful write. Tests inject this seam to
+/// observe write events without hitting real disk paths.
+///
+/// Thread-safety: all mutable state is accessed exclusively on `queue`
+/// (a private serial `DispatchQueue`). `@unchecked Sendable` is used
+/// because Swift 6 cannot verify queue-based exclusion statically.
+final class RecoveryWriteScheduler: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "com.hype.recovery-writer", qos: .utility)
+    private let store: HypeRecoveryStore
+
+    // All fields below are accessed exclusively on `queue`.
+    private var pendingDocument: HypeDocument?
+    private var isWriting = false
+
+    /// Called after every successful recovery write (on the serial queue).
+    /// Access is serialised through `queue`; use `setWriteListener(_:)`.
+    private var writeListener: (@Sendable (HypeDocument) -> Void)?
+
+    init(store: HypeRecoveryStore) {
+        self.store = store
+    }
+
+    /// Registers a listener that is called after each successful write.
+    /// Dispatches the update synchronously onto the serial queue so all
+    /// subsequent `enqueue` operations are guaranteed to observe the new value.
+    func setWriteListener(_ listener: (@Sendable (HypeDocument) -> Void)?) {
+        queue.sync {
+            self.writeListener = listener
+        }
+    }
+
+    /// Enqueues `document` for a background recovery write using a
+    /// latest-wins latch. If a write is already in progress, the new
+    /// document replaces any previously pending document so only the
+    /// latest state reaches disk.
+    func enqueue(_ document: HypeDocument) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            if self.isWriting {
+                // A write is already in flight; record this as the
+                // pending document so the drain loop picks it up.
+                self.pendingDocument = document
+            } else {
+                self.isWriting = true
+                self.performWrite(document)
+            }
+        }
+    }
+
+    /// Blocks the caller until all pending and in-flight recovery writes
+    /// complete. Guarantees the most recent document state is on disk
+    /// before returning. Called from the app-quit / window-close flush
+    /// path on the main actor.
+    func flush() {
+        let semaphore = DispatchSemaphore(value: 0)
+        queue.async { [weak self] in
+            guard let self else {
+                semaphore.signal()
+                return
+            }
+            // Drain the pending write if one is queued. This runs on the
+            // serial queue so it cannot race with `enqueue` or `performWrite`.
+            if let pending = self.pendingDocument, !self.isWriting {
+                self.isWriting = true
+                self.pendingDocument = nil
+                self.performWrite(pending)
+            }
+            // Wait until `isWriting` is false, which means the chain has
+            // drained. We poll with a tight spin on the serial queue —
+            // this is only called on quit/close so blocking is acceptable.
+            self.drainAndSignal(semaphore)
+        }
+        semaphore.wait()
+    }
+
+    // MARK: - Private
+
+    /// Performs the write synchronously on the serial queue, then checks
+    /// for a pending document and chains another write if one arrived
+    /// while the current write was in progress.
+    private func performWrite(_ document: HypeDocument) {
+        do {
+            try store.write(document)
+            writeListener?(document)
+        } catch {
+            HypeLogger.shared.warn(
+                "Could not write recovery snapshot for \(document.stack.name): \(error.localizedDescription)",
+                source: "Autosave"
+            )
+        }
+
+        if let next = pendingDocument {
+            pendingDocument = nil
+            performWrite(next)
+        } else {
+            isWriting = false
+        }
+    }
+
+    /// Waits on the serial queue until the write chain is idle, then
+    /// signals the semaphore. Because this is dispatched onto the same
+    /// serial queue as all writes, it is guaranteed to run only after
+    /// the chain started by `performWrite` finishes.
+    private func drainAndSignal(_ semaphore: DispatchSemaphore) {
+        // At this point we are already on the serial queue. If `isWriting`
+        // is still true, the write chain is executing synchronously on THIS
+        // queue — which means we'd deadlock if we blocked. Instead, re-
+        // dispatch to give the chain a chance to complete.
+        if isWriting {
+            queue.async { [weak self] in
+                self?.drainAndSignal(semaphore)
+            }
+        } else {
+            semaphore.signal()
+        }
+    }
+}
+
 /// Central mutation boundary for Hype documents.
 ///
 /// This class solves the immediate architectural gap without requiring a
@@ -76,6 +210,37 @@ final class HypeRecoveryStore {
 /// `Binding<HypeDocumentWrapper>`, and any nested mutation performed through
 /// that binding is compared, registered with the active UndoManager, written to
 /// recovery storage, and sent through NSDocument autosave.
+///
+/// ### Coalesced canvas mutation optimisation
+///
+/// During a continuous canvas gesture (drag-to-move, drag-to-resize, etc.)
+/// `performContinuousCanvasMutation` wraps each frame mutation in
+/// `performWithoutUndo`, raising `undoSuppressionDepth > 0`. At the same time
+/// `beginCoalescedUndo` records the pre-gesture document snapshot in
+/// `coalescedUndoStarts`.
+///
+/// While BOTH conditions are true (`undoSuppressionDepth > 0` AND
+/// `!coalescedUndoStarts.isEmpty`), `apply()` skips:
+/// - The JSON-equivalence check (the gesture caller knows the document
+///   changed; skipping the full re-encode of every asset byte saves
+///   hundreds of MB/s on media-heavy stacks at 60-120 fps).
+/// - Per-frame recovery writes and autosave scheduling (these are deferred
+///   to `endCoalescedUndo`).
+///
+/// `endCoalescedUndo` performs exactly ONE equivalence check against the
+/// pre-gesture snapshot, ONE undo registration (if the document changed),
+/// ONE recovery write, and ONE autosave schedule.
+///
+/// ### Async recovery writes
+///
+/// `persistRecoverySnapshot` in all cases (coalesced or discrete) is now
+/// dispatched onto a private serial background queue via
+/// `RecoveryWriteScheduler` using a latest-wins latch: if a new write is
+/// requested while one is in flight, only the most recent document state
+/// is persisted — no intermediate state is written unnecessarily.
+///
+/// `flushAllAutosaves` synchronously drains the background writer before
+/// returning, satisfying the app-quit / window-close guarantee.
 @MainActor
 final class HypeDocumentMutationCoordinator {
     static let shared = HypeDocumentMutationCoordinator()
@@ -83,6 +248,7 @@ final class HypeDocumentMutationCoordinator {
     private let recoveryStore: HypeRecoveryStore
     private let autosaveDelayNanoseconds: UInt64
     private let autosaveDocuments: @MainActor () -> Void
+    private let recoveryWriter: RecoveryWriteScheduler
 
     private var isApplyingUndoRedo = false
     private var undoSuppressionDepth = 0
@@ -112,6 +278,21 @@ final class HypeDocumentMutationCoordinator {
         self.recoveryStore = recoveryStore
         self.autosaveDelayNanoseconds = autosaveDelayNanoseconds
         self.autosaveDocuments = autosaveDocuments
+        self.recoveryWriter = RecoveryWriteScheduler(store: recoveryStore)
+    }
+
+    /// Injects a listener that is called after every background recovery
+    /// write. Used by tests to observe write events without polling disk.
+    ///
+    /// The listener is called on the recovery writer's private serial queue,
+    /// not on the main actor. Tests should use a thread-safe counter or a
+    /// `DispatchSemaphore` to communicate results back.
+    ///
+    /// This method is synchronous: it blocks until the listener is registered
+    /// on the writer's serial queue, so subsequent `enqueue` calls are
+    /// guaranteed to see it.
+    func setRecoveryWriteListener(_ listener: (@Sendable (HypeDocument) -> Void)?) {
+        recoveryWriter.setWriteListener(listener)
     }
 
     func trackedBinding(
@@ -177,6 +358,7 @@ final class HypeDocumentMutationCoordinator {
             undoManager: undoManager,
             actionName: actionName
         )
+        // One recovery write and one autosave schedule for the entire gesture.
         scheduleAutosave(for: finalDocument)
     }
 
@@ -202,8 +384,13 @@ final class HypeDocumentMutationCoordinator {
         pendingAutosaves.removeAll()
 
         for document in latestDocuments.values {
-            persistRecoverySnapshot(document)
+            recoveryWriter.enqueue(document)
         }
+        // Drain the background writer synchronously so the most recent
+        // document state is guaranteed to be on disk before we return.
+        // This is called from app-quit / window-close handlers where
+        // blocking the main thread briefly is acceptable.
+        recoveryWriter.flush()
         autosaveDocuments()
     }
 
@@ -211,14 +398,40 @@ final class HypeDocumentMutationCoordinator {
         recoveryStore.availableSnapshots()
     }
 
+    // MARK: - Private
+
+    /// Applies a new document wrapper value to a source binding.
+    ///
+    /// During a coalesced canvas gesture (`undoSuppressionDepth > 0` while
+    /// `coalescedUndoStarts` is non-empty) this method intentionally skips:
+    /// - The full-document JSON equivalence check. The gesture caller knows
+    ///   the document changed (it called `performContinuousCanvasMutation`),
+    ///   so the expensive re-encode of every embedded asset byte is wasteful.
+    /// - Per-frame recovery writes and autosave scheduling. `endCoalescedUndo`
+    ///   issues exactly one of each at gesture completion.
+    ///
+    /// Outside a coalesced gesture, the equivalence check is performed as
+    /// before: a no-op write (e.g. a session-only `scriptGlobals` change)
+    /// is detected and dropped without registering undo or scheduling a save.
     private func apply(
         _ newValue: HypeDocumentWrapper,
         to source: Binding<HypeDocumentWrapper>,
         undoManager: UndoManager?,
         actionName: String
     ) {
-        let oldDocument = source.wrappedValue.document
         let newDocument = newValue.document
+
+        // Fast path: a coalesced canvas gesture is in flight. Skip the
+        // expensive JSON equivalence check and per-frame I/O; both will
+        // happen once at gesture end via `endCoalescedUndo`.
+        if undoSuppressionDepth > 0 && !coalescedUndoStarts.isEmpty {
+            source.wrappedValue = newValue
+            latestDocuments[newDocument.stack.id] = newDocument
+            HypeLogger.shared.debug(actionName, source: "Document Mutation")
+            return
+        }
+
+        let oldDocument = source.wrappedValue.document
         guard !HypeDocumentSnapshotCodec.equivalent(oldDocument, newDocument) else {
             source.wrappedValue = newValue
             latestDocuments[newDocument.stack.id] = newDocument
@@ -290,6 +503,10 @@ final class HypeDocumentMutationCoordinator {
         undoManager.setActionName(actionName)
     }
 
+    /// Enqueues a background recovery write and schedules the debounced
+    /// NSDocument autosave. The recovery write is dispatched immediately
+    /// onto a background serial queue (latest-wins); the NSDocument save
+    /// is debounced by `autosaveDelayNanoseconds`.
     private func scheduleAutosave(for document: HypeDocument) {
         let stackId = document.stack.id
         persistRecoverySnapshot(document)
@@ -309,15 +526,11 @@ final class HypeDocumentMutationCoordinator {
         }
     }
 
+    /// Enqueues a recovery snapshot write onto the background serial queue.
+    /// The write is latest-wins: if multiple writes are requested before
+    /// one completes, only the most recently requested document is written.
     private func persistRecoverySnapshot(_ document: HypeDocument) {
-        do {
-            try recoveryStore.write(document)
-        } catch {
-            HypeLogger.shared.warn(
-                "Could not write recovery snapshot for \(document.stack.name): \(error.localizedDescription)",
-                source: "Autosave"
-            )
-        }
+        recoveryWriter.enqueue(document)
     }
 
     private static func autosaveOpenDocuments() {
