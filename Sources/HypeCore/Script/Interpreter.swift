@@ -933,9 +933,10 @@ public struct Interpreter: Sendable {
         if result.status == .cancelled {
             throw CancellationError()
         }
-        if let returnValue = result.returnValue {
-            env.it = returnValue
-        }
+        // Callee return value surfaces via `the result`; `it` is handler-local
+        // per classic HyperCard semantics — callee must not clobber caller's `it`.
+        // TODO(it-hygiene): distinguish explicit vs implicit return if a future test needs it.
+        env.result = result.returnValue ?? ""
         document.scriptGlobals = env.globals
         return true
     }
@@ -1115,9 +1116,21 @@ public struct Interpreter: Sendable {
                     }
                 }
 
+            case .chunk(let chunkType, let chunkRange, let chunkSource):
+                try await performChunkPut(
+                    chunkType: chunkType,
+                    range: chunkRange,
+                    source: chunkSource,
+                    preposition: prep,
+                    value: value,
+                    env: &env,
+                    document: &document,
+                    context: context,
+                    handler: handler
+                )
+
             default:
-                // Unknown target — store in `it`
-                env.it = value
+                throw ScriptError(message: "Can't put into that container", line: handler.line, handler: handler.name)
             }
 
         case .get(let expr):
@@ -1752,7 +1765,7 @@ public struct Interpreter: Sendable {
         case .say(let prompt):
             let promptText = try await evaluate(prompt, env: &env, document: document, context: context)
             await context.speechOutputProvider.speakScriptText(promptText, source: "HypeTalk say")
-            env.it = promptText
+            // `say` must not set `it` per classic HyperCard semantics.
 
         case .activateListener(let activeExpr):
             let activeValue = try await evaluate(activeExpr, env: &env, document: document, context: context)
@@ -2508,7 +2521,7 @@ public struct Interpreter: Sendable {
 
         case .chooseTool(let expr):
             let toolName = try await evaluate(expr, env: &env, document: document, context: context)
-            env.it = toolName
+            _ = toolName  // `choose` must not set `it` per classic HyperCard semantics.
 
         case .markCard(let expr):
             if let cardExpr = expr {
@@ -2542,7 +2555,7 @@ public struct Interpreter: Sendable {
 
         case .typeText(let expr):
             let text = try await evaluate(expr, env: &env, document: document, context: context)
-            env.it = text
+            _ = text  // `type` must not set `it` per classic HyperCard semantics.
 
         case .convert(let sourceExpr, let targetExpr):
             // Read the source value directly from the container rather than via
@@ -5483,6 +5496,164 @@ public struct Interpreter: Sendable {
             case .line: separator = "\n"
             }
             return parts[(from - 1)..<to].joined(separator: separator)
+        }
+    }
+
+    // MARK: - Chunk write
+
+    /// Write `value` into a chunk-addressed container.
+    ///
+    /// Mirrors `evaluateChunk` addressing (sentinels, clamping, no-ops) through
+    /// `ChunkWriter`, then writes the mutated container back via the appropriate
+    /// setter.  Nested chunk paths (e.g. `put "Z" into char 2 of word 3 of v`)
+    /// recurse depth-first: the outermost call handles the innermost container,
+    /// applying inner levels always `.into` so intermediate containers are not
+    /// double-modified.
+    ///
+    /// - Note: `env.it` is touched **only** when the target expression is `.it`.
+    ///   All other container writes go through `env.setVariable` or
+    ///   `document.parts[idx].textContent`.
+    private func performChunkPut(
+        chunkType: ChunkType,
+        range: ChunkRange,
+        source: Expression,
+        preposition: Preposition,
+        value: Value,
+        env: inout Environment,
+        document: inout HypeDocument,
+        context: ExecutionContext,
+        handler: Handler
+    ) async throws {
+        // Step 1: Resolve the chunk-range expressions to concrete Int sentinels,
+        // mirroring the indexValue helper inside evaluateChunk.
+        func indexInt(_ expr: Expression) async -> Int {
+            let str = (try? await evaluate(expr, env: &env, document: document, context: context)) ?? ""
+            return clampedInt(toNumber(str))
+        }
+
+        let resolvedIndices: ChunkWriter.ResolvedIndices
+        switch range {
+        case .single(let idxExpr):
+            let idx = await indexInt(idxExpr)
+            resolvedIndices = .single(idx)
+        case .range(let fromExpr, let toExpr):
+            let from = await indexInt(fromExpr)
+            let to   = await indexInt(toExpr)
+            // Clamp range sentinels so ChunkWriter gets valid lo/hi or returns nil.
+            // We pass the raw sentinel values and let ChunkWriter resolve them;
+            // but we need a concrete range struct — use .range(from, to) resolved
+            // by ChunkWriter.resolveRange against the actual container parts count.
+            resolvedIndices = .range(from, to)
+        }
+
+        // Step 2: Dispatch based on the source container kind.
+        switch source {
+
+        case .chunk(let innerType, let innerRange, let innerSource):
+            // Nested chunk (e.g. `put "Z" into char 2 of word 3 of v`):
+            //   chunkType/range addresses the OUTER level (char 2).
+            //   innerType/innerRange/innerSource is the inner container (word 3 of v).
+            //
+            // Algorithm:
+            //   1. Read the current value of the inner chunk (word 3 of v).
+            //   2. Apply the outer-level mutation (char 2 of that ← "Z").
+            //   3. Recurse: write the result back as the new value of (word 3 of v), using .into.
+            let innerSourceValue = (try? await evaluate(innerSource, env: &env, document: document, context: context)) ?? ""
+            let innerOld = await evaluateChunk(innerType, range: innerRange, source: innerSourceValue, env: &env, document: document, context: context)
+            let innerNew = ChunkWriter.apply(
+                chunkType: chunkType,
+                indices: resolvedIndices,
+                preposition: preposition,
+                container: innerOld,
+                value: value
+            )
+            // Recurse: write innerNew into the inner container, always using .into.
+            try await performChunkPut(
+                chunkType: innerType,
+                range: innerRange,
+                source: innerSource,
+                preposition: .into,
+                value: innerNew,
+                env: &env,
+                document: &document,
+                context: context,
+                handler: handler
+            )
+
+        case .variable(let name):
+            let old = env.getVariable(name)
+            let new = ChunkWriter.apply(
+                chunkType: chunkType,
+                indices: resolvedIndices,
+                preposition: preposition,
+                container: old,
+                value: value
+            )
+            env.setVariable(name, new)
+
+        case .it:
+            // The only allowed env.it write in this function.
+            let new = ChunkWriter.apply(
+                chunkType: chunkType,
+                indices: resolvedIndices,
+                preposition: preposition,
+                container: env.it,
+                value: value
+            )
+            env.it = new
+
+        case .objectRef(let ref):
+            let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+            if let partIndex = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
+                let old = document.parts[partIndex].textContent
+                let new = ChunkWriter.apply(
+                    chunkType: chunkType,
+                    indices: resolvedIndices,
+                    preposition: preposition,
+                    container: old,
+                    value: value
+                )
+                document.parts[partIndex].textContent = new
+            } else {
+                throw ScriptError(
+                    message: "Can't put into a chunk of that container",
+                    line: handler.line,
+                    handler: handler.name
+                )
+            }
+
+        case .scopedObjectRef(let object, let owner):
+            if let partIndex = try await findScopedPartIndex(
+                object: object,
+                owner: owner,
+                env: &env,
+                document: document,
+                context: context
+            ) {
+                let old = document.parts[partIndex].textContent
+                let new = ChunkWriter.apply(
+                    chunkType: chunkType,
+                    indices: resolvedIndices,
+                    preposition: preposition,
+                    container: old,
+                    value: value
+                )
+                document.parts[partIndex].textContent = new
+            } else {
+                throw ScriptError(
+                    message: "Can't put into a chunk of that container",
+                    line: handler.line,
+                    handler: handler.name
+                )
+            }
+
+        default:
+            // Unwritable expression kind (literals, function calls, property reads, etc.)
+            throw ScriptError(
+                message: "Can't put into a chunk of that container",
+                line: handler.line,
+                handler: handler.name
+            )
         }
     }
 
