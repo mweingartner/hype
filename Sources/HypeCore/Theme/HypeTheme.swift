@@ -11,7 +11,7 @@ import SwiftUI
 /// `.hype` documents and can be exported as standalone JSON.
 ///
 /// **Built-in vs user themes**
-/// - The 6 themes in `BuiltInThemes.all` are read-only at runtime;
+/// - The 7 themes in `BuiltInThemes.all` are read-only at runtime;
 ///   any UI editor must respect `isBuiltIn == true` and refuse
 ///   edits / deletion.
 /// - User themes live on `HypeDocument.themes` and travel with the

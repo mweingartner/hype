@@ -1,5 +1,10 @@
 # HypeTalk Language Reference — LLM Context Prompt
 
+> **Status (2026-06-10): Actively maintained.** The canonical in-app system-prompt
+> copy is `Sources/HypeCore/AI/HypeTalkGuide.swift` (`llmContext` static property).
+> Keep both documents in sync per `AGENTS.md`: changes to language semantics,
+> new built-ins, or property additions must update both files together.
+
 You are writing scripts in HypeTalk, a modern HyperCard-inspired scripting language for the Hype app. HypeTalk is case-insensitive and English-like. Scripts attach to objects (buttons, fields, cards, backgrounds, stacks, sprite areas, scenes, and sprite nodes) and fire on events. Messages pass up the chain: scene node → parent group(s) → scene → sprite area part → card → background → stack → Hype.
 
 ## Handlers & Control Flow

@@ -78,6 +78,19 @@ concepts while keeping Hype's modern extensions intact.
   parser acceptance for common keyboard-message commands.
 - Corrected `put` semantics so writing to fields, buttons, properties, or scoped
   containers no longer clobbers `it`.
+- Implemented chunk-destination `put` writes: `put <value> into/before/after
+  <chunk> of <container>` now routes through `ChunkWriter`, which reads the
+  container, applies the addressed sub-string replacement with classic
+  HyperCard-compatible padding (items padded with commas, lines with newlines),
+  and writes the result back. Supports char/word/item/line × `into`/`before`/
+  `after`, numeric indices, ordinals (`first`, `last`, `middle`, etc.), and
+  ranges. Read/write addressing is symmetric: any chunk expression valid in `get`
+  is equally valid as a `put` destination. `it` is preserved across chunk writes.
+  Unknown put targets raise a `ScriptError` routed through the normal error
+  pipeline instead of silently writing to `it`.
+- Custom-command `return` surfaces the value via `the result` in the caller and
+  never writes the caller's `it`. `say`, `type`, and `choose` likewise leave
+  `it` unchanged.
 
 ## Remaining Work Items
 

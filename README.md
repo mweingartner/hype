@@ -102,7 +102,7 @@ with one unified scripting model.
   cameras — and HypeTalk handlers route to scene nodes through the
   same message-passing chain as classic parts.
 - **AI authoring with tool-calling — local or hosted.** Hype drives the
-  document via 125+ structured tools (`create_button`, `set_card_script`,
+  document via 171 structured tools (167 core + 4 gated web-asset) (`create_button`, `set_card_script`,
   `add_sprite_to_scene`, `apply_scene_diff`, `generate_image`,
   `generate_3d_model_from_text`, …) routed
   through a single `HypeAIClient` contract. Hosted OpenAI uses
@@ -136,8 +136,8 @@ with one unified scripting model.
   The runtime still works with a single `HypeDocument` aggregate of
   value types, while storage tables index layout, scripts, content,
   assets, SpriteKit scenes, AI context, and full-text search.
-- **Tested.** The current suite has 2,800+ Swift Testing tests; the latest
-  local full run passed 2,836 tests in 297 suites. Coverage spans
+- **Tested.** The current suite has 3,000+ Swift Testing tests; the latest
+  local full run passed 3,017 tests in 309 suites. Coverage spans
   parser, interpreter, tool-call routing, scene serialization,
   rendering geometry (per-pixel sampling), theme cascade, async
   runtime, AI evaluation, and Meshy 3D generation pipeline.
@@ -288,17 +288,18 @@ end btnRetexture
   `AST.swift`.
 - `Interpreter.swift` — tree-walking interpreter with full operator
   precedence, chunk expressions (`word N of`, `item N of`,
-  `line N of`, `char N of`, plus ranges and ordinals), control flow,
-  globals (`global X` per-handler declaration), and a comprehensive
-  built-in catalog.
+  `line N of`, `char N of`, plus ranges and ordinals) for both reading
+  and writing (`put "x" into word 2 of field "f"` — `into`/`before`/
+  `after` destinations with HC-style padding), control flow, globals
+  (`global X` per-handler declaration), and a comprehensive built-in
+  catalog.
 - `MessageDispatcher.swift` — routing layer from canvas events
   (mouseUp, keyDown, frameUpdate, beginContact, valueChanged,
   searchSubmitted, locationResolved, modelLoadFailed, …) to handler
   bodies, with the classic part → card → background → stack → app
   dispatch chain.
 - `HypeTalkGuide.swift` — the language reference fed to AI models on
-  every turn (~54 KB / ~13.5 K tokens after the grammar-coverage
-  expansion).
+  every turn (~80 KB / ~20 K tokens).
 
 A separate, much longer reference lives at
 [`HyperTalk_Reference.md`](HyperTalk_Reference.md).
@@ -388,8 +389,8 @@ carry OpenAI keys, Ollama hosts, or local model endpoints by default.
 ### Tool-calling architecture
 
 The model never types HypeTalk into your document directly. Every
-change goes through a structured tool-call interface with **169
-defined tools** (`Sources/HypeCore/AI/HypeTools.swift`,
+change goes through a structured tool-call interface with **167
+core tools** (plus 4 web-asset tools gated behind `Stack.webAssetsAllowed`) (`Sources/HypeCore/AI/HypeTools.swift`,
 `HypeToolExecutor.swift`):
 
 ```
@@ -711,6 +712,10 @@ factors, safe areas, and input models differ.
   (`Stack.meshyEnabled`). GLB→USDZ conversion and AR Quick Look
   require macOS 13+ (the app minimum is macOS 15, so this is always
   satisfied in practice).
+- **AudioKit is vendored in-repo** (`Vendor/AudioKit/`) — no remote
+  fetch required. The vendored copy is AudioKit 5.2.3 with a
+  platform-floor patch for macOS 13+; rationale is in
+  `Vendor/AudioKit/HYPE_VENDOR_NOTE.md`.
 
 ### Build the app
 
@@ -756,7 +761,7 @@ Hype/
 ├── decisions.md                  # Product behavior and guardrails
 ├── AGENTS.md                     # Agent workflow, safety, test, deploy, git rules
 ├── HyperTalk_Reference.md        # Long-form HypeTalk language reference
-├── HypeTalk-LLM-Context.md       # Older LLM context doc (now lives in code)
+├── HypeTalk-LLM-Context.md       # Actively maintained AI-facing HypeTalk guidance; in-app copy is HypeTalkGuide.swift
 ├── SpriteKit-Tutorial.md         # Hands-on SpriteKit walkthrough
 ├── docs/
 │   ├── HyperCardImportAndXCMDCompatibility.md # Stack import + XCMD/XFCN behavior
@@ -797,8 +802,10 @@ Hype/
 │       ├── Logging/              # HypeLogger
 │       ├── Navigation/           # Card history, go-back stack
 │       └── Controls/             # Visual-effect catalog, PaintLayer, etc.
+├── Vendor/
+│   └── AudioKit/                 # Vendored AudioKit 5.2.3, platform-floor patch — see HYPE_VENDOR_NOTE.md
 ├── Tests/
-│   ├── HypeCoreTests/            # 1,900+ unit tests (Swift Testing) — full suite ~80s
+│   ├── HypeCoreTests/            # 2,717 unit tests in 267 suites (Swift Testing) — full suite ~84s
 │   └── HypeTests/                # SpriteKit / canvas / menu / Script Editor AI integration smokes
 └── scripts/
     ├── test.sh                   # Canonical `swift test` invocation
@@ -885,9 +892,9 @@ Recent milestones:
   Doc staleness fixed across all plan documents; AR Quick Look
   test suite (9 tests, DI refactor with `Scene3DAssetConverting`
   protocol); AI tool error-branch tests (+39); coordinator UI
-  lifecycle tests (+44); HypeToolExecutor split from 6,497 to
-  5,231 lines across four `Sources/HypeCore/AI/Executors/` branch
-  files; test isolation hardening (`KeychainProviding` +
+  lifecycle tests (+44); HypeToolExecutor at 6,593 lines plus four
+  sibling `Sources/HypeCore/AI/Executors/` branch files (1,541 lines
+  combined); test isolation hardening (`KeychainProviding` +
   `FileSystemProviding` protocols + `InMemoryKeychain` +
   `InMemoryFileSystem` + `MockURLSession`); parallel-keychain
   flake eliminated. Net delta: +166 tests / +16 suites.
@@ -898,6 +905,28 @@ Recent milestones:
   resolver, and full security pipeline (hostname allowlist, NoRedirect
   delegate, 50 MB caps, MIME sniff, strict image-path validation,
   Keychain off-main-thread reads).
+- **2026-06-10 code-review remediation.** (1) AudioKit 5.2.3
+  vendored with macOS 13 platform-floor patch under `Vendor/AudioKit/`.
+  (2) Interpreter crash-proofing: `clampedInt` at ~35 integer-overflow
+  sites, `numtochar` surrogate guard, `PartAnimator` lock +
+  main-scheduled timer, `RenderGeometry` rounded-rect clamps across CG
+  renderers and SpriteKit part nodes. (3) Document-mutating menu
+  commands scoped to focused document via `MenuCommandScoping`
+  (FocusedValue stack id in userInfo; key-window fallback). (4) AI
+  tools `set_card_property` / `set_background_property` script branches
+  now gate through `refusalForInvalidDraft`; duplicate tool definitions
+  removed. (5) HypeTalk chunk-destination `put` implemented
+  (`into`/`before`/`after` × char/word/item/line, ranges, ordinals,
+  HC-style padding); unknown put-target raises a routed `ScriptError`;
+  `it`-hygiene: custom-command `return` surfaces via `the result`,
+  `say`/`type`/`choose` no longer set `it`. (6) `StackRuntime`
+  listeners enforce `bindScope` at the socket; `AppKitNetworkPermission
+  Prompter` wired at all production runtime construction sites.
+  (7) `DocumentMutationCoordinator`: coalesced gestures skip per-frame
+  equivalence/recovery/autosave (one of each at gesture end); recovery
+  snapshots write async latest-wins with synchronous drain on flush.
+  (8) `install.sh`/`build_and_run.sh` copy SwiftPM resource bundles.
+  Net: 3,017 tests in 309 suites.
 
 ---
 

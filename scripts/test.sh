@@ -20,9 +20,10 @@
 # thread. The worker Thread resumes the continuation when done, returning
 # the thread to the pool so other continuations can run.
 #
-# The full 1377-test suite now completes in ~82 seconds under the default
-# parallel runner. `--no-parallel` is retained as a fallback for debugging
-# test-ordering issues.
+# The full 3,017-test suite (2,717 HypeCoreTests + 252 HypeTests +
+# 48 HypeCLITests, 309 suites) now completes in ~84 seconds under the
+# default parallel runner. `--no-parallel` is retained as a fallback
+# for debugging test-ordering issues.
 #
 # Usage:
 #   scripts/test.sh                    # run everything (parallel)

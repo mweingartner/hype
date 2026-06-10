@@ -68,6 +68,8 @@ Methods:
 - `debug/listPrompts`
 - `debug/getPrompt`
 - `debug/callTool`
+- `debug/runScript`
+- `debug/clickButton`
 
 `debug/keepalive` is answered by the socket server without touching document UI
 state. The MCP server uses it as the persistent-connection heartbeat.
@@ -77,6 +79,12 @@ server rather than an MCP server. `debug/callTool` applies mutations to the
 active focused document through `HypeToolExecutor` and
 `HypeDocumentMutationCoordinator`, or dispatches control operations such as
 preference reads and preview/apply transactions.
+
+`debug/runScript` and `debug/clickButton` honor the `hype.mcp.allowMutations`
+preference in the same way as every other mutation path: when `allowMutations`
+is false, both methods return a refusal response without executing. This brings
+these two methods into parity with `debug/callTool` and the rest of the
+mutation surface.
 
 ## MCP Server
 

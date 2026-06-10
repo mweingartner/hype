@@ -1,5 +1,13 @@
 # Stubs & Completion Plan
 
+> **STATUS (2026-06-10): ALL PHASES SHIPPED.** This document is a historical
+> snapshot from 2026-05-23. All "real gaps" listed in §2 have since been
+> implemented and shipped: `find`/`foundText`/`foundChunk`/`foundField`/
+> `foundLine` (Phase 2), `sort cards` (Phase 1), `push`/`pop card` (Phase 1),
+> `lock screen`/`unlock screen` (Phase 3) — all verified present in
+> `Sources/HypeCore/Script/Interpreter.swift`. See Phase 1–4 status blocks
+> below for commit details.
+
 > Snapshot: 2026-05-23 · HEAD `99bd9ce` · 2124 tests / 236 suites green
 > Method: four parallel codebase audits — (1) literal stub-marker census across
 > ~110k LOC, (2) HypeTalk language-surface completeness, (3) design-doc deferred-

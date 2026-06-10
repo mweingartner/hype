@@ -1,6 +1,6 @@
 # Hype Architecture
 
-> A snapshot of the current implementation as of 2026-06-06.
+> A snapshot of the current implementation as of 2026-06-10.
 
 Hype is a modern, macOS-native re-imagining of HyperCard. It preserves the
 HyperCard mental model — **stacks** of **cards** built on shared **backgrounds**,
@@ -108,10 +108,12 @@ hype/
 │   │       ├── ToolName.swift             # Tool palette catalog
 │   │       └── GoMenuCommands.swift       # Menu items (Go, Objects, Arrange, Tools, AI + View/Window additions)
 │   ├── HypePacmanTestbedBuilder/   # CLI that emits a Pac-Man .hype regression stack
+│   ├── HypeCLI/                    # Executable target `hypetalk` — headless HypeTalk runner
+│   ├── CStackImport/               # C system library shim for the HyperCard stackimport bridge
 │   └── HypeCore/                   # Library target — model, scripting, AI, rendering
 │       ├── Models/                 # Document model (all value types)
 │       │   ├── HypeDocument.swift         # Root aggregate (themes array, scriptGlobals)
-│       │   ├── HypeStack.swift            # Enums: PartType (24 cases + unknown), ButtonStyle, ShapeType …
+│       │   ├── HypeStack.swift            # Enums: PartType (30 cases + unknown), ButtonStyle, ShapeType …
 │       │   ├── Stack.swift                # Stack metadata + script + themeName
 │       │   ├── Background.swift           # Background metadata + script + themeName
 │       │   ├── Card.swift                 # Card metadata + script + themeName
@@ -137,8 +139,8 @@ hype/
 │       │   ├── Token.swift                # 100+ token types (including `animate`)
 │       │   ├── Lexer.swift                # Hand-written tokenizer
 │       │   ├── AST.swift                  # Statement / Expression nodes
-│       │   ├── Parser.swift               # Recursive descent parser (~3,800 LoC)
-│       │   ├── Interpreter.swift          # Tree-walking interpreter (~8,000 LoC)
+│       │   ├── Parser.swift               # Recursive descent parser (~3,900 LoC)
+│       │   ├── Interpreter.swift          # Tree-walking interpreter (~8,400 LoC)
 │       │   ├── MessageDispatcher.swift    # part → card → background → stack → app
 │       │   └── HypeTalkHighlighter.swift  # Editor syntax highlighting
 │       ├── AI/                     # Provider-backed AI, tool-calling, speech
@@ -203,7 +205,7 @@ hype/
 │       │   └── SpriteAreaRenderer.swift   # Edit-mode placeholder
 │       ├── Theme/                  # Stack-scoped + built-in theme cascade
 │       │   ├── HypeTheme.swift            # Color tokens + cornerRadii + stroke weights + glass flag
-│       │   ├── BuiltInThemes.swift        # Default / Sunset / Ocean / Forest / Liquid Glass …
+│       │   ├── BuiltInThemes.swift        # System / Classic HyperCard / Modern Light / Modern Dark / Sunset / Neon / Liquid Glass
 │       │   ├── ColorRef.swift             # Hex / system / theme-token color reference
 │       │   ├── ColorContrast.swift        # readableTextColor(forFillHex:) helper
 │       │   ├── ThemeResolver.swift        # Card→Background→Stack effective-theme cascade
@@ -230,6 +232,10 @@ hype/
 │       │   └── CardNavigator.swift        # Card traversal
 │       ├── Runtime/
 │       │   └── StackRuntime.swift         # Browse-mode live session, async jobs, listeners
+│       ├── Audio/                  # Sound playback, AudioKit music, MusicKit references, NAOD note parser
+│       ├── Logging/
+│       │   └── HypeLogger.swift           # Structured logging facade
+│       ├── HyperCardImport/        # Safe legacy HyperCard stack parser/converter
 │       ├── Sync/
 │       │   └── SyncService.swift          # Transport-neutral live-sync engine
 │       └── Export/
@@ -239,6 +245,8 @@ hype/
 │           └── TargetRuntimePackageBuilder.swift # Self-contained runtime package artifacts
 ├── TestStacks/
 │   └── PacmanAccessibilityTestbed.hype # Generated SpriteKit-heavy UI automation stack
+├── Vendor/
+│   └── AudioKit/               # Vendored AudioKit 5.2.3, platform-floor patch — see HYPE_VENDOR_NOTE.md
 ├── Tests/HypeCoreTests/            # Model, script, async runtime, AI, export
 └── Tests/HypeTests/                # App/SpriteKit/AppKit/accessibility smoke coverage
 ```
@@ -253,7 +261,9 @@ The hard split keeps the document model and script runtime as value-oriented
 Swift while the executable owns windows, menus, live AppKit hosts, SpriteKit
 scenes, and live debug automation. HypeCore conditionally imports AppKit for macOS
 rendering/audio/image utilities, but it does not own SwiftUI windows or live
-SpriteKit nodes.
+SpriteKit nodes. AudioKit is vendored in `Vendor/AudioKit/` (5.2.3, platform-floor
+patch for the macOS 13 SDK requirement); see `Vendor/AudioKit/HYPE_VENDOR_NOTE.md`
+for rationale.
 
 ### 1.2 The big picture in one diagram
 
@@ -529,11 +539,16 @@ stack's deployed-runtime AI provider policy, runtime-safe side-effect tool
 gate, allowlisted tool names, fallback text, and transcript persistence flag.
 `Stack.runtimeAISettings` remains the reconstruction source of truth; the table
 is for diagnostics and target-runtime export validation.
-Schema version 7 is the current writer version. It preserves the v6 normalized
-table surface and adds current document-value persistence for imported
-multi-stack project metadata: non-empty `HypeDocument.stackLibrary` values are
-stored as `document_values.stackLibrary`, while old packages without that key
-decode to an empty library.
+Schema version 7 preserves the v6 normalized table surface and adds current
+document-value persistence for imported multi-stack project metadata:
+non-empty `HypeDocument.stackLibrary` values are stored as
+`document_values.stackLibrary`, while old packages without that key decode to
+an empty library.
+Schema version 8 is the current writer version. It adds the HyperCard-style
+`user_level` column to the normalized stack projection (mirroring
+`Stack.userLevel`; the value-model field remains the reconstruction source of
+truth); the upgrade migration is handled incrementally by
+`HypeSQLiteStackStore` on first open.
 
 Document model compatibility is tracked separately from SQLite schema shape.
 `HypeDocument.currentDocumentVersion` is the current value-model version;
@@ -579,6 +594,16 @@ on mouse-up, while animation tick mutations remain autosaved but do not flood
 the undo stack. AI transaction application and script/runtime side effects pass
 through the same binding path, so accepted multi-tool edits and HypeTalk
 document mutations participate in the same save/undo pipeline as manual edits.
+
+**Coalesced-gesture optimization.** During a drag or resize gesture, the
+coordinator suppresses per-frame equivalence checks, recovery snapshots, and
+autosave scheduling — only one of each fires at gesture end (mouse-up or
+touch-up). This keeps the undo stack clean and prevents hammering the SQLite
+recovery package on every pixel of a drag. Recovery snapshots are written
+asynchronously with latest-wins semantics (a concurrent write supersedes an
+earlier in-flight one); on app resign-active, window close, and terminate, the
+coordinator drains any pending recovery write synchronously before the process
+exits.
 Stack-authored mode flags that affect portability, including
 `Stack.runtimeModeEnabled`, `Stack.runtimeAISettings`, and the HyperCard-compatible
 `Stack.userLevel`, live in the stack model rather than `UserDefaults`;
@@ -1417,7 +1442,7 @@ The legacy `scene3DURL` string remains as a fallback for file-path bindings.
 
 ## 5. HypeTalk: the Scripting Language
 
-HypeTalk is the largest single subsystem in HypeCore — about 8,400 lines
+HypeTalk is the largest single subsystem in HypeCore — over 12,500 lines
 across lexer, parser, AST, interpreter, dispatcher, and highlighter. The
 goal is to feel like HyperCard's HyperTalk while addressing modern part
 types, the SpriteKit scene graph, the asset repository, and a 60-fps
@@ -1431,7 +1456,7 @@ script source string
         ▼
 ┌────────────┐    ┌────────────┐    ┌─────┐    ┌────────────────┐
 │   Lexer    │───▶│   Parser   │───▶│ AST │───▶│   Interpreter  │
-│ (251 LoC)  │    │ (2.5k LoC) │    │     │    │   (4.7k LoC)   │
+│ (305 LoC)  │    │ (3.9k LoC) │    │     │    │   (8.4k LoC)   │
 └────────────┘    └────────────┘    └─────┘    └────────────────┘
                                                        │
                                                        ▼
@@ -1524,7 +1549,19 @@ script source string
   HypeTalk preserves classic `it` semantics: `get`, `ask`, `answer`, `read`,
   request/reply-style commands, and explicit `put ... into it` set `it`, while
   ordinary `put ... into/after/before` field, button, property, or scoped
-  containers do not clobber the previous `it` value.
+  containers do not clobber the previous `it` value. Custom-command `return`
+  surfaces the value via `the result` in the caller and never writes the
+  caller's `it`; `say`, `type`, and `choose` likewise leave `it` unchanged.
+
+  **Chunk destinations are writable.** `put "X" into word 2 of field "f"`,
+  `put "Y" before item 1 of field "f"`, and `put "Z" after char 3 of field "f"`
+  all route through `ChunkWriter`, which reads the current container value,
+  applies the addressed sub-string replacement with classic HyperCard-compatible
+  padding (items padded with commas, lines with newlines), and writes the result
+  back. Read/write addressing is symmetric: a chunk expression valid in `get`
+  is equally valid as a `put` destination. Unknown put targets (destinations
+  that cannot be resolved) raise a `ScriptError` that routes through the normal
+  error pipeline instead of silently writing to `it`.
 
 ### 5.2 Message dispatch and runtime ownership
 
@@ -1651,6 +1688,18 @@ The network-facing `request`/`reply` verbs are now about real I/O, not a stub
 for future Apple Events. V1 scope is UTF-8 text/JSON over HTTP/HTTPS and raw
 TCP. Binary payloads, UDP, WebSockets, and server-side TLS certificate
 management are intentionally deferred.
+
+**Listener bind scope** is enforced at the socket level. When a saved listener
+specifies `.loopback` scope, `StackRuntime` opens the socket with
+`requiredLocalEndpoint` set to `127.0.0.1`, preventing accidental external
+exposure regardless of the host string typed by the author.
+
+**Network approval prompter.** `AppKitNetworkPermissionPrompter` is the
+production implementation of the `NetworkPermissionPrompter` protocol and is
+wired at all six production `StackRuntime` construction sites (the two in
+`MainContentView` and the four in standalone/exported runtime shells). The
+`AllowAllNetworkPermissionPrompter` is test-only and must never appear in a
+production code path.
 
 #### Legacy external emulation
 
@@ -1879,6 +1928,15 @@ Hype's Go, Objects, Arrange, Tools, AI, and Window additions, and augments the
 system View menu with a command group instead of declaring a second top-level
 `View` menu. Tests pin that contract so future menu additions do not reintroduce
 the duplicate-menu regression.
+
+**Document-mutating menu commands** are scoped to the focused document via
+`MenuCommandScoping`. Each command that mutates a document injects the focused
+document's stack id into its `userInfo` dictionary via a `FocusedValue` binding,
+so AppKit routes the command to the correct `NSDocument` even when multiple
+windows are open. A key-window fallback ensures legacy `NSNotification`-style
+posts (which carry no `userInfo`) still resolve to the frontmost document. Menu
+items that require a focused document are disabled when no document is focused,
+preventing spurious mutations on the wrong target.
 
 ### 6.2 The render pipeline
 
@@ -2317,8 +2375,9 @@ Themes cascade: card → background → stack → built-in default. `ThemeResolv
 (Sources/HypeCore/Theme/ThemeResolver.swift) walks the chain and returns the
 effective theme for any card. Each `Stack`, `Background`, and `Card` carries
 an optional `themeName` — empty means "inherit from the next level up";
-non-empty selects a theme by name from `BuiltInThemes` (Default, Sunset,
-Ocean, Forest, Liquid Glass, …) or from the stack's `HypeDocument.themes`
+non-empty selects a theme by name from `BuiltInThemes` (System, Classic
+HyperCard, Modern Light, Modern Dark, Sunset, Neon, Liquid Glass) or from
+the stack's `HypeDocument.themes`
 array of user-edited themes. The cascade lets one stack contain multiple
 visual moods without per-part config sprawl.
 
@@ -2634,6 +2693,15 @@ longer part of the default in-app authoring loop. They still exist as optional
 capabilities for explicit future use, but normal authoring is narrowed to
 repository-aware stack, card, part, and scene operations.
 
+**Script-branch gating.** `set_card_property` and `set_background_property`
+include a `script` property branch that now routes through
+`refusalForInvalidDraft` — the same `__HYPE_INTERNAL_DRAFT_REFUSED_v1:` sentinel
+already used by `set_card_script`, `set_stack_script`, and `set_part_property`.
+This closes the gap where the model could store an invalid HypeTalk script via
+the scope-property tools instead of the dedicated script tools. The tool catalog
+is also deduplicated: any tool defined more than once in `HypeTools.allTools`
+causes a runtime assertion in debug builds.
+
 For complex sprite-area game requests, Hype exposes a deterministic
 catalog-based template path without embedding the whole taxonomy in every
 model prompt. `SpriteGameTemplateCatalog` owns the supported template IDs,
@@ -2716,7 +2784,7 @@ scene edit.
 
 ### 7.4 Executor and authoring loop
 
-`HypeToolExecutor` (Sources/HypeCore/AI/HypeToolExecutor.swift, ~6,600 LoC)
+`HypeToolExecutor` (Sources/HypeCore/AI/HypeToolExecutor.swift, 6,593 LoC)
 remains the structural mutation engine. It is still a large `switch` over tool
 name taking `document: inout HypeDocument`, but its responsibilities are now
 more sharply defined:
@@ -2736,10 +2804,10 @@ the dispatcher; high-volume tool families now live in sibling files under
 
 | Branch file | Tool cases hosted |
 |-------------|-------------------|
-| `WebAssetExecutorBranches.swift` (~270 LoC) | `search_web_for_sprite`, `import_web_asset`, `find_and_import_sprite` |
-| `Scene3DExecutorBranches.swift` (~740 LoC) | `list_3d_models`, `bind_3d_model_to_scene3d`, `generate_3d_model_from_text`, `generate_3d_model_from_image`, `generate_3d_model_from_images`, `remesh_3d_model`, `retexture_3d_model` |
-| `SceneNodeExecutorBranches.swift` (~410 LoC) | `apply_scene_diff`, `set_node_property`, `set_node_script`, `set_physics_body`, `delete_scene_node`, `add_action`, `remove_all_actions` |
-| `FileIOExecutorBranches.swift` (~100 LoC) | `fetch_url`, `read_file`, `write_file`, `list_directory` (each accepts injected `urlSession` / `fileSystem` for testability — see §8.4) |
+| `WebAssetExecutorBranches.swift` (273 LoC) | `search_web_for_sprite`, `import_web_asset`, `find_and_import_sprite` |
+| `Scene3DExecutorBranches.swift` (741 LoC) | `list_3d_models`, `bind_3d_model_to_scene3d`, `generate_3d_model_from_text`, `generate_3d_model_from_image`, `generate_3d_model_from_images`, `remesh_3d_model`, `retexture_3d_model` |
+| `SceneNodeExecutorBranches.swift` (414 LoC) | `apply_scene_diff`, `set_node_property`, `set_node_script`, `set_physics_body`, `delete_scene_node`, `add_action`, `remove_all_actions` |
+| `FileIOExecutorBranches.swift` (113 LoC) | `fetch_url`, `read_file`, `write_file`, `list_directory` (each accepts injected `urlSession` / `fileSystem` for testability — see §8.4) |
 
 Each branch file is a `package enum` namespace with `static` functions that
 take `context: HypeToolExecutor` for access to the dispatcher's clients and
@@ -3054,8 +3122,9 @@ stack/control instead of switching Hype into edit mode.
 
 ### 8.4 Testing
 
-The combined SwiftPM test suite currently runs **297 suites and 2,836 tests**
-in the latest documented full local run. Most tests live in
+The combined SwiftPM test suite currently runs **309 suites and 3,017 tests**
+(2,717 HypeCoreTests in 267 suites + 252 HypeTests in 41 suites + 48 HypeCLITests
+in 1 suite) in the latest documented full local run (~84 s). Most tests live in
 `HypeCoreTests` and run without launching the app because they exercise the
 model, parser, interpreter, renderer helpers, and tool executor directly;
 `HypeTests` covers app-facing seams that need AppKit, SpriteKit, or an
