@@ -4806,11 +4806,22 @@ public struct HypeToolExecutor: Sendable {
                 }
                 document.cards[idx].backgroundId = background.id
             case "script":
-                let wrapped = wrapScript(value)
+                let rawScript = value
+                let wrapped = wrapScript(rawScript)
+                if let refusal = refusalForInvalidDraft(
+                    toolName: toolName,
+                    arguments: arguments,
+                    targetDescription: cardName.isEmpty ? "the current card" : "card '\(cardName)'",
+                    rawScript: rawScript,
+                    wrappedScript: wrapped,
+                    document: document,
+                    currentCardId: currentCardId
+                ) {
+                    return refusal.encodedSentinel()
+                }
                 document.cards[idx].script = wrapped
-                let suffix = scriptParseErrorSuffix(wrapped)
                 let displayName = document.cards[idx].name.isEmpty ? "current card" : "card '\(document.cards[idx].name)'"
-                return "Set script of \(displayName)\(suffix)"
+                return "Set script of \(displayName)"
             case "theme":
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 document.cards[idx].themeName = trimmed.isEmpty ? nil : trimmed
@@ -4833,10 +4844,21 @@ public struct HypeToolExecutor: Sendable {
             case "sortkey", "sort_key":
                 document.backgrounds[idx].sortKey = value
             case "script":
-                let wrapped = wrapScript(value)
+                let rawScript = value
+                let wrapped = wrapScript(rawScript)
+                if let refusal = refusalForInvalidDraft(
+                    toolName: toolName,
+                    arguments: arguments,
+                    targetDescription: bgName.isEmpty ? "the current background" : "background '\(bgName)'",
+                    rawScript: rawScript,
+                    wrappedScript: wrapped,
+                    document: document,
+                    currentCardId: currentCardId
+                ) {
+                    return refusal.encodedSentinel()
+                }
                 document.backgrounds[idx].script = wrapped
-                let suffix = scriptParseErrorSuffix(wrapped)
-                return "Set script of background '\(document.backgrounds[idx].name)'\(suffix)"
+                return "Set script of background '\(document.backgrounds[idx].name)'"
             case "theme":
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 document.backgrounds[idx].themeName = trimmed.isEmpty ? nil : trimmed

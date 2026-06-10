@@ -1628,28 +1628,6 @@ public struct HypeToolDefinitions {
             "value": ("string", "New value (numeric for width/height, string for name/defaultFont)", true),
         ]),
 
-        makeTool(name: "set_card_property", description: """
-            Set one property on a card. Use the current card when card_name is omitted. \
-            Supported properties: name, marked, sortKey, backgroundName, theme. \
-            `theme` accepts any theme name from `list_themes`; empty value clears the card override. \
-            Prefer set_card_script when changing the card's script.
-            """, params: [
-            "card_name": ("string", "Card name (defaults to current card; accepts 'this card' / 'current card')", false),
-            "property": ("string", "Property name: name, marked, sortKey, backgroundName, theme", true),
-            "value": ("string", "New value", true),
-        ]),
-
-        makeTool(name: "set_background_property", description: """
-            Set one property on a background. Uses the current card's background when \
-            background_name is omitted. Supported properties: name, sortKey, theme. \
-            `theme` accepts any theme name from `list_themes`; empty value clears the background override. \
-            Prefer set_background_script when changing the background's script.
-            """, params: [
-            "background_name": ("string", "Background name (defaults to current background; accepts 'this background' / 'current background')", false),
-            "property": ("string", "Property name: name, sortKey, theme", true),
-            "value": ("string", "New value", true),
-        ]),
-
         makeTool(name: "set_card_name", description: "Rename a card. Use the current card when card_name is omitted.", params: [
             "card_name": ("string", "Current name of the card (defaults to current card)", false),
             "new_name": ("string", "New name for the card", true),
@@ -1722,10 +1700,13 @@ public struct HypeToolDefinitions {
 
         // ------------------------------------------------------------------
         // v3.2: Symmetric uniform property getter/setters for stack,
-        // card, background. Closes the gap noted in the eval set —
-        // get_stack_property / set_card_property / etc. were missing.
-        // Properties accepted include `theme` so the AI can apply
-        // themes without needing a dedicated tool per scope.
+        // card, background. Properties accepted include `theme` so the
+        // AI can apply themes without needing a dedicated tool per scope.
+        // set_card_property and set_background_property accept `script`
+        // and gate it through the same refusalForInvalidDraft path as
+        // set_card_script / set_background_script — invalid or non-HypeTalk
+        // drafts return the __HYPE_INTERNAL_DRAFT_REFUSED_v1: sentinel so
+        // the ScriptDraftCoordinator retry loop fires correctly.
         // ------------------------------------------------------------------
 
         makeTool(name: "get_stack_property", description: """
@@ -1749,13 +1730,16 @@ public struct HypeToolDefinitions {
         ]),
 
         makeTool(name: "set_card_property", description: """
-            Set a card-level property: name, marked, script, theme, background. \
-            `theme` accepts any theme name from `list_themes` (built-in or stack-local). \
-            Setting `theme` to empty string clears the override and lets the cascade fall through. \
+            Set a card-level property. Accepted properties: name, marked, sortKey, \
+            backgroundName, script, theme. \
+            `theme` accepts any theme name from `list_themes` (built-in or stack-local); \
+            empty value clears the card override and lets the cascade fall through. \
+            `script` is validated through the HypeTalk parser/validator before storage — \
+            invalid or non-HypeTalk drafts return a refusal sentinel so the retry loop fires. \
             Use the current card when card_name is omitted.
             """, params: [
             "card_name": ("string", "Card name (defaults to current card; accepts 'this card' / 'current card')", false),
-            "property": ("string", "Property name to set", true),
+            "property": ("string", "Property name: name, marked, sortKey, backgroundName, script, theme", true),
             "value": ("string", "New value", true),
         ]),
 
@@ -1767,11 +1751,14 @@ public struct HypeToolDefinitions {
         ]),
 
         makeTool(name: "set_background_property", description: """
-            Set a background-level property: name, script, theme. \
-            `theme` accepts any theme name from `list_themes`; empty value clears the override.
+            Set a background-level property. Accepted properties: name, sortKey, script, theme. \
+            `theme` accepts any theme name from `list_themes`; empty value clears the override. \
+            `script` is validated through the HypeTalk parser/validator before storage — \
+            invalid or non-HypeTalk drafts return a refusal sentinel so the retry loop fires. \
+            Uses the current card's background when background_name is omitted.
             """, params: [
-            "background_name": ("string", "Background name (accepts 'this background' / 'current background')", true),
-            "property": ("string", "Property name to set", true),
+            "background_name": ("string", "Background name (defaults to current background; accepts 'this background' / 'current background')", false),
+            "property": ("string", "Property name: name, sortKey, script, theme", true),
             "value": ("string", "New value", true),
         ]),
 
