@@ -869,6 +869,7 @@ struct AIChatPanel: View {
                 meshyProvider: LiveMeshyScriptingProvider(),
                 speechOutputProvider: OpenAISpeechOutputProvider.shared,
                 speechListenerProvider: RuntimeSpeechListenerProvider.shared,
+                approvalPrompter: AppKitNetworkPermissionPrompter(stackName: snapshot.stack.name),
                 fileProvider: fileProvider
             )
         )

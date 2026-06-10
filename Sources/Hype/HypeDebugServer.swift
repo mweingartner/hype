@@ -643,12 +643,24 @@ final class HypeDebugServer: @unchecked Sendable {
                 }
                 return await routeProjectNavigationTarget(target, id: id)
             case "debug/clickButton":
+                // Guard mutations the same way callControlTool does for every
+                // mutation path — clickButton dispatches a live mouseUp handler
+                // and applies the resulting document mutation, so it must be
+                // gated when MCP mutations are disabled.
+                guard allowMCPMutations() else {
+                    return jsonRPCError(id: id, code: -32000, message: "MCP mutations are disabled.")
+                }
                 let cardReference = params["card"] as? String
                 guard let buttonName = params["button"] as? String, !buttonName.isEmpty else {
                     return jsonRPCError(id: id, code: -32602, message: "debug/clickButton requires params.button")
                 }
                 return await clickButton(named: buttonName, onCard: cardReference, params: params, id: id)
             case "debug/runScript":
+                // Same mutation gate as debug/clickButton — runScript executes
+                // arbitrary HypeTalk that may modify the document.
+                guard allowMCPMutations() else {
+                    return jsonRPCError(id: id, code: -32000, message: "MCP mutations are disabled.")
+                }
                 guard let script = params["script"] as? String, !script.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                     return jsonRPCError(id: id, code: -32602, message: "debug/runScript requires params.script")
                 }
@@ -1996,7 +2008,12 @@ final class HypeDebugServer: @unchecked Sendable {
         ] as [String: Any]
     }
 
-    private func allowMCPMutations() -> Bool {
+    // Internal (not private) so that unit tests can verify the gate decision
+    // by inspecting UserDefaults without needing to drive the full Unix-socket
+    // request pipeline. Production code calls this via handleRequest; tests
+    // can call it directly on HypeDebugServer.shared after manipulating
+    // UserDefaults.standard for the key HypeMCPConfiguration.allowMutationsKey.
+    func allowMCPMutations() -> Bool {
         if UserDefaults.standard.object(forKey: HypeMCPConfiguration.allowMutationsKey) == nil {
             return true
         }

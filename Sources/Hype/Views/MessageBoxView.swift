@@ -79,6 +79,7 @@ struct MessageBoxView: View {
                         aiProvider: SelectedAIScriptingProvider(),
                         speechOutputProvider: OpenAISpeechOutputProvider.shared,
                         speechListenerProvider: RuntimeSpeechListenerProvider.shared,
+                        approvalPrompter: AppKitNetworkPermissionPrompter(stackName: snapshot.stack.name),
                         fileProvider: fileProvider
                     )
                 )

@@ -383,6 +383,16 @@ public struct StackRuntimeConfiguration: Sendable {
     public var speechOutputProvider: SpeechOutputProvider
     public var speechListenerProvider: SpeechListenerProvider
     public var appScript: String
+    /// The prompter consulted when a network access request is not yet in the
+    /// persisted approval store.
+    ///
+    /// - **Default value**: `AllowAllNetworkPermissionPrompter()` — silently
+    ///   approves every request.  This default exists **for test harnesses only**:
+    ///   it avoids the need for headless tests to supply interactive UI.
+    ///   **App code must always pass a real prompter** (e.g. `AppKitNetworkPermissionPrompter`)
+    ///   so that users are shown an approval dialog before any network socket is
+    ///   opened.  Failing to do so means the runtime silently opens sockets
+    ///   without user consent, negating the two-leg network gate.
     public var approvalPrompter: any NetworkPermissionPrompting
     public var permissionStore: UserDefaultsNetworkPermissionStore
     public var clock: RuntimeClock
@@ -421,6 +431,13 @@ public struct StackRuntimeConfiguration: Sendable {
     }
 }
 
+/// A `NetworkPermissionPrompting` implementation that unconditionally approves
+/// all network access requests without user interaction.
+///
+/// **This prompter is intended for use in test harnesses only.**  It silently
+/// bypasses the interactive permission gate.  Production app code must pass a
+/// real interactive prompter (see `AppKitNetworkPermissionPrompter`) so that
+/// users are shown an approval dialog before network sockets are opened.
 public struct AllowAllNetworkPermissionPrompter: NetworkPermissionPrompting, Sendable {
     public init() {}
     public func requestApproval(for access: NetworkAccessRequest) async -> Bool { true }
@@ -1152,8 +1169,68 @@ public actor StackRuntime: ScriptRuntimeProviding {
         try await ensureListenerPermitted(access, spec: spec)
 
         #if canImport(Network)
-        let parameters: NWParameters = spec.transport == .tcp ? .tcp : .tcp
-        let listener = try NWListener(using: parameters, on: NWEndpoint.Port(integerLiteral: NWEndpoint.Port.IntegerLiteralType(spec.port)))
+        // Both .tcp and .http transports use NWParameters.tcp as the underlying
+        // transport: .http is HypeTalk-level framing that rides on raw TCP, not
+        // the Apple HTTP framing built into NWProtocolOptions. The dead ternary
+        // that was here (`.tcp ? .tcp : .tcp`) has been replaced with this
+        // explicit construction so the intent is clear.
+        let parameters: NWParameters = .tcp
+
+        // Honor the spec's bindScope so the socket is bound only to the
+        // interfaces the manifest declares:
+        //
+        //   .loopback — restrict to 127.0.0.1 (the explicit host in the spec
+        //               is preferred when it is a non-empty, non-wildcard value;
+        //               otherwise "127.0.0.1" is used as the safe default)
+        //   .lan      — wildcard; NWListener.requiredLocalEndpoint is not set
+        //               because NWListener has no built-in "LAN-interfaces-only"
+        //               mode — binding wildcard and documenting the limitation is
+        //               the only viable option here without implementing a custom
+        //               per-interface listener strategy.
+        //   .any      — wildcard; same reasoning as .lan above
+        //
+        // The permission prompt and manifest description both reflect .loopback
+        // as the default and most common value; the fix here closes the gap where
+        // the socket previously accepted connections from any interface regardless
+        // of what the manifest declared.
+        let listenerPort = NWEndpoint.Port(integerLiteral: NWEndpoint.Port.IntegerLiteralType(spec.port))
+
+        // Build the listener using the correct initializer form for each scope:
+        //
+        //   .loopback — set requiredLocalEndpoint (host + port) on the parameters
+        //               and use NWListener(using:) WITHOUT the `on:` argument.
+        //               Passing both `on:` and a port inside requiredLocalEndpoint
+        //               would be redundant at best and conflicting at worst.
+        //
+        //   .lan / .any — leave requiredLocalEndpoint unset (wildcard) and pass
+        //               `on: listenerPort` to specify the port.
+        let listener: NWListener
+        switch spec.bindScope {
+        case .loopback:
+            // Prefer the explicit host from the spec if it is a non-empty,
+            // non-wildcard address; fall back to "127.0.0.1".
+            let trimmedHost = spec.host.trimmingCharacters(in: .whitespaces)
+            let bindHost: String
+            if !trimmedHost.isEmpty && trimmedHost != "0.0.0.0" && trimmedHost != "::" {
+                bindHost = trimmedHost
+            } else {
+                bindHost = "127.0.0.1"
+            }
+            parameters.requiredLocalEndpoint = .hostPort(
+                host: NWEndpoint.Host(bindHost),
+                port: listenerPort
+            )
+            // Use NWListener(using:) so the port comes from requiredLocalEndpoint,
+            // not from a separate `on:` argument that could conflict.
+            listener = try NWListener(using: parameters)
+        case .lan, .any:
+            // Wildcard bind — NWListener binds all interfaces by default when
+            // requiredLocalEndpoint is not set. Both .lan and .any resolve to
+            // wildcard because NWListener offers no built-in LAN-only mode.
+            // The distinction between .lan and .any is intentionally not
+            // enforced at the socket level; it is recorded here for future work.
+            listener = try NWListener(using: parameters, on: listenerPort)
+        }
         let id = UUID()
         listeners[id] = ListenerState(
             id: id,

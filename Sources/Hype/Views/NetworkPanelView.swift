@@ -367,6 +367,7 @@ struct NetworkPanelView: View {
             aiProvider: SelectedAIScriptingProvider(),
             speechOutputProvider: OpenAISpeechOutputProvider.shared,
             speechListenerProvider: RuntimeSpeechListenerProvider.shared,
+            approvalPrompter: AppKitNetworkPermissionPrompter(stackName: stack.name),
             fileProvider: fileProvider
         )
         Task {

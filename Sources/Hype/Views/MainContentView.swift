@@ -1147,6 +1147,11 @@ struct MainContentView: View {
             meshyProvider: LiveMeshyScriptingProvider(),
             speechOutputProvider: OpenAISpeechOutputProvider.shared,
             speechListenerProvider: RuntimeSpeechListenerProvider.shared,
+            // Production builds must use AppKitNetworkPermissionPrompter so
+            // that network access requests are presented as interactive NSAlerts.
+            // The StackRuntimeConfiguration default (AllowAllNetworkPermissionPrompter)
+            // exists for test harnesses only — app code always passes a real prompter.
+            approvalPrompter: AppKitNetworkPermissionPrompter(stackName: stack.name),
             fileProvider: fileProvider
         )
     }
@@ -1781,6 +1786,9 @@ private struct NavigationHandlers: ViewModifier {
                 meshyProvider: LiveMeshyScriptingProvider(),
                 speechOutputProvider: OpenAISpeechOutputProvider.shared,
                 speechListenerProvider: RuntimeSpeechListenerProvider.shared,
+                // Production site: must use AppKitNetworkPermissionPrompter,
+                // not the AllowAll default that exists for test harnesses only.
+                approvalPrompter: AppKitNetworkPermissionPrompter(stackName: stack.name),
                 fileProvider: fileProvider
             )
         )
