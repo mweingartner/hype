@@ -15,6 +15,13 @@ import Foundation
 /// safe to call from any concurrency context without isolation.
 public enum ChunkWriter {
 
+    /// Upper bound on the number of padding chars/words/items/lines a single
+    /// out-of-range chunk write may synthesize. Writes that would need more
+    /// padding than this are no-ops (the address is treated as unreachable,
+    /// like a negative index) so a script cannot turn `put x into item N of y`
+    /// into an arbitrary-size allocation.
+    public static let maxPaddingCount = 65_536
+
     // MARK: - Resolved indices
 
     /// The result of resolving a `ChunkRange` to concrete array indices.
@@ -216,6 +223,13 @@ public enum ChunkWriter {
             // new-empty element as the target.
             let target = resolvedIdx
             let paddingCount = target - count - 1
+            // Padding is script-controlled (`put x into item 2000000000 of y`
+            // resolves through clampedInt up to Int.max) and each padded slot
+            // allocates real bytes. An unbounded String(repeating:) here is a
+            // process-killing allocation — the exact crash class the rest of
+            // the interpreter clamps against. Indices needing more padding
+            // than any plausible HyperTalk usage are a deliberate no-op.
+            guard paddingCount <= Self.maxPaddingCount else { return container }
             switch chunkType {
             case .char, .character:
                 // Pad with spaces up to (target-1), then append value

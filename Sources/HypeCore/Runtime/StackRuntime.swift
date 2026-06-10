@@ -1207,15 +1207,14 @@ public actor StackRuntime: ScriptRuntimeProviding {
         let listener: NWListener
         switch spec.bindScope {
         case .loopback:
-            // Prefer the explicit host from the spec if it is a non-empty,
-            // non-wildcard address; fall back to "127.0.0.1".
+            // The scope label is the contract: a .loopback listener must bind
+            // a loopback address no matter what `spec.host` says. A spec that
+            // pairs bindScope .loopback with a LAN host would otherwise bind
+            // that interface while every permission surface described the
+            // listener as loopback-only.
             let trimmedHost = spec.host.trimmingCharacters(in: .whitespaces)
-            let bindHost: String
-            if !trimmedHost.isEmpty && trimmedHost != "0.0.0.0" && trimmedHost != "::" {
-                bindHost = trimmedHost
-            } else {
-                bindHost = "127.0.0.1"
-            }
+            let loopbackHosts: Set<String> = ["127.0.0.1", "::1", "localhost"]
+            let bindHost = loopbackHosts.contains(trimmedHost) ? trimmedHost : "127.0.0.1"
             parameters.requiredLocalEndpoint = .hostPort(
                 host: NWEndpoint.Host(bindHost),
                 port: listenerPort

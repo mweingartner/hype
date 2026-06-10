@@ -213,6 +213,43 @@ struct ChunkWriterTests {
         #expect(result == "a b  Z")
     }
 
+    // MARK: - Padding cap: huge indices cannot become huge allocations
+
+    @Test func hugeIndexPaddingIsNoOp() {
+        // A script-controlled index like `item 2000000000` must not turn
+        // into a multi-gigabyte String(repeating:) — writes needing more
+        // than maxPaddingCount padding slots are no-ops.
+        for chunkType: ChunkType in [.item, .line, .word, .char] {
+            let result = ChunkWriter.apply(
+                chunkType: chunkType,
+                indices: .single(2_000_000_000),
+                preposition: .into,
+                container: "a,b",
+                value: "X"
+            )
+            #expect(result == "a,b", "huge \(chunkType) index should no-op")
+        }
+        // Int.max (what clampedInt yields for overflow-scale script values).
+        let extreme = ChunkWriter.apply(
+            chunkType: .item,
+            indices: .single(Int.max),
+            preposition: .into,
+            container: "a,b",
+            value: "X"
+        )
+        #expect(extreme == "a,b")
+        // Just inside the cap still pads normally.
+        let inside = ChunkWriter.apply(
+            chunkType: .item,
+            indices: .single(10),
+            preposition: .into,
+            container: "a,b",
+            value: "X"
+        )
+        // 10 items joined by 9 commas: a, b, seven empties, X.
+        #expect(inside == "a,b,,,,,,,,X")
+    }
+
     // MARK: - T11: Negative non-sentinel no-op
 
     @Test func negativeLiteralIndexIsNoOp() {
