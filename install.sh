@@ -238,6 +238,17 @@ echo "Installing icons..."
 /bin/cp "$APP_ICON" "$APP/Contents/Resources/AppIcon.icns"
 /bin/cp "$DOC_ICON" "$APP/Contents/Resources/HypeDocIcon.icns"
 
+# SwiftPM resource bundles (e.g. Hype_HypeCore.bundle with the Meshy
+# animation catalog). Bundle.module's synthesized accessor fatalErrors if
+# these are missing from Contents/Resources, so an installed app without
+# them crashes the moment a bundled resource is touched.
+echo "Installing SwiftPM resource bundles..."
+BUILD_BIN_DIR="$(/usr/bin/dirname "$BUILD_BINARY")"
+for bundle in "$BUILD_BIN_DIR"/*.bundle; do
+  [ -e "$bundle" ] || continue
+  /usr/bin/ditto "$bundle" "$APP/Contents/Resources/$(/usr/bin/basename "$bundle")"
+done
+
 echo "Installing Info.plist..."
 if INFO_PLIST_SOURCE="$(resolve_info_plist)"; then
   /bin/cp "$INFO_PLIST_SOURCE" "$APP/Contents/Info.plist"

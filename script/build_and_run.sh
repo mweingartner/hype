@@ -214,6 +214,13 @@ fi
 /bin/cp "$BUILD_BINARY" "$APP_BINARY"
 /bin/chmod +x "$APP_BINARY"
 
+# SwiftPM resource bundles (Bundle.module targets fatalError without them).
+BUILD_BIN_DIR="$(/usr/bin/dirname "$BUILD_BINARY")"
+for bundle in "$BUILD_BIN_DIR"/*.bundle; do
+  [ -e "$bundle" ] || continue
+  /usr/bin/ditto "$bundle" "$APP_RESOURCES/$(/usr/bin/basename "$bundle")"
+done
+
 if [ -d "$ROOT_DIR/Sources/Hype/Resources" ]; then
   /usr/bin/ditto "$ROOT_DIR/Sources/Hype/Resources" "$APP_RESOURCES"
 fi
