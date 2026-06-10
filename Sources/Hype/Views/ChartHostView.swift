@@ -849,6 +849,7 @@ private struct SpiderChartCanvas: View {
             ForEach(seriesList) { series in
                 ForEach(Array(series.data.enumerated()), id: \.element.id) { index, point in
                     let markerPoint = spiderPoint(for: series, dataIndex: index, layout: layout)
+                    let pointName = point.name.isEmpty ? "Point \(index + 1)" : point.name
                     Circle()
                         // A nearly transparent fill gives SwiftUI a real hit
                         // region without drawing a visible affordance over the
@@ -859,7 +860,7 @@ private struct SpiderChartCanvas: View {
                         .frame(width: 44, height: 44)
                         .contentShape(Circle())
                         .position(markerPoint)
-                        .accessibilityLabel("Drag \(point.name.isEmpty ? "Point \(index + 1)" : point.name)")
+                        .accessibilityLabel("Drag \(pointName)")
                         .accessibilityValue(config.formattedSpiderValue(liveValues[point.id] ?? point.value))
                         .gesture(pointDragGesture(
                             target: SpiderChartDragTarget(seriesId: series.id, pointId: point.id),

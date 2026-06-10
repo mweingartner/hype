@@ -12,7 +12,10 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", exact: "1.5.0"),
-        .package(url: "https://github.com/AudioKit/AudioKit.git", exact: "5.2.3"),
+        // Vendored: upstream AudioKit's declared macOS minimum (10.13/11) no longer
+        // compiles under current SDKs (auAudioUnit is macOS 13+). See
+        // Vendor/AudioKit/HYPE_VENDOR_NOTE.md for provenance and the single patch.
+        .package(path: "Vendor/AudioKit"),
     ],
     targets: [
         .executableTarget(
