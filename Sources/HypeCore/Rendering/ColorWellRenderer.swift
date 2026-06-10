@@ -18,7 +18,7 @@ public enum ColorWellRenderer {
         // falling back to gray on parse failure.
         let swatch = NSColor(hexString: part.colorWellHex) ?? NSColor.lightGray
         ctx.setFillColor(swatch.cgColor)
-        let path = CGPath(roundedRect: rect, cornerWidth: 4, cornerHeight: 4, transform: nil)
+        let path = RenderGeometry.roundedRectPath(in: rect, cornerWidth: 4, cornerHeight: 4)
         ctx.addPath(path)
         ctx.fillPath()
 
@@ -47,7 +47,7 @@ public enum ColorWellRenderer {
                 height: size.height + 2
             )
             ctx.setFillColor(NSColor.controlBackgroundColor.withAlphaComponent(0.7).cgColor)
-            ctx.addPath(CGPath(roundedRect: pillRect, cornerWidth: 3, cornerHeight: 3, transform: nil))
+            ctx.addPath(RenderGeometry.roundedRectPath(in: pillRect, cornerWidth: 3, cornerHeight: 3))
             ctx.fillPath()
             (str as NSString).draw(
                 at: CGPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2),

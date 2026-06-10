@@ -38,13 +38,20 @@ import AppKit
 /// animations here; the tick callback writes property changes
 /// back to the document via `onPropertyChange`.
 ///
-/// This runs outside the interpreter (which is synchronous) and
-/// uses the main thread's run loop timer -- the same pattern the
-/// idle timer uses.
+/// Threading contract: `animate`, `stopAll`, `stopAnimations(for:)`,
+/// and `isAnimating` may be called from any thread. All access to the
+/// `animations` array is serialized by `lock`. The timer is always
+/// scheduled on the main run loop (via `DispatchQueue.main.async` when
+/// the caller is off-main) so the tick fires reliably regardless of
+/// which thread registers an animation — matching the fix applied to
+/// GIFAnimator. Callbacks (`onPropertyChange`, `onAnimationComplete`)
+/// are always invoked on the main thread by the timer tick.
 public final class PartAnimator: @unchecked Sendable {
 
     public static let shared = PartAnimator()
 
+    /// Guards all reads and writes of `animations` and `timer`.
+    private let lock = NSLock()
     private var animations: [PartAnimation] = []
     private var timer: Timer?
 
@@ -59,7 +66,7 @@ public final class PartAnimator: @unchecked Sendable {
     public var onAnimationComplete: ((UUID, String) -> Void)?
 
     /// Start a new animation. Replaces any existing animation on
-    /// the same part+property.
+    /// the same part+property. Safe to call from any thread.
     public func animate(
         partId: UUID,
         property: String,
@@ -69,9 +76,6 @@ public final class PartAnimator: @unchecked Sendable {
         toValueY: Double? = nil,
         duration: Double
     ) {
-        // Remove any existing animation on the same part+property
-        animations.removeAll { $0.partId == partId && $0.property == property }
-
         let anim = PartAnimation(
             partId: partId,
             property: property,
@@ -82,56 +86,115 @@ public final class PartAnimator: @unchecked Sendable {
             startTime: CACurrentMediaTime(),
             duration: max(0.001, duration)
         )
+        lock.lock()
+        // Remove any existing animation on the same part+property
+        animations.removeAll { $0.partId == partId && $0.property == property }
         animations.append(anim)
-        startTimerIfNeeded()
+        let needsTimer = timer == nil
+        lock.unlock()
+
+        if needsTimer {
+            startTimerOnMain()
+        }
     }
 
-    /// Stop all animations on a specific part.
+    /// Stop all animations on a specific part. Safe to call from any thread.
     public func stopAnimations(for partId: UUID) {
+        lock.lock()
         animations.removeAll { $0.partId == partId }
-        stopTimerIfIdle()
+        let idle = animations.isEmpty
+        lock.unlock()
+
+        if idle {
+            stopTimerOnMain()
+        }
     }
 
-    /// Stop all animations globally.
+    /// Stop all animations globally. Safe to call from any thread.
     public func stopAll() {
+        lock.lock()
         animations.removeAll()
-        stopTimerIfIdle()
+        lock.unlock()
+
+        stopTimerOnMain()
     }
 
-    /// Check if any animation is active on a specific part.
+    /// Check if any animation is active on a specific part. Safe to call from any thread.
     public func isAnimating(partId: UUID) -> Bool {
-        animations.contains { $0.partId == partId }
+        lock.lock()
+        defer { lock.unlock() }
+        return animations.contains { $0.partId == partId }
     }
 
-    /// Check if a specific property on a part is animating.
+    /// Check if a specific property on a part is animating. Safe to call from any thread.
     public func isAnimating(partId: UUID, property: String) -> Bool {
-        animations.contains { $0.partId == partId && $0.property == property }
+        lock.lock()
+        defer { lock.unlock() }
+        return animations.contains { $0.partId == partId && $0.property == property }
     }
 
-    // MARK: - Timer
+    // MARK: - Timer (main-thread only)
 
+    private func startTimerOnMain() {
+        if Thread.isMainThread {
+            startTimerIfNeeded()
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.startTimerIfNeeded()
+            }
+        }
+    }
+
+    private func stopTimerOnMain() {
+        if Thread.isMainThread {
+            stopTimerIfIdle()
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.stopTimerIfIdle()
+            }
+        }
+    }
+
+    /// Must be called on the main thread.
     private func startTimerIfNeeded() {
-        guard timer == nil else { return }
+        lock.lock()
+        guard timer == nil else {
+            lock.unlock()
+            return
+        }
         // ~60fps
         let t = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
             self?.tick()
         }
         timer = t
+        lock.unlock()
         // Ensure the timer fires during tracking (scrolling, dragging)
         RunLoop.main.add(t, forMode: .common)
     }
 
+    /// Must be called on the main thread.
     private func stopTimerIfIdle() {
-        guard animations.isEmpty else { return }
-        timer?.invalidate()
+        lock.lock()
+        guard animations.isEmpty else {
+            lock.unlock()
+            return
+        }
+        let t = timer
         timer = nil
+        lock.unlock()
+        t?.invalidate()
     }
 
+    /// Invoked by the timer on the main thread.
     private func tick() {
         let now = CACurrentMediaTime()
         var completed: [(UUID, String)] = []
 
-        for anim in animations {
+        lock.lock()
+        let snapshot = animations
+        lock.unlock()
+
+        for anim in snapshot {
             let elapsed = now - anim.startTime
             let progress = min(1.0, elapsed / anim.duration)
 
@@ -154,10 +217,17 @@ public final class PartAnimator: @unchecked Sendable {
             }
         }
 
-        // Remove completed animations
-        for (partId, property) in completed {
-            animations.removeAll { $0.partId == partId && $0.property == property }
-            onAnimationComplete?(partId, property)
+        // Remove completed animations and fire completion callbacks
+        if !completed.isEmpty {
+            lock.lock()
+            for (partId, property) in completed {
+                animations.removeAll { $0.partId == partId && $0.property == property }
+            }
+            lock.unlock()
+
+            for (partId, property) in completed {
+                onAnimationComplete?(partId, property)
+            }
         }
 
         stopTimerIfIdle()

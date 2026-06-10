@@ -13,7 +13,7 @@ public enum AudioRecorderRenderer {
 
         // Background.
         ctx.setFillColor(NSColor.controlBackgroundColor.cgColor)
-        let path = CGPath(roundedRect: rect, cornerWidth: 6, cornerHeight: 6, transform: nil)
+        let path = RenderGeometry.roundedRectPath(in: rect, cornerWidth: 6, cornerHeight: 6)
         ctx.addPath(path)
         ctx.fillPath()
         ctx.setStrokeColor(NSColor.separatorColor.cgColor)
@@ -27,7 +27,7 @@ public enum AudioRecorderRenderer {
         let micCenterX = rect.minX + 22
         let micCenterY = rect.midY
         let capsuleRect = CGRect(x: micCenterX - 6, y: micCenterY - 12, width: 12, height: 18)
-        let capsulePath = CGPath(roundedRect: capsuleRect, cornerWidth: 6, cornerHeight: 6, transform: nil)
+        let capsulePath = RenderGeometry.roundedRectPath(in: capsuleRect, cornerWidth: 6, cornerHeight: 6)
         ctx.setFillColor(iconColor.cgColor)
         ctx.addPath(capsulePath)
         ctx.fillPath()

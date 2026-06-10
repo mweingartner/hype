@@ -15,7 +15,7 @@ public enum MapRenderer {
 
         // Soft pastel background with rounded corners.
         ctx.setFillColor(NSColor(calibratedRed: 0.85, green: 0.94, blue: 0.94, alpha: 1).cgColor)
-        let path = CGPath(roundedRect: rect, cornerWidth: 6, cornerHeight: 6, transform: nil)
+        let path = RenderGeometry.roundedRectPath(in: rect, cornerWidth: 6, cornerHeight: 6)
         ctx.addPath(path)
         ctx.fillPath()
 

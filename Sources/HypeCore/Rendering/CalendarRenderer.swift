@@ -19,10 +19,12 @@ public enum CalendarRenderer {
         ctx.saveGState()
         let style = TargetRuntimeCalendarStyle(rawOrAlias: part.calendarStyle)
 
-        // Background — light surface with rounded corners.
+        // Background — light surface with rounded corners. Fixed 6pt
+        // corners, but part rect is script-settable so route through
+        // RenderGeometry to guard CGPath preconditions.
         let bg = NSColor.controlBackgroundColor.cgColor
         ctx.setFillColor(bg)
-        let path = CGPath(roundedRect: rect, cornerWidth: 6, cornerHeight: 6, transform: nil)
+        let path = RenderGeometry.roundedRectPath(in: rect, cornerRadius: 6)
         ctx.addPath(path)
         ctx.fillPath()
 
@@ -146,7 +148,9 @@ public enum CalendarRenderer {
 
     private static func drawTextualPlaceholder(ctx: CGContext, part: Part, rect: CGRect) {
         let inset = rect.insetBy(dx: 8, dy: max(6, rect.height * 0.18))
-        let fieldPath = CGPath(roundedRect: inset, cornerWidth: 5, cornerHeight: 5, transform: nil)
+        // `inset` is derived from the part rect which may be script-authored;
+        // route through RenderGeometry to guard CGPath preconditions.
+        let fieldPath = RenderGeometry.roundedRectPath(in: inset, cornerRadius: 5)
         ctx.addPath(fieldPath)
         ctx.setFillColor(NSColor.textBackgroundColor.cgColor)
         ctx.fillPath()

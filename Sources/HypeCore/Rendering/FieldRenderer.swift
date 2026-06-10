@@ -77,8 +77,12 @@ public enum FieldRenderer {
             // Pill-shaped field with a leading magnifying-glass icon.
             // Mirrors NSSearchField's macOS look so edit-mode and
             // run-mode are visually consistent.
-            let radius = min(rect.height / 2, 12)
-            let pillPath = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+            // Clamp radius to both half-height AND half-width so a very
+            // narrow script-authored field (e.g. width 5) doesn't violate
+            // CGPath's cornerWidth ≤ w/2 precondition.
+            let radius = min(rect.width / 2, rect.height / 2, 12)
+            // Route through RenderGeometry for the full NaN/negative guard.
+            let pillPath = RenderGeometry.roundedRectPath(in: rect, cornerRadius: radius)
             ctx.addPath(pillPath)
             ctx.setFillColor(fillColor)
             ctx.fillPath()

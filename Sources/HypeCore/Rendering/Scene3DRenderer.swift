@@ -13,7 +13,7 @@ public enum Scene3DRenderer {
 
         // Background — dark gradient feels appropriate for 3D viewers.
         ctx.setFillColor(NSColor(calibratedWhite: 0.18, alpha: 1).cgColor)
-        let path = CGPath(roundedRect: rect, cornerWidth: 6, cornerHeight: 6, transform: nil)
+        let path = RenderGeometry.roundedRectPath(in: rect, cornerWidth: 6, cornerHeight: 6)
         ctx.addPath(path)
         ctx.fillPath()
         ctx.setStrokeColor(NSColor.separatorColor.cgColor)

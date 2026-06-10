@@ -63,12 +63,10 @@ public enum GlassRenderer {
         let reduceTransparency = LiquidGlassEnvironment.reduceTransparency
         let increaseContrast = LiquidGlassEnvironment.increaseContrast
 
-        let path = CGPath(
-            roundedRect: rect,
-            cornerWidth: cornerRadius,
-            cornerHeight: cornerRadius,
-            transform: nil
-        )
+        // Route through RenderGeometry so a script-authored part with a
+        // zero/negative/NaN size or an oversized corner radius can't trip
+        // CGPath's preconditions and crash the app.
+        let path = RenderGeometry.roundedRectPath(in: rect, cornerRadius: cornerRadius)
 
         // 1) Outer drop shadow — skipped in high-contrast mode
         // so the part edge reads as crisp, not floating.

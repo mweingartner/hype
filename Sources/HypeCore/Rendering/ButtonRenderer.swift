@@ -124,7 +124,9 @@ public enum ButtonRenderer {
                 )
             } else {
                 let cornerR = theme.map { CGFloat($0.cornerRadiusMedium) } ?? 8
-                let path = CGPath(roundedRect: rect, cornerWidth: cornerR, cornerHeight: cornerR, transform: nil)
+                // Script geometry may be zero/negative/NaN; route through
+                // RenderGeometry so CGPath preconditions are always met.
+                let path = RenderGeometry.roundedRectPath(in: rect, cornerRadius: cornerR)
                 ctx.addPath(path)
                 ctx.setFillColor(fillColor)
                 ctx.fillPath()
@@ -229,7 +231,9 @@ public enum ButtonRenderer {
                     shadowRadius: CGFloat(t.shadowRadius)
                 )
             } else {
-                let outerPath = CGPath(roundedRect: rect, cornerWidth: cornerR, cornerHeight: cornerR, transform: nil)
+                // Script geometry may be zero/negative/NaN; route through
+                // RenderGeometry so CGPath preconditions are always met.
+                let outerPath = RenderGeometry.roundedRectPath(in: rect, cornerRadius: cornerR)
                 ctx.addPath(outerPath)
                 ctx.setFillColor(accentNS.cgColor)
                 ctx.fillPath()
@@ -263,7 +267,9 @@ public enum ButtonRenderer {
             // chevrons + label are the card foreground. Falls back
             // to system defaults when no theme is supplied.
             let cornerR = theme.map { CGFloat($0.cornerRadiusMedium) } ?? 6
-            let popupPath = CGPath(roundedRect: rect, cornerWidth: cornerR, cornerHeight: cornerR, transform: nil)
+            // Script geometry may be zero/negative/NaN; route through
+            // RenderGeometry so CGPath preconditions are always met.
+            let popupPath = RenderGeometry.roundedRectPath(in: rect, cornerRadius: cornerR)
             ctx.addPath(popupPath)
             ctx.setFillColor((theme?.fieldBackground.nsColor ?? NSColor.textBackgroundColor).cgColor)
             ctx.fillPath()
@@ -324,7 +330,10 @@ public enum ButtonRenderer {
             let trackX = rect.minX + 4
             let trackY = rect.midY - trackHeight / 2
             let trackRect = CGRect(x: trackX, y: trackY, width: trackWidth, height: trackHeight)
-            let trackPath = CGPath(roundedRect: trackRect, cornerWidth: trackHeight / 2, cornerHeight: trackHeight / 2, transform: nil)
+            // trackRect is sized from a fixed constant (44×24) and capped
+            // by the renderer above; route through RenderGeometry to guard
+            // against any script-authored rect that reaches this path.
+            let trackPath = RenderGeometry.roundedRectPath(in: trackRect, cornerRadius: trackHeight / 2)
 
             ctx.addPath(trackPath)
             ctx.setFillColor(part.hilite ? accentNS.cgColor : NSColor.systemGray.withAlphaComponent(0.3).cgColor)

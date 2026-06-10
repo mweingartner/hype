@@ -25,7 +25,7 @@ final class FieldPartNode: SKNode, CardPartNode {
         let height = CGFloat(part.height)
         let rect = CGRect(x: 0, y: -height, width: width, height: height)
 
-        backgroundNode.path = CGPath(roundedRect: rect, cornerWidth: part.fieldStyle == .search ? 10 : 0, cornerHeight: part.fieldStyle == .search ? 10 : 0, transform: nil)
+        backgroundNode.path = RenderGeometry.roundedRectPath(in: rect, cornerWidth: part.fieldStyle == .search ? 10 : 0, cornerHeight: part.fieldStyle == .search ? 10 : 0)
         backgroundNode.fillColor = part.fieldStyle == .transparent ? .clear : (NSColor(hexString: part.fillColor) ?? .textBackgroundColor)
         backgroundNode.strokeColor = part.fieldStyle == .transparent ? .clear : (NSColor(hexString: part.strokeColor) ?? .separatorColor)
         backgroundNode.lineWidth = part.fieldStyle == .transparent ? 0 : max(0, CGFloat(part.strokeWidth))

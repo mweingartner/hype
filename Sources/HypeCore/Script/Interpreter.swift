@@ -1513,7 +1513,7 @@ public struct Interpreter: Sendable {
 
         case .repeatCount(let countExpr, let body):
             let countStr = try await evaluate(countExpr, env: &env, document: document, context: context)
-            let count = Int(toNumber(countStr))
+            let count = clampedInt(toNumber(countStr))
             for _ in 0..<max(0, count) {
                 context.profiler?.recordLoopIteration("repeatCount")
                 do {
@@ -2291,7 +2291,7 @@ public struct Interpreter: Sendable {
             let term = try await evaluate(termExpr, env: &env, document: document, context: context)
             let limit = limitExpr == nil
                 ? 10
-                : max(1, Int(toNumber(try await evaluate(limitExpr!, env: &env, document: document, context: context))))
+                : max(1, clampedInt(toNumber(try await evaluate(limitExpr!, env: &env, document: document, context: context))))
             let scope = AppleMusicSearchScope(rawValue: scopeRaw.lowercased()) ?? .catalog
             let kinds = itemTypeRaw.flatMap { AppleMusicItemKind.parse($0) }.map { [$0] }
                 ?? [.song, .album, .artist, .playlist, .station]
@@ -2374,7 +2374,7 @@ public struct Interpreter: Sendable {
         case .beep(let countExpr):
             let count: Int
             if let expr = countExpr {
-                count = max(1, Int(toNumber(try await evaluate(expr, env: &env, document: document, context: context))))
+                count = max(1, clampedInt(toNumber(try await evaluate(expr, env: &env, document: document, context: context))))
             } else {
                 count = 1
             }
@@ -2622,11 +2622,11 @@ public struct Interpreter: Sendable {
             let fromParts = fromVal.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
             let toParts = toVal.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
             if fromParts.count >= 2 && toParts.count >= 2 {
-                let x0 = Int(Double(fromParts[0]) ?? 0)
-                let y0 = Int(Double(fromParts[1]) ?? 0)
-                let x1 = Int(Double(toParts[0]) ?? 0)
-                let y1 = Int(Double(toParts[1]) ?? 0)
-                let radius = Int(toNumber(env.getVariable("pencilsize")))
+                let x0 = clampedInt(Double(fromParts[0]) ?? 0)
+                let y0 = clampedInt(Double(fromParts[1]) ?? 0)
+                let x1 = clampedInt(Double(toParts[0]) ?? 0)
+                let y1 = clampedInt(Double(toParts[1]) ?? 0)
+                let radius = clampedInt(toNumber(env.getVariable("pencilsize")))
                 let colorHex = env.getVariable("pencilcolor")
                 await context.drawingProvider.drawLineAsync(from: (x0, y0), to: (x1, y1),
                                                             radius: max(1, radius == 0 ? 2 : radius),
@@ -2661,7 +2661,7 @@ public struct Interpreter: Sendable {
             guard let requestID else {
                 throw ScriptError(message: "Invalid request handle", line: handler.line, handler: handler.name)
             }
-            let status = Int(toNumber(try await evaluate(statusExpr, env: &env, document: document, context: context)))
+            let status = clampedInt(toNumber(try await evaluate(statusExpr, env: &env, document: document, context: context)))
             let headers = try await evaluateOptional(headersExpr, env: &env, document: document, context: context) ?? ""
             let body = try await evaluateOptional(bodyExpr, env: &env, document: document, context: context) ?? ""
             try await runtime.reply(to: requestID, status: status, headersText: headers, body: body)
@@ -2671,7 +2671,7 @@ public struct Interpreter: Sendable {
             guard let runtime = context.runtimeProvider else {
                 throw ScriptError(message: "Network runtime is unavailable", line: handler.line, handler: handler.name)
             }
-            let port = Int(toNumber(try await evaluate(portExpr, env: &env, document: document, context: context)))
+            let port = clampedInt(toNumber(try await evaluate(portExpr, env: &env, document: document, context: context)))
             let host = try await evaluateOptional(hostExpr, env: &env, document: document, context: context) ?? "127.0.0.1"
             let method = try await evaluateOptional(methodExpr, env: &env, document: document, context: context)
             let path = try await evaluateOptional(pathExpr, env: &env, document: document, context: context)
@@ -2687,7 +2687,7 @@ public struct Interpreter: Sendable {
             guard let runtime = context.runtimeProvider else {
                 throw ScriptError(message: "Network runtime is unavailable", line: handler.line, handler: handler.name)
             }
-            let port = Int(toNumber(try await evaluate(portExpr, env: &env, document: document, context: context)))
+            let port = clampedInt(toNumber(try await evaluate(portExpr, env: &env, document: document, context: context)))
             let host = try await evaluateOptional(hostExpr, env: &env, document: document, context: context) ?? "127.0.0.1"
             let callback = try await evaluate(callbackExpr, env: &env, document: document, context: context)
             context.profiler?.recordCallbackRequest("listenTCP")
@@ -2702,7 +2702,7 @@ public struct Interpreter: Sendable {
                 throw ScriptError(message: "Network runtime is unavailable", line: handler.line, handler: handler.name)
             }
             let host = try await evaluate(hostExpr, env: &env, document: document, context: context)
-            let port = Int(toNumber(try await evaluate(portExpr, env: &env, document: document, context: context)))
+            let port = clampedInt(toNumber(try await evaluate(portExpr, env: &env, document: document, context: context)))
             let tlsValue = try await evaluateOptional(tlsExpr, env: &env, document: document, context: context)
             let tls = tlsValue.map(isTruthy) ?? false
             let callback = try await evaluate(callbackExpr, env: &env, document: document, context: context)
@@ -3040,8 +3040,8 @@ public struct Interpreter: Sendable {
 
         case .createTileMap(let nameExpr, let colsExpr, let rowsExpr, let tileSizeExpr, let tilesetExpr):
             let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
-            let cols = colsExpr != nil ? Int(toNumber(try await evaluate(colsExpr!, env: &env, document: document, context: context))) : 10
-            let rows = rowsExpr != nil ? Int(toNumber(try await evaluate(rowsExpr!, env: &env, document: document, context: context))) : 10
+            let cols = colsExpr != nil ? clampedInt(toNumber(try await evaluate(colsExpr!, env: &env, document: document, context: context))) : 10
+            let rows = rowsExpr != nil ? clampedInt(toNumber(try await evaluate(rowsExpr!, env: &env, document: document, context: context))) : 10
             let explicitTileSize: Double? = tileSizeExpr != nil
                 ? toNumber(try await evaluate(tileSizeExpr!, env: &env, document: document, context: context))
                 : nil
@@ -3183,10 +3183,10 @@ public struct Interpreter: Sendable {
             env.it = sceneName
 
         case .setTile(let colExpr, let rowExpr, let tilemapExpr, let tileIndexExpr):
-            let col = Int(toNumber(try await evaluate(colExpr, env: &env, document: document, context: context)))
-            let row = Int(toNumber(try await evaluate(rowExpr, env: &env, document: document, context: context)))
+            let col = clampedInt(toNumber(try await evaluate(colExpr, env: &env, document: document, context: context)))
+            let row = clampedInt(toNumber(try await evaluate(rowExpr, env: &env, document: document, context: context)))
             let tilemapName = try await evaluate(tilemapExpr, env: &env, document: document, context: context)
-            let tileIndex = Int(toNumber(try await evaluate(tileIndexExpr, env: &env, document: document, context: context)))
+            let tileIndex = clampedInt(toNumber(try await evaluate(tileIndexExpr, env: &env, document: document, context: context)))
 
             if let location = nodeLocation(named: tilemapName, objectType: "tilemap", document: document, currentCardId: context.currentCardId) {
                 _ = mutateActiveScene(partIndex: location.partIndex, document: &document) { spec in
@@ -3212,7 +3212,7 @@ public struct Interpreter: Sendable {
             // safer one for fill operations (no gaps left over
             // from a previously smaller map).
             let tilemapName = try await evaluate(tilemapExpr, env: &env, document: document, context: context)
-            let tileIndex = Int(toNumber(try await evaluate(tileIndexExpr, env: &env, document: document, context: context)))
+            let tileIndex = clampedInt(toNumber(try await evaluate(tileIndexExpr, env: &env, document: document, context: context)))
             if let location = nodeLocation(named: tilemapName, objectType: "tilemap", document: document, currentCardId: context.currentCardId) {
                 _ = mutateActiveScene(partIndex: location.partIndex, document: &document) { spec in
                     _ = spec.updateNode(id: location.node.id) { node in
@@ -3478,7 +3478,7 @@ public struct Interpreter: Sendable {
             return remainder
         case .charCount(let countExpr):
             let countText = try await evaluate(countExpr, env: &env, document: document, context: context)
-            let count = max(0, Int(toNumber(countText)))
+            let count = max(0, clampedInt(toNumber(countText)))
             let end = remainder.index(remainder.startIndex, offsetBy: min(count, remainder.count))
             return String(remainder[..<end])
         case .until(let delimiterExpr):
@@ -3508,7 +3508,7 @@ public struct Interpreter: Sendable {
         if startText.isEmpty || startText == "start" {
             return 0
         }
-        let raw = Int(toNumber(startText))
+        let raw = clampedInt(toNumber(startText))
         if raw < 0 {
             return max(0, contents.count + raw)
         }
@@ -3536,7 +3536,7 @@ public struct Interpreter: Sendable {
         case .offset(let offsetExpr):
             let existing = try await existingFileContentsOrEmpty(path: path, context: context)
             let offsetText = try await evaluate(offsetExpr, env: &env, document: document, context: context)
-            let raw = Int(toNumber(offsetText))
+            let raw = clampedInt(toNumber(offsetText))
             let offset = raw < 0 ? max(0, existing.count + raw) : min(existing.count, max(0, raw - 1))
             let index = existing.index(existing.startIndex, offsetBy: offset)
             return String(existing[..<index]) + data + String(existing[index...])
@@ -4025,8 +4025,8 @@ public struct Interpreter: Sendable {
             // — scripts can treat that as the "no tile" sentinel.
             // We look only on the current card (like setTile),
             // which mirrors the other tile-map commands' scope.
-            let col = Int(toNumber(try await evaluate(colExpr, env: &env, document: document, context: context)))
-            let row = Int(toNumber(try await evaluate(rowExpr, env: &env, document: document, context: context)))
+            let col = clampedInt(toNumber(try await evaluate(colExpr, env: &env, document: document, context: context)))
+            let row = clampedInt(toNumber(try await evaluate(rowExpr, env: &env, document: document, context: context)))
             let tilemapName = try await evaluate(tilemapExpr, env: &env, document: document, context: context)
             guard let location = nodeLocation(
                 named: tilemapName,
@@ -4169,7 +4169,7 @@ public struct Interpreter: Sendable {
             return r == 0 ? "0" : formatNumber(toNumber(lVal).truncatingRemainder(dividingBy: r))
         case .intDiv:
             let divisor = toNumber(rVal)
-            return divisor != 0 ? String(Int(toNumber(lVal) / divisor)) : "0"
+            return divisor != 0 ? formatNumber((toNumber(lVal) / divisor).rounded(.towardZero)) : "0"
         case .equal:          return lVal.lowercased() == rVal.lowercased() ? "true" : "false"
         case .notEqual:       return lVal.lowercased() != rVal.lowercased() ? "true" : "false"
         case .lessThan:       return toNumber(lVal) < toNumber(rVal) ? "true" : "false"
@@ -4214,14 +4214,14 @@ public struct Interpreter: Sendable {
             }
             return "0"
         case "random":
-            guard let max = args.first.flatMap({ Int($0) }), max > 0 else { return "0" }
+            let max = Swift.max(1, clampedInt(toNumber(args.first ?? "0")))
             return String(Int.random(in: 1...max))
         case "abs":
             return formatNumber(abs(toNumber(args.first ?? "0")))
         case "round":
-            return String(Int(toNumber(args.first ?? "0").rounded()))
+            return formatNumber(toNumber(args.first ?? "0").rounded())
         case "trunc":
-            return String(Int(toNumber(args.first ?? "0")))
+            return formatNumber(toNumber(args.first ?? "0").rounded(.towardZero))
         case "min":
             guard args.count >= 2 else { return args.first ?? "0" }
             return formatNumber(min(toNumber(args[0]), toNumber(args[1])))
@@ -4244,8 +4244,9 @@ public struct Interpreter: Sendable {
             let str = args.first ?? ""
             return str.isEmpty ? "0" : String(Int(str.unicodeScalars.first?.value ?? 0))
         case "numtochar":
-            let num = Int(toNumber(args.first ?? "0"))
-            return num > 0 && num < 65536 ? String(Character(UnicodeScalar(num)!)) : ""
+            let num = clampedInt(toNumber(args.first ?? "0"))
+            guard num > 0, num < 65536, let scalar = UnicodeScalar(num) else { return "" }
+            return String(Character(scalar))
         case "value":
             return args.first ?? ""
 
@@ -4308,7 +4309,7 @@ public struct Interpreter: Sendable {
         case "target": return ""
         case "result": return env.result
         case "param":
-            let index = Int(toNumber(args.first ?? "1"))
+            let index = clampedInt(toNumber(args.first ?? "1"))
             return env.handlerParam(at: index)
         case "paramcount":
             return String(env.handlerParams.count)
@@ -5450,7 +5451,7 @@ public struct Interpreter: Sendable {
         /// throw through the whole call stack.
         func indexValue(_ expr: Expression) async -> Int {
             let str = (try? await evaluate(expr, env: &env, document: document, context: context)) ?? ""
-            return Int(toNumber(str))
+            return clampedInt(toNumber(str))
         }
 
         switch range {
@@ -6598,7 +6599,7 @@ public struct Interpreter: Sendable {
         case "script":
             document.parts[partIndex].script = value
         case "family":
-            document.parts[partIndex].family = Int(toNumber(value))
+            document.parts[partIndex].family = clampedInt(toNumber(value))
         case "textstyle", "text_style":
             // Normalize the input through TextStyleFlags so any
             // alias the user wrote ("strike", "underlined", "BOLD,
@@ -6765,7 +6766,7 @@ public struct Interpreter: Sendable {
         case "pdfurl", "pdf_url":
             document.parts[partIndex].pdfURL = value
         case "currentpage", "current_page":
-            document.parts[partIndex].pdfCurrentPage = Int(toNumber(value))
+            document.parts[partIndex].pdfCurrentPage = clampedInt(toNumber(value))
         case "displaymode", "display_mode":
             document.parts[partIndex].pdfDisplayMode = value
         case "autoscales", "auto_scales":
@@ -6852,7 +6853,7 @@ public struct Interpreter: Sendable {
         case "musictempo", "music_tempo", "tempo", "bpm":
             document.parts[partIndex].musicTempo = Double(MusicTempo.clamp(toNumber(value)))
         case "musickeycount", "music_key_count", "keycount", "key_count", "keys", "keyboardkeys", "keyboard_keys":
-            document.parts[partIndex].musicKeyCount = MusicKeyboardKeyCount.normalize(Int(toNumber(value).rounded()))
+            document.parts[partIndex].musicKeyCount = MusicKeyboardKeyCount.normalize(clampedInt(toNumber(value).rounded()))
         case "showcontroltype", "show_control_type", "showtype", "show_type":
             document.parts[partIndex].musicShowControlType = isTruthy(value)
         case "showmusicpattern", "show_music_pattern", "showpattern", "show_pattern":
@@ -6954,13 +6955,13 @@ public struct Interpreter: Sendable {
         case "progresstotal", "progress_total":
             document.parts[partIndex].progressTotal = max(1e-10, toNumber(value))
         case "progressdecimals", "progress_decimals":
-            let n = Int(toNumber(value))
+            let n = clampedInt(toNumber(value))
             document.parts[partIndex].progressDecimals = max(0, min(10, n))
         case "decimals":
             // Shared alias — dispatch by part type. Mirrors the
             // gauge.decimals contract for both: 0 = integral steps
             // (default), capped at 10 for sane formatting.
-            let n = Int(toNumber(value))
+            let n = clampedInt(toNumber(value))
             let clamped = max(0, min(10, n))
             switch document.parts[partIndex].partType {
             case .gauge:        document.parts[partIndex].gaugeDecimals = clamped
@@ -7003,7 +7004,7 @@ public struct Interpreter: Sendable {
             // Disambiguated form — `decimals` (without the
             // `gauge` prefix) is handled in the shared dispatch
             // case above so progressView + gauge can share it.
-            let n = Int(toNumber(value))
+            let n = clampedInt(toNumber(value))
             document.parts[partIndex].gaugeDecimals = max(0, min(10, n))
         // Menu setters.
         case "menuitems", "menu_items":
@@ -7588,10 +7589,27 @@ public struct Interpreter: Sendable {
         Double(value) ?? 0
     }
 
+    /// Convert a script-derived Double to Int without trapping. NaN -> 0;
+    /// values beyond Int's range clamp to Int.min/Int.max. Scripts can produce
+    /// arbitrary doubles (`10 ^ 30`, "nan"), and a stack script must never be
+    /// able to crash the host process (unsaved-document data loss).
+    private func clampedInt(_ d: Double) -> Int {
+        if d.isNaN { return 0 }
+        if d >= Double(Int.max) { return Int.max }
+        if d <= Double(Int.min) { return Int.min }
+        return Int(d)
+    }
+
     /// Format a number, dropping .0 for integers.
+    ///
+    /// Uses `Int(exactly:)` so that integral doubles outside Int64 range
+    /// (e.g. 1e30) fall through to `String(n)` ("1e+30") rather than
+    /// trapping. Behavior for all in-range values is byte-identical to before.
     private func formatNumber(_ n: Double) -> String {
         if n == n.rounded(.towardZero) && !n.isInfinite && !n.isNaN {
-            return String(Int(n))
+            if let i = Int(exactly: n.rounded(.towardZero)) {
+                return String(i)
+            }
         }
         return String(n)
     }
@@ -7866,11 +7884,11 @@ public struct Interpreter: Sendable {
             node.yScale = toNumber(value)
         case "columns":
             if node.tileMapSpec != nil {
-                node.tileMapSpec?.columns = Int(toNumber(value))
+                node.tileMapSpec?.columns = clampedInt(toNumber(value))
             }
         case "rows":
             if node.tileMapSpec != nil {
-                node.tileMapSpec?.rows = Int(toNumber(value))
+                node.tileMapSpec?.rows = clampedInt(toNumber(value))
             }
         case "tilesize":
             if node.tileMapSpec != nil {

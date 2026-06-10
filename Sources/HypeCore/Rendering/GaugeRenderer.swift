@@ -17,10 +17,12 @@ public enum GaugeRenderer {
         _ = theme
         ctx.saveGState()
 
-        // Background
+        // Background — fixed 6pt corners, but the part rect may be
+        // script-authored (zero/negative/NaN), so route through
+        // RenderGeometry to guard CGPath preconditions.
         let bg = NSColor.controlBackgroundColor.cgColor
         ctx.setFillColor(bg)
-        let path = CGPath(roundedRect: rect, cornerWidth: 6, cornerHeight: 6, transform: nil)
+        let path = RenderGeometry.roundedRectPath(in: rect, cornerRadius: 6)
         ctx.addPath(path)
         ctx.fillPath()
         ctx.setStrokeColor(NSColor.separatorColor.cgColor)
@@ -68,20 +70,25 @@ public enum GaugeRenderer {
             let barPadding: CGFloat = 8
             let barHeight: CGFloat = min(14, rect.height * 0.35)
             let barTop = rect.midY - barHeight / 2
+            // Clamp track width to ≥ 0 so a narrow script-authored part
+            // (rect.width < 16) doesn't produce a negative-width rect,
+            // which CGPath treats as a precondition violation.
+            let trackWidth = max(0, rect.width - barPadding * 2)
             let trackRect = CGRect(x: rect.minX + barPadding, y: barTop,
-                                   width: rect.width - barPadding * 2, height: barHeight)
-            let trackPath = CGPath(roundedRect: trackRect, cornerWidth: barHeight / 2,
-                                   cornerHeight: barHeight / 2, transform: nil)
+                                   width: trackWidth, height: barHeight)
+            let trackPath = RenderGeometry.roundedRectPath(in: trackRect, cornerRadius: barHeight / 2)
             ctx.setFillColor(NSColor.systemGray.withAlphaComponent(0.2).cgColor)
             ctx.addPath(trackPath)
             ctx.fillPath()
 
             if fraction > 0 {
-                let fillWidth = max(barHeight, trackRect.width * CGFloat(fraction))
+                // Clamp fill width so it's never negative and never exceeds
+                // the track (both matter when the track itself is very small).
+                let rawFillWidth = max(barHeight, trackRect.width * CGFloat(fraction))
+                let fillWidth = max(0, min(rawFillWidth, trackRect.width))
                 let fillRect = CGRect(x: trackRect.minX, y: trackRect.minY,
-                                      width: min(fillWidth, trackRect.width), height: barHeight)
-                let fillPath = CGPath(roundedRect: fillRect, cornerWidth: barHeight / 2,
-                                      cornerHeight: barHeight / 2, transform: nil)
+                                      width: fillWidth, height: barHeight)
+                let fillPath = RenderGeometry.roundedRectPath(in: fillRect, cornerRadius: barHeight / 2)
                 ctx.setFillColor(tint.cgColor)
                 ctx.addPath(fillPath)
                 ctx.fillPath()

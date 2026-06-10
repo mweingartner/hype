@@ -33,7 +33,7 @@ final class ButtonPartNode: SKNode, CardPartNode {
             0
         }
 
-        backgroundNode.path = CGPath(roundedRect: rect, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
+        backgroundNode.path = RenderGeometry.roundedRectPath(in: rect, cornerWidth: cornerRadius, cornerHeight: cornerRadius)
         backgroundNode.fillColor = part.buttonStyle == .transparent ? .clear : (NSColor(hexString: part.fillColor) ?? NSColor.controlColor)
         backgroundNode.strokeColor = NSColor(hexString: part.strokeColor) ?? NSColor.separatorColor
         backgroundNode.lineWidth = max(0, CGFloat(part.strokeWidth))

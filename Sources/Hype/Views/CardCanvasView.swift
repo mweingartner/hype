@@ -2785,7 +2785,7 @@ class CardCanvasNSView: NSView {
 
         ctx.saveGState()
         ctx.setShadow(offset: CGSize(width: 0, height: 4), blur: 8, color: NSColor.black.withAlphaComponent(0.22).cgColor)
-        let path = CGPath(roundedRect: rect, cornerWidth: 7, cornerHeight: 7, transform: nil)
+        let path = RenderGeometry.roundedRectPath(in: rect, cornerWidth: 7, cornerHeight: 7)
         ctx.setFillColor(NSColor.controlAccentColor.withAlphaComponent(0.10).cgColor)
         ctx.addPath(path)
         ctx.fillPath()

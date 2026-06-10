@@ -31,7 +31,9 @@ public enum MusicControlsRenderer {
         let radius: CGFloat = 10
         let bg = theme?.fieldBackground.nsColor ?? NSColor.controlBackgroundColor
         ctx.setFillColor(bg.cgColor)
-        let path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        // Part rect is script-settable; route through RenderGeometry to
+        // guard CGPath's cornerWidth ≤ w/2 precondition.
+        let path = RenderGeometry.roundedRectPath(in: rect, cornerRadius: radius)
         ctx.addPath(path)
         ctx.fillPath()
         ctx.setStrokeColor((NSColor(hexString: part.strokeColor) ?? NSColor.separatorColor).cgColor)
@@ -223,7 +225,9 @@ public enum MusicControlsRenderer {
             if isActive {
                 drawKeyGlow(ctx: ctx, rect: rect, color: NSColor.controlAccentColor.withAlphaComponent(0.36))
             }
-            let path = CGPath(roundedRect: rect, cornerWidth: 2.5, cornerHeight: 2.5, transform: nil)
+            // Key rects are derived from part geometry and may be very
+            // small; route through RenderGeometry to guard preconditions.
+            let path = RenderGeometry.roundedRectPath(in: rect, cornerRadius: 2.5)
             ctx.addPath(path)
             ctx.setFillColor((isActive ? whitePressed.blended(withFraction: 0.72, of: whiteFill) ?? whitePressed : whiteFill).cgColor)
             ctx.fillPath()
@@ -243,7 +247,7 @@ public enum MusicControlsRenderer {
             if isActive {
                 drawKeyGlow(ctx: ctx, rect: rect, color: NSColor.controlAccentColor.withAlphaComponent(0.48))
             }
-            let path = CGPath(roundedRect: rect, cornerWidth: 2.5, cornerHeight: 2.5, transform: nil)
+            let path = RenderGeometry.roundedRectPath(in: rect, cornerRadius: 2.5)
             ctx.addPath(path)
             ctx.setFillColor((isActive ? NSColor.controlAccentColor.blended(withFraction: 0.56, of: blackFill) ?? NSColor.controlAccentColor : blackFill).cgColor)
             ctx.fillPath()
@@ -262,7 +266,7 @@ public enum MusicControlsRenderer {
         ctx.saveGState()
         ctx.setShadow(offset: .zero, blur: 7, color: color.cgColor)
         ctx.setFillColor(color.cgColor)
-        ctx.addPath(CGPath(roundedRect: rect.insetBy(dx: 1, dy: 1), cornerWidth: 3, cornerHeight: 3, transform: nil))
+        ctx.addPath(RenderGeometry.roundedRectPath(in: rect.insetBy(dx: 1, dy: 1), cornerRadius: 3))
         ctx.fillPath()
         ctx.restoreGState()
     }
@@ -284,7 +288,7 @@ public enum MusicControlsRenderer {
                 )
                 let active = (row + col) % 5 == 0
                 ctx.setFillColor((active ? NSColor.controlAccentColor : NSColor.quaternaryLabelColor).cgColor)
-                ctx.addPath(CGPath(roundedRect: cell, cornerWidth: 3, cornerHeight: 3, transform: nil))
+                ctx.addPath(RenderGeometry.roundedRectPath(in: cell, cornerRadius: 3))
                 ctx.fillPath()
             }
         }
@@ -312,7 +316,7 @@ public enum MusicControlsRenderer {
         let search = rect.insetBy(dx: 16, dy: 48)
         let field = CGRect(x: search.minX, y: search.minY, width: search.width, height: 28)
         ctx.setFillColor(NSColor.textBackgroundColor.cgColor)
-        ctx.addPath(CGPath(roundedRect: field, cornerWidth: 6, cornerHeight: 6, transform: nil))
+        ctx.addPath(RenderGeometry.roundedRectPath(in: field, cornerRadius: 6))
         ctx.fillPath()
         ctx.setStrokeColor(NSColor.separatorColor.cgColor)
         ctx.stroke(field)
@@ -362,7 +366,7 @@ public enum MusicControlsRenderer {
         for index in 0..<rows {
             let y = queue.minY + CGFloat(index) * 26
             ctx.setFillColor((index == 0 ? NSColor.controlAccentColor.withAlphaComponent(0.45) : NSColor.quaternaryLabelColor).cgColor)
-            ctx.addPath(CGPath(roundedRect: CGRect(x: queue.minX, y: y, width: queue.width, height: 20), cornerWidth: 5, cornerHeight: 5, transform: nil))
+            ctx.addPath(RenderGeometry.roundedRectPath(in: CGRect(x: queue.minX, y: y, width: queue.width, height: 20), cornerRadius: 5))
             ctx.fillPath()
         }
     }

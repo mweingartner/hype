@@ -63,10 +63,13 @@ public enum ProgressViewRenderer {
             }
         } else {
             // Linear bar placeholder.
+            // Clamp track width to ≥ 0 so a narrow script-authored part
+            // (rect.width < barPadding * 2) doesn't produce a negative-
+            // width rect, which CGPath treats as a precondition violation.
+            let trackWidth = max(0, rect.width - barPadding * 2)
             let trackRect = CGRect(x: rect.minX + barPadding, y: barTop,
-                                   width: rect.width - barPadding * 2, height: barHeight)
-            let trackPath = CGPath(roundedRect: trackRect, cornerWidth: barHeight / 2,
-                                   cornerHeight: barHeight / 2, transform: nil)
+                                   width: trackWidth, height: barHeight)
+            let trackPath = RenderGeometry.roundedRectPath(in: trackRect, cornerRadius: barHeight / 2)
             ctx.setFillColor(NSColor.systemGray.withAlphaComponent(0.2).cgColor)
             ctx.addPath(trackPath)
             ctx.fillPath()
@@ -75,11 +78,13 @@ public enum ProgressViewRenderer {
             let fraction = part.progressIsIndeterminate ? 0.33
                 : min(1, max(0, part.progressValue.isFinite ? part.progressValue / safeTotal : 0))
             if fraction > 0 {
-                let fillWidth = max(barHeight, trackRect.width * CGFloat(fraction))
+                // Clamp fill width so it's never negative and never exceeds
+                // the track.
+                let rawFillWidth = max(barHeight, trackRect.width * CGFloat(fraction))
+                let fillWidth = max(0, min(rawFillWidth, trackRect.width))
                 let fillRect = CGRect(x: trackRect.minX, y: trackRect.minY,
-                                      width: min(fillWidth, trackRect.width), height: barHeight)
-                let fillPath = CGPath(roundedRect: fillRect, cornerWidth: barHeight / 2,
-                                      cornerHeight: barHeight / 2, transform: nil)
+                                      width: fillWidth, height: barHeight)
+                let fillPath = RenderGeometry.roundedRectPath(in: fillRect, cornerRadius: barHeight / 2)
                 ctx.setFillColor(resolvedTint(part.progressTint).cgColor)
                 ctx.addPath(fillPath)
                 ctx.fillPath()

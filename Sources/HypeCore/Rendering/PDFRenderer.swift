@@ -18,7 +18,7 @@ public enum PDFRenderer {
 
         // Background — light surface.
         ctx.setFillColor(NSColor.controlBackgroundColor.cgColor)
-        let path = CGPath(roundedRect: rect, cornerWidth: 6, cornerHeight: 6, transform: nil)
+        let path = RenderGeometry.roundedRectPath(in: rect, cornerWidth: 6, cornerHeight: 6)
         ctx.addPath(path)
         ctx.fillPath()
 

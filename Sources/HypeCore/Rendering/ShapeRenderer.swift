@@ -49,19 +49,27 @@ public enum ShapeRenderer {
             }
 
         case .roundRect:
-            let r = min(CGFloat(part.cornerRadius), rect.width / 2, rect.height / 2)
+            // Use the shared helper so NaN/negative part geometry can't
+            // trip CGPath's preconditions. The clamp formula is identical
+            // to the previous inline: min(radius, w/2, h/2), floor at 0.
+            let rawR = CGFloat(part.cornerRadius)
             if useGlass {
+                // GlassRenderer.fillRoundedRect now routes through
+                // RenderGeometry internally, but we still clamp here so
+                // the caller's radius is already safe.
+                let safeR = RenderGeometry.safeRect(rect)
+                let clampedR = max(0, min(rawR.isFinite ? rawR : 0, safeR.width / 2, safeR.height / 2))
                 GlassRenderer.fillRoundedRect(
                     ctx: ctx, rect: rect,
                     fillHex: part.fillColor,
-                    cornerRadius: r,
+                    cornerRadius: clampedR,
                     strokeHex: part.strokeWidth > 0 ? part.strokeColor : nil,
                     strokeWidth: CGFloat(part.strokeWidth),
                     shadowOpacity: theme.map { CGFloat($0.shadowOpacity) } ?? 0,
                     shadowRadius: theme.map { CGFloat($0.shadowRadius) } ?? 0
                 )
             } else {
-                let path = CGPath(roundedRect: rect, cornerWidth: r, cornerHeight: r, transform: nil)
+                let path = RenderGeometry.roundedRectPath(in: rect, cornerRadius: rawR)
                 ctx.addPath(path)
                 ctx.fillPath()
                 if part.strokeWidth > 0 {
