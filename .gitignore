@@ -31,3 +31,5 @@ dist/
 
 # JavaScript dependencies.
 node_modules/
+.dual-graph/
+.dual-graph-context/
