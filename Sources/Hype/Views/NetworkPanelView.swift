@@ -363,7 +363,7 @@ struct NetworkPanelView: View {
             : StubFileAccessProvider()
         let configuration = StackRuntimeConfiguration(
             systemProvider: AppKitSystemProvider(),
-            hostProvider: AppKitHostApplicationProvider(),
+            hostProvider: AppKitHostApplicationProvider(stackId: stack.id),
             aiProvider: SelectedAIScriptingProvider(),
             speechOutputProvider: OpenAISpeechOutputProvider.shared,
             speechListenerProvider: RuntimeSpeechListenerProvider.shared,

@@ -8,6 +8,7 @@ import HypeCore
 /// to, rather than being split across Go and Objects.
 struct GoMenuCommands: Commands {
     @FocusedValue(\.hypeAuthoringCommandContext) private var authoringCommands
+    @FocusedValue(\.hypeCurrentDocument) private var focusedDocument
 
     private var canUsePaintTools: Bool {
         authoringCommands?.userLevel.canUsePaintTools ?? false
@@ -17,34 +18,69 @@ struct GoMenuCommands: Commands {
         authoringCommands?.userLevel.canAuthorObjects ?? false
     }
 
+    private var focusedStackId: UUID? {
+        focusedDocument?.wrappedValue.document.stack.id
+    }
+
     var body: some Commands {
         CommandMenu("Go") {
-            Button("First Card") { NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.first) }
-                .keyboardShortcut("1", modifiers: .command)
-            Button("Previous Card") { NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.previous) }
-                .keyboardShortcut(.leftArrow, modifiers: .command)
-            Button("Next Card") { NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.next) }
-                .keyboardShortcut(.rightArrow, modifiers: .command)
-            Button("Last Card") { NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.last) }
-                .keyboardShortcut("4", modifiers: .command)
+            Button("First Card") {
+                NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.first,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .keyboardShortcut("1", modifiers: .command)
+            .disabled(focusedDocument == nil)
+            Button("Previous Card") {
+                NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.previous,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .keyboardShortcut(.leftArrow, modifiers: .command)
+            .disabled(focusedDocument == nil)
+            Button("Next Card") {
+                NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.next,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .keyboardShortcut(.rightArrow, modifiers: .command)
+            .disabled(focusedDocument == nil)
+            Button("Last Card") {
+                NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.last,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .keyboardShortcut("4", modifiers: .command)
+            .disabled(focusedDocument == nil)
 
             Divider()
 
-            Button("New Card") { NotificationCenter.default.post(name: .addNewCard, object: nil) }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
-                .disabled(!canAuthorObjects)
-            Button("Delete Current Card") { NotificationCenter.default.post(name: .deleteCurrentCard, object: nil) }
-                .disabled(!canAuthorObjects)
+            Button("New Card") {
+                NotificationCenter.default.post(name: .addNewCard, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .keyboardShortcut("n", modifiers: [.command, .shift])
+            .disabled(!canAuthorObjects || focusedDocument == nil)
+            Button("Delete Current Card") {
+                NotificationCenter.default.post(name: .deleteCurrentCard, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .disabled(!canAuthorObjects || focusedDocument == nil)
 
             Divider()
 
-            Button("Edit Card") { NotificationCenter.default.post(name: .toggleEditBackground, object: false) }
-                .disabled(!canUsePaintTools)
-            Button("Edit Background") { NotificationCenter.default.post(name: .toggleEditBackground, object: true) }
-                .keyboardShortcut("b", modifiers: [.command, .shift])
-                .disabled(!canUsePaintTools)
-            Button("New Background…") { NotificationCenter.default.post(name: .addNewBackground, object: nil) }
-                .disabled(!canAuthorObjects)
+            Button("Edit Card") {
+                NotificationCenter.default.post(name: .toggleEditBackground, object: false,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .disabled(!canUsePaintTools || focusedDocument == nil)
+            Button("Edit Background") {
+                NotificationCenter.default.post(name: .toggleEditBackground, object: true,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .keyboardShortcut("b", modifiers: [.command, .shift])
+            .disabled(!canUsePaintTools || focusedDocument == nil)
+            Button("New Background…") {
+                NotificationCenter.default.post(name: .addNewBackground, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .disabled(!canAuthorObjects || focusedDocument == nil)
         }
     }
 }
@@ -61,40 +97,102 @@ struct GoMenuCommands: Commands {
 /// the calendar icon in the left panel.
 struct ObjectsMenuCommands: Commands {
     @FocusedValue(\.hypeAuthoringCommandContext) private var authoringCommands
+    @FocusedValue(\.hypeCurrentDocument) private var focusedDocument
 
     private var canAuthorObjects: Bool {
         authoringCommands?.userLevel.canAuthorObjects ?? false
+    }
+
+    private var focusedStackId: UUID? {
+        focusedDocument?.wrappedValue.document.stack.id
     }
 
     var body: some Commands {
         CommandMenu("Objects") {
             // Basic objects.
             Group {
-                Button("Button") { NotificationCenter.default.post(name: .selectTool, object: ToolName.button) }.disabled(!canAuthorObjects)
-                Button("Field") { NotificationCenter.default.post(name: .selectTool, object: ToolName.field) }.disabled(!canAuthorObjects)
-                Button("Shape") { NotificationCenter.default.post(name: .selectTool, object: ToolName.shape) }.disabled(!canAuthorObjects)
-                Button("Image") { NotificationCenter.default.post(name: .selectTool, object: ToolName.image) }.disabled(!canAuthorObjects)
-                Button("Web Page") { NotificationCenter.default.post(name: .selectTool, object: ToolName.webpage) }.disabled(!canAuthorObjects)
-                Button("Video") { NotificationCenter.default.post(name: .selectTool, object: ToolName.video) }.disabled(!canAuthorObjects)
-                Button("Chart") { NotificationCenter.default.post(name: .selectTool, object: ToolName.chart) }.disabled(!canAuthorObjects)
+                Button("Button") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.button,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("Field") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.field,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("Shape") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.shape,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("Image") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.image,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("Web Page") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.webpage,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("Video") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.video,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("Chart") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.chart,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
             }
 
             Divider()
 
             // Framework-backed controls (Phase 1 + 2 roadmap items).
             Group {
-                Button("Calendar") { NotificationCenter.default.post(name: .selectTool, object: ToolName.calendar) }.disabled(!canAuthorObjects)
-                Button("PDF Viewer") { NotificationCenter.default.post(name: .selectTool, object: ToolName.pdf) }.disabled(!canAuthorObjects)
-                Button("Map") { NotificationCenter.default.post(name: .selectTool, object: ToolName.map) }.disabled(!canAuthorObjects)
-                Button("Color Well") { NotificationCenter.default.post(name: .selectTool, object: ToolName.colorWell) }.disabled(!canAuthorObjects)
-                Button("Audio Recorder") { NotificationCenter.default.post(name: .selectTool, object: ToolName.audioRecorder) }.disabled(!canAuthorObjects)
-                Button("Music Player") { NotificationCenter.default.post(name: .selectTool, object: ToolName.musicPlayer) }.disabled(!canAuthorObjects)
-                Button("Piano Keyboard") { NotificationCenter.default.post(name: .selectTool, object: ToolName.pianoKeyboard) }.disabled(!canAuthorObjects)
-                Button("Step Sequencer") { NotificationCenter.default.post(name: .selectTool, object: ToolName.stepSequencer) }.disabled(!canAuthorObjects)
-                Button("Music Mixer") { NotificationCenter.default.post(name: .selectTool, object: ToolName.musicMixer) }.disabled(!canAuthorObjects)
-                Button("MusicKit Search") { NotificationCenter.default.post(name: .selectTool, object: ToolName.appleMusicBrowser) }.disabled(!canAuthorObjects)
-                Button("3D Scene") { NotificationCenter.default.post(name: .selectTool, object: ToolName.scene3D) }.disabled(!canAuthorObjects)
-                Button("Sprite Area") { NotificationCenter.default.post(name: .selectTool, object: ToolName.spriteArea) }.disabled(!canAuthorObjects)
+                Button("Calendar") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.calendar,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("PDF Viewer") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.pdf,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("Map") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.map,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("Color Well") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.colorWell,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("Audio Recorder") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.audioRecorder,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("Music Player") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.musicPlayer,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("Piano Keyboard") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.pianoKeyboard,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("Step Sequencer") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.stepSequencer,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("Music Mixer") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.musicMixer,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("MusicKit Search") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.appleMusicBrowser,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("3D Scene") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.scene3D,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("Sprite Area") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.spriteArea,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
             }
 
             Divider()
@@ -103,12 +201,30 @@ struct ObjectsMenuCommands: Commands {
             // Toggle removed in dedup — create as button + .toggle
             // style instead.
             Group {
-                Button("Stepper") { NotificationCenter.default.post(name: .selectTool, object: ToolName.stepper) }.disabled(!canAuthorObjects)
-                Button("Slider") { NotificationCenter.default.post(name: .selectTool, object: ToolName.slider) }.disabled(!canAuthorObjects)
-                Button("Segmented Control") { NotificationCenter.default.post(name: .selectTool, object: ToolName.segmented) }.disabled(!canAuthorObjects)
-                Button("Progress View") { NotificationCenter.default.post(name: .selectTool, object: ToolName.progressView) }.disabled(!canAuthorObjects)
-                Button("Gauge") { NotificationCenter.default.post(name: .selectTool, object: ToolName.gauge) }.disabled(!canAuthorObjects)
-                Button("Divider") { NotificationCenter.default.post(name: .selectTool, object: ToolName.divider) }.disabled(!canAuthorObjects)
+                Button("Stepper") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.stepper,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("Slider") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.slider,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("Segmented Control") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.segmented,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("Progress View") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.progressView,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("Gauge") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.gauge,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
+                Button("Divider") {
+                    NotificationCenter.default.post(name: .selectTool, object: ToolName.divider,
+                                                    userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+                }.disabled(!canAuthorObjects || focusedDocument == nil)
             }
         }
     }
@@ -116,40 +232,101 @@ struct ObjectsMenuCommands: Commands {
 
 struct ArrangeMenuCommands: Commands {
     @FocusedValue(\.hypeAuthoringCommandContext) private var authoringCommands
+    @FocusedValue(\.hypeCurrentDocument) private var focusedDocument
+
+    private var focusedStackId: UUID? {
+        focusedDocument?.wrappedValue.document.stack.id
+    }
 
     var body: some Commands {
         CommandMenu("Arrange") {
-            Button("Group") { NotificationCenter.default.post(name: .groupSelection, object: nil) }
-                .keyboardShortcut("g", modifiers: [.command, .option])
-            Button("Ungroup") { NotificationCenter.default.post(name: .ungroupSelection, object: nil) }
-                .keyboardShortcut("g", modifiers: [.command, .option, .shift])
+            Button("Group") {
+                NotificationCenter.default.post(name: .groupSelection, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .keyboardShortcut("g", modifiers: [.command, .option])
+            .disabled(focusedDocument == nil)
+            Button("Ungroup") {
+                NotificationCenter.default.post(name: .ungroupSelection, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .keyboardShortcut("g", modifiers: [.command, .option, .shift])
+            .disabled(focusedDocument == nil)
             Divider()
             Button(authoringCommands?.layerTransferTitle ?? "Move to Background") {
                 authoringCommands?.transferSelectionToAlternateLayer()
             }
             .disabled(!(authoringCommands?.canTransferSelectionToAlternateLayer ?? false))
             Divider()
-            Button("Bring Forward") { NotificationCenter.default.post(name: .bringForward, object: nil) }
-                .keyboardShortcut("+", modifiers: .command)
-            Button("Send Backward") { NotificationCenter.default.post(name: .sendBackward, object: nil) }
-                .keyboardShortcut("-", modifiers: .command)
+            Button("Bring Forward") {
+                NotificationCenter.default.post(name: .bringForward, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .keyboardShortcut("+", modifiers: .command)
+            .disabled(focusedDocument == nil)
+            Button("Send Backward") {
+                NotificationCenter.default.post(name: .sendBackward, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .keyboardShortcut("-", modifiers: .command)
+            .disabled(focusedDocument == nil)
             Divider()
-            Button("Bring to Front") { NotificationCenter.default.post(name: .bringToFront, object: nil) }
-                .keyboardShortcut("+", modifiers: [.command, .shift])
-            Button("Send to Back") { NotificationCenter.default.post(name: .sendToBack, object: nil) }
-                .keyboardShortcut("-", modifiers: [.command, .shift])
+            Button("Bring to Front") {
+                NotificationCenter.default.post(name: .bringToFront, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .keyboardShortcut("+", modifiers: [.command, .shift])
+            .disabled(focusedDocument == nil)
+            Button("Send to Back") {
+                NotificationCenter.default.post(name: .sendToBack, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .keyboardShortcut("-", modifiers: [.command, .shift])
+            .disabled(focusedDocument == nil)
             Divider()
-            Button("Align Left") { NotificationCenter.default.post(name: .alignLeft, object: nil) }
-                .keyboardShortcut("[", modifiers: [.command, .shift])
-            Button("Align Right") { NotificationCenter.default.post(name: .alignRight, object: nil) }
-                .keyboardShortcut("]", modifiers: [.command, .shift])
-            Button("Align Top") { NotificationCenter.default.post(name: .alignTop, object: nil) }
-            Button("Align Bottom") { NotificationCenter.default.post(name: .alignBottom, object: nil) }
-            Button("Align Horizontal Center") { NotificationCenter.default.post(name: .alignHCenter, object: nil) }
-            Button("Align Vertical Center") { NotificationCenter.default.post(name: .alignVCenter, object: nil) }
+            Button("Align Left") {
+                NotificationCenter.default.post(name: .alignLeft, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .keyboardShortcut("[", modifiers: [.command, .shift])
+            .disabled(focusedDocument == nil)
+            Button("Align Right") {
+                NotificationCenter.default.post(name: .alignRight, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .keyboardShortcut("]", modifiers: [.command, .shift])
+            .disabled(focusedDocument == nil)
+            Button("Align Top") {
+                NotificationCenter.default.post(name: .alignTop, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .disabled(focusedDocument == nil)
+            Button("Align Bottom") {
+                NotificationCenter.default.post(name: .alignBottom, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .disabled(focusedDocument == nil)
+            Button("Align Horizontal Center") {
+                NotificationCenter.default.post(name: .alignHCenter, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .disabled(focusedDocument == nil)
+            Button("Align Vertical Center") {
+                NotificationCenter.default.post(name: .alignVCenter, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .disabled(focusedDocument == nil)
             Divider()
-            Button("Distribute Horizontally") { NotificationCenter.default.post(name: .distributeH, object: nil) }
-            Button("Distribute Vertically") { NotificationCenter.default.post(name: .distributeV, object: nil) }
+            Button("Distribute Horizontally") {
+                NotificationCenter.default.post(name: .distributeH, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .disabled(focusedDocument == nil)
+            Button("Distribute Vertically") {
+                NotificationCenter.default.post(name: .distributeV, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .disabled(focusedDocument == nil)
         }
     }
 }
@@ -163,6 +340,7 @@ struct ArrangeMenuCommands: Commands {
 /// Window where it belongs.
 struct ToolsMenuCommands: Commands {
     @FocusedValue(\.hypeAuthoringCommandContext) private var authoringCommands
+    @FocusedValue(\.hypeCurrentDocument) private var focusedDocument
 
     private var canUsePaintTools: Bool {
         authoringCommands?.userLevel.canUsePaintTools ?? false
@@ -172,24 +350,47 @@ struct ToolsMenuCommands: Commands {
         authoringCommands?.userLevel.canAuthorObjects ?? false
     }
 
+    private var focusedStackId: UUID? {
+        focusedDocument?.wrappedValue.document.stack.id
+    }
+
     var body: some Commands {
         CommandMenu("Tools") {
-            Button("Browse") { NotificationCenter.default.post(name: .selectTool, object: ToolName.browse) }
-                .keyboardShortcut("b", modifiers: .command)
-            Button("Select") { NotificationCenter.default.post(name: .selectTool, object: ToolName.select) }
-                .disabled(!canAuthorObjects)
+            Button("Browse") {
+                NotificationCenter.default.post(name: .selectTool, object: ToolName.browse,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .keyboardShortcut("b", modifiers: .command)
+            .disabled(focusedDocument == nil)
+            Button("Select") {
+                NotificationCenter.default.post(name: .selectTool, object: ToolName.select,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .disabled(!canAuthorObjects || focusedDocument == nil)
 
             Divider()
 
             // Raster paint tools.
-            Button("Pencil") { NotificationCenter.default.post(name: .selectTool, object: ToolName.pencil) }
-                .disabled(!canUsePaintTools)
-            Button("Spray") { NotificationCenter.default.post(name: .selectTool, object: ToolName.spray) }
-                .disabled(!canUsePaintTools)
-            Button("Bucket Fill") { NotificationCenter.default.post(name: .selectTool, object: ToolName.bucket) }
-                .disabled(!canUsePaintTools)
-            Button("Eraser") { NotificationCenter.default.post(name: .selectTool, object: ToolName.eraser) }
-                .disabled(!canUsePaintTools)
+            Button("Pencil") {
+                NotificationCenter.default.post(name: .selectTool, object: ToolName.pencil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .disabled(!canUsePaintTools || focusedDocument == nil)
+            Button("Spray") {
+                NotificationCenter.default.post(name: .selectTool, object: ToolName.spray,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .disabled(!canUsePaintTools || focusedDocument == nil)
+            Button("Bucket Fill") {
+                NotificationCenter.default.post(name: .selectTool, object: ToolName.bucket,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .disabled(!canUsePaintTools || focusedDocument == nil)
+            Button("Eraser") {
+                NotificationCenter.default.post(name: .selectTool, object: ToolName.eraser,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
+            }
+            .disabled(!canUsePaintTools || focusedDocument == nil)
         }
     }
 }
@@ -203,6 +404,7 @@ struct ToolsMenuCommands: Commands {
 struct ViewMenuCommands: Commands {
     @AppStorage("hypeObjectsPanelVisible") private var objectsPanelVisible: Bool = true
     @FocusedValue(\.hypeAuthoringCommandContext) private var authoringCommands
+    @FocusedValue(\.hypeCurrentDocument) private var focusedDocument
 
     private var canAuthorObjects: Bool {
         authoringCommands?.userLevel.canAuthorObjects ?? false
@@ -212,44 +414,57 @@ struct ViewMenuCommands: Commands {
         authoringCommands?.userLevel.canEditScripts ?? false
     }
 
+    private var focusedStackId: UUID? {
+        focusedDocument?.wrappedValue.document.stack.id
+    }
+
     var body: some Commands {
         CommandGroup(after: .toolbar) {
             Divider()
 
             Button("Switch Runtime/Edit Mode") {
-                NotificationCenter.default.post(name: .toggleRuntimeMode, object: nil)
+                NotificationCenter.default.post(name: .toggleRuntimeMode, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
             }
             .help("Switch to Runtime Mode or back to Edit Mode for the current stack")
             .keyboardShortcut("e", modifiers: [.command, .shift])
+            .disabled(focusedDocument == nil)
 
             Divider()
 
             Button(objectsPanelVisible ? "Hide Objects Panel" : "Show Objects Panel") {
+                // toggleObjectsPanel is view-local (AppStorage, per window-type) —
+                // not scoped because it controls a UI panel, not document state.
                 NotificationCenter.default.post(name: .toggleObjectsPanel, object: nil)
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
 
             Button("Target Platforms…") {
-                NotificationCenter.default.post(name: .showTargetPlatforms, object: nil)
+                NotificationCenter.default.post(name: .showTargetPlatforms, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
             }
             .help("Choose the stack's deployment targets and primary design target")
-            .disabled(!canAuthorObjects)
+            .disabled(!canAuthorObjects || focusedDocument == nil)
 
             Button("Export Runtime Packages…") {
-                NotificationCenter.default.post(name: .exportRuntimePackages, object: nil)
+                NotificationCenter.default.post(name: .exportRuntimePackages, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
             }
             .help("Generate runtime-only package artifacts for the selected target platforms")
-            .disabled(!canAuthorObjects)
+            .disabled(!canAuthorObjects || focusedDocument == nil)
 
             Button("Test Stack in Simulator…") {
-                NotificationCenter.default.post(name: .testStackInSimulator, object: nil)
+                NotificationCenter.default.post(name: .testStackInSimulator, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
             }
             .help("Build the current stack as a runtime-only app and launch it in Apple Simulator")
-            .disabled(!canAuthorObjects)
+            .disabled(!canAuthorObjects || focusedDocument == nil)
 
             Menu("Emulate Target Device") {
                 Button("Off") {
-                    NotificationCenter.default.post(name: .setTargetEmulation, object: nil, userInfo: ["profileId": ""])
+                    NotificationCenter.default.post(name: .setTargetEmulation, object: nil,
+                                                    userInfo: mergedUserInfo(profileId: "",
+                                                                             stackId: focusedStackId))
                 }
                 Divider()
                 ForEach(HypeDeviceProfileCatalog.standardProfiles) { profile in
@@ -257,23 +472,36 @@ struct ViewMenuCommands: Commands {
                         NotificationCenter.default.post(
                             name: .setTargetEmulation,
                             object: nil,
-                            userInfo: ["profileId": profile.id]
+                            userInfo: mergedUserInfo(profileId: profile.id,
+                                                     stackId: focusedStackId)
                         )
                     }
                 }
             }
 
             Button("Show AI Assistant") {
-                NotificationCenter.default.post(name: .toggleAI, object: nil)
+                NotificationCenter.default.post(name: .toggleAI, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
             }
             .keyboardShortcut("i", modifiers: [.command, .shift])
-            .disabled(!canEditScripts)
+            .disabled(!canEditScripts || focusedDocument == nil)
 
             Button("Show Console") {
+                // showConsole opens a global/shared console window —
+                // not document-scoped.
                 NotificationCenter.default.post(name: .showConsole, object: nil)
             }
             .keyboardShortcut("j", modifiers: [.command, .shift])
         }
+    }
+
+    /// Merge the scoping stack-id key into the existing profileId userInfo dict.
+    private func mergedUserInfo(profileId: String, stackId: UUID?) -> [AnyHashable: Any]? {
+        var dict: [AnyHashable: Any] = ["profileId": profileId]
+        if let stackId {
+            dict[MenuCommandScoping.stackIdKey] = stackId
+        }
+        return dict
     }
 }
 
@@ -404,6 +632,9 @@ struct AIMenuCommands: Commands {
     var body: some Commands {
         CommandMenu("AI") {
             Button("Halt Current Run") {
+                // haltAIChat and cancelRunningScripts are intentionally
+                // app-global: the user wants to stop all AI and script
+                // activity regardless of which document is focused.
                 NotificationCenter.default.post(name: .haltAIChat, object: nil)
                 NotificationCenter.default.post(name: .cancelRunningScripts, object: nil)
             }
@@ -421,6 +652,7 @@ struct AIMenuCommands: Commands {
 /// not a true window.
 struct WindowMenuCommands: Commands {
     @FocusedValue(\.hypeAuthoringCommandContext) private var authoringCommands
+    @FocusedValue(\.hypeCurrentDocument) private var focusedDocument
 
     private var canAuthorObjects: Bool {
         authoringCommands?.userLevel.canAuthorObjects ?? false
@@ -430,24 +662,31 @@ struct WindowMenuCommands: Commands {
         authoringCommands?.userLevel.canEditScripts ?? false
     }
 
+    private var focusedStackId: UUID? {
+        focusedDocument?.wrappedValue.document.stack.id
+    }
+
     var body: some Commands {
         CommandGroup(after: .windowList) {
             Divider()
             Button("Asset Repository") {
-                NotificationCenter.default.post(name: .openAssetRepository, object: nil)
+                NotificationCenter.default.post(name: .openAssetRepository, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
-            .disabled(!canAuthorObjects)
+            .disabled(!canAuthorObjects || focusedDocument == nil)
             Button("AI Context Library") {
-                NotificationCenter.default.post(name: .openAIContextLibrary, object: nil)
+                NotificationCenter.default.post(name: .openAIContextLibrary, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
             }
             .keyboardShortcut("k", modifiers: [.command, .shift])
-            .disabled(!canEditScripts)
+            .disabled(!canEditScripts || focusedDocument == nil)
             Button("Theme Designer") {
-                NotificationCenter.default.post(name: .openThemeDesigner, object: nil)
+                NotificationCenter.default.post(name: .openThemeDesigner, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
             }
             .keyboardShortcut("t", modifiers: [.command, .shift])
-            .disabled(!canAuthorObjects)
+            .disabled(!canAuthorObjects || focusedDocument == nil)
         }
     }
 }

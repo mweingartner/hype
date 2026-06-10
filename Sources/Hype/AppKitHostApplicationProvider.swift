@@ -21,7 +21,18 @@ import AppKit
 /// outside the app's own document model.
 public struct AppKitHostApplicationProvider: HostApplicationProvider, Sendable {
 
-    public init() {}
+    /// The stack UUID of the document that owns this provider.
+    ///
+    /// When non-nil, `doMenu` navigation posts are scoped to that specific
+    /// document so they cannot accidentally mutate a background window.
+    /// Pass `nil` (the default) only when no document context is available —
+    /// legacy unscoped posts degrade to key-window-only delivery via
+    /// `MenuCommandScoping.shouldHandle`.
+    private let stackId: UUID?
+
+    public init(stackId: UUID? = nil) {
+        self.stackId = stackId
+    }
 
     // MARK: - Screen lock / unlock
 
@@ -207,16 +218,20 @@ public struct AppKitHostApplicationProvider: HostApplicationProvider, Sendable {
 
             // Go menu — card navigation (non-destructive)
             case "next", "next card":
-                NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.next)
+                NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.next,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: self.stackId))
                 return true
             case "prev", "previous", "prev card", "previous card":
-                NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.previous)
+                NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.previous,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: self.stackId))
                 return true
             case "first", "first card":
-                NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.first)
+                NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.first,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: self.stackId))
                 return true
             case "last", "last card":
-                NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.last)
+                NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.last,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: self.stackId))
                 return true
             case "back":
                 // HyperCard "Back" = go to the most-recently-visited card.
@@ -225,7 +240,8 @@ public struct AppKitHostApplicationProvider: HostApplicationProvider, Sendable {
                 // the runtime handles pop — so we defer to the runtime's
                 // pop path via the HypeTalk `pop card` command instead.
                 // As a lightweight UI equivalent, we navigate to previous.
-                NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.previous)
+                NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.previous,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: self.stackId))
                 return true
 
             // Edit menu — non-destructive clipboard operations.

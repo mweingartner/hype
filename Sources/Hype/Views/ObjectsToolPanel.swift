@@ -510,6 +510,10 @@ struct ObjectsToolPanel: View {
     let isRuntimeMode: Bool
     let targetPlatforms: [HypeTargetPlatform]
     let userLevel: HypeUserLevel
+    /// The stack UUID of the document this panel belongs to.
+    /// Threaded here so the Run/Edit toggle posts are scoped to
+    /// this document and cannot affect a background stack.
+    let stackId: UUID
 
     // MARK: - Sizing constants
 
@@ -538,7 +542,8 @@ struct ObjectsToolPanel: View {
                     ),
                     action: {
                         if !isRuntimeMode {
-                            NotificationCenter.default.post(name: .toggleRuntimeMode, object: nil)
+                            NotificationCenter.default.post(name: .toggleRuntimeMode, object: nil,
+                                                            userInfo: MenuCommandScoping.userInfo(stackId: stackId))
                         }
                     }
                 )
@@ -553,7 +558,8 @@ struct ObjectsToolPanel: View {
                     ),
                     action: {
                         if isRuntimeMode {
-                            NotificationCenter.default.post(name: .toggleRuntimeMode, object: nil)
+                            NotificationCenter.default.post(name: .toggleRuntimeMode, object: nil,
+                                                            userInfo: MenuCommandScoping.userInfo(stackId: stackId))
                         }
                     }
                 )
