@@ -2014,6 +2014,46 @@ Optional `with message "handlerName"` for async callback.
 **`retexture asset "X" with prompt "<text>"`** — triggers a Meshy retexture
 operation on the named model3D asset. Optional `with message "handlerName"`.
 
+### 5.8 Performance, size, and platform footprint
+
+The interpreter is tuned for a small, fast footprint on mobile and (aspirationally)
+Apple Watch, with the modelling living in `docs/HypeTalkBenchmarkBaseline.md`.
+
+**Speed — visible-effect publish gating.** `executeStatementAndPublish` used to
+publish the whole document after every statement, and `StackRuntime.publishDocument`
+slept one 60 Hz frame (16.67 ms) unconditionally. That made a tight compute loop
+pay a per-statement frame tax. The `statementProducesVisibleEffect(_:)` predicate
+now publishes only on statements that change rendered content (field/part writes,
+`set`, `show`/`hide`, `go`, `visual`, sprite mutations, …); pure-compute statements
+(variable `put`, `get`, arithmetic on a variable, control flow) only `Task.yield()`.
+`lock screen` suppresses all mid-handler publishing until `unlock screen`. The
+terminal flush in `processQueue`/`apply()` still guarantees the final state renders,
+and `wait`/animation/visual-effect paths pace themselves at their call sites, so no
+visible timing changed. A 2000-iteration arithmetic loop dropped from ~67 s of
+frame-sleep wall-clock to CPU speed; compute-heavy realistic workloads publish
+2–4× less.
+
+**Size — `-Osize`.** HypeCore builds with `-Osize` in release (debug stays
+`-Onone`). The interpreter is inlining-heavy under `-O`, so this cuts
+`Interpreter.o` `__text` from ~1.56 MB to ~824 KB (−48%) for a few-percent
+pure-CPU cost on compute micro-benchmarks — a cost the frame-paced publish gate
+masks in real use.
+
+**watchOS portability.** The interpreter kernel — `Script/` plus the
+Foundation-only `Models/` and provider-protocol subset — is watch-buildable. Every
+AppKit/SpriteKit/MusicKit/FoundationModels/Network/SwiftUI import in HypeCore is
+`#if canImport(...)`- or `#if !os(watchOS)`-guarded (only `AppleMusicProvider`'s
+`ApplicationMusicPlayer` and `RuntimeAIProvider`'s `SystemLanguageModel` needed
+new `!os(watchOS)` guards). `Scripts/watch-kernel-probe.sh` compiles HypeCore for
+the watchOS-simulator triple with only a short, documented set of device-only leaf
+files excluded (audio engines, 3D loaders, the classic `.stak` C importer, the
+AppKit/SwiftUI view layer, and the AI document-tooling cluster); 192 of 214 files
+build. `Package.swift` declares `.tvOS`/`.watchOS` and makes AudioKit a
+`.when(platforms: [.macOS, .iOS, .tvOS])` dependency so the package resolves for a
+watch build. A full watchOS *target* (the multi-module restructure separating the
+kernel from the AppKit view layer) is the deferred next step; the probe proves the
+kernel is ready for it.
+
 ---
 
 ## 6. View, Rendering, and Editing

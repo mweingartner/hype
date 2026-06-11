@@ -92,6 +92,35 @@ concepts while keeping Hype's modern extensions intact.
   never writes the caller's `it`. `say`, `type`, and `choose` likewise leave
   `it` unchanged.
 
+### Classic fidelity pass (2026-06-11)
+
+Covered by `Tests/HypeCoreTests/Phase1FidelityTests.swift`.
+
+- **Comparison type model.** `<`, `>`, `<=`, `>=`, `is`, `is not`, `=`, `<>` now
+  follow HyperCard's rule: when *both* operands parse as numbers they compare
+  numerically, otherwise they compare as case-insensitive text. A single
+  `compare(...)` / `compareValues(...)` helper is the one place this rule lives,
+  so `"10" > "9"` is true (numeric) while `"apple" < "banana"` is true (lexical).
+- **Negation via number formatting.** Unary minus routes through `formatNumber`
+  so `- -5` yields `5` and `-3.50` normalizes like every other numeric result.
+  (`--x` remains a comment, per HyperTalk.)
+- **`value()` / `the value of`.** Evaluates its argument as a HyperTalk
+  expression (`value("2 * (3+1)")` → `8`); a bare identifier that is not a
+  defined variable degrades to its literal text rather than empty, and dynamic
+  evaluation is gated by the same recursion-depth and byte-size caps as `do`.
+- **The message box.** `put X into the message box` / `msg` / `message`, and
+  reading it back, persist through `__messagebox` in script globals (the key is
+  stored lowercased so it survives `Environment` global-key normalization).
+- **`the itemDelimiter`.** Honored by every item chunk read and write through
+  `ChunkWriter`; classic HyperCard resets it to `,` at each top-level dispatch.
+- **`the target` vs `me`.** `MessageDispatcher` threads the original target id
+  through the handler chain so `the target` reports the part that first received
+  the message even after `pass`, while `me` stays the current handler's object.
+- **`find`, `sort`, and `repeat` forms.** Added `find`/`find chars`/`find
+  word`/`find whole`/`find string`, `sort lines/items of <container>` with
+  ascending/descending and text/numeric/international styles, and
+  `repeat with i = N down to M` plus `repeat for each line/item/word ... in`.
+
 ## Remaining Work Items
 
 - Decide whether to model a classic open-file cursor for `open file` / repeated

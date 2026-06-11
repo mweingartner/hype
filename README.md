@@ -708,6 +708,15 @@ factors, safe areas, and input models differ.
   script-editor UI. Export validates the actual parts in the stack for each
   target and fails early with unsupported part names and reasons instead of
   producing a broken runtime package.
+- The HypeTalk interpreter is tuned for a small mobile/watch footprint. Per-statement
+  document publishing is gated to statements with a visible effect (pure-compute
+  loops no longer pay a 60 Hz frame tax), HypeCore builds `-Osize` in release
+  (interpreter `__text` ~1.56 MB → ~824 KB), and the interpreter kernel is
+  watchOS-buildable — `Scripts/watch-kernel-probe.sh` compiles 192 of 214 HypeCore
+  files for the watchOS-simulator triple, excluding only device-only leaf files
+  (audio engines, 3D loaders, the classic `.stak` C importer, and the AppKit/SwiftUI
+  view layer). A shipping watch *app* still needs the kernel/view multi-module split;
+  the probe proves the kernel is ready. See `docs/HypeTalkBenchmarkBaseline.md`.
 - Each generated Apple runtime package includes `DeploymentDiagnostics.json` and
   `PrivacyInfo.xcprivacy`. Diagnostics summarize the target profile, bundle ID,
   part counts, embedded asset byte size, entitlements, supported/unsupported

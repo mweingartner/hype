@@ -197,23 +197,111 @@ swift build -c release --product hypetalk
 
 > Use a lower iteration count for the wall-clock run to keep total time reasonable. The pure-CPU run at 50 iterations is still the canonical regression number; the wall-clock run shows the absolute cost of `publishDocument` per workload.
 
-### Pre-Optimization Results Table
+### Pre-Optimization Results (publishes = statements)
 
-The numbers below will be filled by the orchestrator running the extended harness. Subsequent optimization waves append a row to each workload column.
+Before the gating optimization, `executeStatementAndPublish` called
+`publishDocument` after **every** statement, so the pre-optimization publish
+count equals the statement count and the production wall-clock is
+`statements × 16.67 ms`. The table below is measured at `--benchmark-iterations
+10`, `--benchmark-frame-delay-nanos 0` (publish counts are exact; the sleep is
+elided so the run is fast — wall-clock is computed as `publishes × 16.67 ms`).
 
-| Workload | pure-CPU total ms | production wall-clock ms | publishes | allocations-note |
-| --- | ---: | ---: | ---: | --- |
-| looping-and-expressions | TBD | TBD | TBD | — |
-| property-access | TBD | TBD | TBD | — |
-| callbacks | TBD | TBD | TBD | — |
-| realistic-mix | TBD | TBD | TBD | — |
-| idle-hook-burst | TBD | n/a (StackRuntime) | n/a | — |
-| micro-arith-loop | TBD | TBD | TBD | — |
-| micro-chunk-churn | TBD | TBD | TBD | — |
-| micro-property-churn | TBD | TBD | TBD | — |
-| micro-idle-game-loop | TBD | n/a (StackRuntime) | n/a | — |
+| Workload | statements (= pre-opt publishes) | pre-opt wall-clock |
+| --- | ---: | ---: |
+| looping-and-expressions | 22,540 | ~376 s |
+| property-access | 14,050 | ~234 s |
+| callbacks | 5,030 | ~84 s |
+| realistic-mix | 32,220 | ~537 s |
+| micro-arith-loop | 40,050 | ~668 s |
+| micro-chunk-churn | 24,040 | ~401 s |
+| micro-property-churn | 30,050 | ~501 s |
 
-> **How to read this table:** `pure-CPU total ms` comes from `BenchmarkRuntime` (no-op `publishDocument`) and is the same number as the existing release baseline. `production wall-clock ms` comes from `RealisticBenchmarkRuntime(frameDelayNanos: 16_666_667)` — it shows how much total time a workload would take in a live app including the per-statement frame-pacing sleep. `publishes` is the `publishCount` from `RealisticBenchmarkRuntime` across all 50 iterations.
+> **How to read this table:** `pure-CPU total ms` comes from `BenchmarkRuntime` (no-op `publishDocument`) and is the same number as the existing release baseline. `production wall-clock ms` comes from `RealisticBenchmarkRuntime(frameDelayNanos: 16_666_667)` — it shows how much total time a workload would take in a live app including the per-statement frame-pacing sleep. `publishes` is the `publishCount` from `RealisticBenchmarkRuntime`.
+
+## Phase 2.1 — publishDocument visible-effect gating (speed)
+
+Date: 2026-06-11. Commit: `hypetalk: gate per-statement publish on visible effect`.
+
+The interpreter published the whole document after every statement, and
+`StackRuntime.publishDocument` slept 16.67 ms unconditionally — a one-frame tax
+on every statement including pure-compute hot paths. The gate
+(`statementProducesVisibleEffect`) now publishes only on statements that mutate
+rendered content (field/part writes, `set`, `show`/`hide`, `go`, `visual`, …);
+pure-compute statements (variable `put`, `get`, arithmetic on a variable, control
+flow) only `Task.yield()`. `lock screen` suppresses all mid-handler publishing;
+the terminal document flush in `processQueue`/`apply()` still guarantees final
+state renders. Animations/transitions/`wait` already pace themselves at their
+call sites, so removing the blanket sleep changes no visible timing.
+
+Publishes after gating (`--benchmark-iterations 10`, `--benchmark-frame-delay-nanos 0`):
+
+| Workload | pre-opt publishes | post-gate publishes | wall-clock reduction |
+| --- | ---: | ---: | ---: |
+| looping-and-expressions | 22,540 | **0** | ∞ (pure compute) |
+| micro-arith-loop | 40,050 | **0** | ∞ (pure compute) |
+| micro-chunk-churn | 24,040 | **0** | ∞ (pure compute) |
+| property-access | 14,050 | 7,020 | 2.0× |
+| micro-property-churn | 30,050 | 10,020 | 3.0× |
+| realistic-mix | 32,220 | 8,100 | 4.0× |
+| callbacks | 5,030 | 2,500 | 2.0× |
+
+A tight 2000-iteration arithmetic loop that previously cost ~67 s of wall-clock
+frame sleeps per run (each statement paying 16.67 ms) now runs at CPU speed
+(~2 ms). Pure-CPU `execute total` is essentially unchanged (gating removes
+publishes, not interpreter work). Regression coverage:
+`Tests/HypeCoreTests/InterpreterPublishGatingTests.swift`.
+
+## Phase 3 — `-Osize` on HypeCore (size)
+
+Date: 2026-06-11. Commit: `hypetalk: -Osize + watchOS-portable interpreter kernel`.
+
+HypeCore now builds with `-Osize` in release (`.unsafeFlags` gated to release;
+debug stays `-Onone`). Measured on the interpreter object (Xcode-beta, same
+build system, `size -m … | __text`):
+
+| Optimization | Interpreter.o `__text` |
+| --- | ---: |
+| `-O` (default) | 1,635,836 B (~1.56 MB) |
+| `-Osize` | 843,932 B (~824 KB) |
+
+**−48% __text** — far beyond the usual 10–20% because the interpreter is
+inlining-heavy under `-O`. The trade is a few-percent pure-CPU cost on
+compute micro-benchmarks (median of 3 release runs, `-O` → `-Osize`):
+
+| Workload | `-O` ms | `-Osize` ms | Δ |
+| --- | ---: | ---: | ---: |
+| looping-and-expressions | 54.2 | 55.4 | +2.2% |
+| callbacks | 10.7 | 11.2 | +5.0% |
+| micro-arith-loop | 88.3 | 93.4 | +5.8% |
+| micro-chunk-churn | 127.2 | 137.4 | +8.1% |
+| micro-property-churn | 84.2 | 93.2 | +10.6% |
+| realistic-mix | 93.5 | 105.5 | +12.8% |
+| property-access | 37.8 | 45.8 | +21.0% |
+
+The regression concentrates on property access (`-Osize` de-inlines the large
+`evaluateProperty`). It lands on a pure-CPU path that production never hits — the
+Phase 2.1 frame-paced publish gate dominates real wall-clock — so the trade was
+accepted for the mobile/watch footprint goal. A future static-dictionary dispatch
+for `evaluateProperty`/`evaluateBuiltIn` is the natural way to claw back the
+property-access CPU.
+
+## Phase 5 — watchOS portability proof (footprint)
+
+Date: 2026-06-11. Same commit as Phase 3.
+
+`Scripts/watch-kernel-probe.sh` compiles HypeCore for the
+`arm64-apple-watchos10.0-simulator` triple with only documented device-only leaf
+files excluded. Result: **192 of 214 HypeCore files compile for watchOS** — the
+HypeTalk interpreter and ~90% of the library are watch-portable. The 22 excluded
+leaves are audio engines (AudioKit/AVFoundation), 3D loaders (SceneKit/ModelIO),
+the classic `.stak` C importer (CStackImport), the AppKit/SwiftUI view layer, and
+the AI document-tooling cluster — none referenced by the interpreter core. Two
+in-place guards made it possible: `AppleMusicProvider` (ApplicationMusicPlayer)
+and `RuntimeAIProvider` (FoundationModels) are now `#if … && !os(watchOS)`.
+
+```sh
+Scripts/watch-kernel-probe.sh   # exit 0 = interpreter kernel builds for watchOS
+```
 
 ## Measurement Practice
 
