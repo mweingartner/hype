@@ -62,6 +62,35 @@ document semantics.
 - Tool changes need schema coverage and execution-path tests.
 - AI transactions should preserve preview/apply/rollback semantics where applicable.
 
+## Game Recipe Authoring Guardrails
+
+- Game-authoring recipes compile through the deterministic `RecipeCompiler` to
+  validated HypeTalk. The compiler is the single authoritative lowering path for
+  both AI-driven and manual (Property Inspector) recipe authoring; the two paths
+  must not diverge.
+- Recipe-supplied strings (entity names, status messages, art-role names, HUD
+  labels) must be sanitized through `sanitizedLiteral(...)` before interpolation
+  into generated HypeTalk script. No recipe string should ever escape a string
+  literal in generated code, regardless of what the AI or user provides.
+- Generated scripts must pass the real Lexer + Parser validator gate before being
+  stored in the document. An emitted script that fails to parse is replaced with
+  a safe minimal fallback and a diagnostic is recorded; no invalid HypeTalk may
+  reach the `SceneSpec` via the recipe path.
+- `SpriteAreaSpec.recipe` is additive optional state. Its presence or absence
+  must not require a document-version bump; decoders use `decodeIfPresent` so
+  all existing `.hype` files continue to load with `recipe == nil`. `SceneSpec`
+  remains the runtime source of truth; the recipe is an authoring and
+  regeneration input only.
+- Recipe authoring must honor user intent verbatim: entity names, scene size,
+  and art-role bindings must be preserved through compilation without
+  normalization or substitution. Genre presets are data starting points, not
+  overrides; the user customizes the recipe, not patched scripts.
+- `build_game` must fail closed on existing targets. If the requested sprite area
+  already exists and was not started in the current recipe session, the tool must
+  refuse rather than silently overwrite it with a default template.
+- Consistent with the existing "intent outranks template defaults" and "fail
+  closed" guardrails in the AI and SpriteKit tooling sections above.
+
 ## Runtime And Provider Guardrails
 
 - Runtime behavior should be available through explicit provider abstractions so app-facing code can use real AppKit, audio, speech, AI, network, and file-system services while tests can use deterministic fakes.

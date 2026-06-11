@@ -101,8 +101,27 @@ with one unified scripting model.
   sprites, physics bodies, joints, particle emitters, tile maps,
   cameras — and HypeTalk handlers route to scene nodes through the
   same message-passing chain as classic parts.
+- **Composable game authoring via GameRecipe.** A declarative `GameRecipe`
+  value model describes games as entities (with user-chosen names and 11
+  semantic roles: player/enemy/collectible/hazard/projectile/goal/wall/hud/
+  decoration/spawner/background), composable behaviors (23 `BehaviorKind`
+  cases: movement, physics, chase, patrol, spawner, collectible, score, win/lose,
+  bounce, wrap, constrain, draggable, rotator, oscillate, health, damage, and
+  more), event-sheet rules, and game state. A deterministic `RecipeCompiler`
+  lowers the recipe into `SceneSpec` nodes and one validated HypeTalk handler per
+  scene event (self-validated via Lexer+Parser with a safe fallback; recipe-supplied
+  strings sanitized before script interpolation). 9 genre presets ship as data
+  recipes (top_down_adventure, side_scroller_platformer, space_shooter,
+  twin_stick_shooter, breakout, pong_sports_arena, endless_runner, physics_puzzle,
+  racing_lane). Both manual authoring (via the Property Inspector Game Recipe
+  section and Build Game button) and AI authoring use the same compiler core,
+  so the two paths converge on one model. HypeTalk reads of node position,
+  velocity, and rotation in browse mode now return live SKNode values via
+  `LiveSceneStateSync` (a transient main-actor snapshot, never persisted) so
+  generated game logic that reads physics state actually works.
 - **AI authoring with tool-calling — local or hosted.** Hype drives the
-  document via 171 structured tools (167 core + 4 gated web-asset) (`create_button`, `set_card_script`,
+  document via 181 structured tools (167 core + 10 game-recipe + 4 gated
+  web-asset) (`create_button`, `set_card_script`,
   `add_sprite_to_scene`, `apply_scene_diff`, `generate_image`,
   `generate_3d_model_from_text`, …) routed
   through a single `HypeAIClient` contract. Hosted OpenAI uses
@@ -137,7 +156,7 @@ with one unified scripting model.
   value types, while storage tables index layout, scripts, content,
   assets, SpriteKit scenes, AI context, and full-text search.
 - **Tested.** The current suite has 3,000+ Swift Testing tests; the latest
-  local full run passed 3,017 tests in 309 suites. Coverage spans
+  local full run passed approximately 3,254 tests across HypeCoreTests/HypeTests/HypeCLITests. Coverage spans
   parser, interpreter, tool-call routing, scene serialization,
   rendering geometry (per-pixel sampling), theme cascade, async
   runtime, AI evaluation, and Meshy 3D generation pipeline.
@@ -336,6 +355,24 @@ SpriteKit as a peer to the classic flat-card model.
   to set columns/rows/tile size. `set tile` / `fill tilemap` / `the
   tile at` HypeTalk verbs operate on live `SKTileMapNode`s.
 
+**Game authoring pipeline.** A `GameRecipe` (stored as the optional additive
+`SpriteAreaSpec.recipe` field — decoded via `decodeIfPresent`, no document-version
+bump, fully backward-compatible) describes a game declaratively. `RecipeCompiler`
+lowers it into `SceneSpec` nodes plus a single validated HypeTalk handler per
+scene event. Single-handler-per-event composition means recipes from different
+sources never produce conflicting handler definitions. Every generated script is
+self-validated through the real Lexer + Parser; an invalid emit falls back to a
+safe minimal handler with a diagnostic. Recipe-supplied strings (entity names,
+status messages) are sanitized before interpolation to prevent HypeTalk injection.
+Entity and spawner counts are capped at compile time. `GenrePresetLibrary` provides
+9 genre presets as pure data recipes — customizable starting points that replace
+rigid procedural templates. The `PropertyInspector` Game Recipe section and its
+Build Game button use the same `RecipeCompiler` as the 10 AI recipe tools
+(`start_game_recipe`, `add_entity`, `attach_behavior`, `detach_behavior`,
+`add_rule`, `set_game_state`, `bind_art_role`, `set_controls`, `build_game`,
+`describe_game`), keeping manual and AI authoring on one model.
+`create_sprite_game_template` is preserved for backward compatibility.
+
 A practical hands-on tour is in
 [`SpriteKit-Tutorial.md`](SpriteKit-Tutorial.md).
 
@@ -389,9 +426,9 @@ carry OpenAI keys, Ollama hosts, or local model endpoints by default.
 ### Tool-calling architecture
 
 The model never types HypeTalk into your document directly. Every
-change goes through a structured tool-call interface with **167
-core tools** (plus 4 web-asset tools gated behind `Stack.webAssetsAllowed`) (`Sources/HypeCore/AI/HypeTools.swift`,
-`HypeToolExecutor.swift`):
+change goes through a structured tool-call interface with **177
+core tools** (167 base tools + 10 game-recipe tools; plus 4 web-asset tools gated behind `Stack.webAssetsAllowed`) (`Sources/HypeCore/AI/HypeTools.swift`,
+`HypeToolExecutor.swift`, `HypeCore/AI/Executors/GameRecipeExecutorBranches.swift`):
 
 ```
 create_card / create_button / create_field / create_image / create_video / create_chart
@@ -403,6 +440,8 @@ list_hypetalk_skills / plan_hypetalk_script / review_hypetalk_script / …
 check_script / list_all_properties / capture_card_image / …
 generate_3d_model_from_text / generate_3d_model_from_image / generate_3d_model_from_images
 list_3d_models / remesh_3d_model / retexture_3d_model
+start_game_recipe / add_entity / attach_behavior / detach_behavior / add_rule
+set_game_state / bind_art_role / set_controls / build_game / describe_game
 ```
 
 The six Meshy tools are available in both the main canvas AI Chat and the Sprite
@@ -785,11 +824,12 @@ Hype/
 │   │       ├── Themes/                  # Theme designer
 │   │       └── …
 │   └── HypeCore/                 # Library target — model, scripting, AI, rendering
-│       ├── Models/               # HypeDocument, Part, Stack, Card, SceneSpec, PartGrouping, CardPaintLayer, AIContextLibrary, …
+│       ├── Models/               # HypeDocument, Part, Stack, Card, SceneSpec, GameRecipe, Behavior, PartGrouping, CardPaintLayer, AIContextLibrary, …
 │       ├── Script/               # Lexer, Parser, AST, Interpreter, MessageDispatcher (`say`, `on listen`, `send to`)
 │       ├── Rendering/            # Per-control CG renderers + GlassRenderer + FieldTextLayout
 │       ├── SpriteKit/            # Scene bridge + native-card Button/Field/Shape/Image/Paint nodes
 │       ├── AI/                   # HypeAIClient, RuntimeAIProvider, tools, validator, transactions, context, image + speech clients
+│       │   └── Recipe/           # RecipeCompiler, BehaviorCompiler, RolePhysics, GenrePresetLibrary (9 presets)
 │       ├── Theme/                # HypeTheme, BuiltInThemes, ColorContrast
 │       ├── Runtime/              # Browse-mode StackRuntime actor, speech listener provider
 │       ├── HyperCardImport/      # Safe legacy HyperCard stack parser/converter
@@ -805,7 +845,7 @@ Hype/
 ├── Vendor/
 │   └── AudioKit/                 # Vendored AudioKit 5.2.3, platform-floor patch — see HYPE_VENDOR_NOTE.md
 ├── Tests/
-│   ├── HypeCoreTests/            # 2,717 unit tests in 267 suites (Swift Testing) — full suite ~84s
+│   ├── HypeCoreTests/            # HypeCore unit tests (Swift Testing) — full suite ~84s
 │   └── HypeTests/                # SpriteKit / canvas / menu / Script Editor AI integration smokes
 └── scripts/
     ├── test.sh                   # Canonical `swift test` invocation
@@ -905,6 +945,16 @@ Recent milestones:
   resolver, and full security pipeline (hostname allowlist, NoRedirect
   delegate, 50 MB caps, MIME sniff, strict image-path validation,
   Keychain off-main-thread reads).
+- **2026-06-10 game-authoring system.** Declarative `GameRecipe` value model
+  (entities with 11 roles, 23 composable `BehaviorKind` behaviors, event-sheet
+  rules, `GameState`, `ControlBindings`, `ArtRoleBindings`). Deterministic
+  `RecipeCompiler` (single-handler-per-event composition, self-validated scripts,
+  string sanitization, count caps). 9 genre presets as data recipes
+  (`GenrePresetLibrary`). 10 composable AI recipe tools (`start_game_recipe`
+  through `describe_game`). `SpriteAreaSpec.recipe` additive optional field (no
+  document-version bump). Manual and AI authoring share one compiler. Live-state
+  read-back fix: `LiveSceneStateSync` folds live SKNode position/velocity/rotation
+  into a transient main-actor snapshot for browse-mode HypeTalk dispatch.
 - **2026-06-10 code-review remediation.** (1) AudioKit 5.2.3
   vendored with macOS 13 platform-floor patch under `Vendor/AudioKit/`.
   (2) Interpreter crash-proofing: `clampedInt` at ~35 integer-overflow
@@ -926,7 +976,7 @@ Recent milestones:
   equivalence/recovery/autosave (one of each at gesture end); recovery
   snapshots write async latest-wins with synchronous drain on flush.
   (8) `install.sh`/`build_and_run.sh` copy SwiftPM resource bundles.
-  Net: 3,017 tests in 309 suites.
+  Net: ~3,254 tests (HypeCoreTests/HypeTests/HypeCLITests).
 
 ---
 

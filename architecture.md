@@ -61,6 +61,7 @@ hype/
 │   │   │   ├── HypeSKScene.swift          # Per-sprite-area interactive scene
 │   │   │   ├── CardSKScene.swift          # Card-level scene (transitions + native layers)
 │   │   │   ├── SceneBridge.swift          # SceneSpec ↔ live SKNode tree
+│   │   │   ├── LiveSceneStateSync.swift   # Folds live SKNode state into transient SceneSpec snapshot for dispatch
 │   │   │   ├── NodeRegistry.swift         # UUID ↔ SKNode bidirectional map
 │   │   │   ├── SpriteAreaNode.swift       # SKCropNode container for an embedded scene
 │   │   │   ├── CardPartNode.swift         # Protocol: SKNode wrapping a Hype Part
@@ -127,8 +128,10 @@ hype/
 │       │   ├── AssetRef.swift             # Stable reference into the Asset Repository
 │       │   ├── AssetRepository.swift     # Stack-scoped asset store (provenance, slicing, clips)
 │       │   ├── StackAssetEmbedder.swift  # Copies local PDF/video/3D/audio refs into stack assets
-│       │   ├── SpriteAreaSpec.swift       # Named-scene registry for sprite areas
+│       │   ├── SpriteAreaSpec.swift       # Named-scene registry for sprite areas; recipe: GameRecipe? additive optional
 │       │   ├── SceneSpec.swift            # Persistent SpriteKit scene description
+│       │   ├── GameRecipe.swift           # Declarative game value model (entities/roles/rules/state/controls/artRoles)
+│       │   ├── Behavior.swift             # BehaviorKind enum (23 cases) + Behavior struct
 │       │   ├── NetworkManifest.swift      # Persisted outbound rules + saved listeners
 │       │   ├── SceneAuthoringSupport.swift # Scene checklists, diagnostics, asset usage
 │       │   ├── MultiSelectionEditing.swift # Common-value + apply-value across selections
@@ -156,8 +159,15 @@ hype/
 │       │   ├── AIContextLibrary.swift     # Safe stack-scoped context ingestion/search model
 │       │   ├── AIScriptingProvider.swift  # Async HypeTalk-facing Ollama abstraction
 │       │   ├── SpeechOutputProvider.swift # HypeCore speech-output protocol
-│       │   ├── HypeTools.swift            # tool schemas (parts, scopes, themes, scenes, music, 3D gen)
-│       │   ├── HypeToolExecutor.swift     # Dispatch tool calls to model mutations (Phase 2 adds 4 Meshy tools)
+│       │   ├── HypeTools.swift            # tool schemas (parts, scopes, themes, scenes, music, 3D gen, 10 game-recipe tools)
+│       │   ├── HypeToolExecutor.swift     # Dispatch tool calls to model mutations
+│       │   ├── Recipe/                    # Game-recipe compiler subsystem
+│       │   │   ├── RecipeCompiler.swift       # Deterministic GameRecipe → SceneSpec + validated HypeTalk
+│       │   │   ├── BehaviorCompiler.swift     # Per-BehaviorKind HypeTalk code generation
+│       │   │   ├── RolePhysics.swift          # EntityRole → PhysicsBodySpec + bitmask assignments
+│       │   │   └── GenrePresetLibrary.swift   # 9 genre presets as data GameRecipe values
+│       │   ├── Executors/                 # High-volume tool-family branch files
+│       │   │   ├── GameRecipeExecutorBranches.swift # 10 game-recipe tool cases
 │       │   ├── HypeTalkGuide.swift        # System-prompt grammar primer fed to the model
 │       │   ├── HypeTalkScriptValidator.swift # check_script syntax/semantics gate
 │       │   ├── HypeAIResponseRepair.swift # Tool-arg auto-repair for malformed model output
@@ -1136,7 +1146,118 @@ the card's `spriteLayer` rather than as separate `SKView`s. Today the
 shipping path uses one `SKView` per sprite area; `SpriteAreaNode` is
 infrastructure for the alternative single-`SKView` consolidation.
 
-### 3.10 SceneKit substrate: `scene3D` parts and 3D model rendering
+### 3.10 GameRecipe authoring layer
+
+The `GameRecipe` system adds a declarative authoring model above the existing
+`SceneSpec` / `SceneBridge` layer. It is an optional, additive field on
+`SpriteAreaSpec`:
+
+```swift
+// SpriteAreaSpec.swift — excerpt
+public var recipe: GameRecipe?  // decoded via decodeIfPresent; nil for older docs
+```
+
+No document-version bump is required. Older `.hype` files that predate this
+field decode to `recipe == nil` and continue to work without any migration.
+
+**Value model (`Sources/HypeCore/Models/GameRecipe.swift`, `Behavior.swift`).**
+
+A `GameRecipe` describes WHAT a game is, not HOW the engine implements it:
+
+| Component | Contents |
+|-----------|----------|
+| `GameEntity` | User-chosen name + one of 11 `EntityRole` values (player, enemy, collectible, hazard, projectile, goal, wall, hud, decoration, spawner, background) + a `[Behavior]` array |
+| `BehaviorKind` | 23 composable cases: `platformerMovement`, `topDownMovement`, `eightDirection`, `followPointer`, `chaseTarget`, `patrol`, `physicsBody`, `bounce`, `wrapAround`, `constrainToBounds`, `destroyOutsideBounds`, `spawner`, `collectible`, `damageOnContact`, `health`, `scoreOnCollect`, `winOnReach`, `winOnScore`, `loseOnContact`, `loseOnZeroHealth`, `draggable`, `rotator`, `oscillate` |
+| `GameRule` | `RuleTrigger` (onContact, onKey, everyNSeconds, onScoreReached, onSceneLoad, onFrame) + `[RuleCondition]` + `[RuleAction]` |
+| `GameState` | score/lives/level/timer tracking + `[WinLoseCondition]` + HUD entity name bindings |
+| `ControlBinding` | key → action (moveLeft/Right/Up/Down, jump, fire) + optional target entity + magnitude |
+| `ArtRoleBinding` | role name → asset name or `generate=true` marker for deferred image generation |
+| `GameRecipe` | entities + rules + gameState + controls + artRoles + honored sceneSize + sceneName |
+
+All types are tolerant-decodable: unknown `BehaviorKind` strings drop the behavior
+entry silently; unknown `EntityRole` strings fall back to `.decoration`. This means
+an AI-produced recipe with a novel or misspelled kind degrades gracefully rather
+than failing to decode entirely.
+
+**Compiler (`Sources/HypeCore/AI/Recipe/RecipeCompiler.swift`).**
+
+`RecipeCompiler` is a pure deterministic function — no AppKit, no live objects,
+no randomness. It lowers a `GameRecipe` into a `RecipeCompilationResult`:
+
+- `nodes: [HypeNodeSpec]` — the compiled sprite-area node tree, physics bodies,
+  and physics categories set by `RolePhysics`.
+- `sceneScript: String` — a single complete HypeTalk scene script composed from
+  at most one handler per event (`sceneDidLoad`, `keyDown`, `keyUp`,
+  `beginContact`, `endContact`, `frameUpdate`). Handlers from multiple entities
+  and rules are merged into one body per event, not emitted as separate handlers
+  that would collide.
+- `diagnostics: [String]` — human-readable warnings (name conflicts, capped
+  counts, asset mismatches).
+
+Security-critical rules enforced by the compiler:
+
+1. **String sanitization.** Recipe-supplied strings (entity names, status
+   messages, art-role names) pass through `sanitizedLiteral(...)` before
+   interpolation into generated HypeTalk. This strips characters that would
+   allow a malicious or buggy recipe to escape the string literal and inject
+   arbitrary HypeTalk.
+2. **Self-validation.** Every emitted script is parsed through the real
+   `Lexer` + `Parser` before being stored. A script that fails to parse is
+   replaced with a safe minimal fallback handler and a diagnostic is appended.
+   No invalid HypeTalk ever reaches the document.
+3. **Entity and spawner count caps.** Each entity's `count` is clamped to 500
+   at compile time; counts above the cap emit a diagnostic.
+
+`BehaviorCompiler.swift` handles the per-behavior HypeTalk code generation.
+`RolePhysics.swift` maps `EntityRole` values to `PhysicsBodySpec` defaults and
+SpriteKit category/contact/collision bitmask assignments.
+
+**Genre presets (`Sources/HypeCore/AI/Recipe/GenrePresetLibrary.swift`).**
+
+`GenrePresetLibrary` provides 9 genre presets as pure data `GameRecipe` values
+(not procedural code): `top_down_adventure`, `side_scroller_platformer`,
+`space_shooter`, `twin_stick_shooter`, `breakout`, `pong_sports_arena`,
+`endless_runner`, `physics_puzzle`, `racing_lane`. Each preset mirrors the
+corresponding `SpriteGameTemplateCatalog` template ID. Presets are customizable
+starting points — the unit of authoring is the recipe itself, not patched scripts.
+
+**Authoring convergence.** The `PropertyInspector` Game Recipe section renders
+the entity list, role/behavior picker, and a Build Game button. That button calls
+`RecipeCompiler.compile(recipe:repository:)` and merges the result into the active
+`SceneSpec` — the same call path used by the AI executor's `build_game` tool.
+Manual and AI authoring converge on one compiler; there is no divergent "manual"
+code path.
+
+**Source of truth.** `SceneSpec` remains the runtime source of truth for the
+SpriteKit scene. The recipe is an authoring input and regeneration record. When
+the user edits nodes directly after building, those edits are preserved in the
+`SceneSpec`; only the recipe-owned nodes are replaced on the next `build_game`
+call (tracked via `RecipeCompilationResult.recipeOwnedNodeNames`).
+
+### 3.11 Live-state read-back: `LiveSceneStateSync`
+
+Before this fix, HypeTalk scripts running in browse mode that read `the position
+of sprite "X"` or `the velocity of sprite "X"` received the frozen authored values
+from the last-committed `SceneSpec`, not the values from the live running physics
+simulation.
+
+`LiveSceneStateSync` (Sources/Hype/SpriteKit/LiveSceneStateSync.swift) is a
+`@MainActor` enum that folds live `SKNode` state back into a value-typed
+`SceneSpec` snapshot before each browse-mode dispatch:
+
+- Position: `CoordinateConverter.toHype` (SK bottom-left → Hype top-left).
+- Rotation: `CoordinateConverter.toHypeRotation` (SK CCW radians → Hype CW degrees).
+- Velocity: direct read from `physicsBody.velocity` (no sign flip, matching
+  the forward pass in `SceneBridge`).
+- Alpha and `isHidden` are direct reads.
+
+The returned `SceneSpec` is **transient** — it is never persisted or written back
+into the document. It exists only for the duration of a single runtime handler
+dispatch so the interpreter sees live coordinates. Live `SKNode` objects never
+escape this type. The fix is browse-mode only; edit-mode reads still use the
+authored spec.
+
+### 3.12 SceneKit substrate: `scene3D` parts and 3D model rendering
 
 `scene3D` is a first-class `PartType` peer of `spriteArea`. Where `spriteArea`
 hosts a live `SKScene`, `scene3D` hosts an `SCNView` that loads and renders
@@ -1746,7 +1867,7 @@ scene-node type. A few representative ones:
 | scene3d       | `object`, `modelURL`, `allowsCameraControl`, `autoLighting`, `antialiasing`, `background3d`         |
 | divider       | `dividerOrientation`, `dividerThickness`, `dividerColor`                                            |
 | sprite area   | (top-level scene name, plus per-node access via `the position of sprite "Hero"`)                   |
-| sprite node   | `position`, `rotation`, `xScale/yScale`, `zPosition`, `alpha`, `hidden`, `text`, `fontName`, `fontColor`, `textStyle`, `velocity`, `angularVelocity`, `density`, `damping`, `audioVolume`, `audioLoop`, `videoLoop`, `particleBirthRate`, `emissionAngle`, `cameraTarget`, `zoom`, … |
+| sprite node   | `position`, `rotation`, `xScale/yScale`, `zPosition`, `alpha`, `hidden`, `text`, `fontName`, `fontColor`, `textStyle`, `velocity`, `angularVelocity`, `density`, `damping`, `audioVolume`, `audioLoop`, `videoLoop`, `particleBirthRate`, `emissionAngle`, `cameraTarget`, `zoom`, … (reads return live SKNode values in browse mode via `LiveSceneStateSync` — see §3.11) |
 | request       | `status`, `method`, `url`, `statusCode`, `body`, `error`, `header "Content-Type"`                  |
 | listener      | `port`, `host`, `transport`, `state`, `callbackMessage`                                            |
 | connection    | `remoteAddress`, `port`, `state`, `lastData`, `error`                                              |
@@ -2679,6 +2800,7 @@ schema struct. The categories:
 | Asset repository          | `list_repository_assets`, `get_repository_asset`, `import_repository_asset`, `generate_sprite_asset`, `create_basic_tileset_asset`, `search_web_for_sprite`, `import_web_asset`, `find_and_import_sprite` |
 | AI Context Library        | `list_ai_context`, `search_ai_context`, `read_ai_context_item`, `import_context_asset`, `write_ai_context_note` |
 | 3D model generation (Meshy) | `generate_3d_model_from_text`, `generate_3d_model_from_image`, `generate_3d_model_from_images`, `list_3d_models`, `bind_3d_model_to_scene3d`, `remesh_3d_model`, `retexture_3d_model` |
+| Game recipe (composable)  | `start_game_recipe`, `add_entity`, `attach_behavior`, `detach_behavior`, `add_rule`, `set_game_state`, `bind_art_role`, `set_controls`, `build_game`, `describe_game` |
 | HypeTalk scripting skills | `list_hypetalk_skills`, `get_hypetalk_skill_guide`, `plan_hypetalk_script`, `inspect_message_path`, `suggest_handler_location`, `get_hypetalk_pattern`, `review_hypetalk_script` |
 | Script gating             | `check_script` (REQUIRED before storing any HypeTalk; runs the validator) |
 
@@ -2808,12 +2930,23 @@ the dispatcher; high-volume tool families now live in sibling files under
 | `Scene3DExecutorBranches.swift` (741 LoC) | `list_3d_models`, `bind_3d_model_to_scene3d`, `generate_3d_model_from_text`, `generate_3d_model_from_image`, `generate_3d_model_from_images`, `remesh_3d_model`, `retexture_3d_model` |
 | `SceneNodeExecutorBranches.swift` (414 LoC) | `apply_scene_diff`, `set_node_property`, `set_node_script`, `set_physics_body`, `delete_scene_node`, `add_action`, `remove_all_actions` |
 | `FileIOExecutorBranches.swift` (113 LoC) | `fetch_url`, `read_file`, `write_file`, `list_directory` (each accepts injected `urlSession` / `fileSystem` for testability — see §8.4) |
+| `GameRecipeExecutorBranches.swift` | `start_game_recipe`, `add_entity`, `attach_behavior`, `detach_behavior`, `add_rule`, `set_game_state`, `bind_art_role`, `set_controls`, `build_game`, `describe_game` |
 
 Each branch file is a `package enum` namespace with `static` functions that
 take `context: HypeToolExecutor` for access to the dispatcher's clients and
 helpers. The dispatcher's tool case is reduced to a single-line delegation
 call. No public API changed; tool names, argument shapes, and result strings
 are byte-for-byte identical.
+
+`GameRecipeExecutorBranches` implements the 10 composable game-recipe tools.
+The intended call sequence is `start_game_recipe` → `add_entity` /
+`attach_behavior` / `set_controls` / `add_rule` / `set_game_state` /
+`bind_art_role` → `build_game`. `build_game` is fail-closed on existing
+targets (it refuses to overwrite a sprite area whose recipe was not started in
+this session without explicit confirmation) and routes the compiler's output
+through `refusalForInvalidDraft` before storing the scene script, so no
+invalid HypeTalk can land from recipe compilation. The older
+`create_sprite_game_template` tool is preserved unchanged for back-compat.
 
 A few cross-cutting helpers harden the loop:
 
@@ -3122,9 +3255,9 @@ stack/control instead of switching Hype into edit mode.
 
 ### 8.4 Testing
 
-The combined SwiftPM test suite currently runs **309 suites and 3,017 tests**
-(2,717 HypeCoreTests in 267 suites + 252 HypeTests in 41 suites + 48 HypeCLITests
-in 1 suite) in the latest documented full local run (~84 s). Most tests live in
+The combined SwiftPM test suite currently runs approximately **3,254 tests**
+across HypeCoreTests, HypeTests, and HypeCLITests in the latest documented full
+local run (~84 s). Most tests live in
 `HypeCoreTests` and run without launching the app because they exercise the
 model, parser, interpreter, renderer helpers, and tool executor directly;
 `HypeTests` covers app-facing seams that need AppKit, SpriteKit, or an
