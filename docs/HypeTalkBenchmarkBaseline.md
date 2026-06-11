@@ -289,7 +289,7 @@ property-access CPU.
 
 Date: 2026-06-11. Same commit as Phase 3.
 
-`Scripts/watch-kernel-probe.sh` compiles HypeCore for the
+`scripts/watch-kernel-probe.sh` compiles HypeCore for the
 `arm64-apple-watchos10.0-simulator` triple with only documented device-only leaf
 files excluded. Result: **192 of 214 HypeCore files compile for watchOS** — the
 HypeTalk interpreter and ~90% of the library are watch-portable. The 22 excluded
@@ -300,7 +300,7 @@ in-place guards made it possible: `AppleMusicProvider` (ApplicationMusicPlayer)
 and `RuntimeAIProvider` (FoundationModels) are now `#if … && !os(watchOS)`.
 
 ```sh
-Scripts/watch-kernel-probe.sh   # exit 0 = interpreter kernel builds for watchOS
+scripts/watch-kernel-probe.sh   # exit 0 = interpreter kernel builds for watchOS
 ```
 
 ## Measurement Practice

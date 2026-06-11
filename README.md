@@ -712,7 +712,7 @@ factors, safe areas, and input models differ.
   document publishing is gated to statements with a visible effect (pure-compute
   loops no longer pay a 60 Hz frame tax), HypeCore builds `-Osize` in release
   (interpreter `__text` ~1.56 MB → ~824 KB), and the interpreter kernel is
-  watchOS-buildable — `Scripts/watch-kernel-probe.sh` compiles 192 of 214 HypeCore
+  watchOS-buildable — `scripts/watch-kernel-probe.sh` compiles 192 of 214 HypeCore
   files for the watchOS-simulator triple, excluding only device-only leaf files
   (audio engines, 3D loaders, the classic `.stak` C importer, and the AppKit/SwiftUI
   view layer). A shipping watch *app* still needs the kernel/view multi-module split;

@@ -2044,7 +2044,7 @@ Foundation-only `Models/` and provider-protocol subset — is watch-buildable. E
 AppKit/SpriteKit/MusicKit/FoundationModels/Network/SwiftUI import in HypeCore is
 `#if canImport(...)`- or `#if !os(watchOS)`-guarded (only `AppleMusicProvider`'s
 `ApplicationMusicPlayer` and `RuntimeAIProvider`'s `SystemLanguageModel` needed
-new `!os(watchOS)` guards). `Scripts/watch-kernel-probe.sh` compiles HypeCore for
+new `!os(watchOS)` guards). `scripts/watch-kernel-probe.sh` compiles HypeCore for
 the watchOS-simulator triple with only a short, documented set of device-only leaf
 files excluded (audio engines, 3D loaders, the classic `.stak` C importer, the
 AppKit/SwiftUI view layer, and the AI document-tooling cluster); 192 of 214 files
