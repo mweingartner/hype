@@ -15,6 +15,7 @@ struct HypeTalkBenchmarkSuite {
         var mode: Mode = .handler
     }
 
+    /// Standard suite run for regression tracking and profiling.
     static let cases: [Case] = [
         Case(name: "looping-and-expressions", script: """
         on main
@@ -94,6 +95,66 @@ struct HypeTalkBenchmarkSuite {
             mode: .idleBurst(partCount: 12)
         )
     ]
+
+    /// Micro-benchmark cases targeting individual interpreter cost centres.
+    ///
+    /// Each case is designed to stress a single operation so that
+    /// optimization passes have a tight, reproducible measurement loop.
+    static let microCases: [Case] = [
+        // (a) arith-loop — tight add/compare in repeat with
+        Case(name: "micro-arith-loop", script: """
+        on main
+          put 0 into total
+          repeat with i from 1 to 2000
+            add i to total
+            if total > 1000000 then
+              put 0 into total
+            end if
+          end repeat
+          return total
+        end main
+        """),
+
+        // (b) chunk-churn — item/char/word extraction from a large container in a loop
+        Case(name: "micro-chunk-churn", script: """
+        on main
+          put "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega Andromeda Bootes Cassiopeia Draco Eridanus Fornax Gemini Hydra Indus Juno Kepler Leo Mira Nova Ophiuchus Perseus Quasar Rigel Sirius Taurus Ursa Virgo Wren Xenon Yildun Zeta" into container
+          put 0 into sink
+          repeat with i from 1 to 600
+            put word (i mod 50 + 1) of container into w
+            put char 1 of w into c
+            put item (i mod 10 + 1) of "a,b,c,d,e,f,g,h,i,j" into tok
+            add length(w) to sink
+          end repeat
+          return sink
+        end main
+        """),
+
+        // (c) property-churn — repeated set/get the X of field in a loop
+        Case(name: "micro-property-churn", script: """
+        on main
+          create field "bench"
+          set the width of field "bench" to 120
+          put 0 into total
+          repeat with i from 1 to 500
+            set the left of field "bench" to i mod 400
+            put the left of field "bench" into x
+            add x to total
+            put "row" && i into field "bench"
+            put the text of field "bench" into t
+            add length(t) to total
+          end repeat
+          return total
+        end main
+        """),
+
+        // (d) idle-game-loop — extended idle-burst with a higher part count
+        Case(
+            name: "micro-idle-game-loop",
+            script: "",
+            mode: .idleBurst(partCount: 48)
+        )
+    ]
 }
 
 struct HypeTalkBenchmarkReport: Codable {
@@ -119,6 +180,33 @@ struct HypeTalkBenchmarkTotals: Codable {
 enum HypeTalkBenchmarkFormat: String, ExpressibleByArgument {
     case text
     case json
+}
+
+// MARK: - Wall-clock / production-realistic column
+
+/// Timing produced by running a handler case a second time through
+/// `RealisticBenchmarkRuntime` so both the pure-CPU and production-wall-clock
+/// costs appear side by side in the report.
+struct HypeTalkBenchmarkWallClockRow {
+    /// Name matches the corresponding `HypeTalkBenchmarkCaseReport.name`.
+    var name: String
+    /// Total execution nanoseconds measured with the realistic runtime
+    /// (includes one `Task.sleep(nanoseconds: frameDelayNanos)` per
+    /// `publishDocument` call).
+    var wallClockExecutionNanoseconds: UInt64
+    /// Average execution nanoseconds per iteration (realistic runtime).
+    var wallClockAverageNanoseconds: UInt64
+    /// Number of times `publishDocument` was called across all iterations.
+    var publishCount: Int
+}
+
+struct HypeTalkBenchmarkWallClockReport {
+    var rows: [HypeTalkBenchmarkWallClockRow]
+
+    /// Look up the row that corresponds to a case report by name.
+    func row(for name: String) -> HypeTalkBenchmarkWallClockRow? {
+        rows.first { $0.name == name }
+    }
 }
 
 struct HypeTalkBenchmarkRunner {
@@ -193,6 +281,66 @@ struct HypeTalkBenchmarkRunner {
             cases: reports,
             totals: HypeTalkBenchmarkTotals(executionNanoseconds: totalExecution, diagnostics: totalDiagnostics)
         )
+    }
+
+    /// Run every **handler** case once more through `RealisticBenchmarkRuntime`
+    /// (with the production 16.667 ms frame delay) and return the wall-clock
+    /// timing alongside the publish counts.
+    ///
+    /// Idle-burst cases are skipped here because they already go through the
+    /// real `StackRuntime` path; adding an artificial sleep on top would double-
+    /// count the idle timing.
+    ///
+    /// - Parameter frameDelayNanos: nanoseconds to sleep per `publishDocument`
+    ///   call. Pass `0` for a pure-CPU realistic run; pass `16_666_667` for the
+    ///   production-equivalent wall-clock column.
+    func runWallClock(
+        cases: [HypeTalkBenchmarkSuite.Case],
+        documentPath: String?,
+        frameDelayNanos: UInt64 = 16_666_667
+    ) throws -> HypeTalkBenchmarkWallClockReport {
+        let safeIterations = max(1, iterations)
+        var rows: [HypeTalkBenchmarkWallClockRow] = []
+
+        for benchmarkCase in cases {
+            // Skip idle-burst — it exercises StackRuntime, not BenchmarkRuntime.
+            guard case .handler = benchmarkCase.mode else { continue }
+
+            let handler = try parseHandler(script: benchmarkCase.script, handlerName: benchmarkCase.handler)
+            let interpreter = Interpreter()
+            let runtime = RealisticBenchmarkRuntime(frameDelayNanos: frameDelayNanos)
+            var executionElapsed: UInt64 = 0
+
+            for _ in 0..<safeIterations {
+                let doc = try loadDocument(path: documentPath)
+                let context = ExecutionContext(
+                    targetId: doc.cards[0].id,
+                    currentCardId: doc.cards[0].id,
+                    document: doc,
+                    dialogProvider: StubDialogProvider(),
+                    drawingProvider: StubDrawingProvider(),
+                    systemProvider: StubSystemProvider(),
+                    aiProvider: StubAIScriptingProvider(),
+                    speechOutputProvider: StubSpeechOutputProvider(),
+                    runtimeProvider: runtime
+                )
+                let start = DispatchTime.now().uptimeNanoseconds
+                let result = interpreter.execute(handler: handler, params: [], context: context)
+                executionElapsed += DispatchTime.now().uptimeNanoseconds - start
+                if case .error = result.status {
+                    throw HypeCLIError.benchmarkFailed(benchmarkCase.name, result.error?.message ?? "unknown error")
+                }
+            }
+
+            rows.append(HypeTalkBenchmarkWallClockRow(
+                name: benchmarkCase.name,
+                wallClockExecutionNanoseconds: executionElapsed,
+                wallClockAverageNanoseconds: executionElapsed / UInt64(safeIterations),
+                publishCount: runtime.publishCount
+            ))
+        }
+
+        return HypeTalkBenchmarkWallClockReport(rows: rows)
     }
 
     private func parseHandler(script: String, handlerName: String) throws -> Handler {
@@ -380,7 +528,133 @@ final class BenchmarkRuntime: ScriptRuntimeProviding, @unchecked Sendable {
     func clickState() async -> ClickState? { nil }
 }
 
-func printBenchmarkReport(_ report: HypeTalkBenchmarkReport, format: HypeTalkBenchmarkFormat) throws {
+// MARK: - Realistic benchmark runtime (production-wall-clock path)
+
+/// A `ScriptRuntimeProviding` test seam that mirrors `BenchmarkRuntime` for every
+/// protocol method **except** `publishDocument`, which performs the real production
+/// work:
+///
+/// 1. Increments an atomic publish counter (so callers can observe how many
+///    document publishes a workload triggers).
+/// 2. Suspends for `frameDelayNanos` nanoseconds — set to `16_666_667` (≈ 16.67 ms,
+///    one 60 Hz frame) to model the production `StackRuntime.publishDocument` cost,
+///    or `0` for a pure-CPU realistic run with no sleep.
+///
+/// All other methods are identical no-ops copied from `BenchmarkRuntime`.
+/// This class is a **test/CLI seam only** — it must never be used in production.
+final class RealisticBenchmarkRuntime: ScriptRuntimeProviding, @unchecked Sendable {
+    /// Nanoseconds to sleep inside each `publishDocument` call.
+    /// `0` means "measure CPU cost only"; `16_666_667` models one 60 Hz frame.
+    let frameDelayNanos: UInt64
+
+    private let lock = NSLock()
+    private var properties: [UUID: [String: String]] = [:]
+    /// Running count of `publishDocument` calls across all iterations.
+    private(set) var publishCount: Int = 0
+
+    init(frameDelayNanos: UInt64 = 16_666_667) {
+        self.frameDelayNanos = frameDelayNanos
+    }
+
+    func sleep(seconds: TimeInterval) async throws {}
+
+    func navigateToCard(_ cardId: UUID) async {}
+
+    /// Increment the publish counter and, when `frameDelayNanos > 0`, suspend
+    /// for that many nanoseconds to model the production frame-pacing cost.
+    func publishDocument(_ document: HypeDocument) async {
+        lock.withLock { publishCount += 1 }
+        if frameDelayNanos > 0 {
+            try? await Task.sleep(nanoseconds: frameDelayNanos)
+        }
+    }
+
+    func enqueueMessage(
+        _ message: String,
+        params: [Value],
+        targetId: UUID,
+        currentCardId: UUID,
+        mouseX: Double,
+        mouseY: Double,
+        scriptContext: ScriptDispatchContext?
+    ) async {}
+
+    func startAIRequest(prompt: String, model: String?, callbackMessage: String, owner: RuntimeOwnerContext) async throws -> UUID {
+        UUID()
+    }
+
+    func startMeshyRequest(
+        prompt: String,
+        style: String?,
+        model: String?,
+        callbackMessage: String,
+        owner: RuntimeOwnerContext
+    ) async throws -> UUID {
+        UUID()
+    }
+
+    func startRemeshRequest(
+        sourceAssetName: String,
+        targetPolycount: Int,
+        callbackMessage: String,
+        owner: RuntimeOwnerContext
+    ) async throws -> UUID {
+        UUID()
+    }
+
+    func startRetextureRequest(
+        sourceAssetName: String,
+        stylePrompt: String,
+        callbackMessage: String,
+        owner: RuntimeOwnerContext
+    ) async throws -> UUID {
+        UUID()
+    }
+
+    func setSpeechListenerActive(_ active: Bool, owner: RuntimeOwnerContext) async throws {}
+    func isSpeechListenerActive() async -> Bool { false }
+    func startHTTPRequest(_ spec: OutboundHTTPRequestSpec, owner: RuntimeOwnerContext) async throws -> UUID { UUID() }
+    func reply(to requestID: UUID, status: Int, headersText: String, body: String) async throws {}
+    func startListener(_ spec: ListenerSpec, owner: RuntimeOwnerContext) async throws -> UUID { UUID() }
+    func connectTCP(_ spec: TCPConnectionSpec, owner: RuntimeOwnerContext) async throws -> UUID { UUID() }
+    func send(_ data: String, toConnection id: UUID) async throws {}
+    func closeConnection(_ id: UUID) async {}
+    func stopListener(_ id: UUID) async {}
+
+    func runtimeProperty(objectType: String, id: UUID, property: String, argument: String?) async -> String {
+        lock.withLock {
+            properties[id]?[property.lowercased()] ?? ""
+        }
+    }
+
+    func pushCardToHistory(_ cardId: UUID) async {}
+    func popCardFromHistory() async -> UUID? { nil }
+    func recentCards() async -> String { "" }
+
+    // Phase 2 — no-op stubs for benchmark/CLI paths
+    func setFoundState(_ state: FoundState?) async {}
+    func foundState() async -> FoundState? { nil }
+    func setSelectedState(_ state: SelectedState?) async {}
+    func selectedState() async -> SelectedState? { nil }
+    func setClickState(_ state: ClickState) async {}
+    func clickState() async -> ClickState? { nil }
+}
+
+/// Print a benchmark report to stdout.
+///
+/// When `wallClock` is provided, each handler-case block gains three extra
+/// lines showing the production-wall-clock totals from `RealisticBenchmarkRuntime`:
+/// - `  wall-clock total` — total execution ms including frame-delay sleeps
+/// - `  wall-clock avg` — average per iteration
+/// - `  publish count` — number of `publishDocument` calls across all iterations
+///
+/// This lets the reader see pure-CPU cost and production wall-clock cost side by
+/// side without changing any existing output lines.  JSON format is unaffected.
+func printBenchmarkReport(
+    _ report: HypeTalkBenchmarkReport,
+    format: HypeTalkBenchmarkFormat,
+    wallClock: HypeTalkBenchmarkWallClockReport? = nil
+) throws {
     switch format {
     case .json:
         let encoder = JSONEncoder()
@@ -396,6 +670,11 @@ func printBenchmarkReport(_ report: HypeTalkBenchmarkReport, format: HypeTalkBen
             print("  parse: \(formatMilliseconds(item.parseNanoseconds)) ms")
             print("  execute total: \(formatMilliseconds(item.executionNanoseconds)) ms")
             print("  execute avg: \(formatMilliseconds(item.averageExecutionNanoseconds)) ms")
+            if let wc = wallClock?.row(for: item.name) {
+                print("  wall-clock total: \(formatMilliseconds(wc.wallClockExecutionNanoseconds)) ms")
+                print("  wall-clock avg: \(formatMilliseconds(wc.wallClockAverageNanoseconds)) ms")
+                print("  publish count: \(wc.publishCount)")
+            }
             print("  statements: \(item.diagnostics.statements)")
             print("  expressions: \(item.diagnostics.expressions)")
             print("  property reads: \(item.diagnostics.propertyReads)")

@@ -13,7 +13,25 @@ struct HypeCLITests {
     }
 
     private var binaryPath: String {
-        projectRoot.appendingPathComponent(".build/arm64-apple-macosx/debug/hypetalk").path
+        // Different Swift toolchains lay out the build directory differently:
+        // SwiftPM's classic layout is .build/<triple>/debug, while the newer
+        // Swift Build system (Xcode 16+/beta) emits to .build/debug. Pick the
+        // freshest existing `hypetalk` among the known candidates so the CLI
+        // integration tests run the current binary regardless of toolchain.
+        let candidates = [
+            ".build/debug/hypetalk",
+            ".build/arm64-apple-macosx/debug/hypetalk",
+            ".build/release/hypetalk",
+            ".build/arm64-apple-macosx/release/hypetalk",
+        ].map { projectRoot.appendingPathComponent($0).path }
+        let fm = FileManager.default
+        let existing = candidates.filter { fm.fileExists(atPath: $0) }
+        let newest = existing.max { a, b in
+            let da = (try? fm.attributesOfItem(atPath: a)[.modificationDate] as? Date) ?? nil
+            let db = (try? fm.attributesOfItem(atPath: b)[.modificationDate] as? Date) ?? nil
+            return (da ?? .distantPast) < (db ?? .distantPast)
+        }
+        return newest ?? candidates[0]
     }
 
     private var scriptDir: URL {
@@ -1088,6 +1106,43 @@ struct HypeCLITests {
         #expect(result.stdout.contains("looping-and-expressions"))
         #expect(result.stdout.contains("property-access"))
         #expect(result.stdout.contains("callback requests"))
+        #expect(result.stderr.isEmpty)
+    }
+
+    /// Confirms the extended harness emits the four micro-benchmark cases in the
+    /// full-suite text output.
+    @Test func testBenchmarkSuiteIncludesMicroCases() {
+        let result = runBinary(arguments: ["--benchmark", "--benchmark-iterations", "1"])
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("micro-arith-loop"))
+        #expect(result.stdout.contains("micro-chunk-churn"))
+        #expect(result.stdout.contains("micro-property-churn"))
+        #expect(result.stdout.contains("micro-idle-game-loop"))
+        #expect(result.stderr.isEmpty)
+    }
+
+    /// Confirms the production-wall-clock column is present alongside the pure-CPU
+    /// column in the full-suite text output.  The three wall-clock lines must appear
+    /// for every handler case (not idle-burst cases, which use StackRuntime).
+    @Test func testBenchmarkSuiteRealisticRuntimeColumnsPresent() {
+        let result = runBinary(arguments: ["--benchmark", "--benchmark-iterations", "1"])
+        #expect(result.exitStatus == 0)
+        // The realistic-runtime section headings must appear at least once.
+        #expect(result.stdout.contains("wall-clock total:"))
+        #expect(result.stdout.contains("wall-clock avg:"))
+        #expect(result.stdout.contains("publish count:"))
+        #expect(result.stderr.isEmpty)
+    }
+
+    /// Confirms the pure-CPU path is still present and the familiar column labels
+    /// have not been removed by the dual-run change.
+    @Test func testBenchmarkSuitePureCPUColumnsUnchanged() {
+        let result = runBinary(arguments: ["--benchmark", "--benchmark-iterations", "1"])
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout.contains("execute total:"))
+        #expect(result.stdout.contains("execute avg:"))
+        #expect(result.stdout.contains("parse:"))
+        #expect(result.stdout.contains("total execute:"))
         #expect(result.stderr.isEmpty)
     }
 

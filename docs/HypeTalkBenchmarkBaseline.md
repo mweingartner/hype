@@ -156,8 +156,68 @@ swift build -c release --product hypetalk
 swift test --filter EventDispatchTests
 ```
 
+## Phase 2.0 — Extended Harness Baseline (pre-optimization)
+
+Date: 2026-06-11
+
+Added `RealisticBenchmarkRuntime`, four micro-benchmark cases, and the production-wall-clock column to establish a measurable baseline before the upcoming `publishDocument` / frame-pacing optimization.
+
+### Harness Extensions
+
+**RealisticBenchmarkRuntime** — a new `ScriptRuntimeProviding` test seam that mirrors `BenchmarkRuntime` for all protocol methods except `publishDocument`, which:
+1. Increments an atomic `publishCount` counter.
+2. Awaits `Task.sleep(nanoseconds: frameDelayNanos)` — `16_666_667` ns (≈ 16.67 ms, one 60 Hz frame) in production mode, or `0` for pure-CPU mode.
+
+This makes the `publishDocument` cost (previously hidden by the no-op `BenchmarkRuntime`) directly measurable as the **production wall-clock** column.
+
+**Micro-benchmark cases** — four new focused workloads appended to the full suite:
+
+| Case | Purpose |
+| --- | --- |
+| `micro-arith-loop` | Tight `add`/compare in `repeat with i from 1 to 2000` — isolates variable/expression fast path |
+| `micro-chunk-churn` | 600 iterations of `word N of`, `char 1 of`, `item N of` on a 50-word container — isolates chunk overhead |
+| `micro-property-churn` | 500 iterations of `set/get left` and `set/get text` on a single field — isolates property dispatch |
+| `micro-idle-game-loop` | `idle-hook-burst` extended to 48 animated parts — stresses the StackRuntime dispatch and coalescing path |
+
+### Benchmark Commands for This Baseline
+
+Pure-CPU regression (fast; same as previous phases):
+
+```sh
+swift build -c release --product hypetalk
+.build/release/hypetalk --benchmark --benchmark-iterations 50
+```
+
+Production-wall-clock measurement (slow; ~16.67 ms sleep per `publishDocument` call):
+
+```sh
+swift build -c release --product hypetalk
+.build/release/hypetalk --benchmark --benchmark-iterations 3 --benchmark-frame-delay-nanos 16666667
+```
+
+> Use a lower iteration count for the wall-clock run to keep total time reasonable. The pure-CPU run at 50 iterations is still the canonical regression number; the wall-clock run shows the absolute cost of `publishDocument` per workload.
+
+### Pre-Optimization Results Table
+
+The numbers below will be filled by the orchestrator running the extended harness. Subsequent optimization waves append a row to each workload column.
+
+| Workload | pure-CPU total ms | production wall-clock ms | publishes | allocations-note |
+| --- | ---: | ---: | ---: | --- |
+| looping-and-expressions | TBD | TBD | TBD | — |
+| property-access | TBD | TBD | TBD | — |
+| callbacks | TBD | TBD | TBD | — |
+| realistic-mix | TBD | TBD | TBD | — |
+| idle-hook-burst | TBD | n/a (StackRuntime) | n/a | — |
+| micro-arith-loop | TBD | TBD | TBD | — |
+| micro-chunk-churn | TBD | TBD | TBD | — |
+| micro-property-churn | TBD | TBD | TBD | — |
+| micro-idle-game-loop | TBD | n/a (StackRuntime) | n/a | — |
+
+> **How to read this table:** `pure-CPU total ms` comes from `BenchmarkRuntime` (no-op `publishDocument`) and is the same number as the existing release baseline. `production wall-clock ms` comes from `RealisticBenchmarkRuntime(frameDelayNanos: 16_666_667)` — it shows how much total time a workload would take in a live app including the per-statement frame-pacing sleep. `publishes` is the `publishCount` from `RealisticBenchmarkRuntime` across all 50 iterations.
+
 ## Measurement Practice
 
 - Run release benchmarks before and after each optimization.
 - Keep iteration counts stable when comparing a branch to baseline.
 - Record both timing deltas and diagnostic counter changes; timing without counter movement may indicate compiler/runtime noise rather than an interpreter improvement.
+- After each optimization wave, append a row to the Phase 2.0 results table using the same iteration count and record both the pure-CPU and production-wall-clock deltas.

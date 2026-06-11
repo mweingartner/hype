@@ -32,6 +32,14 @@ struct HypeCLI: AsyncParsableCommand {
     @Option(help: "Benchmark output format: text or json")
     var benchmarkFormat: HypeTalkBenchmarkFormat = .text
 
+    @Option(
+        help: """
+        Nanoseconds to sleep per publishDocument call in the production-wall-clock pass. \
+        0 = pure-CPU (default, fast); 16666667 = one 60 Hz frame (models production cost).
+        """
+    )
+    var benchmarkFrameDelayNanos: UInt64 = 0
+
     @Flag(help: "Run an OpenAI-compatible inference smoke test instead of a HypeTalk script")
     var inferenceSmoke = false
 
@@ -224,6 +232,7 @@ struct HypeCLI: AsyncParsableCommand {
         if benchmark {
             let cases: [HypeTalkBenchmarkSuite.Case]
             if let script, script != "suite" {
+                // Single-script benchmark — no microbench cases appended.
                 cases = [
                     HypeTalkBenchmarkSuite.Case(
                         name: URL(fileURLWithPath: script).lastPathComponent,
@@ -232,11 +241,25 @@ struct HypeCLI: AsyncParsableCommand {
                     )
                 ]
             } else {
-                cases = HypeTalkBenchmarkSuite.cases
+                // Full suite: standard cases + micro-benchmark cases.
+                cases = HypeTalkBenchmarkSuite.cases + HypeTalkBenchmarkSuite.microCases
             }
-            let report = try HypeTalkBenchmarkRunner(iterations: benchmarkIterations)
-                .run(cases: cases, documentPath: document)
-            try printBenchmarkReport(report, format: benchmarkFormat)
+            let runner = HypeTalkBenchmarkRunner(iterations: benchmarkIterations)
+            let report = try runner.run(cases: cases, documentPath: document)
+            // Run the production-wall-clock pass only for text output and only
+            // when running the full suite (single-script benchmarks skip it to
+            // avoid unexpectedly long runtimes from the frame-delay sleep).
+            let wallClock: HypeTalkBenchmarkWallClockReport?
+            if benchmarkFormat == .text && (script == nil || script == "suite") {
+                wallClock = try runner.runWallClock(
+                    cases: cases,
+                    documentPath: document,
+                    frameDelayNanos: benchmarkFrameDelayNanos
+                )
+            } else {
+                wallClock = nil
+            }
+            try printBenchmarkReport(report, format: benchmarkFormat, wallClock: wallClock)
             return
         }
 
@@ -1436,12 +1459,14 @@ private struct ScriptSemanticValidator {
             issues += expressionIssues(target, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
         case .get(let expression), .go(let expression), .returnValue(let expression),
              .say(let expression), .activateListener(let expression), .waitDuration(let expression, _),
-             .waitCondition(let expression, _), .deleteObject(let expression), .findText(let expression),
+             .waitCondition(let expression, _), .deleteObject(let expression),
              .selectObject(let expression), .sortCards(let expression), .hideObject(let expression),
              .showObject(let expression), .openStack(let expression), .editScriptOf(let expression),
              .startUsing(let expression), .stopUsing(let expression), .startAnimation(let expression),
              .stopAnimation(let expression), .exportPaint(let expression), .importPaint(let expression):
             issues += expressionIssues(expression, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
+        case .findText(_, let query, _):
+            issues += expressionIssues(query, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
         case .set(_, let ofExpression, let toExpression):
             if let ofExpression { issues += expressionIssues(ofExpression, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId) }
             issues += expressionIssues(toExpression, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
@@ -1459,7 +1484,7 @@ private struct ScriptSemanticValidator {
         case .repeatWhile(let condition, let body):
             issues += expressionIssues(condition, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
             issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
-        case .repeatWith(_, let from, let to, let body):
+        case .repeatWith(_, let from, let to, _, let body):
             issues += expressionIssues(from, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
             issues += expressionIssues(to, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
             issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
