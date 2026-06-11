@@ -80,6 +80,10 @@ public struct SpriteAreaSpec: Codable, Sendable {
     public var showsPhysics: Bool
     public var showsFPS: Bool
     public var showsNodeCount: Bool
+    /// Optional declarative game recipe. When present, a later-phase
+    /// compiler lowers this into the active `SceneSpec` plus generated
+    /// HypeTalk scripts. Nil for non-game sprite areas and legacy docs.
+    public var recipe: GameRecipe?
 
     public init(
         activeSceneID: UUID,
@@ -88,7 +92,8 @@ public struct SpriteAreaSpec: Codable, Sendable {
         scaleMode: SceneScaleMode = .aspectFit,
         showsPhysics: Bool = false,
         showsFPS: Bool = false,
-        showsNodeCount: Bool = false
+        showsNodeCount: Bool = false,
+        recipe: GameRecipe? = nil
     ) {
         self.activeSceneID = activeSceneID
         self.scenes = scenes
@@ -97,6 +102,7 @@ public struct SpriteAreaSpec: Codable, Sendable {
         self.showsPhysics = showsPhysics
         self.showsFPS = showsFPS
         self.showsNodeCount = showsNodeCount
+        self.recipe = recipe
         normalize()
     }
 
@@ -150,11 +156,13 @@ public struct SpriteAreaSpec: Codable, Sendable {
         showsPhysics = try container.decodeIfPresent(Bool.self, forKey: .showsPhysics) ?? false
         showsFPS = try container.decodeIfPresent(Bool.self, forKey: .showsFPS) ?? false
         showsNodeCount = try container.decodeIfPresent(Bool.self, forKey: .showsNodeCount) ?? false
+        recipe = try container.decodeIfPresent(GameRecipe.self, forKey: .recipe)
         normalize()
     }
 
     private enum CodingKeys: String, CodingKey {
         case activeSceneID, scenes, designSize, scaleMode, showsPhysics, showsFPS, showsNodeCount
+        case recipe
     }
 
     public static func fromJSON(_ json: String) -> SpriteAreaSpec? {
@@ -389,6 +397,18 @@ public extension Part {
         )
         transform(&scene)
         spec.setActiveScene(scene)
+        setSpriteAreaSpec(spec)
+    }
+
+    /// Apply `transform` to the `GameRecipe` stored inside this part's
+    /// `SpriteAreaSpec`, then write the updated spec back via
+    /// `setSpriteAreaSpec`. Mirrors the `updateSpriteAreaSpec` round-trip.
+    mutating func updateRecipe(_ transform: (inout GameRecipe?) -> Void) {
+        var spec = spriteAreaSpecModel ?? SpriteAreaSpec(
+            defaultSceneNamed: name.isEmpty ? "main" : name,
+            fallbackSize: SizeSpec(width: width, height: height)
+        )
+        transform(&spec.recipe)
         setSpriteAreaSpec(spec)
     }
 }
