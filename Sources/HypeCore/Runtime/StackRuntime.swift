@@ -842,7 +842,15 @@ public actor StackRuntime: ScriptRuntimeProviding {
                 ]
             )
         }
-        try? await Task.sleep(nanoseconds: 16_666_667)
+        // Yield to the cooperative scheduler so the main actor can
+        // process the notification above and the display can refresh.
+        // The old unconditional 16.67ms sleep here imposed a 16ms tax
+        // on every published statement — including pure-compute hot paths.
+        // The real 60Hz frame cadence is now driven by the display/runloop,
+        // not by this sleep.  Visible-effect checkpoints (go, visual effect,
+        // unlock screen) that need a real frame boundary call Task.sleep
+        // at the call site instead.
+        await Task.yield()
     }
 
     public func setSpeechListenerActive(_ active: Bool, owner: RuntimeOwnerContext) async throws {

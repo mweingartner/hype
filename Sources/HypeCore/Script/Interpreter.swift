@@ -370,6 +370,10 @@ private struct Environment {
     /// The current item delimiter. Classic HyperCard resets this to "," at each idle
     /// (i.e. each top-level dispatch / fresh Environment). Single character per spec.
     var itemDelimiter: String = ","
+    /// Whether `lock screen` is in effect.  While true, per-statement publish
+    /// and yield calls are suppressed entirely; a single flush publish fires at
+    /// `unlock screen`.
+    var screenLocked: Bool = false
 
     init(globals: [String: Value], handlerParams: [Value] = []) {
         self.globals = globals.reduce(into: [String: Value]()) { result, entry in
@@ -380,6 +384,12 @@ private struct Environment {
 
     mutating func getVariable(_ name: String) -> Value {
         let key = name.lowercased()
+        return getVariableKey(key)
+    }
+
+    /// Retrieve a variable value using an already-lowercased key.
+    /// Avoids re-lowercasing in hot paths where the key was computed once.
+    mutating func getVariableKey(_ key: String) -> Value {
         if globalNames.contains(key) {
             return globals[key] ?? ""
         }
@@ -732,6 +742,115 @@ public struct Interpreter: Sendable {
                                visualEffect: visualEffect, visualEffectDuration: veDuration)
     }
 
+    /// Returns `true` when a statement may produce a visible change on-screen
+    /// that should be published immediately so the user sees progressive updates.
+    ///
+    /// The predicate is **conservative**: when in doubt return `true` so
+    /// correctness always wins over speed.  The performance win comes from the
+    /// pure-compute statements that safely return `false`.
+    ///
+    /// Statements that return `false` (no visible effect, pure compute):
+    /// - `put` into a variable / `it` / message-box (not into a part)
+    /// - `get` (sets `it`, no part mutation)
+    /// - `add` / `subtract` / `multiply` / `divide` targeting a variable
+    /// - `global` declaration
+    /// - `exit repeat` / `next repeat` / `pass` / `exit` / `return` (control signals)
+    /// - `if` / `repeat` control constructs (their bodies are themselves gated)
+    ///
+    /// Everything else — `put` into a field/part, `set` of any property,
+    /// `show`/`hide`, `go`, `visual`, `create*`, `delete`, sprite mutations,
+    /// `animate`, etc. — returns `true`.
+    private func statementProducesVisibleEffect(_ stmt: Statement) -> Bool {
+        switch stmt {
+        case .put(_, _, let target):
+            // A put into a variable, `it`, or the message box has no visible
+            // effect.  Puts into part refs, scoped refs, property accesses, or
+            // chunk-of-part refs DO mutate rendered content.
+            switch target {
+            case .variable, .it:
+                return false
+            case .messageBox:
+                // Message box is visible in the HyperCard-style message box
+                // widget; treat as visible to be conservative.
+                return true
+            default:
+                return true
+            }
+
+        case .get:
+            // `get` only sets `it` — no part mutation.
+            return false
+
+        case .addTo(_, let targetExpr):
+            // Arithmetic on variables is pure compute.
+            if case .variable = targetExpr { return false }
+            if case .it = targetExpr { return false }
+            return true
+
+        case .subtractFrom(_, let targetExpr):
+            if case .variable = targetExpr { return false }
+            if case .it = targetExpr { return false }
+            return true
+
+        case .multiplyBy(let targetExpr, _):
+            if case .variable = targetExpr { return false }
+            if case .it = targetExpr { return false }
+            return true
+
+        case .divideBy(let targetExpr, _):
+            if case .variable = targetExpr { return false }
+            if case .it = targetExpr { return false }
+            return true
+
+        case .globalDecl:
+            return false
+
+        // Control structures: their bodies are gated individually.
+        case .ifThenElse:
+            return false
+        case .repeatForever:
+            return false
+        case .repeatCount:
+            return false
+        case .repeatWhile:
+            return false
+        case .repeatWith:
+            return false
+        case .repeatForEach:
+            return false
+
+        // Pure control-flow signals: no state change.
+        case .exitRepeat:
+            return false
+        case .nextRepeat:
+            return false
+        case .passMessage:
+            return false
+        case .exitHandler:
+            return false
+        case .returnValue:
+            return false
+
+        // All remaining statements may produce visible changes.
+        default:
+            return true
+        }
+    }
+
+    /// Execute a statement and conditionally publish the document to the runtime.
+    ///
+    /// **Two-tier scheme:**
+    /// 1. If `lock screen` is active: run the statement, sync `scriptGlobals`,
+    ///    but suppress ALL publishing and yields.  A single flush happens at
+    ///    `unlock screen` inside `executeStatement(.unlockScreen)`.
+    /// 2. If the statement is a visible-effect statement (field/part mutation,
+    ///    `set`, `show`/`hide`, `go`, etc.): run then `publishDocument` so the
+    ///    UI sees the change immediately (animation / progressive update path).
+    ///    `publishDocument` in `StackRuntime` now does only `Task.yield()`, not
+    ///    the old 16.67ms sleep.
+    /// 3. Pure-compute statements (arithmetic, variable writes, control flow):
+    ///    run then `Task.yield()` only — no publish, no sleep — so pure loops
+    ///    run at CPU speed while still allowing cooperative cancellation.
     private func executeStatementAndPublish(
         _ stmt: Statement,
         env: inout Environment,
@@ -752,8 +871,29 @@ public struct Interpreter: Sendable {
             projectNavigationTarget: &projectNavigationTarget,
             handler: handler
         )
+        // Always sync scriptGlobals — the next dispatch (e.g. idle tick)
+        // reads mutated globals from the document, and the message box
+        // widget reads __messagebox from here.  This is cheap.
         document.scriptGlobals = env.globals
-        await context.runtimeProvider?.publishDocument(document)
+
+        // Screen-locked mode: suppress all mid-handler publishing.
+        // When unlock screen executes, it sets env.screenLocked = false, so
+        // this guard does not fire for that statement and publishDocument is
+        // called once below (unlock screen is a visible-effect statement → true).
+        if env.screenLocked {
+            return
+        }
+
+        if statementProducesVisibleEffect(stmt) {
+            // Visible mutation: publish so the UI reflects the change
+            // progressively (field-update animation idiom).
+            await context.runtimeProvider?.publishDocument(document)
+        } else {
+            // Pure compute: just yield to allow cancellation / UI events
+            // without incurring any publish overhead.
+            try Task.checkCancellation()
+            await Task.yield()
+        }
     }
 
     private func blockingWait<T: Sendable>(_ operation: @escaping @Sendable () async -> T) -> T {
@@ -2162,10 +2302,16 @@ public struct Interpreter: Sendable {
             }
 
         case .lockScreen:
+            env.screenLocked = true
             await context.hostProvider.lockScreen()
 
         case .unlockScreen:
+            env.screenLocked = false
             await context.hostProvider.unlockScreen()
+            // The publish for unlock screen is handled by executeStatementAndPublish:
+            // since screenLocked is now false and unlockScreen is a visible-effect
+            // statement (default branch), it will publish exactly once after this
+            // statement returns.  No explicit publish here avoids a double-publish.
 
         case .openStack(let pathExpr):
             let path = try await evaluate(pathExpr, env: &env, document: document, context: context)
@@ -4093,8 +4239,13 @@ public struct Interpreter: Sendable {
             return val
 
         case .variable(let name):
-            // Check constants first.
-            switch name.lowercased() {
+            // Lowercase the name exactly once.  Previously `name.lowercased()` was
+            // called up to four times per variable access (switch, two `.keys.contains`
+            // checks, and `getVariable`'s own re-lowercasing).  One allocation per access.
+            let key = name.lowercased()
+
+            // Check constants first — these shadow user variables (HyperCard semantics).
+            switch key {
             case "empty": return ""
             case "quote": return "\""
             case "space": return " "
@@ -4127,22 +4278,27 @@ public struct Interpreter: Sendable {
             // property evaluator when the variable name matches one
             // of these so the bare form produces the same value as
             // the articled form. A user-declared local or global of
-            // the same name takes precedence (checked below via
-            // `env.globalNames` / `env.locals` lookups).
+            // the same name takes precedence — checked below via a
+            // direct dictionary lookup (avoids building a `.keys` view).
             case "mouseloc", "mouseh", "mousev",
                  "date", "time", "ticks", "seconds",
                  "paramcount", "params",
                  "hoveredsprite", "spriteundermouse", "hoveredspritename":
-                if !env.locals.keys.contains(name.lowercased())
-                    && !env.globalNames.contains(name.lowercased()) {
-                    return try await evaluateProperty(
-                        name, target: nil,
-                        env: &env, document: document, context: context
-                    )
+                // User variable takes precedence over the system property alias.
+                // Use dictionary lookup rather than `.keys.contains` to avoid
+                // allocating the keys view.
+                if env.locals[key] != nil || env.globalNames.contains(key) {
+                    return env.getVariableKey(key)
                 }
+                return try await evaluateProperty(
+                    name, target: nil,
+                    env: &env, document: document, context: context
+                )
             default: break
             }
-            return env.getVariable(name)
+            // Not a constant or system property — look up as a user variable.
+            // Use the pre-computed `key` to avoid a second lowercasing in getVariable.
+            return env.getVariableKey(key)
 
         case .it:
             return env.it
@@ -5751,31 +5907,6 @@ public struct Interpreter: Sendable {
         document: HypeDocument,
         context: ExecutionContext
     ) async -> Value {
-        // Trim whitespace after the separator for item chunks so
-        // "a, b, c" yields ["a", "b", "c"] not ["a", " b", " c"].
-        // Matches HyperTalk's item chunk semantics.
-        let parts: [String]
-        switch chunkType {
-        case .word:
-            parts = source.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-        case .char, .character:
-            parts = source.map(String.init)
-        case .item:
-            // Honor the runtime itemDelimiter (default ","). Per the HyperTalk Reference,
-            // coordinate/rect/loc structures use hardcoded "," and are not affected here —
-            // only explicit item-chunk expressions go through evaluateChunk.
-            let delim = env.itemDelimiter
-            if delim == "," {
-                parts = source.split(separator: ",", omittingEmptySubsequences: false)
-                    .map { $0.trimmingCharacters(in: .whitespaces) }
-            } else {
-                let delimChar = delim.first ?? ","
-                parts = source.split(separator: delimChar, omittingEmptySubsequences: false)
-                    .map { $0.trimmingCharacters(in: .whitespaces) }
-            }
-        case .line:
-            parts = splitLines(source)
-        }
 
         /// Helper that evaluates a chunk-index expression to an
         /// integer. Previously this code only unwrapped `.literal`
@@ -5805,9 +5936,136 @@ public struct Interpreter: Sendable {
             return clampedInt(toNumber(str))
         }
 
+        // MARK: Fast path — allocation-free single-index scan
+        //
+        // For the dominant case of `.single` with a positive 1-based index we
+        // scan for the Nth boundary without materialising the full parts array.
+        // Sentinels last(-1)/middle(0)/any(-2) and range accesses fall through
+        // to the full-split path below where we need the element count.
+        if case .single(let indexExpr) = range {
+            let idx = await indexValue(indexExpr)
+
+            switch idx {
+            case 1...:
+                // Positive 1-based index: fast scan.
+                switch chunkType {
+                case .char, .character:
+                    // Characters are Unicode scalars; index directly.
+                    let charIdx = source.index(source.startIndex, offsetBy: idx - 1, limitedBy: source.endIndex)
+                    guard let ci = charIdx, ci < source.endIndex else { return "" }
+                    return String(source[ci])
+
+                case .word:
+                    // Scan for the Nth whitespace-delimited word without splitting.
+                    var wordCount = 0
+                    var i = source.startIndex
+                    while i < source.endIndex {
+                        // Skip leading whitespace.
+                        while i < source.endIndex && source[i].isWhitespace { source.formIndex(after: &i) }
+                        guard i < source.endIndex else { break }
+                        // Mark start of word.
+                        let wordStart = i
+                        wordCount += 1
+                        // Advance to end of word.
+                        while i < source.endIndex && !source[i].isWhitespace { source.formIndex(after: &i) }
+                        if wordCount == idx { return String(source[wordStart..<i]) }
+                    }
+                    return ""
+
+                case .item:
+                    // Scan for the Nth delimiter-separated item, trimming whitespace.
+                    let delimChar = env.itemDelimiter.first ?? ","
+                    var itemCount = 0
+                    var i = source.startIndex
+                    var itemStart = i
+                    while true {
+                        let atEnd = (i == source.endIndex)
+                        if atEnd || source[i] == delimChar {
+                            itemCount += 1
+                            if itemCount == idx {
+                                return source[itemStart..<i]
+                                    .trimmingCharacters(in: .whitespaces)
+                            }
+                            if atEnd { break }
+                            source.formIndex(after: &i)
+                            itemStart = i
+                        } else {
+                            source.formIndex(after: &i)
+                        }
+                    }
+                    return ""
+
+                case .line:
+                    // Scan lines delimited by \r\n, \r, or \n.
+                    var lineCount = 0
+                    var i = source.startIndex
+                    var lineStart = i
+                    while i < source.endIndex {
+                        let ch = source[i]
+                        if ch == "\r" || ch == "\n" {
+                            lineCount += 1
+                            if lineCount == idx { return String(source[lineStart..<i]) }
+                            // Consume \r\n as a single separator.
+                            source.formIndex(after: &i)
+                            if ch == "\r", i < source.endIndex, source[i] == "\n" {
+                                source.formIndex(after: &i)
+                            }
+                            lineStart = i
+                        } else {
+                            source.formIndex(after: &i)
+                        }
+                    }
+                    // Last line (no trailing newline).
+                    lineCount += 1
+                    if lineCount == idx { return String(source[lineStart...]) }
+                    return ""
+                }
+
+            default:
+                // Sentinels: last(-1), middle(0), any(-2).
+                // These require knowing the total count, so fall through to
+                // the full-split path below.
+                break
+            }
+        }
+
+        // MARK: Full-split path — used for sentinels, range access, and line ranges.
+        //
+        // Trim whitespace after the separator for item chunks so
+        // "a, b, c" yields ["a", "b", "c"] not ["a", " b", " c"].
+        // Matches HyperTalk's item chunk semantics.
+        let parts: [String]
+        switch chunkType {
+        case .word:
+            parts = source.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        case .char, .character:
+            parts = source.map(String.init)
+        case .item:
+            // Honor the runtime itemDelimiter (default ","). Per the HyperTalk Reference,
+            // coordinate/rect/loc structures use hardcoded "," and are not affected here —
+            // only explicit item-chunk expressions go through evaluateChunk.
+            let delim = env.itemDelimiter
+            if delim == "," {
+                parts = source.split(separator: ",", omittingEmptySubsequences: false)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+            } else {
+                let delimChar = delim.first ?? ","
+                parts = source.split(separator: delimChar, omittingEmptySubsequences: false)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+            }
+        case .line:
+            parts = splitLines(source)
+        }
+
+        func indexValueFull(_ expr: Expression) async -> Int {
+            // Re-evaluate — only reached from the full-split path.
+            let str = (try? await evaluate(expr, env: &env, document: document, context: context)) ?? ""
+            return clampedInt(toNumber(str))
+        }
+
         switch range {
         case .single(let indexExpr):
-            let idx = await indexValue(indexExpr)
+            let idx = await indexValueFull(indexExpr)
             if idx == -1 {
                 // "last"
                 return parts.last ?? ""
@@ -5823,8 +6081,8 @@ public struct Interpreter: Sendable {
             return ""
 
         case .range(let fromExpr, let toExpr):
-            let from = max(1, await indexValue(fromExpr))
-            let to = min(parts.count, await indexValue(toExpr))
+            let from = max(1, await indexValueFull(fromExpr))
+            let to = min(parts.count, await indexValueFull(toExpr))
             guard from <= to, from >= 1 else { return "" }
             let separator: String
             switch chunkType {
