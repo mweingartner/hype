@@ -37,6 +37,18 @@ struct PropertyInspector: View {
     }
     @State private var draggedNodeId: UUID?
     @State private var sceneGuideContext: SpriteSceneGuideContext?
+    /// Tracks whether the "Game Recipe" DisclosureGroup is expanded in the inspector.
+    @State private var recipeGroupExpanded: Bool = false
+    /// The preset ID selected in the "Start Game Recipe" preset picker before committing.
+    @State private var recipePresetPickerID: String = ""
+    /// Pending new-entity name typed into the Add Entity row.
+    @State private var newEntityName: String = ""
+    /// Pending new-entity role for the Add Entity row.
+    @State private var newEntityRole: EntityRole = .decoration
+    /// Diagnostics surfaced from the last Build Game compilation.
+    @State private var recipeBuildDiagnostics: [String] = []
+    /// When true the diagnostics caption is shown below the Build button.
+    @State private var recipeBuildDiagnosticsExpanded: Bool = false
     /// Pre-fetched from Keychain on `.onAppear`. Used by the
     /// scene3D inspector's "Generate from prompt…" button to
     /// avoid a synchronous Keychain probe on the main thread (M4).
@@ -2074,6 +2086,11 @@ struct PropertyInspector: View {
                     }
                 }
 
+                // MARK: Game Recipe
+                if userLevel.canAuthorObjects {
+                    gameRecipeSection(partId: part.id)
+                }
+
                 Picker("Scale", selection: bindSceneScaleMode(part.id)) {
                     ForEach(SceneScaleMode.allCases, id: \.self) { mode in
                         Text(mode.rawValue).tag(mode)
@@ -2212,6 +2229,500 @@ struct PropertyInspector: View {
         case .recommended: return .orange
         case .missing: return .red
         }
+    }
+
+    // MARK: - Game Recipe Inspector
+
+    /// Collapsible "Game Recipe" group shown below the setup checklist in the
+    /// Sprite Area inspector. Provides manual authoring parity with the AI
+    /// recipe tools: start a recipe, add/remove entities, attach/detach
+    /// behaviors, and compile via the same `RecipeCompiler.compile+merge` core
+    /// used by the AI `build_game` tool.
+    ///
+    /// All mutations go through `document.document.updatePart(id:)` so they
+    /// are undoable and trigger autosave.
+    @ViewBuilder
+    private func gameRecipeSection(partId: UUID) -> some View {
+        Divider()
+        gameRecipeDisclosureGroup(partId: partId)
+    }
+
+    private func gameRecipeDisclosureGroup(partId: UUID) -> some View {
+        let recipe = document.document.parts.first(where: { $0.id == partId })?.spriteAreaSpecModel?.recipe
+        let entityCount = recipe?.entities.count ?? 0
+        let hasRecipe = recipe != nil
+
+        return DisclosureGroup(
+            isExpanded: $recipeGroupExpanded,
+            content: {
+                if let recipe {
+                    recipeExistingContent(partId: partId, recipe: recipe)
+                } else {
+                    recipeStartContent(partId: partId)
+                }
+            },
+            label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "gamecontroller")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                    Text("Game Recipe")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.secondary)
+                    if hasRecipe {
+                        Text("(\(entityCount) entities)")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+        )
+        .font(.system(size: 11))
+    }
+
+    /// Content shown when no recipe exists yet: a "Start Game Recipe" button
+    /// with an optional genre preset picker.
+    @ViewBuilder
+    private func recipeStartContent(partId: UUID) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Declarative recipe lets you describe game entities and behaviors. The Build Game button compiles them into nodes and HypeTalk scripts.")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            let presetIDs = GenrePresetLibrary.presetIDs
+            if !presetIDs.isEmpty {
+                Picker("Preset", selection: $recipePresetPickerID) {
+                    Text("Blank").tag("")
+                    ForEach(presetIDs, id: \.self) { pid in
+                        Text(pid).tag(pid)
+                    }
+                }
+                .font(.system(size: 11))
+            }
+
+            Button("Start Game Recipe") {
+                startRecipe(partId: partId)
+            }
+            .font(.system(size: 10))
+            .buttonStyle(.borderless)
+        }
+        .padding(.leading, 4)
+        .padding(.vertical, 4)
+    }
+
+    /// Content shown when a recipe exists: entity list, add-entity row,
+    /// and the Build Game button.
+    @ViewBuilder
+    private func recipeExistingContent(partId: UUID, recipe: GameRecipe) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Entity list
+            if !recipe.entities.isEmpty {
+                Text("Entities").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+                ForEach(recipe.entities) { entity in
+                    recipeEntityRow(partId: partId, entity: entity)
+                }
+            }
+
+            // Add Entity row
+            Divider()
+            Text("Add Entity").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+            HStack(spacing: 4) {
+                TextField("name", text: $newEntityName)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 10))
+                    .frame(maxWidth: .infinity)
+
+                Picker("", selection: $newEntityRole) {
+                    ForEach(EntityRole.allCases, id: \.self) { role in
+                        Text(role.rawValue).tag(role)
+                    }
+                }
+                .labelsHidden()
+                .font(.system(size: 10))
+                .frame(width: 90)
+
+                Button("Add") {
+                    addRecipeEntity(partId: partId)
+                }
+                .font(.system(size: 10))
+                .buttonStyle(.borderless)
+                .disabled(newEntityName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+
+            // Build Game button
+            Divider()
+            Button(action: { buildGame(partId: partId) }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "hammer.fill")
+                        .font(.system(size: 11))
+                    Text("Build Game")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .help("Compile the recipe into scene nodes and HypeTalk scripts (same compiler the AI uses).")
+
+            // Diagnostics from the last build
+            if !recipeBuildDiagnostics.isEmpty {
+                DisclosureGroup(
+                    isExpanded: $recipeBuildDiagnosticsExpanded,
+                    content: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(recipeBuildDiagnostics, id: \.self) { msg in
+                                HStack(alignment: .top, spacing: 4) {
+                                    Image(systemName: "exclamationmark.triangle")
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.orange)
+                                    Text(msg)
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                        }
+                    },
+                    label: {
+                        Text("Build diagnostics (\(recipeBuildDiagnostics.count))")
+                            .font(.system(size: 9))
+                            .foregroundColor(.orange)
+                    }
+                )
+            }
+
+            // Remove recipe button
+            Divider()
+            Button("Remove Recipe") {
+                removeRecipe(partId: partId)
+            }
+            .font(.system(size: 9))
+            .buttonStyle(.borderless)
+            .foregroundColor(.red)
+        }
+        .padding(.leading, 4)
+        .padding(.vertical, 4)
+    }
+
+    /// A single entity row: editable name, role picker, behavior chips,
+    /// and a delete button.
+    @ViewBuilder
+    private func recipeEntityRow(partId: UUID, entity: GameEntity) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 4) {
+                TextField("name", text: bindEntityName(partId: partId, entityId: entity.id))
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 10))
+                    .frame(maxWidth: .infinity)
+
+                Picker("", selection: bindEntityRole(partId: partId, entityId: entity.id)) {
+                    ForEach(EntityRole.allCases, id: \.self) { role in
+                        Text(role.rawValue).tag(role)
+                    }
+                }
+                .labelsHidden()
+                .font(.system(size: 9))
+                .frame(width: 80)
+
+                Button(action: { removeRecipeEntity(partId: partId, entityId: entity.id) }) {
+                    Image(systemName: "minus.circle.fill")
+                        .foregroundColor(.red)
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.borderless)
+            }
+
+            // Behavior chips: scrolling HStack of toggle buttons for every BehaviorKind.
+            // Splitting into two rows keeps the inspector from overflowing.
+            let attached = Set(entity.behaviors.map(\.kind))
+            behaviorChipsView(
+                partId: partId,
+                entityId: entity.id,
+                attachedKinds: attached
+            )
+        }
+        .padding(.vertical, 2)
+        .padding(.horizontal, 4)
+        .background(Color.gray.opacity(0.04))
+        .cornerRadius(4)
+    }
+
+    /// Behavior chips laid out as a wrapped flow using two rows of distinct
+    /// behavior kind groups to keep column width manageable.
+    @ViewBuilder
+    private func behaviorChipsView(
+        partId: UUID,
+        entityId: UUID,
+        attachedKinds: Set<BehaviorKind>
+    ) -> some View {
+        // Split into movement/physics vs. game-logic chips for two compact rows.
+        let movementKinds: [BehaviorKind] = [
+            .platformerMovement, .topDownMovement, .eightDirection,
+            .followPointer, .chaseTarget, .patrol,
+            .physicsBody, .bounce, .wrapAround,
+            .constrainToBounds, .destroyOutsideBounds, .draggable,
+            .rotator, .oscillate, .spawner
+        ]
+        let logicKinds: [BehaviorKind] = [
+            .collectible, .damageOnContact, .health, .scoreOnCollect,
+            .winOnReach, .winOnScore, .loseOnContact, .loseOnZeroHealth
+        ]
+
+        VStack(alignment: .leading, spacing: 2) {
+            behaviorChipRow(
+                partId: partId,
+                entityId: entityId,
+                kinds: movementKinds,
+                attachedKinds: attachedKinds
+            )
+            behaviorChipRow(
+                partId: partId,
+                entityId: entityId,
+                kinds: logicKinds,
+                attachedKinds: attachedKinds
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func behaviorChipRow(
+        partId: UUID,
+        entityId: UUID,
+        kinds: [BehaviorKind],
+        attachedKinds: Set<BehaviorKind>
+    ) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 3) {
+                ForEach(kinds, id: \.self) { kind in
+                    let isOn = attachedKinds.contains(kind)
+                    Button(action: {
+                        toggleBehavior(partId: partId, entityId: entityId, kind: kind, isOn: isOn)
+                    }) {
+                        Text(Self.behaviorShortLabel(kind))
+                            .font(.system(size: 8))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(isOn ? Color.accentColor.opacity(0.8) : Color.gray.opacity(0.15))
+                            .foregroundColor(isOn ? .white : .primary)
+                            .cornerRadius(3)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(kind.rawValue)
+                }
+            }
+        }
+    }
+
+    // MARK: - Game Recipe: Pure Helpers
+
+    /// Short display label for a behavior kind chip. Pure — safe to unit-test.
+    static func behaviorShortLabel(_ kind: BehaviorKind) -> String {
+        switch kind {
+        case .platformerMovement: return "platMove"
+        case .topDownMovement:    return "tdMove"
+        case .eightDirection:     return "8dir"
+        case .followPointer:      return "followPtr"
+        case .chaseTarget:        return "chase"
+        case .patrol:             return "patrol"
+        case .physicsBody:        return "physics"
+        case .bounce:             return "bounce"
+        case .wrapAround:         return "wrap"
+        case .constrainToBounds:  return "constrain"
+        case .destroyOutsideBounds: return "destroyOOB"
+        case .spawner:            return "spawner"
+        case .collectible:        return "collect"
+        case .damageOnContact:    return "damage"
+        case .health:             return "health"
+        case .scoreOnCollect:     return "score+"
+        case .winOnReach:         return "winReach"
+        case .winOnScore:         return "winScore"
+        case .loseOnContact:      return "loseCtct"
+        case .loseOnZeroHealth:   return "loseHP"
+        case .draggable:          return "drag"
+        case .rotator:            return "rotate"
+        case .oscillate:          return "osc"
+        }
+    }
+
+    /// Default `params` for a newly-attached behavior. Mirrors the
+    /// documented defaults from `Behavior.swift`. Pure — safe to unit-test.
+    static func defaultParamsForBehavior(_ kind: BehaviorKind) -> [String: String] {
+        switch kind {
+        case .platformerMovement:   return ["speed": "200", "jumpForce": "620"]
+        case .topDownMovement:      return ["speed": "200"]
+        case .eightDirection:       return ["speed": "200"]
+        case .followPointer:        return ["speed": "220", "axis": "both"]
+        case .chaseTarget:          return ["targetRole": "player", "speed": "120"]
+        case .patrol:               return ["axis": "x", "speed": "120", "range": "120"]
+        case .physicsBody:          return ["dynamic": "true", "restitution": "0.2", "friction": "0.2", "bodyShape": "rect"]
+        case .spawner:              return ["spawnRole": "enemy", "interval": "1.5", "fromEdge": "top", "velocity": "0,-160", "max": "8"]
+        case .damageOnContact:      return ["amount": "1", "targetRole": "player"]
+        case .health:               return ["max": "3"]
+        case .scoreOnCollect:       return ["points": "10"]
+        case .winOnScore:           return ["threshold": "100"]
+        case .loseOnContact:        return ["withRole": "hazard"]
+        case .destroyOutsideBounds: return ["margin": "80"]
+        case .rotator:              return ["degreesPerSecond": "90"]
+        case .oscillate:            return ["axis": "y", "amplitude": "40", "period": "2"]
+        default:                    return [:]
+        }
+    }
+
+    /// Build a default `GameEntity` for a given name and role. Pure — safe to unit-test.
+    static func defaultEntity(name: String, role: EntityRole) -> GameEntity {
+        let defaultSize = defaultEntitySize(for: role)
+        return GameEntity(
+            name: name,
+            role: role,
+            position: PointSpec(x: 100, y: 100),
+            size: defaultSize,
+            count: 1
+        )
+    }
+
+    /// Default size heuristic per role. Pure — safe to unit-test.
+    static func defaultEntitySize(for role: EntityRole) -> SizeSpec {
+        switch role {
+        case .background: return SizeSpec(width: 800, height: 600)
+        case .wall:       return SizeSpec(width: 200, height: 32)
+        case .hud:        return SizeSpec(width: 160, height: 32)
+        case .player:     return SizeSpec(width: 56, height: 56)
+        default:          return SizeSpec(width: 48, height: 48)
+        }
+    }
+
+    // MARK: - Game Recipe: Bindings
+
+    private func bindEntityName(partId: UUID, entityId: UUID) -> Binding<String> {
+        Binding(
+            get: {
+                document.document.parts.first(where: { $0.id == partId })?
+                    .spriteAreaSpecModel?.recipe?
+                    .entities.first(where: { $0.id == entityId })?.name ?? ""
+            },
+            set: { newVal in
+                modifyRecipe(partId: partId) { recipe in
+                    guard let idx = recipe.entities.firstIndex(where: { $0.id == entityId }) else { return }
+                    recipe.entities[idx].name = newVal
+                }
+            }
+        )
+    }
+
+    private func bindEntityRole(partId: UUID, entityId: UUID) -> Binding<EntityRole> {
+        Binding(
+            get: {
+                document.document.parts.first(where: { $0.id == partId })?
+                    .spriteAreaSpecModel?.recipe?
+                    .entities.first(where: { $0.id == entityId })?.role ?? .decoration
+            },
+            set: { newVal in
+                modifyRecipe(partId: partId) { recipe in
+                    guard let idx = recipe.entities.firstIndex(where: { $0.id == entityId }) else { return }
+                    recipe.entities[idx].role = newVal
+                }
+            }
+        )
+    }
+
+    // MARK: - Game Recipe: Mutation Helpers
+
+    /// Apply `transform` to the recipe inside this part, committing through
+    /// `document.document.updatePart` so mutations are undoable and autosaved.
+    private func modifyRecipe(partId: UUID, transform: (inout GameRecipe) -> Void) {
+        document.document.updatePart(id: partId) { part in
+            part.updateRecipe { optRecipe in
+                guard var recipe = optRecipe else { return }
+                transform(&recipe)
+                optRecipe = recipe
+            }
+        }
+    }
+
+    private func startRecipe(partId: UUID) {
+        guard let part = document.document.parts.first(where: { $0.id == partId }) else { return }
+        let sceneName = part.spriteAreaSpecModel?.activeScene?.name ?? (part.name.isEmpty ? "Game" : part.name)
+        let sceneSize = part.spriteAreaSpecModel?.activeScene?.size
+            ?? SizeSpec(width: max(100, part.width), height: max(100, part.height))
+
+        let preset: GameRecipe?
+        if recipePresetPickerID.isEmpty {
+            preset = nil
+        } else {
+            preset = GenrePresetLibrary.preset(for: recipePresetPickerID, sceneName: sceneName, sceneSize: sceneSize)
+        }
+
+        let newRecipe = preset ?? GameRecipe(sceneName: sceneName, sceneSize: sceneSize)
+        document.document.updatePart(id: partId) { part in
+            part.updateRecipe { $0 = newRecipe }
+        }
+        recipeGroupExpanded = true
+    }
+
+    private func removeRecipe(partId: UUID) {
+        document.document.updatePart(id: partId) { part in
+            part.updateRecipe { $0 = nil }
+        }
+        recipeBuildDiagnostics = []
+    }
+
+    private func addRecipeEntity(partId: UUID) {
+        let trimmed = newEntityName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let entity = Self.defaultEntity(name: trimmed, role: newEntityRole)
+        modifyRecipe(partId: partId) { recipe in
+            recipe.entities.append(entity)
+        }
+        newEntityName = ""
+        newEntityRole = .decoration
+    }
+
+    private func removeRecipeEntity(partId: UUID, entityId: UUID) {
+        modifyRecipe(partId: partId) { recipe in
+            recipe.entities.removeAll { $0.id == entityId }
+        }
+    }
+
+    private func toggleBehavior(partId: UUID, entityId: UUID, kind: BehaviorKind, isOn: Bool) {
+        modifyRecipe(partId: partId) { recipe in
+            guard let entityIdx = recipe.entities.firstIndex(where: { $0.id == entityId }) else { return }
+            if isOn {
+                recipe.entities[entityIdx].behaviors.removeAll { $0.kind == kind }
+            } else {
+                let behavior = Behavior(
+                    kind: kind,
+                    params: Self.defaultParamsForBehavior(kind)
+                )
+                recipe.entities[entityIdx].behaviors.append(behavior)
+            }
+        }
+    }
+
+    /// Compile the recipe and merge the result into the active scene, using
+    /// the identical `RecipeCompiler.compile+merge` path the AI `build_game`
+    /// tool uses. Mutations are committed through `updatePart` (undoable).
+    private func buildGame(partId: UUID) {
+        guard let part = document.document.parts.first(where: { $0.id == partId }),
+              let recipe = part.spriteAreaSpecModel?.recipe else {
+            recipeBuildDiagnostics = ["No recipe found. Start a recipe first."]
+            recipeBuildDiagnosticsExpanded = true
+            return
+        }
+
+        let compilationResult = RecipeCompiler.compile(recipe, repository: document.document.assetRepository)
+
+        document.document.updatePart(id: partId) { p in
+            p.updateActiveSceneSpec { scene in
+                // Mirror the AI executor's build_game: apply recipe geometry,
+                // then merge nodes and script.
+                scene.size = recipe.sceneSize
+                scene.backgroundColor = recipe.backgroundColor
+                scene.gravity = recipe.gravity
+                RecipeCompiler.merge(compilationResult, into: &scene)
+            }
+        }
+
+        recipeBuildDiagnostics = compilationResult.diagnostics
+        recipeBuildDiagnosticsExpanded = !compilationResult.diagnostics.isEmpty
     }
 
     private func nodeIcon(_ type: NodeType) -> String {

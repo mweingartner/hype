@@ -15,24 +15,29 @@ private enum SpriteSceneTemplate: String, CaseIterable, Identifiable {
     case platformer
     case topDown
     case puzzle
+    /// Seeds the scene from a `GenrePresetLibrary` recipe and compiles it
+    /// immediately so the wizard's output is a recipe-backed playable scene.
+    case gameRecipe
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .blank: return "Blank"
-        case .platformer: return "Platformer"
-        case .topDown: return "Top Down"
-        case .puzzle: return "Puzzle"
+        case .blank:       return "Blank"
+        case .platformer:  return "Platformer"
+        case .topDown:     return "Top Down"
+        case .puzzle:      return "Puzzle"
+        case .gameRecipe:  return "Game Recipe"
         }
     }
 
     var description: String {
         switch self {
-        case .blank: return "Start with a clean scene and only the essentials."
+        case .blank:      return "Start with a clean scene and only the essentials."
         case .platformer: return "Gravity, a player actor, floor bounds, camera, and HUD."
-        case .topDown: return "Top-down actor, camera, HUD, and optional tile map."
-        case .puzzle: return "Static board-like scene with labels, camera, and logic hooks."
+        case .topDown:    return "Top-down actor, camera, HUD, and optional tile map."
+        case .puzzle:     return "Static board-like scene with labels, camera, and logic hooks."
+        case .gameRecipe: return "Seed the scene from a declarative game recipe. Compiles entity behaviors and HypeTalk scripts automatically. The recipe stays attached for later editing."
         }
     }
 }
@@ -75,6 +80,8 @@ struct SpriteSceneSetupGuide: View {
     @State private var draft: SpriteSceneSetupDraft
     @State private var selectedGameTemplateID: String = ""
     @State private var templateError: String?
+    /// The genre preset ID to seed when the `.gameRecipe` template is chosen.
+    @State private var selectedRecipePresetID: String = ""
 
     init(
         document: Binding<HypeDocumentWrapper>,
@@ -412,6 +419,29 @@ struct SpriteSceneSetupGuide: View {
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
 
+            // Recipe preset picker — shown only when the Game Recipe template is active.
+            if draft.template == .gameRecipe {
+                let presetIDs = GenrePresetLibrary.presetIDs
+                if presetIDs.isEmpty {
+                    Text("No genre presets available yet. The scene will start with a blank recipe.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                } else {
+                    Picker("Recipe preset", selection: $selectedRecipePresetID) {
+                        Text("Blank recipe").tag("")
+                        ForEach(presetIDs, id: \.self) { pid in
+                            Text(pid).tag(pid)
+                        }
+                    }
+                    .onAppear {
+                        // Default to the first preset when the picker first appears.
+                        if selectedRecipePresetID.isEmpty, let first = presetIDs.first {
+                            selectedRecipePresetID = first
+                        }
+                    }
+                }
+            }
+
             Divider()
 
             Picker("Complete game template", selection: $selectedGameTemplateID) {
@@ -561,11 +591,26 @@ struct SpriteSceneSetupGuide: View {
             draft.wantsCamera = true
             draft.wantsHUD = true
             draft.wantsWorldBounds = false
+        case .gameRecipe:
+            // Let the recipe drive geometry; keep wizard content controls
+            // unchecked since the recipe creates its own nodes on compile.
+            draft.wantsPlayerNode = false
+            draft.wantsCamera = false
+            draft.wantsHUD = false
+            draft.wantsWorldBounds = false
+            draft.wantsTileMap = false
         }
     }
 
     private func applyDraft() -> Bool {
         templateError = nil
+
+        // Game Recipe template: seed a recipe from a preset, compile, and
+        // merge it into the scene — same compile+merge path as the AI tool.
+        if draft.template == .gameRecipe {
+            return applyGameRecipeDraft()
+        }
+
         if let selectedGameTemplate {
             guard let partIndex = document.document.parts.firstIndex(where: { $0.id == partId }) else {
                 templateError = "Sprite Area not found."
@@ -623,6 +668,52 @@ struct SpriteSceneSetupGuide: View {
                 areaSpec.activeSceneID = targetSceneId
             }
         }
+        return true
+    }
+
+    /// Seed a recipe from a `GenrePresetLibrary` preset (or a blank recipe),
+    /// attach it to the part, and immediately compile+merge into the active
+    /// scene so the wizard's output is a recipe-backed, immediately-playable
+    /// scene. Uses the identical `RecipeCompiler.compile+merge` core as the
+    /// AI `build_game` tool.
+    private func applyGameRecipeDraft() -> Bool {
+        let sceneName = draft.sceneName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sceneName.isEmpty else {
+            templateError = "Scene name is required."
+            return false
+        }
+
+        let sceneSize = SizeSpec(width: draft.width, height: draft.height)
+
+        let recipe: GameRecipe
+        if selectedRecipePresetID.isEmpty {
+            recipe = GameRecipe(sceneName: sceneName, sceneSize: sceneSize)
+        } else {
+            recipe = GenrePresetLibrary.preset(
+                for: selectedRecipePresetID,
+                sceneName: sceneName,
+                sceneSize: sceneSize
+            ) ?? GameRecipe(sceneName: sceneName, sceneSize: sceneSize)
+        }
+
+        // Capture assetRepository before entering the mutation closure so
+        // the compiler can resolve art-role bindings during compilation.
+        let repository = document.document.assetRepository
+        let compilationResult = RecipeCompiler.compile(recipe, repository: repository)
+
+        document.document.updatePart(id: partId) { part in
+            // 1. Store the recipe on the SpriteAreaSpec so it is editable later.
+            part.updateRecipe { $0 = recipe }
+
+            // 2. Merge the compiled result into the active scene.
+            part.updateActiveSceneSpec { scene in
+                scene.size = recipe.sceneSize
+                scene.backgroundColor = recipe.backgroundColor
+                scene.gravity = recipe.gravity
+                RecipeCompiler.merge(compilationResult, into: &scene)
+            }
+        }
+
         return true
     }
 
@@ -712,7 +803,7 @@ struct SpriteSceneSetupGuide: View {
         switch draft.template {
         case .platformer:
             return PointSpec(x: scene.size.width * 0.25, y: scene.size.height * 0.72)
-        case .topDown, .puzzle, .blank:
+        case .topDown, .puzzle, .blank, .gameRecipe:
             return PointSpec(x: scene.size.width / 2, y: scene.size.height / 2)
         }
     }
