@@ -272,7 +272,11 @@ public enum AppleMusicConfiguration {
 
 public enum AppleMusicProviderFactory {
     public static func makeDefault() -> any AppleMusicProviding {
-        #if canImport(MusicKit)
+        // MusicKit is importable on watchOS, but the concrete provider relies on
+        // ApplicationMusicPlayer, which is @available(watchOS, unavailable). Fall
+        // back to the Foundation-only stub on watch so the interpreter kernel
+        // stays watch-buildable; live Apple Music playback remains macOS/iOS/tvOS.
+        #if canImport(MusicKit) && !os(watchOS)
         return MusicKitAppleMusicProvider.shared
         #else
         return StubAppleMusicProvider()
@@ -280,7 +284,11 @@ public enum AppleMusicProviderFactory {
     }
 }
 
-#if canImport(MusicKit)
+// Excluded on watchOS: ApplicationMusicPlayer (used throughout this provider)
+// is @available(watchOS, unavailable). The Foundation-only protocol, stub, and
+// value types above remain available everywhere, which is all the interpreter
+// kernel references.
+#if canImport(MusicKit) && !os(watchOS)
 import MusicKit
 
 public final class MusicKitAppleMusicProvider: AppleMusicProviding, @unchecked Sendable {

@@ -210,7 +210,12 @@ public struct AppleFoundationModelsRuntimeProvider: HypeRuntimeAIProvider {
             throw AIScriptingProviderError.providerUnavailable(currentAvailability.message)
         }
 
-        #if canImport(FoundationModels)
+        // FoundationModels imports on watchOS but SystemLanguageModel /
+        // LanguageModelSession are @available(watchOS, unavailable); the `*` in the
+        // #available below would otherwise admit watch. Exclude it explicitly so
+        // the interpreter kernel stays watch-buildable (on-device LLM is not a
+        // watch capability anyway — it falls through to "unavailable" below).
+        #if canImport(FoundationModels) && !os(watchOS)
         if #available(macOS 26.0, iOS 26.0, visionOS 26.0, *) {
             let response = try await generateWithFoundationModels(request)
             return RuntimeAIResponse(text: response, providerName: providerName, modelName: modelName)
@@ -256,7 +261,7 @@ public struct AppleFoundationModelsRuntimeProvider: HypeRuntimeAIProvider {
     }
 
     public static func foundationModelsAvailability() -> RuntimeAIAvailability {
-        #if canImport(FoundationModels)
+        #if canImport(FoundationModels) && !os(watchOS)
         if #available(macOS 26.0, iOS 26.0, visionOS 26.0, *) {
             let model = SystemLanguageModel.default
             switch model.availability {
@@ -283,7 +288,7 @@ public struct AppleFoundationModelsRuntimeProvider: HypeRuntimeAIProvider {
         return .unavailable(.frameworkUnavailable, message: "FoundationModels.framework is not available in this build.")
     }
 
-    #if canImport(FoundationModels)
+    #if canImport(FoundationModels) && !os(watchOS)
     @available(macOS 26.0, iOS 26.0, visionOS 26.0, *)
     private func generateWithFoundationModels(_ request: RuntimeAIRequest) async throws -> String {
         let session = LanguageModelSession(instructions: request.instructions)

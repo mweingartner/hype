@@ -3,7 +3,12 @@ import PackageDescription
 
 let package = Package(
     name: "Hype",
-    platforms: [.macOS(.v15), .iOS(.v17)],
+    // watchOS is declared so the HypeTalk interpreter kernel (Script/ + the
+    // Foundation-only Models/provider subset) can be built for watch by a
+    // consumer. AudioKit is excluded on watch via a per-platform dependency
+    // condition below — the kernel itself has no watch-incompatible API once
+    // AppleMusicProvider's ApplicationMusicPlayer path is guarded out.
+    platforms: [.macOS(.v15), .iOS(.v17), .tvOS(.v16), .watchOS(.v10)],
     products: [
         .executable(name: "Hype", targets: ["Hype"]),
         .executable(name: "HypePacmanTestbedBuilder", targets: ["HypePacmanTestbedBuilder"]),
@@ -46,11 +51,30 @@ let package = Package(
             name: "HypeCore",
             dependencies: [
                 "CStackImport",
-                .product(name: "AudioKit", package: "AudioKit"),
+                // AudioKit is unavailable on watchOS (its vendored package
+                // declares no .watchOS platform). Gate the dependency to the
+                // platforms where it exists so the package still resolves for a
+                // watch build of the interpreter kernel.
+                .product(
+                    name: "AudioKit",
+                    package: "AudioKit",
+                    condition: .when(platforms: [.macOS, .iOS, .tvOS])
+                ),
             ],
             path: "Sources/HypeCore",
             resources: [
                 .process("Resources/MeshyAnimationCatalog.json"),
+            ],
+            swiftSettings: [
+                // Optimize for size in release builds. HypeCore is the shippable
+                // library destined for mobile/watch; the interpreter is large but
+                // not the per-instruction hottest code (the hot loops are small),
+                // so -Osize trades a few percent CPU for a large __text reduction.
+                // Measured: Interpreter.o __text 1.56 MB -> 824 KB (~48% smaller),
+                // for a ~2-13% median pure-CPU cost on the realistic suite (the
+                // cost lands on a pure-CPU path that production frame-pacing masks).
+                // Gated to release so debug builds keep -Onone (fast incremental).
+                .unsafeFlags(["-Osize"], .when(configuration: .release)),
             ],
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
