@@ -39,11 +39,15 @@ public enum ChunkWriter {
     /// Splitting rules mirror the read path in `evaluateChunk`:
     /// - `char` / `character`: each `Character` is one part; empty string → empty array.
     /// - `word`: split on spaces omitting empty sequences (whitespace-run collapses).
-    /// - `item`: split on `","` keeping empty sequences (adjacent commas produce empty
-    ///   parts); items are **not** trimmed, preserving `"a, b, c"` spacing.
+    /// - `item`: split on `itemDelimiter` (default `","`) keeping empty sequences;
+    ///   items are **not** trimmed, preserving `"a, b, c"` spacing.
     /// - `line`: normalise `\r\n` and `\r` to `\n`; split on `\n` keeping empties;
     ///   empty string → empty array (mirrors `splitLines` in Interpreter).
-    public static func split(_ text: String, as chunkType: ChunkType) -> [String] {
+    ///
+    /// - Note: `itemDelimiter` only applies to the `.item` case; all other chunk types
+    ///   are unaffected. Coordinate/rect/loc parsers in the interpreter use their own
+    ///   hardcoded `","` split and are explicitly not routed through this function.
+    public static func split(_ text: String, as chunkType: ChunkType, itemDelimiter: String = ",") -> [String] {
         // An empty container has ZERO chunks of every type. Swift's
         // split(omittingEmptySubsequences: false) would yield [""] for
         // item/line, which would make `last item of ""` address a phantom
@@ -59,7 +63,8 @@ public enum ChunkWriter {
         case .item:
             // Keep empty sequences so "a,,b" has 3 items.
             // Do NOT trim — preserve spacing like "a, b, c".
-            return text.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
+            let delimChar = itemDelimiter.first ?? ","
+            return text.split(separator: delimChar, omittingEmptySubsequences: false).map(String.init)
         case .line:
             return splitLines(text)
         }
@@ -70,16 +75,16 @@ public enum ChunkWriter {
     /// - `char` / `character`: no delimiter (parts are single characters or
     ///   replacement values; they concatenate directly).
     /// - `word`: space delimiter.
-    /// - `item`: `","` (hard-coded; no `itemDelimiter` support to match read path).
+    /// - `item`: `itemDelimiter` (default `","`).
     /// - `line`: `"\n"`.
-    public static func join(_ parts: [String], as chunkType: ChunkType) -> String {
+    public static func join(_ parts: [String], as chunkType: ChunkType, itemDelimiter: String = ",") -> String {
         switch chunkType {
         case .char, .character:
             return parts.joined()
         case .word:
             return parts.joined(separator: " ")
         case .item:
-            return parts.joined(separator: ",")
+            return parts.joined(separator: itemDelimiter)
         case .line:
             return parts.joined(separator: "\n")
         }
@@ -153,6 +158,7 @@ public enum ChunkWriter {
     ///   - preposition: `into` / `before` / `after`.
     ///   - container: The current string value of the container.
     ///   - value: The source value being written.
+    ///   - itemDelimiter: The current item delimiter (default `","`). Only used for `.item` chunks.
     /// - Returns: The updated container string.  Returns `container`
     ///   unchanged for any address that is a no-op.
     public static func apply(
@@ -160,7 +166,8 @@ public enum ChunkWriter {
         indices: ResolvedIndices,
         preposition: Preposition,
         container: String,
-        value: String
+        value: String,
+        itemDelimiter: String = ","
     ) -> String {
         switch indices {
         case .single(let idx):
@@ -169,7 +176,8 @@ public enum ChunkWriter {
                 idx: idx,
                 preposition: preposition,
                 container: container,
-                value: value
+                value: value,
+                itemDelimiter: itemDelimiter
             )
         case .range(let lo, let hi):
             return applyRange(
@@ -178,7 +186,8 @@ public enum ChunkWriter {
                 hi: hi,
                 preposition: preposition,
                 container: container,
-                value: value
+                value: value,
+                itemDelimiter: itemDelimiter
             )
         }
     }
@@ -191,9 +200,10 @@ public enum ChunkWriter {
         idx: Int,
         preposition: Preposition,
         container: String,
-        value: String
+        value: String,
+        itemDelimiter: String = ","
     ) -> String {
-        var parts = split(container, as: chunkType)
+        var parts = split(container, as: chunkType, itemDelimiter: itemDelimiter)
         let count = parts.count
 
         // Resolve sentinel
@@ -244,10 +254,11 @@ public enum ChunkWriter {
                 return appended
             case .item:
                 // Append (target - count - 1) empty items then place value
-                let emptyItems = String(repeating: ",", count: paddingCount)
+                let delim = itemDelimiter
+                let emptyItems = String(repeating: delim, count: paddingCount)
                 let appended = container.isEmpty
                     ? emptyItems + value
-                    : container + emptyItems + "," + value
+                    : container + emptyItems + delim + value
                 return appended
             case .line:
                 // Append (target - count - 1) empty lines then place value
@@ -259,7 +270,7 @@ public enum ChunkWriter {
             }
         }
 
-        return join(parts, as: chunkType)
+        return join(parts, as: chunkType, itemDelimiter: itemDelimiter)
     }
 
     /// Apply a range write.
@@ -272,9 +283,10 @@ public enum ChunkWriter {
         hi: Int,
         preposition: Preposition,
         container: String,
-        value: String
+        value: String,
+        itemDelimiter: String = ","
     ) -> String {
-        var parts = split(container, as: chunkType)
+        var parts = split(container, as: chunkType, itemDelimiter: itemDelimiter)
         let count = parts.count
 
         // Resolve sentinels before clamping.
@@ -296,7 +308,8 @@ public enum ChunkWriter {
                     idx: rawLo,
                     preposition: preposition,
                     container: container,
-                    value: value
+                    value: value,
+                    itemDelimiter: itemDelimiter
                 )
             }
             return container
@@ -316,7 +329,7 @@ public enum ChunkWriter {
             parts[hiZ] = parts[hiZ] + value
         }
 
-        return join(parts, as: chunkType)
+        return join(parts, as: chunkType, itemDelimiter: itemDelimiter)
     }
 
     /// Resolve a range-endpoint sentinel.  The `from` endpoint clamps low

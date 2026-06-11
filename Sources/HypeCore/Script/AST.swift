@@ -9,6 +9,8 @@ public indirect enum Expression: Sendable {
     case it
     case me
     case this  // the current part's content (textContent for fields, name for buttons)
+    /// The message box container — a global scratch area accessible as `msg`, `the message`, or `message box`.
+    case messageBox
     case binary(Expression, BinaryOp, Expression)
     case unary(UnaryOp, Expression)
     case await(Expression)
@@ -117,6 +119,31 @@ public enum FileWritePlacement: Sendable {
     case offset(Expression)
 }
 
+/// Direction for a `repeat with` loop.
+public enum RepeatDirection: Sendable {
+    case up    // `repeat with i = 1 to N` — default; start > end yields zero iterations
+    case down  // `repeat with i = N down to 1` — explicit step -1
+}
+
+/// Sort direction for `sort lines/items of container`.
+public enum SortDirection: Sendable {
+    case ascending, descending
+}
+
+/// Sort style for `sort lines/items of container`.
+public enum SortStyle: Sendable {
+    case text, numeric, dateTime, international
+}
+
+/// Find mode for the `find` command.
+public enum FindMode: Sendable {
+    case normal   // word-prefix (HyperCard default)
+    case word     // whole-word boundary
+    case whole    // whole-phrase match
+    case string   // substring (same as `chars`)
+    case chars    // substring
+}
+
 /// Chunk types for text addressing.
 public enum ChunkType: String, Sendable {
     case word, char, character, item, line
@@ -152,7 +179,9 @@ public indirect enum Statement: Sendable {
     case repeatForever(body: [Statement])
     case repeatCount(count: Expression, body: [Statement])
     case repeatWhile(condition: Expression, body: [Statement])
-    case repeatWith(variable: String, from: Expression, to: Expression, body: [Statement])
+    case repeatWith(variable: String, from: Expression, to: Expression, direction: RepeatDirection, body: [Statement])
+    /// Classic HyperTalk `repeat for each <chunkType> <var> in <container>`.
+    case repeatForEach(chunkType: ChunkType, variable: String, list: Expression, body: [Statement])
     case exitRepeat
     case nextRepeat
     case passMessage(String)
@@ -233,9 +262,11 @@ public indirect enum Statement: Sendable {
     case multiplyBy(variable: Expression, value: Expression)     // multiply x by 2
     case divideBy(variable: Expression, value: Expression)       // divide x by 3
     case deleteObject(Expression)                                // delete button 1
-    case findText(Expression)                                    // find "hello"
+    case findText(mode: FindMode, query: Expression, inField: Expression?)  // find "hello"
     case selectObject(Expression)                                // select field 1
     case sortCards(by: Expression)                               // sort cards by field "Name"
+    /// `sort [lines|items] of <container> [ascending|descending] [text|numeric] [by <expr>]`
+    case sortContainer(chunkType: ChunkType, container: Expression, direction: SortDirection, style: SortStyle, by: Expression?)
     case hideObject(Expression)                                  // hide field 1
     case showObject(Expression)                                  // show field 1
     case lockScreen                                              // lock screen

@@ -946,20 +946,41 @@ public struct Parser: Sendable {
     private mutating func parseRepeatStatement() throws -> Statement {
         _ = try expect(.repeat)
 
-        // `repeat with i = 1 to 10` or `repeat with i from 1 to 10`
+        // `repeat with i = 1 to 10`, `repeat with i from 1 to 10`, or
+        // `repeat with i = 5 down to 1`.
+        // Also handles `repeat for each <chunkType> <var> in <container>`.
         if current.type == .with {
             _ = advance()
+
+            // `repeat with each <chunkType> <var> in <container>` form.
+            // Classic: `repeat for each item x in "a,b,c"`
+            // But `repeat with each` is also used by some authors.
+            if current.value.lowercased() == "each" {
+                _ = advance()
+                return try parseRepeatForEachBody()
+            }
+
             let varName = advance().value
             if !match(.eq) {
                 _ = try expect(.from)
             }
             let fromExpr = try parseExpression()
-            _ = match(.down)
+            let isDown = match(.down)
             _ = try expect(.to)
             let toExpr = try parseExpression()
             skipNewlines()
             let body = try parseRepeatBody()
-            return .repeatWith(variable: varName, from: fromExpr, to: toExpr, body: body)
+            let direction: RepeatDirection = isDown ? .down : .up
+            return .repeatWith(variable: varName, from: fromExpr, to: toExpr, direction: direction, body: body)
+        }
+
+        // `repeat for each <chunkType> <var> in <container>`
+        if current.value.lowercased() == "for" {
+            if let next = peek(1), next.value.lowercased() == "each" {
+                _ = advance() // consume "for"
+                _ = advance() // consume "each"
+                return try parseRepeatForEachBody()
+            }
         }
 
         // `repeat while <cond>`
@@ -1008,6 +1029,38 @@ public struct Parser: Sendable {
         _ = match(.repeat) // `end repeat`
         skipNewlines()
         return body
+    }
+
+    /// Parse `[<chunkType>] <varName> in <container>` after "each" has been consumed.
+    /// Produces a `.repeatForEach` statement.
+    ///
+    /// Grammar: `repeat for each [item|line|word|char] <var> in <container>`
+    ///          `repeat with each [item|line|word|char] <var> in <container>`
+    private mutating func parseRepeatForEachBody() throws -> Statement {
+        // Optionally consume a chunk type keyword.
+        var chunkType: ChunkType = .item
+        switch current.type {
+        case .item:
+            chunkType = .item;      _ = advance()
+        case .line:
+            chunkType = .line;      _ = advance()
+        case .word:
+            chunkType = .word;      _ = advance()
+        case .char, .character:
+            chunkType = .char;      _ = advance()
+        default:
+            break
+        }
+        // Next token is the loop variable name.
+        let varName = advance().value
+        // Consume "in" (appears as an identifier in the lexer).
+        if current.type == .identifier && current.value.lowercased() == "in" {
+            _ = advance()
+        }
+        let listExpr = try parseExpression()
+        skipNewlines()
+        let body = try parseRepeatBody()
+        return .repeatForEach(chunkType: chunkType, variable: varName, list: listExpr, body: body)
     }
 
     private mutating func parseExitStatement() throws -> Statement {
@@ -1816,11 +1869,85 @@ public struct Parser: Sendable {
         return .deleteObject(target)
     }
 
+    /// Parse: `find [word|whole|string|chars|normal] <query> [in [field] <fieldExpr>]`
+    ///
+    /// Classic HyperTalk `find` grammar:
+    ///   - `find "text"`              — normal (word-prefix) mode
+    ///   - `find word "cat"`          — whole-word boundary
+    ///   - `find whole "the cat"`     — whole-phrase match
+    ///   - `find string "cat"`        — substring (same as `chars`)
+    ///   - `find chars "cat"`         — substring
+    ///   - `find "text" in field "F"` — scope to a specific field
+    ///
+    /// Mode keywords are identifiers in the lexer (except `word` and `chars`/`char`
+    /// which have dedicated token types). We check the token value to distinguish
+    /// `find word "cat"` (mode=.word) from `find "cat"` (no mode keyword).
     private mutating func parseFindStatement() throws -> Statement {
         _ = try expect(.find)
-        let text = try parseExpression()
+
+        // Peek for optional mode keyword. Valid mode keywords are:
+        //   word (TokenType .word), whole (identifier), string (identifier),
+        //   chars/char (TokenType .char/.character), normal (identifier).
+        // We only consume the token as a mode keyword if the NEXT token
+        // after it can begin a primary expression (i.e. it is followed by
+        // a string/identifier/parens), so `find word 1 of fld "X"` is NOT
+        // consumed as mode="word" — the `1` after `word` disambiguates it
+        // as a chunk expression.
+        var mode: FindMode = .normal
+        let modeConsumed: Bool
+        switch current.type {
+        case .word:
+            // `word` token — but only treat it as a mode keyword when the
+            // next token starts a primary expression (a string literal or
+            // a quoted string), not when it starts a chunk like `word 1 of`.
+            let next = pos + 1 < tokens.count ? tokens[pos + 1] : Token(type: .eof, value: "", line: 0)
+            if next.type == .string {
+                mode = .word; _ = advance(); modeConsumed = true
+            } else {
+                modeConsumed = false
+            }
+        case .char, .character:
+            // `chars` keyword (lexer aliases "chars" → .char)
+            let next = pos + 1 < tokens.count ? tokens[pos + 1] : Token(type: .eof, value: "", line: 0)
+            if next.type == .string {
+                mode = .chars; _ = advance(); modeConsumed = true
+            } else {
+                modeConsumed = false
+            }
+        case .identifier:
+            switch current.value.lowercased() {
+            case "whole":
+                mode = .whole; _ = advance(); modeConsumed = true
+            case "string":
+                mode = .string; _ = advance(); modeConsumed = true
+            case "chars":
+                mode = .chars; _ = advance(); modeConsumed = true
+            case "normal":
+                mode = .normal; _ = advance(); modeConsumed = true
+            default:
+                modeConsumed = false
+            }
+        default:
+            modeConsumed = false
+        }
+        _ = modeConsumed // suppress unused-variable warning
+
+        let query = try parseExpression()
+
+        // Optional `in [field] <fieldExpr>` scope clause.
+        var inFieldExpr: Expression? = nil
+        if current.type == .identifier && current.value.lowercased() == "in" {
+            _ = advance()
+            // Optional "field" / "fld" keyword before the identifier.
+            if current.type == .field ||
+                (current.type == .identifier && ["field", "fld"].contains(current.value.lowercased())) {
+                _ = advance()
+            }
+            inFieldExpr = try parsePrimary()
+        }
+
         skipNewlines()
-        return .findText(text)
+        return .findText(mode: mode, query: query, inField: inFieldExpr)
     }
 
     private mutating func parseSelectStatement() throws -> Statement {
@@ -1830,9 +1957,76 @@ public struct Parser: Sendable {
         return .selectObject(target)
     }
 
+    /// Parse: `sort [ascending|descending] [text|numeric|dateTime|international] [lines|items] of <container> [by <expr>]`
+    ///        `sort cards by <expr>`  (existing path, unchanged)
+    ///
+    /// The direction and style keywords may appear in any order before the
+    /// chunk-type keyword. The `by <expr>` clause is optional; when absent,
+    /// elements are sorted by their own value.
     private mutating func parseSortStatement() throws -> Statement {
         _ = try expect(.sort)
-        // skip optional "cards"
+
+        // Check if this is the container form (`sort lines/items of …`).
+        // We detect it by looking for the chunk-type token or a direction/
+        // style keyword that is followed eventually by `lines`/`items` +
+        // `of`. To avoid over-eagerness, scan for the direction/style
+        // keywords first (they are identifiers), then accept the chunk type.
+
+        // Collect optional direction + style modifiers (order-independent).
+        var direction: SortDirection = .ascending
+        var style: SortStyle = .text
+        var scannedModifiers = false
+        while true {
+            if current.type == .identifier {
+                switch current.value.lowercased() {
+                case "ascending":
+                    direction = .ascending; _ = advance(); scannedModifiers = true; continue
+                case "descending":
+                    direction = .descending; _ = advance(); scannedModifiers = true; continue
+                case "numeric":
+                    style = .numeric; _ = advance(); scannedModifiers = true; continue
+                case "text":
+                    style = .text; _ = advance(); scannedModifiers = true; continue
+                case "datetime":
+                    style = .dateTime; _ = advance(); scannedModifiers = true; continue
+                case "international":
+                    style = .international; _ = advance(); scannedModifiers = true; continue
+                default:
+                    break
+                }
+            }
+            break
+        }
+
+        // Container form: chunk type followed by `of <container>`.
+        var chunkType: ChunkType? = nil
+        if current.type == .line ||
+            (current.type == .identifier && ["lines"].contains(current.value.lowercased())) {
+            chunkType = .line; _ = advance()
+        } else if current.type == .item ||
+            (current.type == .identifier && ["items"].contains(current.value.lowercased())) {
+            chunkType = .item; _ = advance()
+        }
+
+        if let ct = chunkType {
+            _ = try expect(.of)
+            let container = try parseExpression()
+            var byExpr: Expression? = nil
+            if current.type == .by {
+                _ = advance()
+                byExpr = try parseExpression()
+            }
+            skipNewlines()
+            return .sortContainer(chunkType: ct, container: container,
+                                  direction: direction, style: style, by: byExpr)
+        }
+
+        // If we consumed modifiers but found no chunk type, fall through to
+        // the cards form if "cards" follows; otherwise treat as cards sort.
+        // Cards form: skip optional "cards" keyword, then expect `by <expr>`.
+        if scannedModifiers {
+            // Allow `sort ascending by field "Name"` as a card sort.
+        }
         if current.type == .card { _ = advance() }
         if current.type == .identifier && current.value.lowercased() == "cards" { _ = advance() }
         _ = try expect(.by)
@@ -3186,6 +3380,19 @@ public struct Parser: Sendable {
 
         case .identifier:
             let tok = advance()
+            // `msg` / `message` / `message box` — the message-box container.
+            // Recognized as a read/write container identical to `the message`.
+            // `message box` is a two-token form; `msg` is a single identifier.
+            if tok.value.lowercased() == "msg" {
+                return .messageBox
+            }
+            if tok.value.lowercased() == "message" {
+                // `message box` (two tokens) or bare `message`
+                if current.type == .identifier && current.value.lowercased() == "box" {
+                    _ = advance()
+                }
+                return .messageBox
+            }
             // Classic HyperTalk accepts property reads without the
             // article in front: `visible of card button marker`.
             // Preserve the same AST as `the visible of ...`.
@@ -3375,6 +3582,18 @@ public struct Parser: Sendable {
             let tok = advance()
             return .variable(tok.value)
 
+        case .message:
+            // The `.message` token doubles as the message-box container
+            // and as a network-protocol keyword. When it appears as a
+            // primary expression, treat it as the message-box container
+            // (`the message` / `message box` read/write).
+            _ = advance()
+            // Accept the two-token form `message box`.
+            if current.type == .identifier && current.value.lowercased() == "box" {
+                _ = advance()
+            }
+            return .messageBox
+
         case .from, .by, .times,
              .choose, .close, .open, .on, .save, .quit, .mark, .unmark, .push, .pop,
              .click, .drag, .run, .print, .help, .debug, .reset, .go,
@@ -3382,7 +3601,7 @@ public struct Parser: Sendable {
              .reply, .start, .stop, .using, .template, .paint,
              .report, .file, .printing, .convert, .typeText,
              .emitter, .action, .joint, .constrain, .listen, .http,
-             .tcp, .message, .method, .headers, .body, .username,
+             .tcp, .method, .headers, .body, .username,
              .password, .host, .port, .status, .tls, .connect, .send:
             // These keywords can appear as identifiers in some contexts.
             let tok = advance()
@@ -3451,6 +3670,10 @@ public struct Parser: Sendable {
         switch current.type {
         case .word, .char, .character, .item, .line, .number,
              .first, .second, .third, .last, .middle, .any:
+            return try parsePrimary()
+        case .message:
+            // `the message` / `the message box` — the message-box container.
+            // Delegate to parsePrimary which handles .message → .messageBox.
             return try parsePrimary()
         case .card
             where pos + 1 < tokens.count &&

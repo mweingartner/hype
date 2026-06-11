@@ -367,7 +367,7 @@ public struct HypeTalkScriptValidator: Sendable {
         case .repeatWhile(let cond, let body):
             failures += checkExpression(cond, context: context)
             failures += checkStatements(body, context: context)
-        case .repeatWith(_, let from, let to, let body):
+        case .repeatWith(_, let from, let to, _, let body):
             failures += checkExpression(from, context: context)
             failures += checkExpression(to, context: context)
             failures += checkStatements(body, context: context)

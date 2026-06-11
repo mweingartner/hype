@@ -337,6 +337,11 @@ public struct MessageDispatcher: Sendable {
             }) else { continue }
 
             // Execute the handler.
+            // `originalTargetId` is the original dispatch recipient (the first
+            // entry in the chain — `targetId` at dispatch entry). As the loop
+            // advances up the pass-up hierarchy, `targetId` changes to reflect
+            // the current handler's owner while `originalTargetId` stays fixed.
+            // This is what `the target` returns per the HyperTalk reference.
             let context = ExecutionContext(
                 targetId: objectId,
                 currentCardId: currentCardId,
@@ -353,7 +358,8 @@ public struct MessageDispatcher: Sendable {
                 mouseY: mouseY,
                 appScript: appScript,
                 nestedSendDepth: nestedSendDepth,
-                fileProvider: fileProvider
+                fileProvider: fileProvider,
+                originalTargetId: targetId
             )
             let interpreter = Interpreter()
             var result = await interpreter.executeAsync(handler: handler, params: params, context: context)

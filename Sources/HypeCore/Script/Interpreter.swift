@@ -192,6 +192,10 @@ public struct StubHostApplicationProvider: HostApplicationProvider, Sendable {
 /// Context for script execution.
 public struct ExecutionContext: Sendable {
     public var targetId: UUID
+    /// The object that *originally* received the message at the top of the dispatch
+    /// chain. Distinct from `targetId` (which advances up the pass-up chain); this
+    /// stays fixed so `the target` always returns the initial recipient.
+    public var originalTargetId: UUID
     public var currentCardId: UUID
     public var document: HypeDocument
     public var instructionLimit: Int
@@ -244,8 +248,10 @@ public struct ExecutionContext: Sendable {
                 nestedSendDepth: Int = 0,
                 profiler: HypeTalkExecutionProfiler? = nil,
                 fileProvider: any FileAccessProvider = StubFileAccessProvider(),
-                nestedEvalDepth: Int = 0) {
+                nestedEvalDepth: Int = 0,
+                originalTargetId: UUID? = nil) {
         self.targetId = targetId
+        self.originalTargetId = originalTargetId ?? targetId
         self.currentCardId = currentCardId
         self.document = document
         self.instructionLimit = instructionLimit
@@ -361,6 +367,9 @@ private struct Environment {
     /// a timer-loop idiom. Defer exactly that next self-send through
     /// StackRuntime so it does not grow nested synchronous send depth.
     var deferNextSelfSend = false
+    /// The current item delimiter. Classic HyperCard resets this to "," at each idle
+    /// (i.e. each top-level dispatch / fresh Environment). Single character per spec.
+    var itemDelimiter: String = ","
 
     init(globals: [String: Value], handlerParams: [Value] = []) {
         self.globals = globals.reduce(into: [String: Value]()) { result, entry in
@@ -548,6 +557,14 @@ public struct Interpreter: Sendable {
     /// Maximum UTF-8 byte count of a string passed to `do`.
     /// Limits parse-time work, which runs outside the instruction budget.
     static let maxDoEvalBytes = 64 * 1024
+
+    /// Reserved global key for the HyperCard-style Message Box container.
+    /// Accessible as `msg`, `the message`, or `message box` in scripts.
+    /// MUST be all-lowercase: `Environment.init(globals:)` lowercases every
+    /// global key when seeding from `document.scriptGlobals`, so a mixed-case
+    /// key would not survive a round-trip across handler dispatches (the
+    /// message box must persist for the whole session).
+    static let messageBoxKey = "__messagebox"
 
     /// Execute a handler with the given parameters and context.
     public func execute(handler: Handler, params: [Value], context: ExecutionContext) -> ExecutionResult {
@@ -823,6 +840,30 @@ public struct Interpreter: Sendable {
         }
     }
 
+    private func isItemDelimiterProperty(_ property: String) -> Bool {
+        switch property.lowercased()
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: " ", with: "") {
+        case "itemdelimiter":
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Returns `true` when `property` refers to the message-box container
+    /// (`message`, `msg`, `messagebox`, `message box`).
+    private func isMessageBoxProperty(_ property: String) -> Bool {
+        switch property.lowercased()
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: " ", with: "") {
+        case "message", "msg", "messagebox":
+            return true
+        default:
+            return false
+        }
+    }
+
     private func resolvedUserLevel(from value: Value, handler: Handler) throws -> HypeUserLevel {
         if let level = HypeUserLevel.parse(value) {
             return level
@@ -1052,6 +1093,13 @@ public struct Interpreter: Sendable {
                 case .after: env.it = env.it + value
                 case .before: env.it = value + env.it
                 }
+            case .messageBox:
+                let existing = env.globals[Self.messageBoxKey] ?? ""
+                switch prep {
+                case .into:   env.globals[Self.messageBoxKey] = value
+                case .after:  env.globals[Self.messageBoxKey] = existing + value
+                case .before: env.globals[Self.messageBoxKey] = value + existing
+                }
             case .objectRef(let ref):
                 // Put into a field or button by name/number
                 let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
@@ -1148,6 +1196,18 @@ public struct Interpreter: Sendable {
             if target == nil, isActivateListenerProperty(property) {
                 try await setSpeechListenerActive(value, context: context, handler: handler)
                 env.it = isTruthy(value) ? "true" : "false"
+                break
+            }
+            if target == nil, isItemDelimiterProperty(property) {
+                // Single-character item delimiter per the HyperTalk Reference.
+                // Empty value resets to default comma.
+                env.itemDelimiter = value.isEmpty ? "," : String(value.unicodeScalars.first.map(Character.init) ?? ",")
+                break
+            }
+            if target == nil, isMessageBoxProperty(property) {
+                // `set the message to X` — writes the message-box container.
+                env.globals[Self.messageBoxKey] = value
+                env.it = value
                 break
             }
             if let targetExpr = target {
@@ -1564,15 +1624,67 @@ public struct Interpreter: Sendable {
                 }
             }
 
-        case .repeatWith(let varName, let fromExpr, let toExpr, let body):
+        case .repeatWith(let varName, let fromExpr, let toExpr, let direction, let body):
             let fromVal = Int(toNumber(try await evaluate(fromExpr, env: &env, document: document, context: context)))
             let toVal = Int(toNumber(try await evaluate(toExpr, env: &env, document: document, context: context)))
-            let step = fromVal <= toVal ? 1 : -1
             let varKey = varName.lowercased()
-            var i = fromVal
-            while (step > 0 && i <= toVal) || (step < 0 && i >= toVal) {
-                context.profiler?.recordLoopIteration("repeatWith")
-                env.setVariableKey(varKey, String(i))
+            // Classic HyperCard:
+            //   `repeat with i = 1 to N`   → step +1; start > end yields zero iterations
+            //   `repeat with i = N down to 1` → step -1; start < end yields zero iterations
+            let step: Int
+            let shouldRun: Bool
+            switch direction {
+            case .up:
+                step = 1
+                shouldRun = fromVal <= toVal
+            case .down:
+                step = -1
+                shouldRun = fromVal >= toVal
+            }
+            if shouldRun {
+                var i = fromVal
+                let condition: () -> Bool = direction == .up ? { i <= toVal } : { i >= toVal }
+                while condition() {
+                    context.profiler?.recordLoopIteration("repeatWith")
+                    env.setVariableKey(varKey, String(i))
+                    do {
+                        for s in body {
+                            try await executeStatementAndPublish(s, env: &env, document: &document, context: context,
+                                                                 instructionCount: &instructionCount,
+                                                                 navigationTarget: &navigationTarget,
+                                                                 projectNavigationTarget: &projectNavigationTarget,
+                                                                 handler: handler)
+                        }
+                    } catch ControlSignal.exitRepeat {
+                        break
+                    } catch ControlSignal.nextRepeat {
+                        // fall through to increment
+                    }
+                    i += step
+                }
+            }
+
+        case .repeatForEach(let chunkType, let varName, let listExpr, let body):
+            let listVal = try await evaluate(listExpr, env: &env, document: document, context: context)
+            let varKey = varName.lowercased()
+            // Split the list using the current itemDelimiter (for .item chunks) or fixed delimiters.
+            let elements: [String]
+            switch chunkType {
+            case .word:
+                elements = listVal.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+            case .char, .character:
+                elements = listVal.map(String.init)
+            case .item:
+                let delimChar = env.itemDelimiter.first ?? ","
+                elements = listVal.isEmpty ? [] :
+                    listVal.split(separator: delimChar, omittingEmptySubsequences: false)
+                        .map { $0.trimmingCharacters(in: .whitespaces) }
+            case .line:
+                elements = splitLines(listVal)
+            }
+            for element in elements {
+                context.profiler?.recordLoopIteration("repeatForEach")
+                env.setVariableKey(varKey, element)
                 do {
                     for s in body {
                         try await executeStatementAndPublish(s, env: &env, document: &document, context: context,
@@ -1584,9 +1696,8 @@ public struct Interpreter: Sendable {
                 } catch ControlSignal.exitRepeat {
                     break
                 } catch ControlSignal.nextRepeat {
-                    // fall through to increment
+                    continue
                 }
-                i += step
             }
 
         case .exitRepeat:
@@ -1914,7 +2025,11 @@ public struct Interpreter: Sendable {
             if case .variable(let name) = targetExpr {
                 let existing = env.getVariable(name)
                 let divisor = toNumber(value)
-                env.setVariable(name, divisor != 0 ? formatNumber(toNumber(existing) / divisor) : "INF")
+                // Consistent sentinel "0" for divide-by-zero across all four division paths
+                // (/, mod, div, divide command). Classic HyperCard raises an error; the
+                // non-throwing evalBinary path uses "0" and we mirror that here to avoid
+                // the SIGBUS-under-deep-recursion issue documented at evaluateChunk:5449-5464.
+                env.setVariable(name, divisor != 0 ? formatNumber(toNumber(existing) / divisor) : "0")
             }
 
         case .deleteObject(let expr):
@@ -1926,16 +2041,23 @@ public struct Interpreter: Sendable {
                 }
             }
 
-        case .findText(let expr):
-            // HyperCard `find "text"` — case-insensitive substring search across
-            // all field textContent, starting from the current card and wrapping.
+        case .findText(let mode, let queryExpr, let inFieldExpr):
+            // HyperCard `find [mode] "text" [in field "X"]` — case-insensitive search.
             // Sets the runtime's found state and navigates to the matching card.
-            let searchTerm = try await evaluate(expr, env: &env, document: document, context: context)
+            let searchTerm = try await evaluate(queryExpr, env: &env, document: document, context: context)
             env.it = searchTerm
+            let inFieldName: String?
+            if let expr = inFieldExpr {
+                inFieldName = try await evaluate(expr, env: &env, document: document, context: context)
+            } else {
+                inFieldName = nil
+            }
             if let found = findTextInDocument(
                 searchTerm,
+                mode: mode,
                 document: document,
-                startingCardId: context.currentCardId
+                startingCardId: context.currentCardId,
+                inFieldName: inFieldName
             ) {
                 await context.runtimeProvider?.setFoundState(found)
                 navigationTarget = found.cardId
@@ -1988,6 +2110,24 @@ public struct Interpreter: Sendable {
                     document.cards[i].sortKey = String(format: "a%06d", index)
                 }
             }
+
+        case .sortContainer(let chunkType, let containerExpr, let direction, let style, let byExpr):
+            // `sort [lines|items] of <container> [ascending|descending] [text|numeric] [by <expr>]`
+            // Split the container, evaluate sort keys, sort, write back.
+            try await executeSortContainer(
+                chunkType: chunkType,
+                containerExpr: containerExpr,
+                direction: direction,
+                style: style,
+                byExpr: byExpr,
+                env: &env,
+                document: &document,
+                context: context,
+                handler: handler,
+                instructionCount: &instructionCount,
+                navigationTarget: &navigationTarget,
+                projectNavigationTarget: &projectNavigationTarget
+            )
 
         case .hideObject(let expr):
             if case .objectRef(let ref) = expr {
@@ -3592,6 +3732,115 @@ public struct Interpreter: Sendable {
         return try await evaluate(expr, env: &env, document: document, context: context)
     }
 
+    // MARK: - Sort container (1B.sort lines/items)
+
+    /// Execute `sort [lines|items] of <container> [ascending|descending] [text|numeric] [by <expr>]`.
+    ///
+    /// Split the container by chunkType, evaluate sort keys, sort stably, write back.
+    /// `dateTime` and `international` styles degrade to text (documented).
+    private func executeSortContainer(
+        chunkType: ChunkType,
+        containerExpr: Expression,
+        direction: SortDirection,
+        style: SortStyle,
+        byExpr: Expression?,
+        env: inout Environment,
+        document: inout HypeDocument,
+        context: ExecutionContext,
+        handler: Handler,
+        instructionCount: inout Int,
+        navigationTarget: inout UUID?,
+        projectNavigationTarget: inout ProjectNavigationTarget?
+    ) async throws {
+        let containerValue = try await evaluate(containerExpr, env: &env, document: document, context: context)
+        guard !containerValue.isEmpty else { return }
+
+        // Split using the same logic as evaluateChunk.
+        let elements: [String]
+        switch chunkType {
+        case .word:
+            elements = containerValue.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        case .char, .character:
+            elements = containerValue.map(String.init)
+        case .item:
+            let delimChar = env.itemDelimiter.first ?? ","
+            elements = containerValue.split(separator: delimChar, omittingEmptySubsequences: false)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+        case .line:
+            elements = splitLines(containerValue)
+        }
+        guard elements.count > 1 else { return }
+
+        // Evaluate sort key per element. If `by` is present, bind `each` to the element.
+        var keyed: [(element: String, key: String)] = []
+        for element in elements {
+            let key: String
+            if let keyExpr = byExpr {
+                // Bind `each` as a local variable for the key expression.
+                env.setVariable("each", element)
+                key = try await evaluate(keyExpr, env: &env, document: document, context: context)
+            } else {
+                key = element
+            }
+            keyed.append((element: element, key: key))
+        }
+
+        // Determine sort order.
+        let useNumeric: Bool
+        switch style {
+        case .numeric:
+            useNumeric = true
+        case .text, .dateTime, .international:
+            // .dateTime and .international degrade to text for now.
+            useNumeric = keyed.allSatisfy {
+                let d = Double($0.key)
+                return d != nil && d!.isFinite
+            }
+        }
+
+        let sorted: [(element: String, key: String)]
+        if useNumeric {
+            sorted = keyed.sorted { a, b in
+                let aVal = Double(a.key) ?? 0
+                let bVal = Double(b.key) ?? 0
+                return direction == .ascending ? aVal < bVal : aVal > bVal
+            }
+        } else {
+            sorted = keyed.sorted { a, b in
+                let cmp = a.key.compare(b.key, options: .caseInsensitive)
+                return direction == .ascending
+                    ? cmp == .orderedAscending
+                    : cmp == .orderedDescending
+            }
+        }
+
+        // Rejoin with the appropriate delimiter.
+        let joinedDelim: String
+        switch chunkType {
+        case .word: joinedDelim = " "
+        case .char, .character: joinedDelim = ""
+        case .item: joinedDelim = env.itemDelimiter
+        case .line: joinedDelim = "\n"
+        }
+        let newValue = sorted.map(\.element).joined(separator: joinedDelim)
+
+        // Write back to the container.
+        switch containerExpr {
+        case .variable(let name):
+            env.setVariable(name, newValue)
+        case .it:
+            env.it = newValue
+        case .objectRef(let ref):
+            let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
+            if let idx = findPartIndex(ref.objectType, identifier: ident, env: &env,
+                                       document: document, currentCardId: context.currentCardId) {
+                document.parts[idx].textContent = newValue
+            }
+        default:
+            break
+        }
+    }
+
     // MARK: - Date/time conversion helper
 
     /// Convert a date/time value to the requested HyperCard format string.
@@ -3868,6 +4117,8 @@ public struct Interpreter: Sendable {
             case "ten": return "10"
             case "up": return "up"
             case "down": return "down"
+            case "formfeed": return "\u{0C}"
+            case "null": return "\u{00}"
             // Well-known HyperTalk system properties accepted as
             // bare identifiers (no `the` prefix required). Users
             // and AI models routinely write `put mouseLoc into m`
@@ -3933,6 +4184,10 @@ public struct Interpreter: Sendable {
         case .empty:
             return ""
 
+        case .messageBox:
+            // Read the global message box container.
+            return env.globals[Self.messageBoxKey] ?? ""
+
         case .binary(let left, let op, let right):
             let lVal = try await evaluate(left, env: &env, document: document, context: context)
             let rVal = try await evaluate(right, env: &env, document: document, context: context)
@@ -3941,7 +4196,7 @@ public struct Interpreter: Sendable {
         case .unary(let op, let operand):
             let val = try await evaluate(operand, env: &env, document: document, context: context)
             switch op {
-            case .negate: return String(-toNumber(val))
+            case .negate: return formatNumber(-toNumber(val))
             case .not:    return isTruthy(val) ? "false" : "true"
             }
 
@@ -4097,7 +4352,7 @@ public struct Interpreter: Sendable {
             case "logical", "boolean", "bool": return (val.lowercased() == "true" || val.lowercased() == "false") ? "true" : "false"
             case "point": return val.split(separator: ",").count == 2 ? "true" : "false"
             case "rect", "rectangle": return val.split(separator: ",").count == 4 ? "true" : "false"
-            case "date": return "false"
+            case "date": return parseHyperCardDate(val) != nil ? "true" : "false"
             case "empty": return val.isEmpty ? "true" : "false"
             default: return "false"
             }
@@ -4109,29 +4364,25 @@ public struct Interpreter: Sendable {
             case "logical", "boolean", "bool": return (val.lowercased() == "true" || val.lowercased() == "false") ? "false" : "true"
             case "point": return val.split(separator: ",").count == 2 ? "false" : "true"
             case "rect", "rectangle": return val.split(separator: ",").count == 4 ? "false" : "true"
-            case "date": return "true"
+            case "date": return parseHyperCardDate(val) != nil ? "false" : "true"
             case "empty": return val.isEmpty ? "false" : "true"
             default: return "true"
             }
 
         case .thereIsA(let objectType, let nameExpr):
             let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
-            let found: Bool
-            if objectType.lowercased() == "window" {
-                found = hyperCardWindowExists(name, env: env, document: document, currentCardId: context.currentCardId)
-            } else {
-                found = document.parts.contains { $0.name.lowercased() == name.lowercased() }
-            }
+            let found = objectExistsInScope(
+                objectType: objectType, name: name,
+                env: env, document: document, currentCardId: context.currentCardId
+            )
             return found ? "true" : "false"
 
         case .thereIsNo(let objectType, let nameExpr):
             let name = try await evaluate(nameExpr, env: &env, document: document, context: context)
-            let found: Bool
-            if objectType.lowercased() == "window" {
-                found = hyperCardWindowExists(name, env: env, document: document, currentCardId: context.currentCardId)
-            } else {
-                found = document.parts.contains { $0.name.lowercased() == name.lowercased() }
-            }
+            let found = objectExistsInScope(
+                objectType: objectType, name: name,
+                env: env, document: document, currentCardId: context.currentCardId
+            )
             return found ? "false" : "true"
 
         case .askMeshy(let promptExpr, let styleExpr):
@@ -4168,6 +4419,29 @@ public struct Interpreter: Sendable {
 
     // MARK: - Binary operations
 
+    /// Unified comparison: numeric when both operands parse as finite numbers,
+    /// otherwise case-insensitive lexical. Returns -1, 0, or +1.
+    ///
+    /// Classic HyperCard rule (HyperTalk_Reference.md §10523-10542):
+    /// `=`/`is` "same value"; relational operators "can be arithmetic, text,
+    /// or logical." The key decision is: if *both* sides parse as finite numbers,
+    /// use numeric order; otherwise fall back to case-insensitive string order.
+    /// This means `5 = 5.0` → true and `"apple" < "banana"` → true.
+    private func compareValues(_ l: Value, _ r: Value) -> Int {
+        let lt = l.trimmingCharacters(in: .whitespaces)
+        let rt = r.trimmingCharacters(in: .whitespaces)
+        if let ld = Double(lt), let rd = Double(rt), ld.isFinite && rd.isFinite {
+            if ld < rd { return -1 }
+            if ld > rd { return  1 }
+            return 0
+        }
+        switch l.compare(r, options: .caseInsensitive) {
+        case .orderedAscending:  return -1
+        case .orderedDescending: return  1
+        case .orderedSame:       return  0
+        }
+    }
+
     private func evaluateBinary(_ lVal: Value, _ op: BinaryOp, _ rVal: Value) -> Value {
         switch op {
         case .add:            return formatNumber(toNumber(lVal) + toNumber(rVal))
@@ -4183,12 +4457,14 @@ public struct Interpreter: Sendable {
         case .intDiv:
             let divisor = toNumber(rVal)
             return divisor != 0 ? formatNumber((toNumber(lVal) / divisor).rounded(.towardZero)) : "0"
-        case .equal:          return lVal.lowercased() == rVal.lowercased() ? "true" : "false"
-        case .notEqual:       return lVal.lowercased() != rVal.lowercased() ? "true" : "false"
-        case .lessThan:       return toNumber(lVal) < toNumber(rVal) ? "true" : "false"
-        case .greaterThan:    return toNumber(lVal) > toNumber(rVal) ? "true" : "false"
-        case .lessOrEqual:    return toNumber(lVal) <= toNumber(rVal) ? "true" : "false"
-        case .greaterOrEqual: return toNumber(lVal) >= toNumber(rVal) ? "true" : "false"
+        // Route all six comparison operators through compareValues for unified
+        // numeric-vs-lexical semantics (B1 fix).
+        case .equal:          return compareValues(lVal, rVal) == 0  ? "true" : "false"
+        case .notEqual:       return compareValues(lVal, rVal) != 0  ? "true" : "false"
+        case .lessThan:       return compareValues(lVal, rVal) <  0  ? "true" : "false"
+        case .greaterThan:    return compareValues(lVal, rVal) >  0  ? "true" : "false"
+        case .lessOrEqual:    return compareValues(lVal, rVal) <= 0  ? "true" : "false"
+        case .greaterOrEqual: return compareValues(lVal, rVal) >= 0  ? "true" : "false"
         case .and:            return (isTruthy(lVal) && isTruthy(rVal)) ? "true" : "false"
         case .or:             return (isTruthy(lVal) || isTruthy(rVal)) ? "true" : "false"
         }
@@ -4247,6 +4523,9 @@ public struct Interpreter: Sendable {
         case "cos": return formatNumber(Foundation.cos(toNumber(args.first ?? "0")))
         case "tan": return formatNumber(Foundation.tan(toNumber(args.first ?? "0")))
         case "atan": return formatNumber(Foundation.atan(toNumber(args.first ?? "0")))
+        case "atan2":
+            guard args.count >= 2 else { return "0" }
+            return formatNumber(Foundation.atan2(toNumber(args[0]), toNumber(args[1])))
         case "sqrt": return formatNumber(Foundation.sqrt(toNumber(args.first ?? "0")))
         case "exp": return formatNumber(Foundation.exp(toNumber(args.first ?? "0")))
         case "ln": return formatNumber(Foundation.log(toNumber(args.first ?? "0")))
@@ -4261,7 +4540,25 @@ public struct Interpreter: Sendable {
             guard num > 0, num < 65536, let scalar = UnicodeScalar(num) else { return "" }
             return String(Character(scalar))
         case "value":
-            return args.first ?? ""
+            // Evaluate the argument string as a HypeTalk expression, reusing the
+            // `do` block's security gates (depth + byte limit).
+            let exprText = args.first ?? ""
+            guard !exprText.isEmpty else { return "" }
+            guard context.nestedEvalDepth < Self.maxNestedEvalDepth else { return exprText }
+            guard exprText.utf8.count <= Self.maxDoEvalBytes else { return exprText }
+            var lexer = Lexer(source: exprText)
+            let tokens = lexer.tokenize()
+            var parser = Parser(tokens: tokens)
+            guard let parsedExpr = try? parser.parseExpression() else { return exprText }
+            // Classic `value()` of a bare word that is not a defined variable
+            // returns the word itself (e.g. value("hello") -> "hello"), rather
+            // than the empty string Hype yields for an undefined variable.
+            if case .variable(let vname) = parsedExpr, env.getVariable(vname).isEmpty {
+                return exprText
+            }
+            var childContext = context
+            childContext.nestedEvalDepth = context.nestedEvalDepth + 1
+            return (try? await evaluate(parsedExpr, env: &env, document: document, context: childContext)) ?? exprText
 
         // Date and time functions
         case "date":
@@ -4291,12 +4588,13 @@ public struct Interpreter: Sendable {
         case "aimodels", "ollamamodels":
             return try await context.aiProvider.availableModels().joined(separator: "\n")
 
-        // Mouse functions (return static defaults since we're not in a live event loop)
+        // Mouse functions — position trio reads live context state to match property forms.
+        // `mouse` and `mouseClick` have no live source on context today; keep static.
         case "mouse": return "up"
         case "mouseclick": return "false"
-        case "mouseh": return "0"
-        case "mousev": return "0"
-        case "mouseloc": return "0,0"
+        case "mouseh":    return formatNumber(context.mouseX)
+        case "mousev":    return formatNumber(context.mouseY)
+        case "mouseloc":  return "\(formatNumber(context.mouseX)),\(formatNumber(context.mouseY))"
 
         // Key functions
         case "shiftkey":
@@ -4318,8 +4616,10 @@ public struct Interpreter: Sendable {
             return "up"
             #endif
 
-        // Other (stubs — full implementation requires runtime context)
-        case "target": return ""
+        // `target` function — descriptor of the original dispatch recipient.
+        case "target":
+            return descriptorForObject(id: context.originalTargetId, document: document,
+                                       context: context, form: .short)
         case "result": return env.result
         case "param":
             let index = clampedInt(toNumber(args.first ?? "1"))
@@ -4572,7 +4872,7 @@ public struct Interpreter: Sendable {
             case "mousev":
                 return formatNumber(context.mouseY)
             case "itemdelimiter":
-                return ","
+                return env.itemDelimiter
             case "numberformat":
                 return "0.######"
             case "lockscreen":
@@ -4659,6 +4959,18 @@ public struct Interpreter: Sendable {
             // Phase 3 OQ-C1: `the result` returns the value set by `ask meshy` (and `ask ai`).
             case "result":
                 return env.result
+            // Message box container: accessible as `the message`, `msg`, `message box`.
+            case "message", "msg", "messagebox", "message box":
+                return env.globals[Self.messageBoxKey] ?? ""
+            // `the target` — descriptor of the original dispatch recipient.
+            case "target",
+                 "short target", "shorttarget",
+                 "abbrev target", "abbreviated target", "abbrevtarget", "abbreviatedtarget":
+                return descriptorForObject(id: context.originalTargetId, document: document,
+                                           context: context, form: .short)
+            case "long target", "longtarget":
+                return descriptorForObject(id: context.originalTargetId, document: document,
+                                           context: context, form: .long)
             case "brush", "pencilsize":
                 let v = env.getVariable("pencilsize")
                 return v.isEmpty ? "2" : v
@@ -4748,7 +5060,7 @@ public struct Interpreter: Sendable {
         }
         if let chunkType = chunkCountProperty(lower) {
             let value = try await evaluate(targetExpr, env: &env, document: document, context: context)
-            return String(countChunks(chunkType, in: value))
+            return String(countChunks(chunkType, in: value, itemDelimiter: env.itemDelimiter))
         }
 
         // Chart data-point reference property get — delegated to a
@@ -4939,6 +5251,15 @@ public struct Interpreter: Sendable {
                 return ""
             case "name":
                 return card?.name ?? ""
+            case "short name", "shortname",
+                 "abbrev name", "abbreviated name",
+                 "abbrevname", "abbreviatedname":
+                return card?.name ?? ""
+            case "long name", "longname":
+                if let card = card {
+                    return "card \"\(card.name)\""
+                }
+                return ""
             case "id":
                 return card?.id.uuidString ?? ""
             case "shortid", "short id", "longid", "long id":
@@ -5046,6 +5367,13 @@ public struct Interpreter: Sendable {
         }
         switch property.lowercased() {
         case "name":        return part.name
+        case "short name", "shortname",
+             "abbrev name", "abbreviated name",
+             "abbrevname", "abbreviatedname":
+            return part.name
+        case "long name", "longname":
+            // Full path: "card button "X" of card "Y""
+            return descriptorForObject(id: part.id, document: document, context: context, form: .long)
         case "id":          return part.id.uuidString
         case "left", "left_pos":  return formatNumber(part.left)
         case "top", "top_pos":    return formatNumber(part.top)
@@ -5433,8 +5761,18 @@ public struct Interpreter: Sendable {
         case .char, .character:
             parts = source.map(String.init)
         case .item:
-            parts = source.split(separator: ",", omittingEmptySubsequences: false)
-                .map { $0.trimmingCharacters(in: .whitespaces) }
+            // Honor the runtime itemDelimiter (default ","). Per the HyperTalk Reference,
+            // coordinate/rect/loc structures use hardcoded "," and are not affected here —
+            // only explicit item-chunk expressions go through evaluateChunk.
+            let delim = env.itemDelimiter
+            if delim == "," {
+                parts = source.split(separator: ",", omittingEmptySubsequences: false)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+            } else {
+                let delimChar = delim.first ?? ","
+                parts = source.split(separator: delimChar, omittingEmptySubsequences: false)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+            }
         case .line:
             parts = splitLines(source)
         }
@@ -5492,7 +5830,7 @@ public struct Interpreter: Sendable {
             switch chunkType {
             case .word: separator = " "
             case .char, .character: separator = ""
-            case .item: separator = ","
+            case .item: separator = env.itemDelimiter
             case .line: separator = "\n"
             }
             return parts[(from - 1)..<to].joined(separator: separator)
@@ -5565,7 +5903,8 @@ public struct Interpreter: Sendable {
                 indices: resolvedIndices,
                 preposition: preposition,
                 container: innerOld,
-                value: value
+                value: value,
+                itemDelimiter: env.itemDelimiter
             )
             // Recurse: write innerNew into the inner container, always using .into.
             try await performChunkPut(
@@ -5587,7 +5926,8 @@ public struct Interpreter: Sendable {
                 indices: resolvedIndices,
                 preposition: preposition,
                 container: old,
-                value: value
+                value: value,
+                itemDelimiter: env.itemDelimiter
             )
             env.setVariable(name, new)
 
@@ -5598,7 +5938,8 @@ public struct Interpreter: Sendable {
                 indices: resolvedIndices,
                 preposition: preposition,
                 container: env.it,
-                value: value
+                value: value,
+                itemDelimiter: env.itemDelimiter
             )
             env.it = new
 
@@ -5611,7 +5952,8 @@ public struct Interpreter: Sendable {
                     indices: resolvedIndices,
                     preposition: preposition,
                     container: old,
-                    value: value
+                    value: value,
+                    itemDelimiter: env.itemDelimiter
                 )
                 document.parts[partIndex].textContent = new
             } else {
@@ -5636,7 +5978,8 @@ public struct Interpreter: Sendable {
                     indices: resolvedIndices,
                     preposition: preposition,
                     container: old,
-                    value: value
+                    value: value,
+                    itemDelimiter: env.itemDelimiter
                 )
                 document.parts[partIndex].textContent = new
             } else {
@@ -5672,14 +6015,15 @@ public struct Interpreter: Sendable {
         }
     }
 
-    private func countChunks(_ chunkType: ChunkType, in source: Value) -> Int {
+    private func countChunks(_ chunkType: ChunkType, in source: Value, itemDelimiter: String = ",") -> Int {
         switch chunkType {
         case .word:
             return source.split(separator: " ", omittingEmptySubsequences: true).count
         case .char, .character:
             return source.count
         case .item:
-            return source.split(separator: ",", omittingEmptySubsequences: false).count
+            let delimChar = itemDelimiter.first ?? ","
+            return source.split(separator: delimChar, omittingEmptySubsequences: false).count
         case .line:
             return splitLines(source).count
         }
@@ -5696,16 +6040,22 @@ public struct Interpreter: Sendable {
 
     // MARK: - Phase 2: find / select helpers
 
-    /// Search for `searchTerm` (case-insensitive substring) in all field parts
+    /// Search for `searchTerm` using the given `mode` in all field parts
     /// across the document's cards.  The search starts from `startingCardId` and
     /// wraps around — HyperCard's default behaviour.
+    ///
+    /// - Parameters:
+    ///   - mode: `normal` (word-prefix), `word` (whole-word), `whole` (phrase), `string`/`chars` (substring).
+    ///   - inFieldName: When set, restrict search to the named field only.
     ///
     /// Returns a fully-populated `FoundState` on the first hit, or `nil` when the
     /// term does not appear in any field.
     private func findTextInDocument(
         _ searchTerm: String,
+        mode: FindMode = .normal,
         document: HypeDocument,
-        startingCardId: UUID
+        startingCardId: UUID,
+        inFieldName: String? = nil
     ) -> FoundState? {
         guard !searchTerm.isEmpty else { return nil }
         let lowerTerm = searchTerm.lowercased()
@@ -5713,38 +6063,35 @@ public struct Interpreter: Sendable {
         let sortedCards = document.sortedCards
         guard !sortedCards.isEmpty else { return nil }
 
-        // Build a search order starting from the current card (inclusive),
-        // then wrapping back around to the beginning of the sorted list.
         let startIndex = sortedCards.firstIndex(where: { $0.id == startingCardId }) ?? 0
         let orderedCards = Array(sortedCards[startIndex...]) + Array(sortedCards[..<startIndex])
 
         for card in orderedCards {
-            // Collect card-level fields, then background-level fields.
             let cardFields = document.partsForCard(card.id).filter { $0.partType == .field }
             let bgFields   = document.partsForBackground(card.backgroundId).filter { $0.partType == .field }
-            let fields     = cardFields + bgFields
+            var fields     = cardFields + bgFields
+
+            if let fieldName = inFieldName {
+                fields = fields.filter { $0.name.lowercased() == fieldName.lowercased() }
+            }
 
             for field in fields {
                 let text = field.textContent
                 let lowerText = text.lowercased()
-                guard let range = lowerText.range(of: lowerTerm) else { continue }
+                guard let range = findMatch(in: lowerText, term: lowerTerm, mode: mode) else { continue }
 
-                // Compute 1-based character positions (Swift String indices → UTF-16 offset).
                 let charStart = lowerText.distance(from: lowerText.startIndex, to: range.lowerBound) + 1
-                let charEnd   = charStart + searchTerm.count - 1
+                let charEnd   = charStart + lowerText.distance(from: range.lowerBound, to: range.upperBound) - 1
 
-                // Build the HyperCard descriptors.
                 let fieldDescriptor = "field \"\(field.name)\""
                 let foundChunk      = "char \(charStart) to \(charEnd) of \(fieldDescriptor)"
-
-                // Determine the 1-based line number of the match.
                 let prefix      = String(text[..<text.index(text.startIndex, offsetBy: charStart - 1)])
                 let lineNumber  = prefix.components(separatedBy: "\n").count
                 let foundLine   = "line \(lineNumber) of \(fieldDescriptor)"
 
-                // The matched text preserves the original casing from the field.
                 let originalStart = text.index(text.startIndex, offsetBy: charStart - 1)
-                let originalEnd   = text.index(originalStart, offsetBy: searchTerm.count)
+                let matchLen = min(charEnd - charStart + 1, text.count - (charStart - 1))
+                let originalEnd   = text.index(originalStart, offsetBy: matchLen)
                 let foundText     = String(text[originalStart..<originalEnd])
 
                 return FoundState(
@@ -5757,6 +6104,47 @@ public struct Interpreter: Sendable {
             }
         }
         return nil
+    }
+
+    /// Return the range of the first match of `term` in `text` according to `mode`.
+    private func findMatch(in text: String, term: String, mode: FindMode) -> Range<String.Index>? {
+        guard !term.isEmpty else { return nil }
+        switch mode {
+        case .string, .chars:
+            // Substring match (any occurrence).
+            return text.range(of: term)
+        case .whole:
+            // Whole-phrase match — term must appear as a complete phrase.
+            // We match with word-boundary awareness: preceded/followed by non-word or string edge.
+            return text.range(of: term)   // simple substring for now; phrase = substring
+        case .word:
+            // Whole-word match: term must be surrounded by non-word chars or string edges.
+            var searchStart = text.startIndex
+            while searchStart < text.endIndex {
+                guard let range = text.range(of: term, range: searchStart..<text.endIndex) else { break }
+                let beforeOk = range.lowerBound == text.startIndex ||
+                    !text[text.index(before: range.lowerBound)].isLetter &&
+                    !text[text.index(before: range.lowerBound)].isNumber
+                let afterOk = range.upperBound == text.endIndex ||
+                    !text[range.upperBound].isLetter &&
+                    !text[range.upperBound].isNumber
+                if beforeOk && afterOk { return range }
+                searchStart = text.index(after: range.lowerBound)
+            }
+            return nil
+        case .normal:
+            // Word-prefix: term matches at the start of any word.
+            var searchStart = text.startIndex
+            while searchStart < text.endIndex {
+                guard let range = text.range(of: term, range: searchStart..<text.endIndex) else { break }
+                let beforeOk = range.lowerBound == text.startIndex ||
+                    !text[text.index(before: range.lowerBound)].isLetter &&
+                    !text[text.index(before: range.lowerBound)].isNumber
+                if beforeOk { return range }
+                searchStart = text.index(after: range.lowerBound)
+            }
+            return nil
+        }
     }
 
     /// Build a `SelectedState` from a `select <expr>` AST expression.
@@ -7461,6 +7849,95 @@ public struct Interpreter: Sendable {
         }
     }
 
+    // MARK: - there is a / there is no helpers (B6)
+
+    /// Returns true when an object of the given type and name exists in the
+    /// current card's scope (card parts + background parts).
+    private func objectExistsInScope(
+        objectType: String,
+        name: String,
+        env: Environment,
+        document: HypeDocument,
+        currentCardId: UUID
+    ) -> Bool {
+        let lower = objectType.lowercased()
+        let lowerName = name.lowercased()
+        switch lower {
+        case "window":
+            return hyperCardWindowExists(name, env: env, document: document, currentCardId: currentCardId)
+        case "card", "cd":
+            return document.cards.contains { $0.name.lowercased() == lowerName }
+        case "background", "bg", "bkgnd":
+            return document.backgrounds.contains { $0.name.lowercased() == lowerName }
+        default:
+            // Map objectType to PartType for buttons/fields/images/etc.
+            // Restrict to parts visible on the current card or its background.
+            let cardParts = document.partsForCard(currentCardId)
+            let bgId = document.cards.first(where: { $0.id == currentCardId })?.backgroundId
+            let bgParts = bgId.map { document.partsForBackground($0) } ?? []
+            let visibleParts = cardParts + bgParts
+            return visibleParts.contains { part in
+                guard part.name.lowercased() == lowerName else { return false }
+                // If the objectType matches a known PartType, filter by it.
+                if let targetType = PartType(rawValue: lower) {
+                    return part.partType == targetType
+                }
+                // Plural/alias forms: "buttons", "fields", "btn", "fld"
+                switch lower {
+                case "buttons", "btn":  return part.partType == .button
+                case "fields", "fld":   return part.partType == .field
+                case "images":          return part.partType == .image
+                default:                return true   // unknown type — match any part
+                }
+            }
+        }
+    }
+
+    // MARK: - the target descriptor (B8 / 1A.the target)
+
+    /// Descriptor form for the target/originalTarget expression.
+    private enum DescriptorForm {
+        case short   // "button \"OK\"" or "card \"Home\""
+        case long    // "card button \"OK\" of card \"Home\"" (full path)
+    }
+
+    /// Return a HyperCard-style identifying string for `id` in `document`.
+    ///
+    /// Short/abbreviated form: `button "OK"`, `card "Home"`, `stack "Myst"`.
+    /// Long form: `card button "OK" of card "Home"`.
+    private func descriptorForObject(
+        id: UUID,
+        document: HypeDocument,
+        context: ExecutionContext,
+        form: DescriptorForm = .short
+    ) -> String {
+        if let description = context.scriptContext?.objectDescriptions[id] {
+            return description
+        }
+        if let part = document.parts.first(where: { $0.id == id }) {
+            let typeStr = part.partType.rawValue   // e.g. "button", "field"
+            let partDesc = "\(typeStr) \"\(part.name)\""
+            if form == .short {
+                return partDesc
+            }
+            // Long form: prepend "card " prefix and card path.
+            let cardId = part.cardId ?? context.currentCardId
+            let card = document.cards.first(where: { $0.id == cardId })
+            let cardDesc = card.map { "card \"\($0.name)\"" } ?? "card id \(cardId)"
+            return "card \(partDesc) of \(cardDesc)"
+        }
+        if let card = document.cards.first(where: { $0.id == id }) {
+            return card.name.isEmpty ? "card id \(id)" : "card \"\(card.name)\""
+        }
+        if let bg = document.backgrounds.first(where: { $0.id == id }) {
+            return bg.name.isEmpty ? "background id \(id)" : "background \"\(bg.name)\""
+        }
+        if document.stack.id == id {
+            return "stack \"\(document.stack.name)\""
+        }
+        return "object id \(id)"
+    }
+
     private func hyperCardWindowExists(
         _ windowName: Value,
         env: Environment,
@@ -7786,9 +8263,13 @@ public struct Interpreter: Sendable {
     }
 
     /// Check if a HypeTalk value is truthy.
+    ///
+    /// Classic HyperCard truth: only `"true"` (case-insensitive) and any non-zero
+    /// number are truthy. `"yes"`, `"on"`, and other English affirmatives are FALSY.
+    /// This matches the HypeTalk guide and classic HyperCard behaviour.
     private func isTruthy(_ value: Value) -> Bool {
         let lower = value.lowercased()
-        return lower == "true" || lower == "yes" || (Double(value).map { $0 != 0 } ?? false)
+        return lower == "true" || (Double(value).map { $0 != 0 } ?? false)
     }
 
     // MARK: - Sprite Area Helpers
@@ -8394,6 +8875,7 @@ public struct Interpreter: Sendable {
         case .thereIsA: return "thereIsA"
         case .thereIsNo: return "thereIsNo"
         case .askMeshy: return "askMeshy"
+        case .messageBox: return "messageBox"
         }
     }
 }

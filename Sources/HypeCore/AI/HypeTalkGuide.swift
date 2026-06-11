@@ -53,7 +53,7 @@ public enum HypeTalkGuide {
         - **String literals:** double-quoted: `"hello"`. Curly/smart quotes (`"…"`) are also accepted at the lexer level — pasted user text won't break parsing. There are no backslash escapes inside a string; to embed a quote, use the `quote` constant: `"He said " & quote & "hi" & quote`.
         - **Line continuation:** end a line with `\\` (a single backslash) immediately before the newline to fold the next line onto it. Useful for very long URLs or JSON bodies.
         - **Truthiness:** only `"true"` (case-insensitive) and any non-zero number are truthy. `"false"`, `""` (empty), and `"0"` are falsy. Strings like `"yes"`, `"on"`, `"1.5"` are NOT special — `"1.5"` is truthy because it's a non-zero number; `"yes"` is FALSY because it's neither `"true"` nor numeric. When you need a boolean from a non-canonical source, compare explicitly: `if x is "yes" then`.
-        - **Numeric coercion:** `value(s)` and arithmetic coerce strings to numbers. Empty strings and non-numeric strings become `0` silently — no error is raised. `n / 0` and `n mod 0` return `0`; the older `divide x by 0` form returns `"INF"`. Always range-check inputs before dividing.
+        - **Numeric coercion:** `value(s)` and arithmetic coerce strings to numbers. Empty strings and non-numeric strings become `0` silently — no error is raised. `n / 0`, `n mod 0`, `n div 0`, and `divide x by 0` all return `"0"` (consistent zero sentinel). Always range-check inputs before dividing.
 
         ## Message routing
         When an event fires, Hype looks for a matching handler in order and stops at the first match. Use `pass <message>` to let it continue up the chain explicitly.
@@ -334,10 +334,12 @@ public enum HypeTalkGuide {
             put the middle line of field "log" into m
             put any item of "red,green,blue" into pick    -- random pick
 
-        **Chunks are READ-ONLY.** There is NO chunk-write or `put before/after chunk` form. To "edit" a chunk, splice and write back the whole field:
-            -- WRONG: set the word 3 of field "X" to "newWord"   (parse error)
-            -- WRONG: put "Hi " before word 3 of field "X"        (parse error)
-            -- RIGHT: read, splice with concatenation, write back
+        **Chunk writes:** `put X into/before/after <chunk> of <container>` is fully supported.
+            put "Hi " before word 3 of field "X"        -- insert before a chunk
+            put " done" after item 2 of field "list"     -- append after a chunk
+            put "newWord" into word 3 of field "X"       -- replace a chunk
+
+        However, **`set the word 3 of field "X" to "Hi"`** is NOT supported (parse error). Use `put` for chunk writes, not `set`. When you need to splice at a precise position, `put` is the right tool:
             put word 1 to 2 of field "X" && "newWord" && word 4 to -1 of field "X" into field "X"
 
         ## Control flow
@@ -1226,8 +1228,8 @@ public enum HypeTalkGuide {
         - **`return` at top level of a handler** is fine, but a handler body is not a function body — use `exit <name>` to stop early.
         - **`elseif` as one word** is not canonical. Write `else if x = 1 then` with a space, or use a nested `if` on the next line with its own `end if`.
         - **`x starts with "foo"` / `x ends with "foo"`** are NOT operators. Use `char 1 to 3 of x is "foo"` for prefix, `char -3 to -1 of x is "foo"` for suffix, or `x contains "foo"` if position doesn't matter.
-        - **`set the word 3 of field "X" to "Hi"`** is a parse error. Chunks are read-only — splice and write the whole field back.
-        - **`put "Hi" before/after word 3 of field "X"`** is a parse error too. `put before/after` only targets variables, `it`, or whole object refs (e.g. `put "Hi" before field "X"`).
+        - **`set the word 3 of field "X" to "Hi"`** is a parse error. Use `put "Hi" into word 3 of field "X"` instead — chunk writes require `put`, not `set`.
+        - **`put "Hi" before/after/into word N of field "X"`** is fully supported. All chunk types (word, char, item, line) work with `put into`, `put before`, and `put after`.
         - **`do "put 5 into x"`** evaluates real HypeTalk — it is NOT a no-op. Prefer inlining code directly; use `do` only when the script text is dynamic at runtime.
         - **`find "x"` navigates** to the matching card. After a successful `find`, read `the foundText`, `the foundChunk`, `the foundField`, or `the foundLine`. If you only need membership without navigation, use `if field "Y" contains "x" then ...`.
         - **`the result` after `request ...` / `ask ai ...`** always returns `""`. The sync forms (`ollama(prompt)`, `ask "question"`) put the answer in `it`; the async forms (`request ... with message ...`) deliver it to the callback handler — read `the body of request <id>` there.
