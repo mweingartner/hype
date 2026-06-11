@@ -6742,17 +6742,6 @@ public struct Interpreter: Sendable {
         return value
     }
 
-    private func parseInlineDoHandler(_ scriptText: String, parent: Handler) throws -> Handler {
-        let source = "on __hypeInlineDo\n\(scriptText)\nend __hypeInlineDo\n"
-        var lexer = Lexer(source: source)
-        var parser = Parser(tokens: lexer.tokenize())
-        let script = try parser.parse()
-        guard let handler = script.handlers.first else {
-            throw ScriptError(message: "Could not parse do script", line: parent.line, handler: parent.name)
-        }
-        return handler
-    }
-
     // MARK: - Navigation resolution
 
     private func resolveNavigation(_ dest: String, document: HypeDocument, currentCardId: UUID) -> UUID? {
