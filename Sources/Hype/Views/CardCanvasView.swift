@@ -1536,7 +1536,18 @@ struct CardCanvasView: NSViewRepresentable {
             preservingLiveControlValueFor preservedControlPartId: UUID? = nil,
             completion: (@MainActor () -> Void)? = nil
         ) {
-            let snapshot = parent.document.document
+            // In browse mode, fold live SKNode state (positions/velocities updated
+            // by physics) into the snapshot before it crosses to the runtime actor,
+            // so HypeTalk property reads see physically-accurate values rather than
+            // the frozen authored positions in the document. In edit mode, use the
+            // plain document so authored values stay authoritative and tests are stable.
+            let isBrowseMode = CardCanvasNSView.allowsRuntimeInteraction(
+                currentTool: parent.currentTool,
+                runtimeModeEnabled: parent.document.document.stack.runtimeModeEnabled
+            )
+            let snapshot = isBrowseMode
+                ? (nsView?.liveAccurateSnapshot() ?? parent.document.document)
+                : parent.document.document
             let config = runtimeConfiguration()
             Task {
                 let runtime = await StackRuntimeRegistry.shared.runtime(for: snapshot, configuration: config)
@@ -5790,6 +5801,38 @@ class CardCanvasNSView: NSView {
             bgParts = []
         }
         return cardParts + bgParts
+    }
+
+    // MARK: - Live Scene State
+
+    /// Returns a transient copy of the current document with each spriteArea
+    /// part's active scene overwritten from its live SKNode state. This is the
+    /// snapshot handed to the runtime in browse mode so HypeTalk scripts read
+    /// physically-accurate positions and velocities rather than frozen authored values.
+    ///
+    /// Only spriteArea parts that have both a live `spriteScenes` entry AND a
+    /// non-nil `NodeRegistry` are updated; parts without a live scene are
+    /// included unchanged. The returned `HypeDocument` is **never** written
+    /// back into `document` — it is purely transient for one dispatch cycle.
+    func liveAccurateSnapshot() -> HypeDocument {
+        var snapshot = document
+        for (partId, scene) in spriteScenes {
+            guard let registry = scene.registry,
+                  !registry.allIDs().isEmpty else { continue }
+            let sceneHeight = Double(scene.size.height)
+            guard var areaSpec = snapshot.parts.first(where: { $0.id == partId })?.spriteAreaSpecModel,
+                  let activeScene = areaSpec.activeScene else { continue }
+            let mergedScene = LiveSceneStateSync.merged(
+                scene: activeScene,
+                registry: registry,
+                sceneHeight: sceneHeight
+            )
+            areaSpec.setActiveScene(mergedScene)
+            snapshot.updatePart(id: partId) { part in
+                part.setSpriteAreaSpec(areaSpec)
+            }
+        }
+        return snapshot
     }
 
     // MARK: - Sprite View Management
