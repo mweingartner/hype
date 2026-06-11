@@ -3097,6 +3097,58 @@ public struct HypeToolExecutor: Sendable {
                 return "create_sprite_game_template failed: \(error.localizedDescription)"
             }
 
+        // MARK: - Composable game-recipe tools (Phase 3)
+
+        case "start_game_recipe":
+            return GameRecipeExecutorBranches.executeStartGameRecipe(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
+
+        case "add_entity":
+            return GameRecipeExecutorBranches.executeAddEntity(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
+
+        case "attach_behavior":
+            return GameRecipeExecutorBranches.executeAttachBehavior(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
+
+        case "detach_behavior":
+            return GameRecipeExecutorBranches.executeDetachBehavior(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
+
+        case "add_rule":
+            return GameRecipeExecutorBranches.executeAddRule(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
+
+        case "set_game_state":
+            return GameRecipeExecutorBranches.executeSetGameState(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
+
+        case "bind_art_role":
+            return GameRecipeExecutorBranches.executeBindArtRole(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
+
+        case "set_controls":
+            return GameRecipeExecutorBranches.executeSetControls(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
+
+        case "build_game":
+            return GameRecipeExecutorBranches.executeBuildGame(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
+
+        case "describe_game":
+            return GameRecipeExecutorBranches.executeDescribeGame(
+                arguments: arguments, document: &document,
+                currentCardId: currentCardId, context: self)
+
         case "get_scene_spec":
             let areaName = arguments["sprite_area_name"] ?? ""
             guard let partIndex = spriteAreaIndex(named: areaName, currentCardId: currentCardId, in: document) else {

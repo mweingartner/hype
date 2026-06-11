@@ -1030,16 +1030,24 @@ public enum HypeTalkGuide {
             -- asked for. Always pass `name` when the user named
             -- the new card.
 
-        **SpriteKit scaffolds:** use `infer_sprite_game_template`, maybe
-        `get_sprite_game_template_guide`, then `create_sprite_game_template`.
-        Use `list_sprite_game_templates` for discovery. User intent outranks
-        template defaults: if the user names an existing sprite area or scene,
-        pass that target to `create_sprite_game_template`; if they say it already
-        exists, pass `require_existing_scene=true`; if inference reports
-        `template_use=create_then_customize`, apply the requested mechanics,
-        generated assets, names, and scripts after the baseline scaffold. Do not
-        satisfy complete-game requests with narrow shortcuts such as boundary
-        walls; use the template tool first, then customize the requested target.
+        **SpriteKit scaffolds — two paths:**
+
+        1. **Canned template (quick start):** `infer_sprite_game_template` → `get_sprite_game_template_guide` → `create_sprite_game_template`. Use `list_sprite_game_templates` for discovery. For existing targets pass `sprite_area_name`; if they say it already exists use `require_existing_scene=true`. Do not satisfy complete-game requests with narrow shortcuts like boundary walls — use the template first.
+
+        2. **Fully custom game ("make a game where…"):** use the composable recipe tools:
+           - `start_game_recipe(scene_width, scene_height, …)` — creates/reuses a sprite area, initialises an empty recipe.
+           - `add_entity(name, role, behaviors, …)` — add player/enemy/hazard/collectible/HUD etc. Names are preserved verbatim.
+           - `attach_behavior` / `detach_behavior` — adjust behaviors on existing entities.
+           - `set_controls(bindings)` — map keys to actions (e.g. `"left=moveLeft,right=moveRight,space=jump"`).
+           - `add_rule(trigger, actions)` — reactive rules (e.g. onContact player×hazard → loseGame).
+           - `set_game_state(track_score, win, lose, …)` — score/lives/timer tracking and win/lose conditions.
+           - `bind_art_role(role, asset_name)` — link an art role to a repository asset; use `generate=true` to mark deferred generation (call generate_image separately first, then re-bind).
+           - `build_game` — compiles the recipe into validated HypeTalk via a deterministic compiler; routes through the script gate before storage. Surfaces diagnostics in the result.
+           - `describe_game` — read-only summary of the current recipe for planning follow-ups.
+
+        **Available behavior kinds:** platformerMovement, topDownMovement, eightDirection, followPointer, chaseTarget, patrol, physicsBody, bounce, wrapAround, constrainToBounds, destroyOutsideBounds, spawner, collectible, damageOnContact, health, scoreOnCollect, winOnReach, winOnScore, loseOnContact, loseOnZeroHealth, draggable, rotator, oscillate. Params are colon-then-semicolon-separated: `topDownMovement:speed=200`.
+
+        **Recipe invariants:** entity names and scene size are always honoured verbatim. The compiler emits exactly one handler per event (sceneDidLoad, keyDown, keyUp, beginContact, endContact, frameUpdate). `build_game` always validates the script before storage — you never hand-write game loops.
 
         **React when a field loses focus — use `on exitField` (always fires) or `on closeField` (only when text changed):**
             on exitField

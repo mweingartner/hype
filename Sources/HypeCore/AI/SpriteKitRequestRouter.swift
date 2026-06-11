@@ -126,7 +126,19 @@ public enum SpriteKitRequestRouter {
             "pong",
             "rhythm game",
             "boss battle",
-            "physics sandbox"
+            "physics sandbox",
+            // Freeform custom-game intent phrases for the composable recipe flow.
+            "make a game where",
+            "build a game where",
+            "create a game where",
+            "control a ",
+            "score points",
+            "game with enemies",
+            "game with a player",
+            "dodge the",
+            "shoot the",
+            "collect the",
+            "avoid the",
         ]
         let formControlTerms = [
             "entry form",

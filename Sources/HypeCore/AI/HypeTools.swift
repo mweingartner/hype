@@ -634,7 +634,11 @@ public struct HypeToolDefinitions {
             existing sprite area or scene, pass that target instead of the default area; \
             when the user says it already exists, set require_existing_scene=true. Use \
             infer_sprite_game_template, get_sprite_game_template_guide, or \
-            list_sprite_game_templates when you need to discover the game_type first.
+            list_sprite_game_templates when you need to discover the game_type first. \
+            For fully custom "make a game where…" requests (custom entities, behaviors, \
+            rules, art), prefer the composable recipe tools instead: start_game_recipe → \
+            add_entity / attach_behavior / set_controls / add_rule / set_game_state / \
+            bind_art_role → build_game.
             """, params: [
             "sprite_area_name": ("string", "Sprite area name to create or rebuild. Omit only when scene_name identifies an existing scene. Defaults to the template's area only when no explicit target was requested.", false),
             "scene_name": ("string", "Optional named scene inside the sprite area to rebuild. Use this when the user says sprite scene \"name\".", false),
@@ -663,6 +667,146 @@ public struct HypeToolDefinitions {
             "query": ("string", "Optional filter text such as pacman, tower defense, physics puzzle, or racing.", false),
             "compact": ("string", "true for compact ID/control/mechanics rows; false for aliases and fuller descriptions. Defaults to true.", false),
         ]),
+
+        // MARK: - Composable game-recipe tools (Phase 3)
+
+        makeTool(name: "start_game_recipe", description: """
+            Start a new composable game recipe on a sprite area. Creates the area \
+            if needed (or reuses an existing one). The recipe is a declarative draft \
+            that the AI builds up with add_entity, set_controls, add_rule, \
+            set_game_state, and bind_art_role before calling build_game to compile \
+            it into a validated scene. Use this for "make a game where…" requests \
+            that don't fit a canned template.
+            """, params: [
+            "sprite_area_name": ("string", "Name of the sprite area to use or create. Omit to auto-resolve a single existing area or create one named 'Game'.", false),
+            "scene_name": ("string", "Scene name inside the sprite area. Defaults to 'main'.", false),
+            "scene_width": ("string", "Scene width in points. Honored verbatim. Defaults to 800.", false),
+            "scene_height": ("string", "Scene height in points. Honored verbatim. Defaults to 600.", false),
+            "background_color": ("string", "Hex background color, e.g. #101018. Defaults to #101018.", false),
+            "gravity": ("string", "Gravity vector as 'dx,dy', e.g. '0,-9.8' for downward. Defaults to '0,0' (no gravity).", false),
+            "require_existing_scene": ("string", "true to fail safely when the target area does not already exist.", false),
+            "left": ("string", "X position for a newly created sprite area.", false),
+            "top": ("string", "Y position for a newly created sprite area.", false),
+            "on_background": ("string", "true to place a newly-created sprite area on the background.", false),
+        ]),
+        makeTool(name: "add_entity", description: """
+            Add an entity (player, enemy, collectible, hazard, wall, HUD label, etc.) \
+            to the sprite area's game recipe. The entity name is preserved verbatim. \
+            Behaviors are parsed from a comma-separated list: each item is 'kind' or \
+            'kind:key=val;key2=val2'. Unknown behavior kinds return an error listing \
+            valid kinds. Call build_game after configuring all entities to compile.
+            """, params: [
+            "sprite_area_name": ("string", "Name of the sprite area. Omit to auto-resolve.", false),
+            "name": ("string", "Entity name (preserved verbatim). Required.", true),
+            "role": ("string", "Entity role: player, enemy, collectible, hazard, projectile, goal, wall, hud, decoration, spawner, background.", false),
+            "x": ("string", "Initial X position in scene coordinates.", false),
+            "y": ("string", "Initial Y position in scene coordinates.", false),
+            "width": ("string", "Entity width. Defaults to 64.", false),
+            "height": ("string", "Entity height. Defaults to 64.", false),
+            "count": ("string", "Number of instances to spawn at scene load. Defaults to 1.", false),
+            "art_role": ("string", "Art role name referencing an ArtRoleBinding for asset resolution.", false),
+            "color": ("string", "Hex placeholder color when no art asset is resolved.", false),
+            "z": ("string", "Z position layer. Defaults to 0.", false),
+            "text": ("string", "Initial text content for HUD/label entities.", false),
+            "font_size": ("string", "Font size for HUD/label entities.", false),
+            "font_color": ("string", "Hex font color for HUD/label entities.", false),
+            "behaviors": ("string", "Comma-separated behavior list. Each item: 'kind' or 'kind:key=val;key2=val2'. Valid kinds: platformerMovement, topDownMovement, eightDirection, followPointer, chaseTarget, patrol, physicsBody, bounce, wrapAround, constrainToBounds, destroyOutsideBounds, spawner, collectible, damageOnContact, health, scoreOnCollect, winOnReach, winOnScore, loseOnContact, loseOnZeroHealth, draggable, rotator, oscillate.", false),
+        ]),
+        makeTool(name: "attach_behavior", description: """
+            Attach a behavior to an existing entity in the recipe. \
+            Use this for follow-up additions after add_entity.
+            """, params: [
+            "sprite_area_name": ("string", "Name of the sprite area. Omit to auto-resolve.", false),
+            "entity_name": ("string", "Name of the entity to modify.", true),
+            "behavior": ("string", "Behavior kind to attach.", true),
+            "params": ("string", "Optional params as 'key=val;key2=val2'.", false),
+        ]),
+        makeTool(name: "detach_behavior", description: """
+            Remove a behavior from an existing entity in the recipe.
+            """, params: [
+            "sprite_area_name": ("string", "Name of the sprite area. Omit to auto-resolve.", false),
+            "entity_name": ("string", "Name of the entity to modify.", true),
+            "behavior": ("string", "Behavior kind to remove.", true),
+        ]),
+        makeTool(name: "add_rule", description: """
+            Add a reactive rule to the game recipe. When the trigger fires and all \
+            conditions hold, the actions execute in order. Trigger kinds: onContact, \
+            onKey, everyNSeconds, onScoreReached, onSceneLoad, onFrame. Action format: \
+            'kind' or 'kind:key=val;key2=val2' (valid kinds: addScore, addLives, \
+            setStatus, destroyOther, destroySelf, respawnEntity, spawnEntity, \
+            setVelocity, winGame, loseGame, playSound).
+            """, params: [
+            "sprite_area_name": ("string", "Name of the sprite area. Omit to auto-resolve.", false),
+            "trigger": ("string", "Trigger kind: onContact, onKey, everyNSeconds, onScoreReached, onSceneLoad, onFrame.", true),
+            "role_a": ("string", "First role for onContact triggers.", false),
+            "role_b": ("string", "Second role for onContact triggers.", false),
+            "key": ("string", "Key identifier for onKey triggers.", false),
+            "seconds": ("string", "Interval for everyNSeconds triggers.", false),
+            "score_threshold": ("string", "Score threshold for onScoreReached triggers.", false),
+            "conditions": ("string", "Optional comma-separated condition list. Use 'always' for unconditional.", false),
+            "actions": ("string", "Comma-separated action list. E.g. 'addScore:amount=10,loseGame,destroyOther'.", false),
+        ]),
+        makeTool(name: "set_game_state", description: """
+            Configure the recipe's game state tracking, win/lose conditions, and HUD \
+            entity bindings. Win/lose shorthand: 'reachScore:100', 'reachGoal:flag', \
+            'allCollected:collectible', 'zeroLives', 'contactRole:hazard'.
+            """, params: [
+            "sprite_area_name": ("string", "Name of the sprite area. Omit to auto-resolve.", false),
+            "track_score": ("string", "true to track a score variable.", false),
+            "initial_score": ("string", "Starting score value. Defaults to 0.", false),
+            "track_lives": ("string", "true to track lives.", false),
+            "initial_lives": ("string", "Starting lives. Defaults to 0.", false),
+            "track_level": ("string", "true to track a level variable.", false),
+            "track_timer": ("string", "true to track a countdown timer.", false),
+            "initial_timer_seconds": ("string", "Starting timer value in seconds.", false),
+            "win": ("string", "Win condition shorthand: 'reachScore:100', 'reachGoal:entityName', 'allCollected:collectible'.", false),
+            "lose": ("string", "Lose condition shorthand: 'zeroLives', 'contactRole:hazard', 'zeroTimer', 'zeroHealth'.", false),
+            "score_hud": ("string", "Name of a HUD entity to display the score.", false),
+            "lives_hud": ("string", "Name of a HUD entity to display lives.", false),
+            "status_hud": ("string", "Name of a HUD entity to display win/lose status messages.", false),
+        ]),
+        makeTool(name: "bind_art_role", description: """
+            Bind a logical art role name to a repository asset or mark it for \
+            generation. Entities reference art roles via their art_role field; the \
+            compiler resolves the chain: entity.art_role → ArtRoleBinding → asset. \
+            When generate=true, this marks the intent only — call generate_image or \
+            generate_sprite_asset separately, then re-bind with the resulting asset name. \
+            NEVER calls any image/network API directly.
+            """, params: [
+            "sprite_area_name": ("string", "Name of the sprite area. Omit to auto-resolve.", false),
+            "role": ("string", "Logical art role name (e.g. 'playerArt', 'enemyArt').", true),
+            "asset_name": ("string", "Repository asset name to bind to this role.", false),
+            "generate": ("string", "true to mark this role for deferred image generation.", false),
+            "prompt": ("string", "Generation prompt used when generate=true.", false),
+        ]),
+        makeTool(name: "set_controls", description: """
+            Replace the recipe's keyboard control bindings. Bindings format: \
+            comma-separated 'key=action' pairs, optionally with ':targetEntityName' \
+            and '/magnitude'. Actions: moveLeft, moveRight, moveUp, moveDown, jump, fire, none.
+            """, params: [
+            "sprite_area_name": ("string", "Name of the sprite area. Omit to auto-resolve.", false),
+            "bindings": ("string", "Comma-separated bindings: 'left=moveLeft,right=moveRight,up=moveUp,down=moveDown,space=jump'. Each can include ':targetEntityName' and '/magnitude'.", true),
+        ]),
+        makeTool(name: "build_game", description: """
+            Compile the game recipe into a validated HypeTalk scene script and merge \
+            it into the active scene. The compiler is deterministic and self-validating; \
+            the result is routed through the script gate before storage. Surfaces \
+            diagnostics (missing assets, name conflicts) in the return value. The \
+            merged scene preserves any existing user nodes and handlers outside the \
+            recipe region.
+            """, params: [
+            "sprite_area_name": ("string", "Name of the sprite area to compile. Omit to auto-resolve.", false),
+            "scene_name": ("string", "Target scene to merge into. Defaults to the active scene.", false),
+            "replace_script": ("string", "true to replace the full scene script rather than merging into the recipe region.", false),
+        ]),
+        makeTool(name: "describe_game", description: """
+            Return a human-readable summary of the current game recipe for planning. \
+            Lists scene size, entities with roles/behaviors/params, rules, game state, \
+            art roles, and controls. Read-only — does not modify the document.
+            """, params: [
+            "sprite_area_name": ("string", "Name of the sprite area to describe. Omit to auto-resolve.", false),
+        ]),
+
         makeTool(name: "get_scene_spec", description: "Get the full SceneSpec JSON for a sprite area.", params: [
             "sprite_area_name": ("string", "Name of the sprite area part", true),
         ]),
@@ -2031,6 +2175,17 @@ public struct HypeToolDefinitions {
             "repair_form_controls",
             // Visual capture — available on all authoring surfaces
             "capture_card_image",
+            // Composable game-recipe tools (Phase 3)
+            "start_game_recipe",
+            "add_entity",
+            "attach_behavior",
+            "detach_behavior",
+            "add_rule",
+            "set_game_state",
+            "bind_art_role",
+            "set_controls",
+            "build_game",
+            "describe_game",
         ])
         return allowed.contains($0.function.name)
     }
@@ -2216,6 +2371,17 @@ public struct HypeToolDefinitions {
             "review_hypetalk_script",
             // Visual capture — available on all authoring surfaces
             "capture_card_image",
+            // Composable game-recipe tools (Phase 3)
+            "start_game_recipe",
+            "add_entity",
+            "attach_behavior",
+            "detach_behavior",
+            "add_rule",
+            "set_game_state",
+            "bind_art_role",
+            "set_controls",
+            "build_game",
+            "describe_game",
         ])
         return allowed.contains($0.function.name)
     }
