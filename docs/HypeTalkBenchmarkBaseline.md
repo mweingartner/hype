@@ -303,6 +303,33 @@ and `RuntimeAIProvider` (FoundationModels) are now `#if … && !os(watchOS)`.
 scripts/watch-kernel-probe.sh   # exit 0 = interpreter kernel builds for watchOS
 ```
 
+## Deferred optimization opportunities
+
+Scoped and intentionally deferred (each is a self-contained follow-on pass):
+
+1. **Static-dictionary dispatch for `evaluateProperty` / `evaluateBuiltIn`.** The
+   property/builtin switches are large `case "name":` chains. A `static let`
+   `[String: handler]` map is O(1) and is the natural way to claw back the
+   `-Osize` property-access CPU regression (Phase 3). Risk: every alias arm
+   (multi-name cases) must map to the same handler — add a test enumerating all
+   known property/builtin names so a dropped alias fails loudly.
+
+2. **Tagged value model (`HValue`) — Stage A.** `Value` is `typealias String`, so
+   arithmetic and comparison round-trip through `String` on every operation.
+   Introducing an interpreter-internal `enum HValue { case number/bool/string/empty }`
+   for `evaluateBinary` and the math builtins (Double path, `.asString` only at the
+   `evaluate(...) -> Value` boundary) removes those round-trips for a ~1.5–2.5×
+   compute-CPU win and lower allocation — relevant to the watch footprint. The
+   anticorruption boundary is hard: `HValue` must live ONLY inside arithmetic/
+   comparison eval; `textContent`, `scriptGlobals`, `env` storage, and all provider
+   signatures stay `String`. Reuses the Phase 1 numeric-vs-text `compare` semantics.
+
+3. **Full watchOS target (multi-module split).** Separate the interpreter kernel
+   (`Script/` + the Foundation-only Models/provider subset) into its own SwiftPM
+   target so a watch app can depend on it without the AppKit view layer. The
+   probe (`scripts/watch-kernel-probe.sh`) already proves the source is ready; the
+   cost is updating imports across the ~200 sites that currently `import HypeCore`.
+
 ## Measurement Practice
 
 - Run release benchmarks before and after each optimization.
