@@ -22,7 +22,7 @@ Meaningful changes should follow this sequence:
 5. Test: add or update regression coverage, then run the narrowest relevant tests and a broader suite when shared runtime code changed.
    - **Parser / interpreter / chunk / file-format / network-protocol changes MUST keep the property/fuzz suite green** and, when they add a new language construct or format rule, extend it. See `Tests/HypeCoreTests/InterpreterFuzzTests.swift` (seeded grammar fuzzer + metamorphic relations). When the fuzzer finds a failure it prints the seed and source — add that seed to `regressionSeeds` to pin it.
    - Assert on **content**, never just existence (`#expect(x == 8)`, not `#expect(x != nil)`).
-6. Gates: the change is not "done" until the automated gates are green — see **Automated Gates (CI)** below. Do not rely on "tests pass" reported by hand; the suite must actually run (a real, non-zero count) and the secret/SAST scans must be clean.
+6. Verify for real: do not rely on "tests pass" reported by hand — the suite must actually run (a real, non-zero count), including the interpreter fuzz suite for language/format changes (see below). Never commit secrets.
 7. Deploy when user-facing macOS behavior changed: install `/Applications/Hype.app` and verify launch.
 
 For review-only tasks, do not edit files unless the user asks for implementation.
@@ -97,35 +97,19 @@ PATH=/usr/bin:/bin:/usr/sbin:/sbin:/Applications/Codex.app/Contents/Resources ./
 /usr/bin/open -n /Applications/Hype.app
 ```
 
-## Automated Gates (CI)
+## Interpreter Fuzz / Property Suite
 
-Three machine-enforced gates back the human/agent review. A change is not done
-until they are green.
-
-- **`secret-scan`** (`.github/workflows/secret-scan.yml`, hosted): gitleaks over
-  the working tree (blocking) and history (advisory). Never commit secrets.
-- **`sast`** (`.github/workflows/sast.yml`, hosted): Semgrep source-pattern
-  analysis. Informational today; triage findings, then promote to blocking by
-  removing `continue-on-error`. Deterministic backstop behind the security
-  persona — do not treat the LLM security pass as sufficient on its own.
-- **`ci`** (`.github/workflows/ci.yml`): `swift build` + full `swift test`
-  (serial) + the interpreter fuzz suite + the watchOS kernel probe. Runs on a
-  **self-hosted macOS runner** because the project pins a beta SDK (Swift 6.4 /
-  macOS 27) that hosted runners lack. Activation is documented in the workflow
-  header (register the runner, set repo variable `SELF_HOSTED_RUNNER_READY=true`,
-  then require the `build-test-fuzz` check on `main`). Until then, run the gate
-  locally before pushing.
-- **`dependabot`** (`.github/dependabot.yml`): weekly SwiftPM + Actions updates
-  and CVE alerts in the Security tab.
-
-Run the interpreter fuzz/property suite locally:
+`Tests/HypeCoreTests/InterpreterFuzzTests.swift` is a seeded grammar fuzzer over
+generated HypeTalk handlers plus oracle-free metamorphic relations. Parser /
+interpreter / chunk / file-format / protocol changes must keep it green and
+extend it for new constructs. Run it locally:
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
   swift test --no-parallel --filter InterpreterFuzzNoCrashTests --filter InterpreterMetamorphicTests
 ```
 
-The broader method these gates implement is written up in
+The broader development method is written up in
 `docs/Model-Paired-Development-Playbook.md`.
 
 ## Git Hygiene
