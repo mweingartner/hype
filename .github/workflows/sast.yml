@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true   # informational until the ruleset is tuned — then remove
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Semgrep
         run: pipx install semgrep || pip3 install --user semgrep
