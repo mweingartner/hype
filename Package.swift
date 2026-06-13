@@ -16,7 +16,7 @@ let package = Package(
         .library(name: "HypeCore", targets: ["HypeCore"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-argument-parser.git", exact: "1.5.0"),
+        .package(url: "https://github.com/apple/swift-argument-parser.git", exact: "1.8.2"),
         // Vendored: upstream AudioKit's declared macOS minimum (10.13/11) no longer
         // compiles under current SDKs (auAudioUnit is macOS 13+). See
         // Vendor/AudioKit/HYPE_VENDOR_NOTE.md for provenance and the single patch.
