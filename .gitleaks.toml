@@ -1,0 +1,18 @@
+# gitleaks configuration for Hype.
+#
+# Uses gitleaks' built-in ruleset, then NARROWLY allowlists known test fixtures.
+# The discriminator is the variable name (`fake*Key`): a real credential would
+# never be assigned to a variable literally named `fakeKey` / `fakeAPIKey`, so
+# this cannot hide a genuine leak. Do NOT allowlist by the `msy_secret_` value
+# prefix — a real Meshy key shares that prefix.
+title = "Hype gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Deliberately fake credentials in test fixtures (variables named fake*Key)."
+regexTarget = "line"
+regexes = [
+  '''(?i)fake[a-z0-9]*key\s*=''',
+]
