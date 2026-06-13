@@ -112,6 +112,32 @@ DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
 The broader development method is written up in
 `docs/Model-Paired-Development-Playbook.md`.
 
+## Local Build/Test Gate (pre-push hook)
+
+A tracked pre-push hook enforces the build/test gate locally — the machine
+runs it, not the agent's word. Install once per clone:
+
+```bash
+scripts/install-git-hooks.sh        # sets core.hooksPath = .githooks
+```
+
+`.githooks/pre-push` runs `swift test --no-parallel --filter HypeCoreTests
+--filter HypeCLITests` before any push that updates `main`, and aborts the push
+if it fails. That **builds every target** (incl. the Hype app, so a compile
+break anywhere fails the gate) and **runs** the interpreter, fuzz/property, and
+CLI suites. The AppKit `HypeTests` target is excluded from execution because it
+crashes under `--no-parallel` in a headless run (and the parallel runner stalls
+on HypeCoreTests in this toolchain) — validate `HypeTests` by launching
+`/Applications/Hype.app`. Pushes to other branches are not delayed. Bypass only
+when justified (e.g. a docs-only push):
+
+```bash
+git push --no-verify           # or:  HYPE_SKIP_PREPUSH=1 git push
+```
+
+This replaces the (removed) GitHub CI build/test gate — the project pins a beta
+toolchain hosted runners can't build, so enforcement lives locally.
+
 ## Git Hygiene
 
 - Inspect `git status --short` before editing and before staging.

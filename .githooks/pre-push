@@ -1,0 +1,73 @@
+#!/bin/bash
+#
+# pre-push — local build/test gate.
+#
+# Runs the full Swift test suite (which builds the package and includes the
+# interpreter fuzz/property suite in HypeCoreTests) before allowing a push that
+# updates `main`. This is the machine-enforced equivalent of a CI build/test
+# gate, with no external infrastructure — the gate runs on your machine, and a
+# red suite blocks the push.
+#
+# Why a hook instead of CI: this project pins a beta toolchain (Swift 6.4 /
+# macOS 27 via Xcode-beta) that GitHub-hosted runners don't carry, so a hosted
+# build/test gate isn't possible and a self-hosted runner is more setup than a
+# solo project needs. The hook gives the same "the machine enforces it, not the
+# model" guarantee locally.
+#
+# Install once:   git config core.hooksPath .githooks
+#            or:  scripts/install-git-hooks.sh
+#
+# Bypass (rare, e.g. a docs-only push):
+#   git push --no-verify
+#   HYPE_SKIP_PREPUSH=1 git push
+#
+# stdin (per `man githooks`): lines of "<local ref> <local sha> <remote ref> <remote sha>".
+
+set -uo pipefail
+
+# Only gate pushes that update main; feature-branch pushes are not delayed.
+gate=0
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main) gate=1 ;;
+  esac
+done
+if [ "$gate" -ne 1 ]; then
+  echo "pre-push: push does not update main — skipping the test gate."
+  exit 0
+fi
+
+if [ "${HYPE_SKIP_PREPUSH:-0}" = "1" ]; then
+  echo "pre-push: HYPE_SKIP_PREPUSH=1 — skipping the test gate (bypass)."
+  exit 0
+fi
+
+# Robust PATH (git hooks can run with a stripped environment) + the working
+# Xcode-beta toolchain (this machine's Command Line Tools are broken).
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+if [ -d /Applications/Xcode-beta.app ]; then
+  export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode-beta.app/Contents/Developer}"
+fi
+
+# Test invocation is tuned to this environment (beta toolchain via Xcode-beta):
+#   --no-parallel        : the parallel runner stalls on HypeCoreTests here;
+#                          serial is deterministic (~2 min).
+#   --filter HypeCoreTests --filter HypeCLITests
+#                        : run the stable logic targets — the interpreter, the
+#                          fuzz/property suite, and the CLI. swift test still
+#                          *builds* every target (incl. the Hype app), so a
+#                          compile break anywhere fails the gate; only execution
+#                          is scoped. The HypeTests (AppKit app) target is
+#                          excluded because it force-unwraps AppKit state and
+#                          crashes under --no-parallel in a headless run; validate
+#                          it by launching /Applications/Hype.app (see AGENTS.md).
+echo "pre-push: building all targets + running logic/CLI/fuzz suites (serial) before pushing main…"
+echo "pre-push: (bypass with 'git push --no-verify' or HYPE_SKIP_PREPUSH=1 if you must)"
+
+if swift test --no-parallel --filter HypeCoreTests --filter HypeCLITests; then
+  echo "pre-push: ✓ build + tests passed — allowing push."
+  exit 0
+else
+  echo "pre-push: ✗ BUILD/TESTS FAILED — push aborted. Fix it (or bypass with --no-verify)." >&2
+  exit 1
+fi

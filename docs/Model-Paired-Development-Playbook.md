@@ -205,10 +205,12 @@ insecure code physically cannot land).
 
 1. **All tests pass before deployment.** Not "the new tests" — the **full
    suite**, to catch regressions.
-2. **The gate is machine-enforced.** CI runs the build + full suite + scans on
-   every push/PR, and `main` requires those checks to pass (branch protection).
-   "Tests pass" reported by the agent is a *claim*; a green required check is a
-   *fact*. (See §5.7 for the deterministic-security and toolchain specifics.)
+2. **The gate is machine-enforced, not self-reported.** At minimum a **pre-push
+   git hook** runs the build + full suite locally and aborts the push if it
+   fails; with shared infrastructure, CI runs it on every push/PR and `main`
+   requires the check (branch protection). "Tests pass" reported by the agent is
+   a *claim*; a hook that blocked the push, or a green required check, is a
+   *fact*. (See §5.7 for the enforcement ladder and toolchain specifics.)
 3. **In the full tier, code cannot reach the tester without passing security.**
 4. **Stage specific files; never `git add -A`.** You commit what you reviewed.
 5. **One logical change per commit**, with a clear message and co-author tag.
@@ -279,32 +281,45 @@ Two cheap, high-signal measures answer that:
 
 Report these, not just the pass count.
 
-### 5.7 Machine-enforced gates & deterministic security tooling
+### 5.7 The enforcement ladder (local hook → CI), and deterministic security
 
-The personas *review*; CI *enforces*. Stand up, as required status checks on
-`main`:
+The personas *review*; something mechanical must *enforce*. "Enforced" is a
+ladder — climb as far as your project's infrastructure and risk justify, but get
+on it:
 
-- **Build + full test suite (incl. the fuzz suite)** — the correctness gate.
+1. **Self-reported (weakest).** The agent says "tests pass." Necessary but
+   fakeable — this is the rung to climb *off* of.
+2. **Local pre-push hook (no infrastructure).** A tracked `pre-push` hook runs
+   the build + full suite (incl. the fuzz suite) and **aborts the push** if it
+   fails. The machine enforces it, on your machine, with zero external setup. A
+   red suite physically blocks the push; bypass requires a deliberate
+   `--no-verify`. This is the pragmatic default and is often *enough* for a solo
+   or small project.
+3. **CI required checks (strongest).** Workflows run the suite + scans on every
+   push/PR and `main` *requires* them (branch protection), so nothing lands
+   unverified even across machines and contributors. Add this when you have
+   shared infrastructure and more than one contributor.
+
+**Toolchain reality check.** CI needs a runner with your toolchain. If the
+project pins a beta or unusual SDK (Hype pins a beta Swift/macOS SDK that
+GitHub-hosted runners don't carry), hosted CI can't build it — your options are a
+self-hosted runner (more setup) or, more simply, the **local pre-push hook**.
+Hype took the hook: it enforces build + test + fuzz on every push to `main`
+without any CI infrastructure. Don't let "we can't run hosted CI" become an
+excuse for *no* gate — a pre-push hook is always available.
+
+**Deterministic security tooling** belongs on whichever rung you're on — the LLM
+security persona is *necessary but not sufficient* and should confirm these
+exist, not replace them:
+
 - **Secret scanning** (e.g. gitleaks) — unambiguous; hard-fail on any finding.
-- **SAST** (e.g. Semgrep source-pattern, or CodeQL when a build is available) —
-  the deterministic backstop behind the security persona; it catches taint flows
-  and dangerous patterns an LLM misses. Start informational, tune, then promote
-  to blocking.
+- **SAST** (e.g. Semgrep source-pattern; CodeQL when a build is available) — the
+  backstop that catches taint flows and dangerous patterns an LLM misses.
 - **Dependency / SCA alerts** (e.g. Dependabot) — known-CVE and update tracking.
 
-**A real-world wrinkle to plan for:** your CI runner must have your toolchain. If
-the project pins a beta or unusual SDK (Hype targets a beta Swift/macOS SDK that
-hosted runners don't carry), the build/test gate needs a **self-hosted runner**
-(your dev machine), while the SDK-independent gates (secret scan, source-based
-SAST, dependency alerts) run fine on hosted runners. Split them that way: get the
-hosted gates green immediately, and wire the build/test gate to the self-hosted
-runner (activated by a one-time registration + a repo flag) so it's ready and
-correct even before the runner exists. Don't let a toolchain mismatch become an
-excuse for *no* gate — run the SDK-independent ones now, and run the build/test
-gate locally until the runner is live.
-
-The LLM security persona is **necessary but not sufficient**: it should *confirm
-these gates exist and are green*, not stand in for them.
+Source-based scanners (gitleaks, Semgrep) need no toolchain, so they can run in
+the pre-push hook *or* hosted CI even when the build can't. Add them to the rung
+you have.
 
 ---
 
@@ -392,12 +407,14 @@ sub-agents (the examples use Claude Code's `Task`/sub-agent mechanism).
   architecture.md           # living design (source of truth)
   decisions.md              # why choices were made
   docs/                     # audits, baselines, design notes, this playbook
-  .github/
-    workflows/
-      ci.yml                # build + full test suite + fuzz (the correctness gate)
-      secret-scan.yml       # gitleaks (hosted, SDK-independent)
-      sast.yml              # Semgrep source-pattern SAST (hosted, SDK-independent)
-    dependabot.yml          # dependency updates + CVE alerts
+  .githooks/
+    pre-push                # build + full test suite (incl. fuzz) — the local gate
+  scripts/
+    install-git-hooks.sh    # sets core.hooksPath = .githooks (one-time)
+  .github/                  # OPTIONAL stronger tier, only if you have CI infra:
+    workflows/ci.yml        #   build/test (needs a runner with your toolchain)
+    workflows/secret-scan.yml, sast.yml   # gitleaks + Semgrep (SDK-independent)
+    dependabot.yml          #   dependency updates + CVE alerts
 ```
 
 ### 7.2 The files to write (in order)
@@ -421,12 +438,17 @@ sub-agents (the examples use Claude Code's `Task`/sub-agent mechanism).
    gate commands *here*, where they're read on every task (how to run the suite,
    the fuzz filter, the deploy step) — the global rules carry the principle, the
    project file carries the exact commands.
-5. **The CI gates** (`.github/`): the build/test workflow, secret scan, SAST, and
-   Dependabot config. Make the SDK-independent ones (secret/SAST/deps) run on
-   hosted runners immediately; wire the build/test gate to whatever runner has
-   your toolchain (self-hosted if you pin a beta/unusual SDK). Then turn on
-   **branch protection** so `main` requires the checks — that's the step that
-   converts the workflow from advisory to enforced.
+5. **The machine-enforced gate (start local).** Add a tracked `.githooks/pre-push`
+   that runs the build + full suite and aborts the push on failure, plus a
+   one-line installer (`git config core.hooksPath .githooks`). This gives you
+   enforcement with zero infrastructure and works regardless of toolchain — the
+   right default for solo/small projects. **Then, if and when you have CI infra**,
+   add `.github/` workflows as the stronger tier: source-based scans (gitleaks,
+   Semgrep) and dependency alerts run on hosted runners immediately; the
+   build/test gate needs a runner with your toolchain (self-hosted if you pin a
+   beta/unusual SDK), after which branch protection makes `main` require the
+   checks. Climb the ladder (§5.7) as far as your project warrants — but never
+   stay on rung 1 (self-reported).
 
 ### 7.3 Configuration that matters
 
@@ -515,10 +537,10 @@ checklist while reviewing the model's work.
   it *reports* it rather than silently "fixing" it.
 - **Trade-offs come to you.** Genuine judgment calls that exceed a threshold are
   raised with options and a recommendation.
-- **The gate is the machine.** CI ran the suite + scans and is green (a required
-  check, not a screenshot of a local run); parser/format changes show the fuzz
-  suite green; the security pass *confirms* the deterministic scans, not just its
-  own read.
+- **The gate is the machine.** Something mechanical ran the suite and would have
+  blocked on failure — a pre-push hook that aborts the push, or a required CI
+  check — not just the agent saying "tests pass"; parser/format changes show the
+  fuzz suite green; the security pass *confirms* the deterministic scans exist.
 
 ### 9.2 Red flags (compliance theater or corner-cutting)
 
@@ -534,9 +556,10 @@ checklist while reviewing the model's work.
   co-author tag.
 - **The model rationalizes past a gate** it set itself ("technically this exceeds
   10% but it's probably fine") instead of asking.
-- **Gates live only in the model.** No CI, or "I ran the tests" with no required
-  check behind it; an interpreter/parser with only example tests and no fuzzer; a
-  security pass with no deterministic scanner behind it.
+- **Gates live only in the model.** No enforcement at all — not even a pre-push
+  hook — so "I ran the tests" is the only thing standing between a bug and `main`;
+  an interpreter/parser with only example tests and no fuzzer; a security pass
+  with no deterministic scanner behind it.
 - **Stale or fabricated references.** Cites a file/flag/line that doesn't exist, or
   re-states a doc that the code has since contradicted.
 
@@ -679,10 +702,11 @@ BUILD & TEST
 [ ] Performance/size claims have before+after numbers + the command
 [ ] "It works" claims come from running the real thing
 
-GATES (machine-enforced)
-[ ] CI ran the build + full suite (not just self-reported) and is green
-[ ] Secret scan + SAST + dependency checks ran and are green/triaged
-[ ] `main` requires these checks (branch protection on)
+GATES (machine-enforced — at least a pre-push hook)
+[ ] A pre-push hook (or required CI check) runs the full suite and blocks on failure
+[ ] That gate actually ran for this change (not just self-reported)
+[ ] Secret/SAST/dependency scanning runs somewhere (hook or CI), or is a noted gap
+[ ] If CI exists: `main` requires the checks (branch protection on)
 
 COMMIT
 [ ] Specific files staged; `git status` shows nothing unexpected
