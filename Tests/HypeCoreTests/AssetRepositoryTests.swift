@@ -119,61 +119,6 @@ struct AssetRepositoryTests {
         #expect(repository.asset(byClassicMediaName: "Intro Wind Mov", kind: .videoClip)?.id == movie.id)
     }
 
-    @Test("playable audio lookup accepts classic aliases for audio-only QuickTime")
-    func playableAudioLookupAcceptsClassicAliasesForAudioOnlyQuickTime() {
-        let movie = Asset(
-            name: "EL GenAll MoV",
-            kind: .videoClip,
-            mimeType: "video/quicktime",
-            data: Data("audio".utf8),
-            metadata: [
-                AssetMetadataEntry(key: "classic_name", value: "EL GenAll MoV"),
-                AssetMetadataEntry(key: "classic_alias", value: "El GenRun"),
-                AssetMetadataEntry(key: "lookup_key", value: "el genall mov"),
-                AssetMetadataEntry(key: "lookup_key", value: "el genrun"),
-                AssetMetadataEntry(key: "quicktime_audio_only", value: "true")
-            ]
-        )
-        let repository = AssetRepository(assets: [movie])
-
-        #expect(repository.asset(byClassicMediaName: "El GenRun", kind: .videoClip)?.id == movie.id)
-        #expect(repository.playableAudioAsset(byClassicMediaName: "El GenRun")?.id == movie.id)
-    }
-
-    @Test("classic media lookup trims and normalizes imported audio names")
-    func classicMediaLookupTrimsAndNormalizesImportedAudioNames() {
-        let audio = Asset(
-            name: "WA Drip",
-            kind: .audioClip,
-            mimeType: "audio/wav",
-            data: Data([1]),
-            metadata: [
-                AssetMetadataEntry(key: "classic_name", value: "WA Drip"),
-                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("WA Drip"))
-            ]
-        )
-        let repository = AssetRepository(assets: [audio])
-
-        #expect(repository.asset(byClassicMediaName: "wa drip ", kind: .audioClip)?.id == audio.id)
-    }
-
-    @Test("classic media lookup tolerates collapsed word separators")
-    func classicMediaLookupToleratesCollapsedWordSeparators() {
-        let audio = Asset(
-            name: "DR Drawer Close",
-            kind: .audioClip,
-            mimeType: "audio/wav",
-            data: Data([1]),
-            metadata: [
-                AssetMetadataEntry(key: "classic_name", value: "DR Drawer Close"),
-                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("DR Drawer Close"))
-            ]
-        )
-        let repository = AssetRepository(assets: [audio])
-
-        #expect(repository.asset(byClassicMediaName: "DR drawerClose", kind: .audioClip)?.id == audio.id)
-    }
-
     @Test("HypeDocument exposes assetRepository while preserving assetRepository storage")
     func documentAssetRepositoryAliasMutatesStoredRepository() {
         var document = HypeDocument.newDocument()

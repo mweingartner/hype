@@ -1,10 +1,6 @@
 import AppKit
 import HypeCore
 
-extension Notification.Name {
-    static let navigateToProjectTarget = Notification.Name("navigateToProjectTarget")
-}
-
 @MainActor
 enum ProjectNavigationRouter {
     typealias DocumentOpener = (URL, @escaping (Error?) -> Void) -> Void

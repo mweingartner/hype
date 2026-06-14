@@ -2150,6 +2150,11 @@ public struct HyperCardExternalRegistry: Sendable {
         let sourceRect = pictureSourceRect(from: call.arguments)
         let transferMode = pictureTransferMode(from: call.arguments)
         let imageData = sourceRect.flatMap { croppedPNGData(from: asset.data, sourceRect: $0) } ?? asset.data
+        if replacement,
+           transferMode == "srcCopy",
+           isFullCardRect(rect, in: document) {
+            hideImportedCardPaintLayerParts(cardId: context.currentCardId, in: &document)
+        }
         var part = Part(
             partType: .image,
             cardId: context.currentCardId,
@@ -2189,6 +2194,30 @@ public struct HyperCardExternalRegistry: Sendable {
                 compositedPixelCount: compositedPixels
             )
         )
+    }
+
+    private static func isFullCardRect(_ rect: CGRect, in document: HypeDocument) -> Bool {
+        rect.minX <= 0 &&
+            rect.minY <= 0 &&
+            rect.width >= Double(document.stack.width) &&
+            rect.height >= Double(document.stack.height)
+    }
+
+    private static func hideImportedCardPaintLayerParts(cardId: UUID, in document: inout HypeDocument) {
+        for index in document.parts.indices {
+            let part = document.parts[index]
+            guard part.cardId == cardId,
+                  part.partType == .image,
+                  part.helpText.isEmpty,
+                  part.visible,
+                  part.left == 0,
+                  part.top == 0,
+                  Int(part.width.rounded()) >= document.stack.width,
+                  Int(part.height.rounded()) >= document.stack.height,
+                  part.sortKey == "a000000",
+                  part.name.localizedCaseInsensitiveContains("Paint Layer") else { continue }
+            document.parts[index].visible = false
+        }
     }
 
     private static func savePictureCompatibility(
@@ -2924,8 +2953,8 @@ public struct HyperCardExternalRegistry: Sendable {
     }
 
     private static func pictureTransferMode(from arguments: [Value]) -> String? {
-        guard arguments.count >= 3 else { return nil }
-        for argument in arguments.dropFirst(2) {
+        guard arguments.count >= 2 else { return nil }
+        for argument in arguments.dropFirst() {
             switch argument
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()

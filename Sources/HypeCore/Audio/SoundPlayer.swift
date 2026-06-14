@@ -145,7 +145,7 @@ public final class SoundPlayer: NSObject, NSSoundDelegate {
     /// 3. HyperCard built-in name → system sound mapping
     ///    ("boing"→Frog, "harpsichord"→Hero, "flute"→Purr).
     ///
-    /// 4. AssetRepository playable audio asset by name.
+    /// 4. AssetRepository `.audioClip` asset by name.
     ///
     /// 5. File path fallback.
     public func play(name: String, document: HypeDocument? = nil) {
@@ -181,11 +181,19 @@ public final class SoundPlayer: NSObject, NSSoundDelegate {
             }
         }
 
-        // 4. AssetRepository audio asset or audio-only QuickTime replacement
+        // 4. AssetRepository audio asset
         if let doc = document,
            let asset = doc.assetRepository.playableAudioAsset(byClassicMediaName: requestedName) {
             let tempDir = FileManager.default.temporaryDirectory
-            let ext = Self.audioFileExtension(for: asset)
+            let ext: String
+            switch asset.mimeType {
+            case "audio/mpeg": ext = "mp3"
+            case "audio/wav":  ext = "wav"
+            case "audio/aiff": ext = "aiff"
+            case "audio/mp4":  ext = "m4a"
+            case "audio/x-caf": ext = "caf"
+            default: ext = "aiff"
+            }
             let tempFile = tempDir.appendingPathComponent("\(asset.id.uuidString).\(ext)")
             if !FileManager.default.fileExists(atPath: tempFile.path) {
                 try? asset.data.write(to: tempFile)
@@ -242,24 +250,6 @@ public final class SoundPlayer: NSObject, NSSoundDelegate {
             source: "SoundPlayer"
         )
         return true
-    }
-
-    private static func audioFileExtension(for asset: Asset) -> String {
-        let resolvedPath = asset.metadata.first { $0.key.lowercased() == "resolved_path" }?.value ?? ""
-        if !resolvedPath.isEmpty {
-            let ext = URL(fileURLWithPath: resolvedPath).pathExtension
-            if ["m4a", "m4r", "mp3", "wav", "aif", "aiff", "caf"].contains(ext.lowercased()) {
-                return ext
-            }
-        }
-        switch asset.mimeType {
-        case "audio/mpeg": return "mp3"
-        case "audio/wav":  return "wav"
-        case "audio/aiff": return "aiff"
-        case "audio/mp4":  return "m4a"
-        case "audio/x-caf": return "caf"
-        default: return AssetRepository.isAudioOnlyQuickTimeAsset(asset) ? "m4a" : "aiff"
-        }
     }
 
     /// Play a file via `AVAudioPlayer`. Returns true on success.

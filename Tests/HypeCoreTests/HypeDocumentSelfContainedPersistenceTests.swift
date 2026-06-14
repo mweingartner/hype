@@ -126,43 +126,6 @@ struct HypeDocumentSelfContainedPersistenceTests {
         #expect(loaded.cards[0].script == document.cards[0].script)
     }
 
-    @Test("legacy imported scripts are repaired on load before disabling")
-    func legacyImportedScriptsAreRepairedOnLoadBeforeDisabling() throws {
-        let store = HypeSQLiteStackStore()
-        let packageURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("LegacyRepairScriptSQLite-\(UUID().uuidString).hype", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: packageURL) }
-
-        var document = HypeDocument.newDocument(name: "Legacy Repair Script")
-        document.stack.script = """
-        function helper value
-        return value
-        end helper
-
-        on openCard
-        repeat with x = 1 to the number of lines in pictAdd
-        if line x of pictAdd is not empty then
-        put helper(x) into it
-        end repeat
-        end openCard
-        """
-        document.legacyImport = LegacyStackImportMetadata(
-            sourceFileName: "Legacy Repair Script",
-            dataForkSHA256: "fixture",
-            report: HyperCardImportReport(
-                stackName: "Legacy Repair Script",
-                cardSize: HyperCardSize(width: document.stack.width, height: document.stack.height)
-            )
-        )
-
-        try store.save(document, toPackageAt: packageURL)
-        let loaded = try store.load(fromPackageAt: packageURL)
-
-        #expect(!loaded.stack.script.hasPrefix("-- Imported HyperCard script preserved for reference."))
-        #expect(loaded.stack.script.contains("put helper(x) into it\nend repeat"))
-        #expect(loaded.stack.script.contains("function helper value"))
-    }
-
     @Test("imported stack library persists as document metadata")
     func importedStackLibraryPersistsAsDocumentMetadata() throws {
         let store = HypeSQLiteStackStore()
@@ -204,34 +167,30 @@ struct HypeDocumentSelfContainedPersistenceTests {
         #expect(try documentValue("stackLibrary", in: packageURL)?.contains("5907") == true)
     }
 
-    @Test("repository-backed video part state persists")
-    func repositoryBackedVideoPartStatePersists() throws {
+    @Test("video part volume persists with repository-backed playback settings")
+    func videoPartVolumePersistsWithRepositoryBackedPlaybackSettings() throws {
         let store = HypeSQLiteStackStore()
         let packageURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("VideoAssetRefSQLite-\(UUID().uuidString).hype", isDirectory: true)
+            .appendingPathComponent("VideoVolumeSQLite-\(UUID().uuidString).hype", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: packageURL) }
 
-        var document = HypeDocument.newDocument(name: "Video Test")
-        let cardId = try #require(document.cards.first?.id)
-        let movie = Asset(name: "Intro Wind Mov-modern.mov", kind: .videoClip, mimeType: "video/quicktime", data: Data("movie".utf8))
+        var document = HypeDocument.newDocument(name: "Video Volume")
+        let movie = Asset(name: "Intro Wind Mov", kind: .videoClip, mimeType: "video/quicktime", data: Data("movie".utf8))
         document.assetRepository.addAsset(movie)
-        var part = Part(partType: .video, cardId: cardId, name: "Intro Wind Mov")
+        var part = Part(partType: .video, cardId: document.cards[0].id, name: "Intro Wind Mov")
         part.videoAssetRef = document.assetRepository.assetRef(for: movie)
-        part.videoURL = "asset://\(movie.id.uuidString)"
         part.videoAutoplay = true
         part.videoLoop = true
         part.videoVolume = 0.5
         document.addPart(part)
 
         try store.save(document, toPackageAt: packageURL)
-        let loaded = try store.load(fromPackageAt: packageURL)
-
-        let loadedPart = try #require(loaded.parts.first { $0.partType == .video })
-        #expect(loadedPart.videoAssetRef?.id == movie.id)
-        #expect(loadedPart.videoURL == "asset://\(movie.id.uuidString)")
-        #expect(loadedPart.videoAutoplay)
-        #expect(loadedPart.videoLoop)
-        #expect(loadedPart.videoVolume == 0.5)
+        let reloaded = try store.load(fromPackageAt: packageURL)
+        let videoPart = try #require(reloaded.parts.first { $0.partType == .video })
+        #expect(videoPart.videoAssetRef?.id == movie.id)
+        #expect(videoPart.videoAutoplay)
+        #expect(videoPart.videoLoop)
+        #expect(videoPart.videoVolume == 0.5)
     }
 
     @Test("FileWrapper package is self-contained")

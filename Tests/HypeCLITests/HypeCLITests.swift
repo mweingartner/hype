@@ -123,22 +123,6 @@ struct HypeCLITests {
         #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "42")
     }
 
-    @Test func testParseOnlyDoesNotExecuteHandler() {
-        let scriptFile = scriptDir.appendingPathComponent("parse-only.hypetalk")
-        try? """
-        on main
-          repeat forever
-            put 1 into x
-          end repeat
-        end main
-        """.write(to: scriptFile, atomically: true, encoding: .utf8)
-
-        let result = runBinary(arguments: ["--parse-only", scriptFile.path])
-
-        #expect(result.exitStatus == 0)
-        #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "OK")
-    }
-
     @Test func testNestedExpression() {
         let result = runHypetalkScript("""
         on main
@@ -357,67 +341,6 @@ struct HypeCLITests {
         #expect(imported.stack.name == "Resources.stak")
     }
 
-    @Test func testStackImportProjectOutputDirectoryCommand() throws {
-        let tempDir = scriptDir
-        let packageA = tempDir.appendingPathComponent("Sample.xstk", isDirectory: true)
-        let packageB = tempDir.appendingPathComponent("Other.xstk", isDirectory: true)
-        let outputDir = tempDir.appendingPathComponent("project-out", isDirectory: true)
-        let libraryURL = tempDir.appendingPathComponent("stack-library.json")
-        try FileManager.default.createDirectory(at: packageA, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: packageB, withIntermediateDirectories: true)
-        try writeSyntheticStackImportPackage(at: packageA, name: "Sample", cardId: 100, cardName: "Sample Card")
-        try writeSyntheticStackImportPackage(at: packageB, name: "Other", cardId: 200, cardName: "Other Card")
-        try Data("""
-        [
-          {
-            "stackName": "Sample",
-            "aliases": ["Sample"],
-            "source": "importedStackPackage",
-            "packagePath": "\(packageA.path)",
-            "legacyFirstCardId": 100,
-            "cardCount": 1,
-            "cardReferences": [{"legacyCardId": 100, "name": "Sample Card", "sortIndex": 0}]
-          },
-          {
-            "stackName": "Other",
-            "aliases": ["Other"],
-            "source": "importedStackPackage",
-            "packagePath": "\(packageB.path)",
-            "legacyFirstCardId": 200,
-            "cardCount": 1,
-            "cardReferences": [{"legacyCardId": 200, "name": "Other Card", "sortIndex": 0}]
-          }
-        ]
-        """.utf8).write(to: libraryURL)
-
-        let result = runBinary(arguments: [
-            "--import-stackimport-project", packageA.path, packageB.path,
-            "--output-dir", outputDir.path,
-            "--stack-library-json", libraryURL.path,
-            "--used-stack-aliases", "Sample,Other",
-        ])
-
-        #expect(result.exitStatus == 0)
-        let data = try #require(result.stdout.data(using: .utf8))
-        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let summary = try #require(object["result"] as? [String: Any])
-        #expect(summary["stackCount"] as? Int == 2)
-        #expect(summary["stackLibraryEntryCount"] as? Int == 2)
-        let sampleURL = outputDir.appendingPathComponent("Sample-debug-imported.hype", isDirectory: true)
-        let otherURL = outputDir.appendingPathComponent("Other-debug-imported.hype", isDirectory: true)
-        #expect(FileManager.default.fileExists(atPath: sampleURL.path))
-        #expect(FileManager.default.fileExists(atPath: otherURL.path))
-
-        let sample = try HypeSQLiteStackStore().load(fromPackageAt: sampleURL)
-        guard case .resolved(let otherInSample) = sample.stackLibrary.resolution(for: "Other") else {
-            Issue.record("Expected imported project package to carry linked stack metadata")
-            return
-        }
-        #expect(otherInSample.documentPath == otherURL.path)
-        #expect(otherInSample.cardReferences.first?.legacyCardId == 200)
-        #expect(sample.stackLibrary.usedStackAliases == ["Sample", "Other"])
-    }
-
     @Test func testValidateScriptsExportsWithoutExecuting() throws {
         var document = HypeDocument.newDocument(name: "Validation Fixture")
         document.stack.script = "on openStack\r  put \"do not print\" into x -- classic comment\rend openStack"
@@ -456,24 +379,6 @@ struct HypeCLITests {
         #expect(!stackSource.contains("\r"))
     }
 
-    @Test func testValidatePackageReportsSQLiteHealth() throws {
-        var document = HypeDocument.newDocument(name: "Package Validation Fixture")
-        let cardId = try #require(document.cards.first?.id)
-        document.parts.append(Part(partType: .button, cardId: cardId, name: "Run"))
-        let packageURL = scriptDir.appendingPathComponent("PackageValidationFixture.hype", isDirectory: true)
-        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
-
-        let result = runBinary(arguments: [
-            "--validate-package", packageURL.path,
-        ])
-
-        #expect(result.exitStatus == 0)
-        #expect(result.stdout.contains("status\tstackName\tdocumentVersion"))
-        #expect(result.stdout.contains("ok\tPackage Validation Fixture"))
-        #expect(result.stdout.contains("\t1\t1\t1\t"))
-        #expect(result.stdout.contains("\tok\t0\t0\t"))
-    }
-
     @Test func testValidateScriptsReportsSemanticImportIssues() throws {
         var document = HypeDocument.newDocument(name: "Semantic Validation Fixture")
         let cardId = try #require(document.cards.first?.id)
@@ -503,549 +408,104 @@ struct HypeCLITests {
 
         #expect(result.exitStatus == 0)
         #expect(result.stdout.contains("warning\tbutton\tRun"))
-        #expect(!result.stdout.contains("bare line is evaluated as a variable"))
+        #expect(result.stdout.contains("bare line is evaluated as a variable"))
         #expect(result.stdout.contains("not translated to Hype transition durations"))
         #expect(result.stdout.contains("has no embedded audio asset"))
 
         let summary = try String(contentsOf: exportURL.appendingPathComponent("summary.txt"), encoding: .utf8)
         #expect(summary.contains("warning\t1"))
         let scriptsJSON = try String(contentsOf: exportURL.appendingPathComponent("scripts.json"), encoding: .utf8)
-        #expect(!scriptsJSON.contains("bare-handler-call"))
+        #expect(scriptsJSON.contains("bare-handler-call"))
         #expect(scriptsJSON.contains("sound-asset"))
     }
 
-    @Test func testValidateScriptsAllowsStackLifecyclePassUpHooks() throws {
-        var document = HypeDocument.newDocument(name: "Stack Lifecycle Validation Fixture")
-        document.stack.script = """
-        on openCard
-          put "opened" into stackOpenCard
-        end openCard
-
-        on closeCard
-          put "closed" into stackCloseCard
-        end closeCard
-
-        on openBackground
-          put "opened" into stackOpenBackground
-        end openBackground
-
-        on closeBackground
-          put "closed" into stackCloseBackground
-        end closeBackground
-        """
-        let cardId = try #require(document.cards.first?.id)
-        var button = Part(partType: .button, cardId: cardId, name: "ButtonHook")
-        button.script = """
-        on closeCard
-          put "not dispatched here" into buttonCloseCard
-        end closeCard
-        """
-        document.parts.append(button)
-
-        let packageURL = scriptDir.appendingPathComponent("StackLifecycleValidationFixture.hype", isDirectory: true)
-        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
-
-        let result = runBinary(arguments: [
-            "--validate-scripts", packageURL.path,
-        ])
-
-        #expect(result.exitStatus == 0)
-        #expect(result.stdout.contains("ok\tstack\tStack Lifecycle Validation Fixture"))
-        #expect(result.stdout.contains("warning\tbutton\tButtonHook"))
-        #expect(!result.stdout.contains("not normally dispatched for stack scripts"))
-        #expect(result.stdout.contains("not normally dispatched for button scripts"))
-    }
-
-    @Test func testValidateScriptsAllowsImportedBackgroundStackLifecycleHooks() throws {
-        var document = HypeDocument.newDocument(name: "Imported Background Lifecycle Fixture")
-        document.legacyImport = LegacyStackImportMetadata(
-            sourceFormat: "stackimport .xstk",
-            sourceFileName: "Myst-Application.xstk",
-            dataForkSHA256: "fixture",
-            report: HyperCardImportReport(
-                stackName: "Myst-Application",
-                cardSize: HyperCardSize(width: document.stack.width, height: document.stack.height),
-                importedBackgrounds: 1
-            )
-        )
-        document.backgrounds[0].script = """
-        on closeStack
-          HTRemove
-          pass closeStack
-        end closeStack
-        """
-
-        let packageURL = scriptDir.appendingPathComponent("ImportedBackgroundLifecycleFixture.hype", isDirectory: true)
-        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
-
-        let result = runBinary(arguments: [
-            "--validate-scripts", packageURL.path,
-        ])
-
-        #expect(result.exitStatus == 0)
-        #expect(result.stdout.contains("ok\tbackground\tBackground 1"))
-        #expect(!result.stdout.contains("not normally dispatched for background scripts"))
-    }
-
-    @Test func testValidateScriptsAllowsInertImportedPartLifecyclePassThroughHooks() throws {
-        var document = HypeDocument.newDocument(name: "Imported Part Hook Fixture")
-        let cardId = try #require(document.cards.first?.id)
-        var button = Part(partType: .button, cardId: cardId, name: "ImportedButton")
-        button.script = """
-        on closeCard
-          HTLock noBW
-          pass closeCard
-        end closeCard
-        """
-        document.parts.append(button)
-
-        let packageURL = scriptDir.appendingPathComponent("ImportedPartHookFixture.hype", isDirectory: true)
-        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
-
-        let result = runBinary(arguments: [
-            "--validate-scripts", packageURL.path,
-        ])
-
-        #expect(result.exitStatus == 0)
-        #expect(result.stdout.contains("ok\tbutton\tImportedButton"))
-        #expect(!result.stdout.contains("not normally dispatched for button scripts"))
-        #expect(!result.stdout.contains("hook-context"))
-    }
-
-    @Test func testValidateScriptsTreatsCommandStyleHandlerCallsAsHandlers() throws {
-        var document = HypeDocument.newDocument(name: "Handler Command Validation Fixture")
-        let cardId = try #require(document.cards.first?.id)
-        var button = Part(partType: .button, cardId: cardId, name: "Run")
-        button.script = """
-        on mouseUp
-          Buzzer 4
-        end mouseUp
-        """
-        document.stack.script = """
-        on Buzzer amount
-          global buzzerAmount
-          put amount into buzzerAmount
-        end Buzzer
-        """
-        document.parts.append(button)
-
-        let packageURL = scriptDir.appendingPathComponent("HandlerCommandValidationFixture.hype", isDirectory: true)
-        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
-
-        let result = runBinary(arguments: [
-            "--validate-scripts", packageURL.path,
-        ])
-
-        #expect(result.exitStatus == 0)
-        #expect(result.stdout.contains("ok\tbutton\tRun"))
-        #expect(!result.stdout.contains("XCMD `Buzzer`"))
-    }
-
-    @Test func testValidateScriptsTreatsBareLocalHandlerLinesAsHandlers() throws {
-        var document = HypeDocument.newDocument(name: "Bare Handler Validation Fixture")
-        let cardId = try #require(document.cards.first?.id)
-        var button = Part(partType: .button, cardId: cardId, name: "Run")
-        button.script = """
-        on mouseUp
-          resetDrawers
-        end mouseUp
-
-        on resetDrawers
-          put "done" into it
-        end resetDrawers
-        """
-        document.parts.append(button)
-
-        let packageURL = scriptDir.appendingPathComponent("BareHandlerValidationFixture.hype", isDirectory: true)
-        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
-
-        let result = runBinary(arguments: [
-            "--validate-scripts", packageURL.path,
-        ])
-
-        #expect(result.exitStatus == 0)
-        #expect(result.stdout.contains("ok\tbutton\tRun"))
-        #expect(!result.stdout.contains("bare line is evaluated as a variable"))
-        #expect(!result.stdout.contains("bare-handler-call"))
-    }
-
-    @Test func testValidateScriptsTreatsMessagePathFunctionsAsLocalFunctions() throws {
-        var document = HypeDocument.newDocument(name: "Function Handler Validation Fixture")
-        let cardId = try #require(document.cards.first?.id)
-        var button = Part(partType: .button, cardId: cardId, name: "Run")
-        button.script = """
-        on mouseUp
-          put doubleIt(5) into it
-        end mouseUp
-        """
-        document.stack.script = """
-        function doubleIt amount
-          return amount * 2
-        end doubleIt
-        """
-        document.parts.append(button)
-
-        let packageURL = scriptDir.appendingPathComponent("FunctionHandlerValidationFixture.hype", isDirectory: true)
-        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
-
-        let result = runBinary(arguments: [
-            "--validate-scripts", packageURL.path,
-        ])
-
-        #expect(result.exitStatus == 0)
-        #expect(result.stdout.contains("ok\tbutton\tRun"))
-        #expect(!result.stdout.contains("Function `doubleIt`"))
-        #expect(!result.stdout.contains("function-unknown"))
-    }
-
-    @Test func testValidateScriptsTracksFunctionContextAfterLocalGo() throws {
-        var document = HypeDocument.newDocument(name: "Post Go Function Validation Fixture")
-        let firstCard = try #require(document.cards.first)
-        let bookCard = Card(
-            stackId: document.stack.id,
-            backgroundId: firstCard.backgroundId,
-            name: "Book",
-            sortKey: "a1",
-            script: """
-            function pageName
-              return "Page1"
-            end pageName
-            """
-        )
-        document.cards.append(bookCard)
-        var button = Part(partType: .button, cardId: firstCard.id, name: "Run")
-        button.script = """
-        on mouseUp
-          go to card "Book"
-          put pageName() into it
-        end mouseUp
-        """
-        document.parts.append(button)
-
-        let packageURL = scriptDir.appendingPathComponent("PostGoFunctionValidationFixture.hype", isDirectory: true)
-        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
-
-        let result = runBinary(arguments: [
-            "--validate-scripts", packageURL.path,
-        ])
-
-        #expect(result.exitStatus == 0)
-        #expect(result.stdout.contains("ok\tbutton\tRun"))
-        #expect(!result.stdout.contains("Function `pageName`"))
-        #expect(!result.stdout.contains("function-unknown"))
-    }
-
-    @Test func testValidateScriptsTracksLocalHandlerContextAfterLocalGo() throws {
-        var document = HypeDocument.newDocument(name: "Post Go Handler Validation Fixture")
-        let sourceCard = try #require(document.cards.first)
-        let destinationCard = Card(
-            stackId: document.stack.id,
-            backgroundId: sourceCard.backgroundId,
-            name: "Book",
-            sortKey: "a1"
-        )
-        document.cards.append(destinationCard)
-        document.addPart(Part(partType: .field, cardId: destinationCard.id, name: "stairmark"))
-        var button = Part(partType: .button, cardId: sourceCard.id, name: "Run")
-        button.script = """
-        on mouseUp
-          go to card "Book"
-          StepsDown
-        end mouseUp
-
-        on StepsDown
-          put "ready" into field "stairmark"
-        end StepsDown
-        """
-        document.parts.append(button)
-
-        let packageURL = scriptDir.appendingPathComponent("PostGoHandlerValidationFixture.hype", isDirectory: true)
-        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
-
-        let result = runBinary(arguments: [
-            "--validate-scripts", packageURL.path,
-        ])
-
-        #expect(result.exitStatus == 0)
-        #expect(result.stdout.contains("ok\tbutton\tRun"))
-        #expect(!result.stdout.contains("field \"stairmark\""))
-        #expect(!result.stdout.contains("object-reference"))
-    }
-
-    @Test func testValidateScriptsTreatsThisCardAsResolvableObjectReference() throws {
-        var document = HypeDocument.newDocument(name: "This Card Validation Fixture")
-        let cardId = try #require(document.cards.first?.id)
-        var button = Part(partType: .button, cardId: cardId, name: "Rename")
-        button.script = """
-        on mouseUp
-          set the name of this card to "Renamed"
-          set the name of current card to "Renamed Again"
-        end mouseUp
-        """
-        document.parts.append(button)
-
-        let packageURL = scriptDir.appendingPathComponent("ThisCardValidationFixture.hype", isDirectory: true)
-        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
-
-        let result = runBinary(arguments: [
-            "--validate-scripts", packageURL.path,
-        ])
-
-        #expect(result.exitStatus == 0)
-        #expect(result.stdout.contains("ok\tbutton\tRename"))
-        #expect(!result.stdout.contains("card \"this\""))
-        #expect(!result.stdout.contains("card \"current\""))
-        #expect(!result.stdout.contains("object-reference"))
-    }
-
-    @Test func testValidateScriptsSkipsDynamicObjectReferenceWarnings() throws {
-        var document = HypeDocument.newDocument(name: "Dynamic Reference Validation Fixture")
-        let cardId = try #require(document.cards.first?.id)
-        var button = Part(partType: .button, cardId: cardId, name: "Dynamic")
-        button.script = """
-        on mouseUp
-          put "Card 1" into targetCard
-          put "Run" into targetButton
-          go to card targetCard
-          hide card button targetButton
-        end mouseUp
-        """
-        document.parts.append(button)
-
-        let packageURL = scriptDir.appendingPathComponent("DynamicReferenceValidationFixture.hype", isDirectory: true)
-        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
-
-        let result = runBinary(arguments: [
-            "--validate-scripts", packageURL.path,
-        ])
-
-        #expect(result.exitStatus == 0)
-        #expect(result.stdout.contains("ok\tbutton\tDynamic"))
-        #expect(!result.stdout.contains("card \"targetCard\""))
-        #expect(!result.stdout.contains("button \"targetButton\""))
-        #expect(!result.stdout.contains("object-reference"))
-    }
-
-    @Test func testValidateScriptsAcceptsProjectCardReferences() throws {
-        var document = HypeDocument.newDocument(name: "Project Card Validation Fixture")
-        let cardId = try #require(document.cards.first?.id)
-        document.stackLibrary = HypeStackLibrary(entries: [
-            HypeStackLibraryEntry(
-                stackName: "Myst",
-                aliases: ["Myst Island"],
-                source: .importedStackPackage,
-                cardReferences: [
-                    HypeStackLibraryCardReference(legacyCardId: 8336, name: "dock", sortIndex: 2),
-                    HypeStackLibraryCardReference(legacyCardId: 46439, name: "restart", sortIndex: 1),
-                ]
-            ),
-            HypeStackLibraryEntry(
-                stackName: "Channelwood Age",
-                source: .importedStackPackage,
-                cardReferences: [
-                    HypeStackLibraryCardReference(legacyCardId: 28497, name: "restart", sortIndex: 163),
-                ]
-            ),
-            HypeStackLibraryEntry(
-                stackName: "ALLRes",
-                source: .looseResourceStack,
-                cardReferences: [
-                    HypeStackLibraryCardReference(legacyCardId: 4981, name: "finalBookOpen", sortIndex: 5),
-                ]
-            )
-        ])
-        var button = Part(partType: .button, cardId: cardId, name: "ProjectGo")
-        button.script = """
-        on mouseUp
-          go to card "dock"
-          go to card "reStart"
-          go to card "finalBookOpen"
-        end mouseUp
-        """
-        document.parts.append(button)
-
-        let packageURL = scriptDir.appendingPathComponent("ProjectCardValidationFixture.hype", isDirectory: true)
-        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
-
-        let result = runBinary(arguments: [
-            "--validate-scripts", packageURL.path,
-        ])
-
-        #expect(result.exitStatus == 0)
-        #expect(result.stdout.contains("ok\tbutton\tProjectGo"))
-        #expect(!result.stdout.contains("card \"dock\""))
-        #expect(!result.stdout.contains("card \"reStart\""))
-        #expect(!result.stdout.contains("card \"finalBookOpen\""))
-        #expect(!result.stdout.contains("object-reference"))
-    }
-
-    @Test func testValidateScriptsUsesClassicAudioLookupAndSkipsDynamicSoundWarnings() throws {
-        var document = HypeDocument.newDocument(name: "Classic Audio Validation Fixture")
-        let audio = Asset(
-            name: "WA Drip",
+    @Test func testValidateScriptsAcceptsClassicMediaSoundAliases() throws {
+        var document = HypeDocument.newDocument(name: "Classic Media Sound Fixture")
+        document.assetRepository.addAsset(Asset(
+            name: "EL GenAll MoV-modern-audio.m4a",
             kind: .audioClip,
-            mimeType: "audio/wav",
-            data: Data([1]),
+            mimeType: "audio/mp4",
+            data: Data("audio".utf8),
             metadata: [
-                AssetMetadataEntry(key: "classic_name", value: "WA Drip"),
-                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("WA Drip"))
+                AssetMetadataEntry(key: "classic_name", value: "El GenRun"),
+                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("El GenRun"))
             ]
-        )
-        document.assetRepository.addAsset(audio)
-        let collapsedSeparatorAudio = Asset(
-            name: "DR Drawer Close",
+        ))
+        document.assetRepository.addAsset(Asset(
+            name: "DR Drawer Close.wav",
             kind: .audioClip,
             mimeType: "audio/wav",
-            data: Data([2]),
+            data: Data("audio".utf8),
             metadata: [
                 AssetMetadataEntry(key: "classic_name", value: "DR Drawer Close"),
                 AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("DR Drawer Close"))
             ]
-        )
-        document.assetRepository.addAsset(collapsedSeparatorAudio)
+        ))
         let cardId = try #require(document.cards.first?.id)
-        var button = Part(partType: .button, cardId: cardId, name: "Play")
+        var button = Part(partType: .button, cardId: cardId, name: "Run")
         button.script = """
         on mouseUp
-          put "WA Drip" into theSound
+          put "SW Buzzer" into theSound
           play theSound
-          play "wa drip "
+          play "El GenRun"
           play "DR drawerClose"
         end mouseUp
         """
         document.parts.append(button)
 
-        let packageURL = scriptDir.appendingPathComponent("ClassicAudioValidationFixture.hype", isDirectory: true)
+        let packageURL = scriptDir.appendingPathComponent("ClassicMediaSoundFixture.hype", isDirectory: true)
+        let exportURL = scriptDir.appendingPathComponent("classic-media-scripts", isDirectory: true)
         try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
 
         let result = runBinary(arguments: [
             "--validate-scripts", packageURL.path,
+            "--export-scripts", exportURL.path,
         ])
 
         #expect(result.exitStatus == 0)
-        #expect(result.stdout.contains("ok\tbutton\tPlay"))
-        #expect(!result.stdout.contains("play \"theSound\""))
-        #expect(!result.stdout.contains("play \"wa drip \""))
-        #expect(!result.stdout.contains("play \"DR drawerClose\""))
-        #expect(!result.stdout.contains("sound-asset"))
+        #expect(!result.stdout.contains("has no embedded audio asset"))
+        let scriptsJSON = try String(contentsOf: exportURL.appendingPathComponent("scripts.json"), encoding: .utf8)
+        #expect(!scriptsJSON.contains("sound-asset"))
     }
 
-    @Test func testValidateScriptsAcceptsAudioOnlyQuickTimePlayAliases() throws {
-        var document = HypeDocument.newDocument(name: "Audio Alias Validation Fixture")
-        let generatorAudio = Asset(
-            name: "EL GenAll MoV",
-            kind: .videoClip,
-            mimeType: "video/quicktime",
-            data: Data("audio".utf8),
-            metadata: [
-                AssetMetadataEntry(key: "classic_name", value: "EL GenAll MoV"),
-                AssetMetadataEntry(key: "classic_alias", value: "El GenRun"),
-                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("EL GenAll MoV")),
-                AssetMetadataEntry(key: "lookup_key", value: AssetRepository.classicMediaLookupKey("El GenRun")),
-                AssetMetadataEntry(key: "quicktime_audio_only", value: "true")
-            ]
-        )
-        document.assetRepository.addAsset(generatorAudio)
-        document.cards[0].script = """
-        on idle
-          play "El GenRun"
-        end idle
-        """
-
-        let packageURL = scriptDir.appendingPathComponent("AudioAliasValidationFixture.hype", isDirectory: true)
-        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
-
-        let result = runBinary(arguments: [
-            "--validate-scripts", packageURL.path,
+    @Test func testValidateScriptsAcceptsDynamicAndStackLibraryCardReferences() throws {
+        var document = HypeDocument.newDocument(name: "Stack Library Card Fixture")
+        document.stackLibrary = HypeStackLibrary(entries: [
+            HypeStackLibraryEntry(
+                stackName: "Myst",
+                source: .importedStackPackage,
+                cardReferences: [
+                    HypeStackLibraryCardReference(name: "dock"),
+                    HypeStackLibraryCardReference(name: "reStart")
+                ]
+            )
         ])
-
-        #expect(result.exitStatus == 0)
-        #expect(result.stdout.contains("ok\tcard\tCard 1"))
-        #expect(!result.stdout.contains("El GenRun"))
-        #expect(!result.stdout.contains("sound-asset"))
-    }
-
-    @Test func testValidateScriptsTreatsClassicPlayNotesAsNotes() throws {
-        var document = HypeDocument.newDocument(name: "Classic Play Notes Fixture")
         let cardId = try #require(document.cards.first?.id)
-        var button = Part(partType: .button, cardId: cardId, name: "Play")
+        var button = Part(partType: .button, cardId: cardId, name: "Run")
         button.script = """
         on mouseUp
-          play "harpsichord" tempo 200 cw c c g#3
-          play "harpsichord" tempo 0 c6 c6
+          put "Card 1" into this
+          go to card this
+          go to card "this"
+          go to card "dock"
+          go to card "reStart"
         end mouseUp
         """
         document.parts.append(button)
 
-        let packageURL = scriptDir.appendingPathComponent("ClassicPlayNotesFixture.hype", isDirectory: true)
+        let packageURL = scriptDir.appendingPathComponent("StackLibraryCardFixture.hype", isDirectory: true)
+        let exportURL = scriptDir.appendingPathComponent("stack-library-card-scripts", isDirectory: true)
         try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
 
         let result = runBinary(arguments: [
             "--validate-scripts", packageURL.path,
+            "--export-scripts", exportURL.path,
         ])
 
         #expect(result.exitStatus == 0)
-        #expect(result.stdout.contains("ok\tbutton\tPlay"))
-        #expect(!result.stdout.contains("XCMD `cw`"))
-        #expect(!result.stdout.contains("XCMD `c`"))
-        #expect(!result.stdout.contains("XCMD `g`"))
-        #expect(!result.stdout.contains("XCMD `c6`"))
-    }
-
-    @Test func testValidateScriptsTreatsClassicMenuAndSaveAsAsNativeCommands() throws {
-        var document = HypeDocument.newDocument(name: "Classic Menu Save Fixture")
-        document.stack.script = """
-        on mouseUp
-          doMenu "next window"
-          save stack "Myst:Myst Graphics:Template" as charFile
-        end mouseUp
-        """
-
-        let packageURL = scriptDir.appendingPathComponent("ClassicMenuSaveFixture.hype", isDirectory: true)
-        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
-
-        let result = runBinary(arguments: [
-            "--validate-scripts", packageURL.path,
-        ])
-
-        #expect(result.exitStatus == 0)
-        #expect(result.stdout.contains("ok\tstack\tClassic Menu Save Fixture"))
-        #expect(!result.stdout.contains("XCMD `doMenu`"))
-        #expect(!result.stdout.contains("XCMD `as`"))
-    }
-
-    @Test func testValidateScriptsAcceptsMystMenuAndSoundTimeCompatibility() throws {
-        var document = HypeDocument.newDocument(name: "Myst Menu SoundTime Fixture")
-        let cardId = try #require(document.cards.first?.id)
-        var switchButton = Part(partType: .button, cardId: cardId, name: "Switch")
-        switchButton.script = """
-        on mouseUp
-          create menu "File"
-          soundTime "5,05","0","0","9,30"
-          put the id of the target into myID
-          put the rect of card button id (myID + 2) into theLoc
-          addVolts (myID - 2)
-        end mouseUp
-
-        on addVolts theSwitch
-          put theSwitch into it
-        end addVolts
-        """
-        document.parts.append(switchButton)
-
-        let packageURL = scriptDir.appendingPathComponent("MystMenuSoundTimeFixture.hype", isDirectory: true)
-        try HypeSQLiteStackStore().save(document, toPackageAt: packageURL)
-
-        let result = runBinary(arguments: [
-            "--validate-scripts", packageURL.path,
-        ])
-
-        #expect(result.exitStatus == 0)
-        #expect(result.stdout.contains("ok\tbutton\tSwitch"))
-        #expect(!result.stdout.contains("XCMD `createMenu`"))
-        #expect(!result.stdout.contains("XCMD `soundTime`"))
-        #expect(!result.stdout.contains("Function `id`"))
-        #expect(!result.stdout.contains("Function `addVolts`"))
+        #expect(!result.stdout.contains("does not resolve"))
+        let scriptsJSON = try String(contentsOf: exportURL.appendingPathComponent("scripts.json"), encoding: .utf8)
+        #expect(!scriptsJSON.contains("object-reference"))
     }
 
     @Test func testPowerOperator() {
@@ -1210,32 +670,6 @@ struct HypeCLITests {
         #expect(await client.chatMessageCount() == 1)
         #expect(await client.didPreloadModel())
         #expect(streamed == "hello world")
-    }
-
-    private func writeSyntheticStackImportPackage(
-        at url: URL,
-        name: String,
-        cardId: Int,
-        cardName: String
-    ) throws {
-        try Data("""
-        {"sourceFileName":"\(name)","stackFile":"stack_-1.json","blocks":[],"fonts":[{"id":1,"name":"Chicago"}]}
-        """.utf8).write(to: url.appendingPathComponent("project.json"))
-        try Data("""
-        {"name":"\(name)","cardWidth":512,"cardHeight":342,"script":"","pages":[{"cardIds":[\(cardId)]}],"layers":[{"kind":"background","id":10,"file":"background_10.json"},{"kind":"card","id":\(cardId),"owner":10,"file":"card_\(cardId).json"}]}
-        """.utf8).write(to: url.appendingPathComponent("stack_-1.json"))
-        try Data("""
-        {"id":10,"bitmap":null,"name":"Background","script":"","parts":[],"contents":[]}
-        """.utf8).write(to: url.appendingPathComponent("background_10.json"))
-        try Data("""
-        {"id":\(cardId),"bitmap":null,"name":"\(cardName)","script":"on openCard\\rpass openCard\\rend openCard","parts":[{"id":1,"type":"button","style":"transparent","rect":{"left":10,"top":20,"right":110,"bottom":50},"name":"Start","script":"on mouseUp\\rgo next\\rend mouseUp"}],"contents":[]}
-        """.utf8).write(to: url.appendingPathComponent("card_\(cardId).json"))
-        try Data("""
-        {"sourcePath":"/Myst/\(name)","outputPackage":"\(name).xstk","dataForkBytes":123,"resourceForkBytes":456,"resources":[]}
-        """.utf8).write(to: url.appendingPathComponent("resource-manifest.json"))
-        try Data("""
-        {"entries":[]}
-        """.utf8).write(to: url.appendingPathComponent("script-index.json"))
     }
 }
 

@@ -473,11 +473,11 @@ given `partType`. The fields fall into bands:
 | video            | `videoURL`                                                               |
 | image            | `imageData?`, `invertOnClick`, `transparentBackground`, `imageFilter`, `imageFilterIntensity`, `animated` (GIF) |
 | chart            | `chartData` *(JSON-encoded ChartConfig)*                                 |
-| calendar         | `selectedDate`, `selectedTime`, `displayMonth`, `minDate`, `maxDate`, `calendarStyle` |
+| calendar         | `selectedDate`, `displayMonth`, `minDate`, `maxDate`, `calendarStyle`    |
 | pdf              | `pdfURL`, `pdfCurrentPage`, `pdfDisplayMode`, `pdfAutoScales`            |
 | map              | `mapCenterLat`, `mapCenterLon`, `mapSpan`, `mapType`, `mapAnnotationsJSON`, `mapLocation` *(geocoded)* |
 | colorWell        | `colorWellHex`, `colorWellInteractive`                                   |
-| stepper / slider | `controlValue`, `controlMin`, `controlMax`, `controlStep`; sliders derive horizontal/vertical rendering from their bounds, using the longest dimension as the interactive axis; in browse mode the hosted slider routes all thumb/track hits back through the `NSSlider` subclass, Hype maps non-thumb track clicks directly to values, AppKit owns thumb drag tracking, and Hype coalesces `valueChanged` dispatches during tracking so stale async script results cannot snap the knob back before `mouseUp` fires |
+| stepper / slider | `controlValue`, `controlMin`, `controlMax`, `controlStep`; sliders derive horizontal/vertical rendering from their bounds, using the longest dimension as the interactive axis |
 | segmented        | `segmentItems` *(pipe-separated)*, `controlValue` *(selected index)*     |
 | progressView     | `progressValue`, `progressTotal`, `progressIsCircular`, `progressIsIndeterminate`, `progressLabel`, `progressTint`, `progressDecimals` |
 | gauge            | `gaugeValue`, `gaugeMin`, `gaugeMax`, `gaugeStyle`, `gaugeTint`, `gaugeLabel`, `gaugeMinLabel`, `gaugeMaxLabel`, `gaugeDecimals` |
@@ -597,6 +597,25 @@ when the original forks fit the safety limit, the raw HyperCard data/resource
 forks. This keeps converted `.hype` files self-contained and lets future importer
 revisions re-run conversion from the preserved source without executing any
 legacy code.
+
+Imported multi-stack projects also use `HypeDocument.stackLibrary`, persisted
+through `document_values.stackLibrary`, to record related stack packages by
+logical name, classic aliases, source package paths, legacy first-card IDs, and
+legacy card references for cross-stack navigation. Imported entries may carry
+stack-level HypeTalk source when the importer has converted it to text. Entries
+marked with metadata `contentStack=true` are treated as shared content/library
+stacks during project import: repository assets from those generated documents
+are copied into the other generated `.hype` packages with provenance metadata,
+so compatibility scripts can resolve classic media/resource names without live
+cross-document asset loading. The debug/package importer enriches the entry for
+the stack being converted with its saved `.hype` document path and converted
+card UUIDs. The dispatcher places used stack scripts after the active stack
+script and before the app-level script in the HyperCard pass-up chain. `go to
+card ... in stack ...` resolves through the stack library to an
+`ExecutionResult` project-navigation target; app/runtime layers publish that
+target as `navigateToProjectTarget`, and the app router opens the target
+`.hype` document and posts local card navigation when a target card can be
+resolved. Native XCMD/XFCN code is still never executed.
 
 Continuous interactions are coalesced before entering undo: canvas
 drag/resize mutations suppress per-frame registrations and commit one undo item
@@ -720,13 +739,20 @@ designed around untrusted binary input:
   structure into `HypeDocument`, preserves scripts as HypeTalk text, records
   unsupported bitmap/resource features in `HyperCardImportReport`, and stores
   `LegacyStackImportMetadata` on the document.
-- Legacy scripts must parse as native HypeTalk before they are enabled. When a
-  StackImport-era movie-click card script cannot be fully translated but contains
-  resolved cross-stack `go ... of stack ...` commands, Hype may synthesize a
-  route-only compatibility handler that preserves project navigation while
-  leaving the unsupported movie/window choreography inert and documented in
-  comments. Scripts without a safe route-only translation remain disabled as
-  commented reference text.
+- `StackImportPackageConverter`, `StackImportPackageDocumentImporter`, and
+  `StackImportPackageProjectImporter` ingest stackimport `.xstk` packages,
+  resource/script manifests, selected loose media, and optional stack-library
+  entries for repeatable debug/MCP-driven imports. The package converter records
+  stackimport font-table diagnostics and resolves unavailable classic/custom font
+  names to deterministic macOS-safe fallbacks before writing imported part text
+  fonts. Loose-media import prefers modern QuickTime replacements, including
+  audio-only `*-modern-audio.m4a` files generated from classic `soun` tracks,
+  while preserving classic lookup metadata for scripts such as `playQT`. The
+  project importer rewrites each generated `.hype` package with
+  related stack document paths and converted card UUIDs so cross-stack navigation
+  can open the target document, and returns a compact stack/card summary for
+  probe scripts to verify the imported project graph without opening every
+  generated document.
 
 The Hype app exposes this through **File > Import HyperCard Stack...**. The menu
 opens an untyped file picker because original stacks often have no extension or
@@ -1036,14 +1062,10 @@ var loadedSceneSpecs:   [UUID: String]   // last applied spec, JSON-equality cac
 var loadedActiveSceneIDs: [UUID: UUID]    // active scene ID for lifecycle close/open
 ```
 
-`updateSpriteViews()` participates in the canvas native-overlay sync pass,
-which is scheduled outside `draw(_:)` on the main run loop. `draw(_:)` remains
-paint-only: it renders the Core Graphics card surface and coalesces host-view
-reconciliation for later, but it does not create `WKWebView`, `AVPlayerView`,
-`NSHostingView`, `SKView`, or other native subviews during the Core Animation
-display transaction. The sync pass considers both visible card parts and
-visible parts on the current card's background, so embedded scenes owned by
-either layer follow the same lifecycle. For each visible `spriteArea` part it:
+`updateSpriteViews()` (CardCanvasView.swift:3530) is called from `draw()`.
+It considers both visible card parts and visible parts on the current card's
+background, so embedded scenes owned by either layer follow the same lifecycle.
+For each visible `spriteArea` part it:
 
 1. Lazily creates a `PassthroughSKView` and a `HypeSKScene` if none exist.
 2. Compares the part's current `sceneSpec` JSON to the cached one. Because that
@@ -1316,6 +1338,38 @@ HypeTalk addresses `scene3D` parts by name and can set `the model` of any part
 through the smart resolver (see §5.7), keeping the scripting surface consistent
 with 2D image binding.
 
+### 3.11 Repository-backed video and QuickTime compatibility
+
+`video` parts support both the original `videoURL` file/URL path and an optional
+`videoAssetRef` binding to a stack-embedded `AssetRepository` `.videoClip`.
+When `videoAssetRef` is present, `CardCanvasNSView` materialises the asset bytes
+to `URL.temporaryDirectory/hype-video-assets/<asset-id>/` and feeds the
+resulting file URL to `AVPlayerView`. The part also records `videoAutoplay`,
+`videoLoop`, and normalized `videoVolume`; looping uses `AVQueuePlayer` plus
+`AVPlayerLooper`, and the host applies `videoVolume` to the backing `AVPlayer`.
+Audio-only QuickTime compatibility assets are still imported as `.videoClip`
+repository assets so classic `playQT` lookup remains unchanged, but the canvas
+suppresses visible player chrome for parts marked as audio-only.
+
+The HyperCard compatibility registry emulates the first Myst-facing QuickTime
+slice: `playQT "<classic name>"` and `Movie "<classic name>", ...` resolve a
+`.videoClip` by imported `classic_name`/`lookup_key` metadata, create a
+repository-backed video part on the active card, and start playback. `Movie`
+uses the first classic point argument as basic window placement when present;
+`playQT` remains full-card by default for visual movies and creates a hidden
+1x1 playback part for audio-only QuickTime replacements. Myst-style
+`set the ... of window ...`
+statements parse as movie-window compatibility property writes, record
+runtime-only state, and update compatibility video parts for common controls
+such as `loop`, `rate`, `movie`, `windowRect`/`rect`, `windowLoc`/`loc`, and
+`windowName`. `audioLevel` and `mute` update the compatibility video volume,
+and `xSetSoundVol` updates active compatibility video parts while subsequent
+movie creation inherits the current classic 0...255 sound volume.
+`closemoovs` removes those compatibility-created video parts.
+Unsupported QuickTime controls such as callback timing, controller flags, exact
+QuickTime window semantics, and fade timing remain explicit future
+compatibility work.
+
 ---
 
 ## 4. The Asset Repository
@@ -1372,19 +1426,10 @@ public struct AssetRepository: Codable, Sendable {
     public var assets: [Asset]
     public func asset(byId: UUID)   -> Asset?
     public func asset(byName: String) -> Asset?
-    public func asset(byClassicMediaName: String, kind: AssetKind? = nil) -> Asset?
     public func assetRef(for: Asset) -> AssetRef
     public mutating func addAsset/_/removeAsset/_/updateAsset(_:)
 }
 ```
-
-`asset(byClassicMediaName:kind:)` is the shared imported-media resolver for
-classic HyperCard resources. It normalizes StackImport media names and metadata
-before matching, so runtime compatibility calls and HypeTalk audio playback can
-find embedded `audioClip` assets even when source scripts use classic casing or
-trailing-space variants, or omit word separators present in imported asset
-names. Script validation uses the same lookup for literal `play` sound names
-and skips non-literal sound expressions that must resolve at runtime.
 
 `AssetProvenance` records the import path: `userImport`, `webSearch`,
 `aiGenerated`, or `aiContext`. Web-search imports also persist license + creator + source URL
@@ -1435,9 +1480,7 @@ from the stored link and fingerprints.
 user-curated context channel for AI stack creation. It snapshots selected
 files, folders, images, and freeform notes into `HypeDocument` so complex
 instructions and asset packs travel with the stack without exposing arbitrary
-filesystem tools to the model. Context imports are embedded snapshots; the
-persisted `referenced` access-mode hook is reserved for a future bookmark-backed
-refresh flow and is not exposed as a user-facing import mode yet.
+filesystem tools to the model.
 
 The ingestion path is deliberately narrow:
 
@@ -1447,24 +1490,14 @@ The ingestion path is deliberately narrow:
 - text chunked into bounded snippets for search/read tools
 - image bytes embedded as context items and importable into the Sprite
   Repository via `import_context_asset`
-- directory imports return structured diagnostics for skipped unsupported,
-  hidden, package, symlink, too-deep, oversized, or unreadable files
-- text imports are scanned for secret-like material so cloud sharing can warn
-  before the user enables `aiContextCloudSharingAllowed`
 - AI-authored project-memory notes written through `write_ai_context_note`
   so decisions, TODOs, naming conventions, and known issues persist with
   the stack across build sessions
 
-Context tool visibility is centralized through `AIContextToolPolicy`. Local
-providers (`ollama`, `llama-swap`, `llama.cpp`) can use context read/import
-tools directly when the stack has attached context. Cloud providers (`openai`,
-`z.ai`, `minimax`) only see context summaries and context read/import tool
-schemas after the current stack is explicitly opted in from Preferences or
-script/tool property setters. The local MCP/debug bridge is treated as a
-privileged local boundary so agent harnesses can diagnose the running app
-without sending stack context to a cloud provider. The write-only
-`write_ai_context_note` tool remains available on authoring surfaces because it
-does not reveal existing context contents.
+Cloud sharing is gated by `Stack.aiContextCloudSharingAllowed`. Local Ollama
+models can use context tools directly; OpenAI models only see context summaries
+and context tool schemas after the current stack is explicitly opted in from
+Preferences or script/tool property setters.
 
 ### 4.3 Stable references via `AssetRef`
 
@@ -1620,18 +1653,7 @@ script source string
   `connect to host …`, `send "<message>" to <target>`, `send … to connection …`,
   `close connection …`, and `stop listener …`. The plain `send` form is
   HypeTalk message dispatch; the `to connection` form is TCP I/O. For imported
-  HyperCard scripts, command-style handler calls are preserved through the same
-  dispatcher, including parameterless single-identifier lines such as
-  `resetDrawers`, and function-call syntax such as `theAdjust()` can invoke
-  matching handler functions in the same pass-up path. After a local `go`
-  resolves to another card, subsequent function calls in that handler use the
-  destination card as the effective lookup context, matching Myst-era scripts
-  that navigate before calling a card-local helper. Semantic validation treats
-  `this card`/`current card` as resolvable self-references, including classic
-  property mutations such as `set the name of this card ...`, and it skips
-  unresolved-object warnings for variable-driven object references so dynamic
-  forms like `go to card x` are left to runtime resolution. Unknown
-  command-style identifiers with arguments parse as
+  HyperCard scripts, unknown command-style identifiers with arguments parse as
   `.externalCommand(name:arguments:)` so XCMD calls like `SetCursor "watch"`
   can flow into the emulation registry rather than causing a parse error.
   Reference-backed HyperTalk compatibility is tracked in
@@ -1723,13 +1745,6 @@ without freezing the app or violating message order. `wait`, `wait until`,
 `await …`, async AI completions, HTTP replies, listener events, and socket
 events all resume by enqueueing a normal HypeTalk message back onto the runtime
 queue; they never re-enter a running handler directly.
-
-Runtime document updates are applied with a three-way merge against the
-dispatch's starting snapshot. If the user keeps editing or scrubbing a hosted
-control while an earlier script result is still running, Hype applies only the
-entities the script actually changed and preserves newer current values for
-unchanged shared entities. This prevents stale async `valueChanged` results from
-reverting live controls such as sliders.
 
 ### 5.3 Message chain and callback routing
 
@@ -1832,11 +1847,28 @@ function-style calls (`put HypeVersion() into v`). The parser emits
 function-call syntax falls through to the registry after Hype's built-ins.
 
 The registry returns a `HyperCardExternalResult` containing the command value,
-`the result` diagnostic, optional document mutation, runtime-only compatibility
-globals, and optional pass-message flag. Some compatibility externals, such as
-Myst-facing QuickTime calls, intentionally mutate the document session by
-creating repository-backed video parts while keeping native classic code inert.
-Unknown or not-yet-emulated externals set `the result` to a clear
+`the result` diagnostic, optional document mutation, optional runtime globals,
+optional visual-effect intent, and optional pass-message flag. `HTLock` stores
+runtime-only compatibility state, and `HTVisual` maps Myst transition requests
+onto the existing visual-effect result channel. `DeCurse` stores cursor
+override/remove intent and cursor resource arguments as runtime-only state.
+`xMemory` returns deterministic positive memory information for both XCMD and
+function-style Myst calls, while `xVirtual` returns deterministic false/0
+environment information. `xSetSoundVol` and `xGetSoundVol` record and read a
+classic 0...255 runtime-only sound volume, defaulting to 255; `xSetSoundVol`
+also updates active QuickTime compatibility video parts. `SetMode` and
+`GetMode` record and read classic display mode/depth runtime-only state,
+defaulting to `c,8`. `HTAddPict`, `HTChangePict`, `HTSavePict`, `HTRemove`,
+`HTUDefPal`, `HyperTint`, and `xCIcon3` resolve imported PICT/icon image
+resources through `AssetRepository` metadata and create current-card
+compatibility image parts as the first visual-resource import slice.
+`HTAddPict` and `HTChangePict` also crop decoded image resources for classic
+`"srcRect", <rect>` arguments and record recognized transfer-mode names.
+`HTSavePict` records clipboard-save intent, `HTAddPict` clipboard restores
+remove matching transient compatibility overlays, `HTUDefPal`/`HyperTint`
+record runtime-only palette/tint setup, and `HTRemove` clears transient
+compatibility parts during stack teardown. Unknown or not-yet-emulated
+externals set `the result` to a clear
 `Can't Load External...` diagnostic and continue execution. This matches the
 security posture of the importer: XCMD/XFCN resources are preserved and
 reported, but classic 68K/PPC code is never executed in-process.
@@ -1854,8 +1886,8 @@ scene-node type. A few representative ones:
 | shape         | `shapeType`, `fillColor`, `strokeColor`, `strokeWidth`, `cornerRadius`                              |
 | webpage       | `url`                                                                                              |
 | image         | `imageFilter`, `imageFilterIntensity`, `transparentBackground`, `animated`                          |
-| chart         | `chartData`, `charttype` (`bar`, `line`, `area`, `point`, `pie`, `rule`, `spider`), `charttitle`, `xAxisLabel`, `yAxisLabel` *(non-spider only)*, `showLegend`, `showGrid`, `interactable`, spider/radar display properties (`spider_ring_count`, `spider_grid_color`, `spider_axis_color`, `spider_label_color`, `spider_fill_opacity`, `spider_point_radius`, `spider_show_value_labels`, `spider_decimal_places`); spider data points own `min`/`value`/`max` |
-| calendar      | `selectedDate`, `selectedTime`, `displayMonth`, `minDate`, `maxDate`, `calendarStyle`                |
+| chart         | `chartData`, `charttitle`, `xAxisLabel`, `yAxisLabel`, `showLegend`, `showGrid`                    |
+| calendar      | `selectedDate`, `displayMonth`, `minDate`, `maxDate`, `calendarStyle`                               |
 | pdf           | `pdfurl`, `currentPage`, `displayMode`, `autoScales`, `pageCount`                                   |
 | map           | `centerLat`, `centerLon`, `span`, `mapType`, `annotations`, `location` *(geocoded async)*           |
 | colorWell     | `color`, `interactive`                                                                              |
@@ -2159,64 +2191,28 @@ var paintLayers:         [UUID: PaintLayer]   // per-card runtime cache, mirrore
 var activeFieldEditor:   NSTextField?         // single inline editor at a time
 ```
 
-On every document/layout/bounds update, `CardCanvasNSView` coalesces an
-embedded-subview sync onto the next main-run-loop turn. The sync pass creates,
-updates, hides, or removes overlay hosts after drawing completes; this avoids
-synchronous WebKit/AppKit/SpriteKit host construction inside `draw(_:)`, where
-Core Animation is already committing a display transaction. Each visible part
-of an overlay-eligible type has
+On every layout pass, each visible part of an overlay-eligible type has
 its overlay subview created (lazily), positioned to its part rect, and
 configured. Parts that disappear have their overlays torn down. The
 overlay set is recorded in a `nativePartIds` set so `CardRenderer`
 knows to skip those parts during the Core Graphics pass.
 
-Charts are notable: `ChartHostView.swift` is a SwiftUI view hosted inside an
-`NSHostingView` so it can live inside an AppKit subview hierarchy. Bar, line,
-area, point, pie, and rule charts use Apple's Charts framework. Spider/radar
-charts are rendered by Hype's native `SpiderChartCanvas` because Apple Charts
-does not provide a radar-mark primitive. Normal chart types use direct
-per-mark colors from `ChartDataPoint.color` / `ChartSeries.color`; spider
-charts are layered by series and use only the series color. Spider charts do
-not have X/Y labels or user-authored chart-level min/max values. Each spider
-data point owns `minimumValue`, current `value`, and `maximumValue`. Rendering
-and interactive dragging normalize each point against that point's own
-min-to-max range, so dragging a point along its vector can reach any valid value
-for that point. `spiderDecimalPlaces` controls drag and label precision, with
-`0` / omitted meaning integer values. Spider charts render like classic radar
-charts by default: polygonal grid rings, radial spokes, outer data-point labels,
-center-to-edge radial tick labels for the reference/top axis, and translucent
-layered series polygons. Per-point value labels remain available through
-`spiderShowValueLabels` but default off to avoid clutter. The chart host draws
-its own legend from `ChartConfig.legendEntries()`; spider legends always list
-series rows.
-Interactive spider charts keep `SceneSpec`-style discipline: runtime drags
-write the changed point value back into the serialized `ChartConfig` on the
-part, then dispatch `chartChange` to the chart's script with param 1 as the
-series/dataset name, `it` as the data point name, and `chartValue` as the new
-precision-rounded value. `pass chartChange` continues through card/background/stack like other
-HypeTalk messages. Because the chart canvas is rendered white, the host forces
-light chart chrome and black text so axes, axis titles, labels, and legends
-remain visible when macOS is in Dark Mode.
+Charts are notable: `ChartHostView.swift` is a SwiftUI view built on
+Apple's Charts framework, hosted inside an `NSHostingView` so it can live
+inside an AppKit subview hierarchy. It intentionally uses direct per-mark
+colors from `ChartDataPoint.color` / `ChartSeries.color`, draws its own
+legend from `ChartConfig.legendEntries()`, and annotates bar, line, area,
+point, pie, and rule marks with compact point labels. Single-series legends
+list each data point by name even when all points inherit the series color;
+multi-series legends group by series while mark labels include the series
+name for disambiguation. Because the chart canvas is rendered white, the host
+forces light chart chrome and black text so axes, axis titles, labels, and
+legends remain visible when macOS is in Dark Mode.
 
 Sprite areas now host the active scene from `SpriteAreaSpec` rather than a
 single anonymous `SceneSpec`. `SceneBridge` diffing and cache invalidation are
 recursive, so nested node edits, scene switching, and repository-driven texture
 changes can be applied without always tearing down the full `SKView`.
-
-Video overlays resolve either a direct `Part.videoURL` or an embedded
-`Part.videoAssetRef`. Repository-backed QuickTime/video/audio assets are
-materialized into a temporary file before being handed to `AVPlayer`, keeping
-the persisted stack self-contained while satisfying AVFoundation's file/URL
-playback model. `videoLoop` uses `AVQueuePlayer`/`AVPlayerLooper`,
-`videoAutoplay` starts playback in browse mode, `videoVolume` is applied to the
-player, and imported audio-only QuickTime metadata hides visible video chrome
-behind a transparent 1x1 overlay.
-
-PDF controls follow the same asset-ref discipline through `Part.pdfAssetRef`.
-The property inspector imports selected PDFs into `AssetRepository` as
-`.document` assets, and both the authoring `PDFHostNSView` and generated target
-runtime materialize the bytes from the repository instead of depending on the
-original file path.
 
 ### 6.4 Accessibility and UI automation
 
@@ -2303,18 +2299,12 @@ commands, mouse handling, and tests all use the same rules.
 
 Target-aware layout begins with `HypeDeviceProfileCatalog`,
 `PartAvailabilityCatalog`, and `LayoutResolver`. A device profile supplies the
-logical target size, safe areas, and input model. The catalog includes generic
-authoring profiles plus current-shipping iPhone and iPad form factors: iPhone
-17 Pro / Pro Max, iPhone Air, iPhone 17, iPhone 17e, iPhone 16 / 16 Plus, iPad
-Pro 11/13-inch M5, iPad Air 11/13-inch M4, iPad A16, and iPad mini A17 Pro.
-The model list is based on Apple's current store lineup, and the logical point
-sizes come from installed Xcode CoreSimulator device-profile metadata. The
-object panel filters creation controls using strict selected-target
-intersection: a control appears only when it is usable on every platform
-selected for the stack.
+logical target size, safe areas, and input model. The object panel filters
+creation controls using strict selected-target intersection: a control appears
+only when it is usable on every platform selected for the stack.
 `StackDeploymentTargets.layoutPolicy` controls target projection: `fixed`
-preserves absolute coordinates, `scaleToFit` uniformly scales and top-leading
-anchors the authored card inside the target safe area, and `stretchToFill` scales each axis
+preserves absolute coordinates, `scaleToFit` uniformly scales and centers the
+authored card inside the target safe area, and `stretchToFill` scales each axis
 independently. `LayoutResolver` projects persisted part geometry and explicit
 constraints into a target profile without storing live platform views. The View
 menu's **Target Platforms…** command edits target/platform policy; **Emulate
@@ -2771,9 +2761,8 @@ Hype.app exposes local automation to external agents through a split debug/MCP
 bridge. The app itself owns only `HypeDebugServer`, a preference-gated
 per-process Unix-domain socket under `<discovery>/<pid>.sock` plus a JSON
 descriptor for discovery. Discovery uses `HYPE_DEBUG_SOCKET_DIR` env var, then
-`~/Library/Application Support/Hype/debug/`. The stdio MCP server scans that
-app-support directory by default and also reads an existing repo-local
-`.hype/debug/` directory left by development runs. That debug bridge speaks
+`.hype/debug/` relative to the repo, then
+`~/Library/Application Support/Hype/debug/`. That debug bridge speaks
 newline-delimited JSON-RPC methods such as `debug/keepalive`, `debug/hello`,
 `debug/listTools`, `debug/readResource`, `debug/callTool`,
 `debug/openScriptEditor`, and `debug/canvasHitTest`; it does not speak MCP and
@@ -2870,45 +2859,27 @@ model prompt. `SpriteGameTemplateCatalog` owns the supported template IDs,
 aliases, default scene sizes, controls, mechanics, generated-node contracts,
 and test expectations. The model first uses the non-mutating
 `infer_sprite_game_template` tool to map a natural-language request to a
-template ID plus an intent analysis: explicit sprite area names, explicit
-scene names, existing-target requirements, image-generation requests,
-customization requirements, and whether the template is safe to auto-apply.
-Specific user intent outranks template defaults. If the user names an existing
-sprite area or scene, the mutating call must pass `sprite_area_name` and/or
-`scene_name`; if the user says the target already exists,
-`require_existing_scene=true` makes the tool fail safely instead of creating a
-default template area. `create_sprite_game_template` also re-analyzes the
-optional `user_intent` payload so a model omission does not silently redirect a
-named-target request to the template's default area. Narrow direct-edit
-shortcuts such as boundary-wall creation must not consume complete-game
-requests; those prompts route through inference/template tooling first and then
-through explicit follow-up edits. If the request has unusual mechanics, generated-art
-requirements, or other customization, the model calls
-`get_sprite_game_template_guide` for focused guidance and treats the template
-as a baseline followed by targeted `list_scene_nodes`, `set_node_property`,
-`set_scene_script`, `set_physics_body`, image-generation, or asset-import
-edits. `list_sprite_game_templates` remains a compact discovery tool with
-optional query/full-detail arguments. `create_sprite_game_template` is the
-bounded mutating tool that builds the selected local scaffold instead of asking
-the model to freehand dozens of image, tile, node, physics, and script calls.
-The high-fidelity templates remain Pac-Man / `maze_chase`, Donkey Kong-style /
-`barrel_climber`, and Missile Command-style / `missile_command`: the maze
-scaffold creates local embedded PNG assets, a classified maze tileset, tile
-map, static wall colliders, player/ghost sprites, pellets, power pellets, and
-parser-tested scene HypeTalk; the barrel-climber scaffold creates an 800×600
-Sprite Area with generated hero, barrel, platform, ladder, rival, trophy, and
-hammer assets, platform physics, A/D/W/S plus Space controls, top-origin barrel
-spawns from the rival/gorilla platform, three-life barrel-hit reset/loss
-handling, ladder-safe contact rules, timed hammer pickup/swing/smash behavior,
-and a New Game button that re-dispatches `sceneDidLoad`; the missile-command
-scaffold creates a city-defense scene with launcher, cities, incoming
-missiles, interceptor, explosion placeholder, score/city labels, keyboard and
-mouse fire hooks, contact scoring, loss state, and reset script.
+template ID. If the request has unusual mechanics or needs richer details, it
+can then call `get_sprite_game_template_guide` for focused guidance about that
+one template. `list_sprite_game_templates` remains a compact discovery tool
+with optional query/full-detail arguments. `create_sprite_game_template` is
+the bounded mutating tool that builds the selected local scaffold instead of
+asking the model to freehand dozens of image, tile, node, physics, and script
+calls. The high-fidelity templates remain Pac-Man / `maze_chase` and Donkey
+Kong-style / `barrel_climber`: the maze scaffold creates local embedded PNG
+assets, a classified maze tileset, tile map, static wall colliders,
+player/ghost sprites, pellets, power pellets, and parser-tested scene
+HypeTalk; the barrel-climber scaffold creates an 800×600 Sprite Area with
+generated hero, barrel, platform, ladder, rival, trophy, and hammer assets,
+platform physics, A/D/W/S plus Space controls, top-origin barrel spawns from
+the rival/gorilla platform, three-life barrel-hit reset/loss handling,
+ladder-safe contact rules, timed hammer pickup/swing/smash behavior, and a New
+Game button that re-dispatches `sceneDidLoad`.
 
 The catalog also provides deterministic baseline scaffolds for
 `side_scroller_platformer`, `top_down_adventure`, `twin_stick_shooter`,
 `space_shooter`, `physics_puzzle`, `breakout`, `pinball_pachinko`,
-`endless_runner`, `tower_defense`, `missile_command`, `match3_grid_puzzle`,
+`endless_runner`, `tower_defense`, `match3_grid_puzzle`,
 `sokoban_block_puzzle`, `racing_lane`, `pong_sports_arena`, `rhythm_timing`,
 `board_card_game`, `boss_wave_arena`, `sandbox_physics_toy`, and
 `educational_sim`. These baseline templates create self-contained placeholder
@@ -3251,8 +3222,7 @@ HypeTalk message hierarchy:
 - `sceneDidLoad` — once per scene rebuild, dispatched before `openScene`
   through the scene → sprite area → card → background → stack chain
 - `mouseDown` / `mouseUp` / `mouseDragged` — both for classic parts and
-  for sprite-area nodes; native browse-mode slider overlays synthesize
-  `mouseUp` through the normal dispatcher when AppKit slider tracking ends
+  for sprite-area nodes
 - `mouseWithin` / `frameUpdate` — SpriteKit-driven interaction / frame hooks
 - `beginContact` / `endContact` / `actionFinished` — physics and action events
 - async callback messages chosen by the user, e.g. `aiFinished`,
@@ -3409,9 +3379,12 @@ unknowns:
    records, scripts, resource summaries, and XCMD/XFCN discovery are implemented.
    Original XCMD/XFCN native code is never executed; calls route through the
    Swift emulation registry. Remaining import work includes WOBA bitmap
-   decompression, PICT/snd conversion, AddColor rendering, and many classic
-   command surfaces such as `doMenu`, `print`, `run`, `copy template`, and
-   programmatic selection/find behavior.
+   decompression, PICT/snd conversion, AddColor rendering, runtime menu-bar
+   presentation, and many classic command surfaces such as `print`, `run`,
+   `copy template`, and programmatic selection/find behavior. `doMenu` has a
+   first-pass mapper for imported Classic menu resources, card actions, and
+   quit intent; Classic UI/menu mutation commands record explicit compatibility
+   globals rather than mutating imported menu resources or launching UI.
 5. **AI authoring has formal transactions, but preview UX is still maturing.**
    `AIEditTransactionRunner` executes tool calls against a draft document,
    captures operation deltas, and supports explicit apply/rollback. Main chat AI

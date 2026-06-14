@@ -1287,6 +1287,28 @@ struct InterpreterTests {
         #expect(result.modifiedDocument?.stackLibrary.usedStackAliases == ["ALL Res"])
     }
 
+    @Test func startUsingStackKeywordUsesFollowingStackName() {
+        var doc = HypeDocument.newDocument()
+        doc.stackLibrary = HypeStackLibrary(entries: [
+            HypeStackLibraryEntry(
+                stackName: "MYres1",
+                aliases: ["MY Res 1"],
+                source: .importedStackPackage,
+                packagePath: "exports/stacks/ALLRes.xstk"
+            )
+        ])
+
+        let result = executeScript("""
+        on test
+          start using stack "MYres1"
+        end test
+        """, document: doc)
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "MY Res 1")
+        #expect(result.modifiedDocument?.stackLibrary.usedStackAliases == ["MY Res 1"])
+    }
+
     @Test func stopUsingStackUpdatesImportedStackLibrary() {
         var doc = HypeDocument.newDocument()
         doc.stackLibrary = HypeStackLibrary(
@@ -1309,6 +1331,31 @@ struct InterpreterTests {
 
         #expect(result.status == .completed)
         #expect(result.returnValue == "ALL Res")
+        #expect(result.modifiedDocument?.stackLibrary.usedStackAliases.isEmpty == true)
+    }
+
+    @Test func stopUsingStackKeywordUsesFollowingStackName() {
+        var doc = HypeDocument.newDocument()
+        doc.stackLibrary = HypeStackLibrary(
+            entries: [
+                HypeStackLibraryEntry(
+                    stackName: "MYres1",
+                    aliases: ["MY Res 1"],
+                    source: .importedStackPackage,
+                    packagePath: "exports/stacks/ALLRes.xstk"
+                )
+            ],
+            usedStackAliases: ["MY Res 1"]
+        )
+
+        let result = executeScript("""
+        on test
+          stop using stack "MYres1"
+        end test
+        """, document: doc)
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "MY Res 1")
         #expect(result.modifiedDocument?.stackLibrary.usedStackAliases.isEmpty == true)
     }
 
@@ -2632,6 +2679,54 @@ struct InterpreterTests {
         #expect(part.visible == false)
         #expect(document.scriptGlobals["hypercard.htaddpict.transferMode"] == "srcXor")
         #expect(document.scriptGlobals["hypercard.htaddpict.compositedPixels"] == "1")
+    }
+
+    @Test func htChangePictRecognizesTwoArgumentTransferMode() throws {
+        let sourceImage = try testPNG(width: 1, height: 1, pixels: [
+            (30, 60, 90, 255)
+        ])
+        let asset = Asset(
+            name: "finalBookOpen Myst",
+            kind: .imageTexture,
+            mimeType: "image/png",
+            data: sourceImage,
+            width: 1,
+            height: 1,
+            metadata: [AssetMetadataEntry(key: "classic_name", value: "finalBookOpen Myst")]
+        )
+        var doc = HypeDocument.newDocument()
+        let cardId = try #require(doc.cards.first?.id)
+        var importedPaint = Part(
+            partType: .image,
+            cardId: cardId,
+            name: "Card 1 Paint Layer",
+            sortKey: "a000000",
+            left: 0,
+            top: 0,
+            width: Double(doc.stack.width),
+            height: Double(doc.stack.height)
+        )
+        importedPaint.imageData = sourceImage
+        doc.addPart(importedPaint)
+        doc.assetRepository = AssetRepository(assets: [asset])
+
+        let result = executeScript("""
+        on test
+          HTChangePict "finalBookOpen Myst","srccopy"
+          return the result
+        end test
+        """, document: doc)
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "finalBookOpen Myst")
+        let document = try #require(result.modifiedDocument)
+        #expect(document.paintLayer(forCardId: cardId) != nil)
+        let part = try #require(document.parts.first { $0.helpText == "hypercard-htchangepict" })
+        #expect(part.visible == false)
+        let baseline = try #require(document.parts.first { $0.id == importedPaint.id })
+        #expect(baseline.visible == false)
+        #expect(document.scriptGlobals["hypercard.htchangepict.transferMode"] == "srcCopy")
+        #expect(document.scriptGlobals["hypercard.htchangepict.compositedPixels"] != nil)
     }
 
     @Test func htSavePictAndClipboardRestoreRemoveCompatibilityOverlayInRect() {

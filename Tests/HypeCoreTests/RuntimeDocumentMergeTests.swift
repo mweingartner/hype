@@ -107,42 +107,8 @@ struct RuntimeDocumentMergeTests {
             currentDocument: current
         )
 
-        let source = try #require(result.document.aiContextLibrary.sources.first)
-        let item = try #require(result.document.aiContextLibrary.items.first)
         #expect(result.preservedCurrentOnlyEntities)
-        #expect(source.id == note.0.id)
-        #expect(source.itemIds == [item.id])
-        #expect(item.sourceId == source.id)
-    }
-
-    @Test("stale runtime result preserves newer current slider value when script changed another part")
-    func staleRuntimeResultPreservesNewerCurrentSliderValue() throws {
-        var base = HypeDocument.newDocument()
-        let cardId = try #require(base.sortedCards.first?.id)
-        var slider = Part(partType: .slider, cardId: cardId, name: "zoom", left: 10, top: 10, width: 32, height: 232)
-        slider.controlMin = 0
-        slider.controlMax = 100
-        slider.controlValue = 10
-        var map = Part(partType: .map, cardId: cardId, name: "mapper", left: 60, top: 10, width: 300, height: 220)
-        map.mapSpan = 10
-        base.addPart(slider)
-        base.addPart(map)
-
-        var runtime = base
-        runtime.updatePart(id: map.id) { $0.mapSpan = 50 }
-
-        var current = base
-        current.updatePart(id: slider.id) { $0.controlValue = 80 }
-
-        let result = RuntimeDocumentMerge.applyingRuntimeChanges(
-            runtimeDocument: runtime,
-            baseDocument: base,
-            currentDocument: current
-        )
-
-        #expect(result.preservedCurrentOnlyEntities)
-        #expect(result.document.parts.first(where: { $0.id == slider.id })?.controlValue == 80)
-        #expect(result.document.parts.first(where: { $0.id == map.id })?.mapSpan == 50)
+        #expect(result.document.stack.runtimeModeEnabled == false)
     }
 
     @Test("runtime notification merge preserves current editor mode")

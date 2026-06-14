@@ -4,15 +4,24 @@ import Testing
 
 @Suite("StackImport package document importer")
 struct StackImportPackageDocumentImporterTests {
-    @Test("converts xstk package, applies stack library, and saves hype package")
-    func convertsPackageAppliesStackLibraryAndSavesPackage() throws {
+    @Test("converts xstk package, imports selected loose media, and saves hype package")
+    func convertsPackageImportsLooseMediaAndSavesPackage() throws {
         let root = makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let packageURL = root.appendingPathComponent("Sample.xstk", isDirectory: true)
         let outputURL = root.appendingPathComponent("out", isDirectory: true)
+        let mediaRoot = root.appendingPathComponent("Myst Source", isDirectory: true)
+        let manifestURL = root.appendingPathComponent("loose-media.tsv")
+        let movieURL = mediaRoot.appendingPathComponent("Movies/Intro Wind Mov", isDirectory: false)
         try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: movieURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("classic movie bytes".utf8).write(to: movieURL)
         try writeSyntheticPackage(at: packageURL)
-
+        try Data("""
+        rel_path\tsource_path\toutput_path\tsize\tsha256\tfinder_type\tcreator\tsuffix\tkind
+        Movies/Intro Wind Mov\t<myst-source-root>/Movies/Intro Wind Mov\t\t19\tmoviehash\tMYqt\tMYST\t\tunknown_binary
+        Movies/Missing Mov\t<myst-source-root>/Movies/Missing Mov\t\t10\tmissinghash\tMYqt\tMYST\t\tquicktime_movie
+        """.utf8).write(to: manifestURL)
         let allRes = HypeStackLibraryEntry(
             stackName: "ALLRes",
             aliases: ["ALLRes", "ALL Res"],
@@ -50,8 +59,12 @@ struct StackImportPackageDocumentImporterTests {
                 packageURL: packageURL,
                 outputDirectoryURL: outputURL,
                 outputFileName: "Sample-debug.hype",
+                looseMediaManifestURL: manifestURL,
+                looseMediaSourceRootURL: mediaRoot,
+                looseMediaNames: ["Intro Wind Mov", "Missing Mov"],
                 stackLibraryEntries: [allRes, myst, sample],
-                usedStackAliases: ["ALLRes"]
+                usedStackAliases: ["ALLRes"],
+                deploymentTargets: .automationDefault(selectedPlatforms: [.iPhone, .iPad], primaryPlatform: .iPad)
             )
         )
 
@@ -59,13 +72,28 @@ struct StackImportPackageDocumentImporterTests {
         #expect(result.summary.cardCount == 1)
         #expect(result.summary.backgroundCount == 1)
         #expect(result.summary.partCount == 1)
-        #expect(result.summary.sourcePackagePath == packageURL.path)
+        #expect(result.summary.assetCount == result.document.assetRepository.assets.count)
+        #expect(result.summary.assetCount >= 1)
         #expect(result.summary.outputPackagePath.hasSuffix("Sample-debug.hype"))
-        #expect(result.summary.outputPackageByteCount == packageByteCount(at: result.outputPackageURL))
-        #expect((result.summary.outputPackageByteCount ?? 0) > 0)
-        #expect((result.summary.importDurationMilliseconds ?? -1) >= 0)
+        #expect(result.summary.looseMedia?.importedAssetCount == 1)
+        #expect(result.summary.looseMedia?.imported == [
+            StackImportLooseMediaImportedAssetSummary(
+                relPath: "Movies/Intro Wind Mov",
+                name: "Intro Wind Mov",
+                assetName: "Intro Wind Mov",
+                kind: AssetKind.videoClip.rawValue,
+                resolvedPath: movieURL.path
+            )
+        ])
+        #expect(result.summary.looseMedia?.missing == [
+            LooseMediaImportDiagnostic(relPath: "Movies/Missing Mov", name: "Missing Mov", reason: "file not found")
+        ])
         #expect(result.summary.stackLibrary?.entryCount == 3)
         #expect(result.summary.stackLibrary?.usedStackAliases == ["ALLRes"])
+        #expect(result.document.assetRepository.asset(byName: "Intro Wind Mov")?.kind == .videoClip)
+        #expect(result.document.stack.deploymentTargets.selectionPromptAcknowledged)
+        #expect(result.document.stack.deploymentTargets.selectedPlatforms == [.iPhone, .iPad])
+        #expect(result.document.stack.deploymentTargets.primaryPlatform == .iPad)
         #expect(result.document.stackLibrary.resolution(for: "all res") == .resolved(allRes))
         #expect(result.document.stackLibrary.entries.first?.stackScript?.contains("sharedHandler") == true)
         #expect(result.document.stackLibrary.entries.first?.cardReferences.first?.legacyCardId == 5907)
@@ -75,10 +103,19 @@ struct StackImportPackageDocumentImporterTests {
         }
         #expect(sampleEntry.documentPath == result.outputPackageURL.path)
         #expect(sampleEntry.cardReferences.first?.hypeCardId == result.document.cards.first?.id)
+        #expect(result.report.stackImportDiagnostics?.scriptEntries == 1)
+        #expect(result.report.stackImportDiagnostics?.externalCallSummary == [
+            StackImportCallSummary(name: "playQT", count: 1)
+        ])
 
         let reloaded = try HypeSQLiteStackStore().load(fromPackageAt: result.outputPackageURL)
         #expect(reloaded.stack.name == "Sample")
+        #expect(reloaded.stack.deploymentTargets.selectionPromptAcknowledged)
+        #expect(reloaded.stack.deploymentTargets.selectedPlatforms == [.iPhone, .iPad])
+        #expect(reloaded.stack.deploymentTargets.primaryPlatform == .iPad)
         #expect(reloaded.cards.count == 1)
+        #expect(reloaded.assetRepository.asset(byName: "Intro Wind Mov")?.data == Data("classic movie bytes".utf8))
+        #expect(reloaded.legacyImport?.report.stackImportDiagnostics?.callCount == 1)
         #expect(reloaded.stackLibrary.resolution(for: "Myst") == .resolved(myst))
         guard case .resolved(let reloadedSampleEntry) = reloaded.stackLibrary.resolution(for: "Sample") else {
             Issue.record("Expected reloaded Sample stack library entry")
@@ -95,66 +132,6 @@ struct StackImportPackageDocumentImporterTests {
             ),
             in: reloaded
         ) == reloaded.cards.first?.id)
-    }
-
-    @Test("imports requested loose media and reports missing classic media")
-    func importsRequestedLooseMediaAndReportsMissingClassicMedia() throws {
-        let root = makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let packageURL = root.appendingPathComponent("Sample.xstk", isDirectory: true)
-        let outputURL = root.appendingPathComponent("out", isDirectory: true)
-        let mediaRoot = root.appendingPathComponent("Myst Source", isDirectory: true)
-        let moviesURL = mediaRoot.appendingPathComponent("Movies", isDirectory: true)
-        let movieURL = moviesURL.appendingPathComponent("Intro Wind Mov", isDirectory: false)
-        let manifestURL = root.appendingPathComponent("loose-media.tsv", isDirectory: false)
-        let movieData = Data("classic movie bytes".utf8)
-
-        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: moviesURL, withIntermediateDirectories: true)
-        try writeSyntheticPackage(at: packageURL)
-        try movieData.write(to: movieURL)
-        try Data("""
-        rel_path\tsource_path\toutput_path\tsize\tsha256\tfinder_type\tcreator\tsuffix\tkind
-        Movies/Intro Wind Mov\t<myst-source-root>/Movies/Intro Wind Mov\t\t19\tmoviehash\tMYqt\tMYST\t\tunknown_binary
-        Movies/Missing Mov\t<myst-source-root>/Movies/Missing Mov\t\t10\tmissinghash\tMYqt\tMYST\t\tquicktime_movie
-        """.utf8).write(to: manifestURL)
-
-        let result = try StackImportPackageDocumentImporter().importPackage(
-            options: StackImportPackageDocumentImportOptions(
-                packageURL: packageURL,
-                outputDirectoryURL: outputURL,
-                outputFileName: "Sample-debug.hype",
-                looseMediaManifestURL: manifestURL,
-                looseMediaSourceRootURL: mediaRoot,
-                looseMediaNames: ["Intro Wind Mov", "Missing Mov"]
-            )
-        )
-
-        #expect(result.summary.looseMedia?.importedAssetCount == 1)
-        #expect(result.summary.looseMedia?.imported == [
-            StackImportLooseMediaImportedAssetSummary(
-                relPath: "Movies/Intro Wind Mov",
-                name: "Intro Wind Mov",
-                assetName: "Intro Wind Mov",
-                kind: AssetKind.videoClip.rawValue,
-                resolvedPath: movieURL.path
-            )
-        ])
-        #expect(result.summary.looseMedia?.missing == [
-            LooseMediaImportDiagnostic(
-                relPath: "Movies/Missing Mov",
-                name: "Missing Mov",
-                reason: "file not found"
-            )
-        ])
-
-        let imported = try #require(result.document.assetRepository.asset(byClassicMediaName: "Intro Wind Mov", kind: .videoClip))
-        #expect(imported.data == movieData)
-        #expect(imported.metadata.contains { $0.key == "rel_path" && $0.value == "Movies/Intro Wind Mov" })
-
-        let reloaded = try HypeSQLiteStackStore().load(fromPackageAt: result.outputPackageURL)
-        let reloadedMovie = try #require(reloaded.assetRepository.asset(byClassicMediaName: "Intro Wind Mov", kind: .videoClip))
-        #expect(reloadedMovie.data == movieData)
     }
 
     @Test("project importer writes related document paths into every stack library")
@@ -196,20 +173,8 @@ struct StackImportPackageDocumentImporterTests {
 
         #expect(result.summary.stackCount == 2)
         #expect(result.summary.stackLibraryEntryCount == 2)
-        #expect(result.summary.sourcePackagePaths == [samplePackageURL.path, otherPackageURL.path])
         #expect(result.summary.outputPackagePaths.count == 2)
-        #expect(result.summary.totalOutputPackageByteCount == result.packageResults
-            .compactMap(\.summary.outputPackageByteCount)
-            .reduce(0, +))
-        #expect(result.summary.totalOutputPackageByteCount == result.packageResults
-            .map { packageByteCount(at: $0.outputPackageURL) }
-            .reduce(0, +))
-        #expect((result.summary.totalOutputPackageByteCount ?? 0) > 0)
-        #expect((result.summary.totalImportDurationMilliseconds ?? -1) >= 0)
-        #expect(result.summary.packages.allSatisfy { ($0.importDurationMilliseconds ?? -1) >= 0 })
-        #expect(result.summary.packages.map(\.sourcePackagePath) == [samplePackageURL.path, otherPackageURL.path])
         #expect(result.summary.stacks.map(\.stackName) == ["Sample", "Other"])
-        #expect(result.summary.stacks.map(\.sourcePackagePath) == [samplePackageURL.path, otherPackageURL.path])
         #expect(result.summary.stacks.map(\.firstCardName) == ["Sample Card", "Other Card"])
         #expect(result.summary.stacks.map(\.legacyFirstCardId) == [100, 200])
         #expect(result.summary.stacks.map(\.documentPath) == result.summary.outputPackagePaths)
@@ -351,16 +316,12 @@ struct StackImportPackageDocumentImporterTests {
         #expect(result.summary.packages.last?.sharedContentAssetCount == result.summary.sharedContentAssetCopyCount)
 
         let reloadedMyst = try HypeSQLiteStackStore().load(fromPackageAt: result.packageResults[1].outputPackageURL)
-        let shared = try #require(reloadedMyst.assetRepository.assets.first { asset in
-            asset.metadata.contains { $0.key == "classic_name" && $0.value == "Shared View" }
-        })
+        let shared = try #require(reloadedMyst.assetRepository.asset(byClassicMediaName: "Shared View", kind: AssetKind.imageTexture))
         #expect(shared.data == Data("shared pict bytes".utf8))
         #expect(shared.tags.contains("content-stack-shared"))
         #expect(shared.metadata.contains { $0.key == "shared_from_content_stack" && $0.value == "ALLRes" })
         #expect(shared.metadata.contains { $0.key == "shared_from_asset_id" })
-        #expect(reloadedMyst.assetRepository.assets.first { asset in
-            asset.metadata.contains { $0.key == "classic_name" && $0.value == "PICT 128" }
-        }?.id == shared.id)
+        #expect(reloadedMyst.assetRepository.asset(byClassicMediaName: "PICT 128", kind: AssetKind.imageTexture)?.id == shared.id)
 
         let reloadedAllRes = try HypeSQLiteStackStore().load(fromPackageAt: result.packageResults[0].outputPackageURL)
         #expect(reloadedAllRes.assetRepository.assets.filter { asset in
@@ -389,6 +350,9 @@ struct StackImportPackageDocumentImporterTests {
         try Data("""
         {"sourcePath":"/Myst/\(name)","outputPackage":"\(name).xstk","dataForkBytes":123,"resourceForkBytes":456,"resources":[]}
         """.utf8).write(to: url.appendingPathComponent("source-manifest.json"))
+        try Data("""
+        {"scripts":[{"ownerType":"card","ownerId":\(cardId),"ownerName":"\(cardName)","script":"on openCard\\rplayQT \\"Intro Wind Mov\\"\\rend openCard","handlers":[{"name":"openCard","line":1}],"calls":[{"name":"playQT","line":2}]}]}
+        """.utf8).write(to: url.appendingPathComponent("script-index.json"))
     }
 
     private func writeSyntheticResourceManifest(
@@ -429,26 +393,5 @@ struct StackImportPackageDocumentImporterTests {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("hype-stackimport-document-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
-    }
-
-    private func packageByteCount(at url: URL) -> Int64 {
-        guard let enumerator = FileManager.default.enumerator(
-            at: url,
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return 0
-        }
-
-        var total: Int64 = 0
-        for case let fileURL as URL in enumerator {
-            guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-                  values.isRegularFile == true,
-                  let fileSize = values.fileSize else {
-                continue
-            }
-            total += Int64(fileSize)
-        }
-        return total
     }
 }

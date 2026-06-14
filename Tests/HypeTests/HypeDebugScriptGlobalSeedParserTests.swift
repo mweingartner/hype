@@ -36,22 +36,4 @@ struct HypeDebugScriptGlobalSeedParserTests {
         #expect(hypercardAlias?["MY_RedBook"] == "000000")
         #expect(hypercardAlias?["DU_End"] == "")
     }
-
-    @Test("parses imported startup global seeding options")
-    func parsesImportedStartupGlobalSeedingOptions() {
-        let params: [String: Any] = [
-            "seedImportedStartupGlobals": "true",
-            "resourceDocuments": [
-                ["path": " /tmp/ALLRes-debug-imported.hype "],
-                "/tmp/INRes1-debug-imported.hype",
-                ["ignored": "missing path"],
-            ] as [Any],
-        ]
-
-        #expect(HypeDebugImportedStartupGlobalSeedOptions.isEnabled(in: params))
-        #expect(HypeDebugImportedStartupGlobalSeedOptions.resourceDocumentPaths(from: params) == [
-            "/tmp/ALLRes-debug-imported.hype",
-            "/tmp/INRes1-debug-imported.hype",
-        ])
-    }
 }
