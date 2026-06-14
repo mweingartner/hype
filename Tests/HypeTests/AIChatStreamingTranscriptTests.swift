@@ -74,4 +74,19 @@ struct AIChatStreamingTranscriptTests {
         #expect(transcript.visibleMessages(showThinking: true, showToolCalls: false).map(\.role) == ["user", "thinking", "assistant"])
         #expect(transcript.visibleMessages(showThinking: false, showToolCalls: false).map(\.role) == ["user", "assistant"])
     }
+
+    @Test("restore persisted messages clears streaming state")
+    func restorePersistedMessagesClearsStreamingState() {
+        var transcript = AIChatStreamingTranscript()
+        transcript.appendStreamingToken("partial")
+
+        transcript.restorePersistedMessages([
+            AIChatDisplayMessage(role: "user", content: "Hello"),
+            AIChatDisplayMessage(role: "assistant", content: "Hi"),
+        ])
+
+        #expect(transcript.messages.map(\.content) == ["Hello", "Hi"])
+        #expect(transcript.streamingMessageId == nil)
+        #expect(transcript.streamingContent.isEmpty)
+    }
 }

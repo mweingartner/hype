@@ -1,6 +1,6 @@
 import Foundation
 
-struct AIChatDisplayMessage: Identifiable, Equatable {
+struct AIChatDisplayMessage: Identifiable, Equatable, Codable {
     let id: UUID
     let role: String
     let content: String
@@ -41,6 +41,11 @@ struct AIChatStreamingTranscript: Equatable {
     mutating func clearStreamingState() {
         streamingMessageId = nil
         streamingContent = ""
+    }
+
+    mutating func restorePersistedMessages(_ persistedMessages: [AIChatDisplayMessage]) {
+        messages = persistedMessages
+        clearStreamingState()
     }
 
     mutating func appendMessage(

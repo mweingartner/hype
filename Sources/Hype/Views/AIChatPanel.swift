@@ -16,6 +16,7 @@ struct AIChatPanel: View {
     @State private var inputContentHeight: CGFloat = 18
     @State private var transcript = AIChatStreamingTranscript()
     @State private var conversationMessages: [OllamaMessage] = []  // Full context for model
+    @State private var restoredChatSessionStackId: UUID?
     @State private var isProcessing = false
     /// Set when sendMessage launches `processWithTools` so the user
     /// can interrupt it via the Stop button (or via "cancel
@@ -162,7 +163,7 @@ struct AIChatPanel: View {
                             showThinking: showThinkingMessages,
                             showToolCalls: showToolCallMessages
                         )
-                        ForEach(Array(visibleMessages.enumerated()), id: \.offset) { idx, msg in
+                        ForEach(visibleMessages) { msg in
                             HStack(alignment: .top) {
                                 if msg.role == "user" { Spacer() }
                                 VStack(alignment: msg.role == "user" ? .trailing : .leading) {
@@ -201,7 +202,7 @@ struct AIChatPanel: View {
                                 }
                                 if msg.role != "user" { Spacer() }
                             }
-                            .id(idx)
+                            .id(msg.id)
                         }
                         if let captureStatus {
                             HStack {
@@ -252,8 +253,8 @@ struct AIChatPanel: View {
                 .accessibilityLabel("AI conversation")
                 .accessibilityIdentifier(HypeAccessibilityID.aiMessages)
                 .onChange(of: transcript.messages.count) { _, _ in
-                    if !transcript.messages.isEmpty {
-                        proxy.scrollTo(transcript.messages.count - 1, anchor: .bottom)
+                    if let lastMessage = transcript.messages.last {
+                        proxy.scrollTo(lastMessage.id, anchor: .bottom)
                     }
                 }
             }
@@ -401,8 +402,12 @@ struct AIChatPanel: View {
                 }
             }
             .onAppear {
+                restoreChatSessionIfNeeded()
                 isInputFocused = true
                 preloadModelIfNeeded()
+            }
+            .onChange(of: document.document.stack.id) { _, _ in
+                restoreChatSessionIfNeeded(force: true)
             }
             .onChange(of: ollamaModel) { _, _ in
                 preloadModelIfNeeded()
@@ -417,6 +422,7 @@ struct AIChatPanel: View {
                 // — otherwise the audio engine and recognition task
                 // keep running in the background.
                 speechCapture.stop()
+                persistChatSession()
             }
         }
         .frame(width: 350)
@@ -500,6 +506,7 @@ struct AIChatPanel: View {
     private func clearChat() {
         transcript.clear()
         conversationMessages.removeAll()
+        AIChatSessionStore().clear(stackId: document.document.stack.id)
         pendingSceneProposal = nil
         iterationStatus = nil
         Task { await webAssetSession.reset() }
@@ -537,6 +544,28 @@ struct AIChatPanel: View {
         if role == "assistant", speakAssistantResponses {
             speakAssistantText(content)
         }
+        persistChatSession()
+    }
+
+    private func restoreChatSessionIfNeeded(force: Bool = false) {
+        let stackId = document.document.stack.id
+        guard force || restoredChatSessionStackId != stackId else { return }
+        restoredChatSessionStackId = stackId
+        guard let session = AIChatSessionStore().load(stackId: stackId) else {
+            transcript.clear()
+            conversationMessages.removeAll()
+            return
+        }
+        transcript.restorePersistedMessages(session.transcriptMessages)
+        conversationMessages = session.conversationMessages
+    }
+
+    private func persistChatSession() {
+        AIChatSessionStore().save(
+            stackId: document.document.stack.id,
+            transcriptMessages: transcript.messages,
+            conversationMessages: conversationMessages
+        )
     }
 
     private func appendThinkingIfPresent(from message: OllamaMessage) {
@@ -655,9 +684,10 @@ struct AIChatPanel: View {
             .cornerRadius(8)
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                Text(displayContent.isEmpty && isStreaming ? " " : displayContent + (isStreaming ? " ▌" : ""))
-                    .font(.system(size: 13))
-                    .textSelection(.enabled)
+                ChatMarkdownRenderer(
+                    content: displayContent.isEmpty && isStreaming ? " " : displayContent + (isStreaming ? " ▌" : ""),
+                    fontSize: 13
+                )
                 if isStreaming {
                     HStack(spacing: 6) {
                         ProgressView().scaleEffect(0.55)
@@ -1315,6 +1345,8 @@ struct AIChatPanel: View {
 
     @MainActor
     private func processWithTools(userMessage: String) async {
+        defer { persistChatSession() }
+
         let spriteKitRoute = SpriteKitRequestRouter.route(
             prompt: userMessage,
             document: document.document,
