@@ -2,7 +2,7 @@
 type: decisions
 title: Hype Decisions & Guardrails
 description: Durable product-behavior and build guardrails (persistence, scripting, AI tooling, providers, runtime) — mandatory for substantive changes.
-updated: 2026-06-10
+updated: 2026-06-21
 ---
 
 # decisions.md
@@ -35,7 +35,8 @@ document semantics.
 - Persist AudioKit-backed music as declarative patterns/tracks/assets in the stack; reconstruct `AudioEngine`, samplers, players, and playback tasks at runtime through providers.
 - Keep `SceneSpec` and `SpriteAreaSpec` as the source of truth for SpriteKit content; `SceneBridge` projects specs into live SpriteKit nodes.
 - Route HypeTalk through `MessageDispatcher`, `Interpreter`, and `StackRuntime` rather than bypassing the message hierarchy.
-- Preserve HyperCard-style message pass-up: part -> card -> background -> stack -> app, and scene/node -> sprite area -> card -> background -> stack -> app.
+- Preserve HyperCard-style message pass-up: part -> card -> background -> active stack -> used stack scripts -> app, and scene/node -> sprite area -> card -> background -> active stack -> used stack scripts -> app.
+- Multi-stack navigation must resolve through persisted stack-library metadata and return explicit project-navigation targets; app routing opens only `.hype` documents and then performs local card selection, while single-stack card navigation remains local to the active `HypeDocument`.
 - Treat `.hype` stack files as self-contained user documents. User-created content should be persisted in the stack unless there is an explicit architecture-level reason to keep it external.
 - Embedded video and QuickTime assets remain stack data, not persisted AVFoundation state. Runtime views may materialize those bytes into temporary files to satisfy platform playback APIs, but packages must not store temp paths or live player objects.
 - Keep SQLite storage diagnosable: core stack layout, scripts, assets, AI context, SpriteKit scenes/nodes, and search indexes should be inspectable through tables, indexes, and validation views.
@@ -52,6 +53,7 @@ document semantics.
 - For legacy HyperCard compatibility, emulate behavior in Swift; never execute classic native XCMD/XFCN code.
 - Import may enable a route-only compatibility translation for otherwise unsupported legacy movie-click scripts only when it can emit parser-validated HypeTalk that preserves explicit cross-stack navigation. Unsupported movie/window side effects stay inert and documented; scripts that cannot be safely reduced this way remain disabled as commented reference text.
 - Debug HyperCard/stackimport automation must not overwrite default generated `.hype` packages that may already be open in AppKit document windows. Use isolated per-request temp output directories unless the caller explicitly requests an `outputDirectory`.
+- Legacy external emulators should expose explicit script-visible outcomes (`it`, `the result`, runtime globals, visual-effect intent, or document mutation) instead of hidden no-ops.
 
 ## AI And Tooling Guardrails
 
