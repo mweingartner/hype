@@ -472,6 +472,12 @@ public actor StackRuntimeRegistry {
         guard let runtime = runtimes.removeValue(forKey: stackID) else { return }
         await runtime.shutdown()
     }
+
+    public func cancelRunningScripts(stackID: UUID) async -> RuntimeStatusSnapshot? {
+        guard let runtime = runtimes[stackID] else { return nil }
+        await runtime.cancelRunningScripts()
+        return await runtime.statusSnapshot()
+    }
 }
 
 public actor StackRuntime: ScriptRuntimeProviding {
