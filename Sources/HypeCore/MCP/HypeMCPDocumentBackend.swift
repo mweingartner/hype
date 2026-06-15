@@ -269,6 +269,11 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
                 deploymentTargets: automationDeploymentTargets(from: arguments)
             )
             return appState()
+        case "hype_get_script_debugger_state",
+             "hype_set_script_tracing",
+             "hype_clear_script_trace",
+             "hype_open_script_trace_source":
+            return error("\(name) is available through the live Hype debug server because it reads process-local script trace state.")
         default:
             return error("Unknown MCP control tool \(name)")
         }
