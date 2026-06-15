@@ -1,3 +1,10 @@
+---
+type: guide
+title: The Model-Paired Development Playbook
+description: Reusable recipe for building quality software while pairing with AI models — markdown context, adversarial personas, machine-enforced gates.
+updated: 2026-06-13
+---
+
 # The Model-Paired Development Playbook
 
 *How to build quality software by pairing with AI models — a reproducible recipe.*
@@ -129,6 +136,30 @@ that aren't derivable from the code: a broken toolchain workaround, a flaky test
 runner, a deploy quirk. (In Hype: "the machine's command-line tools are broken;
 build via `DEVELOPER_DIR=…Xcode-beta`; the test runner has no `timeout` binary.")
 These are the facts that, when forgotten, cost an hour every session.
+
+### 3.4 This pattern is becoming a standard (OKF)
+
+The "markdown as the shared brain" pattern is converging into an open standard.
+Google Cloud's **Open Knowledge Format (OKF, v0.1, June 2026)** formalizes almost
+exactly this: plain markdown files in git, each with a small YAML frontmatter
+block (a required `type` plus optional `title`/`description`/`tags`/`timestamp`),
+cross-linked into a graph, readable by humans, LLMs, and tooling alike — chosen
+precisely because "the value of a knowledge format comes from how many parties
+speak it." If you built the layered document system above, you've already built
+most of OKF.
+
+Two practical takeaways: (1) **adopt the cheap conventions** — a consistent
+frontmatter (`type`/`title`/`description`/`updated`) on durable docs makes them
+queryable and gives a staleness signal, and **standard relative markdown links**
+keep the graph resolvable in any tool. (2) **Don't over-conform.** OKF's primary
+ontology is *data assets* (datasets, tables, metrics, lineage) and its payoff is
+cross-org/cross-tool interop; a single-team dev project rarely needs the
+directory restructure or the interop machinery, and OKF's atomized concept-per-
+file model fights the long-form *narrative* docs (this playbook, decision
+rationales) that an LLM benefits from reading whole. Borrow the format
+conventions; keep your narrative. OKF is, however, a strong choice as an *export*
+format if you ever publish your project's own domain knowledge for outside agents
+to consume.
 
 ---
 

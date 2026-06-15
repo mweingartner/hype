@@ -1,3 +1,10 @@
+---
+type: decisions
+title: Hype Decisions & Guardrails
+description: Durable product-behavior and build guardrails (persistence, scripting, AI tooling, providers, runtime) — mandatory for substantive changes.
+updated: 2026-06-10
+---
+
 # decisions.md
 
 Product decisions and guardrails for how Hype should be built and behave.

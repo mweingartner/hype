@@ -1,3 +1,10 @@
+---
+type: audit
+title: HyperTalk Compatibility Audit
+description: Audit of HypeTalk vs classic HyperTalk — review phases, implemented remediation, and remaining intentional gaps.
+updated: 2026-06-11
+---
+
 # HyperTalk Compatibility Audit
 
 Source baseline: Apple, *HyperCard Script Language Guide*, especially the command

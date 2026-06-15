@@ -1,3 +1,10 @@
+---
+type: workflow
+title: Hype — Agent Workflow
+description: Repository-level workflow for agentic coding harnesses — read-first docs, verification-first sequence, the local test gate, and git hygiene.
+updated: 2026-06-13
+---
+
 # AGENTS.md
 
 Repository-level instructions for agentic coding harnesses working on Hype.
@@ -10,6 +17,27 @@ Repository-level instructions for agentic coding harnesses working on Hype.
 - Use `CONTRIBUTING.md` for contributor workflow and pull request documentation expectations.
 - Use `HypeTalk-LLM-Context.md` and `Sources/HypeCore/AI/HypeTalkGuide.swift` when changing HypeTalk or AI model guidance.
 - Treat `.hype` stack files as user documents. Do not stage or rewrite them unless the task explicitly requires it.
+
+## Doc Conventions
+
+Durable docs (this file, `architecture.md`, `decisions.md`, the reference and
+`docs/` audit/baseline/guide files) carry a small YAML frontmatter block:
+
+```yaml
+---
+type: architecture | decisions | workflow | reference | audit | baseline | guide
+title: <human title>
+description: <one-line summary used to judge relevance / for recall>
+updated: YYYY-MM-DD   # last *content* change — bump it when you materially edit
+---
+```
+
+This mirrors the auto-memory format and the emerging Open Knowledge Format (OKF)
+convention; it makes docs queryable and gives a staleness signal. When you
+materially change a doc, bump its `updated`. Use **standard relative markdown
+links** between docs (e.g. `[decisions](decisions.md)`), not `[[wikilinks]]`, so
+links resolve on GitHub and in any tool. (The auto-memory store keeps `[[name]]`
+links — that is the memory system's documented format, intentionally unchanged.)
 
 ## Verification-First Workflow
 

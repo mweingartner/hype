@@ -1,3 +1,10 @@
+---
+type: reference
+title: HypeTalk LLM Context
+description: HypeTalk language reference distilled for LLM context — syntax, commands, control flow, chunks, and Hype extensions.
+updated: 2026-06-10
+---
+
 # HypeTalk Language Reference — LLM Context Prompt
 
 > **Status (2026-06-10): Actively maintained.** The canonical in-app system-prompt

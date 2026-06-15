@@ -1,3 +1,10 @@
+---
+type: baseline
+title: HypeTalk Benchmark Baseline
+description: Interpreter speed/size baselines and every optimization wave (publish gating, -Osize, watchOS), with commands and measured numbers.
+updated: 2026-06-11
+---
+
 # HypeTalk Benchmark Baseline
 
 Date: 2026-05-23

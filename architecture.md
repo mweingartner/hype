@@ -1,3 +1,10 @@
+---
+type: architecture
+title: Hype Architecture
+description: The product and runtime architecture — source of truth for subsystems, persistence, scripting, rendering, AI, and platform footprint.
+updated: 2026-06-11
+---
+
 # Hype Architecture
 
 > A snapshot of the current implementation as of 2026-06-10.
