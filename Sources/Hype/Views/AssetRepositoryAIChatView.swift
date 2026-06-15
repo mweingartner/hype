@@ -109,9 +109,11 @@ struct AssetRepositoryAIChatView: View {
         let isTool = message.role == "tool"
         HStack {
             if isUser { Spacer(minLength: 24) }
-            Text(message.content)
-                .font(.system(size: 11))
-                .foregroundColor(isTool ? .secondary : .primary)
+            ChatMarkdownRenderer(
+                content: message.content,
+                fontSize: 11,
+                foregroundColor: isTool ? .secondary : .primary
+            )
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .background(
