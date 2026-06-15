@@ -1,0 +1,67 @@
+name: Self-hosted macOS
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: self-hosted-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build and test Hype
+    runs-on: [self-hosted, macOS, ARM64, hype]
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode-beta.app/Contents/Developer
+      PATH: /usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show runner environment
+        run: |
+          sw_vers
+          xcrun xcodebuild -version
+          xcrun swift --version
+
+      - name: Prepare unlocked CI keychain
+        env:
+          HYPE_CI_KEYCHAIN_PASSWORD: hype-ci-local
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/hype-ci.keychain-db"
+          ORIGINAL_DEFAULT_KEYCHAIN="$(security default-keychain -d user 2>/dev/null | tr -d '"' | xargs || true)"
+          {
+            echo "HYPE_CI_KEYCHAIN_PATH=$KEYCHAIN_PATH"
+            echo "HYPE_ORIGINAL_DEFAULT_KEYCHAIN=$ORIGINAL_DEFAULT_KEYCHAIN"
+          } >> "$GITHUB_ENV"
+          if [ -f "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi
+          security create-keychain -p "$HYPE_CI_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$HYPE_CI_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          EXISTING_KEYCHAINS="$(security list-keychains -d user 2>/dev/null | tr -d '"' | xargs || true)"
+          if [ -n "$EXISTING_KEYCHAINS" ]; then
+            security list-keychains -d user -s "$KEYCHAIN_PATH" $EXISTING_KEYCHAINS
+          else
+            security list-keychains -d user -s "$KEYCHAIN_PATH"
+          fi
+          security default-keychain -d user -s "$KEYCHAIN_PATH"
+
+      - name: Build all targets and run logic tests
+        run: scripts/test.sh --no-parallel --filter HypeCoreTests --filter HypeCLITests
+
+      - name: Clean up CI keychain
+        if: always()
+        run: |
+          if [ -n "${HYPE_ORIGINAL_DEFAULT_KEYCHAIN:-}" ] && [ -f "$HYPE_ORIGINAL_DEFAULT_KEYCHAIN" ]; then
+            security default-keychain -d user -s "$HYPE_ORIGINAL_DEFAULT_KEYCHAIN" || true
+          fi
+          if [ -n "${HYPE_CI_KEYCHAIN_PATH:-}" ] && [ -f "$HYPE_CI_KEYCHAIN_PATH" ]; then
+            security delete-keychain "$HYPE_CI_KEYCHAIN_PATH" || true
+          fi
