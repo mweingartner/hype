@@ -92,11 +92,17 @@ public final class CardRenderer: Sendable {
             )
         }
 
-        // Layer 3: Card paint layer (future — bitmap overlay)
+        // Layer 3: Card paint layer
+        drawPaintLayer(ctx: ctx, document: document, cardId: cardId, size: size)
 
         // Layer 4: Card parts
-        let cardParts = document.partsForCard(cardId)
-        for part in cardParts where part.visible && part.id != skipPartId && !nativePartIds.contains(part.id) {
+        for part in renderableCardParts(
+            document: document,
+            cardId: cardId,
+            size: size,
+            skipPartId: skipPartId,
+            nativePartIds: nativePartIds
+        ) {
             drawPart(
                 ctx: ctx,
                 part: part,
@@ -105,6 +111,85 @@ public final class CardRenderer: Sendable {
                 musicControlRenderOptions: musicControlRenderOptions
             )
         }
+    }
+
+    public func renderableCardParts(
+        document: HypeDocument,
+        cardId: UUID,
+        size: NSSize,
+        skipPartId: UUID? = nil,
+        nativePartIds: Set<UUID> = []
+    ) -> [Part] {
+        let cardParts = document.partsForCard(cardId)
+        let cardPaintLayer = document.paintLayer(forCardId: cardId)
+        let hasAuthoritativeCardPaintLayer = cardPaintLayer.map { !$0.isEmpty && !isOpaqueBlackPlaceholderPaintLayer($0) } ?? false
+        let hasAuthoritativePictReplacement = cardParts.contains { isFullCardHTChangePictReplacement($0, size: size) }
+        return cardParts.filter { part in
+            guard part.visible, part.id != skipPartId, !nativePartIds.contains(part.id) else { return false }
+            if (hasAuthoritativeCardPaintLayer || hasAuthoritativePictReplacement) && isImportedPaintLayerImage(part, size: size) {
+                return false
+            }
+            return true
+        }
+    }
+
+    private func isImportedPaintLayerImage(_ part: Part, size: NSSize) -> Bool {
+        part.partType == .image &&
+            part.name.hasSuffix(" Paint Layer") &&
+            abs(part.left) < 0.5 &&
+            abs(part.top) < 0.5 &&
+            abs(part.width - Double(size.width)) < 0.5 &&
+            abs(part.height - Double(size.height)) < 0.5
+    }
+
+    private func isFullCardHTChangePictReplacement(_ part: Part, size: NSSize) -> Bool {
+        part.partType == .image &&
+            part.visible &&
+            part.helpText == "hypercard-htchangepict" &&
+            abs(part.left) < 0.5 &&
+            abs(part.top) < 0.5 &&
+            abs(part.width - Double(size.width)) < 0.5 &&
+            abs(part.height - Double(size.height)) < 0.5
+    }
+
+    private func isOpaqueBlackPlaceholderPaintLayer(_ layer: CardPaintLayer) -> Bool {
+        let data = layer.normalizedRGBAData
+        guard !data.isEmpty else { return false }
+        for offset in stride(from: 0, to: data.count, by: 4) {
+            guard offset + 3 < data.count else { return false }
+            if data[offset] != 0 || data[offset + 1] != 0 || data[offset + 2] != 0 || data[offset + 3] != 255 {
+                return false
+            }
+        }
+        return true
+    }
+
+    private func drawPaintLayer(
+        ctx: CGContext,
+        document: HypeDocument,
+        cardId: UUID,
+        size: NSSize
+    ) {
+        guard let layer = document.paintLayer(forCardId: cardId), !layer.isEmpty else { return }
+        let width = max(1, layer.width)
+        let height = max(1, layer.height)
+        let data = layer.normalizedRGBAData
+        guard let provider = CGDataProvider(data: data as CFData) else { return }
+        let image = CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        )
+        guard let image else { return }
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: size.width, height: size.height))
     }
 
     private func drawEmptyState(ctx: CGContext, size: NSSize) {

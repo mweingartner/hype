@@ -143,6 +143,12 @@ SQLite schema version and document model version are separate:
   value-model payloads and Codable keys.
 - `manifest.json.documentVersion` and `document_values.documentVersion` record
   the document model version written by the saving build.
+- Non-breaking optional document metadata such as `legacyImport` and
+  `stackLibrary` is stored in `document_values` with default-on-missing decode
+  behavior and does not require a document-version bump. `stackLibrary` may
+  include optional imported stack-level script text for used-stack pass-up
+  dispatch, related `.hype` document paths, and legacy card references with
+  converted card UUIDs for cross-stack navigation lookup.
 
 Loads, searches, and validation first verify the manifest checksum against the
 source database, then copy `stack.sqlite` to a temporary location and run
