@@ -342,6 +342,9 @@ public struct MessageDispatcher: Sendable {
             // advances up the pass-up hierarchy, `targetId` changes to reflect
             // the current handler's owner while `originalTargetId` stays fixed.
             // This is what `the target` returns per the HyperTalk reference.
+            let traceEnabled = HypeTalkScriptTraceRecorder.shared.isEnabled
+            let traceProfiler = traceEnabled ? HypeTalkExecutionProfiler() : nil
+            let traceStart = Date()
             let context = ExecutionContext(
                 targetId: objectId,
                 currentCardId: currentCardId,
@@ -358,11 +361,33 @@ public struct MessageDispatcher: Sendable {
                 mouseY: mouseY,
                 appScript: appScript,
                 nestedSendDepth: nestedSendDepth,
+                profiler: traceProfiler,
                 fileProvider: fileProvider,
                 originalTargetId: targetId
             )
             let interpreter = Interpreter()
             var result = await interpreter.executeAsync(handler: handler, params: params, context: context)
+            if traceEnabled {
+                HypeTalkScriptTraceRecorder.shared.record(
+                    HypeTalkScriptTraceEntry(
+                        message: message,
+                        handler: handler.name,
+                        ownerDescription: Self.describeObject(
+                            objectId: objectId,
+                            document: currentDocument,
+                            scriptContext: scriptContext
+                        ),
+                        source: HypeTalkScriptTraceSource(
+                            kind: Self.traceSourceKind(objectId: objectId, document: currentDocument),
+                            objectId: objectId
+                        ),
+                        line: handler.line,
+                        status: Self.traceStatus(for: result.status),
+                        durationMilliseconds: Date().timeIntervalSince(traceStart) * 1000,
+                        diagnostics: traceProfiler?.snapshot() ?? HypeTalkExecutionDiagnostics()
+                    )
+                )
+            }
             if let modifiedDocument = result.modifiedDocument {
                 currentDocument = modifiedDocument
                 latestModifiedDocument = modifiedDocument
@@ -582,6 +607,25 @@ public struct MessageDispatcher: Sendable {
             return "Hype (app-level script)"
         }
         return "object id \(objectId)"
+    }
+
+    private static func traceSourceKind(objectId: UUID, document: HypeDocument) -> String {
+        if document.parts.contains(where: { $0.id == objectId }) { return "part" }
+        if document.cards.contains(where: { $0.id == objectId }) { return "card" }
+        if document.backgrounds.contains(where: { $0.id == objectId }) { return "background" }
+        if document.stack.id == objectId { return "stack" }
+        if document.stackLibrary.entries.contains(where: { $0.id == objectId }) { return "usedStack" }
+        if objectId == Self.hypeScriptSentinel { return "app" }
+        return "object"
+    }
+
+    private static func traceStatus(for status: ExecutionStatus) -> String {
+        switch status {
+        case .completed: return "completed"
+        case .passed: return "passed"
+        case .error: return "error"
+        case .cancelled: return "cancelled"
+        }
     }
 
     /// Extract a leading "Line N: ..." prefix from a ParseError
