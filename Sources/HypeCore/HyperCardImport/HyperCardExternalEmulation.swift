@@ -102,6 +102,33 @@ public struct HyperCardExternalRegistry: Sendable {
         return await handler(call, context)
     }
 
+    /// Invoke an external emulator directly with an in-memory context.
+    ///
+    /// This is intended for isolated compatibility tests and diagnostics where
+    /// the behavior under test is the XCMD/XFCN contract itself, not parser,
+    /// dispatcher, or imported-stack setup. Callers can pass a small synthetic
+    /// document when an external needs assets, globals, paint layers, or existing
+    /// parts; otherwise a one-card document is created automatically.
+    public func invokeIsolated(
+        name: String,
+        kind: HyperCardExternalKind = .xcmd,
+        arguments: [Value] = [],
+        document: HypeDocument? = nil,
+        currentCardId: UUID? = nil,
+        targetId: UUID? = nil
+    ) async -> HyperCardExternalResult {
+        let resolvedDocument = document ?? HypeDocument.newDocument(name: "External Test")
+        let resolvedCardId = currentCardId ?? resolvedDocument.sortedCards.first?.id ?? UUID()
+        let resolvedTargetId = targetId ?? resolvedCardId
+        let call = HyperCardExternalCall(name: name, kind: kind, arguments: arguments)
+        let context = HyperCardExternalCallContext(
+            targetId: resolvedTargetId,
+            currentCardId: resolvedCardId,
+            document: resolvedDocument
+        )
+        return await invoke(call, context: context)
+    }
+
     private func unsupportedResult(
         for call: HyperCardExternalCall,
         status: HyperCardExternalEmulationStatus
@@ -2148,7 +2175,7 @@ public struct HyperCardExternalRegistry: Sendable {
         let rect = classicRect(from: call.arguments.dropFirst().first) ??
             CGRect(x: 0, y: 0, width: Double(document.stack.width), height: Double(document.stack.height))
         let sourceRect = pictureSourceRect(from: call.arguments)
-        let transferMode = pictureTransferMode(from: call.arguments)
+        let transferMode = pictureTransferMode(from: call.arguments) ?? (replacement ? "srcCopy" : nil)
         let imageData = sourceRect.flatMap { croppedPNGData(from: asset.data, sourceRect: $0) } ?? asset.data
         if replacement,
            transferMode == "srcCopy",
@@ -2191,6 +2218,7 @@ public struct HyperCardExternalRegistry: Sendable {
                 replacement: replacement,
                 sourceRect: sourceRect,
                 transferMode: transferMode,
+                outputSurface: compositedPixels > 0 ? "cardPaintLayer" : "compatibilityImagePart",
                 compositedPixelCount: compositedPixels
             )
         )
@@ -3017,6 +3045,7 @@ public struct HyperCardExternalRegistry: Sendable {
         restoredClipboardRect: CGRect? = nil,
         removedOverlayCount: Int? = nil,
         restoredClipboardAsset: String? = nil,
+        outputSurface: String? = nil,
         compositedPixelCount: Int? = nil
     ) -> [String: String] {
         let prefix = replacement ? "hypercard.htchangepict" : "hypercard.htaddpict"
@@ -3038,6 +3067,9 @@ public struct HyperCardExternalRegistry: Sendable {
         }
         if let restoredClipboardAsset {
             globals["\(prefix).restoredClipboardAsset"] = restoredClipboardAsset
+        }
+        if let outputSurface {
+            globals["\(prefix).outputSurface"] = outputSurface
         }
         if let compositedPixelCount {
             globals["\(prefix).compositedPixels"] = String(compositedPixelCount)
