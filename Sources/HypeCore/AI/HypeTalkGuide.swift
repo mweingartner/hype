@@ -1034,7 +1034,7 @@ public enum HypeTalkGuide {
 
         **SpriteKit scaffolds — two paths:**
 
-        1. **Canned template (quick start):** `infer_sprite_game_template` → `get_sprite_game_template_guide` → `create_sprite_game_template`. Use `list_sprite_game_templates` for discovery. For existing targets pass `sprite_area_name`; if they say it already exists use `require_existing_scene=true`. Do not satisfy complete-game requests with narrow shortcuts like boundary walls — use the template first.
+        1. **Canned template (quick start):** `infer_sprite_game_template` → `get_sprite_game_template_guide` → `create_sprite_game_template`. Use `list_sprite_game_templates` for discovery. User intent outranks template defaults: if the user names an existing sprite area or scene, pass that target to `create_sprite_game_template`; if they say it already exists use `require_existing_scene=true`; if inference reports `template_use=create_then_customize`, apply the requested mechanics, generated assets, names, and scripts after the baseline scaffold. Do not satisfy complete-game requests with narrow shortcuts like boundary walls — use the template first.
 
         2. **Fully custom game ("make a game where…"):** use the composable recipe tools:
            - `start_game_recipe(scene_width, scene_height, …)` — creates/reuses a sprite area, initialises an empty recipe.
@@ -1194,7 +1194,7 @@ public enum HypeTalkGuide {
         ## Files & paint (opt-in, gated by fileAccessAllowed)
         File commands are disabled by default. They only execute when the per-stack
         `fileAccessAllowed` flag is enabled. Names are relative paths inside the
-        per-stack sandbox directory — absolute paths and `..` are refused.
+            per-stack sandbox directory — absolute paths and `..` are refused.
             read from file "data.txt"        -- read entire file into `it`
             read from file "data.txt" at 4 for 20
             read from file "data.txt" until return
