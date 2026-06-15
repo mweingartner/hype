@@ -301,6 +301,19 @@ fi
       </dict>
     </dict>
   </array>
+  <key>UTImportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.data</string>
+      </array>
+      <key>UTTypeDescription</key>
+      <string>HyperCard Stack</string>
+      <key>UTTypeIdentifier</key>
+      <string>com.apple.hypercard.stack</string>
+    </dict>
+  </array>
 </dict>
 </plist>
 PLIST

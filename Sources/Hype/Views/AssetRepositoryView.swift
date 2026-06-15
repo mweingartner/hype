@@ -1,7 +1,6 @@
 import SwiftUI
 import HypeCore
 import UniformTypeIdentifiers
-import AVKit
 
 /// A SwiftUI view for browsing, importing, and managing stack assets in the repository.
 ///
@@ -21,16 +20,11 @@ struct AssetRepositoryView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.hypeTheme) private var hypeTheme
     @State private var selectedAssetIds: Set<UUID> = []
-    @State private var previewPlayAssetId: UUID?
-    @State private var previewPlayRequestId: UUID?
     @State private var searchText: String = ""
     @State private var selectedCategory: AssetCategory = .all
     @State private var selectedSource: AssetSourceFilter = .all
     @State private var selectedStatus: AssetStatusFilter = .all
     @State private var selectedSort: AssetSort = .nameAscending
-    @State private var assetFilterCacheKey: AssetFilterCacheKey?
-    @State private var cachedFilteredAssets: [Asset] = []
-    @State private var cachedAssetGridItems: [AssetGridItemModel] = []
     @State private var editingNameId: UUID? = nil
     @State private var editingName: String = ""
     /// Local copy of the selected asset's name for the TextField.
@@ -145,165 +139,12 @@ struct AssetRepositoryView: View {
         }
     }
 
-    private static let assetGridMinimumCellWidth: CGFloat = 80
-    private static let assetGridMaximumCellWidth: CGFloat = 96
-    private static let assetGridSpacing: CGFloat = 8
-
-    private struct AssetFilterCacheKey: Equatable {
-        let searchText: String
-        let category: AssetCategory
-        let source: AssetSourceFilter
-        let status: AssetStatusFilter
-        let sort: AssetSort
-        let repositoryRevision: Int
-    }
-
-    private struct AssetGridItemModel: Identifiable, Equatable {
-        let id: UUID
-        let name: String
-        let kind: AssetKind
-        let mimeType: String
-        let thumbnailImage: NSImage?
-        let contentIdentity: String
-        let isTileSet: Bool
-        let tileColumns: Int
-        let tileRows: Int
-        let tileWidth: Int
-        let tileHeight: Int
-        let isPlayable: Bool
-
-        var showsJSONIcon: Bool {
-            kind == .placeholderAsset && (mimeType == "application/json" || mimeType.hasPrefix("text/"))
-        }
-
-        static func == (lhs: AssetGridItemModel, rhs: AssetGridItemModel) -> Bool {
-            lhs.id == rhs.id &&
-            lhs.name == rhs.name &&
-            lhs.kind == rhs.kind &&
-            lhs.mimeType == rhs.mimeType &&
-            lhs.contentIdentity == rhs.contentIdentity &&
-            lhs.isTileSet == rhs.isTileSet &&
-            lhs.tileColumns == rhs.tileColumns &&
-            lhs.tileRows == rhs.tileRows &&
-            lhs.tileWidth == rhs.tileWidth &&
-            lhs.tileHeight == rhs.tileHeight &&
-            lhs.isPlayable == rhs.isPlayable
-        }
-    }
-
-    private struct AssetThumbnailView: View, Equatable {
-        let item: AssetGridItemModel
-        let isSelected: Bool
-
-        var body: some View {
-            VStack(spacing: 4) {
-                ZStack(alignment: .topTrailing) {
-                    thumbnailContent
-
-                    // Tileset badge: small grid-shaped marker overlaid
-                    // on the top-right corner so tileset assets are
-                    // instantly distinguishable from plain images at
-                    // grid-browsing time. Only drawn on classified
-                    // tilesets — assets flagged by filename without
-                    // metadata show no badge until classification is
-                    // committed.
-                    if item.isTileSet {
-                        Image(systemName: "square.grid.3x3.fill")
-                            .font(.system(size: 12))
-                            .foregroundColor(.white)
-                            .padding(3)
-                            .background(Circle().fill(Color.orange))
-                            .offset(x: -2, y: 2)
-                    }
-                }
-                Text(item.name)
-                    .font(.system(size: 9))
-                    .lineLimit(1)
-            }
-            .padding(4)
-            .background(isSelected ? Color.accentColor.opacity(0.25) : Color.clear)
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
-            )
-            .cornerRadius(6)
-        }
-
-        @ViewBuilder
-        private var thumbnailContent: some View {
-            if item.kind == .model3D {
-                symbol("cube.transparent", color: .indigo)
-            } else if item.kind == .audioClip {
-                symbol("waveform", color: .purple)
-            } else if item.kind == .videoClip {
-                symbol("film", color: .blue)
-            } else if item.kind == .particlePreset {
-                symbol("sparkles", color: .orange)
-            } else if item.showsJSONIcon {
-                symbol("curlybraces.square", color: .secondary)
-            } else if let img = item.thumbnailImage {
-                Image(nsImage: img)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 64, height: 64)
-                    .id(item.contentIdentity)
-            } else {
-                Image(systemName: "photo")
-                    .font(.system(size: 32))
-                    .frame(width: 64, height: 64)
-            }
-        }
-
-        private func symbol(_ systemName: String, color: Color) -> some View {
-            Image(systemName: systemName)
-                .font(.system(size: 32))
-                .foregroundColor(color)
-                .frame(width: 64, height: 64)
-        }
-    }
-
-    private var currentAssetFilterCacheKey: AssetFilterCacheKey {
-        AssetFilterCacheKey(
-            searchText: searchText,
-            category: selectedCategory,
-            source: selectedSource,
-            status: selectedStatus,
-            sort: selectedSort,
-            repositoryRevision: assetRepositoryRevision
-        )
-    }
-
-    private var assetRepositoryRevision: Int {
-        var hasher = Hasher()
-        for asset in document.document.assetRepository.assets {
-            hasher.combine(asset.id)
-            hasher.combine(asset.name)
-            hasher.combine(asset.kind.rawValue)
-            hasher.combine(asset.mimeType)
-            hasher.combine(asset.data.count)
-            hasher.combine(asset.totalEmbeddedByteCount)
-            hasher.combine(asset.width)
-            hasher.combine(asset.height)
-            hasher.combine(asset.tags)
-            hasher.combine(asset.isTileSet)
-            hasher.combine(asset.tileWidth)
-            hasher.combine(asset.tileHeight)
-            hasher.combine(asset.tileColumns)
-            hasher.combine(asset.tileRows)
-        }
-        return hasher.finalize()
-    }
-
-    private func computeFilteredAssets() -> [Asset] {
+    private var filteredAssets: [Asset] {
         document.document.assetRepository
             .searchAssets(named: searchText, category: selectedCategory)
             .filter(matchesSource)
             .filter(matchesStatus)
             .sorted(by: sortAssets)
-    }
-
-    private var filteredAssetGridItems: [AssetGridItemModel] {
-        cachedAssetGridItems
     }
 
     private var assetCountsByCategory: [AssetCategory: Int] {
@@ -346,23 +187,9 @@ struct AssetRepositoryView: View {
         selectedSort = .nameAscending
     }
 
-    private func refreshAssetFilterCache(pruneSelection: Bool = false) {
-        let key = currentAssetFilterCacheKey
-        guard assetFilterCacheKey != key else { return }
-        let assets = computeFilteredAssets()
-        cachedFilteredAssets = assets
-        cachedAssetGridItems = assets.map(makeGridItemModel)
-        assetFilterCacheKey = key
-        if pruneSelection {
-            let visibleIds = Set(assets.map(\.id))
-            selectedAssetIds = selectedAssetIds.intersection(visibleIds)
-        }
-    }
-
-    private func scheduleAssetFilterCacheRefresh(pruneSelection: Bool = false) {
-        DispatchQueue.main.async {
-            refreshAssetFilterCache(pruneSelection: pruneSelection)
-        }
+    private func pruneSelectionToVisibleAssets() {
+        let visibleIds = Set(filteredAssets.map(\.id))
+        selectedAssetIds = selectedAssetIds.intersection(visibleIds)
     }
 
     var body: some View {
@@ -372,51 +199,46 @@ struct AssetRepositoryView: View {
                 assetHeader
 
                 // Grid with multi-select
-                GeometryReader { geometry in
-                    ScrollView {
-                        if cachedFilteredAssets.isEmpty {
-                            VStack(spacing: 8) {
-                                Spacer(minLength: 48)
-                                Image(systemName: filtersAreActive ? "line.3.horizontal.decrease.circle" : "photo.on.rectangle.angled")
-                                    .font(.system(size: 28))
-                                    .foregroundColor(.secondary)
-                                Text(filtersAreActive ? "No assets match the current filters" : "No assets imported")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.secondary)
-                                if filtersAreActive {
-                                    Button("Clear Filters") {
-                                        clearAssetFilters()
-                                    }
-                                    .font(.system(size: 11))
+                ScrollView {
+                    if filteredAssets.isEmpty {
+                        VStack(spacing: 8) {
+                            Spacer(minLength: 48)
+                            Image(systemName: filtersAreActive ? "line.3.horizontal.decrease.circle" : "photo.on.rectangle.angled")
+                                .font(.system(size: 28))
+                                .foregroundColor(.secondary)
+                            Text(filtersAreActive ? "No assets match the current filters" : "No assets imported")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                            if filtersAreActive {
+                                Button("Clear Filters") {
+                                    clearAssetFilters()
                                 }
-                                Spacer(minLength: 48)
+                                .font(.system(size: 11))
                             }
-                            .frame(maxWidth: .infinity)
-                            .padding(8)
-                        } else {
-                            LazyVGrid(columns: assetGridColumns(for: geometry.size.width - 16), spacing: Self.assetGridSpacing) {
-                                ForEach(filteredAssetGridItems) { item in
-                                    assetThumbnail(item)
-                                        .onTapGesture {
-                                            if NSEvent.modifierFlags.contains(.command) {
-                                                // Cmd+click: toggle in multi-selection
-                                                if selectedAssetIds.contains(item.id) {
-                                                    selectedAssetIds.remove(item.id)
-                                                } else {
-                                                    selectedAssetIds.insert(item.id)
-                                                }
-                                            } else {
-                                                // Plain click: single select
-                                                selectedAssetIds = [item.id]
-                                            }
-                                        }
-                                        .onTapGesture(count: 2) {
-                                            playAssetInPreview(assetId: item.id)
-                                        }
-                                }
-                            }
-                            .padding(8)
+                            Spacer(minLength: 48)
                         }
+                        .frame(maxWidth: .infinity)
+                        .padding(8)
+                    } else {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 8) {
+                            ForEach(filteredAssets) { asset in
+                                assetThumbnail(asset)
+                                    .onTapGesture {
+                                        if NSEvent.modifierFlags.contains(.command) {
+                                            // Cmd+click: toggle in multi-selection
+                                            if selectedAssetIds.contains(asset.id) {
+                                                selectedAssetIds.remove(asset.id)
+                                            } else {
+                                                selectedAssetIds.insert(asset.id)
+                                            }
+                                        } else {
+                                            // Plain click: single select
+                                            selectedAssetIds = [asset.id]
+                                        }
+                                    }
+                            }
+                        }
+                        .padding(8)
                     }
                 }
                 .onKeyPress(.delete) { deleteSelected(); return .handled }
@@ -489,18 +311,15 @@ struct AssetRepositoryView: View {
                 seedTilesetState(from: asset)
             }
         }
-        .onChange(of: searchText) { _, _ in scheduleAssetFilterCacheRefresh(pruneSelection: true) }
-        .onChange(of: selectedCategory) { _, _ in scheduleAssetFilterCacheRefresh(pruneSelection: true) }
-        .onChange(of: selectedSource) { _, _ in scheduleAssetFilterCacheRefresh(pruneSelection: true) }
-        .onChange(of: selectedStatus) { _, _ in scheduleAssetFilterCacheRefresh(pruneSelection: true) }
-        .onChange(of: selectedSort) { _, _ in scheduleAssetFilterCacheRefresh(pruneSelection: true) }
-        .onChange(of: assetRepositoryRevision) { _, _ in scheduleAssetFilterCacheRefresh(pruneSelection: true) }
+        .onChange(of: searchText) { _, _ in pruneSelectionToVisibleAssets() }
+        .onChange(of: selectedCategory) { _, _ in pruneSelectionToVisibleAssets() }
+        .onChange(of: selectedSource) { _, _ in pruneSelectionToVisibleAssets() }
+        .onChange(of: selectedStatus) { _, _ in pruneSelectionToVisibleAssets() }
         .onReceive(NotificationCenter.default.publisher(for: .selectAssetRepositoryAsset)) { notification in
             guard let assetId = notification.userInfo?["assetId"] as? UUID else { return }
             selectedAssetIds = [assetId]
         }
         .onAppear {
-            refreshAssetFilterCache()
             meshyKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.meshyAPIKeyAccount)
         }
         .sheet(isPresented: $showGenerate3DSheet) {
@@ -674,7 +493,7 @@ struct AssetRepositoryView: View {
 
     private var assetStatusText: String {
         let total = document.document.assetRepository.assets.count
-        let shown = cachedFilteredAssets.count
+        let shown = filteredAssets.count
         if shown == total {
             return "\(total) assets"
         }
@@ -738,44 +557,77 @@ struct AssetRepositoryView: View {
         document.document.assetRepository.assets.firstIndex { $0.id == id } ?? 0
     }
 
-    private func makeGridItemModel(for asset: Asset) -> AssetGridItemModel {
-        AssetGridItemModel(
-            id: asset.id,
-            name: asset.name,
-            kind: asset.kind,
-            mimeType: asset.mimeType,
-            thumbnailImage: asset.kind == .placeholderAsset && (asset.mimeType == "application/json" || asset.mimeType.hasPrefix("text/"))
-                ? nil
-                : AssetPreviewData.thumbnail(for: asset, size: CGSize(width: 64, height: 64)),
-            contentIdentity: AssetPreviewData.contentIdentity(for: asset),
-            isTileSet: asset.isTileSet,
-            tileColumns: asset.tileColumns,
-            tileRows: asset.tileRows,
-            tileWidth: asset.tileWidth,
-            tileHeight: asset.tileHeight,
-            isPlayable: AssetPreviewData.playableFile(for: asset) != nil
-        )
-    }
-
-    private func assetGridColumns(for width: CGFloat) -> [GridItem] {
-        let cellWidth = Self.assetGridMinimumCellWidth
-        let spacing = Self.assetGridSpacing
-        let count = max(1, Int((max(width, cellWidth) + spacing) / (cellWidth + spacing)))
-        return Array(
-            repeating: GridItem(
-                .flexible(minimum: Self.assetGridMinimumCellWidth, maximum: Self.assetGridMaximumCellWidth),
-                spacing: spacing
-            ),
-            count: count
-        )
-    }
-
     // MARK: - Thumbnail
 
     @ViewBuilder
-    private func assetThumbnail(_ item: AssetGridItemModel) -> some View {
-        AssetThumbnailView(item: item, isSelected: selectedAssetIds.contains(item.id))
-            .equatable()
+    private func assetThumbnail(_ asset: Asset) -> some View {
+        let isSelected = selectedAssetIds.contains(asset.id)
+        VStack(spacing: 4) {
+            ZStack(alignment: .topTrailing) {
+                if asset.kind == .model3D {
+                    Image(systemName: "cube.transparent")
+                        .font(.system(size: 32))
+                        .foregroundColor(.indigo)
+                        .frame(width: 64, height: 64)
+                } else if asset.kind == .audioClip {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 32))
+                        .foregroundColor(.purple)
+                        .frame(width: 64, height: 64)
+                } else if asset.kind == .videoClip {
+                    Image(systemName: "film")
+                        .font(.system(size: 32))
+                        .foregroundColor(.blue)
+                        .frame(width: 64, height: 64)
+                } else if asset.kind == .particlePreset {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 32))
+                        .foregroundColor(.orange)
+                        .frame(width: 64, height: 64)
+                } else if let img = NSImage(data: asset.data) {
+                    Image(nsImage: img)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 64, height: 64)
+                        // See note on the detail-panel preview: tag
+                        // by data.count so the thumbnail also
+                        // refreshes immediately when an asset's
+                        // bytes change (Transparent Background, future
+                        // image-edit operations, etc.).
+                        .id(asset.data.count)
+                } else {
+                    Image(systemName: "photo")
+                        .font(.system(size: 32))
+                        .frame(width: 64, height: 64)
+                }
+                // Tileset badge: small grid-shaped marker overlaid
+                // on the top-right corner so tileset assets are
+                // instantly distinguishable from plain images at
+                // grid-browsing time. Only drawn on classified
+                // tilesets — assets flagged by filename without
+                // metadata show no badge until classification is
+                // committed.
+                if asset.isTileSet {
+                    Image(systemName: "square.grid.3x3.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(.white)
+                        .padding(3)
+                        .background(Circle().fill(Color.orange))
+                        .offset(x: -2, y: 2)
+                        .help("Tileset \(asset.tileColumns)\u{00d7}\(asset.tileRows) of \(asset.tileWidth)\u{00d7}\(asset.tileHeight)px tiles")
+                }
+            }
+            Text(asset.name)
+                .font(.system(size: 9))
+                .lineLimit(1)
+        }
+        .padding(4)
+        .background(isSelected ? Color.accentColor.opacity(0.25) : Color.clear)
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+        )
+        .cornerRadius(6)
     }
 
     // MARK: - Single Asset Detail Panel
@@ -784,10 +636,79 @@ struct AssetRepositoryView: View {
     private func assetDetailPanel(_ asset: Asset) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
-                AssetPreviewPane(
-                    asset: asset,
-                    playRequestId: previewPlayAssetId == asset.id ? previewPlayRequestId : nil
-                )
+                // Preview
+                if asset.kind == .model3D {
+                    // Phase 1 shows a placeholder icon; an inline SceneKit
+                    // preview will be added in Phase 4. The indigo cube
+                    // icon matches the thumbnail in the grid on the left.
+                    VStack(spacing: 6) {
+                        Image(systemName: "cube.transparent")
+                            .font(.system(size: 48))
+                            .foregroundColor(.indigo)
+                        Text("3D Model")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        Text("\(ByteCountFormatter.string(fromByteCount: Int64(asset.data.count), countStyle: .file))")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: 100)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(4)
+                } else if asset.kind == .audioClip {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 48))
+                        .foregroundColor(.purple)
+                        .frame(maxWidth: .infinity, maxHeight: 100)
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(4)
+                } else if asset.kind == .videoClip {
+                    VStack(spacing: 6) {
+                        Image(systemName: "film")
+                            .font(.system(size: 48))
+                            .foregroundColor(.blue)
+                        Text("Video")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        Text(ByteCountFormatter.string(fromByteCount: Int64(asset.data.count), countStyle: .file))
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: 100)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(4)
+                } else if asset.kind == .particlePreset {
+                    VStack(spacing: 6) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 48))
+                            .foregroundColor(.orange)
+                        Text("Particle Preset")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        Text(ByteCountFormatter.string(fromByteCount: Int64(asset.data.count), countStyle: .file))
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: 100)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(4)
+                } else if let img = NSImage(data: asset.data) {
+                    // Tag the Image with the data's byte count so
+                    // SwiftUI gives it a fresh identity whenever the
+                    // bytes change (e.g. after a Transparent
+                    // Background pass replaces the asset). Without
+                    // this, the previous decoded NSImage is cached
+                    // by view identity and the preview keeps showing
+                    // the pre-chroma-keyed pixels until the user
+                    // re-selects the asset.
+                    Image(nsImage: img)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxHeight: 200)
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(4)
+                        .id(asset.data.count)
+                }
 
                 // Editable name — uses a local @State draft that
                 // is synced FROM the document when the selection
@@ -1222,8 +1143,6 @@ struct AssetRepositoryView: View {
             document.document.assetRepository.removeAsset(id: id)
         }
         selectedAssetIds.removeAll()
-        previewPlayAssetId = nil
-        previewPlayRequestId = nil
     }
 
     private func duplicateSelected() {
@@ -1301,14 +1220,6 @@ struct AssetRepositoryView: View {
         }
         copy.name = name
         document.document.assetRepository.addAsset(copy)
-    }
-
-    private func playAssetInPreview(assetId: UUID) {
-        guard let asset = document.document.assetRepository.asset(byId: assetId) else { return }
-        guard AssetPreviewData.playableFile(for: asset) != nil else { return }
-        selectedAssetIds = [asset.id]
-        previewPlayAssetId = asset.id
-        previewPlayRequestId = UUID()
     }
 
     // MARK: - Slicing
@@ -1622,529 +1533,5 @@ struct AssetRepositoryView: View {
         case "abc": return "model/vnd.alembic"
         default: return nil
         }
-    }
-}
-
-@MainActor
-fileprivate enum AssetPreviewData {
-    private static let imageCache = NSCache<NSString, NSImage>()
-    private static let thumbnailCache = NSCache<NSString, NSImage>()
-
-    static func image(for asset: Asset) -> NSImage? {
-        let cacheKey = imageCacheKey(for: asset)
-        if let cached = imageCache.object(forKey: cacheKey as NSString) {
-            return cached
-        }
-        for file in imageCandidateFiles(for: asset) {
-            if let image = NSImage(data: file.data) {
-                imageCache.setObject(image, forKey: cacheKey as NSString)
-                return image
-            }
-        }
-        return nil
-    }
-
-    static func thumbnail(for asset: Asset, size: CGSize) -> NSImage? {
-        let cacheKey = thumbnailCacheKey(for: asset, size: size)
-        if let cached = thumbnailCache.object(forKey: cacheKey as NSString) {
-            return cached
-        }
-        guard let image = image(for: asset) else { return nil }
-        let thumbnail = makeThumbnail(from: image, size: size)
-        thumbnailCache.setObject(thumbnail, forKey: cacheKey as NSString)
-        return thumbnail
-    }
-
-    static func contentIdentity(for asset: Asset) -> String {
-        let fileIdentity = asset.files.map { file in
-            "\(file.id.uuidString):\(file.role.rawValue):\(file.mimeType):\(file.data.count)"
-        }.joined(separator: "|")
-        return "\(asset.id.uuidString):\(asset.kind.rawValue):\(asset.mimeType):\(asset.data.count):\(fileIdentity)"
-    }
-
-    static func playableFile(for asset: Asset) -> AssetFile? {
-        if asset.kind == .audioClip || asset.kind == .videoClip {
-            return asset.primaryFile
-        }
-        return orderedFiles(for: asset).first { file in
-            isAudio(file) || isVideo(file)
-        }
-    }
-
-    static func placeholderTitle(for asset: Asset) -> String {
-        guard asset.kind == .placeholderAsset else { return asset.kind.rawValue }
-        let type = metadataValue("resource_type", in: asset)
-        let id = metadataValue("resource_id", in: asset)
-        if !type.isEmpty, !id.isEmpty {
-            return "StackImport \(type.capitalized) Resource \(id)"
-        }
-        if asset.mimeType == "application/json" {
-            return "JSON Resource"
-        }
-        if asset.mimeType.hasPrefix("text/") {
-            return "Text Resource"
-        }
-        return "Placeholder Asset"
-    }
-
-    static func placeholderSummary(for asset: Asset) -> String? {
-        let path = metadataValue("resource_path", in: asset)
-        let sourceStack = metadataValue("shared_from_content_stack", in: asset)
-        let linkedAssetId = metadataValue("shared_from_asset_id", in: asset)
-        var fields: [String] = []
-        if !path.isEmpty {
-            fields.append(path)
-        }
-        if !sourceStack.isEmpty {
-            fields.append("shared from \(sourceStack)")
-        }
-        if !linkedAssetId.isEmpty {
-            fields.append("linked asset \(linkedAssetId)")
-        }
-        return fields.isEmpty ? nil : fields.joined(separator: " - ")
-    }
-
-    static func textPreview(for asset: Asset) -> String? {
-        if asset.mimeType == "application/json" || asset.mimeType.hasPrefix("text/") {
-            return String(data: asset.data, encoding: .utf8)
-        }
-        if let entry = asset.metadata.first(where: { entry in
-            entry.mimeType == "application/json" || entry.mimeType.hasPrefix("text/")
-        }) {
-            return entry.value
-        }
-        return nil
-    }
-
-    private static func orderedFiles(for asset: Asset) -> [AssetFile] {
-        asset.allFiles.sorted { lhs, rhs in
-            if rolePriority(lhs.role) != rolePriority(rhs.role) {
-                return rolePriority(lhs.role) < rolePriority(rhs.role)
-            }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        }
-    }
-
-    private static func imageCandidateFiles(for asset: Asset) -> [AssetFile] {
-        orderedFiles(for: asset).filter { file in
-            isImage(file) || (file.role == .primary && isImageKind(asset.kind))
-        }
-    }
-
-    private static func imageCacheKey(for asset: Asset) -> String {
-        let files = imageCandidateFiles(for: asset).map { file in
-            "\(file.id.uuidString):\(file.mimeType):\(file.data.count)"
-        }.joined(separator: "|")
-        return "image:\(asset.id.uuidString):\(asset.kind.rawValue):\(asset.mimeType):\(asset.data.count):\(files)"
-    }
-
-    private static func thumbnailCacheKey(for asset: Asset, size: CGSize) -> String {
-        "thumbnail:\(Int(size.width))x\(Int(size.height)):\(imageCacheKey(for: asset))"
-    }
-
-    private static func makeThumbnail(from image: NSImage, size: CGSize) -> NSImage {
-        let output = NSImage(size: size)
-        output.lockFocus()
-        defer { output.unlockFocus() }
-
-        NSColor.clear.setFill()
-        NSRect(origin: .zero, size: size).fill()
-
-        let sourceSize = image.size
-        guard sourceSize.width > 0, sourceSize.height > 0 else { return output }
-        let scale = min(size.width / sourceSize.width, size.height / sourceSize.height)
-        let drawSize = CGSize(width: sourceSize.width * scale, height: sourceSize.height * scale)
-        let drawRect = NSRect(
-            x: (size.width - drawSize.width) / 2,
-            y: (size.height - drawSize.height) / 2,
-            width: drawSize.width,
-            height: drawSize.height
-        )
-        image.draw(in: drawRect, from: .zero, operation: .sourceOver, fraction: 1.0)
-        return output
-    }
-
-    private static func rolePriority(_ role: AssetFileRole) -> Int {
-        switch role {
-        case .preview:
-            return 0
-        case .primary:
-            return 1
-        default:
-            return 2
-        }
-    }
-
-    private static func isImage(_ file: AssetFile) -> Bool {
-        file.mimeType.hasPrefix("image/")
-    }
-
-    private static func isImageKind(_ kind: AssetKind) -> Bool {
-        switch kind {
-        case .imageTexture, .spriteSheet, .tileSet:
-            return true
-        case .audioClip, .videoClip, .particlePreset, .placeholderAsset, .model3D:
-            return false
-        }
-    }
-
-    private static func isAudio(_ file: AssetFile) -> Bool {
-        file.mimeType.hasPrefix("audio/")
-    }
-
-    private static func isVideo(_ file: AssetFile) -> Bool {
-        file.mimeType.hasPrefix("video/")
-    }
-
-    private static func metadataValue(_ key: String, in asset: Asset) -> String {
-        asset.metadata.first { $0.key == key }?.value ?? ""
-    }
-}
-
-private struct AssetPreviewPane: View {
-    let asset: Asset
-    let playRequestId: UUID?
-
-    @State private var mediaURL: URL?
-    @State private var mediaError: String?
-    @State private var pendingPlayRequestId: UUID?
-
-    private var previewIdentity: String {
-        AssetPreviewData.contentIdentity(for: asset)
-    }
-
-    private var previewFilenameStem: String {
-        previewIdentity.map { character in
-            character.isLetter || character.isNumber || character == "-" ? character : "_"
-        }.reduce(into: "") { $0.append($1) }
-    }
-
-    private var playableFile: AssetFile? {
-        AssetPreviewData.playableFile(for: asset)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: previewIconName)
-                    .font(.system(size: 12))
-                    .foregroundColor(previewIconColor)
-                Text("Preview")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.secondary)
-                Spacer()
-            }
-
-            previewContent
-                .frame(maxWidth: .infinity)
-                .background(Color.gray.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                )
-        }
-        .onAppear {
-            pendingPlayRequestId = playRequestId
-            prepareMediaPreviewIfNeeded()
-        }
-        .onChange(of: previewIdentity) { _, _ in
-            cleanupMediaPreview()
-            pendingPlayRequestId = playRequestId
-            prepareMediaPreviewIfNeeded()
-        }
-        .onChange(of: playRequestId) { _, newValue in
-            guard newValue != nil else { return }
-            pendingPlayRequestId = newValue
-            prepareMediaPreviewIfNeeded()
-        }
-        .onDisappear(perform: cleanupMediaPreview)
-    }
-
-    @ViewBuilder
-    private var previewContent: some View {
-        switch asset.kind {
-        case .imageTexture, .spriteSheet, .tileSet:
-            imagePreviewOrPlaceholder
-        case .audioClip:
-            if let mediaURL {
-                AssetPreviewPlayer(url: mediaURL, showsVideo: false, playRequestId: pendingPlayRequestId)
-                    .frame(height: 96)
-                    .id(mediaURL)
-            } else {
-                placeholder(title: mediaError ?? "Audio preview unavailable", systemImage: "waveform")
-                    .frame(height: 96)
-            }
-        case .videoClip:
-            if let mediaURL {
-                AssetPreviewPlayer(url: mediaURL, showsVideo: true, playRequestId: pendingPlayRequestId)
-                    .frame(minHeight: 180, idealHeight: 220, maxHeight: 260)
-                    .id(mediaURL)
-            } else {
-                placeholder(title: mediaError ?? "Movie preview unavailable", systemImage: "film")
-                    .frame(height: 140)
-            }
-        case .model3D:
-            placeholder(
-                title: "3D Model",
-                subtitle: ByteCountFormatter.string(fromByteCount: Int64(asset.data.count), countStyle: .file),
-                systemImage: "cube.transparent",
-                color: .indigo
-            )
-            .frame(height: 120)
-        case .particlePreset:
-            placeholder(
-                title: "Particle Preset",
-                subtitle: ByteCountFormatter.string(fromByteCount: Int64(asset.data.count), countStyle: .file),
-                systemImage: "sparkles",
-                color: .orange
-            )
-            .frame(height: 120)
-        case .placeholderAsset:
-            if AssetPreviewData.image(for: asset) != nil {
-                imagePreviewOrPlaceholder
-            } else if let playableFile, playableFile.mimeType.hasPrefix("audio/") {
-                if let mediaURL {
-                    AssetPreviewPlayer(url: mediaURL, showsVideo: false, playRequestId: pendingPlayRequestId)
-                        .frame(height: 96)
-                        .id(mediaURL)
-                } else {
-                    placeholder(title: mediaError ?? "Audio preview unavailable", systemImage: "waveform")
-                        .frame(height: 96)
-                }
-            } else if let playableFile, playableFile.mimeType.hasPrefix("video/") {
-                if let mediaURL {
-                    AssetPreviewPlayer(url: mediaURL, showsVideo: true, playRequestId: pendingPlayRequestId)
-                        .frame(minHeight: 180, idealHeight: 220, maxHeight: 260)
-                        .id(mediaURL)
-                } else {
-                    placeholder(title: mediaError ?? "Movie preview unavailable", systemImage: "film")
-                        .frame(height: 140)
-                }
-            } else {
-                placeholderResourcePreview
-            }
-        }
-    }
-
-    private var imagePreviewOrPlaceholder: some View {
-        Group {
-            if let image = AssetPreviewData.image(for: asset) {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxHeight: 240)
-                    .padding(8)
-                    .id(previewIdentity)
-            } else {
-                placeholder(title: "Image preview unavailable", systemImage: "photo")
-                    .frame(height: 120)
-            }
-        }
-    }
-
-    private var placeholderResourcePreview: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Image(systemName: asset.mimeType == "application/json" ? "curlybraces.square" : "doc.text")
-                    .font(.system(size: 28))
-                    .foregroundColor(.secondary)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(AssetPreviewData.placeholderTitle(for: asset))
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.primary)
-                    Text(ByteCountFormatter.string(fromByteCount: Int64(asset.totalEmbeddedByteCount), countStyle: .file))
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
-                }
-                Spacer()
-            }
-
-            if let summary = AssetPreviewData.placeholderSummary(for: asset), !summary.isEmpty {
-                Text(summary)
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-            }
-
-            if let text = AssetPreviewData.textPreview(for: asset), !text.isEmpty {
-                ScrollView {
-                    Text(text)
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundColor(.secondary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(8)
-                }
-                .frame(maxHeight: 160)
-                .background(Color.black.opacity(0.04))
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var previewIconName: String {
-        switch asset.kind {
-        case .imageTexture, .spriteSheet, .tileSet:
-            return "photo"
-        case .audioClip:
-            return "waveform"
-        case .videoClip:
-            return "film"
-        case .model3D:
-            return "cube.transparent"
-        case .particlePreset:
-            return "sparkles"
-        case .placeholderAsset:
-            return "doc"
-        }
-    }
-
-    private var previewIconColor: Color {
-        switch asset.kind {
-        case .audioClip:
-            return .purple
-        case .videoClip:
-            return .blue
-        case .model3D:
-            return .indigo
-        case .particlePreset:
-            return .orange
-        default:
-            return .secondary
-        }
-    }
-
-    private func placeholder(
-        title: String,
-        subtitle: String? = nil,
-        systemImage: String,
-        color: Color = .secondary
-    ) -> some View {
-        VStack(spacing: 6) {
-            Image(systemName: systemImage)
-                .font(.system(size: 42))
-                .foregroundColor(color)
-            Text(title)
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
-            if let subtitle {
-                Text(subtitle)
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity)
-    }
-
-    private func prepareMediaPreviewIfNeeded() {
-        guard playableFile != nil else { return }
-        guard mediaURL == nil else { return }
-        do {
-            mediaURL = try writeMediaPreviewFile()
-            mediaError = nil
-        } catch {
-            mediaURL = nil
-            mediaError = error.localizedDescription
-        }
-    }
-
-    private func cleanupMediaPreview() {
-        guard let url = mediaURL else { return }
-        mediaURL = nil
-        pendingPlayRequestId = nil
-        try? FileManager.default.removeItem(at: url)
-    }
-
-    private func writeMediaPreviewFile() throws -> URL {
-        guard let playableFile else {
-            throw CocoaError(.fileNoSuchFile)
-        }
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("HypeAssetRepositoryPreviews", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory
-            .appendingPathComponent(previewFilenameStem)
-            .appendingPathExtension(Self.fileExtension(for: playableFile))
-        try playableFile.data.write(to: url, options: [.atomic])
-        return url
-    }
-
-    private static func fileExtension(for file: AssetFile) -> String {
-        if let contentType = UTType(mimeType: file.mimeType),
-           let ext = contentType.preferredFilenameExtension {
-            return ext
-        }
-        if file.mimeType.hasPrefix("audio/") {
-            if file.mimeType == "audio/wav" { return "wav" }
-            if file.mimeType == "audio/aiff" { return "aiff" }
-            if file.mimeType == "audio/mp4" { return "m4a" }
-            if file.mimeType == "audio/x-caf" { return "caf" }
-            return "mp3"
-        }
-        if file.mimeType.hasPrefix("video/") {
-            if file.mimeType == "video/quicktime" { return "mov" }
-            return "mp4"
-        }
-        return "bin"
-    }
-}
-
-private struct AssetPreviewPlayer: NSViewRepresentable {
-    let url: URL
-    let showsVideo: Bool
-    let playRequestId: UUID?
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    func makeNSView(context: Context) -> AVPlayerView {
-        let view = AVPlayerView()
-        view.controlsStyle = .inline
-        view.videoGravity = showsVideo ? .resizeAspect : .resizeAspect
-        view.showsFullScreenToggleButton = showsVideo
-        view.allowsPictureInPicturePlayback = showsVideo
-        configure(view, context: context)
-        return view
-    }
-
-    func updateNSView(_ nsView: AVPlayerView, context: Context) {
-        configure(nsView, context: context)
-    }
-
-    static func dismantleNSView(_ nsView: AVPlayerView, coordinator: Coordinator) {
-        coordinator.player?.pause()
-        nsView.player = nil
-        coordinator.player = nil
-        coordinator.url = nil
-        coordinator.playRequestId = nil
-    }
-
-    private func configure(_ view: AVPlayerView, context: Context) {
-        let player: AVPlayer
-        if context.coordinator.url == url, let existingPlayer = context.coordinator.player {
-            player = existingPlayer
-        } else {
-            context.coordinator.player?.pause()
-            player = AVPlayer(url: url)
-            view.player = player
-            context.coordinator.player = player
-            context.coordinator.url = url
-            context.coordinator.playRequestId = nil
-        }
-
-        if let playRequestId, context.coordinator.playRequestId != playRequestId {
-            context.coordinator.playRequestId = playRequestId
-            player.play()
-        }
-    }
-
-    final class Coordinator {
-        var url: URL?
-        var player: AVPlayer?
-        var playRequestId: UUID?
     }
 }

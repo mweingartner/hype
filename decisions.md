@@ -1,10 +1,3 @@
----
-type: decisions
-title: Hype Decisions & Guardrails
-description: Durable product-behavior and build guardrails (persistence, scripting, AI tooling, providers, runtime) — mandatory for substantive changes.
-updated: 2026-06-10
----
-
 # decisions.md
 
 Product decisions and guardrails for how Hype should be built and behave.
@@ -19,7 +12,7 @@ document semantics.
 - Persist document state in self-contained SQLite-backed `.hype` packages. The runtime model remains value typed through `HypeDocument`, `Stack`, `Background`, `Card`, `Part`, `SpriteAreaSpec`, and `SceneSpec`.
 - Do not persist live AppKit, SpriteKit, SceneKit, AVFoundation, AudioKit, or network objects.
 - New stacks must ask for target platforms before normal authoring continues. The default selection is macOS, but iPhone, iPad, and tvOS are first-class selectable targets; iPad is not treated as just a large iPhone.
-- The object palette must show only creation controls that work across every selected target platform. Target availability must be derived from the shipped runtime adapter catalog, not from intent or aspirational support. If a target runtime lacks a safe implementation for a control, hide that control from the creation panel and fail export validation rather than letting the user build a non-deployable stack by accident.
+- The object palette must show only creation controls that work across every selected target platform. If a target runtime lacks a safe implementation for a control, hide that control from the creation panel rather than letting the user build a non-deployable stack by accident.
 - Target-device emulation is an authoring view over the same document. Edits made while emulating are immediate normal document edits and autosave/undo should treat them like any other edit.
 - Target layout behavior must remain declarative. Use target profiles, `layoutPolicy`, explicit constraints, and `LayoutResolver`; do not persist live platform view state or bake casual drag snapping into durable responsive constraints.
 - AI-created card layouts must use target-aware HIG layout tools where possible. Prefer safe-area constraints, selected-target validation, and deterministic HIG arrangements over freehand coordinate sequences.
@@ -35,9 +28,9 @@ document semantics.
 - Persist AudioKit-backed music as declarative patterns/tracks/assets in the stack; reconstruct `AudioEngine`, samplers, players, and playback tasks at runtime through providers.
 - Keep `SceneSpec` and `SpriteAreaSpec` as the source of truth for SpriteKit content; `SceneBridge` projects specs into live SpriteKit nodes.
 - Route HypeTalk through `MessageDispatcher`, `Interpreter`, and `StackRuntime` rather than bypassing the message hierarchy.
-- Preserve HyperCard-style message pass-up: part -> card -> background -> stack -> app, and scene/node -> sprite area -> card -> background -> stack -> app.
+- Preserve HyperCard-style message pass-up: part -> card -> background -> active stack -> used stack scripts -> app, and scene/node -> sprite area -> card -> background -> active stack -> used stack scripts -> app.
+- Multi-stack navigation must resolve through persisted stack-library metadata and return explicit project-navigation targets; app routing opens only `.hype` documents and then performs local card selection, while single-stack card navigation remains local to the active `HypeDocument`.
 - Treat `.hype` stack files as self-contained user documents. User-created content should be persisted in the stack unless there is an explicit architecture-level reason to keep it external.
-- Embedded video and QuickTime assets remain stack data, not persisted AVFoundation state. Runtime views may materialize those bytes into temporary files to satisfy platform playback APIs, but packages must not store temp paths or live player objects.
 - Keep SQLite storage diagnosable: core stack layout, scripts, assets, AI context, SpriteKit scenes/nodes, and search indexes should be inspectable through tables, indexes, and validation views.
 - Breaking document-model changes must bump `HypeDocument.currentDocumentVersion`, write the new version into `manifest.json` and `document_values`, and add a forward migration hook in `HypeSQLiteStackStore` before any old payloads are decoded.
 - Migrations run on a temporary database copy during load/search/validation. Opening an older stack must not rewrite the user's source package until the user explicitly saves it.
@@ -50,14 +43,13 @@ document semantics.
 - Preserve HyperCard-style semantics where they exist in Hype: message dispatch, pass-up behavior, container ownership, and stack/card/background/object introspection.
 - Preserve classic `it` semantics: commands such as `get`, `ask`, `answer`, `read`, request/reply, and explicit `put ... into it` may set `it`; ordinary `put ... into/after/before` another field, button, property, or scoped container must not clobber `it`.
 - For legacy HyperCard compatibility, emulate behavior in Swift; never execute classic native XCMD/XFCN code.
-- Import may enable a route-only compatibility translation for otherwise unsupported legacy movie-click scripts only when it can emit parser-validated HypeTalk that preserves explicit cross-stack navigation. Unsupported movie/window side effects stay inert and documented; scripts that cannot be safely reduced this way remain disabled as commented reference text.
-- Debug HyperCard/stackimport automation must not overwrite default generated `.hype` packages that may already be open in AppKit document windows. Use isolated per-request temp output directories unless the caller explicitly requests an `outputDirectory`.
+- Legacy external emulators should expose explicit script-visible outcomes
+  (`it`, `the result`, runtime globals, visual-effect intent, or document
+  mutation) instead of hidden no-ops.
 
 ## AI And Tooling Guardrails
 
 - Keep AI authoring deterministic where tools exist. Prefer validated tools and templates over freehand raw script or node edits.
-- Specific user intent outranks AI template defaults. Deterministic game templates may provide a baseline only when they match the requested game; explicit target names, existing-scene requirements, requested art generation, mechanics, and script behavior must be preserved through tool arguments and follow-up customization.
-- SpriteKit authoring tools must fail closed when user intent names or implies an existing target. Do not create a default template area, run a narrow direct-edit shortcut, or claim success if the requested existing sprite area/scene was not actually mutated.
 - Keep model prompts concise and source-grounded. Large catalogs should be discoverable through tools rather than always injected into the system prompt.
 - Expand AI context through explicit, auditable tools rather than by adding large dynamic catalogs, private libraries, or broad project data directly to the prompt window.
 - External scripting references should be curated into source-attributed, Hype-specific tool guides and parser-tested patterns. Do not paste large raw reference material into every model prompt or treat classic HyperTalk behavior as implemented until Hype compatibility is verified.
@@ -65,7 +57,6 @@ document semantics.
 - Treat provider integrations as user-controlled side effects. Respect existing preferences, keychain handling, hostname allowlists, and stack-level opt-in gates.
 - Keep deployed-runtime AI tools separate from authoring tools. Runtime AI may read runtime-safe stack/card/object context by default; any side-effect tool must be explicitly allowlisted by stack runtime AI settings.
 - For stack context memory, use the stack-scoped AI context library and avoid secrets, API keys, credentials, or private tokens.
-- Apply AI Context Library access through the centralized tool policy. Context read/import tools must be withheld from cloud providers until the stack opts in; write-only project-memory notes may remain available because they do not expose existing context. The local MCP/debug bridge is a privileged local boundary for diagnosis and automation.
 - Tool changes need schema coverage and execution-path tests.
 - AI transactions should preserve preview/apply/rollback semantics where applicable.
 
@@ -104,15 +95,6 @@ document semantics.
 - Browse-mode user actions should use the same runtime dispatch path as automated or scripted actions unless there is a documented reason to diverge.
 - Network-backed or paid services must be optional, preference-gated, and safe to disable without breaking local stack creation or playback.
 - Stack content should remain portable. External assets, generated media, context notes, and model-created content should be embedded or copied into the stack package when that is the expected user-facing behavior.
-
-## Visual QA And Debugging Guardrails
-
-- Agentic development on Hype must include visual ownership, not just source-level correctness. For user-facing UI, control rendering, target-runtime export, layout, interaction, animation, or authoring workflow changes, build, deploy, open, and visually inspect the running app before calling the work complete unless the user explicitly asks for design-only analysis.
-- Use first-class local automation for visual debugging: `/Applications/Hype.app` for deployed macOS behavior, `cliclick` for pointer/keyboard interaction when reliable, `screencapture` and `view_image` for screenshot inspection, `xcrun simctl` for iPhone/iPad simulator launch and screenshots, and the Hype MCP/debug bridge for live stack/app introspection and mutation.
-- Prefer repeatable visual QA commands over ad hoc inspection. `scripts/visual_qa.sh` is the default harness for build/deploy/open, focused target/runtime/control tests, MCP validation, and screenshot artifacts under ignored `.hype/visual-qa/`. Use `--live-ios` whenever iPhone/iPad deployed runtime behavior is relevant; live simulators are expected validation tools for target-runtime work, not optional last resorts. Shut down simulators after the pass unless the user explicitly wants them left running.
-- Treat visual artifacts as evidence. When validating a fix, inspect screenshots or the live app for legibility, clipping, layout fit, animation state, hit targets, and interaction feedback. Passing tests do not prove the UI is visually correct.
-- Keep visual QA non-destructive for user documents. Do not mutate ordinary user `.hype` stack files or commit screenshot artifacts unless explicitly requested. Stacks whose document names or filenames start with `test` are agent-owned QA fixtures and may be opened, mutated, saved, exported, and run in simulators as needed for debugging. Use generated temporary test stacks, ignored `.hype/` artifacts, simulator runtime packages, and MCP/debug tools for inspection and deterministic mutation.
-- When `cliclick` click delivery into Simulator is unreliable, use drag-down/drag-up sequences, simulator screenshots, source-level adapter tests, and MCP/debug introspection to triangulate behavior instead of over-trusting a single pointer event.
 
 ## References
 

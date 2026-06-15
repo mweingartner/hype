@@ -671,6 +671,25 @@ final class HypeDebugServer: @unchecked Sendable {
                 return jsonRPCResult(id: id, result: liveCanvasHitTest(params: mcpArguments(from: params)).jsonObject as? [String: Any] ?? [:])
             case "debug/openScriptEditor":
                 return jsonRPCResult(id: id, result: openScriptEditor(arguments: mcpArguments(from: params)).jsonObject as? [String: Any] ?? [:])
+            case "debug/getScriptDebuggerState":
+                return jsonRPCResult(id: id, result: scriptDebuggerState(arguments: mcpArguments(from: params)))
+            case "debug/setScriptTracing":
+                let arguments = mcpArguments(from: params)
+                guard arguments["enabled"] != nil else {
+                    return jsonRPCError(id: id, code: -32602, message: "debug/setScriptTracing requires params.enabled")
+                }
+                let enabled = debugBool(arguments["enabled"]?.flattenedString)
+                HypeTalkScriptTraceRecorder.shared.setEnabled(enabled)
+                return jsonRPCResult(id: id, result: scriptDebuggerState(arguments: arguments))
+            case "debug/clearScriptTrace":
+                HypeTalkScriptTraceRecorder.shared.clear()
+                return jsonRPCResult(id: id, result: scriptDebuggerState(arguments: mcpArguments(from: params)))
+            case "debug/openScriptTraceSource":
+                guard let source = scriptTraceSource(from: params) else {
+                    return jsonRPCError(id: id, code: -32602, message: "debug/openScriptTraceSource requires params.source.kind or params.sourceKind")
+                }
+                let openResult = await openScriptTraceSource(source)
+                return jsonRPCResult(id: id, result: openResult)
             case "debug/hello", "debug/getState", "debug/status":
                 try? writeDescriptor()
                 return jsonRPCResult(id: id, result: descriptor())
@@ -1238,8 +1257,18 @@ final class HypeDebugServer: @unchecked Sendable {
 
     private func debugRuntimeSummary(document: HypeDocument, cardId: UUID) -> [String: Any] {
         let cardParts = document.parts.filter { $0.cardId == cardId }
+        let card = document.cards.first { $0.id == cardId }
+        let backgroundParts = card.map { currentCard in
+            document.parts.filter { $0.backgroundId == currentCard.backgroundId }
+        } ?? []
         let videos = cardParts.filter { $0.partType == .video }
         let images = cardParts.filter { $0.partType == .image }
+        let backgroundImages = backgroundParts.filter { $0.partType == .image }
+        let renderedImages = CardRenderer().renderableCardParts(
+            document: document,
+            cardId: cardId,
+            size: NSSize(width: document.stack.width, height: document.stack.height)
+        ).filter { $0.partType == .image }
         let hypercardGlobals = document.scriptGlobals
             .filter { key, _ in key.hasPrefix("hypercard.") }
             .sorted { $0.key < $1.key }
@@ -1248,7 +1277,31 @@ final class HypeDebugServer: @unchecked Sendable {
             "videoParts": videos.map(debugVideoPartJSON),
             "imagePartCount": images.count,
             "compatibilityImagePartCount": images.filter { !$0.helpText.isEmpty }.count,
+            "visibleCompatibilityImagePartCount": images.filter { $0.visible && !$0.helpText.isEmpty }.count,
+            "imageParts": images.map(debugImagePartJSON),
+            "backgroundImageParts": backgroundImages.map(debugImagePartJSON),
+            "renderedImagePartCount": renderedImages.count,
+            "renderedCompatibilityImagePartCount": renderedImages.filter { !$0.helpText.isEmpty }.count,
+            "renderedImportedPaintLayerImagePartCount": renderedImages.filter { $0.helpText.isEmpty && $0.name.localizedCaseInsensitiveContains("Paint Layer") }.count,
+            "renderedImageParts": renderedImages.map(debugImagePartJSON),
             "hypercardGlobals": Dictionary(uniqueKeysWithValues: hypercardGlobals),
+        ]
+    }
+
+    private func debugImagePartJSON(_ part: Part) -> [String: Any] {
+        [
+            "id": part.id.uuidString,
+            "name": part.name,
+            "cardId": part.cardId?.uuidString ?? NSNull(),
+            "backgroundId": part.backgroundId?.uuidString ?? NSNull(),
+            "sortKey": part.sortKey,
+            "left": part.left,
+            "top": part.top,
+            "width": part.width,
+            "height": part.height,
+            "visible": part.visible,
+            "marker": part.helpText,
+            "imageByteCount": part.imageData?.count ?? 0,
         ]
     }
 
@@ -1489,8 +1542,132 @@ final class HypeDebugServer: @unchecked Sendable {
                 name: arguments["name"]?.flattenedString.nonEmpty ?? "MCP Test Stack",
                 deploymentTargets: automationDeploymentTargets(from: arguments)
             )
+        case "hype_get_script_debugger_state":
+            return (debugJSONText(scriptDebuggerState(arguments: arguments)), false)
+        case "hype_set_script_tracing":
+            let enabled = debugBool(arguments["enabled"]?.flattenedString)
+            HypeTalkScriptTraceRecorder.shared.setEnabled(enabled)
+            return (debugJSONText(["isEnabled": HypeTalkScriptTraceRecorder.shared.isEnabled]), false)
+        case "hype_clear_script_trace":
+            HypeTalkScriptTraceRecorder.shared.clear()
+            return (debugJSONText(["cleared": true]), false)
         default:
             return ("Unknown MCP control tool \(name)", true)
+        }
+    }
+
+    private func scriptDebuggerState(arguments: [String: HypeMCPJSONValue]) -> [String: Any] {
+        let snapshot = HypeTalkScriptTraceRecorder.shared.snapshot()
+        let maxEntries = Int(arguments["max_entries"]?.flattenedString ?? "") ?? 200
+        let includeDiagnostics = debugBool(arguments["include_diagnostics"]?.flattenedString, defaultValue: true)
+        let frameBudget = Double(arguments["frame_budget_ms"]?.flattenedString ?? "") ?? HypeTalkRuntimeBudgetSummary.defaultFrameBudgetMilliseconds
+        let entries = snapshot.entries.suffix(max(0, maxEntries)).map { entry in
+            let sourceObjectId: Any = if let objectId = entry.source.objectId {
+                objectId.uuidString
+            } else {
+                NSNull()
+            }
+            var object: [String: Any] = [
+                "id": entry.id.uuidString,
+                "timestamp": ISO8601DateFormatter().string(from: entry.timestamp),
+                "message": entry.message,
+                "handler": entry.handler,
+                "ownerDescription": entry.ownerDescription,
+                "source": [
+                    "kind": entry.source.kind,
+                    "objectId": sourceObjectId,
+                ],
+                "line": entry.line,
+                "status": entry.status,
+                "durationMilliseconds": entry.durationMilliseconds,
+                "budget": runtimeBudgetJSON(HypeTalkRuntimeBudgetSummary(durationMilliseconds: entry.durationMilliseconds, budgetMilliseconds: frameBudget)),
+            ]
+            if includeDiagnostics {
+                object["diagnostics"] = diagnosticsJSON(entry.diagnostics)
+            }
+            return object
+        }
+        return [
+            "isEnabled": snapshot.isEnabled,
+            "entryCount": snapshot.entries.count,
+            "entries": Array(entries),
+        ]
+    }
+
+    private func scriptTraceSource(from params: [String: Any]) -> HypeTalkScriptTraceSource? {
+        let source = params["source"] as? [String: Any]
+        let kind = (source?["kind"] as? String ?? params["sourceKind"] as? String ?? params["kind"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard let kind, !kind.isEmpty else { return nil }
+        let objectIdText = source?["objectId"] as? String
+            ?? source?["id"] as? String
+            ?? params["objectId"] as? String
+            ?? params["id"] as? String
+        return HypeTalkScriptTraceSource(kind: kind, objectId: objectIdText.flatMap(UUID.init(uuidString:)))
+    }
+
+    @MainActor
+    private func openScriptTraceSource(_ source: HypeTalkScriptTraceSource) -> [String: Any] {
+        let target: ScriptTarget?
+        switch source.kind {
+        case "part":
+            target = source.objectId.map { .part($0) }
+        case "card":
+            target = source.objectId.map { .card($0) }
+        case "background":
+            target = source.objectId.map { .background($0) }
+        case "stack":
+            target = .stack
+        case "hype":
+            target = .hype
+        default:
+            target = nil
+        }
+        guard let target else {
+            return ["opened": false, "reason": "unsupported source"]
+        }
+        var userInfo: [AnyHashable: Any] = ["target": target]
+        if case .part(let partId) = target {
+            userInfo["partId"] = partId
+        }
+        NotificationCenter.default.post(name: .openPartScriptEditor, object: nil, userInfo: userInfo)
+        return ["opened": true, "source": ["kind": source.kind, "objectId": source.objectId?.uuidString ?? NSNull()]]
+    }
+
+    private func diagnosticsJSON(_ diagnostics: HypeTalkExecutionDiagnostics) -> [String: Any] {
+        [
+            "handlerInvocations": diagnostics.handlerInvocations,
+            "statements": diagnostics.statements,
+            "expressions": diagnostics.expressions,
+            "propertyReads": diagnostics.propertyReads,
+            "propertyWrites": diagnostics.propertyWrites,
+            "loopIterations": diagnostics.loopIterations,
+            "callbackRequests": diagnostics.callbackRequests,
+            "statementKinds": diagnostics.statementKinds,
+            "expressionKinds": diagnostics.expressionKinds,
+            "propertyReadKinds": diagnostics.propertyReadKinds,
+            "propertyWriteKinds": diagnostics.propertyWriteKinds,
+            "callbackKinds": diagnostics.callbackKinds,
+        ]
+    }
+
+    private func runtimeBudgetJSON(_ summary: HypeTalkRuntimeBudgetSummary) -> [String: Any] {
+        [
+            "durationMilliseconds": summary.durationMilliseconds,
+            "budgetMilliseconds": summary.budgetMilliseconds,
+            "budgetPercent": summary.budgetPercent,
+            "frameEquivalents": summary.frameEquivalents,
+            "pressure": summary.pressure,
+        ]
+    }
+
+    private func debugBool(_ value: String?, defaultValue: Bool = false) -> Bool {
+        guard let value else { return defaultValue }
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "y", "on": return true
+        case "0", "false", "no", "n", "off": return false
+        default: return defaultValue
         }
     }
 

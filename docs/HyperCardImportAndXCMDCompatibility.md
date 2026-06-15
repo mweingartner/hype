@@ -44,23 +44,6 @@ The registry models the behavior that matters to scripts:
 
 - Command-style XCMD calls parse as `Statement.externalCommand`, for example
   `SetCursor "watch"`.
-- Parameterless single-identifier lines dispatch as classic handler commands
-  when the normal HypeTalk message path contains a matching handler, for example
-  `resetDrawers`.
-- Function-call syntax dispatches to matching handler functions in the normal
-  message path before falling back to built-ins and emulated XFCNs, for example
-  `theAdjust()`. If a local `go` changes the current card earlier in the same
-  handler, later function calls use that destination card as the lookup context.
-- Validator object-reference checks accept classic self-card references such as
-  `this card` and `current card`.
-- Validator object-reference checks skip variable-driven object references such
-  as `go to card x` or `button which`; those remain runtime-resolved.
-- Validator card-reference checks accept card names from imported project
-  stack-library metadata so cross-stack navigation targets are not reported as
-  missing from the current package.
-- Validator hook-context checks treat card/background lifecycle handlers in
-  stack scripts as valid because those messages pass up through the normal
-  HyperCard-style hierarchy to the stack.
 - Function-style XFCN calls use ordinary function syntax, for example
   `put HypeVersion() into field "status"`.
 - Parameters are passed as evaluated HypeTalk strings.
@@ -89,12 +72,6 @@ Implemented:
 - Safe resource fork parsing.
 - Structural conversion for stack size, backgrounds, cards, button records,
   field records, part text, and scripts.
-- Route-only script translation for StackImport-era movie-click card scripts
-  that fail full HypeTalk parsing but contain explicit cross-stack
-  `go ... of stack ...` commands. The generated handler is parser-validated
-  HypeTalk, preserves the final project-navigation behavior needed by Myst
-  age-link/return movies, and keeps unsupported movie/window choreography inert
-  in comments.
 - Original data/resource fork preservation when under the configured size limit.
 - Import report with block summary, resource summary, unsupported feature notes,
   and XCMD/XFCN inventory.
@@ -126,10 +103,6 @@ Implemented:
   QuickTime parts inherit the current volume.
 - Myst-facing `SetMode`/`GetMode` compatibility records and returns classic
   display mode/depth runtime-only state, defaulting to `c,8`.
-- Myst-facing `createMenu` compatibility records imported menu construction as
-  runtime-only metadata, and `soundTime` compatibility records classic
-  QuickTime/audio timing segment arguments so generator and intro scripts do
-  not degrade through unknown-native-external diagnostics.
 - Myst-facing `HTAddPict`, `HTChangePict`, `HTSavePict`, and `xCIcon3`
   compatibility resolves imported resource image assets by classic name or
   resource ID and creates runtime image parts on the current card.
@@ -154,11 +127,6 @@ Implemented:
 - `snd ` resource conversion to `audioClip` assets in `AssetRepository` via
   `stackimport_snd_to_wav()` (pure Swift path) and streaming resource
   payload callbacks (C importer path).
-- HypeTalk `play` resolves imported sound names through the same classic media
-  lookup used by compatibility QuickTime/XCMD paths, including case and
-  whitespace normalization and collapsed word separators. CLI validation uses
-  that lookup for literal sound names and leaves variable-driven `play`
-  expressions to runtime.
 - StackImport package resource consumption for converted PNG/image, audio,
   video, JSON, and text artifacts. Multi-artifact resources keep related
   metadata with the primary asset; standalone JSON/text resources are inert
@@ -173,12 +141,6 @@ Implemented:
   `shared_from_content_stack` provenance metadata. This keeps each generated
   document self-contained while allowing classic media/resource lookup to find
   shared content-stack assets by name or resource ID.
-- StackImport package, project-stack, and project import summaries report
-  source package paths, generated `.hype` package byte counts, and import
-  durations. Project summaries also expose top-level source/output path arrays
-  in import order. Debug/live probes use these fields to disambiguate same-named
-  stacks and profile self-contained package growth/import cost as Myst
-  content-stack resources and loose media are imported.
 
 Not yet implemented:
 

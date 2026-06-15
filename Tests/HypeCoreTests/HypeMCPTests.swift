@@ -42,6 +42,10 @@ struct HypeMCPTests {
         #expect(names.contains("hype_replace_part"))
         #expect(names.contains("hype_preview_transaction"))
         #expect(names.contains("hype_create_test_stack"))
+        #expect(names.contains("hype_get_script_debugger_state"))
+        #expect(names.contains("hype_set_script_tracing"))
+        #expect(names.contains("hype_clear_script_trace"))
+        #expect(names.contains("hype_open_script_trace_source"))
     }
 
     @Test("automation test stacks default to acknowledged macOS targets")
