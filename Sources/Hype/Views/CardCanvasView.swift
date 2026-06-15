@@ -4081,7 +4081,7 @@ class CardCanvasNSView: NSView {
 
         if toolCheck.category == .browse,
            let part = hitPart,
-           beginCanvasSliderInteraction(part: part, at: point) {
+            beginCanvasSliderInteraction(part: part, at: point) {
             coordinator?.recordClickState(point: point, hitPart: hitPart, document: document)
             return
         }
