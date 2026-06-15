@@ -1350,6 +1350,18 @@ public struct Interpreter: Sendable {
                 env.it = value
                 break
             }
+            if target == nil, property.lowercased() == "cursor" {
+                let mode: String
+                if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   case .variable(let bareMode) = toExpr {
+                    mode = bareMode.trimmingCharacters(in: .whitespacesAndNewlines)
+                } else {
+                    mode = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                env.globals["hypercard.cursor.mode"] = mode.isEmpty ? "hand" : mode
+                env.result = env.globals["hypercard.cursor.mode"] ?? "hand"
+                break
+            }
             if let targetExpr = target {
                 // Chart data-point reference set path:
                 //   set the color of data point N of [series N of] chart "X" to "#FF0000"
@@ -2322,7 +2334,6 @@ public struct Interpreter: Sendable {
             for expr in argumentExprs {
                 args.append(try await evaluateExternalArgumentExpression(expr, env: &env, document: document, context: context))
             }
-
             let normalizedName = name.lowercased()
             if normalizedName == "domenu" {
                 let item = args.first ?? ""
@@ -3606,8 +3617,18 @@ public struct Interpreter: Sendable {
             await context.hostProvider.print(target: target)
 
         case .doMenuCmd(let expr):
-            let item = try await evaluate(expr, env: &env, document: document, context: context)
-            _ = await context.hostProvider.doMenu(item: item)
+            let itemName = try await evaluate(expr, env: &env, document: document, context: context)
+            if await context.hostProvider.doMenu(item: itemName) {
+                break
+            }
+            try await executeClassicMenuCommand(
+                itemName: itemName,
+                env: &env,
+                document: &document,
+                context: context,
+                navigationTarget: &navigationTarget,
+                handler: handler
+            )
 
         case .startUsing(let stackExpr):
             let alias = try await evaluate(stackExpr, env: &env, document: document, context: context)
@@ -3647,9 +3668,10 @@ public struct Interpreter: Sendable {
                 break
             }
 
+        // Legacy commands recognized by the parser but intentionally no-op here.
         case .clickAt, .disableCmd, .enableCmd,
-              .helpCmd, .debugCmd, .dialCmd,
-              .runCmd, .copyTemplate:
+             .helpCmd, .debugCmd, .dialCmd,
+             .runCmd, .copyTemplate:
             break
 
         case .exportPaint(let nameExpr):
@@ -3753,6 +3775,72 @@ public struct Interpreter: Sendable {
         default:
             return false
         }
+    }
+
+    private func executeClassicMenuCommand(
+        itemName: String,
+        env: inout Environment,
+        document: inout HypeDocument,
+        context: ExecutionContext,
+        navigationTarget: inout UUID?,
+        handler: Handler
+    ) async throws {
+        let trimmed = itemName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            env.result = "No classic menu item specified"
+            return
+        }
+
+        let selection = ClassicMenuCommandMapper.findSelection(named: trimmed, in: document)
+        let command = selection.map(ClassicMenuCommandMapper.command(for:))
+            ?? ClassicMenuCommandMapper.command(menuTitle: "", itemName: trimmed)
+
+        switch command {
+        case .createCard:
+            let newCard = document.addCard(
+                afterIndex: document.sortedCards.firstIndex(where: { $0.id == context.currentCardId })
+            )
+            navigationTarget = newCard.id
+            env.it = newCard.name
+            env.result = newCard.name
+
+        case .goFirstCard:
+            try await navigateFromClassicMenu("first", env: &env, document: document, context: context, navigationTarget: &navigationTarget, handler: handler)
+        case .goPreviousCard:
+            try await navigateFromClassicMenu("previous", env: &env, document: document, context: context, navigationTarget: &navigationTarget, handler: handler)
+        case .goNextCard:
+            try await navigateFromClassicMenu("next", env: &env, document: document, context: context, navigationTarget: &navigationTarget, handler: handler)
+        case .goLastCard:
+            try await navigateFromClassicMenu("last", env: &env, document: document, context: context, navigationTarget: &navigationTarget, handler: handler)
+
+        case .quitApp:
+            recordClassicUIIntent("quit", detail: trimmed, env: &env)
+
+        case .unsupported:
+            if let selection {
+                env.it = selection.item.name
+                env.result = "Unsupported classic menu item: \(selection.menu.title) > \(selection.item.name)"
+            } else {
+                env.result = "Classic menu item not found: \(trimmed)"
+            }
+        }
+    }
+
+    private func navigateFromClassicMenu(
+        _ destination: String,
+        env: inout Environment,
+        document: HypeDocument,
+        context: ExecutionContext,
+        navigationTarget: inout UUID?,
+        handler: Handler
+    ) async throws {
+        guard let resolved = resolveNavigation(destination, document: document, currentCardId: navigationTarget ?? context.currentCardId) else {
+            throw ScriptError(message: "Could not resolve classic menu navigation: \(destination)", line: handler.line, handler: handler.name)
+        }
+        navigationTarget = resolved
+        await context.runtimeProvider?.navigateToCard(resolved)
+        env.it = document.cards.first(where: { $0.id == resolved })?.name ?? resolved.uuidString
+        env.result = env.it
     }
 
     private func boundedRead(
@@ -3876,6 +3964,67 @@ public struct Interpreter: Sendable {
             }
         }
         return try await evaluate(expr, env: &env, document: document, context: context)
+    }
+
+    @discardableResult
+    private func applyClassicUIVisibility(_ name: String, visible: Bool, env: inout Environment) -> Bool {
+        let normalized = name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: " ", with: "")
+            .lowercased()
+        let key: String
+        switch normalized {
+        case "menubar", "menubars":
+            key = "hypercard.ui.menubar.visible"
+        case "titlebar", "titlebars":
+            key = "hypercard.ui.titlebar.visible"
+        default:
+            return false
+        }
+        env.globals[key] = visible ? "true" : "false"
+        env.it = visible ? "shown" : "hidden"
+        env.result = "\(env.it) \(name)"
+        return true
+    }
+
+    private func recordClassicMenuMutation(action: String, target: String, env: inout Environment) {
+        let normalizedAction = action.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedTarget = target.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        env.globals["hypercard.menu.lastAction"] = normalizedAction
+        env.globals["hypercard.menu.lastTarget"] = normalizedTarget
+        switch normalizedAction {
+        case "enable":
+            env.globals["hypercard.menu.lastEnabled"] = "true"
+        case "disable":
+            env.globals["hypercard.menu.lastEnabled"] = "false"
+        case "create":
+            env.globals["hypercard.menu.lastCreated"] = normalizedTarget
+        case "delete":
+            env.globals["hypercard.menu.lastDeleted"] = normalizedTarget
+        default:
+            break
+        }
+        env.it = normalizedTarget
+        env.result = normalizedTarget.isEmpty ? normalizedAction : "\(normalizedAction) \(normalizedTarget)"
+    }
+
+    private func recordClassicUIIntent(_ action: String, detail: String, env: inout Environment) {
+        let normalizedAction = action.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedDetail = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        env.globals["hypercard.ui.lastAction"] = normalizedAction
+        env.globals["hypercard.ui.lastDetail"] = normalizedDetail
+        switch normalizedAction.lowercased() {
+        case "quit":
+            env.globals["hypercard.app.quitRequested"] = "true"
+        case "savestack":
+            env.globals["hypercard.stack.saveRequested"] = "true"
+        case "editscript":
+            env.globals["hypercard.script.editRequested"] = "true"
+        default:
+            break
+        }
+        env.it = normalizedDetail
+        env.result = normalizedDetail.isEmpty ? normalizedAction : "\(normalizedAction) \(normalizedDetail)"
     }
 
     // MARK: - Sort container (1B.sort lines/items)
@@ -6321,6 +6470,8 @@ public struct Interpreter: Sendable {
         let sortedCards = document.sortedCards
         guard !sortedCards.isEmpty else { return nil }
 
+        // Build a search order starting from the current card (inclusive),
+        // then wrapping back around to the beginning of the sorted list.
         let startIndex = sortedCards.firstIndex(where: { $0.id == startingCardId }) ?? 0
         let orderedCards = Array(sortedCards[startIndex...]) + Array(sortedCards[..<startIndex])
 
