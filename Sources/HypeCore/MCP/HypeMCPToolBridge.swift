@@ -19,7 +19,11 @@ public enum HypeMCPToolBridge {
         "hype_preview_transaction",
         "hype_apply_transaction",
         "hype_rollback_transaction",
-        "hype_create_test_stack"
+        "hype_create_test_stack",
+        "hype_get_script_debugger_state",
+        "hype_set_script_tracing",
+        "hype_clear_script_trace",
+        "hype_open_script_trace_source"
     ]
 
     public static var allTools: [HypeMCPTool] {
@@ -214,6 +218,35 @@ public enum HypeMCPToolBridge {
                     "name": ("string", "Stack name", false),
                     "target_platforms": ("string", "Optional comma-separated target platforms: macOS, iPhone, iPad, tvOS. Defaults to macOS.", false),
                     "primary_target_platform": ("string", "Optional primary target platform. Defaults to the first selected target.", false)
+                ]
+            ),
+            tool(
+                "hype_get_script_debugger_state",
+                "Return script debugger globals, trace entries, profiling counters, and script-runtime budget pressure for the live Hype session.",
+                [
+                    "max_entries": ("number", "Maximum newest trace entries to return. Defaults to 200.", false),
+                    "frame_budget_ms": ("number", "Runtime budget in milliseconds used for budget pressure calculations. Defaults to 16.67 ms.", false),
+                    "include_diagnostics": ("boolean", "Include detailed profiler counters on each trace entry. Defaults to true.", false)
+                ]
+            ),
+            tool(
+                "hype_set_script_tracing",
+                "Enable or pause live HypeTalk tracing in the Script Debugger recorder.",
+                [
+                    "enabled": ("boolean", "true to trace script handlers, false to pause tracing.", true)
+                ]
+            ),
+            tool(
+                "hype_clear_script_trace",
+                "Clear recorded HypeTalk script trace entries without changing globals.",
+                [:]
+            ),
+            tool(
+                "hype_open_script_trace_source",
+                "Open the source script referenced by a trace entry source object.",
+                [
+                    "source_kind": ("string", "Trace source kind: part, card, background, stack, or hype.", true),
+                    "object_id": ("string", "UUID for part/card/background sources. Omit for stack or hype.", false)
                 ]
             )
         ]
