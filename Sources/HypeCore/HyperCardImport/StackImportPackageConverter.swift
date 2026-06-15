@@ -1,7 +1,5 @@
-import Foundation
-#if canImport(AppKit)
 import AppKit
-#endif
+import Foundation
 
 public struct StackImportPackageConverter: Sendable {
     public var options: HyperCardImportOptions
@@ -437,7 +435,7 @@ public struct StackImportPackageConverter: Sendable {
         existingNames: Set<String>
     ) -> Asset {
         let kind = assetKind(for: mediaType, path: path)
-        let dimensions = kind == .imageTexture ? PNGEncoding.imageDimensions(data: data) : nil
+        let image = kind == .imageTexture ? NSImage(data: data) : nil
         let baseName = resourceAssetName(resource: resource, artifact: artifact, path: path)
         let name = uniqueName(baseName, existingNames: existingNames)
         var asset = Asset(
@@ -445,8 +443,8 @@ public struct StackImportPackageConverter: Sendable {
             kind: kind,
             mimeType: mediaType.isEmpty ? mediaTypeForPath(path) : mediaType,
             data: data,
-            width: dimensions?.width ?? 0,
-            height: dimensions?.height ?? 0,
+            width: Int(image?.size.width ?? 0),
+            height: Int(image?.size.height ?? 0),
             tags: resourceTags(resource: resource, artifact: artifact),
             provenance: AssetProvenance(
                 origin: .userImport,
@@ -726,7 +724,7 @@ public struct StackImportPackageConverter: Sendable {
         fonts.compactMap { font in
             let name = font.name.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { return nil }
-            let available = isFontAvailable(name)
+            let available = NSFont(name: name, size: 12) != nil
             return StackImportFontSummary(
                 id: font.id,
                 name: name,
@@ -742,7 +740,7 @@ public struct StackImportPackageConverter: Sendable {
         if let resolved = resolvedFontsByName[name.lowercased()] {
             return resolved
         }
-        if isFontAvailable(name) {
+        if NSFont(name: name, size: 12) != nil {
             return name
         }
         return classicFontFallback(for: name)
@@ -756,29 +754,13 @@ public struct StackImportPackageConverter: Sendable {
         default:
             preferred = "Helvetica"
         }
-        if isFontAvailable(preferred) {
+        if NSFont(name: preferred, size: 12) != nil {
             return preferred
         }
-        if isFontAvailable("Helvetica") {
+        if NSFont(name: "Helvetica", size: 12) != nil {
             return "Helvetica"
         }
-        return systemFontName()
-    }
-
-    private func isFontAvailable(_ name: String) -> Bool {
-        #if canImport(AppKit)
-        return NSFont(name: name, size: 12) != nil
-        #else
-        return !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        #endif
-    }
-
-    private func systemFontName() -> String {
-        #if canImport(AppKit)
         return NSFont.systemFont(ofSize: 12).fontName
-        #else
-        return "System"
-        #endif
     }
 
     private func sortKey(_ index: Int) -> String {
@@ -1186,28 +1168,38 @@ private enum PBMImageConverter {
             throw HyperCardImportError.generatedPackageInvalid("Truncated PBM bitmap \(path)")
         }
 
-        var rgba = Data(count: width * height * 4)
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width,
+            pixelsHigh: height,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: width * 4,
+            bitsPerPixel: 32
+        ), let bitmapData = rep.bitmapData else {
+            throw HyperCardImportError.generatedPackageInvalid("Could not allocate bitmap \(path)")
+        }
 
         data.withUnsafeBytes { rawBuffer in
             let source = rawBuffer.bindMemory(to: UInt8.self)
-            rgba.withUnsafeMutableBytes { rawRGBA in
-                guard let bitmapData = rawRGBA.bindMemory(to: UInt8.self).baseAddress else { return }
-                for y in 0..<height {
-                    for x in 0..<width {
-                        let byte = source[scanner.offset + y * bytesPerRow + x / 8]
-                        let isBlack = ((byte >> UInt8(7 - (x % 8))) & 1) == 1
-                        let dest = y * width * 4 + x * 4
-                        let value: UInt8 = isBlack ? 0 : 255
-                        bitmapData[dest] = value
-                        bitmapData[dest + 1] = value
-                        bitmapData[dest + 2] = value
-                        bitmapData[dest + 3] = 255
-                    }
+            for y in 0..<height {
+                for x in 0..<width {
+                    let byte = source[scanner.offset + y * bytesPerRow + x / 8]
+                    let isBlack = ((byte >> UInt8(7 - (x % 8))) & 1) == 1
+                    let dest = y * width * 4 + x * 4
+                    let value: UInt8 = isBlack ? 0 : 255
+                    bitmapData[dest] = value
+                    bitmapData[dest + 1] = value
+                    bitmapData[dest + 2] = value
+                    bitmapData[dest + 3] = 255
                 }
             }
         }
 
-        guard let png = PNGEncoding.rgbaDataToPNG(rgba, width: width, height: height) else {
+        guard let png = rep.representation(using: .png, properties: [:]) else {
             throw HyperCardImportError.generatedPackageInvalid("Could not encode bitmap \(path)")
         }
         return png
