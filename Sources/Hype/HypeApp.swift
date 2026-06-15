@@ -17,6 +17,7 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
     private var pendingWindowFrameURL: URL?
     private var hasAppliedPendingFrame = false
     private var debugDefaultsObserver: NSObjectProtocol?
+    private var didReceiveExplicitOpen = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Halve the system tooltip delay. AppKit reads the
@@ -32,6 +33,7 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
         // register on `CardCanvasNSView`.
         UserDefaults.standard.set(0.35, forKey: "NSInitialToolTipDelay")
         UserDefaults.standard.register(defaults: ["hype.debug.enabled": true])
+        HypeTraceConfiguration.apply()
 
         pendingWindowFrameURL = launchState.lastOpenedFileURL
         pendingWindowFrame = launchState.restorableWindowFrame(
@@ -50,8 +52,8 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        if let lastURL = launchState.lastOpenedFileURL {
-            openDocument(at: lastURL)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.restoreLastOpenedDocumentIfNeeded()
         }
 
         // Force a proper activation cycle on the first window.
@@ -79,10 +81,21 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
+        if didReceiveExplicitOpen {
+            return false
+        }
         if launchState.lastOpenedFileURL != nil {
             return false
         }
         return true
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        didReceiveExplicitOpen = true
+        for url in urls {
+            openDocument(at: url)
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -194,6 +207,15 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func restoreLastOpenedDocumentIfNeeded() {
+        guard !didReceiveExplicitOpen,
+              NSDocumentController.shared.documents.isEmpty,
+              let lastURL = launchState.lastOpenedFileURL else {
+            return
+        }
+        openDocument(at: lastURL)
+    }
+
     private func persistState(for window: NSWindow) {
         // Auxiliary windows — panels, sheets, the script editor, the asset
         // repository, About, the console, and Settings — are never owned
@@ -279,6 +301,10 @@ extension Notification.Name {
 @main
 struct HypeApp: App {
     @NSApplicationDelegateAdaptor(HypeAppDelegate.self) var appDelegate
+
+    init() {
+        HypeTraceConfiguration.apply()
+    }
 
     var body: some Scene {
         DocumentGroup(newDocument: HypeDocumentWrapper()) { file in

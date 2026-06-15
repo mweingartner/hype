@@ -1489,8 +1489,42 @@ final class HypeDebugServer: @unchecked Sendable {
                 name: arguments["name"]?.flattenedString.nonEmpty ?? "MCP Test Stack",
                 deploymentTargets: automationDeploymentTargets(from: arguments)
             )
+        case "hype_get_script_debugger_state",
+             "hype_set_script_tracing",
+             "hype_clear_script_trace",
+             "hype_open_script_trace_source":
+            return callScriptDebuggerControlTool(name: name, arguments: arguments)
         default:
             return ("Unknown MCP control tool \(name)", true)
+        }
+    }
+
+    @MainActor
+    func callScriptDebuggerControlTool(
+        name: String,
+        arguments: [String: HypeMCPJSONValue]
+    ) -> (text: String, isError: Bool) {
+        switch name {
+        case "hype_get_script_debugger_state":
+            return (debugJSONText(scriptDebuggerState(arguments: arguments)), false)
+        case "hype_set_script_tracing":
+            let enabled = arguments["enabled"]?.boolValue ?? false
+            HypeTalkScriptTraceRecorder.shared.setEnabled(enabled)
+            return (debugJSONText([
+                "result": enabled ? "Script tracing enabled." : "Script tracing paused.",
+                "isEnabled": enabled,
+            ] as [String: Any]), false)
+        case "hype_clear_script_trace":
+            HypeTalkScriptTraceRecorder.shared.clear()
+            return (debugJSONText([
+                "result": "Script trace cleared.",
+                "entryCount": HypeTalkScriptTraceRecorder.shared.snapshot().entries.count,
+            ] as [String: Any]), false)
+        case "hype_open_script_trace_source":
+            let result = openScriptTraceSource(arguments: arguments)
+            return (debugJSONText(result), result["error"] != nil)
+        default:
+            return ("Unknown script debugger control tool \(name)", true)
         }
     }
 
@@ -1672,6 +1706,168 @@ final class HypeDebugServer: @unchecked Sendable {
             ],
         ]
         return (debugJSONText(payload), result.error != nil)
+    }
+
+    @MainActor
+    private func scriptDebuggerState(arguments: [String: HypeMCPJSONValue]) -> [String: Any] {
+        let snapshot = HypeTalkScriptTraceRecorder.shared.snapshot()
+        let maxEntries = max(0, arguments["max_entries"]?.intValue ?? arguments["maxEntries"]?.intValue ?? 200)
+        let frameBudget = arguments["frame_budget_ms"]?.doubleValue
+            ?? arguments["frameBudgetMs"]?.doubleValue
+            ?? HypeTalkRuntimeBudgetSummary.defaultFrameBudgetMilliseconds
+        let includeDiagnostics = arguments["include_diagnostics"]?.boolValue
+            ?? arguments["includeDiagnostics"]?.boolValue
+            ?? true
+        let returnedEntries = Array(snapshot.entries.suffix(maxEntries).reversed())
+        let returnedDiagnostics = returnedEntries.reduce(into: HypeTalkExecutionDiagnostics()) { partial, entry in
+            partial.merge(entry.diagnostics)
+        }
+        let totalDuration = returnedEntries.reduce(0) { $0 + $1.durationMilliseconds }
+        let averageDuration = returnedEntries.isEmpty ? 0 : totalDuration / Double(returnedEntries.count)
+
+        var payload: [String: Any] = [
+            "isEnabled": snapshot.isEnabled,
+            "entryCount": snapshot.entries.count,
+            "returnedEntryCount": returnedEntries.count,
+            "maxEntries": maxEntries,
+            "frameBudgetMilliseconds": frameBudget,
+            "averageBudgetPressure": budgetJSON(
+                HypeTalkRuntimeBudgetSummary(
+                    durationMilliseconds: averageDuration,
+                    budgetMilliseconds: frameBudget
+                )
+            ),
+            "totals": diagnosticsJSON(returnedDiagnostics, includeDetails: includeDiagnostics),
+            "entries": returnedEntries.map { entry in
+                traceEntryJSON(entry, frameBudgetMilliseconds: frameBudget, includeDiagnostics: includeDiagnostics)
+            },
+        ]
+
+        if let document = activeDebugDocument() {
+            payload["globals"] = Dictionary(uniqueKeysWithValues: document.scriptGlobals.sorted { $0.key < $1.key })
+            if let card = HypeDocumentMutationCoordinator.shared.activeCardId.flatMap({ id in
+                document.cards.first { $0.id == id }
+            }) ?? document.sortedCards.first {
+                payload["runtime"] = debugRuntimeSummary(document: document, cardId: card.id)
+                payload["activeCardId"] = card.id.uuidString
+                payload["activeCardName"] = card.name
+            }
+            payload["stackId"] = document.stack.id.uuidString
+            payload["stackName"] = document.stack.name
+        } else {
+            payload["globals"] = [:] as [String: String]
+            payload["runtime"] = NSNull()
+        }
+
+        return payload
+    }
+
+    private func traceEntryJSON(
+        _ entry: HypeTalkScriptTraceEntry,
+        frameBudgetMilliseconds: Double,
+        includeDiagnostics: Bool
+    ) -> [String: Any] {
+        var payload: [String: Any] = [
+            "id": entry.id.uuidString,
+            "timestamp": ISO8601DateFormatter().string(from: entry.timestamp),
+            "message": entry.message,
+            "handler": entry.handler,
+            "ownerDescription": entry.ownerDescription,
+            "source": traceSourceJSON(entry.source),
+            "line": entry.line,
+            "status": entry.status,
+            "durationMilliseconds": entry.durationMilliseconds,
+            "budget": budgetJSON(
+                HypeTalkRuntimeBudgetSummary(
+                    durationMilliseconds: entry.durationMilliseconds,
+                    budgetMilliseconds: frameBudgetMilliseconds
+                )
+            ),
+        ]
+        if includeDiagnostics {
+            payload["diagnostics"] = diagnosticsJSON(entry.diagnostics, includeDetails: true)
+        }
+        return payload
+    }
+
+    private func traceSourceJSON(_ source: HypeTalkScriptTraceSource) -> [String: Any] {
+        [
+            "kind": source.kind,
+            "objectId": source.objectId?.uuidString ?? NSNull(),
+        ]
+    }
+
+    private func budgetJSON(_ budget: HypeTalkRuntimeBudgetSummary) -> [String: Any] {
+        [
+            "durationMilliseconds": budget.durationMilliseconds,
+            "budgetMilliseconds": budget.budgetMilliseconds,
+            "budgetPercent": budget.budgetPercent,
+            "frameEquivalents": budget.frameEquivalents,
+            "pressure": budget.pressure,
+        ]
+    }
+
+    private func diagnosticsJSON(_ diagnostics: HypeTalkExecutionDiagnostics, includeDetails: Bool) -> [String: Any] {
+        var payload: [String: Any] = [
+            "handlerInvocations": diagnostics.handlerInvocations,
+            "statements": diagnostics.statements,
+            "expressions": diagnostics.expressions,
+            "propertyReads": diagnostics.propertyReads,
+            "propertyWrites": diagnostics.propertyWrites,
+            "loopIterations": diagnostics.loopIterations,
+            "callbackRequests": diagnostics.callbackRequests,
+        ]
+        if includeDetails {
+            payload["statementKinds"] = diagnostics.statementKinds
+            payload["expressionKinds"] = diagnostics.expressionKinds
+            payload["propertyReadKinds"] = diagnostics.propertyReadKinds
+            payload["propertyWriteKinds"] = diagnostics.propertyWriteKinds
+            payload["callbackKinds"] = diagnostics.callbackKinds
+        }
+        return payload
+    }
+
+    @MainActor
+    private func openScriptTraceSource(arguments: [String: HypeMCPJSONValue]) -> [String: Any] {
+        let sourceKind = arguments["source_kind"]?.flattenedString
+            ?? arguments["sourceKind"]?.flattenedString
+            ?? ""
+        let objectId = (arguments["object_id"] ?? arguments["objectId"])
+            .flatMap { UUID(uuidString: $0.flattenedString) }
+
+        guard let target = scriptTarget(for: HypeTalkScriptTraceSource(kind: sourceKind, objectId: objectId)) else {
+            return ["error": "Unsupported trace source kind or missing object_id for \(sourceKind)."]
+        }
+        guard activeDebugDocument() != nil else {
+            return ["error": "No active Hype document."]
+        }
+
+        var userInfo: [AnyHashable: Any] = ["target": target]
+        if case .part(let partId) = target {
+            userInfo["partId"] = partId
+        }
+        NotificationCenter.default.post(name: .openPartScriptEditor, object: nil, userInfo: userInfo)
+        return [
+            "result": "Posted script editor request.",
+            "target": scriptTargetDescription(target),
+        ]
+    }
+
+    private func scriptTarget(for source: HypeTalkScriptTraceSource) -> ScriptTarget? {
+        switch source.kind {
+        case "part":
+            return source.objectId.map { .part($0) }
+        case "card":
+            return source.objectId.map { .card($0) }
+        case "background":
+            return source.objectId.map { .background($0) }
+        case "stack":
+            return .stack
+        case "hype":
+            return .hype
+        default:
+            return nil
+        }
     }
 
     @MainActor
@@ -2427,6 +2623,30 @@ private extension HypeMCPJSONValue {
             return value
         case .string(let text):
             return Double(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        default:
+            return nil
+        }
+    }
+
+    var intValue: Int? {
+        doubleValue.map(Int.init)
+    }
+
+    var boolValue: Bool? {
+        switch self {
+        case .bool(let value):
+            return value
+        case .number(let value):
+            return value != 0
+        case .string(let text):
+            switch text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "true", "yes", "1", "enabled", "on":
+                return true
+            case "false", "no", "0", "disabled", "off":
+                return false
+            default:
+                return nil
+            }
         default:
             return nil
         }
