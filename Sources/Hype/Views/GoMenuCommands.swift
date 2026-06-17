@@ -254,7 +254,8 @@ struct ArrangeMenuCommands: Commands {
             .disabled(focusedDocument == nil)
             Divider()
             Button(authoringCommands?.layerTransferTitle ?? "Move to Background") {
-                authoringCommands?.transferSelectionToAlternateLayer()
+                NotificationCenter.default.post(name: .transferSelectionToAlternateLayer, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
             }
             .disabled(!(authoringCommands?.canTransferSelectionToAlternateLayer ?? false))
             Divider()
@@ -515,12 +516,14 @@ struct ViewMenuCommands: Commands {
 ///
 struct EditMenuCommands: Commands {
     @FocusedValue(\.hypeAuthoringCommandContext) private var authoringCommands
+    @FocusedValue(\.hypeCurrentDocument) private var focusedDocument
 
     var body: some Commands {
         CommandGroup(after: .pasteboard) {
             Divider()
             Button("Duplicate") {
-                authoringCommands?.duplicateSelection()
+                NotificationCenter.default.post(name: .duplicateSelection, object: nil,
+                                                userInfo: MenuCommandScoping.userInfo(stackId: focusedDocument?.wrappedValue.document.stack.id))
             }
             .keyboardShortcut("d", modifiers: .command)
             .disabled(!(authoringCommands?.canDuplicateSelection ?? false))
@@ -543,6 +546,8 @@ extension Notification.Name {
     static let sendToBack = Notification.Name("sendToBack")
     static let groupSelection = Notification.Name("groupSelection")
     static let ungroupSelection = Notification.Name("ungroupSelection")
+    static let duplicateSelection = Notification.Name("duplicateSelection")
+    static let transferSelectionToAlternateLayer = Notification.Name("transferSelectionToAlternateLayer")
     static let toggleAI = Notification.Name("toggleAI")
     static let alignLeft = Notification.Name("alignLeft")
     static let alignRight = Notification.Name("alignRight")

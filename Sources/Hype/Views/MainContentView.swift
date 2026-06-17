@@ -708,6 +708,22 @@ struct MainContentView: View {
             // regardless of focus.
             objectsPanelVisible.toggle()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .duplicateSelection)) { note in
+            guard MenuCommandScoping.shouldHandle(
+                notificationStackId: MenuCommandScoping.stackId(from: note),
+                documentStackId: document.document.stack.id,
+                isKeyDocument: isKeyDocument
+            ) else { return }
+            duplicateSelectedParts()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .transferSelectionToAlternateLayer)) { note in
+            guard MenuCommandScoping.shouldHandle(
+                notificationStackId: MenuCommandScoping.stackId(from: note),
+                documentStackId: document.document.stack.id,
+                isKeyDocument: isKeyDocument
+            ) else { return }
+            transferSelectedPartsToAlternateLayer()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .showTargetPlatforms)) { note in
             guard MenuCommandScoping.shouldHandle(
                 notificationStackId: MenuCommandScoping.stackId(from: note),
