@@ -1783,7 +1783,7 @@ fileprivate enum AssetPreviewData {
         switch kind {
         case .imageTexture, .spriteSheet, .tileSet:
             return true
-        case .audioClip, .videoClip, .particlePreset, .placeholderAsset, .model3D:
+        case .audioClip, .videoClip, .document, .particlePreset, .placeholderAsset, .model3D:
             return false
         }
     }
@@ -1900,7 +1900,7 @@ private struct AssetPreviewPane: View {
                 color: .orange
             )
             .frame(height: 120)
-        case .placeholderAsset:
+        case .placeholderAsset, .document:
             if AssetPreviewData.image(for: asset) != nil {
                 imagePreviewOrPlaceholder
             } else if let playableFile, playableFile.mimeType.hasPrefix("audio/") {
@@ -1998,6 +1998,8 @@ private struct AssetPreviewPane: View {
             return "sparkles"
         case .placeholderAsset:
             return "doc"
+        case .document:
+            return "doc.text"
         }
     }
 
