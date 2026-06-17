@@ -125,7 +125,7 @@ private func makeExecutor(stub: MultiImageStubMeshyClient) -> HypeToolExecutor {
         webAssetSession: nil,
         webAssetClient: nil,
         webAssetPipeline: nil,
-        imageGenerationClient: nil,
+        imageGenerationClientFactory: nil,
         meshyClientFactory: { @Sendable in stub }
     )
 }

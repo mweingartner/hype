@@ -2068,7 +2068,16 @@ final class HypeDebugServer: @unchecked Sendable {
             )
             : nil
         let webAssetPipeline: WebAssetImportPipeline? = document.stack.webAssetsAllowed ? WebAssetImportPipeline() : nil
-        let imageGenerationClient: (any HypeImageGenerating)? = try? HypeAIConfiguration.makeImageGenerationClient()
+        // Lazy factory: building the OpenAI image client calls
+        // KeychainStore.getSecret, a kSecReturnData decrypt that can block on a
+        // securityd GUI ACL prompt under an ad-hoc-signed / locked / headless
+        // session (install.sh re-signs on every build). Resolving it eagerly
+        // here would wedge the debug-bridge main actor for EVERY tool call,
+        // including recipe/scene/CRUD tools that never touch image generation.
+        // Defer it like meshyClientFactory so only the image tools pay the read.
+        let imageGenerationClientFactory: (@Sendable () throws -> any HypeImageGenerating)? = {
+            try HypeAIConfiguration.makeImageGenerationClient()
+        }
         let meshyClientFactory: (@Sendable () throws -> MeshyClient)? = {
             @Sendable in
             let key = try KeychainStore.getSecret(account: KeychainStore.meshyAPIKeyAccount)
@@ -2079,7 +2088,7 @@ final class HypeDebugServer: @unchecked Sendable {
             webAssetSession: document.stack.webAssetsAllowed ? webAssetSession : nil,
             webAssetClient: webAssetClient,
             webAssetPipeline: webAssetPipeline,
-            imageGenerationClient: imageGenerationClient,
+            imageGenerationClientFactory: imageGenerationClientFactory,
             meshyClientFactory: meshyClientFactory
         )
     }

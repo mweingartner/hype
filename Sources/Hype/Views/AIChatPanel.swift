@@ -1411,9 +1411,12 @@ struct AIChatPanel: View {
         let webAssetPipeline: WebAssetImportPipeline? = workingDocument.stack.webAssetsAllowed
             ? WebAssetImportPipeline()
             : nil
-        let imageGenerationClient: (any HypeImageGenerating)? = try? HypeAIConfiguration.makeImageGenerationClient()
-        // Fresh-read factory: reads the Keychain on each invocation so key
-        // rotation is respected without restarting the chat session.
+        // Fresh-read factories: read the Keychain on each invocation so key
+        // rotation is respected, and only when an image / 3D tool actually runs
+        // (eager construction can block on a securityd ACL prompt).
+        let imageGenerationClientFactory: (@Sendable () throws -> any HypeImageGenerating)? = {
+            try HypeAIConfiguration.makeImageGenerationClient()
+        }
         let meshyClientFactory: (@Sendable () throws -> MeshyClient)? = {
             @Sendable in
             let key = try KeychainStore.getSecret(account: KeychainStore.meshyAPIKeyAccount)
@@ -1423,7 +1426,7 @@ struct AIChatPanel: View {
             webAssetSession: workingDocument.stack.webAssetsAllowed ? webAssetSession : nil,
             webAssetClient: webAssetClient,
             webAssetPipeline: webAssetPipeline,
-            imageGenerationClient: imageGenerationClient,
+            imageGenerationClientFactory: imageGenerationClientFactory,
             meshyClientFactory: meshyClientFactory,
             appleMusicProvider: workingDocument.stack.appleMusicAllowed
                 && UserDefaults.standard.bool(forKey: AppleMusicConfiguration.enabledKey)

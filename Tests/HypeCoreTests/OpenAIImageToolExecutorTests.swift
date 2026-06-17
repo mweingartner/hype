@@ -10,11 +10,12 @@ struct OpenAIImageToolExecutorTests {
     func generateAssetRequiresName() async {
         var document = HypeDocument.newDocument()
         let cardId = document.sortedCards[0].id
+        let pngData = onePixelPNG
         let executor = HypeToolExecutor(
             webAssetSession: nil,
             webAssetClient: nil,
             webAssetPipeline: nil,
-            imageGenerationClient: FakeImageGenerator(imageData: onePixelPNG)
+            imageGenerationClientFactory: { FakeImageGenerator(imageData: pngData) }
         )
 
         let result = await executor.execute(
@@ -32,11 +33,12 @@ struct OpenAIImageToolExecutorTests {
     func generateAssetAddsRepositoryAsset() async throws {
         var document = HypeDocument.newDocument()
         let cardId = document.sortedCards[0].id
+        let pngData = onePixelPNG
         let executor = HypeToolExecutor(
             webAssetSession: nil,
             webAssetClient: nil,
             webAssetPipeline: nil,
-            imageGenerationClient: FakeImageGenerator(imageData: onePixelPNG)
+            imageGenerationClientFactory: { FakeImageGenerator(imageData: pngData) }
         )
 
         let result = await executor.execute(
@@ -63,11 +65,12 @@ struct OpenAIImageToolExecutorTests {
     func generateImageCreatesCardPart() async throws {
         var document = HypeDocument.newDocument()
         let cardId = document.sortedCards[0].id
+        let pngData = onePixelPNG
         let executor = HypeToolExecutor(
             webAssetSession: nil,
             webAssetClient: nil,
             webAssetPipeline: nil,
-            imageGenerationClient: FakeImageGenerator(imageData: onePixelPNG)
+            imageGenerationClientFactory: { FakeImageGenerator(imageData: pngData) }
         )
 
         let result = await executor.execute(
@@ -100,11 +103,12 @@ struct OpenAIImageToolExecutorTests {
     func generateImageCreatesBackgroundPart() async throws {
         var document = HypeDocument.newDocument()
         let card = document.sortedCards[0]
+        let pngData = onePixelPNG
         let executor = HypeToolExecutor(
             webAssetSession: nil,
             webAssetClient: nil,
             webAssetPipeline: nil,
-            imageGenerationClient: FakeImageGenerator(imageData: onePixelPNG)
+            imageGenerationClientFactory: { FakeImageGenerator(imageData: pngData) }
         )
 
         let result = await executor.execute(

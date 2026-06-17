@@ -56,7 +56,7 @@ final class MockURLProtocolCreateImage: URLProtocol, @unchecked Sendable {
 // MARK: - FakeImageGenerator helper
 //
 // Wraps an OpenAIImageGenerationClient wired to MockURLProtocolCreateImage
-// so the executor can be driven via the injected `imageGenerationClient`.
+// so the executor can be driven via the injected `imageGenerationClientFactory`.
 
 private func makeGeneratingExecutor(handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)) -> HypeToolExecutor {
     MockURLProtocolCreateImage.requestHandler = handler
@@ -73,7 +73,7 @@ private func makeGeneratingExecutor(handler: @escaping (URLRequest) throws -> (H
         webAssetSession: nil,
         webAssetClient: nil,
         webAssetPipeline: nil,
-        imageGenerationClient: client
+        imageGenerationClientFactory: { client }
     )
 }
 
@@ -326,13 +326,13 @@ struct CreateImageToolErrorTests {
         }
     }
 
-    // MARK: C-5: generate_image without imageGenerationClient returns instructive error
+    // MARK: C-5: generate_image without an image-client factory returns instructive error
 
-    @Test("generate_image without imageGenerationClient returns configuration error")
+    @Test("generate_image without an image-client factory returns configuration error")
     func generateImageWithoutClientReturnsConfigError() async throws {
         var doc = HypeDocument.newDocument()
         let cardId = doc.sortedCards[0].id
-        // Default executor has no imageGenerationClient.
+        // Default executor has no imageGenerationClientFactory.
         let executor = HypeToolExecutor()
 
         let result = await executor.execute(

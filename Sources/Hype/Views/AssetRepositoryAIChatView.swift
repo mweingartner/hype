@@ -178,7 +178,11 @@ struct AssetRepositoryAIChatView: View {
             return
         }
 
-        let imageGenerationClient: (any HypeImageGenerating)? = try? HypeAIConfiguration.makeImageGenerationClient()
+        // Lazy factory: only resolve (and decrypt the OpenAI key) when an image
+        // tool runs, never at executor construction — see HypeToolExecutor.
+        let imageGenerationClientFactory: (@Sendable () throws -> any HypeImageGenerating)? = {
+            try HypeAIConfiguration.makeImageGenerationClient()
+        }
         let webAssetClient: (any WebAssetSearchClient)? = document.document.stack.webAssetsAllowed
             ? WebAssetSearchClientFactory.make(
                 provider: WebAssetSearchProvider(rawValue: webAssetProviderRaw) ?? .openverse
@@ -198,7 +202,7 @@ struct AssetRepositoryAIChatView: View {
             webAssetSession: document.document.stack.webAssetsAllowed ? webAssetSession : nil,
             webAssetClient: webAssetClient,
             webAssetPipeline: webAssetPipeline,
-            imageGenerationClient: imageGenerationClient,
+            imageGenerationClientFactory: imageGenerationClientFactory,
             meshyClientFactory: meshyClientFactory,
             appleMusicProvider: document.document.stack.appleMusicAllowed
                 && UserDefaults.standard.bool(forKey: AppleMusicConfiguration.enabledKey)

@@ -53,7 +53,7 @@ private func makeRunner(meshyEnabled: Bool = false) -> AIEditTransactionRunner {
         webAssetSession: nil,
         webAssetClient: nil,
         webAssetPipeline: nil,
-        imageGenerationClient: nil,
+        imageGenerationClientFactory: nil,
         meshyClientFactory: { @Sendable in stub }
     )
     return AIEditTransactionRunner(executor: executor)

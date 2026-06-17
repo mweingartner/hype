@@ -75,7 +75,7 @@ private func makeExecutor(stub: SuccessStubMeshyClient) -> HypeToolExecutor {
         webAssetSession: nil,
         webAssetClient: nil,
         webAssetPipeline: nil,
-        imageGenerationClient: nil,
+        imageGenerationClientFactory: nil,
         meshyClientFactory: {
             @Sendable in stub
         }
@@ -481,7 +481,7 @@ struct MeshyToolExecutorTests {
             webAssetSession: nil,
             webAssetClient: nil,
             webAssetPipeline: nil,
-            imageGenerationClient: nil,
+            imageGenerationClientFactory: nil,
             meshyClientFactory: {
                 factoryCalled = true
                 throw MeshyError.noAPIKey

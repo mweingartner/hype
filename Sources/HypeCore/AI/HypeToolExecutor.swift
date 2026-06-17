@@ -14,8 +14,16 @@ public struct HypeToolExecutor: Sendable {
     public let webAssetClient: (any WebAssetSearchClient)?
     /// The download + validation pipeline.
     public let webAssetPipeline: WebAssetImportPipeline?
-    /// The generated-image client. Nil means OpenAI image generation is not configured.
-    public let imageGenerationClient: (any HypeImageGenerating)?
+    /// Factory for building the generated-image client on demand. Mirrors
+    /// `meshyClientFactory`: invoked only when an image tool actually runs, so
+    /// constructing an executor for a recipe/scene/CRUD tool never decrypts the
+    /// OpenAI key from the Keychain. Eagerly resolving it would call
+    /// `KeychainStore.getSecret` (a `kSecReturnData` decrypt) on the calling
+    /// thread, which can block on a securityd GUI ACL prompt under an
+    /// ad-hoc-signed / locked / headless session and wedge the caller. `nil`
+    /// means OpenAI image generation is not configured. The factory reads the
+    /// Keychain fresh on each call so key rotation is respected.
+    public let imageGenerationClientFactory: (@Sendable () throws -> any HypeImageGenerating)?
     /// Factory for building a `MeshyClient` on demand. Tests inject a stub via
     /// this seam rather than mocking the Keychain directly. In production the
     /// factory reads the Keychain fresh on each call so key rotation is respected.
@@ -34,7 +42,7 @@ public struct HypeToolExecutor: Sendable {
         self.webAssetSession = nil
         self.webAssetClient = nil
         self.webAssetPipeline = nil
-        self.imageGenerationClient = nil
+        self.imageGenerationClientFactory = nil
         self.meshyClientFactory = nil
         self.appleMusicProvider = nil
     }
@@ -45,21 +53,23 @@ public struct HypeToolExecutor: Sendable {
     ///   - webAssetSession: A `WebAssetSession` actor for candidate caching and soft-cap tracking.
     ///   - webAssetClient:  A `WebAssetSearchClient` for the active provider.
     ///   - webAssetPipeline: A `WebAssetImportPipeline` for download + validation.
-    ///   - imageGenerationClient: Optional OpenAI image generator.
+    ///   - imageGenerationClientFactory: Optional factory for the OpenAI image
+    ///     generator. Invoked only when an image tool runs; must read the
+    ///     Keychain fresh on each call so the eager-decrypt hang is avoided.
     ///   - meshyClientFactory: Optional factory for `MeshyClient`. Invoked after
     ///     the gate check passes; must read the Keychain fresh on each call.
     public init(
         webAssetSession: WebAssetSession?,
         webAssetClient: (any WebAssetSearchClient)?,
         webAssetPipeline: WebAssetImportPipeline?,
-        imageGenerationClient: (any HypeImageGenerating)? = nil,
+        imageGenerationClientFactory: (@Sendable () throws -> any HypeImageGenerating)? = nil,
         meshyClientFactory: (@Sendable () throws -> MeshyClient)? = nil,
         appleMusicProvider: (any AppleMusicProviding)? = nil
     ) {
         self.webAssetSession = webAssetSession
         self.webAssetClient = webAssetClient
         self.webAssetPipeline = webAssetPipeline
-        self.imageGenerationClient = imageGenerationClient
+        self.imageGenerationClientFactory = imageGenerationClientFactory
         self.meshyClientFactory = meshyClientFactory
         self.appleMusicProvider = appleMusicProvider
     }
@@ -3612,7 +3622,11 @@ public struct HypeToolExecutor: Sendable {
             #endif
 
         case "generate_sprite_asset":
-            guard let generator = imageGenerationClient else {
+            // Resolve the image client lazily here — only when an image tool
+            // runs — so building an executor never decrypts the OpenAI key.
+            // A nil factory (not configured) or a throwing read both collapse
+            // to the same "not configured" guard, matching prior behavior.
+            guard let generator = try? imageGenerationClientFactory?() else {
                 return "OpenAI image generation is not configured. Add an OpenAI API key in Preferences, then try again."
             }
             let prompt = arguments["prompt"] ?? ""
@@ -4679,7 +4693,9 @@ public struct HypeToolExecutor: Sendable {
             return "Created image '\(part.name)'\(layer)\(source)"
 
         case "generate_image":
-            guard let generator = imageGenerationClient else {
+            // Lazy resolve — see `generate_sprite_asset` above. The keychain
+            // decrypt happens here (image tool invocation), never at construction.
+            guard let generator = try? imageGenerationClientFactory?() else {
                 return "OpenAI image generation is not configured. Add an OpenAI API key in Preferences, then try again."
             }
             let prompt = arguments["prompt"] ?? ""
