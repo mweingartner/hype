@@ -9,16 +9,12 @@ import AppKit
 ///
 /// Security note (for code reviewers)
 /// -----------------------------------
-/// A hostile downloaded `.hype` stack could script `quit`, `save stack`,
-/// `doMenu "..."`, etc.  These run with the same trust level as any HypeTalk
-/// author script.  The main gate against abuse is `doMenu`'s curated
-/// **allowlist**: only non-destructive navigation and clipboard items are
-/// handled; destructive operations such as "Delete Card", "Cut", and "Clear"
-/// are *never* forwarded, and the implementation returns `false` for any
-/// unrecognised or excluded item.  `quitApp` / `saveStack` / `closeWindow`
-/// are standard HyperCard authoring commands that an author's own script
-/// would legitimately invoke; they are forwarded but cannot reach anything
-/// outside the app's own document model.
+/// A `.hype` stack can script app-shell commands such as `quit`, `save stack`,
+/// and `doMenu "..."`. HyperCard compatibility requires `doMenu` to address the
+/// full Hype menu surface, including commands that mutate the current stack. To
+/// keep that broad surface bounded, `doMenu` executes only Hype-owned explicit
+/// command names or real enabled `NSMenuItem` target/action entries already in
+/// the app menu. It never constructs arbitrary selectors from script strings.
 public struct AppKitHostApplicationProvider: HostApplicationProvider, Sendable {
 
     /// The stack UUID of the document that owns this provider.
@@ -32,6 +28,126 @@ public struct AppKitHostApplicationProvider: HostApplicationProvider, Sendable {
 
     public init(stackId: UUID? = nil) {
         self.stackId = stackId
+    }
+
+    private static func normalizedToolKey(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "/", with: "")
+    }
+
+    static func normalizedMenuKey(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "…", with: "")
+            .replacingOccurrences(of: "...", with: "")
+            .replacingOccurrences(of: "&", with: "")
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "/", with: "")
+    }
+
+    private static func toolName(for name: String) -> ToolName? {
+        switch normalizedToolKey(name) {
+        case "browse", "browsetool":
+            return .browse
+        case "select", "selecttool":
+            return .select
+        case "button", "buttontool":
+            return .button
+        case "field", "text", "fieldtool":
+            return .field
+        case "shape", "shapetool":
+            return .shape
+        case "image", "imagetool":
+            return .image
+        case "video", "videotool":
+            return .video
+        case "chart", "charttool":
+            return .chart
+        case "webpage", "web", "webpagetool":
+            return .webpage
+        case "spritearea", "spritescene", "spriteareatool":
+            return .spriteArea
+        case "calendar":
+            return .calendar
+        case "pdf":
+            return .pdf
+        case "map":
+            return .map
+        case "colorwell":
+            return .colorWell
+        case "stepper":
+            return .stepper
+        case "slider":
+            return .slider
+        case "segmented":
+            return .segmented
+        case "audiorecorder", "recorder":
+            return .audioRecorder
+        case "scene3d", "model3d":
+            return .scene3D
+        case "musicplayer":
+            return .musicPlayer
+        case "pianokeyboard", "keyboard":
+            return .pianoKeyboard
+        case "stepsequencer", "sequencer":
+            return .stepSequencer
+        case "musicmixer", "mixer":
+            return .musicMixer
+        case "applemusicbrowser", "musickitsearch", "musicbrowser":
+            return .appleMusicBrowser
+        case "progressview", "progress":
+            return .progressView
+        case "gauge":
+            return .gauge
+        case "divider":
+            return .divider
+        case "pencil":
+            return .pencil
+        case "spray", "spraycan":
+            return .spray
+        case "bucket", "bucketfill", "paintbucket":
+            return .bucket
+        case "eraser":
+            return .eraser
+        default:
+            return nil
+        }
+    }
+
+    @MainActor
+    private func postToolSelection(_ tool: ToolName) {
+        NotificationCenter.default.post(
+            name: .selectTool,
+            object: tool,
+            userInfo: MenuCommandScoping.userInfo(stackId: stackId)
+        )
+    }
+
+    private func scopedUserInfo(_ additionalValues: [AnyHashable: Any] = [:]) -> [AnyHashable: Any]? {
+        var userInfo = additionalValues
+        if let stackId {
+            userInfo[MenuCommandScoping.stackIdKey] = stackId
+        }
+        return userInfo.isEmpty ? nil : userInfo
+    }
+
+    @MainActor
+    private func postScopedNotification(
+        _ name: Notification.Name,
+        object: Any? = nil,
+        userInfo additionalValues: [AnyHashable: Any] = [:]
+    ) {
+        NotificationCenter.default.post(
+            name: name,
+            object: object,
+            userInfo: scopedUserInfo(additionalValues)
+        )
     }
 
     // MARK: - Screen lock / unlock
@@ -51,6 +167,14 @@ public struct AppKitHostApplicationProvider: HostApplicationProvider, Sendable {
         await MainActor.run {
             NotificationCenter.default.post(name: .hypeScreenUnlock, object: nil)
         }
+    }
+
+    public func chooseTool(_ name: String) async -> Bool {
+        guard let tool = Self.toolName(for: name) else { return false }
+        await MainActor.run {
+            postToolSelection(tool)
+        }
+        return true
     }
 
     // MARK: - Stack file operations
@@ -190,85 +314,247 @@ public struct AppKitHostApplicationProvider: HostApplicationProvider, Sendable {
 
     // MARK: - doMenu
 
-    /// Execute a named menu item from the curated non-destructive allowlist.
+    /// Execute a named menu item.
     ///
-    /// Security – ALLOWLIST RATIONALE
-    /// --------------------------------
-    /// Only these items are forwarded; everything else returns `false`:
+    /// The dispatch order is:
+    /// 1. Hype-owned explicit SwiftUI command names that otherwise may not have
+    ///    stable AppKit target/action entries.
+    /// 2. Common responder-chain commands used by system menus.
+    /// 3. The actual enabled item in `NSApplication.shared.mainMenu`.
     ///
-    /// **Go menu (navigation):**  "Next", "Prev"/"Previous", "First", "Last",
-    ///   "Back" — pure navigation, no mutations.
-    ///
-    /// **Edit (non-destructive clipboard):**  "Copy", "Paste" — these mirror
-    ///   what a user can do with a keyboard shortcut.
-    ///
-    /// **Explicitly excluded:**  "Undo" (responder-chain undo can reverse the
-    ///   user's own edits — security review Finding 1), plus destructive items
-    ///   "Delete Card", "Cut", "Clear", "Delete Stack", "New Card",
-    ///   "Delete Current Card".  Any item not in
-    ///   the allowlist is also excluded by default.
-    ///
-    /// This means a script-scripted `doMenu "Delete Card"` returns `false`
-    /// and takes no action, even though the menu item exists.
+    /// This intentionally supports mutating menu items. User-level and document
+    /// targeting gates live in the same notification handlers used by the visible
+    /// menu, so script calls and user clicks share behavior.
     public func doMenu(item: String) async -> Bool {
-        let normalised = item.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let key = Self.normalizedMenuKey(item)
+        guard !key.isEmpty else { return false }
 
-        let handled: Bool = await MainActor.run {
-            switch normalised {
+        return await MainActor.run {
+            if dispatchExplicitHypeMenuItem(key) { return true }
+            if dispatchStandardResponderMenuItem(key) { return true }
+            return dispatchMainMenuItem(key)
+        }
+    }
 
-            // Go menu — card navigation (non-destructive)
-            case "next", "next card":
-                NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.next,
-                                                userInfo: MenuCommandScoping.userInfo(stackId: self.stackId))
-                return true
-            case "prev", "previous", "prev card", "previous card":
-                NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.previous,
-                                                userInfo: MenuCommandScoping.userInfo(stackId: self.stackId))
-                return true
-            case "first", "first card":
-                NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.first,
-                                                userInfo: MenuCommandScoping.userInfo(stackId: self.stackId))
-                return true
-            case "last", "last card":
-                NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.last,
-                                                userInfo: MenuCommandScoping.userInfo(stackId: self.stackId))
-                return true
-            case "back":
-                // HyperCard "Back" = go to the most-recently-visited card.
-                // Hype uses `pop card` for the same semantic; post the
-                // navigateCard notification with a sentinel is not how
-                // the runtime handles pop — so we defer to the runtime's
-                // pop path via the HypeTalk `pop card` command instead.
-                // As a lightweight UI equivalent, we navigate to previous.
-                NotificationCenter.default.post(name: .navigateCard, object: NavigationDirection.previous,
-                                                userInfo: MenuCommandScoping.userInfo(stackId: self.stackId))
-                return true
+    @MainActor
+    private func dispatchExplicitHypeMenuItem(_ key: String) -> Bool {
+        switch key {
+        // Go menu.
+        case "first", "firstcard":
+            postScopedNotification(.navigateCard, object: NavigationDirection.first)
+        case "prev", "previous", "prevcard", "previouscard":
+            postScopedNotification(.navigateCard, object: NavigationDirection.previous)
+        case "next", "nextcard":
+            postScopedNotification(.navigateCard, object: NavigationDirection.next)
+        case "last", "lastcard":
+            postScopedNotification(.navigateCard, object: NavigationDirection.last)
+        case "back":
+            postScopedNotification(.navigateCard, object: NavigationDirection.previous)
+        case "newcard":
+            postScopedNotification(.addNewCard)
+        case "deletecard", "deletecurrentcard":
+            postScopedNotification(.deleteCurrentCard)
+        case "editcard":
+            postScopedNotification(.toggleEditBackground, object: false)
+        case "editbackground":
+            postScopedNotification(.toggleEditBackground, object: true)
+        case "newbackground":
+            postScopedNotification(.addNewBackground)
 
-            // Edit menu — non-destructive clipboard operations.
-            // copy/paste mirror plain Cmd-C / Cmd-V keystrokes and don't
-            // alter document structure. They go through the responder
-            // chain exactly as a user keystroke would.
-            case "copy":
-                NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
-                return true
-            case "paste":
-                NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
-                return true
+        // Objects menu.
+        case "button":
+            postToolSelection(.button)
+        case "field":
+            postToolSelection(.field)
+        case "shape":
+            postToolSelection(.shape)
+        case "image":
+            postToolSelection(.image)
+        case "webpage", "web":
+            postToolSelection(.webpage)
+        case "video":
+            postToolSelection(.video)
+        case "chart":
+            postToolSelection(.chart)
+        case "calendar":
+            postToolSelection(.calendar)
+        case "pdf", "pdfviewer":
+            postToolSelection(.pdf)
+        case "map":
+            postToolSelection(.map)
+        case "colorwell":
+            postToolSelection(.colorWell)
+        case "audiorecorder":
+            postToolSelection(.audioRecorder)
+        case "musicplayer":
+            postToolSelection(.musicPlayer)
+        case "pianokeyboard":
+            postToolSelection(.pianoKeyboard)
+        case "stepsequencer":
+            postToolSelection(.stepSequencer)
+        case "musicmixer":
+            postToolSelection(.musicMixer)
+        case "musickitsearch", "applemusicbrowser":
+            postToolSelection(.appleMusicBrowser)
+        case "3dscene", "scene3d":
+            postToolSelection(.scene3D)
+        case "spritearea":
+            postToolSelection(.spriteArea)
+        case "stepper":
+            postToolSelection(.stepper)
+        case "slider":
+            postToolSelection(.slider)
+        case "segmentedcontrol", "segmented":
+            postToolSelection(.segmented)
+        case "progressview":
+            postToolSelection(.progressView)
+        case "gauge":
+            postToolSelection(.gauge)
+        case "divider":
+            postToolSelection(.divider)
 
-            // ── EXCLUDED items — return false, take no action ───────────────
-            // DESTRUCTIVE: "cut", "clear", "delete card", "delete current
-            //   card", "delete stack", "new card".
-            // "undo": deliberately excluded (security review Finding 1). A
-            //   responder-chain `undo:` can non-interactively reverse the
-            //   USER's own edits and isn't reliably targeted at this
-            //   document's undo manager. Keeping the allowlist strictly
-            //   non-destructive wins over the niche convenience.
-            // Anything not matched above also falls through to false.
-            default:
-                return false
+        // Arrange menu.
+        case "group":
+            postScopedNotification(.groupSelection)
+        case "ungroup":
+            postScopedNotification(.ungroupSelection)
+        case "duplicate":
+            postScopedNotification(.duplicateSelection)
+        case "movetobackground", "movetocard":
+            postScopedNotification(.transferSelectionToAlternateLayer)
+        case "bringforward":
+            postScopedNotification(.bringForward)
+        case "sendbackward":
+            postScopedNotification(.sendBackward)
+        case "bringtofront":
+            postScopedNotification(.bringToFront)
+        case "sendtoback":
+            postScopedNotification(.sendToBack)
+        case "alignleft":
+            postScopedNotification(.alignLeft)
+        case "alignright":
+            postScopedNotification(.alignRight)
+        case "aligntop":
+            postScopedNotification(.alignTop)
+        case "alignbottom":
+            postScopedNotification(.alignBottom)
+        case "alignhorizontalcenter":
+            postScopedNotification(.alignHCenter)
+        case "alignverticalcenter":
+            postScopedNotification(.alignVCenter)
+        case "distributehorizontally":
+            postScopedNotification(.distributeH)
+        case "distributevertically":
+            postScopedNotification(.distributeV)
+
+        // Tools menu.
+        case "browse":
+            postToolSelection(.browse)
+        case "select":
+            postToolSelection(.select)
+        case "pencil":
+            postToolSelection(.pencil)
+        case "spray":
+            postToolSelection(.spray)
+        case "bucketfill", "bucket", "paintbucket":
+            postToolSelection(.bucket)
+        case "eraser":
+            postToolSelection(.eraser)
+
+        // View / AI / Window menu additions.
+        case "switchruntimeeditmode", "runtimeeditmode":
+            postScopedNotification(.toggleRuntimeMode)
+        case "showobjectspanel", "hideobjectspanel", "toggleobjectspanel":
+            postScopedNotification(.toggleObjectsPanel)
+        case "targetplatforms":
+            postScopedNotification(.showTargetPlatforms)
+        case "exportruntimepackages":
+            postScopedNotification(.exportRuntimePackages)
+        case "teststackinsimulator":
+            postScopedNotification(.testStackInSimulator)
+        case "showaiassistant", "hideaiassistant", "aiassistant":
+            postScopedNotification(.toggleAI)
+        case "showconsole", "console":
+            postScopedNotification(.showConsole)
+        case "haltcurrentrun", "halt":
+            postScopedNotification(.haltAIChat)
+            postScopedNotification(.cancelRunningScripts)
+        case "assetrepository":
+            postScopedNotification(.openAssetRepository)
+        case "aicontextlibrary":
+            postScopedNotification(.openAIContextLibrary)
+        case "themedesigner", "themes":
+            postScopedNotification(.openThemeDesigner)
+        default:
+            return false
+        }
+        return true
+    }
+
+    @MainActor
+    private func dispatchStandardResponderMenuItem(_ key: String) -> Bool {
+        switch key {
+        case "selectall":
+            _ = NSApplication.shared.sendAction(#selector(NSResponder.selectAll(_:)), to: nil, from: nil)
+            return true
+        case "copy":
+            _ = NSApplication.shared.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
+            return true
+        case "paste":
+            _ = NSApplication.shared.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
+            return true
+        case "cut":
+            _ = NSApplication.shared.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil)
+            return true
+        case "clear", "delete":
+            _ = NSApplication.shared.sendAction(NSSelectorFromString("delete:"), to: nil, from: nil)
+            return true
+        case "undo":
+            _ = NSApplication.shared.sendAction(NSSelectorFromString("undo:"), to: nil, from: nil)
+            return true
+        case "redo":
+            _ = NSApplication.shared.sendAction(NSSelectorFromString("redo:"), to: nil, from: nil)
+            return true
+        case "save":
+            guard let document = NSDocumentController.shared.currentDocument
+                    ?? NSDocumentController.shared.documents.first else { return false }
+            document.save(nil)
+            return true
+        case "close", "closewindow":
+            guard let window = NSApplication.shared.keyWindow ?? NSApplication.shared.mainWindow else { return false }
+            window.performClose(nil)
+            return true
+        case "print":
+            printCurrentCard()
+            return true
+        default:
+            return false
+        }
+    }
+
+    @MainActor
+    private func dispatchMainMenuItem(_ key: String) -> Bool {
+        guard let mainMenu = NSApplication.shared.mainMenu,
+              let item = Self.findMenuItem(in: mainMenu, matching: key),
+              item.isEnabled,
+              let action = item.action else {
+            return false
+        }
+        return NSApplication.shared.sendAction(action, to: item.target, from: item)
+    }
+
+    @MainActor
+    private static func findMenuItem(in menu: NSMenu, matching key: String) -> NSMenuItem? {
+        for item in menu.items where !item.isSeparatorItem {
+            if normalizedMenuKey(item.title) == key {
+                return item
+            }
+            if let submenu = item.submenu,
+               let match = findMenuItem(in: submenu, matching: key) {
+                return match
             }
         }
-        return handled
+        return nil
     }
 
     // MARK: - Menus

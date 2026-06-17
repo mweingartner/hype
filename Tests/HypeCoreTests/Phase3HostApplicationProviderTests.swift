@@ -17,6 +17,7 @@ private final class SpyHostProvider: HostApplicationProvider, @unchecked Sendabl
     private var _closeWindowCalls: Int = 0
     private var _quitAppCalls: Int = 0
     private var _editScriptIds: [UUID?] = []
+    private var _chosenTools: [String] = []
     private var _printTargets: [HostPrintTarget] = []
     private var _doMenuItems: [String] = []
     private var _doMenuResults: [String: Bool] = [:]
@@ -34,6 +35,7 @@ private final class SpyHostProvider: HostApplicationProvider, @unchecked Sendabl
     var closeWindowCalls: Int { lock.withLock { _closeWindowCalls } }
     var quitAppCalls: Int { lock.withLock { _quitAppCalls } }
     var editScriptIds: [UUID?] { lock.withLock { _editScriptIds } }
+    var chosenTools: [String] { lock.withLock { _chosenTools } }
     var printTargets: [HostPrintTarget] { lock.withLock { _printTargets } }
     var doMenuItems: [String] { lock.withLock { _doMenuItems } }
 
@@ -67,6 +69,11 @@ private final class SpyHostProvider: HostApplicationProvider, @unchecked Sendabl
         lock.withLock { _editScriptIds.append(objectId) }
     }
 
+    func chooseTool(_ name: String) async -> Bool {
+        lock.withLock { _chosenTools.append(name) }
+        return true
+    }
+
     func print(target: HostPrintTarget) async {
         lock.withLock { _printTargets.append(target) }
     }
@@ -75,6 +82,21 @@ private final class SpyHostProvider: HostApplicationProvider, @unchecked Sendabl
         lock.withLock { _doMenuItems.append(item) }
         let result = lock.withLock { _doMenuResults[item.lowercased()] ?? false }
         return result
+    }
+}
+
+private final class SpyDrawingProvider: DrawingProvider, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _lines: [(from: (Int, Int), to: (Int, Int), radius: Int, colorHex: String)] = []
+
+    var lines: [(from: (Int, Int), to: (Int, Int), radius: Int, colorHex: String)] {
+        lock.withLock { _lines }
+    }
+
+    func drawLine(from: (Int, Int), to: (Int, Int), radius: Int, colorHex: String) {
+        lock.withLock {
+            _lines.append((from: from, to: to, radius: radius, colorHex: colorHex))
+        }
     }
 }
 
@@ -96,7 +118,8 @@ private func dispatch(
     on doc: HypeDocument,
     cardId: UUID,
     targetId: UUID,
-    host: SpyHostProvider
+    host: SpyHostProvider,
+    drawingProvider: DrawingProvider = StubDrawingProvider()
 ) async -> ExecutionResult {
     var d = doc
     d.updatePart(id: targetId) { $0.script = script }
@@ -108,6 +131,7 @@ private func dispatch(
             targetId: targetId,
             document: d,
             currentCardId: cardId,
+            drawingProvider: drawingProvider,
             hostProvider: host
         )
     }
@@ -320,32 +344,73 @@ struct Phase3HostApplicationProviderTests {
         #expect(host.doMenuItems == ["Copy"])
     }
 
-    // MARK: doMenu — allowlist security
+    @Test("classic paint drag script parses and dispatches tool/menu/drag commands")
+    func classicPaintDragScriptCompatibility() async {
+        var (doc, cardId, btnId) = makeDoc()
+        doc.stack.userLevel = HypeUserLevel.browsing.rawValue
+        let host = SpyHostProvider()
+        let drawing = SpyDrawingProvider()
 
-    /// This test group verifies that the AppKitHostApplicationProvider allowlist
-    /// blocks destructive menu items.  The spy provider simply records calls;
-    /// the allowlist logic lives in `AppKitHostApplicationProvider.doMenu` and
-    /// is what production callers use.  We test the protocol-level interaction
-    /// (the correct item name is forwarded) and separately document the security
-    /// invariant that the AppKit implementation must honour.
+        let result = await dispatch(
+            """
+            on mouseUp
+              put the userLevel into saveLevel
+              if the userLevel < 3 then set userLevel to 3 -- "Painting"
+              if the userLevel < 3 then exit mouseUp
+              choose select tool
+              doMenu "Select All"
+              doMenu "Select"
+              set dragSpeed to 100
+              drag from 256,171 to 150,171
+              drag from 150,171 to 350,171
+              drag from 350,171 to 256,171
+              doMenu "Select All"
+              doMenu "Revert"
+              choose browse tool
+              set userLevel to saveLevel
+            end mouseUp
+            """,
+            on: doc,
+            cardId: cardId,
+            targetId: btnId,
+            host: host,
+            drawingProvider: drawing
+        )
 
-    @Test("doMenu 'Delete Card' — spy receives item name, returns false (not handled)")
-    func doMenuDeleteCardReturnsFalse() async {
+        #expect(result.status == .completed)
+        #expect(result.modifiedDocument?.stack.userLevel == HypeUserLevel.browsing.rawValue)
+        #expect(result.modifiedDocument?.scriptGlobals["dragspeed"] == "100")
+        #expect(host.chosenTools == ["select", "browse"])
+        #expect(host.doMenuItems == ["Select All", "Select", "Select All", "Revert"])
+        #expect(drawing.lines.count == 3)
+        #expect(drawing.lines[0].from == (256, 171))
+        #expect(drawing.lines[0].to == (150, 171))
+        #expect(drawing.lines[1].from == (150, 171))
+        #expect(drawing.lines[1].to == (350, 171))
+        #expect(drawing.lines[2].from == (350, 171))
+        #expect(drawing.lines[2].to == (256, 171))
+    }
+
+    // MARK: doMenu — provider dispatch contract
+
+    /// The spy provider records calls and returns its configured result. The
+    /// production AppKit provider decides whether an item maps to a Hype command,
+    /// a responder-chain command, or a real enabled menu item.
+
+    @Test("doMenu 'Delete Card' — spy receives item name")
+    func doMenuDeleteCardForwardsToProvider() async {
         let (doc, cardId, btnId) = makeDoc()
         let host = SpyHostProvider()
-        // Default result is false — destructive items must not be in the allowlist.
         _ = await dispatch(
             "on mouseUp\n  doMenu \"Delete Card\"\nend mouseUp",
             on: doc, cardId: cardId, targetId: btnId, host: host
         )
-        // The spy receives the call — we can verify the item was forwarded.
         #expect(host.doMenuItems == ["Delete Card"],
-                "doMenu forwards the item name to the provider for allowlist decision")
-        // The spy returns false by default — no action taken.
+                "doMenu forwards the item name to the host provider")
     }
 
-    @Test("doMenu 'Cut' — spy receives item name, returns false (not handled)")
-    func doMenuCutReturnsFalse() async {
+    @Test("doMenu 'Cut' — spy receives item name")
+    func doMenuCutForwardsToProvider() async {
         let (doc, cardId, btnId) = makeDoc()
         let host = SpyHostProvider()
         _ = await dispatch(
@@ -355,8 +420,8 @@ struct Phase3HostApplicationProviderTests {
         #expect(host.doMenuItems == ["Cut"])
     }
 
-    @Test("doMenu 'Clear' — spy receives item name, returns false (not handled)")
-    func doMenuClearReturnsFalse() async {
+    @Test("doMenu 'Clear' — spy receives item name")
+    func doMenuClearForwardsToProvider() async {
         let (doc, cardId, btnId) = makeDoc()
         let host = SpyHostProvider()
         _ = await dispatch(
@@ -367,15 +432,13 @@ struct Phase3HostApplicationProviderTests {
     }
 }
 
-// MARK: - AppKitHostApplicationProvider allowlist unit tests
+// MARK: - StubHostApplicationProvider unit tests
 //
-// These tests exercise the allowlist directly via the protocol's default
-// no-op implementation (available in test scope via StubHostApplicationProvider)
-// and verify the documented security guarantee:  destructive items MUST return
-// false regardless of how the string is cased.
+// These tests exercise the protocol's default no-op implementation. Production
+// AppKit behavior is covered in HypeTests.
 
-@Suite("AppKitHostApplicationProvider doMenu allowlist", .serialized)
-struct AppKitDoMenuAllowlistTests {
+@Suite("StubHostApplicationProvider doMenu no-op", .serialized)
+struct StubDoMenuNoOpTests {
 
     /// Use the `StubHostApplicationProvider` (no-op/false default) to verify
     /// the base-level guarantee: unknown items always return false.
@@ -386,28 +449,28 @@ struct AppKitDoMenuAllowlistTests {
         #expect(result == false)
     }
 
-    @Test("destructive 'Delete Card' returns false from stub provider")
+    @Test("'Delete Card' returns false from stub provider")
     func deleteCardReturnsFalse() async {
         let stub = StubHostApplicationProvider()
         let result = await stub.doMenu(item: "Delete Card")
         #expect(result == false)
     }
 
-    @Test("destructive 'Delete Stack' returns false from stub provider")
+    @Test("'Delete Stack' returns false from stub provider")
     func deleteStackReturnsFalse() async {
         let stub = StubHostApplicationProvider()
         let result = await stub.doMenu(item: "Delete Stack")
         #expect(result == false)
     }
 
-    @Test("destructive 'Cut' returns false from stub provider")
+    @Test("'Cut' returns false from stub provider")
     func cutReturnsFalse() async {
         let stub = StubHostApplicationProvider()
         let result = await stub.doMenu(item: "Cut")
         #expect(result == false)
     }
 
-    @Test("destructive 'Clear' returns false from stub provider")
+    @Test("'Clear' returns false from stub provider")
     func clearReturnsFalse() async {
         let stub = StubHostApplicationProvider()
         let result = await stub.doMenu(item: "Clear")

@@ -1187,9 +1187,11 @@ public enum HypeTalkGuide {
             quit                 -- quit the application
             print                -- print the current card
             print field "Name"   -- print the text of a field
-            doMenu "Go Next"     -- invoke a menu item from the curated allowlist
-                                 --   (navigation items + Copy/Paste only;
-                                 --    destructive items and Undo are refused)
+            choose select tool   -- select an authoring/paint tool when userLevel allows it
+            choose browse tool   -- return to browse mode
+            doMenu "Next Card"   -- invoke an enabled Hype menu item by title
+            doMenu "Revert"      -- real app menu items dispatch through AppKit
+                                 --   (document/user-level gates still apply)
 
         ## Files & paint (opt-in, gated by fileAccessAllowed)
         File commands are disabled by default. They only execute when the per-stack
@@ -1204,6 +1206,8 @@ public enum HypeTalkGuide {
         **Paint (macOS AppKit only, same fileAccessAllowed gate):**
             import paint "card-bg.png"       -- load a PNG into the current card's paint layer
             export paint "card-bg.png"       -- write the current card's paint layer as PNG
+            set dragSpeed to 100             -- classic global property; stored for compatibility
+            drag from 100,100 to 300,300     -- bitmap drawing drag; quoted coordinates also work
 
         ## Stub commands & getters — recognized but no-op
 

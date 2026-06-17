@@ -158,11 +158,14 @@ public protocol HostApplicationProvider: Sendable {
     /// Open the Script Editor for the object identified by `objectId`.
     /// `nil` falls back to editing the current card's script.
     func editScript(ofObjectId: UUID?) async
+    /// Select an authoring tool such as `browse`, `select`, or `pencil`.
+    /// Returns `true` when the host recognized the tool request.
+    func chooseTool(_ name: String) async -> Bool
     /// Print a card or field.
     func print(target: HostPrintTarget) async
-    /// Perform a named menu item from the curated allowlist.
-    /// Returns `true` if the item was recognised and handled, `false` otherwise.
-    /// Unknown or destructive items always return `false` without side-effects.
+    /// Perform a named menu item.
+    /// Returns `true` if the host recognized and dispatched the item,
+    /// `false` otherwise.
     func doMenu(item: String) async -> Bool
     /// Return the titles of every top-level menu in the application's menu bar.
     /// Used by `the menus` HypeTalk property.
@@ -178,6 +181,7 @@ public extension HostApplicationProvider {
     func closeWindow() async {}
     func quitApp() async {}
     func editScript(ofObjectId: UUID?) async {}
+    func chooseTool(_ name: String) async -> Bool { false }
     func print(target: HostPrintTarget) async {}
     func doMenu(item: String) async -> Bool { false }
     func menuTitles() async -> [String] { [] }
@@ -991,6 +995,17 @@ public struct Interpreter: Sendable {
         }
     }
 
+    private func isDragSpeedProperty(_ property: String) -> Bool {
+        switch property.lowercased()
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: " ", with: "") {
+        case "dragspeed":
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Returns `true` when `property` refers to the message-box container
     /// (`message`, `msg`, `messagebox`, `message box`).
     private func isMessageBoxProperty(_ property: String) -> Bool {
@@ -1342,6 +1357,13 @@ public struct Interpreter: Sendable {
                 // Single-character item delimiter per the HyperTalk Reference.
                 // Empty value resets to default comma.
                 env.itemDelimiter = value.isEmpty ? "," : String(value.unicodeScalars.first.map(Character.init) ?? ",")
+                break
+            }
+            if target == nil, isDragSpeedProperty(property) {
+                // Classic HyperTalk exposes dragSpeed as a global scripting
+                // property. Hype's current drag command is immediate, but the
+                // value must still round-trip for compatibility scripts.
+                env.globals["dragspeed"] = formatNumber(max(0, toNumber(value)))
                 break
             }
             if target == nil, isMessageBoxProperty(property) {
@@ -2807,7 +2829,8 @@ public struct Interpreter: Sendable {
 
         case .chooseTool(let expr):
             let toolName = try await evaluate(expr, env: &env, document: document, context: context)
-            _ = toolName  // `choose` must not set `it` per classic HyperCard semantics.
+            _ = await context.hostProvider.chooseTool(toolName)
+            // `choose` must not set `it` per classic HyperCard semantics.
 
         case .markCard(let expr):
             if let cardExpr = expr {
@@ -5073,7 +5096,7 @@ public struct Interpreter: Sendable {
             case "lockrecent":
                 return "false"
             case "dragspeed":
-                return "0"
+                return env.globals["dragspeed"] ?? "0"
             case "powerkeys":
                 return "true"
             case "blindtyping":

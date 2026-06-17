@@ -1,59 +1,110 @@
 import Foundation
+import AppKit
 import Testing
 @testable import Hype
 @testable import HypeCore
 
-/// Security-focused tests for the REAL `AppKitHostApplicationProvider`
-/// (the spy-based dispatch tests live in HypeCoreTests; these exercise the
-/// production allowlist + path-validation logic that the spy can't reach).
+/// Tests for the REAL `AppKitHostApplicationProvider` (the spy-based dispatch
+/// tests live in HypeCoreTests; these exercise the production AppKit bridge and
+/// path-validation logic that the spy can't reach).
 @MainActor
-@Suite("AppKitHostApplicationProvider — security gates")
+@Suite("AppKitHostApplicationProvider — host bridge", .serialized)
 struct AppKitHostApplicationProviderTests {
 
-    // MARK: - doMenu allowlist (the primary destructive-action gate)
+    // MARK: - doMenu full menu surface
 
-    @Test("doMenu forwards non-destructive navigation items")
-    func allowlistAllowsNavigation() async {
+    @Test("doMenu forwards Hype-owned menu items across menus")
+    func doMenuForwardsHypeOwnedMenuItems() async {
         let p = AppKitHostApplicationProvider()
-        for item in ["Next", "Prev", "Previous", "First", "Last", "Back", "Copy", "Paste"] {
+        let items = [
+            "First Card", "Previous Card", "Next Card", "Last Card",
+            "New Card", "Delete Current Card", "Edit Card", "Edit Background",
+            "Button", "Field", "PDF Viewer", "MusicKit Search", "3D Scene",
+            "Group", "Ungroup", "Move to Background", "Move to Card",
+            "Bring Forward", "Send to Back", "Align Horizontal Center",
+            "Browse", "Select", "Bucket Fill",
+            "Switch Runtime/Edit Mode", "Show Objects Panel", "Target Platforms...",
+            "Export Runtime Packages...", "Test Stack in Simulator...",
+            "Show AI Assistant", "Show Console", "Halt Current Run",
+            "Asset Repository", "AI Context Library", "Theme Designer",
+            "Duplicate",
+        ]
+        for item in items {
             #expect(await p.doMenu(item: item) == true, "'\(item)' should be handled")
         }
     }
 
-    @Test("doMenu normalization: padded + mixed case still resolves")
-    func allowlistNormalizes() async {
+    @Test("chooseTool forwards classic tool names")
+    func chooseToolForwardsClassicNames() async {
+        let p = AppKitHostApplicationProvider()
+        #expect(await p.chooseTool("browse") == true)
+        #expect(await p.chooseTool("select") == true)
+        #expect(await p.chooseTool("spray can") == true)
+        #expect(await p.chooseTool("not a real tool") == false)
+    }
+
+    @Test("doMenu normalization: padded + mixed case + ellipsis still resolves")
+    func doMenuNormalizes() async {
         let p = AppKitHostApplicationProvider()
         #expect(await p.doMenu(item: "  Next  ") == true)
         #expect(await p.doMenu(item: "NEXT CARD") == true)
+        #expect(await p.doMenu(item: "selectall") == true)
         #expect(await p.doMenu(item: "copy") == true)
+        #expect(await p.doMenu(item: "Target Platforms…") == true)
+        #expect(AppKitHostApplicationProvider.normalizedMenuKey("Target Platforms…") == "targetplatforms")
     }
 
-    @Test("doMenu REFUSES every destructive item (returns false, no action)")
-    func allowlistRefusesDestructive() async {
+    @Test("doMenu supports classic/system mutating edit commands")
+    func doMenuSupportsMutatingEditCommands() async {
         let p = AppKitHostApplicationProvider()
-        // Each of these, in several case/space variants, must be unhandled.
-        let destructive = [
-            "Delete Card", "delete card", "  DELETE CARD  ",
-            "Delete Stack", "delete stack",
-            "Cut", "cut",
-            "Clear", "clear",
-            "New Card", "new card",
-            "Delete Current Card",
+        let commands = [
+            "Cut", "Copy", "Paste", "Clear", "Undo", "Redo", "Select All",
+            "New Card", "Delete Current Card",
         ]
-        for item in destructive {
-            #expect(await p.doMenu(item: item) == false, "'\(item)' must be refused")
+        for item in commands {
+            #expect(await p.doMenu(item: item) == true, "'\(item)' should be handled")
         }
     }
 
-    @Test("doMenu 'undo' is excluded (security review Finding 1)")
-    func allowlistExcludesUndo() async {
+    @Test("doMenu falls back to enabled NSMenuItem target/action entries")
+    func doMenuDispatchesEnabledMainMenuItem() async {
+        let oldMenu = NSApplication.shared.mainMenu
+        let mainMenu = NSMenu(title: "Main")
+        let topItem = NSMenuItem(title: "Custom", action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: "Custom")
+        let item = NSMenuItem(title: "Revert…", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
+        item.target = NSApplication.shared
+        submenu.addItem(item)
+        topItem.submenu = submenu
+        mainMenu.addItem(topItem)
+        NSApplication.shared.mainMenu = mainMenu
+        defer { NSApplication.shared.mainMenu = oldMenu }
+
         let p = AppKitHostApplicationProvider()
-        #expect(await p.doMenu(item: "undo") == false)
-        #expect(await p.doMenu(item: "Undo") == false)
+        #expect(await p.doMenu(item: "Revert") == true)
+    }
+
+    @Test("doMenu does not dispatch disabled NSMenuItem target/action entries")
+    func doMenuDoesNotDispatchDisabledMainMenuItem() async {
+        let oldMenu = NSApplication.shared.mainMenu
+        let mainMenu = NSMenu(title: "Main")
+        let topItem = NSMenuItem(title: "Custom", action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: "Custom")
+        let item = NSMenuItem(title: "Disabled Thing", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
+        item.target = NSApplication.shared
+        item.isEnabled = false
+        submenu.addItem(item)
+        topItem.submenu = submenu
+        mainMenu.addItem(topItem)
+        NSApplication.shared.mainMenu = mainMenu
+        defer { NSApplication.shared.mainMenu = oldMenu }
+
+        let p = AppKitHostApplicationProvider()
+        #expect(await p.doMenu(item: "Disabled Thing") == false)
     }
 
     @Test("doMenu unknown item is unhandled by default")
-    func allowlistDefaultsToFalse() async {
+    func doMenuUnknownReturnsFalse() async {
         let p = AppKitHostApplicationProvider()
         #expect(await p.doMenu(item: "Frobnicate") == false)
         #expect(await p.doMenu(item: "") == false)

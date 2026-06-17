@@ -2102,11 +2102,95 @@ public struct Parser: Sendable {
 
     private mutating func parseChooseStatement() throws -> Statement {
         _ = try expect(.choose)
-        let tool = try parseExpression()
+        let tool = try parseToolNameExpression()
         // Skip optional "tool" keyword
         if current.type == .identifier && current.value.lowercased() == "tool" { _ = advance() }
         skipNewlines()
         return .chooseTool(tool)
+    }
+
+    private mutating func parseToolNameExpression() throws -> Expression {
+        if let toolName = classicToolNameLiteral(for: current) {
+            _ = advance()
+            return .literal(toolName)
+        }
+        return try parseExpression()
+    }
+
+    private func classicToolNameLiteral(for token: Token) -> String? {
+        switch token.type {
+        case .select, .button, .field, .image, .video, .webpage, .spritearea:
+            return token.value.lowercased()
+        case .identifier:
+            switch token.value.lowercased().replacingOccurrences(of: " ", with: "") {
+            case "browse", "browsetool":
+                return "browse"
+            case "select", "selecttool":
+                return "select"
+            case "button", "buttontool":
+                return "button"
+            case "field", "text", "fieldtool":
+                return "field"
+            case "shape", "shapetool":
+                return "shape"
+            case "image", "imagetool":
+                return "image"
+            case "video", "videotool":
+                return "video"
+            case "webpage", "web", "webpagetool":
+                return "webpage"
+            case "chart", "charttool":
+                return "chart"
+            case "spritearea", "spritescene", "spriteareatool":
+                return "spriteArea"
+            case "calendar":
+                return "calendar"
+            case "pdf":
+                return "pdf"
+            case "map":
+                return "map"
+            case "colorwell":
+                return "colorWell"
+            case "stepper":
+                return "stepper"
+            case "slider":
+                return "slider"
+            case "segmented":
+                return "segmented"
+            case "audiorecorder", "recorder":
+                return "audioRecorder"
+            case "scene3d", "model3d":
+                return "scene3D"
+            case "musicplayer":
+                return "musicPlayer"
+            case "pianokeyboard", "keyboard":
+                return "pianoKeyboard"
+            case "stepsequencer", "sequencer":
+                return "stepSequencer"
+            case "musicmixer", "mixer":
+                return "musicMixer"
+            case "applemusicbrowser", "musickitsearch", "musicbrowser":
+                return "appleMusicBrowser"
+            case "progressview", "progress":
+                return "progressView"
+            case "gauge":
+                return "gauge"
+            case "divider":
+                return "divider"
+            case "pencil":
+                return "pencil"
+            case "spray", "spraycan":
+                return "spray"
+            case "bucket", "bucketfill", "paintbucket":
+                return "bucket"
+            case "eraser":
+                return "eraser"
+            default:
+                return nil
+            }
+        default:
+            return nil
+        }
     }
 
     private mutating func parseCloseStatement() throws -> Statement {
@@ -2257,9 +2341,9 @@ public struct Parser: Sendable {
         _ = try expect(.drag)
         // Skip optional "from"
         _ = match(.from)
-        let fromExpr = try parseExpression()
+        let fromExpr = try parseCommaJoinedExpression()
         _ = try expect(.to)
-        let toExpr = try parseExpression()
+        let toExpr = try parseCommaJoinedExpression()
         skipNewlines()
         return .dragFrom(fromExpr, toExpr)
     }

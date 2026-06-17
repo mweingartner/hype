@@ -239,9 +239,14 @@ lock screen       unlock screen
 visual effect "dissolve"
 send "mouseUp" to button "OK"
 do "put 1+1 into x"
+doMenu "Next Card"               -- invoke an enabled Hype menu item by title
+doMenu "Revert"                  -- dispatches through the real app menu when present
 set the pencilSize to 5
 set the pencilColor to "#FF0000"
-drag from "100,100" to "300,300"  -- bitmap drawing
+set dragSpeed to 100              -- classic global property; stored for compatibility
+choose select tool
+choose browse tool
+drag from 100,100 to 300,300      -- bitmap drawing; quoted coordinates also work
 ```
 
 ## Networking

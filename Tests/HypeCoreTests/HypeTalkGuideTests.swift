@@ -54,7 +54,7 @@ struct HypeTalkGuideTests {
         //       - read from file / write … to file (fileAccessAllowed gate)
         //       - import paint / export paint (fileAccessAllowed + AppKit)
         //       - video transport: currentTime, duration, playRate
-        //       - host commands: lock/unlock screen, doMenu (allowlisted),
+        //       - host commands: lock/unlock screen, doMenu,
         //         open/save/close/print/edit script (desktop-app only)
         //     Stub table shrank (removed rows now documented elsewhere);
         //     two stale AVOID bullets corrected. Net: ~78 KB.
@@ -355,7 +355,8 @@ struct HypeTalkGuideTests {
         #expect(text.contains("lock screen"), "guide missing lock screen")
         #expect(text.contains("unlock screen"), "guide missing unlock screen")
         #expect(text.contains("doMenu"), "guide missing doMenu")
-        #expect(text.contains("allowlist"), "guide missing doMenu allowlist note")
+        #expect(text.contains("doMenu \"Next Card\""), "guide missing doMenu menu-item example")
+        #expect(text.contains("doMenu \"Revert\""), "guide missing doMenu AppKit menu example")
         #expect(text.contains("open stack"), "guide missing open stack")
         #expect(text.contains("Host commands"), "guide missing Host commands section")
 

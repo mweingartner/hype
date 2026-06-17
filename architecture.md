@@ -2106,6 +2106,15 @@ posts (which carry no `userInfo`) still resolve to the frontmost document. Menu
 items that require a focused document are disabled when no document is focused,
 preventing spurious mutations on the wrong target.
 
+HypeTalk `doMenu` routes through `AppKitHostApplicationProvider`. It first
+matches Hype-owned SwiftUI command titles that may not have stable AppKit
+target/actions, then common responder-chain commands, then real enabled
+`NSMenuItem` entries in the app menu. This gives classic scripts access to the
+full Hype menu surface while keeping dispatch bounded to Hype command names or
+menu items the app actually exposes; document-scoped notifications still carry
+`MenuCommandScoping` stack IDs and user-level gates remain in the receiving
+handlers.
+
 ### 6.2 The render pipeline
 
 `CardRenderer` (Sources/HypeCore/Rendering/CardRenderer.swift) is a pure
@@ -3417,7 +3426,7 @@ unknowns:
    Original XCMD/XFCN native code is never executed; calls route through the
    Swift emulation registry. Remaining import work includes WOBA bitmap
    decompression, PICT/snd conversion, AddColor rendering, and many classic
-   command surfaces such as `doMenu`, `print`, `run`, `copy template`, and
+   command surfaces such as `print`, `run`, `copy template`, and
    programmatic selection/find behavior.
 5. **AI authoring has formal transactions, but preview UX is still maturing.**
    `AIEditTransactionRunner` executes tool calls against a draft document,
