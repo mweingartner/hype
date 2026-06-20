@@ -40,6 +40,9 @@ concepts while keeping Hype's modern extensions intact.
      Hype equivalent.
    - Use `MessageDispatcher`, `Interpreter`, and sandboxed providers; never
      bypass the message hierarchy or file-security abstractions.
+   - Use [`LegacyCardScriptLifecycleTestPlan.md`](LegacyCardScriptLifecycleTestPlan.md)
+     for open/close/idle lifecycle parity across edit mode, runtime/Browse mode,
+     imported stacks, and `lockMessages`.
    - Verify `it` semantics: `get`, `ask`, `answer`, `read`, request/reply, and
      explicit `put ... into it` set `it`; ordinary `put ... into/after/before`
      another container must not clobber the current `it`.
