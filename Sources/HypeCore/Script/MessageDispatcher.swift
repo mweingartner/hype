@@ -80,7 +80,11 @@ public struct MessageDispatcher: Sendable {
     /// Sentinel UUID representing the app-level ("Hype") script — the final link in the message chain.
     public static let hypeScriptSentinel = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
 
-    public init() {}
+    private let scriptTraceRecorder: HypeTalkScriptTraceRecorder
+
+    public init(scriptTraceRecorder: HypeTalkScriptTraceRecorder = .shared) {
+        self.scriptTraceRecorder = scriptTraceRecorder
+    }
 
     /// Returns true when the message hierarchy contains a handler for `message`.
     ///
@@ -342,8 +346,22 @@ public struct MessageDispatcher: Sendable {
             // advances up the pass-up hierarchy, `targetId` changes to reflect
             // the current handler's owner while `originalTargetId` stays fixed.
             // This is what `the target` returns per the HyperTalk reference.
-            let traceEnabled = HypeTalkScriptTraceRecorder.shared.isEnabled
+            let traceEnabled = scriptTraceRecorder.isEnabled
             let traceProfiler = traceEnabled ? HypeTalkExecutionProfiler() : nil
+            let traceContext = HypeTalkScriptTraceContext(
+                message: message,
+                handler: handler.name,
+                ownerDescription: Self.describeObject(
+                    objectId: objectId,
+                    document: currentDocument,
+                    scriptContext: scriptContext
+                ),
+                source: HypeTalkScriptTraceSource(
+                    kind: Self.traceSourceKind(objectId: objectId, document: currentDocument),
+                    objectId: objectId
+                ),
+                line: handler.line
+            )
             let traceStart = Date()
             let context = ExecutionContext(
                 targetId: objectId,
@@ -362,29 +380,25 @@ public struct MessageDispatcher: Sendable {
                 appScript: appScript,
                 nestedSendDepth: nestedSendDepth,
                 profiler: traceProfiler,
+                debugTraceContext: traceEnabled ? traceContext : nil,
+                debugTraceRecorder: scriptTraceRecorder,
                 fileProvider: fileProvider,
                 originalTargetId: targetId
             )
             let interpreter = Interpreter()
             var result = await interpreter.executeAsync(handler: handler, params: params, context: context)
             if traceEnabled {
-                HypeTalkScriptTraceRecorder.shared.record(
+                scriptTraceRecorder.record(
                     HypeTalkScriptTraceEntry(
                         message: message,
                         handler: handler.name,
-                        ownerDescription: Self.describeObject(
-                            objectId: objectId,
-                            document: currentDocument,
-                            scriptContext: scriptContext
-                        ),
-                        source: HypeTalkScriptTraceSource(
-                            kind: Self.traceSourceKind(objectId: objectId, document: currentDocument),
-                            objectId: objectId
-                        ),
+                        ownerDescription: traceContext.ownerDescription,
+                        source: traceContext.source,
                         line: handler.line,
                         status: Self.traceStatus(for: result.status),
-                        durationMilliseconds: Date().timeIntervalSince(traceStart) * 1000,
-                        diagnostics: traceProfiler?.snapshot() ?? HypeTalkExecutionDiagnostics()
+                        durationMilliseconds: max(0, Date().timeIntervalSince(traceStart) * 1000 - result.debugPausedMilliseconds),
+                        diagnostics: traceProfiler?.snapshot() ?? HypeTalkExecutionDiagnostics(),
+                        variables: result.debugVariables
                     )
                 )
             }

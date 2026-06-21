@@ -1,3 +1,10 @@
+---
+type: guide
+title: Hype Debug Bridge And MCP Split
+description: How Hype.app exposes local debug automation over a Unix socket and how the MCP proxy forwards tools, resources, and prompts.
+updated: 2026-06-21
+---
+
 # Hype Debug Bridge And MCP Split
 
 Hype.app does not expose MCP directly. The app owns a local debug bridge, and a
@@ -85,6 +92,34 @@ preference in the same way as every other mutation path: when `allowMutations`
 is false, both methods return a refusal response without executing. This brings
 these two methods into parity with `debug/callTool` and the rest of the
 mutation surface.
+
+Menu automation is exposed through `debug/callTool` control tools:
+
+- `hype_list_menu_commands`
+- `hype_trigger_menu_command`
+
+`hype_trigger_menu_command` posts the same in-app notifications used by Hype's
+SwiftUI menus, so automation can open auxiliary windows such as Script Debugger
+without using macOS Accessibility keystroke permissions. Commands accept stable
+ids such as `script_debugger`, `show_console`, `next_card`, and
+`select_tool` with an `argument` like `button`.
+
+Automatic UI and debugger testing is exposed through additional live-app
+control tools:
+
+- Window state: `hype_list_windows`, `hype_focus_window`, `hype_wait_for_window`
+- Debugger waits: `hype_wait_for_debugger_pause`,
+  `hype_step_script_execution_and_wait`
+- Script editor breakpoints: `hype_get_script_editor_state`,
+  `hype_toggle_script_editor_breakpoint`
+
+These tools intentionally use in-process AppKit and debugger state rather than
+System Events or screen coordinates, so they work without macOS Accessibility
+permissions and return structured JSON that tests can assert on directly.
+Script editor line breakpoints currently halt at handler entry lines (`on ...`
+or `function ...`). Statement-level line breakpoints require parser/interpreter
+source-location metadata and are rejected with a structured error instead of
+creating breakpoints that cannot fire.
 
 ## MCP Server
 

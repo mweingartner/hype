@@ -27,6 +27,8 @@ struct HypeTalkTextView: NSViewRepresentable {
     /// The binding lets `ScriptEditor` drop the highlight as soon as
     /// the user edits the script.
     var errorHighlightLine: Binding<Int?>? = nil
+    var breakpointLines: Set<Int> = []
+    var onToggleBreakpoint: ((Int) -> Void)? = nil
     var onTextChange: (() -> Void)? = nil
     var accessibilityIdentifier: String = HypeAccessibilityID.scriptEditorText
     /// The active theme's script-editor sub-palette. Drives every
@@ -40,6 +42,13 @@ struct HypeTalkTextView: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.appearance = NSAppearance(named: .aqua)
+        scrollView.hasVerticalRuler = true
+        scrollView.rulersVisible = true
+        let ruler = HypeTalkLineNumberRulerView(scrollView: scrollView)
+        ruler.onToggleBreakpoint = { line in
+            context.coordinator.parent.onToggleBreakpoint?(line)
+        }
+        scrollView.verticalRulerView = ruler
 
         let textView = NSTextView()
         textView.isEditable = true
@@ -108,6 +117,12 @@ struct HypeTalkTextView: NSViewRepresentable {
         }
         context.coordinator.parent = self
         textView.setAccessibilityIdentifier(accessibilityIdentifier)
+        if let ruler = scrollView.verticalRulerView as? HypeTalkLineNumberRulerView {
+            ruler.stringProvider = { textView.string }
+            ruler.breakpointLines = breakpointLines
+            ruler.font = textView.font ?? NSFont.monospacedSystemFont(ofSize: CGFloat(scriptTheme.fontSize), weight: .regular)
+            ruler.needsDisplay = true
+        }
 
         // Re-apply theme palette in case the active theme changed
         // since this view was created. Cheap because NSTextView's
@@ -387,5 +402,69 @@ struct HypeTalkTextView: NSViewRepresentable {
             }
             return true
         }
+    }
+}
+
+private final class HypeTalkLineNumberRulerView: NSRulerView {
+    var breakpointLines: Set<Int> = []
+    var stringProvider: (() -> String)?
+    var onToggleBreakpoint: ((Int) -> Void)?
+    var font: NSFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+
+    private let gutterWidth: CGFloat = 44
+
+    init(scrollView: NSScrollView) {
+        super.init(scrollView: scrollView, orientation: .verticalRuler)
+        clientView = scrollView.documentView
+        ruleThickness = gutterWidth
+    }
+
+    required init(coder: NSCoder) {
+        super.init(coder: coder)
+        ruleThickness = gutterWidth
+    }
+
+    override func drawHashMarksAndLabels(in rect: NSRect) {
+        guard let textView = scrollView?.documentView as? NSTextView else { return }
+        NSColor.windowBackgroundColor.withAlphaComponent(0.92).setFill()
+        rect.fill()
+
+        let source = stringProvider?() ?? textView.string
+        let lineCount = max(1, source.components(separatedBy: "\n").count)
+        let lineHeight = max(font.boundingRectForFont.height + 3, textView.layoutManager?.defaultLineHeight(for: font) ?? 16)
+        let insetY = textView.textContainerInset.height
+        let visibleRect = scrollView?.contentView.bounds ?? textView.visibleRect
+        let firstLine = max(1, Int(floor((visibleRect.minY - insetY) / lineHeight)) + 1)
+        let lastLine = min(lineCount, Int(ceil((visibleRect.maxY - insetY) / lineHeight)) + 2)
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .right
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .paragraphStyle: paragraph,
+        ]
+        for line in firstLine...max(firstLine, lastLine) where line <= lineCount {
+            let y = insetY + CGFloat(line - 1) * lineHeight - visibleRect.minY
+            if breakpointLines.contains(line) {
+                let dotRect = NSRect(x: 6, y: y + 3, width: 8, height: 8)
+                NSColor.systemRed.setFill()
+                NSBezierPath(ovalIn: dotRect).fill()
+            }
+            let labelRect = NSRect(x: 14, y: y, width: gutterWidth - 18, height: lineHeight)
+            NSString(string: "\(line)").draw(in: labelRect, withAttributes: attrs)
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let textView = scrollView?.documentView as? NSTextView else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        let visibleRect = scrollView?.contentView.bounds ?? textView.visibleRect
+        let lineHeight = max(font.boundingRectForFont.height + 3, textView.layoutManager?.defaultLineHeight(for: font) ?? 16)
+        let insetY = textView.textContainerInset.height
+        let line = Int(floor((point.y + visibleRect.minY - insetY) / lineHeight)) + 1
+        guard line > 0 else { return }
+        onToggleBreakpoint?(line)
+        needsDisplay = true
     }
 }
