@@ -23,9 +23,6 @@ struct HypeCLI: AsyncParsableCommand {
     @Flag(help: "Run scripts in benchmark mode and print timing plus execution diagnostics")
     var benchmark = false
 
-    @Flag(help: "Parse a HypeTalk script and exit without invoking a handler")
-    var parseOnly = false
-
     @Option(help: "Benchmark iterations per case")
     var benchmarkIterations = 10
 
@@ -79,13 +76,6 @@ struct HypeCLI: AsyncParsableCommand {
     @Option(name: .customLong("import-hypercard"), help: "Import one classic HyperCard stack and print a tab-separated summary")
     var importHyperCard: String?
 
-    @Option(
-        name: .customLong("import-stackimport-project"),
-        parsing: .upToNextOption,
-        help: "Import one or more stackimport .xstk packages as a linked project and print a JSON summary"
-    )
-    var importStackImportProject: [String] = []
-
     @Option(help: "Scan a directory of classic stacks/archives and print tab-separated import summaries")
     var importCorpus: String?
 
@@ -94,30 +84,6 @@ struct HypeCLI: AsyncParsableCommand {
 
     @Option(help: "Write --import-corpus successful imports as .hype packages in this directory")
     var outputDir: String?
-
-    @Option(help: "Path to JSON array of HypeStackLibraryEntry objects for --import-stackimport-project")
-    var stackLibraryJson: String?
-
-    @Option(help: "Comma-separated stack aliases to mark as started/used in --import-stackimport-project")
-    var usedStackAliases: String?
-
-    @Option(help: "Loose media manifest TSV for --import-stackimport-project")
-    var looseMediaManifest: String?
-
-    @Option(help: "Loose media source root for --import-stackimport-project")
-    var looseMediaSourceRoot: String?
-
-    @Option(help: "Loose media replacement root for --import-stackimport-project")
-    var looseMediaReplacementRoot: String?
-
-    @Option(help: "Comma-separated loose media names to import with --import-stackimport-project")
-    var looseMediaNames: String?
-
-    @Option(help: "Path to JSON object mapping loose media aliases to source names for --import-stackimport-project")
-    var looseMediaAliasesJson: String?
-
-    @Flag(help: "Refuse to replace existing output .hype packages during --import-stackimport-project")
-    var noReplaceExistingProjectOutput = false
 
     @Option(help: "Automation import target platforms, comma-separated: macOS, iPhone, iPad, tvOS. Defaults to macOS.")
     var targetPlatforms: String?
@@ -140,9 +106,6 @@ struct HypeCLI: AsyncParsableCommand {
     @Option(help: "Validate every stored script in a .hype package or JSON HypeDocument without executing handlers")
     var validateScripts: String?
 
-    @Option(help: "Validate one .hype package's SQLite storage and print a tab-separated diagnostic row")
-    var validatePackage: String?
-
     @Option(help: "With --validate-scripts, export each stored script as a standalone .hypetalk file in this directory")
     var exportScripts: String?
 
@@ -150,39 +113,17 @@ struct HypeCLI: AsyncParsableCommand {
         if output != nil && importHyperCard == nil {
             throw ValidationError("--output requires --import-hypercard")
         }
-        if outputDir != nil && importCorpus == nil && importStackImportProject.isEmpty {
-            throw ValidationError("--output-dir requires --import-corpus or --import-stackimport-project")
+        if outputDir != nil && importCorpus == nil {
+            throw ValidationError("--output-dir requires --import-corpus")
         }
         if outputDir != nil && importHyperCard != nil {
-            throw ValidationError("--output-dir cannot be combined with --import-hypercard; use --output")
+            throw ValidationError("--output-dir requires --import-corpus")
         }
         if output != nil && importCorpus != nil {
             throw ValidationError("--output requires --import-hypercard")
         }
-        if importCorpus != nil && !importStackImportProject.isEmpty {
-            throw ValidationError("--import-corpus cannot be combined with --import-stackimport-project")
-        }
-        if output != nil && !importStackImportProject.isEmpty {
-            throw ValidationError("--output cannot be combined with --import-stackimport-project; use --output-dir")
-        }
-        if !importStackImportProject.isEmpty && outputDir == nil {
-            throw ValidationError("--import-stackimport-project requires --output-dir")
-        }
         if exportScripts != nil && validateScripts == nil {
             throw ValidationError("--export-scripts requires --validate-scripts")
-        }
-        if validatePackage != nil && validateScripts != nil {
-            throw ValidationError("--validate-package cannot be combined with --validate-scripts")
-        }
-
-        if let validatePackage {
-            let report = try validatePackageFile(at: URL(fileURLWithPath: validatePackage))
-            print(report.tsvHeader)
-            print(report.tsvLine)
-            if !report.isHealthy {
-                throw HypeCLIError.validationFailed(1)
-            }
-            return
         }
 
         if let validateScripts {
@@ -206,11 +147,6 @@ struct HypeCLI: AsyncParsableCommand {
             }
             print(summary.tsvHeader)
             print(summary.tsvLine)
-            return
-        }
-
-        if !importStackImportProject.isEmpty {
-            try runImportStackImportProject()
             return
         }
 
@@ -273,11 +209,6 @@ struct HypeCLI: AsyncParsableCommand {
         let tokens = lexer.tokenize()
         var parser = Parser(tokens: tokens)
         let ast = try parser.parse()
-
-        if parseOnly {
-            print("OK")
-            return
-        }
 
         let targetHandler: Handler
         if let h = ast.handlers.first(where: { $0.name.lowercased() == handler.lowercased() }) {
@@ -502,140 +433,6 @@ struct HypeCLI: AsyncParsableCommand {
         return ImportSummary(sourceURL: url, document: result.document)
     }
 
-    private func runImportStackImportProject() throws {
-        let packageURLs = importStackImportProject.map { URL(fileURLWithPath: $0, isDirectory: true) }
-        let outputURL = URL(fileURLWithPath: try requiredOutputDir(), isDirectory: true)
-        let names = csvValues(looseMediaNames)
-        let result = try StackImportPackageProjectImporter().importProject(
-            options: StackImportPackageProjectImportOptions(
-                packageURLs: packageURLs,
-                outputDirectoryURL: outputURL,
-                replaceExistingOutputPackages: !noReplaceExistingProjectOutput,
-                looseMediaManifestURL: pathURL(looseMediaManifest),
-                looseMediaSourceRootURL: pathURL(looseMediaSourceRoot),
-                looseMediaReplacementRootURL: pathURL(looseMediaReplacementRoot),
-                looseMediaNames: names.isEmpty ? nil : Set(names),
-                looseMediaAliases: try stringMapJSON(from: looseMediaAliasesJson),
-                stackLibraryEntries: try stackLibraryEntriesJSON(from: stackLibraryJson),
-                usedStackAliases: csvValues(usedStackAliases),
-                deploymentTargets: try automationDeploymentTargets()
-            )
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let output = ProjectImportOutput(result: result.summary)
-        let data = try encoder.encode(output)
-        print(String(data: data, encoding: .utf8) ?? "{}")
-    }
-
-    private func requiredOutputDir() throws -> String {
-        guard let outputDir else {
-            throw ValidationError("--import-stackimport-project requires --output-dir")
-        }
-        return outputDir
-    }
-
-    private func pathURL(_ path: String?) -> URL? {
-        normalized(path).map { URL(fileURLWithPath: $0) }
-    }
-
-    private func csvValues(_ value: String?) -> [String] {
-        guard let value = normalized(value) else { return [] }
-        return value
-            .split(separator: ",")
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-    }
-
-    private func stringMapJSON(from path: String?) throws -> [String: String] {
-        guard let url = pathURL(path) else { return [:] }
-        let data = try Data(contentsOf: url)
-        let object = try JSONSerialization.jsonObject(with: data)
-        guard let raw = object as? [String: Any] else {
-            throw ValidationError("--loose-media-aliases-json must contain a JSON object")
-        }
-        var result: [String: String] = [:]
-        for (key, value) in raw {
-            if let value = value as? String, !key.isEmpty, !value.isEmpty {
-                result[key] = value
-            }
-        }
-        return result
-    }
-
-    private func stackLibraryEntriesJSON(from path: String?) throws -> [HypeStackLibraryEntry] {
-        guard let url = pathURL(path) else { return [] }
-        let data = try Data(contentsOf: url)
-        let object = try JSONSerialization.jsonObject(with: data)
-        guard let rows = object as? [[String: Any]] else {
-            throw ValidationError("--stack-library-json must contain a JSON array")
-        }
-        return rows.compactMap(stackLibraryEntry(from:))
-    }
-
-    private func stackLibraryEntry(from row: [String: Any]) -> HypeStackLibraryEntry? {
-        guard let stackName = row["stackName"] as? String,
-              !stackName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return nil
-        }
-        let sourceName = (row["source"] as? String) ?? HypeStackLibrarySource.importedStackPackage.rawValue
-        let source = HypeStackLibrarySource(rawValue: sourceName) ?? .importedStackPackage
-        return HypeStackLibraryEntry(
-            stackName: stackName,
-            aliases: stringArray(row["aliases"]),
-            source: source,
-            packagePath: row["packagePath"] as? String,
-            documentPath: row["documentPath"] as? String,
-            legacyFirstCardId: intValue(row["legacyFirstCardId"]),
-            cardCount: intValue(row["cardCount"]),
-            stackScript: row["stackScript"] as? String,
-            cardReferences: stackLibraryCardReferences(row["cardReferences"]),
-            metadata: stackLibraryMetadata(row["metadata"])
-        )
-    }
-
-    private func stackLibraryCardReferences(_ value: Any?) -> [HypeStackLibraryCardReference] {
-        guard let rows = value as? [[String: Any]] else { return [] }
-        return rows.map { row in
-            HypeStackLibraryCardReference(
-                legacyCardId: intValue(row["legacyCardId"]),
-                name: (row["name"] as? String) ?? "",
-                sortIndex: intValue(row["sortIndex"]),
-                hypeCardId: uuidValue(row["hypeCardId"])
-            )
-        }
-    }
-
-    private func stackLibraryMetadata(_ value: Any?) -> [HypeStackLibraryMetadataEntry] {
-        guard let rows = value as? [[String: Any]] else { return [] }
-        return rows.compactMap { row in
-            guard let key = row["key"] as? String, !key.isEmpty,
-                  let rawValue = row["value"] else {
-                return nil
-            }
-            return HypeStackLibraryMetadataEntry(key: key, value: String(describing: rawValue))
-        }
-    }
-
-    private func stringArray(_ value: Any?) -> [String] {
-        (value as? [Any] ?? []).compactMap { item in
-            guard let text = item as? String else { return nil }
-            return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
-        }
-    }
-
-    private func intValue(_ value: Any?) -> Int? {
-        if let value = value as? Int { return value }
-        if let value = value as? Double { return Int(value) }
-        if let value = value as? String { return Int(value) }
-        return nil
-    }
-
-    private func uuidValue(_ value: Any?) -> UUID? {
-        guard let value = value as? String else { return nil }
-        return UUID(uuidString: value)
-    }
-
     private func automationDeploymentTargets() throws -> StackDeploymentTargets {
         let selected = try parseTargetPlatforms(targetPlatforms)
         let primary = try parsePrimaryTargetPlatform(primaryTargetPlatform, selectedPlatforms: selected)
@@ -789,26 +586,6 @@ struct HypeCLI: AsyncParsableCommand {
         }
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(HypeDocument.self, from: data)
-    }
-
-    private func validatePackageFile(at packageURL: URL) throws -> PackageValidationReport {
-        let store = HypeSQLiteStackStore()
-        let diagnostics = try store.validate(packageURL: packageURL)
-        let document = try store.load(fromPackageAt: packageURL)
-        return PackageValidationReport(
-            path: packageURL.path,
-            stackName: document.stack.name,
-            documentVersion: document.documentVersion,
-            cardCount: document.cards.count,
-            backgroundCount: document.backgrounds.count,
-            partCount: document.parts.count,
-            assetCount: document.assetRepository.assets.count,
-            integrityCheck: diagnostics.integrityCheck,
-            foreignKeyViolationCount: diagnostics.foreignKeyViolationCount,
-            missingAssetReferenceCount: diagnostics.missingAssetReferenceCount,
-            searchEntryCount: diagnostics.searchEntryCount,
-            isHealthy: diagnostics.isHealthy
-        )
     }
 
     private func validateStoredScripts(in document: HypeDocument, exportDirectory: URL?) throws -> ScriptValidationReport {
@@ -1083,7 +860,7 @@ private struct ScriptValidationReport {
     }
 }
 
-private struct ScriptSemanticIssue: Codable, Hashable {
+private struct ScriptSemanticIssue: Codable {
     var kind: String
     var message: String
 }
@@ -1215,132 +992,21 @@ private struct ScriptSemanticValidator {
         let handlerNames = Set(parsed.handlers.map { $0.name.lowercased() })
         let functionNames = Set(parsed.handlers.filter { $0.handlerType == .function }.map { $0.name.lowercased() })
         let messageNames = Set(parsed.handlers.filter { $0.handlerType == .message }.map { $0.name.lowercased() })
-        let localHandlerCardContexts = localHandlerCallCardContexts(
-            parsed: parsed,
-            owner: owner,
-            messageNames: messageNames
-        )
 
         issues += sourceCompatibilityIssues(owner.source)
         for handler in parsed.handlers {
             issues += hookIssues(handler: handler, owner: owner)
-            let bodyCardContexts = validationCardContexts(
-                owner: owner,
-                callContexts: localHandlerCardContexts[handler.name.lowercased()]
-            )
-            issues += statementsIssuesAcrossCardContexts(
-                handler.body,
-                owner: owner,
-                handlerNames: handlerNames,
-                messageNames: messageNames,
-                functionNames: functionNames,
-                cardContexts: bodyCardContexts
-            )
-        }
-        return stableUnique(issues)
-    }
-
-    private func validationCardContexts(owner: StoredScript, callContexts: Set<UUID>?) -> [UUID?] {
-        var contexts: [UUID?] = [owner.currentCardId]
-        for cardId in (callContexts ?? []).sorted(by: { $0.uuidString < $1.uuidString }) where !contexts.contains(cardId) {
-            contexts.append(cardId)
-        }
-        return contexts
-    }
-
-    private func statementsIssuesAcrossCardContexts(
-        _ statements: [Statement],
-        owner: StoredScript,
-        handlerNames: Set<String>,
-        messageNames: Set<String>,
-        functionNames: Set<String>,
-        cardContexts: [UUID?]
-    ) -> [ScriptSemanticIssue] {
-        let contexts = cardContexts.isEmpty ? [owner.currentCardId] : cardContexts
-        let issueLists = contexts.map { cardId in
-            statementsIssues(
-                statements,
-                owner: owner,
-                handlerNames: handlerNames,
-                messageNames: messageNames,
-                functionNames: functionNames,
-                effectiveCardId: cardId
-            )
-        }
-        guard let first = issueLists.first else { return [] }
-        guard issueLists.count > 1 else { return first }
-        let common = issueLists.dropFirst().reduce(Set(first)) { partial, issues in
-            partial.intersection(Set(issues))
-        }
-        return first.filter { common.contains($0) }
-    }
-
-    private func localHandlerCallCardContexts(
-        parsed: Script,
-        owner: StoredScript,
-        messageNames: Set<String>
-    ) -> [String: Set<UUID>] {
-        var contexts: [String: Set<UUID>] = [:]
-        for handler in parsed.handlers where handler.handlerType == .message {
-            collectLocalHandlerCallCardContexts(
-                in: handler.body,
-                currentCardId: owner.currentCardId,
-                messageNames: messageNames,
-                contexts: &contexts
-            )
-        }
-        return contexts
-    }
-
-    private func collectLocalHandlerCallCardContexts(
-        in statements: [Statement],
-        currentCardId: UUID?,
-        messageNames: Set<String>,
-        contexts: inout [String: Set<UUID>]
-    ) {
-        var effectiveCardId = currentCardId
-        for statement in statements {
-            switch statement {
-            case .go(let expression):
-                if let resolved = staticNavigationTarget(expression, currentCardId: effectiveCardId) {
-                    effectiveCardId = resolved
-                }
-            case .externalCommand(let name, _):
-                let lower = name.lowercased()
-                if messageNames.contains(lower), let effectiveCardId {
-                    contexts[lower, default: []].insert(effectiveCardId)
-                }
-            case .expressionStatement(.variable(let name)):
-                let lower = name.lowercased()
-                if messageNames.contains(lower), let effectiveCardId {
-                    contexts[lower, default: []].insert(effectiveCardId)
-                }
-            case .ifThenElse(_, let thenBlock, let elseBlock):
-                collectLocalHandlerCallCardContexts(
-                    in: thenBlock,
-                    currentCardId: effectiveCardId,
+            for statement in handler.body {
+                issues += statementIssues(
+                    statement,
+                    owner: owner,
+                    handlerNames: handlerNames,
                     messageNames: messageNames,
-                    contexts: &contexts
+                    functionNames: functionNames
                 )
-                if let elseBlock {
-                    collectLocalHandlerCallCardContexts(
-                        in: elseBlock,
-                        currentCardId: effectiveCardId,
-                        messageNames: messageNames,
-                        contexts: &contexts
-                    )
-                }
-            case .repeatForever(let body), .repeatCount(_, let body), .repeatWhile(_, let body):
-                collectLocalHandlerCallCardContexts(
-                    in: body,
-                    currentCardId: effectiveCardId,
-                    messageNames: messageNames,
-                    contexts: &contexts
-                )
-            default:
-                break
             }
         }
+        return stableUnique(issues)
     }
 
     private func sourceCompatibilityIssues(_ source: String) -> [ScriptSemanticIssue] {
@@ -1355,38 +1021,8 @@ private struct ScriptSemanticValidator {
         guard handler.handlerType == .message else { return [] }
         let name = handler.name.lowercased()
         guard Self.knownRuntimeHooks.contains(name) else { return [] }
-        if isImportedBackgroundStackLifecycleHook(name: name, owner: owner) {
-            return []
-        }
         guard !allowedHooks(for: owner.ownerType).contains(name) else { return [] }
-        if isInertImportedPassThroughHook(handler: handler, owner: owner) {
-            return []
-        }
         return [issue("hook-context", "`on \(handler.name)` is a known runtime hook, but it is not normally dispatched for \(owner.ownerType) scripts.")]
-    }
-
-    private func isImportedBackgroundStackLifecycleHook(name: String, owner: StoredScript) -> Bool {
-        guard document.legacyImport != nil else { return false }
-        guard owner.ownerType.lowercased() == "background" else { return false }
-        return name == "openstack" || name == "closestack"
-    }
-
-    private func isInertImportedPassThroughHook(handler: Handler, owner: StoredScript) -> Bool {
-        guard owner.ownerType == "button" || owner.ownerType == "field" else { return false }
-        guard !handler.body.isEmpty else { return false }
-        var sawPass = false
-        for statement in handler.body {
-            switch statement {
-            case .passMessage(let message):
-                guard message.caseInsensitiveCompare(handler.name) == .orderedSame else { return false }
-                sawPass = true
-            case .externalCommand(let name, _):
-                guard name.caseInsensitiveCompare("HTLock") == .orderedSame else { return false }
-            default:
-                return false
-            }
-        }
-        return sawPass
     }
 
     private func statementIssues(
@@ -1394,22 +1030,20 @@ private struct ScriptSemanticValidator {
         owner: StoredScript,
         handlerNames: Set<String>,
         messageNames: Set<String>,
-        functionNames: Set<String>,
-        effectiveCardId: UUID? = nil
+        functionNames: Set<String>
     ) -> [ScriptSemanticIssue] {
         var issues: [ScriptSemanticIssue] = []
         switch statement {
-        case .expressionStatement(.variable):
-            // A single identifier line is a parameterless handler command in
-            // classic HyperTalk. The interpreter dispatches it when the name
-            // is available in the normal message path.
-            break
+        case .expressionStatement(.variable(let name)):
+            if messageNames.contains(name.lowercased()) {
+                issues.append(issue("bare-handler-call", "`\(name)` is a local handler name, but a bare line is evaluated as a variable in Hype. Use `send \"\(name)\" to me`."))
+            }
         case .expressionStatement(let expression):
-            issues += expressionIssues(expression, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(expression, owner: owner, functionNames: functionNames)
         case .send(let message, let target):
-            issues += expressionIssues(message, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(message, owner: owner, functionNames: functionNames)
             if let target {
-                issues += expressionIssues(target, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
+                issues += expressionIssues(target, owner: owner, functionNames: functionNames)
             }
             if case .literal(let name) = message,
                target.map(isMeLike) == true,
@@ -1417,8 +1051,8 @@ private struct ScriptSemanticValidator {
                 issues.append(issue("send-handler", "`send \"\(name)\" to me` has no matching handler in this script."))
             }
         case .visual(let effect, let duration):
-            issues += expressionIssues(effect, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
-            if let duration { issues += expressionIssues(duration, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId) }
+            issues += expressionIssues(effect, owner: owner, functionNames: functionNames)
+            if let duration { issues += expressionIssues(duration, owner: owner, functionNames: functionNames) }
             if let effectName = staticString(effect) {
                 let resolved = VisualEffect.fromName(effectName)
                 if resolved == .none && !Self.noneEffectNames.contains(effectName.lowercased()) {
@@ -1426,24 +1060,15 @@ private struct ScriptSemanticValidator {
                 }
             }
         case .playSound(let sound, let notes, let tempo):
-            issues += expressionIssues(sound, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
-            if let notes { issues += expressionIssues(notes, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId) }
-            if let tempo { issues += expressionIssues(tempo, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId) }
-            if let soundName = staticLiteralString(sound), !soundIsResolvable(soundName) {
+            issues += expressionIssues(sound, owner: owner, functionNames: functionNames)
+            if let notes { issues += expressionIssues(notes, owner: owner, functionNames: functionNames) }
+            if let tempo { issues += expressionIssues(tempo, owner: owner, functionNames: functionNames) }
+            if let soundName = staticSoundName(sound), !soundIsResolvable(soundName) {
                 issues.append(issue("sound-asset", "`play \"\(soundName)\"` has no embedded audio asset and is not a known system/HyperCard sound mapping."))
             }
         case .externalCommand(let name, let arguments):
             for argument in arguments {
-                issues += expressionIssues(argument, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
-            }
-            if let currentCardId = owner.currentCardId,
-               MessageDispatcher().hasHandler(
-                   message: name,
-                   targetId: owner.ownerId,
-                   document: document,
-                   currentCardId: currentCardId
-               ) {
-                break
+                issues += expressionIssues(argument, owner: owner, functionNames: functionNames)
             }
             let status = HyperCardExternalRegistry.default.status(for: name, kind: .xcmd)
             switch status {
@@ -1455,39 +1080,37 @@ private struct ScriptSemanticValidator {
                 issues.append(issue("xcmd-unknown", "XCMD `\(name)` is not available in Hype."))
             }
         case .put(let source, _, let target):
-            issues += expressionIssues(source, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
-            issues += expressionIssues(target, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(source, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(target, owner: owner, functionNames: functionNames)
         case .get(let expression), .go(let expression), .returnValue(let expression),
              .say(let expression), .activateListener(let expression), .waitDuration(let expression, _),
              .waitCondition(let expression, _), .deleteObject(let expression),
              .selectObject(let expression), .sortCards(let expression), .hideObject(let expression),
-             .showObject(let expression), .openStack(let expression), .editScriptOf(let expression),
-             .startUsing(let expression), .stopUsing(let expression), .startAnimation(let expression),
-             .stopAnimation(let expression), .exportPaint(let expression), .importPaint(let expression):
-            issues += expressionIssues(expression, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
+              .showObject(let expression), .openStack(let expression), .editScriptOf(let expression),
+              .startUsing(let expression), .stopUsing(let expression), .startAnimation(let expression),
+              .stopAnimation(let expression), .exportPaint(let expression), .importPaint(let expression):
+            issues += expressionIssues(expression, owner: owner, functionNames: functionNames)
         case .findText(_, let query, _):
-            issues += expressionIssues(query, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(query, owner: owner, functionNames: functionNames)
         case .set(_, let ofExpression, let toExpression):
-            if let ofExpression { issues += expressionIssues(ofExpression, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId) }
-            issues += expressionIssues(toExpression, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
+            if let ofExpression { issues += expressionIssues(ofExpression, owner: owner, functionNames: functionNames) }
+            issues += expressionIssues(toExpression, owner: owner, functionNames: functionNames)
         case .ifThenElse(let condition, let thenBlock, let elseBlock):
-            issues += expressionIssues(condition, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
-            issues += statementsIssues(thenBlock, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(condition, owner: owner, functionNames: functionNames)
+            issues += statementsIssues(thenBlock, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames)
             if let elseBlock {
-                issues += statementsIssues(elseBlock, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
+                issues += statementsIssues(elseBlock, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames)
             }
-        case .repeatForever(let body):
-            issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
         case .repeatCount(let count, let body):
-            issues += expressionIssues(count, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
-            issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(count, owner: owner, functionNames: functionNames)
+            issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames)
         case .repeatWhile(let condition, let body):
-            issues += expressionIssues(condition, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
-            issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(condition, owner: owner, functionNames: functionNames)
+            issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames)
         case .repeatWith(_, let from, let to, _, let body):
-            issues += expressionIssues(from, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
-            issues += expressionIssues(to, owner: owner, functionNames: functionNames, messageNames: messageNames, effectiveCardId: effectiveCardId)
-            issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames, effectiveCardId: effectiveCardId)
+            issues += expressionIssues(from, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(to, owner: owner, functionNames: functionNames)
+            issues += statementsIssues(body, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames)
         default:
             break
         }
@@ -1499,58 +1122,26 @@ private struct ScriptSemanticValidator {
         owner: StoredScript,
         handlerNames: Set<String>,
         messageNames: Set<String>,
-        functionNames: Set<String>,
-        effectiveCardId: UUID? = nil
+        functionNames: Set<String>
     ) -> [ScriptSemanticIssue] {
-        var issues: [ScriptSemanticIssue] = []
-        var currentEffectiveCardId = effectiveCardId
-        for statement in statements {
-            issues += statementIssues(
-                statement,
-                owner: owner,
-                handlerNames: handlerNames,
-                messageNames: messageNames,
-                functionNames: functionNames,
-                effectiveCardId: currentEffectiveCardId
-            )
-            if case .go(let expression) = statement,
-               let resolved = staticNavigationTarget(
-                   expression,
-                   currentCardId: currentEffectiveCardId ?? owner.currentCardId
-               ) {
-                currentEffectiveCardId = resolved
-            }
+        statements.flatMap {
+            statementIssues($0, owner: owner, handlerNames: handlerNames, messageNames: messageNames, functionNames: functionNames)
         }
-        return issues
     }
 
     private func expressionIssues(
         _ expression: HypeCore.Expression,
         owner: StoredScript,
-        functionNames: Set<String>,
-        messageNames: Set<String> = [],
-        effectiveCardId: UUID? = nil
+        functionNames: Set<String>
     ) -> [ScriptSemanticIssue] {
         var issues: [ScriptSemanticIssue] = []
-        func nested(_ expression: HypeCore.Expression) -> [ScriptSemanticIssue] {
-            expressionIssues(
-                expression,
-                owner: owner,
-                functionNames: functionNames,
-                messageNames: messageNames,
-                effectiveCardId: effectiveCardId
-            )
-        }
         switch expression {
         case .functionCall(let name, let arguments):
             for argument in arguments {
-                issues += nested(argument)
+                issues += expressionIssues(argument, owner: owner, functionNames: functionNames)
             }
             let lower = name.lowercased()
-            if !functionNames.contains(lower),
-               !messageNames.contains(lower),
-               !functionHandlerInMessagePath(name: name, owner: owner, effectiveCardId: effectiveCardId),
-               !Self.knownBuiltInFunctions.contains(lower) {
+            if !functionNames.contains(lower) && !Self.knownBuiltInFunctions.contains(lower) {
                 let status = HyperCardExternalRegistry.default.status(for: name, kind: .xfcn)
                 switch status {
                 case .emulated:
@@ -1562,193 +1153,51 @@ private struct ScriptSemanticValidator {
                 }
             }
         case .objectRef(let ref):
-            issues += objectReferenceIssues(ref, owner: owner, effectiveCardId: effectiveCardId)
-            issues += nested(ref.identifier)
+            issues += objectReferenceIssues(ref, owner: owner)
+            issues += expressionIssues(ref.identifier, owner: owner, functionNames: functionNames)
         case .scopedObjectRef(let object, let ownerRef):
-            issues += nested(object.identifier)
-            issues += nested(ownerRef.identifier)
+            issues += expressionIssues(object.identifier, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(ownerRef.identifier, owner: owner, functionNames: functionNames)
         case .propertyAccess(_, let target):
-            if let target { issues += nested(target) }
+            if let target { issues += expressionIssues(target, owner: owner, functionNames: functionNames) }
         case .binary(let left, _, let right), .contains(let left, let right), .stringConcat(let left, let right),
              .spacedConcat(let left, let right), .isIn(let left, let right), .isNotIn(let left, let right),
              .isWithin(let left, let right), .isNotWithin(let left, let right):
-            issues += nested(left)
-            issues += nested(right)
+            issues += expressionIssues(left, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(right, owner: owner, functionNames: functionNames)
         case .unary(_, let inner), .await(let inner), .chunk(_, _, let inner), .not(let inner),
              .isA(let inner, _), .isNotA(let inner, _):
-            issues += nested(inner)
+            issues += expressionIssues(inner, owner: owner, functionNames: functionNames)
         case .headerAccess(let header, let target):
-            issues += nested(header)
-            issues += nested(target)
+            issues += expressionIssues(header, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(target, owner: owner, functionNames: functionNames)
         case .chartDataPointRef(let chart, let series, let point):
-            issues += nested(chart)
-            issues += nested(series)
-            issues += nested(point)
+            issues += expressionIssues(chart, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(series, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(point, owner: owner, functionNames: functionNames)
         case .tileAt(let column, let row, let tilemap):
-            issues += nested(column)
-            issues += nested(row)
-            issues += nested(tilemap)
+            issues += expressionIssues(column, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(row, owner: owner, functionNames: functionNames)
+            issues += expressionIssues(tilemap, owner: owner, functionNames: functionNames)
         case .thereIsA(_, let target), .thereIsNo(_, let target):
-            issues += nested(target)
+            issues += expressionIssues(target, owner: owner, functionNames: functionNames)
         case .askMeshy(let prompt, let style):
-            issues += nested(prompt)
-            if let style { issues += nested(style) }
+            issues += expressionIssues(prompt, owner: owner, functionNames: functionNames)
+            if let style { issues += expressionIssues(style, owner: owner, functionNames: functionNames) }
         default:
             break
         }
         return issues
     }
 
-    private func functionHandlerInMessagePath(name: String, owner: StoredScript, effectiveCardId: UUID?) -> Bool {
-        guard let currentCardId = effectiveCardId ?? owner.currentCardId else { return false }
-        let targetId = effectiveCardId ?? owner.ownerId
-        let candidateScripts: [String] = messagePathScripts(
-            targetId: targetId,
-            currentCardId: currentCardId
-        )
-        let wanted = name.lowercased()
-        for source in candidateScripts {
-            guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
-            var lexer = Lexer(source: source)
-            let tokens = lexer.tokenize()
-            var parser = Parser(tokens: tokens)
-            guard let parsed = try? parser.parse() else { continue }
-            if parsed.handlers.contains(where: { $0.handlerType == .function && $0.name.lowercased() == wanted }) {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func messagePathScripts(targetId: UUID, currentCardId: UUID) -> [String] {
-        var scripts: [String] = []
-        if let part = document.parts.first(where: { $0.id == targetId }) {
-            scripts.append(part.script)
-            if let cardId = part.cardId ?? document.cards.first(where: { $0.backgroundId == part.backgroundId })?.id,
-               let card = document.cards.first(where: { $0.id == cardId }) {
-                scripts.append(card.script)
-                if let background = document.backgrounds.first(where: { $0.id == card.backgroundId }) {
-                    scripts.append(background.script)
-                }
-            } else if let backgroundId = part.backgroundId,
-                      let background = document.backgrounds.first(where: { $0.id == backgroundId }) {
-                scripts.append(background.script)
-            }
-        } else if let card = document.cards.first(where: { $0.id == targetId }) {
-            scripts.append(card.script)
-            if let background = document.backgrounds.first(where: { $0.id == card.backgroundId }) {
-                scripts.append(background.script)
-            }
-        } else if let background = document.backgrounds.first(where: { $0.id == targetId }) {
-            scripts.append(background.script)
-        } else if targetId == document.stack.id {
-            scripts.append(document.stack.script)
-        } else if let currentCard = document.cards.first(where: { $0.id == currentCardId }) {
-            scripts.append(currentCard.script)
-            if let background = document.backgrounds.first(where: { $0.id == currentCard.backgroundId }) {
-                scripts.append(background.script)
-            }
-        }
-        scripts.append(document.stack.script)
-        return scripts
-    }
-
-    private func staticNavigationTarget(_ expression: HypeCore.Expression, currentCardId: UUID?) -> UUID? {
-        if case .objectRef(let ref) = expression,
-           ref.objectType.lowercased() == "card",
-           let value = staticString(ref.identifier) {
-            return resolveStaticNavigationValue(value, currentCardId: currentCardId)
-        }
-        if let value = staticString(expression) {
-            return resolveStaticNavigationValue(value, currentCardId: currentCardId)
-        }
-        return nil
-    }
-
-    private func resolveStaticNavigationValue(_ value: String, currentCardId: UUID?) -> UUID? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if let uuid = UUID(uuidString: trimmed),
-           document.cards.contains(where: { $0.id == uuid }) {
-            return uuid
-        }
-        let lower = trimmed.lowercased()
-        switch lower {
-        case "card", "this", "this card", "current card":
-            return currentCardId
-        case "next":
-            if let currentCardId {
-                return CardNavigator.navigate(direction: .next, currentCardId: currentCardId, document: document)
-            }
-            return nil
-        case "previous", "prev", "back":
-            if let currentCardId {
-                return CardNavigator.navigate(direction: .previous, currentCardId: currentCardId, document: document)
-            }
-            return nil
-        case "first":
-            return document.sortedCards.first?.id
-        case "last":
-            return document.sortedCards.last?.id
-        default:
-            if let legacyCardId = legacyCardId(fromNavigationDestination: trimmed),
-               let cardId = resolveLocalLegacyCardId(legacyCardId) {
-                return cardId
-            }
-            if let card = document.cards.first(where: { $0.name.lowercased() == lower }) {
-                return card.id
-            }
-            return nil
-        }
-    }
-
-    private func legacyCardId(fromNavigationDestination destination: String) -> Int? {
-        let lower = destination.lowercased()
-        for prefix in ["card id ", "id "] where lower.hasPrefix(prefix) {
-            let rawId = destination.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
-            return Int(rawId)
-        }
-        return nil
-    }
-
-    private func resolveLocalLegacyCardId(_ legacyCardId: Int) -> UUID? {
-        guard let entry = currentStackLibraryEntry(),
-              let cardReference = entry.cardReferences.first(where: { $0.legacyCardId == legacyCardId }),
-              let cardId = cardReference.hypeCardId,
-              document.cards.contains(where: { $0.id == cardId }) else {
-            return nil
-        }
-        return cardId
-    }
-
-    private func currentStackLibraryEntry() -> HypeStackLibraryEntry? {
-        switch document.stackLibrary.resolution(for: document.stack.name) {
-        case .resolved(let entry):
-            return entry
-        case .ambiguous(_, let candidates):
-            return stackLibraryEntryContainingCurrentDocumentCards(candidates)
-        case .missing:
-            return stackLibraryEntryContainingCurrentDocumentCards(document.stackLibrary.entries)
-        }
-    }
-
-    private func stackLibraryEntryContainingCurrentDocumentCards(_ entries: [HypeStackLibraryEntry]) -> HypeStackLibraryEntry? {
-        let cardIds = Set(document.cards.map(\.id))
-        return entries.first { entry in
-            entry.cardReferences.contains { reference in
-                reference.hypeCardId.map { cardIds.contains($0) } ?? false
-            }
-        }
-    }
-
-    private func objectReferenceIssues(_ ref: ObjectRefExpr, owner: StoredScript, effectiveCardId: UUID?) -> [ScriptSemanticIssue] {
-        guard let name = staticLiteralString(ref.identifier)?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines),
+    private func objectReferenceIssues(_ ref: ObjectRefExpr, owner: StoredScript) -> [ScriptSemanticIssue] {
+        guard let name = staticObjectReferenceName(ref.identifier)?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines),
               !name.isEmpty else { return [] }
         let lowerType = ref.objectType.lowercased()
         let lowerName = name.lowercased()
         switch lowerType {
         case "button", "btn", "field", "fld":
-            guard let cardId = effectiveCardId ?? owner.currentCardId,
+            guard let cardId = owner.currentCardId,
                   let card = document.cards.first(where: { $0.id == cardId }) else { return [] }
             let expectedType: PartType = lowerType == "field" || lowerType == "fld" ? .field : .button
             let found = document.parts.contains { part in
@@ -1760,13 +1209,11 @@ private struct ScriptSemanticValidator {
                 return [issue("object-reference", "`\(ref.objectType) \"\(name)\"` does not resolve on \(owner.ownerPath)'s card/background context.")]
             }
         case "card":
-            if isCurrentCardReference(lowerName) {
-                return []
-            }
+            if Self.currentCardReferenceNames.contains(lowerName) { return [] }
             let found = document.cards.contains { card in
                 card.name.lowercased() == lowerName || String(document.cards.firstIndex(where: { $0.id == card.id }).map { $0 + 1 } ?? -1) == lowerName
-            }
-            if !found && !stackLibraryHasCardReference(named: name) {
+            } || stackLibraryContainsCard(named: name)
+            if !found {
                 return [issue("object-reference", "`card \"\(name)\"` does not resolve in this stack.")]
             }
         case "background", "bg":
@@ -1780,27 +1227,35 @@ private struct ScriptSemanticValidator {
         return []
     }
 
-    private func stackLibraryHasCardReference(named name: String) -> Bool {
+    private func stackLibraryContainsCard(named name: String) -> Bool {
         let key = HypeStackLibrary.lookupKey(name)
         guard !key.isEmpty else { return false }
-        return document.stackLibrary.entries.flatMap(\.cardReferences).contains { reference in
-            HypeStackLibrary.lookupKey(reference.name) == key
-        }
-    }
-
-    private func isCurrentCardReference(_ value: String) -> Bool {
-        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "card", "this", "this card", "current", "current card":
-            return true
-        default:
-            return false
+        return document.stackLibrary.entries.contains { entry in
+            entry.cardReferences.contains { reference in
+                HypeStackLibrary.lookupKey(reference.name) == key
+            }
         }
     }
 
     private func soundIsResolvable(_ name: String) -> Bool {
-        let lower = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let lower = name.lowercased()
         if Self.knownSystemOrHyperCardSounds.contains(lower) { return true }
-        return document.assetRepository.playableAudioAsset(byClassicMediaName: name) != nil
+        if document.assetRepository.asset(byClassicMediaName: name, kind: .audioClip) != nil { return true }
+        if document.assetRepository.asset(byClassicMediaName: name, kind: .videoClip) != nil { return true }
+        return document.assetRepository.assets.contains { asset in
+            asset.kind == .audioClip && asset.name.lowercased() == lower
+        }
+    }
+
+    private func staticSoundName(_ expression: HypeCore.Expression) -> String? {
+        switch expression {
+        case .literal(let value):
+            return value
+        case .variable(let value):
+            return soundIsResolvable(value) || Self.knownSystemOrHyperCardSounds.contains(value.lowercased()) ? value : nil
+        default:
+            return nil
+        }
     }
 
     private func allowedHooks(for ownerType: String) -> Set<String> {
@@ -1831,16 +1286,18 @@ private struct ScriptSemanticValidator {
         }
     }
 
-    private func staticLiteralString(_ expression: HypeCore.Expression) -> String? {
-        if case .literal(let value) = expression {
-            return value
-        }
-        return nil
-    }
-
     private func staticString(_ expression: HypeCore.Expression) -> String? {
         switch expression {
         case .literal(let value), .variable(let value):
+            return value
+        default:
+            return nil
+        }
+    }
+
+    private func staticObjectReferenceName(_ expression: HypeCore.Expression) -> String? {
+        switch expression {
+        case .literal(let value):
             return value
         default:
             return nil
@@ -1878,13 +1335,10 @@ private struct ScriptSemanticValidator {
     private static let fieldHooks: Set<String> = ["mouseup", "mousedown", "mouseenter", "mouseleave", "mousemove", "openfield", "closefield", "returninfield", "enterkey", "tabinfield", "keydown", "keyup", "idle"]
     private static let cardHooks: Set<String> = ["opencard", "closecard", "openbackground", "closebackground", "idle", "keydown", "keyup", "mouseup", "mousedown", "mouseenter", "mouseleave", "mousemove"]
     private static let backgroundHooks: Set<String> = ["openbackground", "closebackground", "opencard", "closecard", "idle", "keydown", "keyup", "mouseup", "mousedown"]
-    private static let stackHooks: Set<String> = [
-        "openstack", "closestack", "opencard", "closecard",
-        "openbackground", "closebackground", "idle", "keydown", "keyup",
-        "mouseup", "mousedown",
-    ]
+    private static let stackHooks: Set<String> = ["openstack", "closestack", "idle", "keydown", "keyup", "mouseup", "mousedown"]
     private static let knownRuntimeHooks = commonHooks
     private static let noneEffectNames: Set<String> = ["none", "plain", "cut"]
+    private static let currentCardReferenceNames: Set<String> = ["this", "this card", "current", "current card"]
     private static let knownBuiltInFunctions: Set<String> = [
         "offset", "random", "abs", "round", "trunc", "min", "max",
         "sin", "cos", "tan", "atan", "sqrt", "exp", "ln", "log2",
@@ -1898,7 +1352,6 @@ private struct ScriptSemanticValidator {
         "foundchunk", "foundfield", "foundline", "foundtext",
         "selectedbutton", "selectedchunk", "selectedfield", "selectedline", "selectedloc", "selectedtext",
         "sound", "musicstate", "musicpatterns", "musicinstruments", "programs", "menus", "destination", "stacks",
-        "id",
         "meshy_parse_webhook",
     ]
     private static let knownSystemOrHyperCardSounds: Set<String> = [
@@ -1949,53 +1402,6 @@ private struct ImportSummary {
 
     private var sourceBytes: Int {
         (try? sourceURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-    }
-
-    private func sanitize(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: "\t", with: " ")
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: " ")
-    }
-}
-
-private struct ProjectImportOutput: Codable {
-    var result: StackImportPackageProjectImportSummary
-}
-
-private struct PackageValidationReport {
-    var path: String
-    var stackName: String
-    var documentVersion: Int
-    var cardCount: Int
-    var backgroundCount: Int
-    var partCount: Int
-    var assetCount: Int
-    var integrityCheck: String
-    var foreignKeyViolationCount: Int
-    var missingAssetReferenceCount: Int
-    var searchEntryCount: Int
-    var isHealthy: Bool
-
-    var tsvHeader: String {
-        "status\tstackName\tdocumentVersion\tcards\tbackgrounds\tparts\tassets\tintegrityCheck\tforeignKeyViolations\tmissingAssetReferences\tsearchEntries\tpath"
-    }
-
-    var tsvLine: String {
-        [
-            isHealthy ? "ok" : "error",
-            sanitize(stackName),
-            "\(documentVersion)",
-            "\(cardCount)",
-            "\(backgroundCount)",
-            "\(partCount)",
-            "\(assetCount)",
-            sanitize(integrityCheck),
-            "\(foreignKeyViolationCount)",
-            "\(missingAssetReferenceCount)",
-            "\(searchEntryCount)",
-            sanitize(path),
-        ].joined(separator: "\t")
     }
 
     private func sanitize(_ value: String) -> String {
