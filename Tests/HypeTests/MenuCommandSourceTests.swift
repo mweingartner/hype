@@ -20,6 +20,49 @@ struct MenuCommandSourceTests {
         #expect(source.contains("Export Runtime Packages…"))
         #expect(source.contains("Test Stack in Simulator…"))
         #expect(source.contains("Show Console"))
+        #expect(source.contains("Script Debugger"))
+    }
+
+    @Test("Script Debugger menu notification is handled by the focused document")
+    func scriptDebuggerMenuNotificationIsObserved() throws {
+        let root = try packageRoot()
+        let sourceURL = root
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("Hype")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("MainContentView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        #expect(source.contains("NotificationCenter.default.publisher(for: .openScriptDebugger)"))
+        #expect(source.contains("openScriptDebuggerWindow(document: $document)"))
+        #expect(source.contains("MenuCommandScoping.shouldHandle"))
+    }
+
+    @Test("Debugger step controls are shared by debugger and script editor")
+    func debuggerStepControlsAreShared() throws {
+        let root = try packageRoot()
+        let viewsURL = root
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("Hype")
+            .appendingPathComponent("Views")
+        let componentSource = try String(
+            contentsOf: viewsURL.appendingPathComponent("ScriptDebuggerStepControls.swift"),
+            encoding: .utf8
+        )
+        let debuggerSource = try String(
+            contentsOf: viewsURL.appendingPathComponent("ScriptDebuggerView.swift"),
+            encoding: .utf8
+        )
+        let editorSource = try String(
+            contentsOf: viewsURL.appendingPathComponent("ScriptEditor.swift"),
+            encoding: .utf8
+        )
+
+        #expect(componentSource.contains("struct ScriptDebuggerStepControls: View"))
+        #expect(componentSource.contains("stepOverPausedExecution()"))
+        #expect(componentSource.contains("stepIntoPausedExecution()"))
+        #expect(debuggerSource.contains("ScriptDebuggerStepControls("))
+        #expect(editorSource.contains("ScriptDebuggerStepControls("))
     }
 
     @Test("Hype augments the system Edit menu with Duplicate on command-D")

@@ -630,6 +630,7 @@ extension Notification.Name {
     static let openThemeDesigner = Notification.Name("hype.openThemeDesigner")
     static let cancelRunningScripts = Notification.Name("hype.cancelRunningScripts")
     static let openScriptDebugger = Notification.Name("hype.openScriptDebugger")
+    static let scriptDebuggerDidPause = Notification.Name("hype.scriptDebuggerDidPause")
 }
 
 // MARK: - AI menu (chat panel + AI-specific actions)

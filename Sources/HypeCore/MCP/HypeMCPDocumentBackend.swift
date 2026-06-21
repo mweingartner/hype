@@ -269,6 +269,86 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
                 deploymentTargets: automationDeploymentTargets(from: arguments)
             )
             return appState()
+        case "hype_list_windows", "hype_focus_window", "hype_wait_for_window":
+            return error("\(name) is available only through the live Hype debug server.")
+        case "hype_list_menu_commands", "hype_trigger_menu_command":
+            return error("\(name) is available only through the live Hype debug server.")
+        case "hype_get_script_debugger_state":
+            return .object([
+                "result": .string("Script debugger state is available through the live Hype debug server."),
+                "isEnabled": .bool(HypeTalkScriptTraceRecorder.shared.snapshot().isEnabled)
+            ])
+        case "hype_set_script_tracing":
+            let enabled = arguments["enabled"]?.boolValue ?? false
+            HypeTalkScriptTraceRecorder.shared.setEnabled(enabled)
+            return .object([
+                "result": .string(enabled ? "Script tracing enabled." : "Script tracing paused."),
+                "isEnabled": .bool(enabled)
+            ])
+        case "hype_clear_script_trace":
+            HypeTalkScriptTraceRecorder.shared.clear()
+            return .object(["result": .string("Script trace cleared.")])
+        case "hype_open_script_trace_source":
+            return error("Opening script trace sources is available only through the live Hype debug server.")
+        case "hype_add_script_breakpoint":
+            let breakpoint = HypeTalkScriptBreakpoint(
+                sourceKind: arguments["source_kind"]?.flattenedString ?? arguments["sourceKind"]?.flattenedString ?? "",
+                objectId: (arguments["object_id"] ?? arguments["objectId"]).flatMap { UUID(uuidString: $0.flattenedString) },
+                handler: arguments["handler"]?.flattenedString.nilIfEmpty,
+                line: arguments["line"]?.intValue
+            )
+            _ = HypeTalkScriptTraceRecorder.shared.addBreakpoint(breakpoint)
+            return .object([
+                "result": .string("Breakpoint added."),
+                "breakpointId": .string(breakpoint.id.uuidString)
+            ])
+        case "hype_remove_script_breakpoint":
+            guard let id = UUID(uuidString: arguments["id"]?.flattenedString ?? "") else {
+                return error("hype_remove_script_breakpoint requires a breakpoint UUID id.")
+            }
+            HypeTalkScriptTraceRecorder.shared.removeBreakpoint(id: id)
+            return .object(["result": .string("Breakpoint removed.")])
+        case "hype_add_script_watchpoint":
+            guard let name = arguments["name"]?.flattenedString.nilIfEmpty else {
+                return error("hype_add_script_watchpoint requires a variable name.")
+            }
+            let watchpoint = HypeTalkScriptWatchpoint(
+                scope: arguments["scope"]?.flattenedString.nilIfEmpty ?? "auto",
+                name: name
+            )
+            _ = HypeTalkScriptTraceRecorder.shared.addWatchpoint(watchpoint)
+            return .object([
+                "result": .string("Watchpoint added."),
+                "watchpointId": .string(watchpoint.id.uuidString)
+            ])
+        case "hype_remove_script_watchpoint":
+            guard let id = UUID(uuidString: arguments["id"]?.flattenedString ?? "") else {
+                return error("hype_remove_script_watchpoint requires a watchpoint UUID id.")
+            }
+            HypeTalkScriptTraceRecorder.shared.removeWatchpoint(id: id)
+            return .object(["result": .string("Watchpoint removed.")])
+        case "hype_resume_script_execution":
+            let resumed = HypeTalkScriptTraceRecorder.shared.resumePausedExecution()
+            return .object([
+                "result": .string(resumed ? "Script execution resumed." : "No halted script execution."),
+                "resumed": .bool(resumed)
+            ])
+        case "hype_step_into_script_execution":
+            let resumed = HypeTalkScriptTraceRecorder.shared.stepIntoPausedExecution()
+            return .object([
+                "result": .string(resumed ? "Script execution stepped into." : "No halted script execution."),
+                "resumed": .bool(resumed)
+            ])
+        case "hype_step_over_script_execution":
+            let resumed = HypeTalkScriptTraceRecorder.shared.stepOverPausedExecution()
+            return .object([
+                "result": .string(resumed ? "Script execution stepped over." : "No halted script execution."),
+                "resumed": .bool(resumed)
+            ])
+        case "hype_wait_for_debugger_pause", "hype_step_script_execution_and_wait":
+            return error("\(name) is available only through the live Hype debug server.")
+        case "hype_get_script_editor_state", "hype_toggle_script_editor_breakpoint":
+            return error("\(name) is available only through the live Hype debug server.")
         default:
             return error("Unknown MCP control tool \(name)")
         }
@@ -761,6 +841,30 @@ private extension HypeMCPJSONValue {
             return value
         case .string(let text):
             return Double(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        default:
+            return nil
+        }
+    }
+
+    var intValue: Int? {
+        doubleValue.map(Int.init)
+    }
+
+    var boolValue: Bool? {
+        switch self {
+        case .bool(let value):
+            return value
+        case .number(let value):
+            return value != 0
+        case .string(let text):
+            switch text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "true", "yes", "1", "enabled", "on":
+                return true
+            case "false", "no", "0", "disabled", "off":
+                return false
+            default:
+                return nil
+            }
         default:
             return nil
         }

@@ -2022,6 +2022,15 @@ the same zero-inset `AIChatInputView` as the main AI panel: it starts as a
 single line, expands to show the full composed prompt, collapses after Submit,
 and uses Up/Down arrow recall against the document-scoped prompt history.
 
+`ScriptDebuggerView.swift` is a session debugger over the shared
+`HypeTalkScriptTraceRecorder`: it records handler-level execution traces,
+runtime budget/profiling counters, breakpoint/watchpoint hits, and handler
+variable frames split into locals, globals, `it`, and `the result`. Matching
+breakpoints halt at handler entry after parameters and implicit event locals
+are bound; the debugger or debug/MCP bridge can inspect that paused frame and
+resume the same dispatch. These debugger controls are process/session state
+only and are not persisted into `.hype` documents.
+
 A `MessageBoxView` REPL (Sources/Hype/Views/MessageBoxView.swift) lets the
 user evaluate HypeTalk expressions interactively against the live runtime
 document — not a stale snapshot — so `await`, runtime object properties, and
