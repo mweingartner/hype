@@ -301,6 +301,24 @@ fi
       </dict>
     </dict>
   </array>
+  <!--
+    Names the classic HyperCard stack UTI for import panels and system metadata.
+    Extensionless classic stacks are still accepted by the app importer through
+    its explicit .data fallback and stack-format validation path.
+  -->
+  <key>UTImportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.data</string>
+      </array>
+      <key>UTTypeDescription</key>
+      <string>HyperCard Stack</string>
+      <key>UTTypeIdentifier</key>
+      <string>com.apple.hypercard.stack</string>
+    </dict>
+  </array>
 </dict>
 </plist>
 PLIST
