@@ -2657,6 +2657,7 @@ public struct Parser: Sendable {
             return .startAnimation(expr)
         }
         _ = match(.using)
+        _ = match(.stack)
         let expr = try parseExpression()
         skipNewlines()
         return .startUsing(expr)
@@ -2692,6 +2693,7 @@ public struct Parser: Sendable {
             return .stopAnimation(expr)
         }
         _ = match(.using)
+        _ = match(.stack)
         let expr = try parseExpression()
         skipNewlines()
         return .stopUsing(expr)

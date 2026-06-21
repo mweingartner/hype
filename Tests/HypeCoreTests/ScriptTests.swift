@@ -1287,6 +1287,28 @@ struct InterpreterTests {
         #expect(result.modifiedDocument?.stackLibrary.usedStackAliases == ["ALL Res"])
     }
 
+    @Test func startUsingStackKeywordUsesQuotedStackName() {
+        var doc = HypeDocument.newDocument()
+        doc.stackLibrary = HypeStackLibrary(entries: [
+            HypeStackLibraryEntry(
+                stackName: "MYres1",
+                aliases: ["MYres1", "MYres1.xstk"],
+                source: .importedStackPackage,
+                packagePath: "exports/stacks/MYres1.xstk"
+            )
+        ])
+
+        let result = executeScript("""
+        on test
+          start using stack "MYres1"
+        end test
+        """, document: doc)
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "MYres1")
+        #expect(result.modifiedDocument?.stackLibrary.usedStackAliases == ["MYres1"])
+    }
+
     @Test func stopUsingStackUpdatesImportedStackLibrary() {
         var doc = HypeDocument.newDocument()
         doc.stackLibrary = HypeStackLibrary(
@@ -1309,6 +1331,31 @@ struct InterpreterTests {
 
         #expect(result.status == .completed)
         #expect(result.returnValue == "ALL Res")
+        #expect(result.modifiedDocument?.stackLibrary.usedStackAliases.isEmpty == true)
+    }
+
+    @Test func stopUsingStackKeywordUsesQuotedStackName() {
+        var doc = HypeDocument.newDocument()
+        doc.stackLibrary = HypeStackLibrary(
+            entries: [
+                HypeStackLibraryEntry(
+                    stackName: "MYres1",
+                    aliases: ["MYres1", "MYres1.xstk"],
+                    source: .importedStackPackage,
+                    packagePath: "exports/stacks/MYres1.xstk"
+                )
+            ],
+            usedStackAliases: ["MYres1"]
+        )
+
+        let result = executeScript("""
+        on test
+          stop using stack "MYres1"
+        end test
+        """, document: doc)
+
+        #expect(result.status == .completed)
+        #expect(result.returnValue == "MYres1")
         #expect(result.modifiedDocument?.stackLibrary.usedStackAliases.isEmpty == true)
     }
 
